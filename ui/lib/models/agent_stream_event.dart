@@ -3,6 +3,7 @@ import 'package:ui/features/home/pages/chat/chat_page_models.dart';
 enum AgentStreamEventKind {
   thinkingStarted('thinking_started'),
   thinkingSnapshot('thinking_snapshot'),
+  retrying('retrying'),
   textSnapshot('text_snapshot'),
   toolStarted('tool_started'),
   toolProgress('tool_progress'),
@@ -32,6 +33,7 @@ enum AgentStreamPhase {
   thinking,
   tool,
   output,
+  retrying,
   completed,
   error,
   clarify,
@@ -57,7 +59,16 @@ class AgentStreamEvent {
     this.hasUserVisibleOutput = false,
     this.latestPromptTokens,
     this.promptTokenThreshold,
+    this.turnUsage,
     this.errorMessage = '',
+    this.willRetry = false,
+    this.retryable = false,
+    this.continueable = false,
+    this.continueResumeMode = '',
+    this.retryCount = 0,
+    this.maxRetries = 0,
+    this.retryDelayMs = 0,
+    this.retryReason = '',
     this.question = '',
     this.missingFields = const <String>[],
     this.missingPermissions = const <String>[],
@@ -82,7 +93,16 @@ class AgentStreamEvent {
   final bool hasUserVisibleOutput;
   final int? latestPromptTokens;
   final int? promptTokenThreshold;
+  final Map<String, dynamic>? turnUsage;
   final String errorMessage;
+  final bool willRetry;
+  final bool retryable;
+  final bool continueable;
+  final String continueResumeMode;
+  final int retryCount;
+  final int maxRetries;
+  final int retryDelayMs;
+  final String retryReason;
   final String question;
   final List<String> missingFields;
   final List<String> missingPermissions;
@@ -127,8 +147,7 @@ class AgentStreamEvent {
       roundIndex: _asInt(raw['roundIndex']) ?? 0,
       isFinal: raw['isFinal'] == true,
       text: (raw['text'] ?? raw['message'] ?? '').toString(),
-      thinking:
-          (raw['thinking'] ?? raw['reasoning_content'] ?? '').toString(),
+      thinking: (raw['thinking'] ?? raw['reasoning_content'] ?? '').toString(),
       stage: _asInt(raw['stage']) ?? 1,
       prefillTokensPerSecond: _asDouble(raw['prefillTokensPerSecond']),
       decodeTokensPerSecond: _asDouble(raw['decodeTokensPerSecond']),
@@ -137,7 +156,19 @@ class AgentStreamEvent {
       hasUserVisibleOutput: raw['hasUserVisibleOutput'] == true,
       latestPromptTokens: _asInt(raw['latestPromptTokens']),
       promptTokenThreshold: _asInt(raw['promptTokenThreshold']),
+      turnUsage: raw['turnUsage'] is Map
+          ? Map<String, dynamic>.from(raw['turnUsage'] as Map)
+          : null,
       errorMessage: (raw['error'] ?? '').toString(),
+      willRetry: raw['willRetry'] == true,
+      retryable: raw['retryable'] == true,
+      continueable: raw['continueable'] == true,
+      continueResumeMode: (raw['continueResumeMode'] ?? raw['resumeMode'] ?? '')
+          .toString(),
+      retryCount: _asInt(raw['retryCount']) ?? 0,
+      maxRetries: _asInt(raw['maxRetries']) ?? 0,
+      retryDelayMs: _asInt(raw['retryDelayMs']) ?? 0,
+      retryReason: (raw['retryReason'] ?? '').toString(),
       question: (raw['question'] ?? '').toString(),
       missingFields:
           (raw['missingFields'] as List<dynamic>?)

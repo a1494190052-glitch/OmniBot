@@ -9,8 +9,10 @@ Your On-Device AI Assistant
 </h3>
 
 <div align="center">
-  <img alt="GitHub Repo stars" src="https://img.shields.io/github/stars/omnimind-ai/OpenOmniBot">
-  <a href="https://github.com/omnimind-ai/OpenOmniBot/releases/latest"><img alt="GitHub Release" src="https://img.shields.io/github/v/release/omnimind-ai/OpenOmniBot"></a>
+  <img alt="GitHub Repo stars" src="https://badgen.net/github/stars/omnimind-ai/OpenOmniBot">
+  <a href="https://github.com/omnimind-ai/OpenOmniBot/releases/latest"><img alt="GitHub Release" src="https://badgen.net/github/release/omnimind-ai/OpenOmniBot/stable"></a>
+  <br>
+  <a href="https://trendshift.io/repositories/26966" target="_blank"><img src="https://trendshift.io/api/badge/repositories/26966" alt="omnimind-ai%2FOpenOmniBot | Trendshift" style="width: 250px; height: 55px;" width="250" height="55"/></a>
   <br>
   <a href="https://omnimind.com.cn"><img src="https://img.shields.io/badge/About_us-万象智维-purple.svg?color=%234b0c77" alt="OmniMind"></a>
   <a href="https://linux.do"><img src="https://img.shields.io/badge/Linux_Do-Community-yellow.svg?color=%23ac3712" alt="Linux Do Community"></a>
@@ -48,12 +50,9 @@ OpenOmniBot is an on-device AI agent built with native Android Kotlin and Flutte
 - **Productivity tools**: Read and write files, browse the workspace, use the browser, and access the terminal.
 
 <p align="center">
-  <img src="docs/tutorial/example.png" alt="Example" width="360" />
+  <img src="docs/tutorial/example.png" alt="Example" />
 </p>
 
-<p align="center">
-  <img src="docs/tutorial/ui.png" alt="ui" width="360" />
-</p>
 
 <details>
 <summary id="quick-start"><strong>Quick Start</strong></summary>
@@ -130,6 +129,16 @@ Scheduled tasks can execute work such as VLM tasks and subagent flows. Alarms ar
 <p align="center">
   <img src="docs/tutorial/workspace.jpg" alt="Workspace" width="260" />
 </p>
+
+### Remote Codex bridge
+
+To use Codex mode with Codex running on a PC or Mac, start `codex-bridge` on the computer where the Codex CLI is installed and logged in:
+
+```bash
+npx @thuocean/codex-bridge
+```
+
+Choose the LAN address and token mode in the terminal setup UI, then scan the printed QR code from OpenOmniBot's Codex settings. For advanced options and troubleshooting, see the [codex-bridge README](tools/codex-bridge/README.md).
 
 </details>
 

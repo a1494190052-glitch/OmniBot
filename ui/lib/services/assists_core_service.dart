@@ -5,6 +5,7 @@ import 'package:ui/desktop/channel_bridge/bridge_method_channel.dart';
 import 'package:ui/models/agent_stream_event.dart';
 import 'package:ui/services/agent_schedule_bridge_service.dart';
 import 'package:ui/services/app_state_service.dart';
+import 'package:ui/services/codex_tool_call_parser.dart';
 
 // 卡片推送
 typedef CardPushCallback<T> = void Function(Map<String, dynamic> cardData);
@@ -14,7 +15,10 @@ typedef TaskFinishCallback = void Function();
 typedef ChatTaskMessageCallBack =
     void Function(String taskID, String content, String? type);
 //消息回执结束
-typedef ChatTaskMessageEndCallBack = void Function(String taskID);
+typedef ChatTaskMessageEndCallBack = void Function(
+  String taskID, {
+  Map<String, dynamic>? turnUsage,
+});
 //VLM任务结束
 typedef VLMTaskFinishEndCallBack = void Function(String? taskId);
 //普通任务结束
@@ -98,6 +102,7 @@ class AgentToolEventData {
   final String displayName;
   final String toolTitle;
   final String toolType;
+  final String uiStyle;
   final String? serverName;
   final String status;
   final String argsJson;
@@ -109,6 +114,7 @@ class AgentToolEventData {
   final String terminalOutputDelta;
   final String? terminalSessionId;
   final String terminalStreamState;
+  final Map<String, dynamic> raw;
   final String? workspaceId;
   final String? interruptedBy;
   final String? interruptionReason;
@@ -125,6 +131,7 @@ class AgentToolEventData {
     required this.displayName,
     this.toolTitle = '',
     required this.toolType,
+    this.uiStyle = '',
     this.serverName,
     this.status = '',
     this.argsJson = '',
@@ -136,6 +143,7 @@ class AgentToolEventData {
     this.terminalOutputDelta = '',
     this.terminalSessionId,
     this.terminalStreamState = '',
+    this.raw = const <String, dynamic>{},
     this.workspaceId,
     this.interruptedBy,
     this.interruptionReason,
@@ -147,25 +155,56 @@ class AgentToolEventData {
   });
 
   factory AgentToolEventData.fromMap(Map<dynamic, dynamic>? map) {
-    final raw = map ?? const {};
+    final raw = Map<String, dynamic>.from(
+      (map ?? const <dynamic, dynamic>{}).map(
+        (key, value) => MapEntry(key.toString(), value),
+      ),
+    );
+    final itemType = _asNonEmptyString(raw['type']);
+    final normalized = normalizeCodexToolCall(
+      raw,
+      itemType: itemType,
+      fallbackToolType: _asNonEmptyString(raw['toolType']) ?? 'builtin',
+      fallbackTitle:
+          _asNonEmptyString(raw['toolTitle']) ??
+          _asNonEmptyString(raw['displayName']),
+      fallbackStatus: _asNonEmptyString(raw['status']) ?? '',
+    );
+    final explicitStatus = codexToolStatusIsExplicit(raw);
+    final isCodexTool = itemType != null && isCodexToolItemType(itemType);
     return AgentToolEventData(
       taskId: (raw['taskId'] ?? '').toString(),
       cardId: (raw['cardId'] ?? '').toString(),
-      toolName: (raw['toolName'] ?? '').toString(),
-      displayName: (raw['displayName'] ?? raw['toolName'] ?? '').toString(),
-      toolTitle: (raw['toolTitle'] ?? '').toString(),
-      toolType: (raw['toolType'] ?? 'builtin').toString(),
-      serverName: raw['serverName']?.toString(),
-      status: (raw['status'] ?? '').toString(),
-      argsJson: (raw['argsJson'] ?? raw['args'] ?? '').toString(),
-      progress: (raw['progress'] ?? '').toString(),
-      summary: (raw['summary'] ?? '').toString(),
-      resultPreviewJson: (raw['resultPreviewJson'] ?? '').toString(),
-      rawResultJson: (raw['rawResultJson'] ?? '').toString(),
-      terminalOutput: (raw['terminalOutput'] ?? '').toString(),
+      toolName: _asNonEmptyString(raw['toolName']) ?? normalized.toolName,
+      displayName:
+          _asNonEmptyString(raw['displayName']) ??
+          _asNonEmptyString(raw['toolName']) ??
+          normalized.displayName,
+      toolTitle: _asNonEmptyString(raw['toolTitle']) ?? normalized.toolTitle,
+      toolType: _asNonEmptyString(raw['toolType']) ?? normalized.toolType,
+      uiStyle:
+          _asNonEmptyString(raw['uiStyle']) ??
+          _asNonEmptyString(raw['ui_style']) ??
+          (isCodexTool ? 'codex_tool' : ''),
+      serverName: _asNonEmptyString(raw['serverName']) ?? normalized.serverName,
+      status: explicitStatus ? normalized.status : '',
+      argsJson:
+          _asNonEmptyString(raw['argsJson']) ??
+          (raw['args'] is String ? _asNonEmptyString(raw['args']) : null) ??
+          normalized.argsJson,
+      progress: _asNonEmptyString(raw['progress']) ?? normalized.progress,
+      summary: _asNonEmptyString(raw['summary']) ?? normalized.summary,
+      resultPreviewJson:
+          _asNonEmptyString(raw['resultPreviewJson']) ??
+          normalized.resultPreviewJson,
+      rawResultJson:
+          _asNonEmptyString(raw['rawResultJson']) ?? normalized.rawResultJson,
+      terminalOutput:
+          _asNonEmptyString(raw['terminalOutput']) ?? normalized.terminalOutput,
       terminalOutputDelta: (raw['terminalOutputDelta'] ?? '').toString(),
       terminalSessionId: raw['terminalSessionId']?.toString(),
       terminalStreamState: (raw['terminalStreamState'] ?? '').toString(),
+      raw: raw,
       workspaceId: raw['workspaceId']?.toString(),
       interruptedBy: raw['interruptedBy']?.toString(),
       interruptionReason: raw['interruptionReason']?.toString(),
@@ -183,6 +222,11 @@ class AgentToolEventData {
       ),
       success: raw['success'] != false,
     );
+  }
+
+  static String? _asNonEmptyString(dynamic value) {
+    final text = value?.toString().trim() ?? '';
+    return text.isEmpty ? null : text;
   }
 
   static List<Map<String, dynamic>> _readSubagentEvents(dynamic value) {
@@ -250,6 +294,11 @@ class AssistsMessageService {
   static final StreamController<Map<String, dynamic>>
   _browserSessionSnapshotChangedController =
       StreamController<Map<String, dynamic>>.broadcast();
+  // IM/WeChat/Telegram 等外部入口直推的用户消息：
+  // 原生侧在写库后立刻 invokeMethod 发过来，runtime 直接插入气泡，
+  // 不依赖 messagesChanged + DB reload 的事件链。
+  static final List<void Function(Map<String, dynamic>)>
+  _onExternalUserMessageAppendedCallbacks = [];
 
   // 改为回调列表，支持多个监听器
   static final List<ChatTaskMessageCallBack> _onChatTaskMessageCallBacks = [];
@@ -319,6 +368,19 @@ class AssistsMessageService {
             ),
           );
           break;
+        case 'onExternalUserMessageAppended':
+          final data = Map<String, dynamic>.from(
+            (call.arguments as Map?) ?? const <String, dynamic>{},
+          );
+          for (final callback
+              in List<void Function(Map<String, dynamic>)>.from(
+                _onExternalUserMessageAppendedCallbacks,
+              )) {
+            try {
+              callback(data);
+            } catch (_) {}
+          }
+          break;
         case 'onBrowserSessionSnapshotUpdated':
           _browserSessionSnapshotChangedController.add(
             Map<String, dynamic>.from(
@@ -346,9 +408,15 @@ class AssistsMessageService {
           final Map<String, dynamic> data = Map<String, dynamic>.from(
             call.arguments,
           );
-          _onChatTaskMessageEndCallBack?.call(data['taskID']);
+          final endTurnUsage = data['turnUsage'] != null
+              ? Map<String, dynamic>.from(data['turnUsage'] as Map)
+              : null;
+          _onChatTaskMessageEndCallBack?.call(
+            data['taskID'],
+            turnUsage: endTurnUsage,
+          );
           for (final callback in _onChatTaskMessageEndCallBacks) {
-            callback(data['taskID']);
+            callback(data['taskID'], turnUsage: endTurnUsage);
           }
           break;
         case 'onVLMRequestUserInput':
@@ -613,6 +681,20 @@ class AssistsMessageService {
     _onAgentStreamEventCallbacks.remove(callback);
   }
 
+  static void addOnExternalUserMessageAppendedCallback(
+    void Function(Map<String, dynamic>) callback,
+  ) {
+    if (!_onExternalUserMessageAppendedCallbacks.contains(callback)) {
+      _onExternalUserMessageAppendedCallbacks.add(callback);
+    }
+  }
+
+  static void removeOnExternalUserMessageAppendedCallback(
+    void Function(Map<String, dynamic>) callback,
+  ) {
+    _onExternalUserMessageAppendedCallbacks.remove(callback);
+  }
+
   // 发送按钮点击事件到Android端
   static Future<bool> clickButton(
     String taskID,
@@ -673,6 +755,32 @@ class AssistsMessageService {
       return result == "SUCCESS";
     } on PlatformException catch (e) {
       print('停止工具调用失败: ${e.message}');
+      return false;
+    }
+  }
+
+  static Future<bool> retryAgentTask({required String taskId}) async {
+    try {
+      final result = await assistCore.invokeMethod(
+        'retryAgentTask',
+        <String, String>{'taskId': taskId},
+      );
+      return result == "SUCCESS";
+    } on PlatformException catch (e) {
+      print('retryAgentTask failed: ${e.message}');
+      return false;
+    }
+  }
+
+  static Future<bool> continueAgentTask({required String taskId}) async {
+    try {
+      final result = await assistCore.invokeMethod(
+        'continueAgentTask',
+        <String, String>{'taskId': taskId},
+      );
+      return result == "SUCCESS";
+    } on PlatformException catch (e) {
+      print('continueAgentTask failed: ${e.message}');
       return false;
     }
   }

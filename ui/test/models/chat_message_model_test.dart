@@ -119,4 +119,31 @@ void main() {
       expect(message.text, 'Hello, world!');
     },
   );
+
+  test('ChatMessageModel preserves turn usage payload', () {
+    final message = ChatMessageModel.fromJson({
+      'id': 'assistant-turn-usage',
+      'type': 1,
+      'user': 2,
+      'content': {'text': 'done'},
+      'turnUsage': {
+        'ctx': 20000.0,
+        'in': 10000.0,
+        'out': 87.0,
+        'cache': 10000.0,
+      },
+      'createAt': '1774600557281',
+    });
+
+    expect(message.turnUsage?['ctx'], 20000);
+    expect(message.turnUsage?['in'], 10000);
+    expect(message.turnUsage?['out'], 87);
+    expect(message.turnUsage?['cache'], 10000);
+    expect(message.toJson()['turnUsage'], <String, dynamic>{
+      'ctx': 20000,
+      'in': 10000,
+      'out': 87,
+      'cache': 10000,
+    });
+  });
 }

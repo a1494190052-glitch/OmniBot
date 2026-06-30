@@ -113,7 +113,9 @@
             android:label="@string/omni_app_name"
             android:launchMode="singleTask"
             android:screenOrientation="portrait"
-            android:theme="@style/Theme.OmnibotApp.Splash" />
+            android:configChanges="uiMode|orientation|keyboardHidden|keyboard|screenSize|smallestScreenSize|screenLayout|locale|layoutDirection|fontScale|density"
+            android:theme="@style/Theme.OmnibotApp.Splash"
+            android:windowSoftInputMode="adjustResize" />
 
         <activity
             android:name=".activity.QuickLogEntryActivity"
@@ -182,6 +184,15 @@
             android:enabled="true"
             android:exported="false" />
         <receiver
+            android:name=".im.ImChannelBootReceiver"
+            android:enabled="true"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+            </intent-filter>
+        </receiver>
+        <receiver
             android:name="cn.com.omnimind.bot.agent.WorkspaceScheduleBootReceiver"
             android:enabled="true"
             android:exported="true">
@@ -222,6 +233,11 @@
             android:enabled="true"
             android:exported="false"
             android:foregroundServiceType="mediaPlayback" />
+        <service
+            android:name=".im.ImChannelForegroundService"
+            android:enabled="true"
+            android:exported="false"
+            android:foregroundServiceType="dataSync" />
 
         <!-- 透明剪贴板辅助Activity，用于在前台获取焦点访问剪贴板 -->
         <activity

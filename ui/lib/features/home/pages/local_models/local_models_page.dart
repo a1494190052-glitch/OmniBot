@@ -958,7 +958,7 @@ class _LocalModelsPageState extends State<LocalModelsPage>
       ),
       disabledForegroundColor: _tertiaryTextColor,
       elevation: 0,
-      textStyle: const TextStyle(
+      textStyle: TextStyle(
         fontSize: 14,
         fontWeight: FontWeight.w600,
         fontFamily: AppTextStyles.fontFamily,
@@ -978,7 +978,7 @@ class _LocalModelsPageState extends State<LocalModelsPage>
       ),
       disabledForegroundColor: _tertiaryTextColor,
       elevation: 0,
-      textStyle: const TextStyle(
+      textStyle: TextStyle(
         fontSize: 14,
         fontWeight: FontWeight.w600,
         fontFamily: AppTextStyles.fontFamily,
@@ -993,7 +993,7 @@ class _LocalModelsPageState extends State<LocalModelsPage>
       foregroundColor: _toneTextColor(tone),
       disabledForegroundColor: _tertiaryTextColor,
       side: BorderSide(color: _toneBorderColor(tone)),
-      textStyle: const TextStyle(
+      textStyle: TextStyle(
         fontSize: 14,
         fontWeight: FontWeight.w600,
         fontFamily: AppTextStyles.fontFamily,

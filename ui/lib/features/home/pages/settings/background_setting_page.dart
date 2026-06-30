@@ -14,6 +14,7 @@ import 'package:ui/l10n/l10n.dart';
 import 'package:ui/services/app_background_service.dart';
 import 'package:ui/services/overlay_service.dart';
 import 'package:ui/services/storage_service.dart';
+import 'package:ui/theme/app_font_effect_controller.dart';
 import 'package:ui/theme/app_colors.dart';
 import 'package:ui/theme/theme_context.dart';
 import 'package:ui/utils/ui.dart';
@@ -514,6 +515,8 @@ class _BackgroundSettingPageState extends State<BackgroundSettingPage> {
               const SizedBox(height: 18),
               _buildLanguageSettingCard(),
               const SizedBox(height: 18),
+              _buildFontEffectSettingCard(),
+              const SizedBox(height: 18),
               SettingsSectionTitle(
                 label: context.l10n.appearanceBackgroundSource,
               ),
@@ -627,6 +630,74 @@ class _BackgroundSettingPageState extends State<BackgroundSettingPage> {
     );
   }
 
+  Widget _buildFontEffectSettingCard() {
+    final palette = context.omniPalette;
+    return Consumer(
+      builder: (context, ref, child) {
+        final state = ref.watch(appFontEffectProvider);
+        final subtitle = state.loading
+            ? context.l10n.appearanceEnhanceFontEffectsLoading
+            : context.l10n.appearanceEnhanceFontEffectsSubtitle;
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            SettingsSectionTitle(
+              label: context.l10n.appearanceFontEffectsTitle,
+              subtitle: context.l10n.appearanceFontEffectsSubtitle,
+              bottomPadding: 10,
+            ),
+            _buildCard(
+              child: SwitchListTile.adaptive(
+                key: const ValueKey('appearance-font-effects-switch'),
+                contentPadding: EdgeInsets.zero,
+                secondary: state.loading
+                    ? _buildGlobalSettingLeadingIcon(
+                        child: SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: palette.textPrimary,
+                          ),
+                        ),
+                      )
+                    : _buildGlobalSettingLeadingIcon(
+                        icon: Icons.text_fields_rounded,
+                      ),
+                title: Text(
+                  context.l10n.appearanceEnhanceFontEffects,
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w600,
+                    color: palette.textPrimary,
+                  ),
+                ),
+                subtitle: Text(
+                  subtitle,
+                  style: TextStyle(fontSize: 12, color: palette.textSecondary),
+                ),
+                value: state.enabled,
+                onChanged: state.loading
+                    ? null
+                    : (value) async {
+                        final success = await ref
+                            .read(appFontEffectProvider.notifier)
+                            .setEnabled(value);
+                        if (!success && context.mounted) {
+                          showToast(
+                            context.l10n.appearanceEnhanceFontEffectsFailed,
+                            type: ToastType.error,
+                          );
+                        }
+                      },
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
   Widget _buildSourceCard() {
     final palette = context.omniPalette;
     final localPath = _draftConfig.localImagePath.trim();
@@ -636,7 +707,11 @@ class _BackgroundSettingPageState extends State<BackgroundSettingPage> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           SwitchListTile.adaptive(
+            key: const ValueKey('appearance-background-enable-switch'),
             contentPadding: EdgeInsets.zero,
+            secondary: _buildGlobalSettingLeadingIcon(
+              icon: Icons.wallpaper_outlined,
+            ),
             title: Text(
               context.l10n.appearanceEnableBackground,
               style: TextStyle(
@@ -771,6 +846,19 @@ class _BackgroundSettingPageState extends State<BackgroundSettingPage> {
           ),
         ],
       ),
+    );
+  }
+
+  Widget _buildGlobalSettingLeadingIcon({IconData? icon, Widget? child}) {
+    final palette = context.omniPalette;
+    return SizedBox(
+      width: 18,
+      height: 18,
+      child:
+          child ??
+          (icon != null
+              ? Icon(icon, size: 18, color: palette.textPrimary)
+              : const SizedBox.shrink()),
     );
   }
 
@@ -1942,17 +2030,6 @@ class _BackgroundSettingPageState extends State<BackgroundSettingPage> {
     return null;
   }
 
-  String _shellPathForFile(String path, String workspaceRoot) {
-    final normalized = _normalizePath(path);
-    final normalizedRoot = _normalizePath(workspaceRoot);
-    if (normalizedRoot.isEmpty) return path;
-    if (normalized == normalizedRoot) return '/workspace';
-    if (normalized.startsWith('$normalizedRoot/')) {
-      return '/workspace/${normalized.substring(normalizedRoot.length + 1)}';
-    }
-    return path;
-  }
-
   String _resolveWorkspaceDisplayPath(String path, String workspaceRoot) {
     final trimmed = path.trim();
     if (trimmed == '/workspace') return workspaceRoot;
@@ -1984,7 +2061,9 @@ class _BackgroundSettingPageState extends State<BackgroundSettingPage> {
   Future<void> _selectPet(_OverlayPetOption option) async {
     setState(() => _petBusy = true);
     try {
-      final imagePath = option.isBuiltin ? '' : _playbackPathForPetOption(option);
+      final imagePath = option.isBuiltin
+          ? ''
+          : _playbackPathForPetOption(option);
       await StorageService.setPetOverlaySelectedId(option.id);
       await StorageService.setPetOverlayImagePath(imagePath);
       final synced = await OverlayService.setPetOverlayImagePath(

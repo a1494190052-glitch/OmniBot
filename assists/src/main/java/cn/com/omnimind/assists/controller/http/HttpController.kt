@@ -19,8 +19,12 @@ import cn.com.omnimind.baselib.llm.ModelProviderConfig
 import cn.com.omnimind.baselib.llm.ModelProviderConfigStore
 import cn.com.omnimind.baselib.util.OmniLog
 import cn.com.omnimind.baselib.llm.ModelSceneRegistry
+import cn.com.omnimind.baselib.llm.OpenAiWireApi
+import cn.com.omnimind.baselib.llm.OpenAIResponsesRequest
 import cn.com.omnimind.baselib.llm.ProviderModelOption
+import cn.com.omnimind.baselib.llm.ProviderCustomHeaderUtils
 import cn.com.omnimind.baselib.llm.SceneModelBindingStore
+import cn.com.omnimind.baselib.llm.contentText
 import cn.com.omnimind.omniintelligence.models.AgentRequest.Payload
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
@@ -71,7 +75,9 @@ object HttpController {
         val bindingProfileMissing: Boolean,
         val overrideApplied: Boolean,
         val protocolType: String = "openai_compatible",
-        val requiresReasoningEcho: Boolean = false
+        val wireApi: String = OpenAiWireApi.CHAT_COMPLETIONS,
+        val requiresReasoningEcho: Boolean = false,
+        val requiresAnthropicThinkingReplay: Boolean = false
     )
 
     private data class ResolvedSceneRequest(
@@ -82,6 +88,7 @@ object HttpController {
         val responseParser: ModelSceneRegistry.ResponseParser,
         val apiBase: String?,
         val apiKey: String?,
+        val customHeaders: Map<String, String>,
         val providerProfileId: String?,
         val providerProfileName: String?,
         val routeTag: String?,
@@ -90,7 +97,8 @@ object HttpController {
         val bindingProfileMissing: Boolean,
         val overrideApplied: Boolean,
         val overrideModel: String?,
-        val protocolType: String = "openai_compatible"
+        val protocolType: String = "openai_compatible",
+        val wireApi: String = OpenAiWireApi.CHAT_COMPLETIONS
     )
 
     private data class AiRequestLogSeed(
@@ -103,6 +111,13 @@ object HttpController {
         val requestJson: String
     )
 
+            private data class ResponseToolCallState(
+                var index: Int = -1,
+                var id: String = "",
+                var name: String = "",
+                val arguments: StringBuilder = StringBuilder()
+            )
+
     data class ModelAvailabilityCheckResult(
         val available: Boolean,
         val code: Int? = null,
@@ -113,15 +128,19 @@ object HttpController {
         modelOrScene: String,
         explicitApiBase: String? = null,
         explicitApiKey: String? = null,
+        explicitCustomHeaders: Map<String, String>? = null,
         explicitModel: String? = null,
-        explicitProtocolType: String? = null
+        explicitProtocolType: String? = null,
+        explicitWireApi: String? = null
     ): ChatCompletionRouteInfo {
         return resolveSceneRequest(
             modelOrScene = modelOrScene,
             explicitApiBase = explicitApiBase,
             explicitApiKey = explicitApiKey,
+            explicitCustomHeaders = explicitCustomHeaders,
             explicitModel = explicitModel,
-            explicitProtocolType = explicitProtocolType
+            explicitProtocolType = explicitProtocolType,
+            explicitWireApi = explicitWireApi
         ).toRouteInfo()
     }
 
@@ -244,6 +263,13 @@ object HttpController {
         return runCatching {
             val json = JSONObject(trimmed)
             when {
+                json.optString("type") == "response.output_text.delta" -> json.optString("delta")
+                json.optString("type") == "response.reasoning_summary_text.delta" -> json.optString("delta")
+                json.optString("type") == "response.reasoning.delta" -> json.optString("delta")
+                json.has("output_text") -> json.optString("output_text")
+                json.has("output") -> extractResponsesOutputText(json).ifBlank {
+                    extractResponsesReasoningText(json)
+                }
                 json.has("text") -> json.optString("text")
                 json.has("message") && json.opt("message") is String -> json.optString("message")
                 json.has("choices") -> {
@@ -440,19 +466,212 @@ object HttpController {
             bindingProfileMissing = bindingProfileMissing,
             overrideApplied = overrideApplied,
             protocolType = protocolType,
+            wireApi = wireApi,
             requiresReasoningEcho = DeepSeekProvider.shouldUseOfficialAdapter(
                 protocolType = protocolType,
                 apiBase = apiBase
-            )
+            ),
+            requiresAnthropicThinkingReplay = DeepSeekProvider.normalizeProtocolType(protocolType) == "anthropic"
         )
+    }
+
+    private fun KxJsonObject.findProviderModelValue(vararg keys: String): JsonElement? {
+        for (key in keys) {
+            this[key]?.let { return it }
+        }
+        return null
+    }
+
+    private fun parseProviderModelInt(
+        itemObj: KxJsonObject,
+        directKeys: List<String>,
+        nestedObjectKeys: List<String> = listOf("limits", "limit"),
+        nestedValueKeys: List<String> = directKeys
+    ): Int? {
+        (itemObj.findProviderModelValue(*directKeys.toTypedArray()) as? JsonPrimitive)
+            ?.contentOrNull
+            ?.trim()
+            ?.toIntOrNull()
+            ?.takeIf { it > 0 }
+            ?.let { return it }
+        for (nestedKey in nestedObjectKeys) {
+            val nested = itemObj[nestedKey] as? KxJsonObject ?: continue
+            (nested.findProviderModelValue(*nestedValueKeys.toTypedArray()) as? JsonPrimitive)
+                ?.contentOrNull
+                ?.trim()
+                ?.toIntOrNull()
+                ?.takeIf { it > 0 }
+                ?.let { return it }
+        }
+        return null
+    }
+
+    private fun parseProviderModelBoolean(
+        itemObj: KxJsonObject,
+        directKeys: List<String>,
+        nestedObjectKeys: List<String> = listOf("capabilities", "capability", "features", "feature"),
+        nestedValueKeys: List<String> = directKeys
+    ): Boolean? {
+        fun parseValue(element: JsonElement?): Boolean? {
+            val primitive = element as? JsonPrimitive ?: return null
+            primitive.booleanOrNull?.let { return it }
+            return when (primitive.contentOrNull?.trim()?.lowercase()) {
+                "true", "1", "yes", "supported", "enabled" -> true
+                "false", "0", "no", "unsupported", "disabled" -> false
+                else -> null
+            }
+        }
+
+        parseValue(itemObj.findProviderModelValue(*directKeys.toTypedArray()))?.let { return it }
+        for (nestedKey in nestedObjectKeys) {
+            val nested = itemObj[nestedKey] as? KxJsonObject ?: continue
+            parseValue(nested.findProviderModelValue(*nestedValueKeys.toTypedArray()))?.let { return it }
+        }
+        return null
+    }
+
+    private fun parseProviderModelStringList(
+        itemObj: KxJsonObject,
+        directKeys: List<String>,
+        nestedObjectKeys: List<String> = listOf("modalities", "modality"),
+        nestedValueKeys: List<String> = directKeys
+    ): List<String> {
+        fun parseValue(element: JsonElement?): List<String> {
+            return when (element) {
+                is KxJsonArray -> element.mapNotNull {
+                    (it as? JsonPrimitive)?.contentOrNull?.trim()?.takeIf(String::isNotEmpty)
+                }
+                is JsonPrimitive -> element.contentOrNull
+                    ?.trim()
+                    ?.takeIf(String::isNotEmpty)
+                    ?.let(::listOf)
+                    ?: emptyList()
+                else -> emptyList()
+            }
+        }
+
+        parseValue(itemObj.findProviderModelValue(*directKeys.toTypedArray()))
+            .takeIf { it.isNotEmpty() }
+            ?.let { return it }
+        for (nestedKey in nestedObjectKeys) {
+            val nested = itemObj[nestedKey] as? KxJsonObject ?: continue
+            parseValue(nested.findProviderModelValue(*nestedValueKeys.toTypedArray()))
+                .takeIf { it.isNotEmpty() }
+                ?.let { return it }
+        }
+        return emptyList()
+    }
+
+    private fun appendAnthropicContentBlocks(
+        target: JSONArray,
+        content: JsonElement?
+    ) {
+        when (content) {
+            null -> Unit
+            is kotlinx.serialization.json.JsonPrimitive -> {
+                val text = content.contentOrNull ?: content.toString()
+                if (text.isNotEmpty()) {
+                    val block = JSONObject()
+                    block.put("type", "text")
+                    block.put("text", text)
+                    target.put(
+                        block
+                    )
+                }
+            }
+            is kotlinx.serialization.json.JsonArray -> {
+                content.forEach { block ->
+                    when (block) {
+                        is kotlinx.serialization.json.JsonObject -> target.put(JSONObject(block.toString()))
+                        is kotlinx.serialization.json.JsonPrimitive -> {
+                            val text = block.contentOrNull ?: block.toString()
+                            if (text.isNotEmpty()) {
+                                val textBlock = JSONObject()
+                                textBlock.put("type", "text")
+                                textBlock.put("text", text)
+                                target.put(
+                                    textBlock
+                                )
+                            }
+                        }
+                        else -> Unit
+                    }
+                }
+            }
+            else -> {
+                val block = JSONObject()
+                block.put("type", "text")
+                block.put("text", content.toString())
+                target.put(
+                    block
+                )
+            }
+        }
+    }
+
+    private fun buildAnthropicAssistantContent(message: ChatCompletionMessage): Any? {
+        val content = JSONArray()
+        message.reasoningContent?.trim()?.takeIf { it.isNotEmpty() }?.let { reasoning ->
+            val reasoningBlock = JSONObject()
+            reasoningBlock.put("type", "text")
+            reasoningBlock.put("text", reasoning)
+            content.put(
+                reasoningBlock
+            )
+        }
+        appendAnthropicContentBlocks(content, message.content)
+        message.toolCalls.orEmpty().forEach { toolCall ->
+            val inputJson = runCatching { JSONObject(toolCall.function.arguments) }.getOrElse { JSONObject() }
+            val toolUseBlock = JSONObject()
+            toolUseBlock.put("type", "tool_use")
+            toolUseBlock.put("id", toolCall.id)
+            toolUseBlock.put("name", toolCall.function.name)
+            toolUseBlock.put("input", inputJson)
+            content.put(
+                toolUseBlock
+            )
+        }
+        if (content.length() == 0) {
+            return null
+        }
+        if (
+            content.length() == 1 &&
+            message.reasoningContent.isNullOrBlank() &&
+            message.toolCalls.isNullOrEmpty()
+        ) {
+            val single = content.optJSONObject(0)
+            if (single?.optString("type") == "text") {
+                return single.optString("text", "")
+            }
+        }
+        return content
+    }
+
+    private fun buildAnthropicTextBlock(text: String): JSONObject {
+        val block = JSONObject()
+        block.put("type", "text")
+        block.put("text", text)
+        return block
+    }
+
+    private fun buildAnthropicMessage(
+        role: String,
+        content: Any
+    ): JSONObject {
+        val message = JSONObject()
+        message.put("role", role)
+        message.put("content", content)
+        return message
     }
 
     private fun resolveSceneRequest(
         modelOrScene: String,
         explicitApiBase: String? = null,
         explicitApiKey: String? = null,
+        explicitCustomHeaders: Map<String, String>? = null,
         explicitModel: String? = null,
         explicitProtocolType: String? = null,
+        explicitWireApi: String? = null,
         @Suppress("UNUSED_PARAMETER") defaultTransport: ModelSceneRegistry.SceneTransport = ModelSceneRegistry.SceneTransport.OPENAI_COMPATIBLE
     ): ResolvedSceneRequest {
         val requestedModel = modelOrScene.trim()
@@ -469,13 +688,20 @@ object HttpController {
 
         val explicitBase = explicitApiBase?.let(::normalizeApiBase)
         val explicitKey = explicitApiKey?.trim()?.takeIf { it.isNotEmpty() }
+        val explicitHeaders = ProviderCustomHeaderUtils.sanitizeCustomHeaders(explicitCustomHeaders)
         val explicitResolvedModel = explicitModel?.trim()?.takeIf { it.isNotEmpty() }
         val explicitProtocol = explicitProtocolType
             ?.let(DeepSeekProvider::normalizeProtocolType)
+        val explicitWire = explicitWireApi?.let(OpenAiWireApi::normalize)
         val providerConfig = if (explicitBase == null) {
             ModelProviderConfigStore.getConfig()
         } else {
-            ModelProviderConfig(baseUrl = explicitBase, apiKey = explicitKey.orEmpty(), source = "explicit")
+            ModelProviderConfig(
+                baseUrl = explicitBase,
+                apiKey = explicitKey.orEmpty(),
+                customHeaders = explicitHeaders,
+                source = "explicit"
+            )
         }
         val sceneBinding = sceneProfile?.sceneId?.let(SceneModelBindingStore::getBinding)
         val boundProfile = sceneBinding?.providerProfileId?.let(ModelProviderConfigStore::getProfile)
@@ -509,11 +735,25 @@ object HttpController {
             providerBase != null -> providerConfig.apiKey.takeIf { it.isNotBlank() }
             else -> null
         }
+        val providerHeaders = when {
+            explicitBase != null -> explicitHeaders
+            bindingApplied -> ProviderCustomHeaderUtils.sanitizeCustomHeaders(boundProfile?.customHeaders)
+            providerBase != null -> ProviderCustomHeaderUtils.sanitizeCustomHeaders(
+                providerConfig.customHeaders
+            )
+            else -> emptyMap()
+        }
         val protocolType = when {
             explicitProtocol != null -> explicitProtocol
             explicitBase != null -> DeepSeekProvider.normalizeProtocolType(null)
             bindingApplied -> boundProfile?.protocolType?.ifEmpty { "openai_compatible" } ?: "openai_compatible"
             else -> ModelProviderConfigStore.getEditingProfile().protocolType.ifEmpty { "openai_compatible" }
+        }
+        val wireApi = when {
+            explicitWire != null -> explicitWire
+            bindingApplied -> boundProfile?.wireApi ?: OpenAiWireApi.CHAT_COMPLETIONS
+            providerBase != null -> providerConfig.wireApi
+            else -> ModelProviderConfigStore.getEditingProfile().wireApi
         }
         val effectiveTransport = sceneProfile?.transport ?: defaultTransport
         val responseParser = sceneProfile?.responseParser ?: when (effectiveTransport) {
@@ -541,6 +781,7 @@ object HttpController {
             responseParser = responseParser,
             apiBase = providerBase,
             apiKey = providerKey,
+            customHeaders = providerHeaders,
             providerProfileId = if (bindingApplied) boundProfile?.id else null,
             providerProfileName = if (bindingApplied) boundProfile?.name else null,
             routeTag = routeTag,
@@ -549,7 +790,8 @@ object HttpController {
             bindingProfileMissing = bindingProfileMissing,
             overrideApplied = overrideApplied,
             overrideModel = overrideModel,
-            protocolType = protocolType
+            protocolType = protocolType,
+            wireApi = wireApi
         )
     }
 
@@ -562,10 +804,30 @@ object HttpController {
         if (ModelProviderConfigStore.hasDirectRequestUrlMarker(apiBase)) {
             return base
         }
-        return if (base.endsWith("/v1", ignoreCase = true)) {
+        return if (ModelProviderConfigStore.hasVersionedBasePath(base)) {
             "$base/chat/completions"
         } else {
             "$base/v1/chat/completions"
+        }
+    }
+
+    private fun buildOpenAIResponsesUrl(apiBase: String): String {
+        val base = ModelProviderConfigStore.stripDirectRequestUrlMarker(apiBase)
+        if (ModelProviderConfigStore.hasDirectRequestUrlMarker(apiBase)) {
+            return base
+        }
+        return if (ModelProviderConfigStore.hasVersionedBasePath(base)) {
+            "$base/responses"
+        } else {
+            "$base/v1/responses"
+        }
+    }
+
+    private fun buildOpenAIInferenceUrl(apiBase: String, wireApi: String): String {
+        return if (OpenAiWireApi.isResponses(wireApi)) {
+            buildOpenAIResponsesUrl(apiBase)
+        } else {
+            buildOpenAIChatCompletionsUrl(apiBase)
         }
     }
 
@@ -574,7 +836,7 @@ object HttpController {
         if (ModelProviderConfigStore.hasDirectRequestUrlMarker(apiBase)) {
             return base
         }
-        return if (base.endsWith("/v1", ignoreCase = true)) {
+        return if (ModelProviderConfigStore.hasVersionedBasePath(base)) {
             "$base/models"
         } else {
             "$base/v1/models"
@@ -586,7 +848,7 @@ object HttpController {
         if (ModelProviderConfigStore.hasDirectRequestUrlMarker(apiBase)) {
             return base
         }
-        return if (base.endsWith("/v1", ignoreCase = true)) {
+        return if (ModelProviderConfigStore.hasVersionedBasePath(base)) {
             "$base/models"
         } else {
             "$base/v1/models"
@@ -607,13 +869,32 @@ object HttpController {
     private fun buildOpenAIRequestBuilder(
         url: String,
         requestBody: okhttp3.RequestBody? = null,
-        apiKey: String? = null
+        apiKey: String? = null,
+        customHeaders: Map<String, String> = emptyMap()
+    ): Request.Builder {
+        val headers = linkedMapOf<String, String>(
+            "Content-Type" to "application/json"
+        ).apply {
+            if (!apiKey.isNullOrBlank()) {
+                put("Authorization", "Bearer ${apiKey.trim()}")
+            }
+        }
+        return buildJsonRequestBuilder(
+            url = url,
+            headers = ProviderCustomHeaderUtils.mergeHeaders(headers, customHeaders),
+            requestBody = requestBody
+        )
+    }
+
+    private fun buildJsonRequestBuilder(
+        url: String,
+        headers: Map<String, String>,
+        requestBody: okhttp3.RequestBody? = null
     ): Request.Builder {
         val builder = Request.Builder()
             .url(url)
-            .addHeader("Content-Type", "application/json")
-        if (!apiKey.isNullOrBlank()) {
-            builder.addHeader("Authorization", "Bearer ${apiKey.trim()}")
+        headers.forEach { (key, value) ->
+            builder.header(key, value)
         }
         if (requestBody != null) {
             builder.post(requestBody)
@@ -643,22 +924,32 @@ object HttpController {
         url: String,
         requestBody: okhttp3.RequestBody? = null,
         apiKey: String?,
-        hasCacheControl: Boolean = false
+        hasCacheControl: Boolean = false,
+        customHeaders: Map<String, String> = emptyMap()
     ): Request.Builder {
-        val builder = Request.Builder()
-            .url(url)
-            .addHeader("Content-Type", "application/json")
-            .addHeader("anthropic-version", "2023-06-01")
-        if (!apiKey.isNullOrBlank()) {
-            builder.addHeader("x-api-key", apiKey.trim())
+        val headers = linkedMapOf(
+            "Content-Type" to "application/json",
+            "anthropic-version" to "2023-06-01"
+        ).apply {
+            if (!apiKey.isNullOrBlank()) {
+                put("x-api-key", apiKey.trim())
+            }
         }
         if (hasCacheControl) {
-            builder.addHeader("anthropic-beta", "prompt-caching-2024-07-31")
+            headers["anthropic-beta"] = "prompt-caching-2024-07-31"
         }
-        if (requestBody != null) {
-            builder.post(requestBody)
-        }
-        return builder
+        return buildJsonRequestBuilder(
+            url = url,
+            headers = ProviderCustomHeaderUtils.mergeHeaders(headers, customHeaders),
+            requestBody = requestBody
+        )
+    }
+
+    private fun logRequestHeaders(label: String, headers: Map<String, String>) {
+        OmniLog.d(
+            TAG,
+            "$label headers=${ProviderCustomHeaderUtils.redactHeadersForLog(headers)}"
+        )
     }
 
     /**
@@ -688,7 +979,7 @@ object HttpController {
                     contentRaw == null -> null
                     contentRaw is kotlinx.serialization.json.JsonPrimitive -> {
                         val text = contentRaw.content
-                        JSONObject().put("type", "text").put("text", text)
+                        buildAnthropicTextBlock(text)
                     }
                     contentRaw is kotlinx.serialization.json.JsonArray -> {
                         // preserve cache_control from array blocks
@@ -700,7 +991,7 @@ object HttpController {
                         }
                         if (arr.length() == 1) arr.optJSONObject(0) else arr
                     }
-                    else -> JSONObject().put("type", "text").put("text", contentRaw.toString())
+                    else -> buildAnthropicTextBlock(contentRaw.toString())
                 }
             }.filterNotNull()
 
@@ -717,7 +1008,7 @@ object HttpController {
                     when (c) {
                         is JSONObject -> arr.put(c)
                         is JSONArray -> for (i in 0 until c.length()) arr.put(c.opt(i))
-                        else -> arr.put(JSONObject().put("type", "text").put("text", c.toString()))
+                        else -> arr.put(buildAnthropicTextBlock(c.toString()))
                     }
                 }
                 obj.put("system", arr)
@@ -729,42 +1020,22 @@ object HttpController {
         for (msg in nonSystemMessages) {
             when (msg.role) {
                 "assistant" -> {
-                    val toolCalls = msg.toolCalls
-                    if (!toolCalls.isNullOrEmpty()) {
-                        val content = JSONArray()
-                        // optional text part
-                        val textPart = msg.content?.let {
-                            if (it is kotlinx.serialization.json.JsonPrimitive) it.content.trim() else null
-                        }?.takeIf { it.isNotEmpty() }
-                        if (textPart != null) {
-                            content.put(JSONObject().put("type", "text").put("text", textPart))
-                        }
-                        for (tc in toolCalls) {
-                            val inputJson = runCatching { JSONObject(tc.function.arguments) }.getOrElse { JSONObject() }
-                            content.put(
-                                JSONObject()
-                                    .put("type", "tool_use")
-                                    .put("id", tc.id)
-                                    .put("name", tc.function.name)
-                                    .put("input", inputJson)
-                            )
-                        }
-                        messages.put(JSONObject().put("role", "assistant").put("content", content))
-                    } else {
-                        val content = convertContentToAnthropicFormat(msg.content)
-                        if (content != null) {
-                            messages.put(JSONObject().put("role", "assistant").put("content", content))
-                        }
+                    val content = buildAnthropicAssistantContent(msg)
+                    if (content != null) {
+                        messages.put(buildAnthropicMessage("assistant", content))
                     }
                 }
                 "tool" -> {
                     // merge consecutive tool results into a single user message
                     val toolResultBlock = JSONObject()
-                        .put("type", "tool_result")
-                        .put("tool_use_id", msg.toolCallId ?: "")
-                        .put("content", msg.content?.let {
+                    toolResultBlock.put("type", "tool_result")
+                    toolResultBlock.put("tool_use_id", msg.toolCallId ?: "")
+                    toolResultBlock.put(
+                        "content",
+                        msg.content?.let {
                             if (it is kotlinx.serialization.json.JsonPrimitive) it.content else it.toString()
-                        } ?: "")
+                        } ?: ""
+                    )
                     // Try to merge with previous user message if it's a tool_result batch
                     val lastMsg = if (messages.length() > 0) messages.optJSONObject(messages.length() - 1) else null
                     if (lastMsg != null && lastMsg.optString("role") == "user" &&
@@ -776,22 +1047,24 @@ object HttpController {
                         ) {
                             prevContent.put(toolResultBlock)
                         } else {
+                            val toolResultBatch = JSONArray()
+                            toolResultBatch.put(toolResultBlock)
                             messages.put(
-                                JSONObject().put("role", "user")
-                                    .put("content", JSONArray().put(toolResultBlock))
+                                buildAnthropicMessage("user", toolResultBatch)
                             )
                         }
                     } else {
+                        val toolResultBatch = JSONArray()
+                        toolResultBatch.put(toolResultBlock)
                         messages.put(
-                            JSONObject().put("role", "user")
-                                .put("content", JSONArray().put(toolResultBlock))
+                            buildAnthropicMessage("user", toolResultBatch)
                         )
                     }
                 }
                 else -> {
                     val content = convertContentToAnthropicFormat(msg.content)
                     if (content != null) {
-                        messages.put(JSONObject().put("role", msg.role).put("content", content))
+                        messages.put(buildAnthropicMessage(msg.role, content))
                     }
                 }
             }
@@ -804,7 +1077,7 @@ object HttpController {
             for (tool in request.tools) {
                 val f = tool.function
                 val toolObj = JSONObject()
-                    .put("name", f.name)
+                toolObj.put("name", f.name)
                 if (!f.description.isNullOrBlank()) toolObj.put("description", f.description)
                 toolObj.put("input_schema", JSONObject(f.parameters.toString()))
                 tools.put(toolObj)
@@ -816,7 +1089,8 @@ object HttpController {
             obj.put("stream", true)
         }
 
-        return applyAnthropicAutomaticCacheControl(obj.toString())
+        val requestJson = obj.toString() ?: "{}"
+        return applyAnthropicAutomaticCacheControl(requestJson)
     }
 
     private fun applyAnthropicAutomaticCacheControl(requestJson: String): String {
@@ -887,11 +1161,66 @@ object HttpController {
                 val ownedBy = itemObj["owned_by"]?.jsonPrimitive?.contentOrNull?.trim()
                     ?.takeIf { it.isNotEmpty() }
                     ?: itemObj["type"]?.jsonPrimitive?.contentOrNull?.trim()?.takeIf { it.isNotEmpty() }
+                val contextLimit = parseProviderModelInt(
+                    itemObj = itemObj,
+                    directKeys = listOf("contextLimit", "context_limit", "contextWindow", "context_window", "max_context_tokens"),
+                    nestedValueKeys = listOf("context", "contextLimit", "context_limit", "contextWindow", "context_window")
+                )
+                val inputLimit = parseProviderModelInt(
+                    itemObj = itemObj,
+                    directKeys = listOf("inputLimit", "input_limit", "max_input_tokens"),
+                    nestedValueKeys = listOf("input", "inputLimit", "input_limit", "max_input_tokens")
+                )
+                val outputLimit = parseProviderModelInt(
+                    itemObj = itemObj,
+                    directKeys = listOf("outputLimit", "output_limit", "max_output_tokens", "max_tokens"),
+                    nestedValueKeys = listOf("output", "outputLimit", "output_limit", "max_output_tokens", "max_tokens")
+                )
+                val inputModalities = parseProviderModelStringList(
+                    itemObj = itemObj,
+                    directKeys = listOf("inputModalities", "input_modalities"),
+                    nestedValueKeys = listOf("input", "inputs")
+                )
+                val outputModalities = parseProviderModelStringList(
+                    itemObj = itemObj,
+                    directKeys = listOf("outputModalities", "output_modalities"),
+                    nestedValueKeys = listOf("output", "outputs")
+                )
                 add(
                     ProviderModelOption(
                         id = id,
                         displayName = displayName,
-                        ownedBy = ownedBy
+                        ownedBy = ownedBy,
+                        contextLimit = contextLimit,
+                        inputLimit = inputLimit,
+                        outputLimit = outputLimit,
+                        inputModalities = inputModalities,
+                        outputModalities = outputModalities,
+                        attachment = parseProviderModelBoolean(
+                            itemObj = itemObj,
+                            directKeys = listOf("attachment", "attachments", "vision"),
+                            nestedValueKeys = listOf("attachment", "attachments", "vision", "image")
+                        ),
+                        reasoning = parseProviderModelBoolean(
+                            itemObj = itemObj,
+                            directKeys = listOf("reasoning", "thinking"),
+                            nestedValueKeys = listOf("reasoning", "thinking")
+                        ),
+                        toolCall = parseProviderModelBoolean(
+                            itemObj = itemObj,
+                            directKeys = listOf("toolCall", "tool_call", "tools"),
+                            nestedValueKeys = listOf("toolCall", "tool_call", "tools", "function_calling")
+                        ),
+                        structuredOutput = parseProviderModelBoolean(
+                            itemObj = itemObj,
+                            directKeys = listOf("structuredOutput", "structured_output"),
+                            nestedValueKeys = listOf("structuredOutput", "structured_output", "json_schema")
+                        ),
+                        temperature = parseProviderModelBoolean(
+                            itemObj = itemObj,
+                            directKeys = listOf("temperature"),
+                            nestedValueKeys = listOf("temperature")
+                        )
                     )
                 )
             }
@@ -993,6 +1322,341 @@ object HttpController {
      * 包装一个 EventSourceListener，将 Anthropic SSE 事件实时翻译为 OpenAI-style chunks
      * 后转发给 outer，使上层 AgentLlmStreamAccumulator 无需修改。
      */
+    fun wrapResponsesListener(outer: EventSourceListener): EventSourceListener {
+        return object : EventSourceListener() {
+            private val toolCalls = linkedMapOf<String, ResponseToolCallState>()
+            private val toolCallAliases = linkedMapOf<String, String>()
+            private val assistantText = StringBuilder()
+            private var nextToolIndex = 0
+            private var sawToolCall = false
+
+            override fun onOpen(eventSource: EventSource, response: okhttp3.Response) {
+                outer.onOpen(eventSource, response)
+            }
+
+            override fun onEvent(
+                eventSource: EventSource,
+                id: String?,
+                type: String?,
+                data: String
+            ) {
+                if (data == "[DONE]") {
+                    outer.onEvent(eventSource, id, type, "[DONE]")
+                    return
+                }
+                val json = runCatching {
+                    completionJson.parseToJsonElement(data) as? KxJsonObject
+                }.getOrNull() ?: return
+                val eventType = type?.trim()?.takeIf { it.isNotEmpty() }
+                    ?: json.string("type").trim().takeIf { it.isNotEmpty() }
+                    ?: return
+                when (eventType) {
+                    "response.output_text.delta" -> {
+                        emitAssistantText(
+                            eventSource = eventSource,
+                            id = id,
+                            type = type,
+                            incoming = json.string("delta"),
+                            isSnapshot = false
+                        )
+                    }
+                    "response.output_text.done" -> {
+                        emitAssistantText(
+                            eventSource = eventSource,
+                            id = id,
+                            type = type,
+                            incoming = json.string("text"),
+                            isSnapshot = true
+                        )
+                    }
+                    "response.content_part.added",
+                    "response.content_part.done" -> {
+                        val part = json.obj("part") ?: return
+                        if (part.string("type") != "output_text") return
+                        emitAssistantText(
+                            eventSource = eventSource,
+                            id = id,
+                            type = type,
+                            incoming = part.string("text"),
+                            isSnapshot = true
+                        )
+                    }
+                    "response.reasoning_summary_text.delta",
+                    "response.reasoning.delta" -> {
+                        val delta = json.string("delta")
+                        if (delta.isNotEmpty()) {
+                            outer.onEvent(
+                                eventSource,
+                                id,
+                                type,
+                                buildOpenAIChunk(buildSingleFieldDelta("reasoning_content", delta), null)
+                            )
+                        }
+                    }
+                    "response.output_item.added",
+                    "response.output_item.done" -> {
+                        val item = json.obj("item") ?: return
+                        when (item.string("type")) {
+                            "function_call" -> {
+                                sawToolCall = true
+                                val state = getOrCreateResponsesToolCallState(item)
+                                registerResponsesToolCallAlias(item, state.id)
+                                state.name = item.string("name").ifBlank { state.name }
+                                val arguments = item.string("arguments")
+                                val emittedArguments = updateResponsesArguments(state, arguments)
+                                outer.onEvent(
+                                    eventSource,
+                                    id,
+                                    type,
+                                    buildOpenAIToolCallChunk(
+                                        state = state,
+                                        finishReason = if (eventType.endsWith(".done")) "tool_calls" else null,
+                                        argumentsDelta = emittedArguments
+                                    )
+                                )
+                            }
+                            "message" -> {
+                                val content = item.array("content") ?: return
+                                content.forEach { blockElement ->
+                                    val block = blockElement as? KxJsonObject ?: return@forEach
+                                    emitAssistantText(
+                                        eventSource = eventSource,
+                                        id = id,
+                                        type = type,
+                                        incoming = block.string("text"),
+                                        isSnapshot = true
+                                    )
+                                }
+                            }
+                        }
+                    }
+                    "response.function_call_arguments.delta",
+                    "response.function_call_arguments.done" -> {
+                        sawToolCall = true
+                        val state = getOrCreateResponsesToolCallState(json)
+                        val delta = if (eventType.endsWith(".done")) {
+                            json.string("arguments")
+                        } else {
+                            json.string("delta")
+                        }
+                        val emittedArguments = updateResponsesArguments(state, delta)
+                        outer.onEvent(
+                            eventSource,
+                            id,
+                            type,
+                            buildOpenAIToolCallChunk(
+                                state = state,
+                                finishReason = if (eventType.endsWith(".done")) "tool_calls" else null,
+                                argumentsDelta = emittedArguments
+                            )
+                        )
+                    }
+                    "response.completed" -> {
+                        val responseObj = json.obj("response") ?: json
+                        val usage = responseObj.obj("usage")
+                        outer.onEvent(
+                            eventSource,
+                            id,
+                            type,
+                            buildOpenAIChunk(
+                            deltaJson = "{}",
+                                finishReason = if (sawToolCall) "tool_calls" else "stop",
+                                usage = usage
+                            )
+                        )
+                        outer.onEvent(eventSource, id, type, "[DONE]")
+                    }
+                    else -> {
+                        if (json.containsKey("error")) {
+                            outer.onEvent(eventSource, id, type, data)
+                        }
+                    }
+                }
+            }
+
+            override fun onClosed(eventSource: EventSource) {
+                outer.onClosed(eventSource)
+            }
+
+            override fun onFailure(
+                eventSource: EventSource,
+                t: Throwable?,
+                response: okhttp3.Response?
+            ) {
+                outer.onFailure(eventSource, t, response)
+            }
+
+            private fun getOrCreateResponsesToolCallState(raw: KxJsonObject): ResponseToolCallState {
+                val callId = resolveResponsesToolCallId(raw)
+                return toolCalls.getOrPut(callId) {
+                    ResponseToolCallState(
+                        index = nextToolIndex++,
+                        id = callId,
+                        name = raw.string("name")
+                    )
+                }
+            }
+
+            private fun resolveResponsesToolCallId(raw: KxJsonObject): String {
+                val candidates = listOf(
+                    raw.string("call_id"),
+                    raw.string("id"),
+                    raw.string("item_id")
+                )
+                for (candidate in candidates) {
+                    if (candidate.isBlank()) continue
+                    val alias = toolCallAliases[candidate]
+                    if (!alias.isNullOrBlank()) {
+                        return alias
+                    }
+                }
+                return candidates.firstOrNull { it.isNotBlank() }
+                    ?: "tool_${nextToolIndex}"
+            }
+
+            private fun registerResponsesToolCallAlias(
+                raw: KxJsonObject,
+                canonicalId: String
+            ) {
+                listOf(
+                    raw.string("call_id"),
+                    raw.string("id"),
+                    raw.string("item_id")
+                ).forEach { candidate ->
+                    if (candidate.isNotBlank()) {
+                        toolCallAliases[candidate] = canonicalId
+                    }
+                }
+            }
+
+            private fun KxJsonObject.string(name: String): String {
+                return (this[name] as? JsonPrimitive)?.contentOrNull.orEmpty()
+            }
+
+            private fun KxJsonObject.obj(name: String): KxJsonObject? {
+                return this[name] as? KxJsonObject
+            }
+
+            private fun KxJsonObject.array(name: String): KxJsonArray? {
+                return this[name] as? KxJsonArray
+            }
+
+            private fun buildOpenAIToolCallChunk(
+                state: ResponseToolCallState,
+                finishReason: String?,
+                argumentsDelta: String? = null
+            ): String {
+                val emittedArguments = argumentsDelta ?: state.arguments.toString()
+                return buildOpenAIChunk(
+                    deltaJson = buildString {
+                        append("{\"tool_calls\":[{")
+                        append("\"index\":")
+                        append(state.index)
+                        append(",\"id\":")
+                        append(completionJson.encodeToString(state.id))
+                        append(",\"type\":\"function\"")
+                        append(",\"function\":{")
+                        append("\"name\":")
+                        append(completionJson.encodeToString(state.name))
+                        append(",\"arguments\":")
+                        append(completionJson.encodeToString(emittedArguments))
+                        append("}}]}")
+                    },
+                    finishReason = finishReason
+                )
+            }
+
+            private fun updateResponsesArguments(
+                state: ResponseToolCallState,
+                incoming: String
+            ): String? {
+                if (incoming.isEmpty()) {
+                    return null
+                }
+                val current = state.arguments.toString()
+                val emitted = when {
+                    current.isEmpty() -> incoming
+                    incoming == current -> ""
+                    incoming.startsWith(current) -> incoming.substring(current.length)
+                    current.startsWith(incoming) -> ""
+                    else -> incoming
+                }
+                if (incoming != current) {
+                    state.arguments.setLength(0)
+                    state.arguments.append(incoming)
+                }
+                return emitted
+            }
+
+            private fun emitAssistantText(
+                eventSource: EventSource,
+                id: String?,
+                type: String?,
+                incoming: String,
+                isSnapshot: Boolean
+            ) {
+                val emitted = updateAssistantText(incoming, isSnapshot) ?: return
+                outer.onEvent(
+                    eventSource,
+                    id,
+                    type,
+                    buildOpenAIChunk(buildSingleFieldDelta("content", emitted), null)
+                )
+            }
+
+            private fun updateAssistantText(
+                incoming: String,
+                isSnapshot: Boolean
+            ): String? {
+                if (incoming.isEmpty()) {
+                    return null
+                }
+                if (!isSnapshot) {
+                    assistantText.append(incoming)
+                    return incoming
+                }
+                val current = assistantText.toString()
+                val emitted = when {
+                    current.isEmpty() -> incoming
+                    incoming == current -> ""
+                    incoming.startsWith(current) -> incoming.substring(current.length)
+                    current.startsWith(incoming) -> ""
+                    else -> incoming
+                }
+                if (incoming != current) {
+                    assistantText.setLength(0)
+                    assistantText.append(incoming)
+                }
+                return emitted.ifEmpty { null }
+            }
+
+            private fun buildSingleFieldDelta(field: String, value: String): String {
+                return "{\"$field\":${completionJson.encodeToString(value)}}"
+            }
+
+            private fun buildOpenAIChunk(
+                deltaJson: String,
+                finishReason: String?,
+                usage: KxJsonObject? = null
+            ): String {
+                val finishReasonPart = finishReason?.let {
+                    ",\"finish_reason\":${completionJson.encodeToString(it)}"
+                }.orEmpty()
+                val usagePart = usage?.let {
+                    ",\"usage\":${it.toString()}"
+                }.orEmpty()
+                return buildString {
+                    append("{\"choices\":[{\"delta\":")
+                    append(deltaJson.toString())
+                    append(finishReasonPart)
+                    append("}]")
+                    append(usagePart)
+                    append("}")
+                }
+            }
+        }
+    }
+
     fun wrapAnthropicListener(outer: EventSourceListener): EventSourceListener {
         return object : EventSourceListener() {
             // per-stream state
@@ -1185,10 +1849,14 @@ object HttpController {
             url = url,
             requestBody = requestBody,
             apiKey = resolved.apiKey,
-            hasCacheControl = hasCacheControl(requestJson)
+            hasCacheControl = hasCacheControl(requestJson),
+            customHeaders = resolved.customHeaders
         )
             .addHeader("Accept", "text/event-stream")
             .build()
+        logRequestHeaders("[anthropic stream model=${resolved.resolvedModel}]", request.headers.toMultimap().mapValues {
+            it.value.joinToString(",")
+        })
         EventSources.createFactory(openAIStreamClient(forceHttp1)).newEventSource(
             request,
             createLoggingEventListener(
@@ -1553,6 +2221,139 @@ object HttpController {
         return stripAnthropicOnlyFieldsForOpenAiCompatible(protocolReadyBody)
     }
 
+    private fun buildOpenAIResponsesRequestBody(
+        requestBodyJson: String,
+        resolvedModel: String
+    ): String {
+        val parsedRequest = completionJson.decodeFromString<ChatCompletionRequest>(requestBodyJson)
+            .copy(model = resolvedModel)
+        val systemInstructions = parsedRequest.messages
+            .filter { it.role == "system" }
+            .mapNotNull { it.contentText().trim().takeIf { text -> text.isNotEmpty() } }
+            .joinToString(separator = "\n\n")
+            .trim()
+            .ifEmpty { null }
+        val payload = OpenAIResponsesRequest(
+            model = parsedRequest.model,
+            input = buildResponsesInputItems(parsedRequest.messages.filter { it.role != "system" }),
+            instructions = systemInstructions,
+            maxOutputTokens = parsedRequest.maxCompletionTokens ?: parsedRequest.maxTokens,
+            stream = parsedRequest.stream,
+            tools = buildResponsesTools(parsedRequest),
+            toolChoice = buildResponsesToolChoice(parsedRequest.toolChoice),
+            reasoning = buildResponsesReasoning(parsedRequest)
+        )
+        return stripAnthropicOnlyFieldsForOpenAiCompatible(
+            completionJson.encodeToString(payload)
+        )
+    }
+
+    private fun buildResponsesInputItems(messages: List<ChatCompletionMessage>): List<JsonElement> {
+        val items = mutableListOf<JsonElement>()
+        messages.forEach { message ->
+            when (message.role) {
+                "tool" -> {
+                    items += buildJsonObject {
+                        put("type", "function_call_output")
+                        put("call_id", message.toolCallId.orEmpty())
+                        put("output", message.contentText())
+                    }
+                }
+                "assistant" -> {
+                    val visibleText = buildList {
+                        message.reasoningContent?.trim()?.takeIf { it.isNotEmpty() }?.let { add(it) }
+                        message.contentText().trim().takeIf { it.isNotEmpty() }?.let { add(it) }
+                    }.joinToString(separator = "\n\n").trim()
+                    if (visibleText.isNotEmpty()) {
+                        items += buildResponsesMessageItem("assistant", visibleText)
+                    }
+                    message.toolCalls.orEmpty().forEach { toolCall ->
+                        items += buildJsonObject {
+                            put("type", "function_call")
+                            put("call_id", toolCall.id)
+                            put("name", toolCall.function.name)
+                            put("arguments", toolCall.function.arguments)
+                        }
+                    }
+                }
+                else -> {
+                    val text = message.contentText()
+                    if (text.isNotBlank()) {
+                        items += buildResponsesMessageItem(message.role.ifBlank { "user" }, text)
+                    }
+                }
+            }
+        }
+        return items
+    }
+
+    private fun buildResponsesMessageItem(role: String, text: String): JsonElement {
+        return buildJsonObject {
+            put("role", role)
+            put(
+                "content",
+                buildJsonArray {
+                    add(
+                        buildJsonObject {
+                            put("type", "input_text")
+                            put("text", text)
+                        }
+                    )
+                }
+            )
+        }
+    }
+
+    private fun buildResponsesTools(request: ChatCompletionRequest): List<JsonElement> {
+        return request.tools.map { tool ->
+            buildJsonObject {
+                put("type", "function")
+                put("name", tool.function.name)
+                if (tool.function.description.isNotBlank()) {
+                    put("description", tool.function.description)
+                }
+                put("parameters", tool.function.parameters)
+            }
+        }
+    }
+
+    private fun buildResponsesToolChoice(toolChoice: JsonElement?): JsonElement? {
+        return when (toolChoice) {
+            null -> null
+            is JsonPrimitive -> {
+                val normalized = toolChoice.contentOrNull?.trim().orEmpty()
+                normalized.takeIf { it.isNotEmpty() }?.let(::JsonPrimitive)
+            }
+            is KxJsonObject -> {
+                val functionName = toolChoice["function"]?.let { raw ->
+                    (raw as? KxJsonObject)?.get("name")?.jsonPrimitive?.contentOrNull
+                }?.trim().orEmpty()
+                if (functionName.isEmpty()) {
+                    JsonPrimitive("auto")
+                } else {
+                    buildJsonObject {
+                        put("type", "function")
+                        put("name", functionName)
+                    }
+                }
+            }
+            else -> null
+        }
+    }
+
+    private fun buildResponsesReasoning(request: ChatCompletionRequest): JsonElement? {
+        if (request.enableThinking == false || request.thinking?.type == "disabled") {
+            return null
+        }
+        val normalizedEffort = request.reasoningEffort?.trim()?.lowercase()
+        val effort = when (normalizedEffort) {
+            "low", "medium", "high" -> normalizedEffort
+            "xhigh", "max" -> "high"
+            else -> null
+        } ?: return null
+        return buildJsonObject { put("effort", effort) }
+    }
+
     private fun applyLocalBackendMaxCompletionTokens(
         requestBodyJson: String,
         apiBase: String?
@@ -1642,9 +2443,11 @@ object HttpController {
         chatRequest: ChatCompletionRequest,
         apiBase: String?,
         apiKey: String?,
+        customHeaders: Map<String, String> = emptyMap(),
         event: EventSourceListener,
         routeTag: String? = null,
-        protocolType: String = "openai_compatible"
+        protocolType: String = "openai_compatible",
+        wireApi: String = OpenAiWireApi.CHAT_COMPLETIONS
     ): EventSource = withContext(Dispatchers.IO) {
         if (protocolType == "anthropic") {
             val resolved = ResolvedSceneRequest(
@@ -1655,6 +2458,7 @@ object HttpController {
                 responseParser = ModelSceneRegistry.ResponseParser.TEXT_CONTENT,
                 apiBase = apiBase,
                 apiKey = apiKey,
+                customHeaders = ProviderCustomHeaderUtils.sanitizeCustomHeaders(customHeaders),
                 providerProfileId = null,
                 providerProfileName = null,
                 routeTag = routeTag,
@@ -1670,31 +2474,53 @@ object HttpController {
         }
         val base = normalizeApiBase(apiBase ?: "")
             ?: throw IllegalArgumentException("Invalid apiBase")
-        val requestJson = buildOpenAICompatibleRequestBody(
-            requestBodyJson = completionJson.encodeToString(chatRequest.copy(stream = true)),
-            resolvedModel = chatRequest.model,
-            includeLegacyMirrors = false,
-            protocolType = protocolType,
-            apiBase = base
-        )
+        val normalizedWireApi = OpenAiWireApi.normalize(wireApi)
+        val requestJson = if (OpenAiWireApi.isResponses(normalizedWireApi)) {
+            buildOpenAIResponsesRequestBody(
+                requestBodyJson = completionJson.encodeToString(chatRequest.copy(stream = true)),
+                resolvedModel = chatRequest.model
+            )
+        } else {
+            buildOpenAICompatibleRequestBody(
+                requestBodyJson = completionJson.encodeToString(chatRequest.copy(stream = true)),
+                resolvedModel = chatRequest.model,
+                includeLegacyMirrors = false,
+                protocolType = protocolType,
+                apiBase = base
+            )
+        }
         val requestBody = requestJson.toRequestBody("application/json".toMediaType())
+        val url = buildOpenAIInferenceUrl(base, normalizedWireApi)
         val request = buildOpenAIRequestBuilder(
-            url = buildOpenAIChatCompletionsUrl(base),
+            url = url,
             requestBody = requestBody,
-            apiKey = apiKey
+            apiKey = apiKey,
+            customHeaders = customHeaders
         )
             .addHeader("Accept", "text/event-stream")
             .build()
+        logRequestHeaders("[openai stream model=${chatRequest.model}]", request.headers.toMultimap().mapValues {
+            it.value.joinToString(",")
+        })
+        val delegate = if (OpenAiWireApi.isResponses(normalizedWireApi)) {
+            wrapResponsesListener(event)
+        } else {
+            event
+        }
         EventSources.createFactory(openAIStreamClient()).newEventSource(
             request,
             createLoggingEventListener(
                 "[openai_compatible stream model=${chatRequest.model} route=${routeTag.orEmpty()}]",
-                event,
+                delegate,
                 requestLogSeed = AiRequestLogSeed(
-                    label = "openai/chat.completions.stream",
+                    label = if (OpenAiWireApi.isResponses(normalizedWireApi)) {
+                        "openai/responses.stream"
+                    } else {
+                        "openai/chat.completions.stream"
+                    },
                     model = chatRequest.model,
                     protocolType = protocolType,
-                    url = buildOpenAIChatCompletionsUrl(base),
+                    url = url,
                     stream = true,
                     requestJson = requestJson
                 )
@@ -1722,32 +2548,54 @@ object HttpController {
         }
         val base = normalizeApiBase(resolved.apiBase ?: "")
             ?: throw IllegalArgumentException("Invalid apiBase")
-        val preparedRequestJson = buildOpenAICompatibleRequestBody(
-            requestBodyJson = requestBodyJson,
-            resolvedModel = resolved.resolvedModel,
-            includeLegacyMirrors = false,
-            mirrorLegacyTokenFields = false,
-            protocolType = resolved.protocolType,
-            apiBase = base
-        )
+        val normalizedWireApi = OpenAiWireApi.normalize(resolved.wireApi)
+        val preparedRequestJson = if (OpenAiWireApi.isResponses(normalizedWireApi)) {
+            buildOpenAIResponsesRequestBody(
+                requestBodyJson = requestBodyJson,
+                resolvedModel = resolved.resolvedModel
+            )
+        } else {
+            buildOpenAICompatibleRequestBody(
+                requestBodyJson = requestBodyJson,
+                resolvedModel = resolved.resolvedModel,
+                includeLegacyMirrors = false,
+                mirrorLegacyTokenFields = false,
+                protocolType = resolved.protocolType,
+                apiBase = base
+            )
+        }
         val requestBody = preparedRequestJson.toRequestBody("application/json".toMediaType())
+        val url = buildOpenAIInferenceUrl(base, normalizedWireApi)
         val request = buildOpenAIRequestBuilder(
-            url = buildOpenAIChatCompletionsUrl(base),
+            url = url,
             requestBody = requestBody,
-            apiKey = resolved.apiKey
+            apiKey = resolved.apiKey,
+            customHeaders = resolved.customHeaders
         )
             .addHeader("Accept", "text/event-stream")
             .build()
+        logRequestHeaders("[openai chat-completions model=${resolved.resolvedModel}]", request.headers.toMultimap().mapValues {
+            it.value.joinToString(",")
+        })
+        val delegate = if (OpenAiWireApi.isResponses(normalizedWireApi)) {
+            wrapResponsesListener(event)
+        } else {
+            event
+        }
         EventSources.createFactory(openAIStreamClient(forceHttp1)).newEventSource(
             request,
             createLoggingEventListener(
                 "[openai_compatible chat-completions model=${resolved.resolvedModel}]",
-                event,
+                delegate,
                 requestLogSeed = AiRequestLogSeed(
-                    label = "openai/chat.completions.stream",
+                    label = if (OpenAiWireApi.isResponses(normalizedWireApi)) {
+                        "openai/responses.stream"
+                    } else {
+                        "openai/chat.completions.stream"
+                    },
                     model = resolved.resolvedModel,
                     protocolType = resolved.protocolType,
-                    url = buildOpenAIChatCompletionsUrl(base),
+                    url = url,
                     stream = true,
                     requestJson = preparedRequestJson
                 )
@@ -1809,9 +2657,11 @@ object HttpController {
             chatRequest = createChatRequestFromText(resolved, text),
             apiBase = resolved.apiBase,
             apiKey = resolved.apiKey,
+            customHeaders = resolved.customHeaders,
             event = event,
             routeTag = resolved.routeTag,
-            protocolType = resolved.protocolType
+            protocolType = resolved.protocolType,
+            wireApi = resolved.wireApi
         )
     }
 
@@ -1830,16 +2680,20 @@ object HttpController {
         enableThinking: Boolean? = null,
         explicitApiBase: String? = null,
         explicitApiKey: String? = null,
+        explicitCustomHeaders: Map<String, String>? = null,
         explicitModel: String? = null,
         explicitProtocolType: String? = null,
+        explicitWireApi: String? = null,
         reasoningEffort: String? = null
     ): EventSource {
         val resolved = resolveSceneRequest(
             modelOrScene = model,
             explicitApiBase = explicitApiBase,
             explicitApiKey = explicitApiKey,
+            explicitCustomHeaders = explicitCustomHeaders,
             explicitModel = explicitModel,
-            explicitProtocolType = explicitProtocolType
+            explicitProtocolType = explicitProtocolType,
+            explicitWireApi = explicitWireApi
         )
         logSceneProfile(resolved)
         prepareLocalProviderIfNeeded(resolved)
@@ -1852,9 +2706,11 @@ object HttpController {
             ),
             apiBase = resolved.apiBase,
             apiKey = resolved.apiKey,
+            customHeaders = resolved.customHeaders,
             event = event,
             routeTag = resolved.routeTag,
-            protocolType = resolved.protocolType
+            protocolType = resolved.protocolType,
+            wireApi = resolved.wireApi
         )
     }
 
@@ -1870,16 +2726,20 @@ object HttpController {
         event: EventSourceListener,
         explicitApiBase: String? = null,
         explicitApiKey: String? = null,
+        explicitCustomHeaders: Map<String, String>? = null,
         explicitModel: String? = null,
         explicitProtocolType: String? = null,
+        explicitWireApi: String? = null,
         forceHttp1: Boolean = false
     ): EventSource {
         val resolved = resolveSceneRequest(
             modelOrScene = model,
             explicitApiBase = explicitApiBase,
             explicitApiKey = explicitApiKey,
+            explicitCustomHeaders = explicitCustomHeaders,
             explicitModel = explicitModel,
-            explicitProtocolType = explicitProtocolType
+            explicitProtocolType = explicitProtocolType,
+            explicitWireApi = explicitWireApi
         )
         logSceneProfile(resolved)
         return postOpenAIChatCompletionsStreamRequest(
@@ -2033,8 +2893,10 @@ object HttpController {
             ),
             apiBase = resolved.apiBase,
             apiKey = resolved.apiKey,
+            customHeaders = resolved.customHeaders,
             event = event,
-            routeTag = resolved.routeTag
+            routeTag = resolved.routeTag,
+            wireApi = resolved.wireApi
         )
     }
 
@@ -2055,8 +2917,10 @@ object HttpController {
             ),
             apiBase = resolved.apiBase,
             apiKey = resolved.apiKey,
+            customHeaders = resolved.customHeaders,
             event = event,
-            routeTag = resolved.routeTag
+            routeTag = resolved.routeTag,
+            wireApi = resolved.wireApi
         )
     }
 
@@ -2144,8 +3008,12 @@ object HttpController {
                 url = anthropicUrl,
                 requestBody = requestBody,
                 apiKey = resolved.apiKey,
-                hasCacheControl = hasCacheControl(anthropicJson)
+                hasCacheControl = hasCacheControl(anthropicJson),
+                customHeaders = resolved.customHeaders
             ).build()
+            logRequestHeaders("[anthropic model=${resolved.resolvedModel}]", requestCall.headers.toMultimap().mapValues {
+                it.value.joinToString(",")
+            })
             val response = OkHttpClient().newCall(requestCall).execute()
             val responseBody = response.body?.string()
             OmniLog.d(TAG, "Anthropic Response Status: ${response.code}")
@@ -2180,7 +3048,8 @@ object HttpController {
             )
         }
 
-        val url = buildOpenAIChatCompletionsUrl(base)
+        val normalizedWireApi = OpenAiWireApi.normalize(resolved.wireApi)
+        val url = buildOpenAIInferenceUrl(base, normalizedWireApi)
         val variants = if (retryOnBadRequest) {
             buildSceneRequestVariants(request.copy(model = resolved.resolvedModel, stream = false))
         } else {
@@ -2196,13 +3065,20 @@ object HttpController {
                 )
             }
 
-            val requestJson = buildOpenAICompatibleRequestBody(
-                requestBodyJson = completionJson.encodeToString(variant.request),
-                resolvedModel = variant.request.model,
-                includeLegacyMirrors = false,
-                protocolType = resolved.protocolType,
-                apiBase = base
-            )
+            val requestJson = if (OpenAiWireApi.isResponses(normalizedWireApi)) {
+                buildOpenAIResponsesRequestBody(
+                    requestBodyJson = completionJson.encodeToString(variant.request),
+                    resolvedModel = variant.request.model
+                )
+            } else {
+                buildOpenAICompatibleRequestBody(
+                    requestBodyJson = completionJson.encodeToString(variant.request),
+                    resolvedModel = variant.request.model,
+                    includeLegacyMirrors = false,
+                    protocolType = resolved.protocolType,
+                    apiBase = base
+                )
+            }
             OmniLog.d(TAG, "=== OpenAI Request Debug ===")
             OmniLog.d(TAG, "URL: $url")
             OmniLog.d(TAG, "Model: ${variant.request.model}, hasApiKey=${!resolved.apiKey.isNullOrBlank()}, variant=${variant.name}")
@@ -2213,8 +3089,12 @@ object HttpController {
             val requestCall = buildOpenAIRequestBuilder(
                 url = url,
                 requestBody = requestBody,
-                apiKey = resolved.apiKey
+                apiKey = resolved.apiKey,
+                customHeaders = resolved.customHeaders
             ).build()
+            logRequestHeaders("[openai model=${variant.request.model}]", requestCall.headers.toMultimap().mapValues {
+                it.value.joinToString(",")
+            })
 
             val response = OkHttpClient().newCall(requestCall).execute()
             val responseBody = response.body?.string()
@@ -2222,7 +3102,11 @@ object HttpController {
             logResponseBody("[openai_compatible model=${variant.request.model}]", responseBody)
             persistAiRequestLog(
                 seed = AiRequestLogSeed(
-                    label = "openai/chat.completions",
+                    label = if (OpenAiWireApi.isResponses(normalizedWireApi)) {
+                        "openai/responses"
+                    } else {
+                        "openai/chat.completions"
+                    },
                     model = variant.request.model,
                     protocolType = resolved.protocolType,
                     url = url,
@@ -2251,10 +3135,11 @@ object HttpController {
                 return@withContext failure
             }
 
-            return@withContext parseStructuredSceneResponse(
+            return@withContext parseOpenAiStructuredSceneResponse(
                 response = responseBody,
                 parser = resolved.responseParser,
-                routeTag = resolved.routeTag
+                routeTag = resolved.routeTag,
+                wireApi = normalizedWireApi
             )
         }
 
@@ -2272,7 +3157,9 @@ object HttpController {
     suspend fun checkVlmModelAvailability(
         model: String,
         apiBase: String,
-        apiKey: String?
+        apiKey: String?,
+        customHeaders: Map<String, String> = emptyMap(),
+        wireApi: String = OpenAiWireApi.CHAT_COMPLETIONS
     ): ModelAvailabilityCheckResult = withContext(Dispatchers.IO) {
         val normalizedModel = model.trim()
         if (normalizedModel.isEmpty()) {
@@ -2289,7 +3176,8 @@ object HttpController {
                 code = null,
                 message = "URL 非法，请输入 http(s) 地址"
             )
-        val url = buildOpenAIChatCompletionsUrl(normalizedApiBase)
+        val normalizedWireApi = OpenAiWireApi.normalize(wireApi)
+        val url = buildOpenAIInferenceUrl(normalizedApiBase, normalizedWireApi)
 
         return@withContext try {
             val isOfficialDeepSeek = DeepSeekProvider.isOfficialBaseUrl(normalizedApiBase)
@@ -2312,18 +3200,33 @@ object HttpController {
                     )
                 )
             }
-            val requestJson = buildOpenAICompatibleRequestBody(
-                requestBodyJson = baseRequestJson.toString(),
-                resolvedModel = normalizedModel,
-                includeLegacyMirrors = false,
-                protocolType = DeepSeekProvider.normalizeProtocolType(null),
-                apiBase = normalizedApiBase
-            )
+            val requestJson = if (OpenAiWireApi.isResponses(normalizedWireApi)) {
+                buildOpenAIResponsesRequestBody(
+                    requestBodyJson = baseRequestJson.toString(),
+                    resolvedModel = normalizedModel
+                )
+            } else {
+                buildOpenAICompatibleRequestBody(
+                    requestBodyJson = baseRequestJson.toString(),
+                    resolvedModel = normalizedModel,
+                    includeLegacyMirrors = false,
+                    protocolType = DeepSeekProvider.normalizeProtocolType(null),
+                    apiBase = normalizedApiBase
+                )
+            }
 
             val requestBody = requestJson.toRequestBody("application/json".toMediaType())
-            val response = OkHttpClient().newCall(
-                buildOpenAIRequestBuilder(url, requestBody, apiKey).build()
-            ).execute()
+            val request = buildOpenAIRequestBuilder(
+                url = url,
+                requestBody = requestBody,
+                apiKey = apiKey,
+                customHeaders = customHeaders
+            ).build()
+            logRequestHeaders(
+                "[provider availability openai model=$normalizedModel]",
+                request.headers.toMultimap().mapValues { it.value.joinToString(",") }
+            )
+            val response = OkHttpClient().newCall(request).execute()
             val responseBody = response.body?.string()
             if (!response.isSuccessful) {
                 return@withContext ModelAvailabilityCheckResult(
@@ -2333,15 +3236,19 @@ object HttpController {
                 )
             }
 
-            val hasChoices = try {
+            val hasExpectedShape = try {
                 val json = JSONObject(responseBody ?: "{}")
-                val choices = json.optJSONArray("choices")
-                choices != null && choices.length() > 0
+                if (OpenAiWireApi.isResponses(normalizedWireApi)) {
+                    json.has("output") || json.has("output_text")
+                } else {
+                    val choices = json.optJSONArray("choices")
+                    choices != null && choices.length() > 0
+                }
             } catch (_: Exception) {
                 false
             }
 
-            if (hasChoices) {
+            if (hasExpectedShape) {
                 ModelAvailabilityCheckResult(
                     available = true,
                     code = response.code,
@@ -2351,7 +3258,11 @@ object HttpController {
                 ModelAvailabilityCheckResult(
                     available = false,
                     code = response.code,
-                    message = "响应不符合 OpenAI 结构（缺少 choices）"
+                    message = if (OpenAiWireApi.isResponses(normalizedWireApi)) {
+                        "响应不符合 Responses 结构（缺少 output）"
+                    } else {
+                        "响应不符合 OpenAI 结构（缺少 choices）"
+                    }
                 )
             }
         } catch (e: Exception) {
@@ -2366,29 +3277,55 @@ object HttpController {
     suspend fun checkProviderModelAvailability(
         model: String,
         apiBase: String,
-        apiKey: String?
+        apiKey: String?,
+        customHeaders: Map<String, String> = emptyMap(),
+        protocolType: String = "openai_compatible",
+        wireApi: String = OpenAiWireApi.CHAT_COMPLETIONS
     ): ModelAvailabilityCheckResult {
-        return checkVlmModelAvailability(model, apiBase, apiKey)
+        return if (DeepSeekProvider.normalizeProtocolType(protocolType) == "anthropic") {
+            checkAnthropicModelAvailability(
+                model = model,
+                apiBase = apiBase,
+                apiKey = apiKey,
+                customHeaders = customHeaders
+            )
+        } else {
+            checkVlmModelAvailability(
+                model = model,
+                apiBase = apiBase,
+                apiKey = apiKey,
+                customHeaders = customHeaders,
+                wireApi = wireApi
+            )
+        }
     }
 
     suspend fun fetchProviderModels(
         apiBase: String,
         apiKey: String?,
-        protocolType: String = "openai_compatible"
+        customHeaders: Map<String, String> = emptyMap(),
+        protocolType: String = "openai_compatible",
+        @Suppress("UNUSED_PARAMETER") wireApi: String = OpenAiWireApi.CHAT_COMPLETIONS
     ): List<ProviderModelOption> = withContext(Dispatchers.IO) {
         val normalizedApiBase = normalizeApiBase(apiBase)
             ?: return@withContext emptyList()
         val request = if (protocolType == "anthropic") {
             buildAnthropicRequestBuilder(
                 url = buildAnthropicModelsUrl(normalizedApiBase),
-                apiKey = apiKey
+                apiKey = apiKey,
+                customHeaders = customHeaders
             ).get().build()
         } else {
             buildOpenAIRequestBuilder(
                 url = buildOpenAIModelsUrl(normalizedApiBase),
-                apiKey = apiKey
+                apiKey = apiKey,
+                customHeaders = customHeaders
             ).get().build()
         }
+        logRequestHeaders(
+            "[provider models protocol=$protocolType]",
+            request.headers.toMultimap().mapValues { it.value.joinToString(",") }
+        )
         val response = OkHttpClient().newCall(request).execute()
         val responseBody = response.body?.string()
         if (!response.isSuccessful) {
@@ -2398,6 +3335,85 @@ object HttpController {
         }
 
         parseProviderModelsResponse(responseBody)
+    }
+
+    private suspend fun checkAnthropicModelAvailability(
+        model: String,
+        apiBase: String,
+        apiKey: String?,
+        customHeaders: Map<String, String> = emptyMap()
+    ): ModelAvailabilityCheckResult = withContext(Dispatchers.IO) {
+        val normalizedModel = model.trim()
+        if (normalizedModel.isEmpty()) {
+            return@withContext ModelAvailabilityCheckResult(
+                available = false,
+                code = null,
+                message = "妯″瀷鍚嶄笉鑳戒负绌?"
+            )
+        }
+
+        val normalizedApiBase = normalizeApiBase(apiBase)
+            ?: return@withContext ModelAvailabilityCheckResult(
+                available = false,
+                code = null,
+                message = "URL 闈炴硶锛岃杈撳叆 http(s) 鍦板潃"
+            )
+
+        val requestJson = JSONObject().apply {
+            put("model", normalizedModel)
+            put("max_tokens", 1)
+            put(
+                "messages",
+                JSONArray().put(
+                    JSONObject().apply {
+                        put("role", "user")
+                        put("content", "ping")
+                    }
+                )
+            )
+        }.toString()
+        val request = buildAnthropicRequestBuilder(
+            url = buildAnthropicMessagesUrl(normalizedApiBase),
+            requestBody = requestJson.toRequestBody("application/json".toMediaType()),
+            apiKey = apiKey,
+            customHeaders = customHeaders
+        ).build()
+        logRequestHeaders(
+            "[provider availability anthropic model=$normalizedModel]",
+            request.headers.toMultimap().mapValues { it.value.joinToString(",") }
+        )
+
+        return@withContext try {
+            val response = OkHttpClient().newCall(request).execute()
+            val responseBody = response.body?.string()
+            if (!response.isSuccessful) {
+                return@withContext ModelAvailabilityCheckResult(
+                    available = false,
+                    code = response.code,
+                    message = extractAvailabilityMessage(responseBody)
+                )
+            }
+
+            val hasExpectedShape = try {
+                val json = JSONObject(responseBody ?: "{}")
+                val content = json.optJSONArray("content")
+                content != null && content.length() > 0
+            } catch (_: Exception) {
+                false
+            }
+
+            ModelAvailabilityCheckResult(
+                available = hasExpectedShape,
+                code = response.code,
+                message = if (hasExpectedShape) "OK" else "鍝嶅簲涓嶇鍚?Anthropic 缁撴瀯"
+            )
+        } catch (e: Exception) {
+            ModelAvailabilityCheckResult(
+                available = false,
+                code = null,
+                message = sanitizeShortMessage(e.message ?: "璇锋眰寮傚父")
+            )
+        }
     }
 
     private fun encodeChatCompletionRequest(request: ChatCompletionRequest): String {
@@ -2467,11 +3483,15 @@ object HttpController {
         )
     }
 
-    private fun parseStructuredSceneResponse(
+    private fun parseOpenAiStructuredSceneResponse(
         response: String?,
         parser: ModelSceneRegistry.ResponseParser,
-        routeTag: String?
+        routeTag: String?,
+        wireApi: String
     ): SceneChatCompletionResponse {
+        if (OpenAiWireApi.isResponses(wireApi)) {
+            return parseResponsesSceneResponse(response, parser, routeTag)
+        }
         return try {
             val jsonObject = JSONObject(response ?: "{}")
             val choices = jsonObject.optJSONArray("choices")
@@ -2537,6 +3557,125 @@ object HttpController {
                 rawResponseBody = response
             )
         }
+    }
+
+    private fun parseResponsesSceneResponse(
+        response: String?,
+        parser: ModelSceneRegistry.ResponseParser,
+        routeTag: String?
+    ): SceneChatCompletionResponse {
+        return try {
+            val jsonObject = JSONObject(response ?: "{}")
+            val content = extractResponsesOutputText(jsonObject)
+            val reasoning = extractResponsesReasoningText(jsonObject)
+            val toolCalls = extractResponsesToolCalls(jsonObject)
+            val finishReason = jsonObject.optString("status").trim().takeIf { it.isNotEmpty() }
+            if (content.isBlank() && toolCalls.isEmpty()) {
+                return buildFailureSceneResponse(
+                    code = "500",
+                    message = "响应不符合 Responses 结构（缺少 output）",
+                    parser = parser,
+                    routeTag = routeTag,
+                    rawResponseBody = response
+                )
+            }
+            SceneChatCompletionResponse(
+                success = true,
+                code = "200",
+                message = "success",
+                parser = parser,
+                route = routeTag,
+                content = content,
+                reasoning = reasoning,
+                finishReason = finishReason,
+                toolCalls = toolCalls,
+                rawResponseBody = response
+            )
+        } catch (e: Exception) {
+            safeLogError("Failed to parse responses output: ${e.message}")
+            buildFailureSceneResponse(
+                code = "500",
+                message = "Responses parse error: ${e.message}",
+                parser = parser,
+                routeTag = routeTag,
+                rawResponseBody = response
+            )
+        }
+    }
+
+    private fun extractResponsesOutputText(root: JSONObject): String {
+        val direct = root.optString("output_text").trim()
+        if (direct.isNotEmpty()) {
+            return direct
+        }
+        val output = root.optJSONArray("output") ?: return ""
+        val buffer = StringBuilder()
+        for (i in 0 until output.length()) {
+            val item = output.optJSONObject(i) ?: continue
+            when (item.optString("type")) {
+                "message" -> {
+                    val content = item.optJSONArray("content") ?: continue
+                    for (j in 0 until content.length()) {
+                        val block = content.optJSONObject(j) ?: continue
+                        when (block.optString("type")) {
+                            "output_text", "text", "input_text" -> {
+                                buffer.append(
+                                    block.optString("text").ifEmpty {
+                                        block.optString("content")
+                                    }
+                                )
+                            }
+                        }
+                    }
+                }
+                "output_text", "text" -> {
+                    buffer.append(
+                        item.optString("text").ifEmpty {
+                            item.optString("content")
+                        }
+                    )
+                }
+            }
+        }
+        return buffer.toString()
+    }
+
+    private fun extractResponsesReasoningText(root: JSONObject): String {
+        val output = root.optJSONArray("output") ?: return ""
+        val buffer = StringBuilder()
+        for (i in 0 until output.length()) {
+            val item = output.optJSONObject(i) ?: continue
+            if (item.optString("type") != "reasoning") continue
+            val summary = item.optJSONArray("summary")
+            if (summary != null) {
+                for (j in 0 until summary.length()) {
+                    val block = summary.optJSONObject(j) ?: continue
+                    buffer.append(block.optString("text"))
+                }
+            } else {
+                buffer.append(item.optString("text"))
+            }
+        }
+        return buffer.toString()
+    }
+
+    private fun extractResponsesToolCalls(root: JSONObject): List<AssistantToolCall> {
+        val output = root.optJSONArray("output") ?: return emptyList()
+        val parsed = mutableListOf<AssistantToolCall>()
+        for (i in 0 until output.length()) {
+            val item = output.optJSONObject(i) ?: continue
+            if (item.optString("type") != "function_call") continue
+            val name = item.optString("name").trim()
+            if (name.isEmpty()) continue
+            parsed += AssistantToolCall(
+                id = item.optString("call_id").ifBlank { item.optString("id", "tool_$i") },
+                function = AssistantToolCallFunction(
+                    name = name,
+                    arguments = item.optString("arguments", "{}")
+                )
+            )
+        }
+        return parsed
     }
 
     private fun parseToolCalls(

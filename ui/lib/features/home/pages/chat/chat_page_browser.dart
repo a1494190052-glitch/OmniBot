@@ -8,19 +8,7 @@ mixin _ChatPageBrowserMixin on _ChatPageStateBase {
   static const double _kBrowserOverlayHorizontalMargin = 16;
   static const double _kBrowserOverlayTopMargin = 64;
   static const double _kBrowserOverlayBottomMargin = 16;
-  static const double _kPageSwipeThreshold = 18;
   static const double _kDrawerSwipeThreshold = 36;
-  static const double _kRevealInterruptThreshold = 6;
-
-  void _applyPageVerticalIntent(double delta) {
-    if (_activeSurfaceMode != ChatSurfaceMode.normal ||
-        delta.abs() < _kPageSwipeThreshold) {
-      return;
-    }
-    _handleChatIslandDisplayLayerChanged(
-      delta > 0 ? ChatIslandDisplayLayer.tools : ChatIslandDisplayLayer.model,
-    );
-  }
 
   bool _maybeOpenDrawerFromPageSwipe() {
     if (!mounted ||
@@ -95,12 +83,6 @@ mixin _ChatPageBrowserMixin on _ChatPageStateBase {
     }
     _pageHorizontalDragDelta += event.delta.dx;
     _pageVerticalDragDelta += event.delta.dy;
-    if (_normalSurfaceModelRevealTimer != null &&
-        !_normalSurfaceModelRevealInterrupted &&
-        (_pageVerticalDragDelta.abs() >= _kRevealInterruptThreshold ||
-            _pageHorizontalDragDelta.abs() >= _kRevealInterruptThreshold)) {
-      _interruptNormalSurfaceModelReveal();
-    }
   }
 
   @override
@@ -115,10 +97,7 @@ mixin _ChatPageBrowserMixin on _ChatPageStateBase {
       _pageVerticalDragDelta = 0;
       return;
     }
-    final handledDrawerSwipe = _maybeOpenDrawerFromPageSwipe();
-    if (!handledDrawerSwipe) {
-      _applyPageVerticalIntent(_pageVerticalDragDelta);
-    }
+    _maybeOpenDrawerFromPageSwipe();
     _pageGesturePointerId = null;
     _pageHorizontalDragDelta = 0;
     _pageVerticalDragDelta = 0;
@@ -284,7 +263,6 @@ mixin _ChatPageBrowserMixin on _ChatPageStateBase {
     if (_activeSurfaceMode != ChatSurfaceMode.normal) {
       return;
     }
-    _cancelNormalSurfaceModelReveal();
     setState(() {
       _setChatIslandDisplayLayerForMode(ChatPageMode.normal, layer);
       if (layer != ChatIslandDisplayLayer.tools) {
@@ -298,7 +276,6 @@ mixin _ChatPageBrowserMixin on _ChatPageStateBase {
     if (_activeSurfaceMode != ChatSurfaceMode.normal) {
       return;
     }
-    _cancelNormalSurfaceModelReveal();
     setState(() {
       _setChatIslandDisplayLayerForMode(
         ChatPageMode.normal,
@@ -320,7 +297,6 @@ mixin _ChatPageBrowserMixin on _ChatPageStateBase {
     if (_activeSurfaceMode != ChatSurfaceMode.normal) {
       return;
     }
-    _cancelNormalSurfaceModelReveal();
     if (!Platform.isAndroid) {
       showToast('当前平台暂不支持浏览器工具视图', type: ToastType.warning);
       return;

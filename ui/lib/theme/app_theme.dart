@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:ui/services/app_font_effect_service.dart';
 import 'package:ui/theme/app_colors.dart';
 import 'package:ui/theme/omni_theme_palette.dart';
 
@@ -8,6 +9,28 @@ class AppTheme {
 
   static ThemeData get lightTheme => _lightTheme;
   static ThemeData get darkTheme => _darkTheme;
+
+  static ThemeData lightThemeFor({required bool enhancedFonts}) {
+    if (!enhancedFonts) {
+      return _lightTheme;
+    }
+    return _buildTheme(
+      brightness: Brightness.light,
+      palette: OmniThemePalette.light,
+      enhancedFonts: true,
+    );
+  }
+
+  static ThemeData darkThemeFor({required bool enhancedFonts}) {
+    if (!enhancedFonts) {
+      return _darkTheme;
+    }
+    return _buildTheme(
+      brightness: Brightness.dark,
+      palette: OmniThemePalette.dark,
+      enhancedFonts: true,
+    );
+  }
 
   static final ThemeData _lightTheme = _buildTheme(
     brightness: Brightness.light,
@@ -22,9 +45,20 @@ class AppTheme {
   static ThemeData _buildTheme({
     required Brightness brightness,
     required OmniThemePalette palette,
+    bool enhancedFonts = false,
   }) {
     final isDark = brightness == Brightness.dark;
     final onAccentColor = _foregroundForAccent(palette.accentPrimary);
+    final fontFamily = AppFontEffectService.fontFamilyFor(
+      enhancedFonts: enhancedFonts,
+    );
+    final fontFamilyFallback = AppFontEffectService.fontFallbackFor(
+      enhancedFonts: enhancedFonts,
+    );
+    final globalInputDecorationTheme = _buildInputDecorationTheme(
+      palette: palette,
+      isDark: isDark,
+    );
     final colorScheme =
         ColorScheme.fromSeed(
           seedColor: palette.accentPrimary,
@@ -54,6 +88,8 @@ class AppTheme {
       shadowColor: palette.shadowColor,
       splashColor: palette.accentPrimary.withValues(alpha: isDark ? 0.1 : 0.08),
       highlightColor: Colors.transparent,
+      fontFamily: fontFamily,
+      fontFamilyFallback: fontFamilyFallback,
       extensions: <ThemeExtension<dynamic>>[palette],
       appBarTheme: AppBarTheme(
         backgroundColor: palette.pageBackground,
@@ -68,7 +104,8 @@ class AppTheme {
           fontSize: 17,
           fontWeight: FontWeight.w600,
           color: palette.textPrimary,
-          fontFamily: 'SF Pro',
+          fontFamily: fontFamily,
+          fontFamilyFallback: fontFamilyFallback,
         ),
         iconTheme: IconThemeData(color: palette.textPrimary, size: 24),
       ),
@@ -81,36 +118,7 @@ class AppTheme {
         thickness: 1,
         space: 1,
       ),
-      inputDecorationTheme: InputDecorationTheme(
-        filled: true,
-        fillColor: palette.surfacePrimary,
-        contentPadding: const EdgeInsets.symmetric(
-          horizontal: 14,
-          vertical: 14,
-        ),
-        hintStyle: TextStyle(color: palette.textTertiary, fontSize: 14),
-        labelStyle: TextStyle(color: palette.textSecondary, fontSize: 14),
-        border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
-          borderSide: BorderSide(color: palette.borderSubtle),
-        ),
-        enabledBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
-          borderSide: BorderSide(color: palette.borderSubtle),
-        ),
-        focusedBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
-          borderSide: BorderSide(color: palette.accentPrimary, width: 1.5),
-        ),
-        errorBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
-          borderSide: const BorderSide(color: AppColors.alertRed),
-        ),
-        focusedErrorBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
-          borderSide: const BorderSide(color: AppColors.alertRed, width: 1.5),
-        ),
-      ),
+      inputDecorationTheme: globalInputDecorationTheme,
       chipTheme: ChipThemeData(
         backgroundColor: palette.surfaceElevated,
         selectedColor: palette.segmentThumb,
@@ -173,6 +181,53 @@ class AppTheme {
       textTheme: baseTheme.textTheme.apply(
         bodyColor: palette.textPrimary,
         displayColor: palette.textPrimary,
+        fontFamily: fontFamily,
+        fontFamilyFallback: fontFamilyFallback,
+      ),
+    );
+  }
+
+  static InputDecorationTheme _buildInputDecorationTheme({
+    required OmniThemePalette palette,
+    required bool isDark,
+  }) {
+    final fillColor = palette.surfaceSecondary.withValues(
+      alpha: isDark ? 0.72 : 0.64,
+    );
+    final radius = BorderRadius.circular(10);
+    return InputDecorationTheme(
+      filled: true,
+      fillColor: fillColor,
+      isDense: true,
+      contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+      suffixIconConstraints: const BoxConstraints(minWidth: 44, minHeight: 44),
+      hintStyle: TextStyle(color: palette.textTertiary, fontSize: 12),
+      labelStyle: TextStyle(color: palette.textTertiary, fontSize: 12),
+      border: OutlineInputBorder(
+        borderRadius: radius,
+        borderSide: BorderSide.none,
+      ),
+      enabledBorder: OutlineInputBorder(
+        borderRadius: radius,
+        borderSide: BorderSide.none,
+      ),
+      disabledBorder: OutlineInputBorder(
+        borderRadius: radius,
+        borderSide: BorderSide.none,
+      ),
+      focusedBorder: OutlineInputBorder(
+        borderRadius: radius,
+        borderSide: BorderSide(
+          color: palette.accentPrimary.withValues(alpha: 0.64),
+        ),
+      ),
+      errorBorder: OutlineInputBorder(
+        borderRadius: radius,
+        borderSide: const BorderSide(color: AppColors.alertRed),
+      ),
+      focusedErrorBorder: OutlineInputBorder(
+        borderRadius: radius,
+        borderSide: const BorderSide(color: AppColors.alertRed, width: 1.5),
       ),
     );
   }

@@ -1,4 +1,5 @@
 import 'dart:math' as math;
+import 'dart:ui' show ImageFilter;
 
 import 'package:flutter/material.dart';
 import 'package:ui/features/home/pages/chat/tool_activity_utils.dart'
@@ -38,7 +39,7 @@ const double _kToolActivityTypeSlotWidth = 34;
 const double _kToolActivityStatusSlotWidth = 42;
 const double _kToolActivityTrailingSlotWidth = 24;
 const double _kToolActivityAttachedBorderReveal = 1.5;
-const Color _kToolActivitySurfaceColor = Color(0xFFF9FCFF);
+const double _kToolActivityGlassBlurSigma = 14;
 const BorderRadius _kToolActivitySurfaceBorderRadius = BorderRadius.only(
   topLeft: Radius.circular(_kToolActivitySurfaceRadius),
   topRight: Radius.circular(_kToolActivitySurfaceRadius),
@@ -563,74 +564,55 @@ class _CommandDrawerSurface extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final palette = context.omniPalette;
-    final surfaceColor = context.isDarkTheme
-        ? palette.surfacePrimary
-        : _kToolActivitySurfaceColor;
     final dividerColor = context.isDarkTheme
-        ? palette.borderSubtle.withValues(alpha: 0.52)
+        ? context.omniPalette.borderSubtle.withValues(alpha: 0.52)
         : const Color(0x140F2034);
-    final bottomReveal = suppressShadow
-        ? _kToolActivityAttachedBorderReveal
-        : 0.0;
-    return PhysicalShape(
+    return _GlassActivitySurface(
       key: const ValueKey('chat-command-activity-bar'),
-      color: surfaceColor,
-      shadowColor: suppressShadow
-          ? Colors.transparent
-          : context.isDarkTheme
-          ? palette.shadowColor.withValues(alpha: 0.42)
-          : const Color(0x18111B2D),
-      elevation: suppressShadow ? 0 : (expanded ? 8 : 6),
-      clipBehavior: Clip.antiAlias,
-      clipper: _ActivityDrawerClipper(
-        showPreviewCutout: false,
-        bottomReveal: bottomReveal,
-      ),
-      child: ColoredBox(
-        color: surfaceColor,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            AnimatedCrossFade(
-              duration: const Duration(milliseconds: 240),
-              firstCurve: Curves.easeInCubic,
-              secondCurve: Curves.easeOutCubic,
-              sizeCurve: Curves.easeOutQuart,
-              alignment: Alignment.bottomCenter,
-              crossFadeState: expanded
-                  ? CrossFadeState.showSecond
-                  : CrossFadeState.showFirst,
-              firstChild: const SizedBox.shrink(
-                key: ValueKey('collapsed-command-panel'),
-              ),
-              secondChild: SizedBox(
-                height: historyHeight,
-                child: _HistoryDrawer(
-                  cards: historyCards,
-                  onOpenCard: onSelectCommand,
-                  onPointerDown: onHistoryPointerDown,
-                  onPointerEnd: onHistoryPointerEnd,
-                ),
+      expanded: expanded,
+      suppressShadow: suppressShadow,
+      showPreviewCutout: false,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          AnimatedCrossFade(
+            duration: const Duration(milliseconds: 240),
+            firstCurve: Curves.easeInCubic,
+            secondCurve: Curves.easeOutCubic,
+            sizeCurve: Curves.easeOutQuart,
+            alignment: Alignment.bottomCenter,
+            crossFadeState: expanded
+                ? CrossFadeState.showSecond
+                : CrossFadeState.showFirst,
+            firstChild: const SizedBox.shrink(
+              key: ValueKey('collapsed-command-panel'),
+            ),
+            secondChild: SizedBox(
+              height: historyHeight,
+              child: _HistoryDrawer(
+                cards: historyCards,
+                onOpenCard: onSelectCommand,
+                onPointerDown: onHistoryPointerDown,
+                onPointerEnd: onHistoryPointerEnd,
               ),
             ),
-            AnimatedContainer(
-              duration: const Duration(milliseconds: 220),
-              curve: Curves.easeOutCubic,
-              height: expanded ? 1 : 0,
-              margin: const EdgeInsets.only(left: 18, right: 10),
-              color: dividerColor,
-            ),
-            ToolActivityRow(
-              card: activeCard,
-              leadingInset: leadingInset,
-              onTap: () => onSelectCommand(activeCard),
-              trailing: canExpand
-                  ? _ActivityBarTrailing(expanded: expanded, onToggle: onToggle)
-                  : null,
-            ),
-          ],
-        ),
+          ),
+          AnimatedContainer(
+            duration: const Duration(milliseconds: 220),
+            curve: Curves.easeOutCubic,
+            height: expanded ? 1 : 0,
+            margin: const EdgeInsets.only(left: 18, right: 10),
+            color: dividerColor,
+          ),
+          ToolActivityRow(
+            card: activeCard,
+            leadingInset: leadingInset,
+            onTap: () => onSelectCommand(activeCard),
+            trailing: canExpand
+                ? _ActivityBarTrailing(expanded: expanded, onToggle: onToggle)
+                : null,
+          ),
+        ],
       ),
     );
   }
@@ -673,87 +655,177 @@ class _ActivityDrawerSurface extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final palette = context.omniPalette;
-    final surfaceColor = context.isDarkTheme
-        ? palette.surfacePrimary
-        : _kToolActivitySurfaceColor;
     final dividerColor = context.isDarkTheme
-        ? palette.borderSubtle.withValues(alpha: 0.52)
+        ? context.omniPalette.borderSubtle.withValues(alpha: 0.52)
         : const Color(0x140F2034);
-    final bottomReveal = suppressShadow
-        ? _kToolActivityAttachedBorderReveal
-        : 0.0;
-    return PhysicalShape(
+    return _GlassActivitySurface(
       key: kChatToolActivityBarKey,
-      color: surfaceColor,
-      shadowColor: suppressShadow
-          ? Colors.transparent
-          : context.isDarkTheme
-          ? palette.shadowColor.withValues(alpha: 0.42)
-          : const Color(0x18111B2D),
-      elevation: suppressShadow ? 0 : (expanded ? 8 : 6),
-      clipBehavior: Clip.antiAlias,
-      clipper: _ActivityDrawerClipper(
-        showPreviewCutout: showPreviewCutout,
-        bottomReveal: bottomReveal,
-      ),
-      child: ColoredBox(
-        color: surfaceColor,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            AnimatedCrossFade(
-              duration: const Duration(milliseconds: 240),
-              firstCurve: Curves.easeInCubic,
-              secondCurve: Curves.easeOutCubic,
-              sizeCurve: Curves.easeOutQuart,
-              alignment: Alignment.bottomCenter,
-              crossFadeState: expanded
-                  ? CrossFadeState.showSecond
-                  : CrossFadeState.showFirst,
-              firstChild: const SizedBox.shrink(
-                key: ValueKey('collapsed-panel'),
-              ),
-              secondChild: SizedBox(
-                height: historyHeight,
-                child: _HistoryDrawer(
-                  cards: historyCards,
-                  onOpenCard: onOpenCard,
-                  onPointerDown: onHistoryPointerDown,
-                  onPointerEnd: onHistoryPointerEnd,
-                ),
+      expanded: expanded,
+      suppressShadow: suppressShadow,
+      showPreviewCutout: showPreviewCutout,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          AnimatedCrossFade(
+            duration: const Duration(milliseconds: 240),
+            firstCurve: Curves.easeInCubic,
+            secondCurve: Curves.easeOutCubic,
+            sizeCurve: Curves.easeOutQuart,
+            alignment: Alignment.bottomCenter,
+            crossFadeState: expanded
+                ? CrossFadeState.showSecond
+                : CrossFadeState.showFirst,
+            firstChild: const SizedBox.shrink(
+              key: ValueKey('collapsed-panel'),
+            ),
+            secondChild: SizedBox(
+              height: historyHeight,
+              child: _HistoryDrawer(
+                cards: historyCards,
+                onOpenCard: onOpenCard,
+                onPointerDown: onHistoryPointerDown,
+                onPointerEnd: onHistoryPointerEnd,
               ),
             ),
-            AnimatedContainer(
-              duration: const Duration(milliseconds: 220),
-              curve: Curves.easeOutCubic,
-              height: expanded ? 1 : 0,
-              margin: const EdgeInsets.only(left: 18, right: 10),
-              color: dividerColor,
-            ),
-            ToolActivityRow(
-              card: activeCard,
-              leadingInset: leadingInset,
-              onTap: openActiveCardOnTap
-                  ? () => onOpenCard(activeCard)
-                  : (canExpand ? onToggle : null),
-              trailing: _supportsToolStop(activeCard) && onStopToolCall != null
-                  ? _ToolStopButton(
-                      enabled: !isStopPending,
-                      onTap: onStopToolCall,
-                    )
-                  : canExpand
-                  ? _ActivityBarTrailing(expanded: expanded, onToggle: onToggle)
-                  : null,
-            ),
-          ],
-        ),
+          ),
+          AnimatedContainer(
+            duration: const Duration(milliseconds: 220),
+            curve: Curves.easeOutCubic,
+            height: expanded ? 1 : 0,
+            margin: const EdgeInsets.only(left: 18, right: 10),
+            color: dividerColor,
+          ),
+          ToolActivityRow(
+            card: activeCard,
+            leadingInset: leadingInset,
+            onTap: openActiveCardOnTap
+                ? () => onOpenCard(activeCard)
+                : (canExpand ? onToggle : null),
+            trailing: _supportsToolStop(activeCard) && onStopToolCall != null
+                ? _ToolStopButton(
+                    enabled: !isStopPending,
+                    onTap: onStopToolCall,
+                  )
+                : canExpand
+                ? _ActivityBarTrailing(expanded: expanded, onToggle: onToggle)
+                : null,
+          ),
+        ],
       ),
     );
   }
 
   bool _supportsToolStop(Map<String, dynamic> cardData) {
     return (cardData['status'] ?? '').toString() == 'running';
+  }
+}
+
+/// Glass-styled chrome for the activity strip surfaces. Mirrors the look of
+/// [OmniGlassPanel] (blurred backdrop, gradient tint, top highlight) while
+/// keeping the strip's custom clipper so the preview-thumbnail cutout still
+/// works and so the bottom edge can sit flush against the input area.
+class _GlassActivitySurface extends StatelessWidget {
+  const _GlassActivitySurface({
+    super.key,
+    required this.expanded,
+    required this.suppressShadow,
+    required this.showPreviewCutout,
+    required this.child,
+  });
+
+  final bool expanded;
+  final bool suppressShadow;
+  final bool showPreviewCutout;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    final palette = context.omniPalette;
+    final isDark = context.isDarkTheme;
+    final topTint = isDark
+        ? palette.surfacePrimary.withValues(alpha: 0.62)
+        : Colors.white.withValues(alpha: 0.72);
+    final bottomTint = isDark
+        ? palette.surfaceSecondary.withValues(alpha: 0.42)
+        : Colors.white.withValues(alpha: 0.48);
+    final borderColor = isDark
+        ? Colors.white.withValues(alpha: 0.08)
+        : Colors.white.withValues(alpha: 0.78);
+    final highlightColor = isDark
+        ? Colors.white.withValues(alpha: 0.32)
+        : Colors.white.withValues(alpha: 0.86);
+    final shadowColor = isDark
+        ? Colors.black.withValues(alpha: 0.34)
+        : Colors.black.withValues(alpha: 0.12);
+    final bottomReveal = suppressShadow
+        ? _kToolActivityAttachedBorderReveal
+        : 0.0;
+
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        borderRadius: _kToolActivitySurfaceBorderRadius,
+        boxShadow: suppressShadow
+            ? const <BoxShadow>[]
+            : <BoxShadow>[
+                BoxShadow(
+                  color: shadowColor,
+                  blurRadius: expanded ? 28 : 20,
+                  offset: const Offset(0, 8),
+                ),
+              ],
+      ),
+      child: ClipPath(
+        clipper: _ActivityDrawerClipper(
+          showPreviewCutout: showPreviewCutout,
+          bottomReveal: bottomReveal,
+        ),
+        child: BackdropFilter(
+          filter: ImageFilter.blur(
+            sigmaX: _kToolActivityGlassBlurSigma,
+            sigmaY: _kToolActivityGlassBlurSigma,
+          ),
+          child: DecoratedBox(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: <Color>[topTint, bottomTint],
+              ),
+              border: Border(
+                top: BorderSide(color: borderColor),
+                left: BorderSide(color: borderColor),
+                right: BorderSide(color: borderColor),
+              ),
+              borderRadius: _kToolActivitySurfaceBorderRadius,
+            ),
+            child: Stack(
+              children: <Widget>[
+                child,
+                Positioned(
+                  left: 8,
+                  right: 8,
+                  top: 0,
+                  child: IgnorePointer(
+                    child: Container(
+                      height: 1,
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          colors: <Color>[
+                            Colors.transparent,
+                            highlightColor,
+                            Colors.transparent,
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
   }
 }
 

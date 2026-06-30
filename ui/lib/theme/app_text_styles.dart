@@ -1,10 +1,12 @@
 import 'package:flutter/material.dart';
-import 'app_colors.dart';
+import 'package:ui/services/app_font_effect_service.dart';
 
 /// 应用文本样式系统 - 基于 Figma 设计令牌
 class AppTextStyles {
   // 字体家族
-  static const String fontFamily = 'PingFang SC';
+  static String get fontFamily => AppFontEffectService.currentFontFamily;
+  static List<String>? get fontFamilyFallback =>
+      AppFontEffectService.currentFontFamilyFallback;
 
   // 字体大小
   static const double fontSizeH1 = 30.0;
@@ -30,7 +32,7 @@ class AppTextStyles {
   static const double letterSpacingNormal = 0.0;
   static const double letterSpacingMedium = 0.39;
   static const double letterSpacingWide = 0.5;
-  
+
   // 标题样式
   // static const TextStyle h1 = TextStyle(
   //   fontFamily: fontFamily,
@@ -39,7 +41,7 @@ class AppTextStyles {
   //   color: AppColors.text90,
   //   height: 1.5,
   // );
-  
+
   // static const TextStyle h2 = TextStyle(
   //   fontFamily: fontFamily,
   //   fontSize: 20,
@@ -48,7 +50,7 @@ class AppTextStyles {
   //   height: 1.7,
   //   letterSpacing: 0.5,
   // );
-  
+
   // static const TextStyle h3 = TextStyle(
   //   fontFamily: fontFamily,
   //   fontSize: 17,
@@ -57,7 +59,7 @@ class AppTextStyles {
   //   height: 1.7,
   //   letterSpacing: 0.50,
   // );
-  
+
   // static const TextStyle h4 = TextStyle(
   //   fontFamily: fontFamily,
   //   fontSize: 10,
@@ -66,7 +68,7 @@ class AppTextStyles {
   //   height: 1.7,
   //   letterSpacing: 0.39,
   // );
-  
+
   // // 正文样式
   // static const TextStyle body1 = TextStyle(
   //   fontFamily: fontFamily,
@@ -75,7 +77,7 @@ class AppTextStyles {
   //   color: AppColors.text90,
   //   height: 1.5,
   // );
-  
+
   // static const TextStyle body2 = TextStyle(
   //   fontFamily: fontFamily,
   //   fontSize: 14,
@@ -84,7 +86,7 @@ class AppTextStyles {
   //   height: 1.5,
   //   letterSpacing: 0.39,
   // );
-  
+
   // static const TextStyle body3 = TextStyle(
   //   fontFamily: fontFamily,
   //   fontSize: 12,
@@ -93,7 +95,7 @@ class AppTextStyles {
   //   height: 1.5,
   //   letterSpacing: 0.50,
   // );
-  
+
   // // 标签样式
   // static const TextStyle label1 = TextStyle(
   //   fontFamily: fontFamily,
@@ -103,7 +105,7 @@ class AppTextStyles {
   //   height: 1.0,
   //   letterSpacing: 0.50,
   // );
-  
+
   // static const TextStyle label2 = TextStyle(
   //   fontFamily: fontFamily,
   //   fontSize: 12,
@@ -112,7 +114,7 @@ class AppTextStyles {
   //   height: 1.0,
   //   letterSpacing: 0.50,
   // );
-  
+
   // // 按钮文本样式
   // static const TextStyle buttonLarge = TextStyle(
   //   fontFamily: fontFamily,
@@ -122,7 +124,7 @@ class AppTextStyles {
   //   height: 1.5,
   //   letterSpacing: 0.50,
   // );
-  
+
   // static const TextStyle buttonMedium = TextStyle(
   //   fontFamily: fontFamily,
   //   fontSize: 14,
@@ -130,7 +132,7 @@ class AppTextStyles {
   //   color: AppColors.buttonText100,
   //   height: 1.5,
   // );
-  
+
   // static const TextStyle buttonSmall = TextStyle(
   //   fontFamily: fontFamily,
   //   fontSize: 12,
@@ -138,7 +140,7 @@ class AppTextStyles {
   //   color: AppColors.buttonText100,
   //   height: 1.5,
   // );
-  
+
   // // 特殊样式
   // static const TextStyle caption = TextStyle(
   //   fontFamily: fontFamily,
@@ -147,7 +149,7 @@ class AppTextStyles {
   //   color: AppColors.text50,
   //   height: 1.4,
   // );
-  
+
   // static const TextStyle overline = TextStyle(
   //   fontFamily: fontFamily,
   //   fontSize: 10,
@@ -156,7 +158,7 @@ class AppTextStyles {
   //   height: 1.6,
   //   letterSpacing: 0.5,
   // );
-  
+
   // // 链接样式
   // static const TextStyle link = TextStyle(
   //   fontFamily: fontFamily,
@@ -166,7 +168,7 @@ class AppTextStyles {
   //   height: 1.5,
   //   decoration: TextDecoration.underline,
   // );
-  
+
   // // 品牌色文本
   // static const TextStyle brandText = TextStyle(
   //   fontFamily: fontFamily,
@@ -175,7 +177,7 @@ class AppTextStyles {
   //   color: AppColors.primaryBlue,
   //   height: 1.7,
   // );
-  
+
   // // 错误提示文本
   // static const TextStyle error = TextStyle(
   //   fontFamily: fontFamily,

@@ -259,6 +259,25 @@ class AppLocalizationsZh extends AppLocalizations {
   String get appearanceAdjustments => '效果调整';
 
   @override
+  String get appearanceFontEffectsTitle => '字体效果';
+
+  @override
+  String get appearanceFontEffectsSubtitle => '为中文和英文界面加载更精细的字体组合';
+
+  @override
+  String get appearanceEnhanceFontEffects => '提升字体效果';
+
+  @override
+  String get appearanceEnhanceFontEffectsSubtitle =>
+      '默认关闭；开启后会自动下载字体并缓存到本地，之后离线也可继续使用。';
+
+  @override
+  String get appearanceEnhanceFontEffectsLoading => '正在加载字体…';
+
+  @override
+  String get appearanceEnhanceFontEffectsFailed => '字体加载失败，请稍后重试';
+
+  @override
   String get appearancePreviewChat => '聊天';
 
   @override

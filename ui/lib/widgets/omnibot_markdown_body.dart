@@ -1,3 +1,4 @@
+import 'dart:collection';
 import 'dart:convert';
 import 'dart:io';
 
@@ -11,6 +12,210 @@ import 'package:ui/services/omnibot_resource_service.dart';
 import 'package:ui/utils/ui.dart';
 import 'package:ui/widgets/chat_drawer_gesture_guard.dart';
 import 'package:ui/widgets/omnibot_resource_widgets.dart';
+
+// ── Module-level reusable singletons ──
+// flutter_markdown 通过 `!=` 检测 styleSheet 变化触发 _parseMarkdown()，
+// 因此 styleSheet 必须保持引用稳定，否则每个 build 都会触发整段 AST 重解析。
+// 同理，inline/block 语法和 codeTapHandler 也可全局共享，避免分配开销。
+
+const OmnibotCodeTapHandler _kOmnibotCodeTapHandler = OmnibotCodeTapHandler();
+
+final OmnibotInlineMathSyntax _kOmnibotInlineMathSyntax =
+    OmnibotInlineMathSyntax();
+final OmnibotInlineLinkSyntax _kOmnibotInlineLinkSyntax =
+    OmnibotInlineLinkSyntax();
+final OmnibotTrailingInlineSyntax _kOmnibotTrailingInlineSyntax =
+    OmnibotTrailingInlineSyntax();
+final RegExp _kMarkdownTablePipeCellSeparatorPattern = RegExp(r'\s\|\s');
+
+final List<md.InlineSyntax> _kInlineSyntaxesWithoutTrailing =
+    List<md.InlineSyntax>.unmodifiable(<md.InlineSyntax>[
+      _kOmnibotInlineMathSyntax,
+      _kOmnibotInlineLinkSyntax,
+    ]);
+
+final List<md.InlineSyntax> _kInlineSyntaxesWithTrailing =
+    List<md.InlineSyntax>.unmodifiable(<md.InlineSyntax>[
+      _kOmnibotInlineMathSyntax,
+      _kOmnibotInlineLinkSyntax,
+      _kOmnibotTrailingInlineSyntax,
+    ]);
+
+const List<md.BlockSyntax> _kBlockSyntaxes = <md.BlockSyntax>[
+  OmnibotTableSyntax(),
+  OmnibotMathBlockSyntax(),
+];
+
+// ── StyleSheet LRU cache ──
+// `MarkdownStyleSheet.fromTheme(...).copyWith(...)` 是重型操作；同等条件下
+// 复用同一引用可以让 flutter_markdown 在 didUpdateWidget 中跳过 _parseMarkdown，
+// 从而避免每次父级 setState 都重新解析整段 markdown。
+const int _kStyleSheetCacheCapacity = 8;
+final LinkedHashMap<int, MarkdownStyleSheet> _styleSheetCache =
+    LinkedHashMap<int, MarkdownStyleSheet>();
+
+bool omnibotMarkdownContainsTableCandidate(String source) {
+  final lines = source.split('\n');
+  for (var index = 0; index < lines.length; index++) {
+    if (_tryParseMarkdownTable(lines, index) != null) {
+      return true;
+    }
+    if (omnibotMarkdownLineLooksLikeTableCandidate(lines[index])) {
+      return true;
+    }
+  }
+  return false;
+}
+
+String omnibotMarkdownWithoutTrailingTableCandidate(String source) {
+  final lines = source.split('\n');
+  final lastContentIndex = lines.lastIndexWhere(
+    (line) => line.trim().isNotEmpty,
+  );
+  if (lastContentIndex == -1) {
+    return source;
+  }
+
+  int? candidateStartIndex;
+  var index = 0;
+  while (index <= lastContentIndex) {
+    final table = _tryParseMarkdownTable(lines, index);
+    if (table != null) {
+      candidateStartIndex = null;
+      index = table.nextLineIndex;
+      continue;
+    }
+
+    final line = lines[index];
+    if (line.trim().isEmpty) {
+      candidateStartIndex = null;
+    } else if (omnibotMarkdownLineLooksLikeTableCandidate(line)) {
+      candidateStartIndex ??= index;
+    } else {
+      candidateStartIndex = null;
+    }
+    index += 1;
+  }
+
+  final start = candidateStartIndex;
+  if (start == null) {
+    return source;
+  }
+  final removalStart = _trailingTableCandidateRemovalStart(lines, start);
+  return lines
+      .sublist(0, removalStart)
+      .join('\n')
+      .replaceFirst(RegExp(r'\n+$'), '');
+}
+
+bool omnibotMarkdownLineLooksLikeTableCandidate(String line) {
+  final trimmed = line.trimLeft();
+  if (trimmed.startsWith('|') && trimmed.indexOf('|', 1) != -1) {
+    return true;
+  }
+  if (trimmed.startsWith('|') &&
+      (trimmed.contains('-') || trimmed.contains(':'))) {
+    return true;
+  }
+  if (_kMarkdownTablePipeCellSeparatorPattern.hasMatch(trimmed)) {
+    return true;
+  }
+  return OmnibotTableSyntax._tableDividerPattern.hasMatch(line);
+}
+
+int _trailingTableCandidateRemovalStart(
+  List<String> lines,
+  int candidateStartIndex,
+) {
+  if (candidateStartIndex == 0 ||
+      !_hasParsedMarkdownTableBefore(lines, candidateStartIndex)) {
+    return candidateStartIndex;
+  }
+
+  var preambleStartIndex = candidateStartIndex;
+  var index = candidateStartIndex - 1;
+  while (index >= 0) {
+    final line = lines[index];
+    if (line.trim().isEmpty ||
+        omnibotMarkdownLineLooksLikeTableCandidate(line)) {
+      break;
+    }
+    preambleStartIndex = index;
+    index -= 1;
+  }
+
+  if (preambleStartIndex == candidateStartIndex ||
+      !_paragraphAppearsEarlier(
+        lines,
+        preambleStartIndex,
+        candidateStartIndex,
+      )) {
+    return candidateStartIndex;
+  }
+  return preambleStartIndex;
+}
+
+bool _hasParsedMarkdownTableBefore(List<String> lines, int endIndex) {
+  var index = 0;
+  while (index < endIndex) {
+    final table = _tryParseMarkdownTable(lines, index);
+    if (table != null) {
+      return true;
+    }
+    index += 1;
+  }
+  return false;
+}
+
+bool _paragraphAppearsEarlier(
+  List<String> lines,
+  int startIndex,
+  int endIndex,
+) {
+  final paragraph = lines
+      .sublist(startIndex, endIndex)
+      .map((line) => line.trim())
+      .where((line) => line.isNotEmpty)
+      .join('\n');
+  if (paragraph.isEmpty) {
+    return false;
+  }
+
+  final earlierText = lines.sublist(0, startIndex).join('\n');
+  return earlierText.contains(paragraph);
+}
+
+MarkdownStyleSheet _resolveMarkdownStyleSheet(
+  BuildContext context,
+  TextStyle baseStyle,
+) {
+  final theme = Theme.of(context);
+  final scheme = theme.colorScheme;
+  final key = Object.hashAll(<Object?>[
+    theme.brightness,
+    scheme.primary,
+    scheme.onSurface,
+    scheme.surface,
+    scheme.surfaceContainerHighest,
+    scheme.onSurfaceVariant,
+    scheme.outlineVariant,
+    baseStyle.color,
+    baseStyle.fontSize,
+    baseStyle.height,
+    baseStyle.fontWeight,
+    baseStyle.fontFamily,
+  ]);
+  final cached = _styleSheetCache[key];
+  if (cached != null) {
+    return cached;
+  }
+  if (_styleSheetCache.length >= _kStyleSheetCacheCapacity) {
+    _styleSheetCache.remove(_styleSheetCache.keys.first);
+  }
+  final styleSheet = buildOmnibotMarkdownStyleSheet(context, baseStyle);
+  _styleSheetCache[key] = styleSheet;
+  return styleSheet;
+}
 
 class OmnibotMarkdownBody extends StatelessWidget {
   static const String _trailingInlineToken = '[[omnibot-trailing-inline]]';
@@ -34,50 +239,90 @@ class OmnibotMarkdownBody extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final codeTapHandler = OmnibotCodeTapHandler();
-    final styleSheet = buildOmnibotMarkdownStyleSheet(context, baseStyle);
-    return MarkdownBody(
-      data: _linkifyBareOmnibotUris(_withTrailingInlineToken(data)),
-      selectable: selectable,
-      onTapLink: (text, href, title) {
-        if (href == null) return;
-        _handleMarkdownLinkTap(context, href, onResourceOpen);
-      },
-      blockSyntaxes: const <md.BlockSyntax>[
-        OmnibotTableSyntax(),
-        OmnibotMathBlockSyntax(),
-      ],
-      inlineSyntaxes: <md.InlineSyntax>[
-        OmnibotInlineMathSyntax(),
-        OmnibotInlineLinkSyntax(),
-        if (trailingInline != null) OmnibotTrailingInlineSyntax(),
-      ],
-      builders: buildOmnibotMarkdownBuilders(
-        baseStyle: baseStyle,
+    final segments = _splitMarkdownTableSegments(data);
+    if (segments.length > 1 ||
+        (segments.length == 1 && segments.first.tableRows != null)) {
+      final styleSheet = _resolveMarkdownStyleSheet(context, baseStyle);
+      final children = <Widget>[];
+      for (final segment in segments) {
+        final tableRows = segment.tableRows;
+        if (tableRows != null) {
+          children.add(
+            OmnibotTableBuilder(
+              baseStyle: baseStyle,
+              selectable: false,
+              inlineResourcePlainStyle: inlineResourcePlainStyle,
+              onResourceOpen: onResourceOpen,
+            )._buildTableFromRows(context, styleSheet, tableRows),
+          );
+          continue;
+        }
+        if (segment.text.trim().isEmpty) {
+          continue;
+        }
+        children.add(_buildMarkdownBody(context, segment.text));
+      }
+      if (children.isEmpty) {
+        return const SizedBox.shrink();
+      }
+      return KeyedSubtree(
+        key: const ValueKey('omnibot-markdown-table-root'),
+        child: RepaintBoundary(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: children,
+          ),
+        ),
+      );
+    }
+    return KeyedSubtree(
+      key: const ValueKey('omnibot-markdown-plain-root'),
+      child: _buildMarkdownBody(context, data),
+    );
+  }
+
+  Widget _buildMarkdownBody(BuildContext context, String source) {
+    final styleSheet = _resolveMarkdownStyleSheet(context, baseStyle);
+    return RepaintBoundary(
+      child: MarkdownBody(
+        data: _linkifyBareOmnibotUris(_withTrailingInlineToken(source)),
         selectable: selectable,
-        inlineResourcePlainStyle: inlineResourcePlainStyle,
-        codeTapHandler: codeTapHandler,
-        trailingInline: trailingInline,
-        onResourceOpen: onResourceOpen,
-      ),
-      sizedImageBuilder: (config) {
-        final uri = config.uri;
-        if (uri.scheme == 'omnibot') {
-          final metadata = OmnibotResourceService.resolveUri(uri.toString());
-          if (metadata != null) {
-            return OmnibotInlineResourceEmbed(
-              metadata: metadata,
-              plainStyle: inlineResourcePlainStyle,
-              onOpen: onResourceOpen,
-            );
+        onTapLink: (text, href, title) {
+          if (href == null) return;
+          _handleMarkdownLinkTap(context, href, onResourceOpen);
+        },
+        blockSyntaxes: _kBlockSyntaxes,
+        inlineSyntaxes: trailingInline != null
+            ? _kInlineSyntaxesWithTrailing
+            : _kInlineSyntaxesWithoutTrailing,
+        builders: buildOmnibotMarkdownBuilders(
+          baseStyle: baseStyle,
+          selectable: selectable,
+          inlineResourcePlainStyle: inlineResourcePlainStyle,
+          codeTapHandler: _kOmnibotCodeTapHandler,
+          trailingInline: trailingInline,
+          onResourceOpen: onResourceOpen,
+        ),
+        sizedImageBuilder: (config) {
+          final uri = config.uri;
+          if (uri.scheme == 'omnibot') {
+            final metadata = OmnibotResourceService.resolveUri(uri.toString());
+            if (metadata != null) {
+              return OmnibotInlineResourceEmbed(
+                metadata: metadata,
+                plainStyle: inlineResourcePlainStyle,
+                onOpen: onResourceOpen,
+              );
+            }
           }
-        }
-        if (uri.scheme == 'file') {
-          return Image.file(File.fromUri(uri));
-        }
-        return Image.network(uri.toString());
-      },
-      styleSheet: styleSheet,
+          if (uri.scheme == 'file') {
+            return Image.file(File.fromUri(uri));
+          }
+          return Image.network(uri.toString());
+        },
+        styleSheet: styleSheet,
+      ),
     );
   }
 
@@ -141,6 +386,222 @@ MarkdownStyleSheet buildOmnibotMarkdownStyleSheet(
     ),
     tableBody: baseStyle.copyWith(color: baseColor),
   );
+}
+
+class _OmnibotMarkdownSegment {
+  const _OmnibotMarkdownSegment.text(this.text) : tableRows = null;
+
+  const _OmnibotMarkdownSegment.table(this.tableRows) : text = '';
+
+  final String text;
+  final List<_OmnibotTableRowSpec>? tableRows;
+}
+
+List<_OmnibotMarkdownSegment> _splitMarkdownTableSegments(String source) {
+  final lines = source.split('\n');
+  final segments = <_OmnibotMarkdownSegment>[];
+  final textBuffer = StringBuffer();
+  var index = 0;
+
+  void flushText() {
+    if (textBuffer.isEmpty) {
+      return;
+    }
+    segments.add(_OmnibotMarkdownSegment.text(textBuffer.toString()));
+    textBuffer.clear();
+  }
+
+  while (index < lines.length) {
+    final table = _tryParseMarkdownTable(lines, index);
+    if (table == null) {
+      if (textBuffer.isNotEmpty) {
+        textBuffer.writeln();
+      }
+      textBuffer.write(lines[index]);
+      index += 1;
+      continue;
+    }
+    flushText();
+    segments.add(_OmnibotMarkdownSegment.table(table.rows));
+    index = table.nextLineIndex;
+  }
+
+  flushText();
+  if (segments.isEmpty) {
+    return const <_OmnibotMarkdownSegment>[_OmnibotMarkdownSegment.text('')];
+  }
+  return segments;
+}
+
+_ParsedMarkdownTable? _tryParseMarkdownTable(List<String> lines, int index) {
+  if (index + 1 >= lines.length) {
+    return null;
+  }
+  final divider = lines[index + 1];
+  if (!OmnibotTableSyntax._tableDividerPattern.hasMatch(divider)) {
+    return null;
+  }
+
+  final alignments = _parseMarkdownTableAlignments(divider);
+  if (alignments.isEmpty) {
+    return null;
+  }
+  final headerCells = _parseMarkdownTableCells(lines[index], alignments);
+  if (headerCells.length != alignments.length) {
+    return null;
+  }
+
+  final rows = <_OmnibotTableRowSpec>[
+    _OmnibotTableRowSpec(isHeader: true, cells: headerCells),
+  ];
+  var nextIndex = index + 2;
+  while (nextIndex < lines.length) {
+    final line = lines[nextIndex];
+    if (!_looksLikeMarkdownTableRow(line)) {
+      break;
+    }
+    final cells = _parseMarkdownTableCells(line, alignments);
+    while (cells.length < alignments.length) {
+      cells.add(const _OmnibotTableCellSpec(source: ''));
+    }
+    while (cells.length > alignments.length) {
+      cells.removeLast();
+    }
+    rows.add(_OmnibotTableRowSpec(isHeader: false, cells: cells));
+    nextIndex += 1;
+  }
+
+  return _ParsedMarkdownTable(rows: rows, nextLineIndex: nextIndex);
+}
+
+bool _looksLikeMarkdownTableRow(String line) {
+  final trimmed = line.trim();
+  return trimmed.isNotEmpty && trimmed.contains('|');
+}
+
+List<String?> _parseMarkdownTableAlignments(String line) {
+  final columns = <String?>[];
+  var started = false;
+  var hitDash = false;
+  String? alignment;
+
+  for (var index = 0; index < line.length; index++) {
+    final char = line.codeUnitAt(index);
+    if (char == 32 || char == 9 || (!started && char == 124)) {
+      continue;
+    }
+    started = true;
+
+    if (char == 58) {
+      if (hitDash) {
+        alignment = alignment == 'left' ? 'center' : 'right';
+      } else {
+        alignment = 'left';
+      }
+    }
+
+    if (char == 124) {
+      columns.add(alignment);
+      hitDash = false;
+      alignment = null;
+    } else {
+      hitDash = true;
+    }
+  }
+
+  if (hitDash) {
+    columns.add(alignment);
+  }
+
+  return columns;
+}
+
+List<_OmnibotTableCellSpec> _parseMarkdownTableCells(
+  String line,
+  List<String?> alignments,
+) {
+  final cells = <String>[];
+  var index = _walkPastMarkdownTableOpeningPipe(line);
+  final cellBuffer = StringBuffer();
+
+  while (true) {
+    if (index >= line.length) {
+      cells.add(cellBuffer.toString().trimRight());
+      break;
+    }
+    final char = line.codeUnitAt(index);
+    if (char == 92) {
+      if (index == line.length - 1) {
+        cellBuffer.writeCharCode(char);
+        cells.add(cellBuffer.toString().trimRight());
+        break;
+      }
+      final escaped = line.codeUnitAt(index + 1);
+      if (escaped == 124) {
+        cellBuffer.writeCharCode(escaped);
+      } else {
+        cellBuffer.writeCharCode(char);
+        cellBuffer.writeCharCode(escaped);
+      }
+      index += 2;
+    } else if (char == 124) {
+      cells.add(cellBuffer.toString().trimRight());
+      cellBuffer.clear();
+      index += 1;
+      index = _walkPastMarkdownTableWhitespace(line, index);
+      if (index >= line.length) {
+        break;
+      }
+    } else {
+      cellBuffer.writeCharCode(char);
+      index += 1;
+    }
+  }
+
+  final rowChildren = <_OmnibotTableCellSpec>[];
+  for (var cellIndex = 0; cellIndex < cells.length; cellIndex++) {
+    rowChildren.add(
+      _OmnibotTableCellSpec(
+        source: cells[cellIndex],
+        align: cellIndex < alignments.length ? alignments[cellIndex] : null,
+      ),
+    );
+  }
+  return rowChildren;
+}
+
+int _walkPastMarkdownTableWhitespace(String line, int index) {
+  while (index < line.length) {
+    final char = line.codeUnitAt(index);
+    if (char != 32 && char != 9) {
+      break;
+    }
+    index += 1;
+  }
+  return index;
+}
+
+int _walkPastMarkdownTableOpeningPipe(String line) {
+  var index = 0;
+  while (index < line.length) {
+    final char = line.codeUnitAt(index);
+    if (char == 124) {
+      index += 1;
+      index = _walkPastMarkdownTableWhitespace(line, index);
+    }
+    if (char != 32 && char != 9) {
+      break;
+    }
+    index += 1;
+  }
+  return index;
+}
+
+class _ParsedMarkdownTable {
+  const _ParsedMarkdownTable({required this.rows, required this.nextLineIndex});
+
+  final List<_OmnibotTableRowSpec> rows;
+  final int nextLineIndex;
 }
 
 Map<String, MarkdownElementBuilder> buildOmnibotMarkdownBuilders({
@@ -461,43 +922,57 @@ class OmnibotTableBuilder extends MarkdownElementBuilder {
     TextStyle? preferredStyle,
     TextStyle? parentStyle,
   ) {
-    final styleSheet = buildOmnibotMarkdownStyleSheet(context, baseStyle);
-    final tableRows = _buildTableRows(styleSheet, element);
+    final styleSheet = _resolveMarkdownStyleSheet(context, baseStyle);
+    final rowSpecs = _buildTableRowSpecs(element);
+    return _buildTableFromRows(context, styleSheet, rowSpecs);
+  }
+
+  Widget _buildTableFromRows(
+    BuildContext context,
+    MarkdownStyleSheet styleSheet,
+    List<_OmnibotTableRowSpec> rowSpecs,
+  ) {
+    final tableRows = _buildFlutterTableRows(styleSheet, rowSpecs);
     if (tableRows.isEmpty) {
       return const SizedBox.shrink();
     }
-    return Padding(
-      padding: styleSheet.tablePadding ?? EdgeInsets.zero,
-      child: _OmnibotTableScrollable(
-        thumbVisibility: styleSheet.tableScrollbarThumbVisibility ?? false,
-        child: Table(
-          border: styleSheet.tableBorder,
-          defaultColumnWidth:
-              styleSheet.tableColumnWidth ?? const IntrinsicColumnWidth(),
-          defaultVerticalAlignment: styleSheet.tableVerticalAlignment,
-          children: tableRows,
+    return SelectionContainer.disabled(
+      child: Padding(
+        padding: styleSheet.tablePadding ?? EdgeInsets.zero,
+        child: _OmnibotTableScrollable(
+          thumbVisibility: styleSheet.tableScrollbarThumbVisibility ?? false,
+          child: Table(
+            border: styleSheet.tableBorder,
+            defaultColumnWidth:
+                styleSheet.tableColumnWidth ?? const IntrinsicColumnWidth(),
+            defaultVerticalAlignment: styleSheet.tableVerticalAlignment,
+            children: tableRows,
+          ),
         ),
       ),
     );
   }
 
-  List<TableRow> _buildTableRows(
-    MarkdownStyleSheet styleSheet,
-    md.Element tableElement,
-  ) {
+  List<_OmnibotTableRowSpec> _buildTableRowSpecs(md.Element tableElement) {
     final payload =
         tableElement.attributes[OmnibotTableSyntax.payloadAttribute];
     if (payload == null || payload.isEmpty) {
-      return const <TableRow>[];
+      return const <_OmnibotTableRowSpec>[];
     }
     final decoded = jsonDecode(payload);
     if (decoded is! List) {
-      return const <TableRow>[];
+      return const <_OmnibotTableRowSpec>[];
     }
-    final rowSpecs = decoded
+    return decoded
         .whereType<Map<String, dynamic>>()
         .map(_OmnibotTableRowSpec.fromJson)
         .toList(growable: false);
+  }
+
+  List<TableRow> _buildFlutterTableRows(
+    MarkdownStyleSheet styleSheet,
+    List<_OmnibotTableRowSpec> rowSpecs,
+  ) {
     final rows = <TableRow>[];
     for (final rowSpec in rowSpecs) {
       rows.add(TableRow(children: _buildRowCells(styleSheet, rowSpec)));
@@ -535,9 +1010,6 @@ class OmnibotTableBuilder extends MarkdownElementBuilder {
                 child: _OmnibotMarkdownTableCell(
                   data: cell.source,
                   baseStyle: cellStyle,
-                  selectable: selectable,
-                  inlineResourcePlainStyle: inlineResourcePlainStyle,
-                  onResourceOpen: onResourceOpen,
                   textAlign: textAlign,
                 ),
               ),
@@ -663,32 +1135,16 @@ class _OmnibotMarkdownTableCell extends StatelessWidget {
   const _OmnibotMarkdownTableCell({
     required this.data,
     required this.baseStyle,
-    required this.selectable,
-    required this.inlineResourcePlainStyle,
-    required this.onResourceOpen,
     required this.textAlign,
   });
 
   final String data;
   final TextStyle baseStyle;
-  final bool selectable;
-  final bool inlineResourcePlainStyle;
-  final OmnibotResourceOpenCallback? onResourceOpen;
   final TextAlign textAlign;
 
   @override
   Widget build(BuildContext context) {
-    return DefaultTextStyle.merge(
-      style: baseStyle,
-      textAlign: textAlign,
-      child: OmnibotMarkdownBody(
-        data: data,
-        baseStyle: baseStyle,
-        selectable: selectable,
-        inlineResourcePlainStyle: inlineResourcePlainStyle,
-        onResourceOpen: onResourceOpen,
-      ),
-    );
+    return Text(data, style: baseStyle, textAlign: textAlign);
   }
 }
 

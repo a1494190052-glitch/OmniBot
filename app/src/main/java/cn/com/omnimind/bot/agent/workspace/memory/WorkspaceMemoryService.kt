@@ -6,6 +6,7 @@ import cn.com.omnimind.baselib.i18n.AppLocaleManager
 import cn.com.omnimind.baselib.i18n.PromptLocale
 import cn.com.omnimind.baselib.llm.ModelProviderConfigStore
 import cn.com.omnimind.baselib.llm.ModelSceneRegistry
+import cn.com.omnimind.baselib.llm.ProviderCustomHeaderUtils
 import cn.com.omnimind.baselib.llm.SceneModelBindingStore
 import cn.com.omnimind.baselib.util.OmniLog
 import com.google.gson.Gson
@@ -1218,10 +1219,20 @@ class WorkspaceMemoryService(
             put("model", modelId)
             put("input", JSONArray().put(text.take(8_000)))
         }
+        val mergedHeaders = ProviderCustomHeaderUtils.mergeHeaders(
+            builtIn = linkedMapOf(
+                "Content-Type" to "application/json",
+                "Authorization" to "Bearer $apiKey"
+            ),
+            custom = profile.customHeaders
+        )
         val request = Request.Builder()
             .url(url)
-            .addHeader("Content-Type", "application/json")
-            .addHeader("Authorization", "Bearer $apiKey")
+            .apply {
+                mergedHeaders.forEach { (key, value) ->
+                    header(key, value)
+                }
+            }
             .post(requestJson.toString().toRequestBody("application/json".toMediaType()))
             .build()
         httpClient.newCall(request).execute().use { response ->

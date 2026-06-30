@@ -248,6 +248,37 @@ class ConversationDomainService(
         publishMessagesReplaced(conversationId, normalizedMode)
     }
 
+    suspend fun appendUserMessage(
+        conversationId: Long,
+        conversationMode: String,
+        entryId: String,
+        text: String,
+        attachments: List<Map<String, Any?>> = emptyList(),
+        createdAt: Long = System.currentTimeMillis()
+    ) {
+        val normalizedMode = normalizeConversationMode(conversationMode)
+        historyRepository.upsertUserMessage(
+            conversationId = conversationId,
+            conversationMode = normalizedMode,
+            entryId = entryId,
+            text = text,
+            attachments = attachments,
+            createdAt = createdAt
+        )
+        // 来自 IM 等外部入口的用户消息：除了通过常规 messagesChanged 事件让聊天页重载，
+        // 还直接把消息内容推给 Flutter，让 runtime 立刻插入气泡 ——
+        // 避免 agent 流事件抢先到达打乱事件顺序导致用户消息消失。
+        publishMessagesReplaced(conversationId, normalizedMode, "external_user_message")
+        FlutterChatSyncBridge.dispatchExternalUserMessageAppended(
+            conversationId = conversationId,
+            mode = normalizedMode,
+            entryId = entryId,
+            text = text,
+            attachments = attachments,
+            createdAt = createdAt
+        )
+    }
+
     suspend fun upsertConversationUiCard(
         conversationId: Long,
         conversationMode: String,
@@ -339,7 +370,8 @@ class ConversationDomainService(
 
     private suspend fun publishMessagesReplaced(
         conversationId: Long,
-        conversationMode: String
+        conversationMode: String,
+        reason: String = "messages_replaced"
     ) {
         val messages = listConversationMessages(conversationId, conversationMode)
         RealtimeHub.publish(
@@ -353,7 +385,7 @@ class ConversationDomainService(
         FlutterChatSyncBridge.dispatchConversationMessagesChanged(
             conversationId = conversationId,
             mode = conversationMode,
-            reason = "messages_replaced"
+            reason = reason
         )
     }
 

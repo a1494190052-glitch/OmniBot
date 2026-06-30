@@ -12,10 +12,16 @@ void main() {
   Future<void> pumpBubble(
     WidgetTester tester, {
     required ChatMessageModel message,
+    VoidCallback? onContinueAgentMessage,
   }) async {
     await tester.pumpWidget(
       MaterialApp(
-        home: Scaffold(body: MessageBubble(message: message)),
+        home: Scaffold(
+          body: MessageBubble(
+            message: message,
+            onContinueAgentMessage: onContinueAgentMessage,
+          ),
+        ),
       ),
     );
     await tester.pump();
@@ -154,5 +160,39 @@ void main() {
     expect((previewDecoration.border! as Border).left.width, 3);
     expect(previewTitle.style?.fontSize, 12);
     expect(find.byKey(const ValueKey('link-preview-card-0')), findsOneWidget);
+  });
+
+  testWidgets('shows per-turn usage pill and continue action separately', (
+    tester,
+  ) async {
+    var continueTapped = 0;
+    final message = ChatMessageModel(
+      id: 'assistant-continue',
+      type: 1,
+      user: 2,
+      content: {
+        'text': 'partial reply',
+        'id': 'assistant-continue',
+        'agentContinueable': true,
+        'agentErrorText': 'network interrupted',
+      },
+      turnUsage: {'ctx': 20000, 'in': 10000, 'out': 87, 'cache': 10000},
+    );
+
+    await pumpBubble(
+      tester,
+      message: message,
+      onContinueAgentMessage: () {
+        continueTapped += 1;
+      },
+    );
+
+    expect(find.text('ctx:20k  in:10k  out:87  cache:10k'), findsOneWidget);
+    expect(find.byType(FilledButton), findsOneWidget);
+
+    await tester.tap(find.byType(FilledButton));
+    await tester.pump();
+
+    expect(continueTapped, 1);
   });
 }

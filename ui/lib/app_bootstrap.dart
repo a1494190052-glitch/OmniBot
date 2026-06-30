@@ -7,8 +7,10 @@ import 'package:ui/l10n/generated/app_localizations.dart';
 import 'package:ui/l10n/legacy_text_localizer.dart';
 import 'package:ui/services/omnibot_resource_service.dart';
 import 'package:ui/services/app_background_service.dart';
+import 'package:ui/services/app_font_effect_service.dart';
 import 'package:ui/services/scheduled_task_scheduler_service.dart';
 import 'package:ui/services/storage_service.dart';
+import 'package:ui/theme/app_font_effect_controller.dart';
 import 'package:ui/theme/app_theme_controller.dart';
 import 'package:ui/theme/app_theme_mode.dart';
 import 'package:ui/theme/app_theme.dart';
@@ -47,6 +49,7 @@ Future<void> bootstrapMain(List<String> args) async {
 
   final container = ProviderContainer();
   await StorageService.init();
+  await AppFontEffectService.loadFromStoredPreference();
   await AppBackgroundService.load();
   await ScheduledTaskSchedulerService.initialize();
   await OmnibotResourceService.ensureWorkspacePathsLoaded();
@@ -84,6 +87,7 @@ Future<void> bootstrapSubEngine(List<String> args) async {
 
   final container = ProviderContainer();
   await StorageService.init();
+  await AppFontEffectService.loadFromStoredPreference();
   await AppBackgroundService.load();
   await ScheduledTaskSchedulerService.initialize();
   await OmnibotResourceService.ensureWorkspacePathsLoaded();
@@ -153,28 +157,38 @@ class _MyAppState extends ConsumerState<MyApp> {
 
     final widgetBuildStart = DateTime.now();
     final themeMode = ref.watch(appThemeModeProvider).materialThemeMode;
+    final fontEffect = ref.watch(appFontEffectProvider);
+    final useEnhancedFonts = fontEffect.useEnhancedFonts;
     final resolvedLocale = ref.watch(appResolvedLocaleProvider);
     LegacyTextLocalizer.setResolvedLocale(resolvedLocale.locale);
     final widget = MaterialApp.router(
       onGenerateTitle: (context) =>
           AppLocalizations.of(context)?.appName ?? 'Omnibot',
-      theme: AppTheme.lightTheme,
-      darkTheme: AppTheme.darkTheme,
+      theme: AppTheme.lightThemeFor(enhancedFonts: useEnhancedFonts),
+      darkTheme: AppTheme.darkThemeFor(enhancedFonts: useEnhancedFonts),
       themeMode: themeMode,
       themeAnimationCurve: Curves.easeInOutCubic,
       themeAnimationDuration: const Duration(milliseconds: 220),
       routerConfig: _router,
       locale: resolvedLocale.locale,
       builder: (context, child) {
-        final brightness = Theme.of(context).brightness;
+        final theme = Theme.of(context);
+        final brightness = theme.brightness;
+        // scaffoldBackgroundColor 由父级 AnimatedTheme 在主题切换时逐帧 lerp,
+        // 这里用 ColoredBox 把它显式画出来作为整屏兜底色:
+        // - 堵住主题切换瞬间 Flutter 子树短暂透明露出原生 windowBackground 的可能
+        // - 让背景过渡显式参与 themeAnimationDuration(220ms)的平滑插值
         return AnnotatedRegion<SystemUiOverlayStyle>(
           value: AppTheme.overlayStyleForBrightness(brightness),
-          child: Stack(
-            fit: StackFit.expand,
-            children: [
-              child ?? const SizedBox.shrink(),
-              const EmbeddedTerminalInitToastListener(),
-            ],
+          child: ColoredBox(
+            color: theme.scaffoldBackgroundColor,
+            child: Stack(
+              fit: StackFit.expand,
+              children: [
+                child ?? const SizedBox.shrink(),
+                const EmbeddedTerminalInitToastListener(),
+              ],
+            ),
           ),
         );
       },

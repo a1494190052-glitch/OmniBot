@@ -3,6 +3,7 @@ import 'dart:ui';
 
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:ui/l10n/app_language_mode.dart';
+import 'package:ui/models/chat_startup_behavior.dart';
 import 'package:ui/models/habitual_hand.dart';
 import 'package:ui/theme/app_theme_mode.dart';
 
@@ -161,9 +162,12 @@ class StorageService {
   static const String kPetOverlayVisibleKey = 'pet_overlay_visible';
   static const String kUseIndependentChatSendButtonKey =
       'use_independent_chat_send_button';
+  static const String kChatStartupBehaviorKey = 'chat_startup_behavior';
   static const String kHabitualHandKey = 'habitual_hand';
   static const String kThemeOptionKey = 'theme_option';
   static const String kLanguageOptionKey = 'language_option';
+  static const String kEnhancedFontEffectsEnabledKey =
+      'enhanced_font_effects_enabled';
 
   static const String _kManualModelContextThresholdsKey =
       'manual_model_context_thresholds';
@@ -271,6 +275,19 @@ class StorageService {
     return setBool(kUseIndependentChatSendButtonKey, enabled);
   }
 
+  static ChatStartupBehavior getChatStartupBehavior() {
+    return ChatStartupBehavior.fromStorageValue(
+      getString(
+        kChatStartupBehaviorKey,
+        defaultValue: ChatStartupBehavior.resumeLast.storageValue,
+      ),
+    );
+  }
+
+  static Future<bool> setChatStartupBehavior(ChatStartupBehavior behavior) {
+    return setString(kChatStartupBehaviorKey, behavior.storageValue);
+  }
+
   static HabitualHand getHabitualHand() {
     return habitualHandFromStorageValue(
       getString(
@@ -308,6 +325,15 @@ class StorageService {
 
   static Future<void> setLanguageMode(AppLanguageMode mode) async {
     await setString(kLanguageOptionKey, mode.storageValue);
+  }
+
+  static bool isEnhancedFontEffectsEnabled() {
+    return getBool(kEnhancedFontEffectsEnabledKey, defaultValue: false) ??
+        false;
+  }
+
+  static Future<void> setEnhancedFontEffectsEnabled(bool enabled) async {
+    await setBool(kEnhancedFontEffectsEnabledKey, enabled);
   }
 
   static ResolvedAppLocale getResolvedAppLocale({Locale? systemLocale}) {

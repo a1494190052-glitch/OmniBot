@@ -122,7 +122,7 @@ class _EditTaskSheetState extends State<EditTaskSheet> {
             Row(
               children: [
                 Expanded(child: Container()),
-                const Text(
+                Text(
                   '修改名称',
                   style: TextStyle(
                     fontFamily: AppTextStyles.fontFamily,

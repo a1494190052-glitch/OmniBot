@@ -45,6 +45,12 @@ void main() {
       ),
       'https://api.example.com/v1/chat/completions',
     );
+    expect(
+      ModelProviderConfigService.buildResponsesRequestUrl(
+        'https://api.example.com',
+      ),
+      'https://api.example.com/v1/responses',
+    );
   });
 
   test('allows trailing marker to bypass automatic request suffixes', () {
@@ -77,12 +83,33 @@ void main() {
     );
   });
 
+  test('builds request urls for compatible-mode versioned base', () {
+    expect(
+      ModelProviderConfigService.buildModelsRequestUrl(
+        'https://dashscope.aliyuncs.com/compatible-mode/v1',
+      ),
+      'https://dashscope.aliyuncs.com/compatible-mode/v1/models',
+    );
+    expect(
+      ModelProviderConfigService.buildChatCompletionsRequestUrl(
+        'https://dashscope.aliyuncs.com/compatible-mode/v1',
+      ),
+      'https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions',
+    );
+    expect(
+      ModelProviderConfigService.buildResponsesRequestUrl(
+        'https://dashscope.aliyuncs.com/compatible-mode/v1',
+      ),
+      'https://dashscope.aliyuncs.com/compatible-mode/v1/responses',
+    );
+  });
+
   test(
     'normalizes explicit endpoint inputs before rebuilding request urls',
     () {
       expect(
         ModelProviderConfigService.buildModelsRequestUrl(
-          'https://api.example.com/v1/chat/completions',
+          'https://api.example.com/v1/responses',
         ),
         'https://api.example.com/v1/models',
       );
@@ -91,6 +118,12 @@ void main() {
           'https://api.example.com/v1/models',
         ),
         'https://api.example.com/v1/chat/completions',
+      );
+      expect(
+        ModelProviderConfigService.buildResponsesRequestUrl(
+          'https://api.example.com/v1/chat/completions',
+        ),
+        'https://api.example.com/v1/responses',
       );
     },
   );
@@ -124,6 +157,25 @@ void main() {
     expect(
       ModelProviderConfigService.buildChatCompletionsRequestUrl(''),
       isNull,
+    );
+  });
+
+  test('infers responses wire api from explicit responses endpoint input', () {
+    expect(
+      ModelProviderConfigService.inferWireApi(
+        'https://api.example.com/v1/responses',
+      ),
+      'responses',
+    );
+    expect(
+      ModelProviderConfigService.inferWireApi(
+        'https://api.example.com/responses#',
+      ),
+      'responses',
+    );
+    expect(
+      ModelProviderConfigService.inferWireApi('https://api.example.com/v1'),
+      'chat_completions',
     );
   });
 
@@ -168,7 +220,36 @@ void main() {
       enriched.single.providerLogoUrl,
       'https://models.dev/logos/openai.svg',
     );
-    expect(enriched.single.group, 'gpt-4o');
+    expect(enriched.single.group, 'openai');
+  });
+
+  test('keeps remote limit metadata when catalog fallback is lower', () async {
+    SharedPreferences.setMockInitialValues({});
+    await StorageService.init();
+    ModelsDevCatalogService.setCatalogForTesting(
+      ModelsDevCatalogService.parseCatalog(_modelsDevCatalogJson),
+    );
+
+    final enriched = await ModelProviderConfigService.enrichModelsForProfile(
+      profileId: 'provider-1',
+      providerName: 'OpenAI',
+      apiBase: 'https://api.openai.com/v1',
+      models: const [
+        ProviderModelOption(
+          id: 'gpt-4o',
+          displayName: 'gpt-4o',
+          contextLimit: 1000000,
+          inputLimit: 800000,
+          outputLimit: 32000,
+          toolCall: false,
+        ),
+      ],
+    );
+
+    expect(enriched.single.contextLimit, 1000000);
+    expect(enriched.single.inputLimit, 800000);
+    expect(enriched.single.outputLimit, 32000);
+    expect(enriched.single.toolCall, isFalse);
   });
 
   test(

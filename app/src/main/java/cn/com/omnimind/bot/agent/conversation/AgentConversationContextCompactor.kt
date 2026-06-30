@@ -156,13 +156,21 @@ Do NOT translate or alter code snippets, file paths, identifiers, or error messa
         }
     }
 
+    private fun resolveModelContextThreshold(): Int? {
+        return modelOverride?.contextLimit
+            ?.coerceAtLeast(1)
+    }
+
     open suspend fun resolvePromptTokenThreshold(conversationId: Long?): Int {
+        val fallbackThreshold = resolveModelContextThreshold()
+            ?: DEFAULT_PROMPT_TOKEN_THRESHOLD
         if (conversationId == null || conversationId <= 0L) {
-            return DEFAULT_PROMPT_TOKEN_THRESHOLD
+            return fallbackThreshold
         }
         val conversation = historyRepository.getConversation(conversationId)
-        val storedThreshold = conversation?.promptTokenThreshold ?: DEFAULT_PROMPT_TOKEN_THRESHOLD
-        return storedThreshold.coerceAtLeast(1)
+        val storedThreshold = conversation?.promptTokenThreshold
+            ?.takeIf { it > 0 }
+        return storedThreshold ?: fallbackThreshold
     }
 
     open suspend fun compactIfNeeded(
@@ -365,8 +373,10 @@ Do NOT translate or alter code snippets, file paths, identifiers, or error messa
                 enableThinking = false,
                 explicitApiBase = modelOverride?.apiBase,
                 explicitApiKey = modelOverride?.apiKey,
+                explicitCustomHeaders = modelOverride?.customHeaders,
                 explicitModel = modelOverride?.modelId,
                 explicitProtocolType = modelOverride?.protocolType,
+                explicitWireApi = modelOverride?.wireApi,
                 reasoningEffort = reasoningEffort
             )
             result.await()

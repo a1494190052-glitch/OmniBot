@@ -14,8 +14,10 @@
 </h3>
 
 <div align="center">
-  <img alt="GitHub Repo stars" src="https://img.shields.io/github/stars/omnimind-ai/OpenOmniBot">
-  <a href="https://github.com/omnimind-ai/OpenOmniBot/releases/latest"><img alt="GitHub Release" src="https://img.shields.io/github/v/release/omnimind-ai/OpenOmniBot"></a>
+  <img alt="GitHub Repo stars" src="https://badgen.net/github/stars/omnimind-ai/OpenOmniBot">
+  <a href="https://github.com/omnimind-ai/OpenOmniBot/releases/latest"><img alt="GitHub Release" src="https://badgen.net/github/release/omnimind-ai/OpenOmniBot/stable"></a>
+  <br>
+  <a href="https://trendshift.io/repositories/26966" target="_blank"><img src="https://trendshift.io/api/badge/repositories/26966" alt="omnimind-ai%2FOpenOmniBot | Trendshift" style="width: 250px; height: 55px;" width="250" height="55"/></a>
   <br>
   <a href="https://omnimind.com.cn"><img src="https://img.shields.io/badge/About_us-万象智维-purple.svg?color=%234b0c77" alt="万象智维"></a>
   <a href="https://linux.do"><img src="https://img.shields.io/badge/Linux_Do-社区-yellow.svg?color=%23ac3712" alt="LinuxDo社区"></a>
@@ -49,12 +51,9 @@ OpenOmniBot 是一个基于 Android 原生 Kotlin 与 Flutter 构建的端侧 AI
 - **生产力工具**：支持读写文件、浏览工作区、调用浏览器、调用终端。
 
 <p align="center">
-  <img src="docs/tutorial/example.png" alt="示例" width="360" />
+  <img src="docs/tutorial/example.png" alt="示例" />
 </p>
 
-<p align="center">
-  <img src="docs/tutorial/ui.png" alt="界面" width="360" />
-</p>
 
 <details>
 <summary id="quick-start"><strong>快速开始</strong></summary>
@@ -131,6 +130,16 @@ OpenOmniBot 是一个基于 Android 原生 Kotlin 与 Flutter 构建的端侧 AI
 <p align="center">
   <img src="docs/tutorial/workspace.jpg" alt="Workspace" width="260" />
 </p>
+
+### Remote Codex bridge
+
+如果希望在手机端使用运行在电脑上的 Codex 模式，请在已安装并登录 Codex CLI 的电脑上启动 `codex-bridge`：
+
+```bash
+npx @thuocean/codex-bridge
+```
+
+在终端交互中选择监听的局域网地址和 token 模式，然后在 OpenOmniBot 的 Codex 设置中扫码连接。更多选项和排障说明见 [codex-bridge README](tools/codex-bridge/README.md)。
 
 </details>
 

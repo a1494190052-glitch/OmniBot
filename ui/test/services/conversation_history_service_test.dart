@@ -168,6 +168,48 @@ void main() {
     expect(restored, target);
   });
 
+  test('round-trips remote codex active thread target metadata', () {
+    const target = ConversationThreadTarget.codexSession(
+      threadId: 'thread-active',
+      runtime: 'remote',
+      codexThreadActive: true,
+      requestKey: 'request-1',
+    );
+
+    final restored = ConversationThreadTarget.fromEncodedJson(
+      target.toEncodedJson(),
+    );
+
+    expect(restored, target);
+    expect(restored.codexThreadActive, isTrue);
+  });
+
+  test('round-trips local codex conversation target thread metadata', () async {
+    const target = ConversationThreadTarget.existing(
+      conversationId: 42,
+      mode: ConversationMode.codex,
+      codexThreadId: '019f12d6-16a0-7f01-9537-275ff25b9f79',
+      codexRuntime: 'local',
+    );
+
+    await ConversationHistoryService.saveCurrentConversationTarget(
+      target,
+      mode: ConversationMode.codex,
+    );
+    await ConversationHistoryService.saveLastVisibleThreadTarget(target);
+
+    expect(
+      await ConversationHistoryService.getCurrentConversationTarget(
+        mode: ConversationMode.codex,
+      ),
+      target,
+    );
+    expect(
+      await ConversationHistoryService.getLastVisibleThreadTarget(),
+      target,
+    );
+  });
+
   test(
     'falls back to current thread target when last visible is absent',
     () async {

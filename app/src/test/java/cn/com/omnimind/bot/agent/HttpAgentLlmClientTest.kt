@@ -32,7 +32,7 @@ class HttpAgentLlmClientTest {
             val client = HttpAgentLlmClient(
                 scope = scope,
                 modelOverride = testOverride(),
-                streamRequestOp = { _, _, listener, _, _, _, _, _ ->
+                streamRequestOp = { _, _, listener, _, _, _, _, _, _, _ ->
                     val source = dummyEventSource()
                     listener.onOpen(source, okResponse())
                     listener.onEvent(
@@ -68,7 +68,7 @@ class HttpAgentLlmClientTest {
             val client = HttpAgentLlmClient(
                 scope = scope,
                 modelOverride = testOverride(),
-                streamRequestOp = { _, _, listener, _, _, _, _, _ ->
+                streamRequestOp = { _, _, listener, _, _, _, _, _, _, _ ->
                     val source = dummyEventSource()
                     listener.onOpen(source, okResponse())
                     listener.onEvent(
@@ -101,7 +101,7 @@ class HttpAgentLlmClientTest {
             val client = HttpAgentLlmClient(
                 scope = scope,
                 modelOverride = testOverride(),
-                streamRequestOp = { _, _, listener, _, _, _, _, _ ->
+                streamRequestOp = { _, _, listener, _, _, _, _, _, _, _ ->
                     val source = dummyEventSource()
                     listener.onOpen(source, okResponse())
                     listener.onEvent(
@@ -132,7 +132,7 @@ class HttpAgentLlmClientTest {
             val client = HttpAgentLlmClient(
                 scope = scope,
                 modelOverride = testOverride(),
-                resolveRouteInfoOp = { model, _, _, _, protocolType ->
+                resolveRouteInfoOp = { model, _, _, _, _, protocolType, _ ->
                     routeInfo(
                         requestedModel = model,
                         resolvedModel = "deepseek-v4-flash",
@@ -140,7 +140,7 @@ class HttpAgentLlmClientTest {
                         requiresReasoningEcho = true
                     )
                 },
-                streamRequestOp = { _, _, listener, _, _, _, _, _ ->
+                streamRequestOp = { _, _, listener, _, _, _, _, _, _, _ ->
                     val source = dummyEventSource()
                     listener.onOpen(source, okResponse())
                     listener.onEvent(
@@ -172,7 +172,7 @@ class HttpAgentLlmClientTest {
             val client = HttpAgentLlmClient(
                 scope = scope,
                 modelOverride = testOverride(),
-                resolveRouteInfoOp = { model, _, _, _, protocolType ->
+                resolveRouteInfoOp = { model, _, _, _, _, protocolType, _ ->
                     routeInfo(
                         requestedModel = model,
                         resolvedModel = "qwen-plus",
@@ -180,7 +180,7 @@ class HttpAgentLlmClientTest {
                         requiresReasoningEcho = false
                     )
                 },
-                streamRequestOp = { _, _, listener, _, _, _, _, _ ->
+                streamRequestOp = { _, _, listener, _, _, _, _, _, _, _ ->
                     val source = dummyEventSource()
                     listener.onOpen(source, okResponse())
                     listener.onEvent(
@@ -246,11 +246,12 @@ class HttpAgentLlmClientTest {
         requestedModel: String,
         resolvedModel: String,
         protocolType: String,
-        requiresReasoningEcho: Boolean
+        requiresReasoningEcho: Boolean,
+        apiBase: String = "https://example.com"
     ) = HttpController.ChatCompletionRouteInfo(
         requestedModel = requestedModel,
         resolvedModel = resolvedModel,
-        apiBase = "https://example.com",
+        apiBase = apiBase,
         providerProfileId = "test",
         providerProfileName = "Test",
         routeTag = "test",
@@ -260,4 +261,50 @@ class HttpAgentLlmClientTest {
         protocolType = protocolType,
         requiresReasoningEcho = requiresReasoningEcho
     )
+    @Test
+    fun `qwen openai compatible route reclassifies leading content before closing think tag`() = runBlocking {
+        val scope = CoroutineScope(Job() + Dispatchers.Default)
+        try {
+            val client = HttpAgentLlmClient(
+                scope = scope,
+                modelOverride = testOverride(),
+                resolveRouteInfoOp = { model, _, _, _, _, protocolType, _ ->
+                    routeInfo(
+                        requestedModel = model,
+                        resolvedModel = "qwen3.6-plus",
+                        protocolType = protocolType ?: "openai_compatible",
+                        requiresReasoningEcho = false
+                    )
+                },
+                streamRequestOp = { _, _, listener, _, _, _, _, _, _, _ ->
+                    val source = dummyEventSource()
+                    listener.onOpen(source, okResponse())
+                    listener.onEvent(
+                        source,
+                        null,
+                        "message",
+                        """{"choices":[{"delta":{"content":"first reasoning</th"}}]}"""
+                    )
+                    listener.onEvent(
+                        source,
+                        null,
+                        "message",
+                        """{"choices":[{"delta":{"content":"ink>final answer"}}]}"""
+                    )
+                    listener.onEvent(source, null, "message", "[DONE]")
+                    source
+                },
+                streamIdleWatchdogMs = 5_000L,
+                json = json
+            )
+
+            val turn = client.streamTurn(request = simpleRequest())
+
+            assertEquals("first reasoning", turn.reasoning)
+            assertEquals("final answer", turn.message.contentText())
+        } finally {
+            scope.cancel()
+        }
+    }
+
 }

@@ -1,7 +1,5 @@
 package cn.com.omnimind.baselib.llm
 
-import java.net.URI
-
 object DeepSeekProvider {
     const val OFFICIAL_PROFILE_ID = "deepseek-official"
     const val OFFICIAL_PROFILE_NAME = "DeepSeek"
@@ -13,29 +11,16 @@ object DeepSeekProvider {
             id = OFFICIAL_PROFILE_ID,
             name = OFFICIAL_PROFILE_NAME,
             baseUrl = OFFICIAL_BASE_URL,
+            sourceType = PROTOCOL_TYPE,
             protocolType = PROTOCOL_TYPE
         )
     }
 
     fun isOfficialBaseUrl(value: String?): Boolean {
-        val normalized = value
-            ?.trim()
-            ?.removeSuffix("#")
-            ?.trim()
-            ?.replace(Regex("/+$"), "")
-            .orEmpty()
-        if (normalized.isEmpty()) {
-            return false
-        }
-        val uri = runCatching { URI(normalized) }.getOrNull() ?: return false
-        if (uri.scheme?.equals("https", ignoreCase = true) != true) {
-            return false
-        }
-        if (!uri.host.equals("api.deepseek.com", ignoreCase = true)) {
-            return false
-        }
-        val path = uri.path.orEmpty().trimEnd('/')
-        return path.isEmpty() || path == "/v1"
+        return OfficialProviderUrlMatcher.matchesHttpsHostWithOptionalV1(
+            value = value,
+            expectedHost = "api.deepseek.com"
+        )
     }
 
     fun shouldUseOfficialAdapter(protocolType: String?, apiBase: String?): Boolean {

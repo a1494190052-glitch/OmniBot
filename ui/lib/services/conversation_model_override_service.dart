@@ -94,7 +94,13 @@ class ConversationModelOverrideService {
 class ConversationReasoningEffortService {
   static const String _kConversationReasoningEffortsKey =
       'conversation_reasoning_efforts_v1';
-  static const Set<String> _kSupportedEfforts = {'no', 'low', 'high'};
+  static const Set<String> _kSupportedEfforts = {
+    'no',
+    'low',
+    'high',
+    'xhigh',
+    'max',
+  };
 
   static Future<String?> getEffort(int conversationId) async {
     final map = _readEffortMap();

@@ -76,10 +76,6 @@ mixin _ChatPageLifecycleMixin on _ChatPageStateBase {
         _isHdPadLandscapeForMediaQuery(mediaQuery) &&
         _activeSurfaceMode == ChatSurfaceMode.workspace) {
       _activeSurfaceMode = ChatSurfaceMode.normal;
-      _setChatIslandDisplayLayerForMode(
-        ChatPageMode.normal,
-        ChatIslandDisplayLayer.tools,
-      );
     }
     final route = ModalRoute.of(context);
     if (route is PageRoute && route != _subscribedRoute) {
@@ -141,13 +137,16 @@ mixin _ChatPageLifecycleMixin on _ChatPageStateBase {
       return normalizedIncomingTarget;
     }
 
+    if (normalizedPreferredMode == null &&
+        StorageService.getChatStartupBehavior() ==
+            ChatStartupBehavior.newConversation) {
+      return _newThreadTargetForConversationMode(ConversationMode.normal);
+    }
+
     if (normalizedPreferredMode == null) {
       final lastVisible =
           await ConversationHistoryService.getLastVisibleThreadTarget();
-      final normalizedLastVisible = _normalizeVisibleThreadTarget(
-        lastVisible,
-        freshCodexOnImplicitRestore: true,
-      );
+      final normalizedLastVisible = _normalizeVisibleThreadTarget(lastVisible);
       if (normalizedLastVisible != null) {
         return normalizedLastVisible;
       }
@@ -175,17 +174,13 @@ mixin _ChatPageLifecycleMixin on _ChatPageStateBase {
   }
 
   ConversationThreadTarget? _normalizeVisibleThreadTarget(
-    ConversationThreadTarget? target, {
-    bool freshCodexOnImplicitRestore = false,
-  }) {
+    ConversationThreadTarget? target,
+  ) {
     if (target == null) {
       return null;
     }
     if (target.mode == ConversationMode.openclaw) {
       return null;
-    }
-    if (freshCodexOnImplicitRestore && target.mode == ConversationMode.codex) {
-      return _newCodexThreadTarget();
     }
     return target;
   }
@@ -253,7 +248,6 @@ mixin _ChatPageLifecycleMixin on _ChatPageStateBase {
       _draftMessageByMode[targetMode] = '';
       _pendingAttachmentsByMode[targetMode]?.clear();
     }
-    _cancelNormalSurfaceModelReveal();
     if (isStaleRequest()) return;
     setState(() {
       _resolvedThreadTarget = effectiveTarget;
@@ -267,6 +261,7 @@ mixin _ChatPageLifecycleMixin on _ChatPageStateBase {
       _isSurfacePageScrolling = false;
     });
     _resetLocalConversationState(targetMode);
+    _restoreLocalCodexThreadIdFromTarget(effectiveTarget);
     _vlmAnswerController.clear();
     _applyDraftForConversationMode(targetMode);
     if (effectiveTarget.isRemoteCodexSessionTarget) {
@@ -287,6 +282,18 @@ mixin _ChatPageLifecycleMixin on _ChatPageStateBase {
     if (syncPage) {
       _jumpToCurrentModePage(animate: false);
     }
+  }
+
+  void _restoreLocalCodexThreadIdFromTarget(ConversationThreadTarget target) {
+    if (target.mode != ConversationMode.codex ||
+        target.isRemoteCodexSessionTarget) {
+      return;
+    }
+    final threadId = target.codexThreadId?.trim();
+    if (threadId == null || threadId.isEmpty) {
+      return;
+    }
+    _activeCodexThreadId = threadId;
   }
 
   @override
@@ -592,9 +599,10 @@ mixin _ChatPageLifecycleMixin on _ChatPageStateBase {
   @override
   void dispose() {
     unawaited(_clearVisibleChatConversation());
+    unawaited(_conversationModelSelectorHandle?.dismiss());
+    _conversationModelSelectorHandle = null;
     WidgetsBinding.instance.removeObserver(this);
     unawaited(_runtimeCoordinator.flushAllPendingPersistence());
-    _cancelNormalSurfaceModelReveal();
     _conversationListChangedSubscription?.cancel();
     _conversationMessagesChangedSubscription?.cancel();
     _browserSessionSnapshotChangedSubscription?.cancel();
@@ -623,6 +631,7 @@ mixin _ChatPageLifecycleMixin on _ChatPageStateBase {
     _openClawBaseUrlController.dispose();
     _openClawTokenController.dispose();
     _openClawUserIdController.dispose();
+    _stopRemoteCodexSessionSync();
     _codexEventSubscription?.cancel();
     super.dispose();
   }
@@ -704,9 +713,15 @@ mixin _ChatPageLifecycleMixin on _ChatPageStateBase {
       return;
     }
     final runtime = _runtimeForMode(_activeMode);
+    // IM 等外部入口写入用户消息时，原生侧用 reason=external_user_message 通知前端：
+    // 这条消息只在 DB 里、还没进入 runtime.messages，必须强制从 DB 重载，
+    // 否则 agent 流事件先到时 hasInFlightTask=true 会让 in-memory 分支吞掉它。
+    final isExternalUserMessage =
+        event['reason']?.toString() == 'external_user_message';
     await loadConversation(
       conversationId,
-      preferInMemory: runtime?.hasInFlightTask == true,
+      preferInMemory:
+          !isExternalUserMessage && runtime?.hasInFlightTask == true,
       lifecycleToken: lifecycleToken,
     );
     if (!mounted ||
@@ -721,6 +736,9 @@ mixin _ChatPageLifecycleMixin on _ChatPageStateBase {
   @override
   void _onFocusChange() {
     if (!mounted) return;
+    if (_inputFocusNode.hasFocus) {
+      _armComposerLiftIntent();
+    }
     setState(() {});
   }
 
@@ -820,15 +838,9 @@ mixin _ChatPageLifecycleMixin on _ChatPageStateBase {
     if (!mounted) return;
     if (_activeSurfaceMode == resolvedTargetMode) {
       if (syncPage) _jumpToCurrentModePage();
-      if (resolvedTargetMode == ChatSurfaceMode.normal &&
-          !_isSurfacePageScrolling &&
-          (!syncPage || !_modePageController.hasClients)) {
-        _scheduleNormalSurfaceModelReveal();
-      }
       return;
     }
 
-    _cancelNormalSurfaceModelReveal();
     _storeDraftForActiveConversationMode();
     await _persistVisibleThreadTargetIfNeeded();
     if (isStaleRequest()) return;
@@ -844,7 +856,7 @@ mixin _ChatPageLifecycleMixin on _ChatPageStateBase {
         _messageController.clear();
         _setChatIslandDisplayLayerForMode(
           ChatPageMode.normal,
-          ChatIslandDisplayLayer.tools,
+          ChatIslandDisplayLayer.mode,
         );
         _isBrowserOverlayVisible = false;
       });
@@ -861,13 +873,6 @@ mixin _ChatPageLifecycleMixin on _ChatPageStateBase {
     setState(() {
       _activeSurfaceMode = ChatSurfaceMode.normal;
       _activeConversationMode = targetConversationMode;
-      _resetNormalSurfaceModelRevealInterruption();
-      _setChatIslandDisplayLayerForMode(
-        targetConversationMode,
-        targetConversationMode == ChatPageMode.normal
-            ? ChatIslandDisplayLayer.tools
-            : ChatIslandDisplayLayer.mode,
-      );
     });
     _applyDraftForConversationMode(targetConversationMode);
     await _persistVisibleThreadTargetIfNeeded();
@@ -878,10 +883,6 @@ mixin _ChatPageLifecycleMixin on _ChatPageStateBase {
       unawaited(_loadNormalChatModelContext());
     }
     if (syncPage) _jumpToCurrentModePage();
-    if (!_isSurfacePageScrolling &&
-        (!syncPage || !_modePageController.hasClients)) {
-      _scheduleNormalSurfaceModelReveal();
-    }
   }
 
   @override

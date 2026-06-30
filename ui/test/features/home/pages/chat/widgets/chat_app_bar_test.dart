@@ -1,8 +1,6 @@
-import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
-import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_svg/flutter_svg.dart';
@@ -31,17 +29,20 @@ class _SvgTestAssetBundle extends CachingAssetBundle {
 }
 
 class _ChatAppBarHarness extends StatefulWidget {
-  const _ChatAppBarHarness();
+  const _ChatAppBarHarness({this.showSurfaceSwitcher = true});
+
+  final bool showSurfaceSwitcher;
 
   @override
   State<_ChatAppBarHarness> createState() => _ChatAppBarHarnessState();
 }
 
 class _ChatAppBarHarnessState extends State<_ChatAppBarHarness> {
-  ChatIslandDisplayLayer _displayLayer = ChatIslandDisplayLayer.model;
+  ChatIslandDisplayLayer _displayLayer = ChatIslandDisplayLayer.mode;
   ChatSurfaceMode _activeMode = ChatSurfaceMode.normal;
   int _browserTapCount = 0;
   int _envTapCount = 0;
+  int _terminalTapCount = 0;
 
   @override
   Widget build(BuildContext context) {
@@ -60,7 +61,6 @@ class _ChatAppBarHarnessState extends State<_ChatAppBarHarness> {
                     _activeMode = value;
                   });
                 },
-                activeModelId: 'gpt-5.4',
                 displayLayer: _displayLayer,
                 onDisplayLayerChanged: (value) {
                   setState(() {
@@ -72,7 +72,11 @@ class _ChatAppBarHarnessState extends State<_ChatAppBarHarness> {
                     _envTapCount += 1;
                   });
                 },
-                onTerminalTap: () {},
+                onTerminalTap: () {
+                  setState(() {
+                    _terminalTapCount += 1;
+                  });
+                },
                 onBrowserTap: () {
                   setState(() {
                     _browserTapCount += 1;
@@ -81,10 +85,13 @@ class _ChatAppBarHarnessState extends State<_ChatAppBarHarness> {
                 hasTerminalEnvironment: true,
                 isBrowserEnabled: false,
                 activeToolType: null,
+                showSurfaceSwitcher: widget.showSurfaceSwitcher,
               ),
+              Text('active:${_activeMode.name}'),
               Text('layer:${_displayLayer.wireName}'),
               Text('browserTaps:$_browserTapCount'),
               Text('envTaps:$_envTapCount'),
+              Text('terminalTaps:$_terminalTapCount'),
             ],
           ),
         ),
@@ -146,8 +153,7 @@ class _PureChatToggleHarnessState extends State<_PureChatToggleHarness> {
                 onCompanionTap: () {},
                 activeMode: ChatSurfaceMode.normal,
                 onModeChanged: (_) {},
-                activeModelId: 'gpt-5.4',
-                displayLayer: ChatIslandDisplayLayer.model,
+                displayLayer: ChatIslandDisplayLayer.mode,
                 onDisplayLayerChanged: (_) {},
                 onTerminalEnvironmentTap: (_) {},
                 onTerminalTap: () {},
@@ -182,19 +188,12 @@ class _SurfaceTransitionHarness extends StatefulWidget {
 }
 
 class _SurfaceTransitionHarnessState extends State<_SurfaceTransitionHarness> {
-  static const Duration _revealDelay = Duration(milliseconds: 1700);
-
   late final PageController _pageController = PageController(
     initialPage: _pageIndexForSurface(ChatSurfaceMode.openclaw),
   );
   ChatSurfaceMode _activeMode = ChatSurfaceMode.openclaw;
-  ChatIslandDisplayLayer _normalDisplayLayer = ChatIslandDisplayLayer.model;
-  Timer? _revealTimer;
-  bool _revealInterrupted = false;
-  bool _isSurfacePageScrolling = false;
+  ChatIslandDisplayLayer _normalDisplayLayer = ChatIslandDisplayLayer.mode;
   int _surfaceSwitchRequestId = 0;
-  int? _pageGesturePointerId;
-  double _pageVerticalDragDelta = 0;
 
   int _pageIndexForSurface(ChatSurfaceMode mode) => switch (mode) {
     ChatSurfaceMode.normal => 0,
@@ -208,149 +207,24 @@ class _SurfaceTransitionHarnessState extends State<_SurfaceTransitionHarness> {
     _ => ChatSurfaceMode.normal,
   };
 
-  void _cancelReveal() {
-    _revealTimer?.cancel();
-    _revealTimer = null;
-  }
-
-  void _interruptReveal() {
-    _cancelReveal();
-    _revealInterrupted = true;
-  }
-
-  void _forceNormalModeLayer() {
-    _normalDisplayLayer = ChatIslandDisplayLayer.mode;
-  }
-
-  bool _canRevealModel() {
-    return _activeMode == ChatSurfaceMode.normal &&
-        !_isSurfacePageScrolling &&
-        !_revealInterrupted &&
-        _normalDisplayLayer == ChatIslandDisplayLayer.mode;
-  }
-
-  void _scheduleReveal() {
-    _cancelReveal();
-    if (!_canRevealModel()) {
-      return;
-    }
-    _revealTimer = Timer(_revealDelay, () {
-      _revealTimer = null;
-      if (!mounted || !_canRevealModel()) {
-        return;
-      }
-      setState(() {
-        _normalDisplayLayer = ChatIslandDisplayLayer.model;
-      });
-    });
-  }
-
-  void _handleSurfaceScrollStart() {
-    _cancelReveal();
-    if (!mounted) {
-      _isSurfacePageScrolling = true;
-      _forceNormalModeLayer();
-      return;
-    }
-    if (_isSurfacePageScrolling &&
-        _normalDisplayLayer == ChatIslandDisplayLayer.mode) {
-      return;
-    }
-    setState(() {
-      _isSurfacePageScrolling = true;
-      _forceNormalModeLayer();
-    });
-  }
-
-  void _handleSurfaceScrollSettled(ChatSurfaceMode mode) {
-    _cancelReveal();
-    if (!mounted) {
-      _isSurfacePageScrolling = false;
-      if (mode == ChatSurfaceMode.normal) {
-        _revealInterrupted = false;
-        _forceNormalModeLayer();
-      }
-      return;
-    }
-    final shouldSetState =
-        _isSurfacePageScrolling ||
-        (mode == ChatSurfaceMode.normal &&
-            _normalDisplayLayer != ChatIslandDisplayLayer.mode);
-    if (shouldSetState) {
-      setState(() {
-        _isSurfacePageScrolling = false;
-        if (mode == ChatSurfaceMode.normal) {
-          _revealInterrupted = false;
-          _forceNormalModeLayer();
-        }
-      });
-    } else {
-      _isSurfacePageScrolling = false;
-      if (mode == ChatSurfaceMode.normal) {
-        _revealInterrupted = false;
-      }
-    }
-    if (mode == ChatSurfaceMode.normal) {
-      _scheduleReveal();
-    }
-  }
-
-  bool _handleScrollNotification(ScrollNotification notification) {
-    if (notification.depth != 0 ||
-        notification.metrics.axis != Axis.horizontal) {
-      return false;
-    }
-    if (notification is ScrollStartNotification) {
-      _handleSurfaceScrollStart();
-      return false;
-    }
-    if (notification is UserScrollNotification) {
-      final direction = notification.direction;
-      if (direction == ScrollDirection.forward ||
-          direction == ScrollDirection.reverse) {
-        _handleSurfaceScrollStart();
-      }
-      return false;
-    }
-    if (notification is ScrollEndNotification) {
-      final pageMetrics = notification.metrics;
-      final rawPage = pageMetrics is PageMetrics
-          ? pageMetrics.page
-          : (_pageController.hasClients ? _pageController.page : null);
-      final settledIndex =
-          (rawPage ?? _pageIndexForSurface(_activeMode).toDouble()).round();
-      _handleSurfaceScrollSettled(_surfaceForPageIndex(settledIndex));
-    }
-    return false;
-  }
-
   Future<void> _switchMode(
     ChatSurfaceMode targetMode, {
     bool syncPage = true,
   }) async {
     final requestId = ++_surfaceSwitchRequestId;
     bool isStaleRequest() => !mounted || requestId != _surfaceSwitchRequestId;
-    if (_activeMode == targetMode) {
-      if (targetMode == ChatSurfaceMode.normal && !syncPage) {
-        _scheduleReveal();
-      }
-      return;
-    }
+    if (_activeMode == targetMode) return;
 
-    _cancelReveal();
     final delay = widget.applyDelayByMode[targetMode] ?? Duration.zero;
     if (delay > Duration.zero) {
       await Future<void>.delayed(delay);
     }
-    if (isStaleRequest()) {
-      return;
-    }
+    if (isStaleRequest()) return;
 
     setState(() {
       _activeMode = targetMode;
-      if (targetMode == ChatSurfaceMode.normal) {
-        _revealInterrupted = false;
-        _forceNormalModeLayer();
+      if (targetMode == ChatSurfaceMode.workspace) {
+        _normalDisplayLayer = ChatIslandDisplayLayer.mode;
       }
     });
     if (syncPage) {
@@ -359,64 +233,20 @@ class _SurfaceTransitionHarnessState extends State<_SurfaceTransitionHarness> {
         duration: const Duration(milliseconds: 240),
         curve: Curves.easeOutCubic,
       );
-      return;
-    }
-    if (targetMode == ChatSurfaceMode.normal && !_isSurfacePageScrolling) {
-      _scheduleReveal();
     }
   }
 
   @override
   void dispose() {
-    _cancelReveal();
     _pageController.dispose();
     super.dispose();
   }
 
-  void _handlePagePointerDown(PointerDownEvent event) {
-    _pageGesturePointerId = event.pointer;
-    _pageVerticalDragDelta = 0;
-  }
-
-  void _handlePagePointerMove(PointerMoveEvent event) {
-    if (event.pointer != _pageGesturePointerId ||
-        _activeMode != ChatSurfaceMode.normal) {
-      return;
-    }
-    _pageVerticalDragDelta += event.delta.dy;
-    if (_revealTimer != null &&
-        !_revealInterrupted &&
-        _pageVerticalDragDelta.abs() >= 6) {
-      _interruptReveal();
-    }
-  }
-
-  void _handlePagePointerUp(PointerUpEvent event) {
-    if (event.pointer != _pageGesturePointerId) {
-      return;
-    }
-    if (_activeMode == ChatSurfaceMode.normal &&
-        _pageVerticalDragDelta.abs() >= 18) {
-      setState(() {
-        _normalDisplayLayer = _pageVerticalDragDelta > 0
-            ? ChatIslandDisplayLayer.tools
-            : ChatIslandDisplayLayer.model;
-      });
-    }
-    _pageGesturePointerId = null;
-    _pageVerticalDragDelta = 0;
-  }
-
-  void _handlePagePointerCancel(PointerCancelEvent event) {
-    if (event.pointer != _pageGesturePointerId) {
-      return;
-    }
-    _pageGesturePointerId = null;
-    _pageVerticalDragDelta = 0;
-  }
-
   @override
   Widget build(BuildContext context) {
+    final displayLayer = _activeMode == ChatSurfaceMode.normal
+        ? _normalDisplayLayer
+        : ChatIslandDisplayLayer.mode;
     return MaterialApp(
       home: DefaultAssetBundle(
         bundle: _SvgTestAssetBundle(),
@@ -430,13 +260,8 @@ class _SurfaceTransitionHarnessState extends State<_SurfaceTransitionHarness> {
                 onModeChanged: (value) {
                   _switchMode(value);
                 },
-                activeModelId: 'gpt-5.4',
-                displayLayer: _activeMode == ChatSurfaceMode.normal
-                    ? _normalDisplayLayer
-                    : ChatIslandDisplayLayer.mode,
-                onInteracted: _cancelReveal,
+                displayLayer: displayLayer,
                 onDisplayLayerChanged: (value) {
-                  _cancelReveal();
                   setState(() {
                     _normalDisplayLayer = value;
                   });
@@ -449,7 +274,7 @@ class _SurfaceTransitionHarnessState extends State<_SurfaceTransitionHarness> {
                 activeToolType: null,
               ),
               Text('active:${_activeMode.name}'),
-              Text('layer:${_normalDisplayLayer.wireName}'),
+              Text('layer:${displayLayer.wireName}'),
               TextButton(
                 key: const ValueKey('request-normal'),
                 onPressed: () {
@@ -465,169 +290,55 @@ class _SurfaceTransitionHarnessState extends State<_SurfaceTransitionHarness> {
                 child: const Text('request-openclaw'),
               ),
               TextButton(
-                key: const ValueKey('simulate-page-scroll'),
+                key: const ValueKey('request-workspace'),
                 onPressed: () {
-                  _interruptReveal();
+                  _switchMode(ChatSurfaceMode.workspace, syncPage: false);
                 },
-                child: const Text('simulate-page-scroll'),
+                child: const Text('request-workspace'),
               ),
               Expanded(
-                child: Listener(
-                  behavior: HitTestBehavior.translucent,
-                  onPointerDown: _handlePagePointerDown,
-                  onPointerMove: _handlePagePointerMove,
-                  onPointerUp: _handlePagePointerUp,
-                  onPointerCancel: _handlePagePointerCancel,
-                  child: NotificationListener<ScrollNotification>(
-                    onNotification: _handleScrollNotification,
-                    child: PageView(
-                      controller: _pageController,
-                      onPageChanged: (pageIndex) {
-                        _switchMode(
-                          _surfaceForPageIndex(pageIndex),
-                          syncPage: false,
-                        );
-                      },
-                      children: const [
-                        ColoredBox(color: Colors.white),
-                        ColoredBox(color: Colors.white),
-                        ColoredBox(color: Colors.white),
-                      ],
-                    ),
+                child: NotificationListener<ScrollNotification>(
+                  onNotification: (notification) {
+                    if (notification.depth != 0 ||
+                        notification.metrics.axis != Axis.horizontal) {
+                      return false;
+                    }
+                    if (notification is ScrollEndNotification) {
+                      final pageMetrics = notification.metrics;
+                      final rawPage = pageMetrics is PageMetrics
+                          ? pageMetrics.page
+                          : (_pageController.hasClients
+                                ? _pageController.page
+                                : null);
+                      final settledIndex =
+                          (rawPage ??
+                                  _pageIndexForSurface(_activeMode).toDouble())
+                              .round();
+                      _switchMode(
+                        _surfaceForPageIndex(settledIndex),
+                        syncPage: false,
+                      );
+                    }
+                    return false;
+                  },
+                  child: PageView(
+                    controller: _pageController,
+                    onPageChanged: (pageIndex) {
+                      _switchMode(
+                        _surfaceForPageIndex(pageIndex),
+                        syncPage: false,
+                      );
+                    },
+                    children: const [
+                      ColoredBox(color: Colors.white),
+                      ColoredBox(color: Colors.white),
+                      ColoredBox(color: Colors.white),
+                    ],
                   ),
                 ),
               ),
             ],
           ),
-        ),
-      ),
-    );
-  }
-}
-
-class _FloatingPanelGestureExclusionHarness extends StatefulWidget {
-  const _FloatingPanelGestureExclusionHarness();
-
-  @override
-  State<_FloatingPanelGestureExclusionHarness> createState() =>
-      _FloatingPanelGestureExclusionHarnessState();
-}
-
-class _FloatingPanelGestureExclusionHarnessState
-    extends State<_FloatingPanelGestureExclusionHarness> {
-  final GlobalKey _panelKey = GlobalKey();
-  ChatIslandDisplayLayer _displayLayer = ChatIslandDisplayLayer.model;
-  int? _pageGesturePointerId;
-  double _pageVerticalDragDelta = 0;
-
-  bool _isPointerInside(GlobalKey key, Offset position) {
-    final context = key.currentContext;
-    if (context == null) {
-      return false;
-    }
-    final renderBox = context.findRenderObject() as RenderBox?;
-    if (renderBox == null || !renderBox.hasSize) {
-      return false;
-    }
-    final rect = renderBox.localToGlobal(Offset.zero) & renderBox.size;
-    return rect.contains(position);
-  }
-
-  void _handlePagePointerDown(PointerDownEvent event) {
-    if (_isPointerInside(_panelKey, event.position)) {
-      _pageGesturePointerId = null;
-      _pageVerticalDragDelta = 0;
-      return;
-    }
-    _pageGesturePointerId = event.pointer;
-    _pageVerticalDragDelta = 0;
-  }
-
-  void _handlePagePointerMove(PointerMoveEvent event) {
-    if (event.pointer != _pageGesturePointerId) {
-      return;
-    }
-    _pageVerticalDragDelta += event.delta.dy;
-  }
-
-  void _handlePagePointerUp(PointerUpEvent event) {
-    if (event.pointer != _pageGesturePointerId) {
-      return;
-    }
-    if (_pageVerticalDragDelta.abs() >= 18) {
-      setState(() {
-        _displayLayer = _pageVerticalDragDelta > 0
-            ? ChatIslandDisplayLayer.tools
-            : ChatIslandDisplayLayer.model;
-      });
-    }
-    _pageGesturePointerId = null;
-    _pageVerticalDragDelta = 0;
-  }
-
-  void _handlePagePointerCancel(PointerCancelEvent event) {
-    if (event.pointer != _pageGesturePointerId) {
-      return;
-    }
-    _pageGesturePointerId = null;
-    _pageVerticalDragDelta = 0;
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return MaterialApp(
-      home: Scaffold(
-        body: Column(
-          children: [
-            Text('layer:${_displayLayer.wireName}'),
-            Expanded(
-              child: Listener(
-                behavior: HitTestBehavior.translucent,
-                onPointerDown: _handlePagePointerDown,
-                onPointerMove: _handlePagePointerMove,
-                onPointerUp: _handlePagePointerUp,
-                onPointerCancel: _handlePagePointerCancel,
-                child: Stack(
-                  children: [
-                    Positioned.fill(
-                      child: ColoredBox(
-                        key: const ValueKey('floating-background'),
-                        color: const Color(0xFFF5F7FB),
-                      ),
-                    ),
-                    Align(
-                      alignment: Alignment.bottomCenter,
-                      child: Padding(
-                        padding: const EdgeInsets.only(bottom: 32),
-                        child: Material(
-                          key: _panelKey,
-                          elevation: 4,
-                          borderRadius: BorderRadius.circular(16),
-                          color: Colors.white,
-                          child: SizedBox(
-                            width: 240,
-                            height: 180,
-                            child: ListView.builder(
-                              key: const ValueKey('floating-panel'),
-                              padding: const EdgeInsets.symmetric(vertical: 8),
-                              physics: const ClampingScrollPhysics(),
-                              itemCount: 12,
-                              itemBuilder: (context, index) {
-                                return ListTile(
-                                  dense: true,
-                                  title: Text('model-$index'),
-                                );
-                              },
-                            ),
-                          ),
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ],
         ),
       ),
     );
@@ -649,19 +360,26 @@ Future<void> _pumpSurfaceSwitch(WidgetTester tester) async {
   await tester.pump(const Duration(milliseconds: 260));
 }
 
+Finder _hitTestableIslandToolButton(String key) =>
+    find.byKey(ValueKey<String>(key)).hitTestable();
+
 void _setTestViewport(WidgetTester tester, Size size) {
   tester.view.devicePixelRatio = 1;
   tester.view.physicalSize = size;
 }
 
 void main() {
-  testWidgets('keeps model layer visible by default in normal chat', (
+  testWidgets('keeps dynamic island free of model text in normal chat', (
     tester,
   ) async {
     await tester.pumpWidget(const _ChatAppBarHarness());
 
-    expect(find.text('layer:model'), findsOneWidget);
-    expect(find.text('gpt-5.4'), findsOneWidget);
+    expect(find.text('layer:mode'), findsOneWidget);
+    expect(find.text('gpt-5.4'), findsNothing);
+    expect(
+      _hitTestableIslandToolButton('chat-island-terminal-button'),
+      findsNothing,
+    );
   });
 
   testWidgets('swaps companion shortcut left and mode menu right', (
@@ -693,27 +411,7 @@ void main() {
   testWidgets('uses page background when surface switcher is visible', (
     tester,
   ) async {
-    await tester.pumpWidget(
-      MaterialApp(
-        home: DefaultAssetBundle(
-          bundle: _SvgTestAssetBundle(),
-          child: Scaffold(
-            body: ChatAppBar(
-              onMenuTap: () {},
-              onCompanionTap: () {},
-              activeMode: ChatSurfaceMode.normal,
-              onModeChanged: (_) {},
-              activeModelId: 'gpt-5.4',
-              displayLayer: ChatIslandDisplayLayer.model,
-              onDisplayLayerChanged: (_) {},
-              onTerminalEnvironmentTap: (_) {},
-              onTerminalTap: () {},
-              onBrowserTap: () {},
-            ),
-          ),
-        ),
-      ),
-    );
+    await tester.pumpWidget(const _ChatAppBarHarness());
 
     final appBarContext = tester.element(find.byType(ChatAppBar));
     final rootSurface = tester.widget<ColoredBox>(
@@ -737,8 +435,7 @@ void main() {
               onCompanionTap: () {},
               activeMode: ChatSurfaceMode.normal,
               onModeChanged: (_) {},
-              activeModelId: 'gpt-5.4',
-              displayLayer: ChatIslandDisplayLayer.model,
+              displayLayer: ChatIslandDisplayLayer.mode,
               onDisplayLayerChanged: (_) {},
               onTerminalEnvironmentTap: (_) {},
               onTerminalTap: () {},
@@ -944,8 +641,7 @@ void main() {
               onCompanionTap: () {},
               activeMode: ChatSurfaceMode.normal,
               onModeChanged: (_) {},
-              activeModelId: 'gpt-5.4',
-              displayLayer: ChatIslandDisplayLayer.model,
+              displayLayer: ChatIslandDisplayLayer.mode,
               onDisplayLayerChanged: (_) {},
               onTerminalEnvironmentTap: (_) {},
               onTerminalTap: () {},
@@ -1014,8 +710,7 @@ void main() {
               onCompanionTap: () {},
               activeMode: ChatSurfaceMode.normal,
               onModeChanged: (_) {},
-              activeModelId: 'gpt-5.4',
-              displayLayer: ChatIslandDisplayLayer.model,
+              displayLayer: ChatIslandDisplayLayer.mode,
               onDisplayLayerChanged: (_) {},
               onTerminalEnvironmentTap: (_) {},
               onTerminalTap: () {},
@@ -1044,8 +739,7 @@ void main() {
               onCompanionTap: () {},
               activeMode: ChatSurfaceMode.normal,
               onModeChanged: (_) {},
-              activeModelId: 'gpt-5.4',
-              displayLayer: ChatIslandDisplayLayer.model,
+              displayLayer: ChatIslandDisplayLayer.mode,
               onDisplayLayerChanged: (_) {},
               onTerminalEnvironmentTap: (_) {},
               onTerminalTap: () {},
@@ -1089,7 +783,6 @@ void main() {
                 onCompanionTap: () {},
                 activeMode: ChatSurfaceMode.normal,
                 onModeChanged: (_) {},
-                activeModelId: 'gpt-5.4',
                 displayLayer: ChatIslandDisplayLayer.mode,
                 onDisplayLayerChanged: (_) {},
                 onTerminalEnvironmentTap: (_) {},
@@ -1123,18 +816,15 @@ void main() {
     expect(primaryIconAsset(), contains('assets/home/chat/pure_chat.svg'));
   });
 
-  testWidgets('supports direct island swipe between model and tools layers', (
+  testWidgets('switches island directly between mode and tools layers', (
     tester,
   ) async {
     await tester.pumpWidget(const _ChatAppBarHarness());
 
-    await tester.drag(find.text('gpt-5.4'), const Offset(0, -42));
-    await tester.pumpAndSettle();
-
-    expect(find.text('layer:model'), findsOneWidget);
-    expect(find.text('gpt-5.4'), findsOneWidget);
-
-    await tester.drag(find.text('gpt-5.4'), const Offset(0, 42));
+    await tester.drag(
+      find.byKey(const ValueKey('chat-app-bar-island')),
+      const Offset(0, 42),
+    );
     await tester.pumpAndSettle();
 
     expect(find.text('layer:tools'), findsOneWidget);
@@ -1180,72 +870,55 @@ void main() {
 
     expect(find.text('envTaps:1'), findsOneWidget);
 
+    await tester.tap(find.byKey(const ValueKey('chat-island-terminal-button')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('terminalTaps:1'), findsOneWidget);
+
     await tester.tap(find.byKey(const ValueKey('chat-island-browser-button')));
     await tester.pumpAndSettle();
 
     expect(find.text('browserTaps:0'), findsOneWidget);
 
     await tester.drag(
-      find.byKey(const ValueKey('chat-island-terminal-button')),
+      find.byKey(const ValueKey('chat-app-bar-island')),
       const Offset(0, -42),
     );
     await tester.pumpAndSettle();
 
-    expect(find.text('layer:model'), findsOneWidget);
+    expect(find.text('layer:mode'), findsOneWidget);
   });
 
-  testWidgets('ignores floating panel drags for island layer switching', (
+  testWidgets('hides surface switcher without forcing tools layer', (
     tester,
   ) async {
-    await tester.pumpWidget(const _FloatingPanelGestureExclusionHarness());
+    await tester.pumpWidget(
+      const _ChatAppBarHarness(showSurfaceSwitcher: false),
+    );
 
-    expect(find.text('layer:model'), findsOneWidget);
+    expect(find.byType(ChatModeSlider), findsNothing);
+    expect(find.text('layer:mode'), findsOneWidget);
+    expect(find.text('gpt-5.4'), findsNothing);
+    expect(
+      find.byKey(const ValueKey('chat-island-single-mode-icon')),
+      findsOneWidget,
+    );
+    expect(
+      _hitTestableIslandToolButton('chat-island-terminal-button'),
+      findsNothing,
+    );
 
     await tester.drag(
-      find.byKey(const ValueKey('floating-panel')),
-      const Offset(0, 64),
-    );
-    await tester.pumpAndSettle();
-
-    expect(find.text('layer:model'), findsOneWidget);
-
-    final background = find.byKey(const ValueKey('floating-background'));
-    await tester.dragFrom(
-      tester.getTopLeft(background) + const Offset(40, 40),
-      const Offset(0, 64),
+      find.byKey(const ValueKey('chat-app-bar-island')),
+      const Offset(0, 42),
     );
     await tester.pumpAndSettle();
 
     expect(find.text('layer:tools'), findsOneWidget);
-  });
-
-  testWidgets('hides surface switcher when disabled', (tester) async {
-    await tester.pumpWidget(
-      MaterialApp(
-        home: DefaultAssetBundle(
-          bundle: _SvgTestAssetBundle(),
-          child: Scaffold(
-            body: ChatAppBar(
-              onMenuTap: () {},
-              onCompanionTap: () {},
-              activeMode: ChatSurfaceMode.normal,
-              onModeChanged: (_) {},
-              activeModelId: 'gpt-5.4',
-              displayLayer: ChatIslandDisplayLayer.mode,
-              onDisplayLayerChanged: (_) {},
-              onTerminalEnvironmentTap: (_) {},
-              onTerminalTap: () {},
-              onBrowserTap: () {},
-              showMenuButton: false,
-              showSurfaceSwitcher: false,
-            ),
-          ),
-        ),
-      ),
+    expect(
+      _hitTestableIslandToolButton('chat-island-terminal-button'),
+      findsOneWidget,
     );
-
-    expect(find.byType(ChatModeSlider), findsNothing);
-    expect(find.text('gpt-5.4'), findsOneWidget);
 
     final appBarContext = tester.element(find.byType(ChatAppBar));
     final rootSurface = tester.widget<ColoredBox>(
@@ -1255,56 +928,25 @@ void main() {
     expect(rootSurface.color, appBarContext.omniPalette.surfacePrimary);
   });
 
-  testWidgets(
-    'reveals model only after normal surface settles and stays idle',
-    (tester) async {
-      await tester.pumpWidget(const _SurfaceTransitionHarness());
-
-      expect(find.text('active:openclaw'), findsOneWidget);
-
-      await _tapModeSegment(tester, 0);
-      await _pumpSurfaceSwitch(tester);
-
-      expect(find.text('active:normal'), findsOneWidget);
-      expect(find.text('layer:mode'), findsOneWidget);
-
-      await tester.pump(const Duration(milliseconds: 1699));
-      expect(find.text('layer:mode'), findsOneWidget);
-
-      await tester.pump(const Duration(milliseconds: 1));
-      expect(find.text('layer:model'), findsOneWidget);
-    },
-  );
-
-  testWidgets('resets reveal delay after repeated surface switches', (
+  testWidgets('normal surface preserves island layer while idle', (
     tester,
   ) async {
     await tester.pumpWidget(const _SurfaceTransitionHarness());
 
-    await tester.tap(find.byKey(const ValueKey('request-normal')));
-    await tester.pump();
-    expect(find.text('active:normal'), findsOneWidget);
-    expect(find.text('layer:mode'), findsOneWidget);
-
-    await tester.pump(const Duration(milliseconds: 1000));
-
-    await tester.tap(find.byKey(const ValueKey('request-openclaw')));
-    await tester.pump();
     expect(find.text('active:openclaw'), findsOneWidget);
 
-    await tester.tap(find.byKey(const ValueKey('request-normal')));
-    await tester.pump();
+    await _tapModeSegment(tester, 0);
+    await _pumpSurfaceSwitch(tester);
+
     expect(find.text('active:normal'), findsOneWidget);
     expect(find.text('layer:mode'), findsOneWidget);
 
-    await tester.pump(const Duration(milliseconds: 1699));
-    expect(find.text('layer:mode'), findsOneWidget);
+    await tester.pump(const Duration(milliseconds: 2500));
 
-    await tester.pump(const Duration(milliseconds: 1));
-    expect(find.text('layer:model'), findsOneWidget);
+    expect(find.text('layer:mode'), findsOneWidget);
   });
 
-  testWidgets('interrupts delayed reveal when page scroll happens in time', (
+  testWidgets('workspace visit resets tool-triggered island layer', (
     tester,
   ) async {
     await tester.pumpWidget(const _SurfaceTransitionHarness());
@@ -1314,13 +956,38 @@ void main() {
     expect(find.text('active:normal'), findsOneWidget);
     expect(find.text('layer:mode'), findsOneWidget);
 
-    await tester.pump(const Duration(milliseconds: 600));
-    await tester.tap(find.byKey(const ValueKey('simulate-page-scroll')));
-    await tester.pump();
+    await tester.drag(
+      find.byKey(const ValueKey('chat-app-bar-island')),
+      const Offset(0, 42),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('layer:tools'), findsOneWidget);
 
+    await tester.fling(find.byType(PageView), const Offset(-640, 0), 1200);
+    await tester.pumpAndSettle();
+    expect(find.text('active:workspace'), findsOneWidget);
     expect(find.text('layer:mode'), findsOneWidget);
 
-    await tester.pump(const Duration(milliseconds: 2000));
+    await tester.fling(find.byType(PageView), const Offset(640, 0), 1200);
+    await tester.pumpAndSettle();
+    expect(find.text('active:normal'), findsOneWidget);
+    expect(find.text('layer:mode'), findsOneWidget);
+
+    await tester.drag(
+      find.byKey(const ValueKey('chat-app-bar-island')),
+      const Offset(0, 42),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('layer:tools'), findsOneWidget);
+
+    await tester.fling(find.byType(PageView), const Offset(-640, 0), 1200);
+    await tester.pumpAndSettle();
+    expect(find.text('active:workspace'), findsOneWidget);
+    expect(find.text('layer:mode'), findsOneWidget);
+
+    await tester.fling(find.byType(PageView), const Offset(640, 0), 1200);
+    await tester.pumpAndSettle();
+    expect(find.text('active:normal'), findsOneWidget);
     expect(find.text('layer:mode'), findsOneWidget);
   });
 
@@ -1339,6 +1006,6 @@ void main() {
     await tester.pump(const Duration(milliseconds: 140));
 
     expect(find.text('active:openclaw'), findsOneWidget);
-    expect(find.text('layer:model'), findsOneWidget);
+    expect(find.text('layer:mode'), findsOneWidget);
   });
 }

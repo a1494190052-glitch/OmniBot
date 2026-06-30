@@ -2,7 +2,7 @@ part of 'chat_page.dart';
 
 const int _kDefaultContextTokenThreshold = 128000;
 const int _kMinContextTokenThreshold = 10000;
-const int _kMaxContextTokenThreshold = 512000;
+const int _kMaxContextTokenThreshold = 1000000;
 const double _kChatMessageBottomSafeSpacing = 12.0;
 const double _kSlashCommandDrawerRadius = 18.0;
 const double _kSlashCommandDrawerHandleWidth = 36.0;
@@ -16,11 +16,27 @@ mixin _ChatPageUiMixin on _ChatPageStateBase {
   static const double _kChatInputFallbackHeight = 80.0;
   static const double _kHdPadPaneCollapseWidthRatio = 0.12;
   static const double _kHdPadPaneCollapseMinWidthFactor = 0.72;
+  final Set<String> _pendingManualAgentRetryTaskIds = <String>{};
+  final Set<String> _pendingManualAgentContinueTaskIds = <String>{};
 
   ChatPageMode get _primaryChatMessagePageMode =>
       _activeMode == ChatPageMode.codex
       ? ChatPageMode.codex
       : ChatPageMode.normal;
+
+  @override
+  void _armComposerLiftIntent() {
+    _composerLiftIntentTracker.arm();
+  }
+
+  @override
+  void _requestComposerFocus({bool showKeyboard = false}) {
+    _armComposerLiftIntent();
+    _inputFocusNode.requestFocus();
+    if (showKeyboard) {
+      SystemChannels.textInput.invokeMethod('TextInput.show');
+    }
+  }
 
   void _applyHomeQuickPrompt(HomeQuickPrompt prompt) {
     _suppressNextOutsideTapKeyboardHide = true;
@@ -35,8 +51,7 @@ mixin _ChatPageUiMixin on _ChatPageStateBase {
     _draftMessageByMode[_activeConversationMode] = text;
     _handleSlashCommandInput();
     if (!_inputFocusNode.hasFocus) {
-      _inputFocusNode.requestFocus();
-      SystemChannels.textInput.invokeMethod('TextInput.show');
+      _requestComposerFocus(showKeyboard: true);
     }
   }
 
@@ -113,15 +128,20 @@ mixin _ChatPageUiMixin on _ChatPageStateBase {
     if (route == _SlashCommandPanelRoute.effort &&
         _supportsReasoningEffortCommand) {
       final activeEffort = _activeConversationReasoningEffort;
+      final displayActiveEffort = activeEffort == 'xhigh'
+          ? 'max'
+          : activeEffort;
       final query = _slashCommandRouteQuery(route).toLowerCase();
-      final efforts = <String>['no', 'low', 'high']
+      final efforts = <String>['no', 'low', 'high', 'max']
           .where((effort) {
-            return query.isEmpty || effort.contains(query);
+            return query.isEmpty ||
+                effort.contains(query) ||
+                (effort == 'max' && 'xhigh'.contains(query));
           })
           .toList(growable: false);
       return efforts
           .map((effort) {
-            final isSelected = effort == activeEffort;
+            final isSelected = effort == displayActiveEffort;
             return <String, dynamic>{
               'cardId': 'slash-command-effort-$effort',
               'toolName': effort,
@@ -183,6 +203,9 @@ mixin _ChatPageUiMixin on _ChatPageStateBase {
     }
     if (_supportsReasoningEffortCommand) {
       final activeEffort = _activeConversationReasoningEffort;
+      final displayActiveEffort = activeEffort == 'xhigh'
+          ? 'max'
+          : activeEffort;
       commands.add(<String, dynamic>{
         'cardId': 'slash-command-effort',
         'toolName': '/effort',
@@ -190,19 +213,20 @@ mixin _ChatPageUiMixin on _ChatPageStateBase {
         'displayName': '/effort',
         'toolType': 'command',
         'toolTypeLabel': LegacyTextLocalizer.isEnglish ? 'Thinking' : '思考',
-        'status': activeEffort == null ? 'running' : 'success',
+        'status': displayActiveEffort == null ? 'running' : 'success',
         'statusLabel':
-            activeEffort ?? (LegacyTextLocalizer.isEnglish ? 'Command' : '命令'),
-        'summary': activeEffort == null
+            displayActiveEffort ??
+            (LegacyTextLocalizer.isEnglish ? 'Command' : '命令'),
+        'summary': displayActiveEffort == null
             ? (LegacyTextLocalizer.isEnglish
                   ? 'Set reasoning effort for this session'
                   : '设置当前会话的思考强度')
             : (LegacyTextLocalizer.isEnglish
-                  ? 'Current effort: $activeEffort'
-                  : '当前思考强度：$activeEffort'),
+                  ? 'Current effort: $displayActiveEffort'
+                  : '当前思考强度：$displayActiveEffort'),
         'progress': LegacyTextLocalizer.isEnglish
-            ? 'Choose no, low or high'
-            : '点击后选择 no、low 或 high',
+            ? 'Choose no, low, high or max'
+            : '点击后选择 no、low、high 或 max',
       });
     }
     if (_isOpenClawSurface) {
@@ -449,12 +473,14 @@ mixin _ChatPageUiMixin on _ChatPageStateBase {
           text: '/effort ',
           selection: TextSelection.collapsed(offset: 8),
         );
-        _inputFocusNode.requestFocus();
+        _requestComposerFocus();
         _handleSlashCommandInput();
         break;
       case 'no':
       case 'low':
       case 'high':
+      case 'xhigh':
+      case 'max':
         unawaited(_applyConversationReasoningEffort(command));
         _messageController.clear();
         _hideSlashCommandPanel();
@@ -845,6 +871,8 @@ mixin _ChatPageUiMixin on _ChatPageStateBase {
     return ChatMessageList(
       messages: resolvedMessages,
       activeAgentTaskIds: activeAgentTaskIds,
+      onRetryAgentMessage: _retryFailedAgentTurn,
+      onContinueAgentMessage: _continueFailedAgentTurn,
       expandedAgentRunTaskIds: _expandedAgentRunTaskIdsForMode(mode),
       onExpandedAgentRunTaskIdsChanged: (taskIds) {
         _updateExpandedAgentRunTaskIds(mode, taskIds);
@@ -1025,14 +1053,7 @@ mixin _ChatPageUiMixin on _ChatPageStateBase {
     );
   }
 
-  ChatIslandDisplayLayer _resolveChatPaneDisplayLayer({
-    required bool showSurfaceSwitcher,
-  }) {
-    if (!showSurfaceSwitcher) {
-      return _chatIslandDisplayLayer == ChatIslandDisplayLayer.tools
-          ? ChatIslandDisplayLayer.tools
-          : ChatIslandDisplayLayer.model;
-    }
+  ChatIslandDisplayLayer _resolveChatPaneDisplayLayer() {
     return _activeSurfaceMode == ChatSurfaceMode.normal
         ? _chatIslandDisplayLayer
         : ChatIslandDisplayLayer.mode;
@@ -1116,9 +1137,10 @@ mixin _ChatPageUiMixin on _ChatPageStateBase {
       snapshot: toolActivitySnapshot,
     );
     final toolActivityCanExpand = toolActivityCards.length > 1;
+    // The activity strip sits flush above the composer, so its downward drop
+    // shadow reads as part of the input surface instead of as separate chrome.
     final suppressToolActivitySurfaceShadow =
-        _inputFocusNode.hasFocus &&
-        (MediaQuery.maybeOf(context)?.viewInsets.bottom ?? 0.0) > 0;
+        showToolActivityStrip || showSlashCommandStrip;
     final overlayAnchor = (toolActivityCards.isEmpty && !showSlashCommandStrip)
         ? null
         : _resolveToolActivityAnchorGeometry(
@@ -1160,31 +1182,6 @@ mixin _ChatPageUiMixin on _ChatPageStateBase {
     final appBarMode = showSurfaceSwitcher
         ? _activeSurfaceMode
         : ChatSurfaceMode.normal;
-    final activeAppBarModelId = appBarMode == ChatSurfaceMode.normal
-        ? switch (_activeMode) {
-            ChatPageMode.normal => _activeNormalChatModelId,
-            ChatPageMode.codex => _activeCodexModelId,
-            ChatPageMode.openclaw => null,
-          }
-        : null;
-    final ValueChanged<BuildContext>? onAppBarModelTap =
-        appBarMode == ChatSurfaceMode.normal
-        ? switch (_activeMode) {
-            ChatPageMode.normal => (anchorContext) {
-              unawaited(_openConversationModelSelector(anchorContext));
-            },
-            ChatPageMode.codex => (anchorContext) {
-              _messageController.value = const TextEditingValue(
-                text: '/model ',
-                selection: TextSelection.collapsed(offset: 7),
-              );
-              _inputFocusNode.requestFocus();
-              _handleSlashCommandInput();
-              unawaited(_loadCodexModelOptions());
-            },
-            ChatPageMode.openclaw => null,
-          }
-        : null;
     final bottomRegionBackgroundColor = !backgroundActive && context.isDarkTheme
         ? context.omniPalette.pageBackground
         : Colors.transparent;
@@ -1219,12 +1216,7 @@ mixin _ChatPageUiMixin on _ChatPageStateBase {
               onModeChanged: (value) {
                 unawaited(_switchChatMode(value, syncPage: true));
               },
-              activeModelId: activeAppBarModelId,
-              onModelTap: onAppBarModelTap,
-              displayLayer: _resolveChatPaneDisplayLayer(
-                showSurfaceSwitcher: showSurfaceSwitcher,
-              ),
-              onInteracted: _cancelNormalSurfaceModelReveal,
+              displayLayer: _resolveChatPaneDisplayLayer(),
               onDisplayLayerChanged: _handleChatIslandDisplayLayerChanged,
               onTerminalEnvironmentTap: (anchorContext) {
                 unawaited(_openTerminalEnvironmentEditor(anchorContext));
@@ -1297,6 +1289,7 @@ mixin _ChatPageUiMixin on _ChatPageStateBase {
                       inputAreaKey: _chatInputAreaKey,
                       controller: _messageController,
                       focusNode: _inputFocusNode,
+                      onRequestFocus: _armComposerLiftIntent,
                       isProcessing: _isAiResponding,
                       onSendMessage: _sendMessage,
                       onCancelTask: _onCancelTask,
@@ -1324,6 +1317,52 @@ mixin _ChatPageUiMixin on _ChatPageStateBase {
                           _activeMode == ChatPageMode.normal
                           ? _handleContextUsageRingLongPress
                           : null,
+                      modelPickerSettings: _activeMode == ChatPageMode.normal
+                          ? ChatModelPickerSettings(
+                              modelId: _activeNormalChatModelId ?? '',
+                              hasSelectableModels:
+                                  _hasSelectableNormalChatModels,
+                              onPointerDown: () {
+                                _suppressNextOutsideTapKeyboardHide = true;
+                              },
+                              onOpen: (anchorContext) =>
+                                  _openConversationModelSelector(anchorContext),
+                            )
+                          : null,
+                      codexRunSettings: _activeMode == ChatPageMode.codex
+                          ? CodexRunSettings(
+                              modelId: _activeCodexModelId ?? '',
+                              reasoningEffort:
+                                  _activeCodexReasoningEffort ?? 'xhigh',
+                              modelOptions: _codexModelOptions,
+                              reasoningEffortOptions:
+                                  _codexReasoningEffortOptions,
+                              isLoadingModels: _isCodexModelListLoading,
+                              modelListError: _codexModelListError,
+                            )
+                          : null,
+                      onCodexRunSettingsOpened:
+                          _activeMode == ChatPageMode.codex
+                          ? () => _loadCodexModelOptions(force: true)
+                          : null,
+                      onCodexRunSettingsChanged:
+                          _activeMode == ChatPageMode.codex
+                          ? ({String? modelId, String? reasoningEffort}) {
+                              if (modelId != null) {
+                                unawaited(
+                                  _selectCodexModel(
+                                    modelId,
+                                    clearComposer: false,
+                                  ),
+                                );
+                              }
+                              if (reasoningEffort != null) {
+                                unawaited(
+                                  _selectCodexReasoningEffort(reasoningEffort),
+                                );
+                              }
+                            }
+                          : null,
                       codexPermissionMode: _activeMode == ChatPageMode.codex
                           ? _codexPermissionMode
                           : null,
@@ -1350,15 +1389,6 @@ mixin _ChatPageUiMixin on _ChatPageStateBase {
               ),
             ),
           ),
-        if (!hideWorkspaceOverlays &&
-            toolActivityCanExpand &&
-            _isToolActivityExpanded)
-          Positioned.fill(
-            child: GestureDetector(
-              behavior: HitTestBehavior.translucent,
-              onTap: () => _setToolActivityExpanded(false),
-            ),
-          ),
         if (showToolActivityStrip)
           Positioned(
             left: overlayAnchor?.rect.left ?? 24,
@@ -1368,16 +1398,19 @@ mixin _ChatPageUiMixin on _ChatPageStateBase {
             bottom: overlayAnchor?.bottom ?? 0,
             child: _buildNormalSurfaceTransition(
               viewportWidth: constraints.maxWidth,
-              child: ChatToolActivityStrip(
-                messages: toolActivityMessages,
-                showPreviewThumbnail: toolActivitySnapshot.isActiveRun,
-                openActiveCardOnTap: isPinnedCompletedToolActivity,
-                anchorRect: overlayAnchor?.rect,
-                onOccupiedHeightChanged: _scheduleToolActivityInsetSync,
-                expanded: _isToolActivityExpanded,
-                onExpandedChanged: _setToolActivityExpanded,
-                suppressSurfaceShadow: suppressToolActivitySurfaceShadow,
-                onStopToolCall: _handleToolActivityStopRequested,
+              child: KeyedSubtree(
+                key: _toolActivityStripKey,
+                child: ChatToolActivityStrip(
+                  messages: toolActivityMessages,
+                  showPreviewThumbnail: toolActivitySnapshot.isActiveRun,
+                  openActiveCardOnTap: isPinnedCompletedToolActivity,
+                  anchorRect: overlayAnchor?.rect,
+                  onOccupiedHeightChanged: _scheduleToolActivityInsetSync,
+                  expanded: _isToolActivityExpanded,
+                  onExpandedChanged: _setToolActivityExpanded,
+                  suppressSurfaceShadow: suppressToolActivitySurfaceShadow,
+                  onStopToolCall: _handleToolActivityStopRequested,
+                ),
               ),
             ),
           ),
@@ -1743,24 +1776,23 @@ mixin _ChatPageUiMixin on _ChatPageStateBase {
 
   @override
   Widget build(BuildContext context) {
-    const edgeInset = 24.0;
     final mediaQuery = MediaQuery.of(context);
     final isHdPadLandscape = _isHdPadLandscapeForMediaQuery(mediaQuery);
     final bottomInset = mediaQuery.viewInsets.bottom;
     final viewPaddingBottom = mediaQuery.viewPadding.bottom;
-    final shouldLiftComposerForKeyboard =
-        _inputFocusNode.hasFocus || _editingUserMessageId != null;
-    final composerKeyboardLift = shouldLiftComposerForKeyboard
-        ? bottomInset
-        : 0.0;
-    final inputBottomPadding =
-        (viewPaddingBottom + edgeInset - composerKeyboardLift)
-            .clamp(0.0, edgeInset)
-            .toDouble();
-    final keyboardSpacer = resolveChatComposerKeyboardSpacer(
-      shouldLiftComposerForKeyboard: shouldLiftComposerForKeyboard,
+    final shouldLiftComposerForKeyboard = _composerLiftIntentTracker.update(
+      hasInputIntent:
+          _inputFocusNode.hasFocus || _editingUserMessageId != null,
       bottomInset: bottomInset,
     );
+    final composerKeyboardMetrics = _composerKeyboardMetricsTracker.update(
+      shouldLiftComposerForKeyboard: shouldLiftComposerForKeyboard,
+      bottomInset: bottomInset,
+      viewPaddingBottom: viewPaddingBottom,
+      safeAreaBottomPadding: mediaQuery.padding.bottom,
+    );
+    final inputBottomPadding = composerKeyboardMetrics.inputBottomPadding;
+    final keyboardSpacer = composerKeyboardMetrics.keyboardSpacer;
     final commandPanelBottomOffset =
         (_popupMenuBottomOffset() + inputBottomPadding + keyboardSpacer + 6)
             .toDouble();
@@ -1776,6 +1808,13 @@ mixin _ChatPageUiMixin on _ChatPageStateBase {
               canPop: false,
               onPopInvokedWithResult: (didPop, _) {
                 if (didPop) return;
+                // 模型选择器是 OverlayEntry，不在 Navigator 栈里，普通 pop
+                // 不会关掉它；这里手动关，让系统返回手势先吃掉它再走原本的退出逻辑。
+                if (_conversationModelSelectorHandle != null) {
+                  unawaited(_conversationModelSelectorHandle?.dismiss());
+                  _conversationModelSelectorHandle = null;
+                  return;
+                }
                 if (isHdPadLandscape &&
                     !_hdPadRightPaneCollapsed &&
                     _workspaceBrowserCanGoUp) {
@@ -2081,33 +2120,21 @@ mixin _ChatPageUiMixin on _ChatPageStateBase {
     required bool showEditAction,
     required bool showRetryAction,
   }) {
-    final actionCount =
-        1 + (showEditAction ? 1 : 0) + (showRetryAction ? 1 : 0);
-    final estimatedMenuHeight = 4 + actionCount * 48.0 + (actionCount - 1);
-    final position = PopupMenuAnchorPosition.fromGlobalOffset(
+    final anchor = glassPopupAnchorFromGlobalPosition(context, globalPosition);
+    if (anchor == null) {
+      return Future<_UserMessageQuickAction?>.value();
+    }
+    return showGlassPopup<_UserMessageQuickAction>(
       context: context,
-      globalOffset: globalPosition,
-      estimatedMenuHeight: estimatedMenuHeight,
+      anchor: anchor,
       verticalGap: 10,
-      reservedBottom: MediaQuery.of(context).viewInsets.bottom,
-    );
-    return showMenu<_UserMessageQuickAction>(
-      context: context,
-      position: position,
-      color: Colors.transparent,
-      shadowColor: Colors.transparent,
-      surfaceTintColor: Colors.transparent,
-      elevation: 0,
-      menuPadding: EdgeInsets.zero,
-      constraints: const BoxConstraints(minWidth: 188, maxWidth: 188),
-      items: [
-        _UserMessageQuickMenuEntry(
-          width: 188,
-          estimatedHeight: estimatedMenuHeight,
-          showEditAction: showEditAction,
-          showRetryAction: showRetryAction,
-        ),
-      ],
+      instant: true,
+      horizontalPlacement: GlassPopupHorizontalPlacement.centerOnAnchor,
+      child: _UserMessageQuickMenuContent(
+        width: 188,
+        showEditAction: showEditAction,
+        showRetryAction: showRetryAction,
+      ),
     );
   }
 
@@ -2138,6 +2165,7 @@ mixin _ChatPageUiMixin on _ChatPageStateBase {
     }
     final originalText = message.text ?? '';
     setState(() {
+      _armComposerLiftIntent();
       _editingUserMessageId = message.id;
       _editingUserMessageController.value = TextEditingValue(
         text: originalText,
@@ -2278,6 +2306,164 @@ mixin _ChatPageUiMixin on _ChatPageStateBase {
     if (!mounted) return;
   }
 
+  Future<void> _retryFailedAgentTurn(ChatMessageModel message) async {
+    final taskId = _resolveRetryableAgentTaskId(message);
+    if (taskId == null) {
+      showToast(
+        LegacyTextLocalizer.isEnglish
+            ? 'This reply can no longer be retried'
+            : '这条回复当前无法继续重试',
+        type: ToastType.warning,
+      );
+      return;
+    }
+    if (_pendingManualAgentRetryTaskIds.contains(taskId) ||
+        message.content?['agentRetrying'] == true) {
+      return;
+    }
+    if (_isAiResponding) {
+      showToast(
+        LegacyTextLocalizer.isEnglish
+            ? 'Wait for the current response to finish first'
+            : '请先等待当前回复结束',
+        type: ToastType.warning,
+      );
+      return;
+    }
+
+    final messageIndex = _messages.indexWhere((item) => item.id == message.id);
+    final previousMessage = messageIndex == -1 ? null : _messages[messageIndex];
+    _pendingManualAgentRetryTaskIds.add(taskId);
+    if (previousMessage != null && mounted) {
+      setState(() {
+        _messages[messageIndex] = _buildPendingManualRetryMessage(
+          previousMessage,
+          taskId: taskId,
+        );
+      });
+    }
+
+    final success = await AssistsMessageService.retryAgentTask(taskId: taskId);
+    _pendingManualAgentRetryTaskIds.remove(taskId);
+    if (!mounted) {
+      return;
+    }
+    if (!success) {
+      if (previousMessage != null) {
+        final restoreIndex = _messages.indexWhere(
+          (item) => item.id == previousMessage.id,
+        );
+        if (restoreIndex != -1) {
+          setState(() {
+            _messages[restoreIndex] = previousMessage;
+          });
+        }
+      }
+      showToast(
+        LegacyTextLocalizer.isEnglish
+            ? 'Retry failed. Please try sending the message again.'
+            : '重试失败，请重新发送消息',
+        type: ToastType.error,
+      );
+      return;
+    }
+  }
+
+  Future<void> _continueFailedAgentTurn(ChatMessageModel message) async {
+    final taskId = _resolveContinueableAgentTaskId(message);
+    if (taskId == null) {
+      showToast(
+        LegacyTextLocalizer.isEnglish
+            ? 'This reply can no longer continue from the current turn'
+            : '这条回复当前无法从本轮继续',
+        type: ToastType.warning,
+      );
+      return;
+    }
+    if (_pendingManualAgentContinueTaskIds.contains(taskId) ||
+        message.content?['agentContinuing'] == true) {
+      return;
+    }
+    if (_isAiResponding) {
+      showToast(
+        LegacyTextLocalizer.isEnglish
+            ? 'Wait for the current response to finish first'
+            : '请先等待当前回复结束',
+        type: ToastType.warning,
+      );
+      return;
+    }
+
+    final messageIndex = _messages.indexWhere((item) => item.id == message.id);
+    final previousMessage = messageIndex == -1 ? null : _messages[messageIndex];
+    final removedBlankThinkingCards = <ChatMessageModel>[];
+    _pendingManualAgentContinueTaskIds.add(taskId);
+    if (previousMessage != null && mounted) {
+      setState(() {
+        _messages[messageIndex] = _buildPendingManualContinueMessage(
+          previousMessage,
+          taskId: taskId,
+        );
+        // 失败 run 如果是卡在 thinking 阶段(还没出 tool 调用 / assistant 文本),
+        // 会留一张空内容的 "Thought for xx s" 卡。续跑后这张卡没有任何信息价值,
+        // 而且新 run 的 thinking 用了 -c$gen 后缀 id,不会原地覆盖它,
+        // 所以这里在续跑前先把它从消息流里移除。
+        //
+        // 注意:thinking 卡的 type / thinkingContent 都在 content.cardData 嵌套层里,
+        // 不是顶层 content,所以走 ChatMessageModel.cardData getter 读。
+        _messages.removeWhere((item) {
+          if (item.id == previousMessage.id) return false;
+          if (item.type != 2) return false;
+          if (agentRunParentTaskId(item) != taskId) return false;
+          final cardData = item.cardData;
+          if (cardData == null) return false;
+          final cardType = (cardData['type'] ?? '').toString().trim();
+          if (cardType != 'deep_thinking') return false;
+          final thinkingContent = (cardData['thinkingContent'] ?? '')
+              .toString()
+              .trim();
+          final shouldRemove = thinkingContent.isEmpty;
+          if (shouldRemove) removedBlankThinkingCards.add(item);
+          return shouldRemove;
+        });
+      });
+    }
+
+    final success = await AssistsMessageService.continueAgentTask(
+      taskId: taskId,
+    );
+    _pendingManualAgentContinueTaskIds.remove(taskId);
+    if (!mounted) {
+      return;
+    }
+    if (!success) {
+      if (previousMessage != null) {
+        final restoreIndex = _messages.indexWhere(
+          (item) => item.id == previousMessage.id,
+        );
+        if (restoreIndex != -1) {
+          setState(() {
+            _messages[restoreIndex] = previousMessage;
+            // 一并恢复因乐观更新被移除的空白 thinking 卡,
+            // 避免续跑请求本身失败时静默吞掉历史状态。
+            for (final card in removedBlankThinkingCards) {
+              if (_messages.indexWhere((item) => item.id == card.id) == -1) {
+                _messages.add(card);
+              }
+            }
+          });
+        }
+      }
+      showToast(
+        LegacyTextLocalizer.isEnglish
+            ? 'Continue failed. Please try again.'
+            : '继续失败，请稍后再试',
+        type: ToastType.error,
+      );
+      return;
+    }
+  }
+
   List<Map<String, dynamic>> _extractRetryAttachments(
     ChatMessageModel message,
   ) {
@@ -2289,6 +2475,99 @@ mixin _ChatPageUiMixin on _ChatPageStateBase {
         .toList();
   }
 
+  String? _resolveRetryableAgentTaskId(ChatMessageModel message) {
+    if (message.content?['agentRetryable'] != true) {
+      return null;
+    }
+    return _resolveAgentTaskId(message);
+  }
+
+  String? _resolveContinueableAgentTaskId(ChatMessageModel message) {
+    if (message.content?['agentContinueable'] != true) {
+      return null;
+    }
+    return _resolveAgentTaskId(message);
+  }
+
+  String? _resolveAgentTaskId(ChatMessageModel message) {
+    final contentTaskId = (message.content?['agentTaskId'] ?? '')
+        .toString()
+        .trim();
+    if (contentTaskId.isNotEmpty) {
+      return contentTaskId;
+    }
+    final streamTaskId = (message.streamMeta?['parentTaskId'] ?? '')
+        .toString()
+        .trim();
+    if (streamTaskId.isNotEmpty) {
+      return streamTaskId;
+    }
+    return null;
+  }
+
+  ChatMessageModel _buildPendingManualRetryMessage(
+    ChatMessageModel message, {
+    required String taskId,
+  }) {
+    final content = Map<String, dynamic>.from(message.content ?? const {});
+    content['agentTaskId'] = taskId;
+    content['agentRetrying'] = true;
+    content['agentContinuing'] = false;
+    content['agentRetryStatusText'] = LegacyTextLocalizer.isEnglish
+        ? 'Retrying connection...'
+        : '连接中断，正在重试…';
+    content['agentRetryCount'] = 0;
+    content['agentMaxRetries'] =
+        (content['agentMaxRetries'] as num?)?.toInt() ?? 3;
+    content['agentRetryDelayMs'] = 0;
+    content.remove('agentRetryReason');
+    content.remove('agentRetryable');
+    content.remove('agentContinueable');
+    content.remove('agentContinueResumeMode');
+    content.remove('agentContinueStatusText');
+    content.remove('agentErrorText');
+    return message.copyWith(content: content, isError: false);
+  }
+
+  ChatMessageModel _buildPendingManualContinueMessage(
+    ChatMessageModel message, {
+    required String taskId,
+  }) {
+    final content = Map<String, dynamic>.from(message.content ?? const {});
+    // 失败时如果整条 bubble 的正文就是错误文案(无半截输出场景,
+    // resolveAgentFinalErrorResolution 设了 persistAsError=true → isError=true),
+    // 续跑前清掉它,避免在新流到达前残留 "Failed to connect..." 一类文字。
+    // 若 isError=false,说明 text 是真实的半截输出,保留待新流首帧整体替换。
+    final errorTextSnapshot = (content['agentErrorText'] ?? '').toString().trim();
+    final bubbleText = (content['text'] ?? '').toString().trim();
+    final textIsErrorOnly = message.isError == true ||
+        (errorTextSnapshot.isNotEmpty && errorTextSnapshot == bubbleText);
+    if (textIsErrorOnly) {
+      content['text'] = '';
+      // 解析机制是按文本里出现的 URL 同步进 content.linkPreviews 的(详见
+      // chat_conversation_runtime_coordinator 的 syncLinkPreviewsForAssistantText)。
+      // 文本被清空后,linkPreviews 不会自动清,会一直渲染 "xxx.com" 这张卡片。
+      // 续跑前直接抹掉,新流的首帧文本会触发重新解析。
+      content.remove('linkPreviews');
+    }
+    content['agentTaskId'] = taskId;
+    content['agentRetrying'] = false;
+    content['agentContinuing'] = true;
+    content['agentContinueStatusText'] = LegacyTextLocalizer.isEnglish
+        ? 'Continuing from current turn...'
+        : '正在从当前轮继续…';
+    content.remove('agentRetryStatusText');
+    content.remove('agentRetryCount');
+    content.remove('agentMaxRetries');
+    content.remove('agentRetryDelayMs');
+    content.remove('agentRetryReason');
+    content.remove('agentRetryable');
+    content.remove('agentContinueable');
+    content.remove('agentContinueResumeMode');
+    content.remove('agentErrorText');
+    return message.copyWith(content: content, isError: false);
+  }
+
   String _formatTokenCount(int value) {
     return value.toString().replaceAllMapped(
       RegExp(r'\B(?=(\d{3})+(?!\d))'),
@@ -2297,42 +2576,32 @@ mixin _ChatPageUiMixin on _ChatPageStateBase {
   }
 }
 
-class _UserMessageQuickMenuEntry
-    extends PopupMenuEntry<_UserMessageQuickAction> {
-  const _UserMessageQuickMenuEntry({
+class _UserMessageQuickMenuContent extends StatelessWidget {
+  const _UserMessageQuickMenuContent({
     required this.width,
-    required this.estimatedHeight,
     required this.showEditAction,
     required this.showRetryAction,
   });
 
   final double width;
-  final double estimatedHeight;
   final bool showEditAction;
   final bool showRetryAction;
 
-  @override
-  double get height => estimatedHeight;
-
-  @override
-  bool represents(_UserMessageQuickAction? value) => false;
-
-  @override
-  State<_UserMessageQuickMenuEntry> createState() =>
-      _UserMessageQuickMenuEntryState();
-}
-
-class _UserMessageQuickMenuEntryState
-    extends State<_UserMessageQuickMenuEntry> {
-  void _select(_UserMessageQuickAction action) {
+  void _select(BuildContext context, _UserMessageQuickAction action) {
     Navigator.of(context).pop(action);
   }
 
-  Widget _buildAction({
+  Widget _buildAction(
+    BuildContext context, {
     required IconData icon,
     required String label,
     required VoidCallback onTap,
   }) {
+    final palette = context.omniPalette;
+    final isDark = context.isDarkTheme;
+    final foregroundColor = isDark
+        ? palette.textPrimary
+        : const Color(0xFF172033);
     return InkWell(
       onTap: onTap,
       borderRadius: BorderRadius.circular(16),
@@ -2340,15 +2609,14 @@ class _UserMessageQuickMenuEntryState
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
         child: Row(
           children: [
-            Icon(icon, size: 18, color: Colors.black),
+            Icon(icon, size: 18, color: foregroundColor),
             const SizedBox(width: 10),
             Text(
               label,
-              style: const TextStyle(
+              style: TextStyle(
                 fontSize: 14,
-                color: Colors.black,
+                color: foregroundColor,
                 fontWeight: FontWeight.w600,
-                letterSpacing: 0.2,
               ),
             ),
           ],
@@ -2359,54 +2627,41 @@ class _UserMessageQuickMenuEntryState
 
   @override
   Widget build(BuildContext context) {
+    final palette = context.omniPalette;
+    final dividerColor = context.isDarkTheme
+        ? palette.borderSubtle.withValues(alpha: 0.58)
+        : Colors.white.withValues(alpha: 0.62);
     return SizedBox(
-      width: widget.width,
-      child: Material(
-        color: Colors.transparent,
-        child: Container(
-          margin: const EdgeInsets.all(4),
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(18),
-            border: Border.all(color: const Color(0x14000000), width: 1),
-            boxShadow: const [
-              BoxShadow(
-                color: Color(0x26000000),
-                blurRadius: 18,
-                offset: Offset(0, 10),
-              ),
-            ],
-          ),
+      width: width,
+      child: OmniGlassPanel(
+        borderRadius: BorderRadius.circular(18),
+        child: Material(
+          color: Colors.transparent,
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
               _buildAction(
+                context,
                 icon: Icons.content_copy_rounded,
                 label: LegacyTextLocalizer.isEnglish ? 'Copy' : '复制',
-                onTap: () => _select(_UserMessageQuickAction.copy),
+                onTap: () => _select(context, _UserMessageQuickAction.copy),
               ),
-              if (widget.showEditAction) ...[
-                const Divider(
-                  height: 1,
-                  thickness: 1,
-                  color: Color(0x14000000),
-                ),
+              if (showEditAction) ...[
+                Divider(height: 1, thickness: 1, color: dividerColor),
                 _buildAction(
+                  context,
                   icon: Icons.edit_outlined,
                   label: LegacyTextLocalizer.isEnglish ? 'Edit' : '编辑',
-                  onTap: () => _select(_UserMessageQuickAction.edit),
+                  onTap: () => _select(context, _UserMessageQuickAction.edit),
                 ),
               ],
-              if (widget.showRetryAction) ...[
-                const Divider(
-                  height: 1,
-                  thickness: 1,
-                  color: Color(0x14000000),
-                ),
+              if (showRetryAction) ...[
+                Divider(height: 1, thickness: 1, color: dividerColor),
                 _buildAction(
+                  context,
                   icon: Icons.refresh_rounded,
                   label: LegacyTextLocalizer.isEnglish ? 'Retry' : '重试这条消息',
-                  onTap: () => _select(_UserMessageQuickAction.retry),
+                  onTap: () => _select(context, _UserMessageQuickAction.retry),
                 ),
               ],
             ],
@@ -2478,7 +2733,14 @@ class _ContextThresholdSheetState extends State<_ContextThresholdSheet> {
   bool _isSaving = false;
   int? _queuedThreshold;
 
-  static const List<int> _presets = <int>[32000, 64000, 128000, 256000, 512000];
+  static const List<int> _presets = <int>[
+    32000,
+    64000,
+    128000,
+    256000,
+    512000,
+    1000000,
+  ];
 
   @override
   void initState() {
@@ -2640,6 +2902,12 @@ class _ContextThresholdSheetState extends State<_ContextThresholdSheet> {
   }
 
   String _formatThresholdLabel(int threshold) {
+    if (threshold >= 1000000) {
+      final millions = threshold / 1000000;
+      return millions % 1 == 0
+          ? '${millions.toStringAsFixed(0)}M'
+          : '${millions.toStringAsFixed(1)}M';
+    }
     if (threshold >= 1000) {
       final kilo = threshold / 1000;
       return kilo % 1 == 0

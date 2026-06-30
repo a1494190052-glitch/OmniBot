@@ -5,6 +5,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.ActivityInfo
 import android.os.Bundle
+import android.view.WindowManager
 import androidx.lifecycle.lifecycleScope
 import cn.com.omnimind.baselib.util.OmniLog
 import cn.com.omnimind.bot.App
@@ -58,6 +59,7 @@ class MainActivity : FlutterActivity() {
         OmniLog.d(TAG, "MainActivity onCreate start")
         setTheme(StartupThemeResolver.resolveSplashTheme(this))
         applyResponsiveOrientation()
+        applySoftInputResizeMode()
         super.onCreate(savedInstanceState)
         TaskRuntimeSettings.attachActivity(this)
         TaskRuntimeSettings.consumeTaskCompletionNotificationIntent(this, intent)
@@ -147,6 +149,10 @@ class MainActivity : FlutterActivity() {
         } else {
             ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
         }
+    }
+
+    private fun applySoftInputResizeMode() {
+        window.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
     }
 
     override fun onNewIntent(intent: Intent) {

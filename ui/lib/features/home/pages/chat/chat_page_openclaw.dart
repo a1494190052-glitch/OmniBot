@@ -18,7 +18,7 @@ mixin _ChatPageOpenClawMixin on _ChatPageStateBase {
         offset: currentText.length,
       );
     }
-    _inputFocusNode.requestFocus();
+    _requestComposerFocus();
     _handleSlashCommandInput();
   }
 
@@ -151,9 +151,14 @@ mixin _ChatPageOpenClawMixin on _ChatPageStateBase {
   @override
   Future<void> _handleOutsideTap(Offset position) async {
     final insideInputArea = _isPointerInside(_inputAreaKey, position);
+    final insideToolActivityStrip = _isPointerInside(
+      _toolActivityStripKey,
+      position,
+    );
     final insideInputAuxiliarySurface =
         _isPointerInside(_openClawPanelKey, position) ||
-        _isPointerInside(_slashCommandStripKey, position);
+        _isPointerInside(_slashCommandStripKey, position) ||
+        insideToolActivityStrip;
     if (!insideInputArea &&
         !insideInputAuxiliarySurface &&
         _inputFocusNode.hasFocus) {
@@ -163,12 +168,21 @@ mixin _ChatPageOpenClawMixin on _ChatPageStateBase {
       }
       _suppressNextOutsideTapKeyboardHide = false;
     }
+    // 工具活动列表展开后,点击 strip 之外的任何位置都应该收起它——包括输入框
+    // (输入框 tap 同时拿到焦点 + 让 strip 收起,不再走"先关 strip 再点一次"
+    // 的两步流程)。strip 自己的命中区域不算 outside,避免 toggle 自己把自己关掉。
+    if (_isToolActivityExpanded && !insideToolActivityStrip && mounted) {
+      setState(() {
+        _toolActivityExpandedByMode[_activeMode] = false;
+      });
+    }
     if (!_showSlashCommandPanel &&
         !_showModelMentionPanel &&
         !_openClawPanelExpanded) {
       return;
     }
     if (insideInputArea || insideInputAuxiliarySurface) {
+      _suppressNextOutsideTapKeyboardHide = false;
       return;
     }
     if (_openClawPanelExpanded) {
@@ -237,7 +251,7 @@ mixin _ChatPageOpenClawMixin on _ChatPageStateBase {
         trimmed.substring('/effort'.length).trimLeft(),
       );
       if (effort == null) {
-        _showSnackBar('可用思考强度：no、low、high');
+        _showSnackBar('可用思考强度：no、low、high、max（兼容 xhigh）');
         return true;
       }
       await _applyConversationReasoningEffort(effort);

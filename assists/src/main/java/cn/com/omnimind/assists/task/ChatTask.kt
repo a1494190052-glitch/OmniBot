@@ -170,8 +170,10 @@ class ChatTask(override val taskChangeListener: TaskChangeListener,
                         },
                         explicitApiBase = modelOverride?.apiBase,
                         explicitApiKey = modelOverride?.apiKey,
+                        explicitCustomHeaders = modelOverride?.customHeaders,
                         explicitModel = modelOverride?.modelId,
                         explicitProtocolType = modelOverride?.protocolType,
+                        explicitWireApi = modelOverride?.wireApi,
                         reasoningEffort = this@ChatTask.reasoningEffort
                     )
                 }

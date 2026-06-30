@@ -112,36 +112,88 @@ void main() {
     );
   });
 
-  test('groups models with Cherry Studio compatible rules', () {
+  test('groups models by vendor via model id patterns', () {
+    expect(ModelsDevCatalogService.groupModelId('gpt-4o'), 'openai');
+    expect(ModelsDevCatalogService.groupModelId('o3-mini'), 'openai');
     expect(
-      ModelsDevCatalogService.defaultGroupName('claude-3-5-sonnet'),
-      'claude-3',
+      ModelsDevCatalogService.groupModelId('chatgpt-4o-latest'),
+      'openai',
     );
     expect(
-      ModelsDevCatalogService.defaultGroupName('deepseek/deepseek-r1'),
+      ModelsDevCatalogService.groupModelId('claude-sonnet-4-5'),
+      'anthropic',
+    );
+    expect(
+      ModelsDevCatalogService.groupModelId('anthropic/claude-3-opus'),
+      'anthropic',
+    );
+    expect(ModelsDevCatalogService.groupModelId('gemini-2.5-pro'), 'google');
+    expect(ModelsDevCatalogService.groupModelId('gemma-7b-it'), 'google');
+    expect(
+      ModelsDevCatalogService.groupModelId('qwen2.5-72b-instruct'),
+      'alibaba',
+    );
+    expect(ModelsDevCatalogService.groupModelId('qwq-32b'), 'alibaba');
+    expect(ModelsDevCatalogService.groupModelId('deepseek-chat'), 'deepseek');
+    expect(
+      ModelsDevCatalogService.groupModelId('deepseek/deepseek-r1'),
       'deepseek',
     );
+    expect(ModelsDevCatalogService.groupModelId('glm-4-plus'), 'zhipu');
+    expect(ModelsDevCatalogService.groupModelId('moonshot-v1-8k'), 'moonshot');
+    expect(ModelsDevCatalogService.groupModelId('kimi-k2'), 'moonshot');
     expect(
-      ModelsDevCatalogService.defaultGroupName(
-        'vendor-qwen-max',
-        providerId: 'siliconflow-cn',
+      ModelsDevCatalogService.groupModelId('doubao-pro-32k'),
+      'bytedance',
+    );
+    expect(ModelsDevCatalogService.groupModelId('grok-3'), 'xai');
+    expect(
+      ModelsDevCatalogService.groupModelId('meta-llama/llama-3.1-70b'),
+      'meta',
+    );
+    expect(
+      ModelsDevCatalogService.groupModelId('mistral-large-latest'),
+      'mistral',
+    );
+  });
+
+  test('vendor grouping prefers model id over generic aggregator prefix', () {
+    expect(
+      ModelsDevCatalogService.groupModelId(
+        'openrouter/anthropic/claude-3-haiku',
       ),
-      'vendor',
+      'anthropic',
+    );
+    expect(
+      ModelsDevCatalogService.groupModelId('openrouter/auto'),
+      'openrouter',
+    );
+  });
+
+  test('vendor grouping falls back to ownedBy and providerId', () {
+    expect(ModelsDevCatalogService.groupModelId('my-custom-model'), 'other');
+    expect(
+      ModelsDevCatalogService.groupModelId(
+        'my-custom-model',
+        ownedBy: 'anthropic',
+      ),
+      'anthropic',
+    );
+    expect(
+      ModelsDevCatalogService.groupModelId(
+        'farui-plus',
+        providerId: 'alibaba',
+      ),
+      'alibaba',
     );
     expect(
       ModelsDevCatalogService.groupModelId(
         'qwen-max-latest',
         providerId: 'alibaba',
       ),
-      'qwen-max',
+      'alibaba',
     );
-    expect(
-      ModelsDevCatalogService.groupModelId(
-        'qwen3.5-plus-thinking-thu',
-        providerId: 'alibaba',
-      ),
-      'qwen3.5-plus',
-    );
+    expect(ModelsDevCatalogService.groupModelId(''), 'other');
   });
 
   test('matches model ids with prefixes, variants, and provider inference', () {

@@ -15,6 +15,7 @@ internal object AgentImageAttachmentSupport {
     private const val NO_BYPASS_THRESHOLD = 0L
 
     internal data class PreparedAttachments(
+        val runtimeAttachments: List<Map<String, Any?>>,
         val modelAttachments: List<Map<String, Any?>>,
         val historyAttachments: List<Map<String, Any?>>
     )
@@ -69,9 +70,10 @@ internal object AgentImageAttachmentSupport {
                     quality = quality,
                     bypassThreshold = NO_BYPASS_THRESHOLD
                 )
+                val normalizedDataUrl = normalizeImageDataUrl(result.base64)
                 ResolvedImageData(
-                    dataUrl = result.base64,
-                    mimeType = extractMimeType(result.base64),
+                    dataUrl = normalizedDataUrl,
+                    mimeType = extractMimeType(normalizedDataUrl),
                     originalWidth = result.originalWidth,
                     originalHeight = result.originalHeight,
                     compressedWidth = result.compressedWidth,
@@ -92,20 +94,47 @@ internal object AgentImageAttachmentSupport {
 
     fun prepareAttachments(rawAttachments: List<Map<String, Any?>>): PreparedAttachments {
         if (rawAttachments.isEmpty()) {
-            return PreparedAttachments(emptyList(), emptyList())
+            return PreparedAttachments(
+                runtimeAttachments = emptyList(),
+                modelAttachments = emptyList(),
+                historyAttachments = emptyList()
+            )
         }
+        val runtimeAttachments = mutableListOf<Map<String, Any?>>()
         val modelAttachments = mutableListOf<Map<String, Any?>>()
         val historyAttachments = mutableListOf<Map<String, Any?>>()
         rawAttachments.forEach { raw ->
             val prepared = prepareSingleAttachment(raw) ?: return@forEach
-            if (shouldSendAttachmentToModel(raw)) {
+            val shouldSendToModel = shouldSendAttachmentToModel(raw)
+            val isImage = prepared.second["isImage"] == true
+            if (shouldSendToModel && isImage) {
                 modelAttachments += prepared.first
+            }
+            runtimeAttachments += if (shouldSendToModel && isImage) {
+                prepared.first
+            } else {
+                prepared.second
             }
             historyAttachments += prepared.second
         }
         return PreparedAttachments(
+            runtimeAttachments = runtimeAttachments,
             modelAttachments = modelAttachments,
             historyAttachments = historyAttachments
+        )
+    }
+
+    internal fun isImageAttachment(attachment: Map<String, Any?>): Boolean {
+        val localPath = localPathFromAttachment(attachment)
+        val remoteUrl = remoteUrlFromAttachment(attachment)
+        val dataUrl = dataUrlFromAttachment(attachment)
+        val mimeType = mimeTypeFromAttachment(attachment)
+        return detectImageAttachment(
+            attachment = attachment,
+            mimeType = mimeType,
+            localPath = localPath,
+            remoteUrl = remoteUrl,
+            dataUrl = dataUrl
         )
     }
 
@@ -120,15 +149,15 @@ internal object AgentImageAttachmentSupport {
                     quality = MODEL_QUALITY
                 )
                 if (compressed != null) {
-                    return compressed.dataUrl
+                    return normalizeImageDataUrl(compressed.dataUrl)
                 }
-                return dataUrl
+                return normalizeImageDataUrl(dataUrl)
             }
         }
 
         val dataUrl = dataUrlFromAttachment(attachment)
         if (dataUrl.isNotBlank()) {
-            return dataUrl
+            return normalizeImageDataUrl(dataUrl)
         }
 
         val remoteUrl = remoteUrlFromAttachment(attachment)
@@ -165,7 +194,7 @@ internal object AgentImageAttachmentSupport {
         )
         return FileReadImageResult(
             payload = payload,
-            imageDataUrl = compressed.dataUrl
+            imageDataUrl = normalizeImageDataUrl(compressed.dataUrl)
         )
     }
 
@@ -176,7 +205,7 @@ internal object AgentImageAttachmentSupport {
         val remoteUrl = remoteUrlFromAttachment(raw)
         val dataUrl = dataUrlFromAttachment(raw)
         val mimeType = mimeTypeFromAttachment(raw)
-        val isImage = isImageAttachment(
+        val isImage = detectImageAttachment(
             attachment = raw,
             mimeType = mimeType,
             localPath = localPath,
@@ -241,19 +270,19 @@ internal object AgentImageAttachmentSupport {
                     historyAttachment["mimeType"] = resolvedMimeType
                 }
                 modelImage?.let {
-                    modelAttachment["dataUrl"] = it.dataUrl
+                    modelAttachment["dataUrl"] = normalizeImageDataUrl(it.dataUrl)
                     modelAttachment["width"] = it.originalWidth
                     modelAttachment["height"] = it.originalHeight
                 }
                 historyImage?.let {
-                    historyAttachment["dataUrl"] = it.dataUrl
+                    historyAttachment["dataUrl"] = normalizeImageDataUrl(it.dataUrl)
                     historyAttachment["width"] = it.originalWidth
                     historyAttachment["height"] = it.originalHeight
                 }
                 return modelAttachment to historyAttachment
             }
             val fallbackModelAttachment = LinkedHashMap(base)
-            fallbackModelAttachment["dataUrl"] = sourceDataUrl
+            fallbackModelAttachment["dataUrl"] = normalizeImageDataUrl(sourceDataUrl)
             return fallbackModelAttachment to LinkedHashMap(base)
         }
 
@@ -288,11 +317,11 @@ internal object AgentImageAttachmentSupport {
     private fun dataUrlFromAttachment(attachment: Map<String, Any?>): String {
         val explicitDataUrl = attachment["dataUrl"]?.toString()?.trim().orEmpty()
         if (explicitDataUrl.startsWith("data:", ignoreCase = true)) {
-            return explicitDataUrl
+            return normalizeImageDataUrl(explicitDataUrl)
         }
         val urlCandidate = extractUrlCandidate(attachment)
         return if (urlCandidate.startsWith("data:", ignoreCase = true)) {
-            urlCandidate
+            normalizeImageDataUrl(urlCandidate)
         } else {
             ""
         }
@@ -353,7 +382,7 @@ internal object AgentImageAttachmentSupport {
         }?.takeIf { it >= 0L }
     }
 
-    private fun isImageAttachment(
+    private fun detectImageAttachment(
         attachment: Map<String, Any?>,
         mimeType: String,
         localPath: String?,
@@ -433,5 +462,19 @@ internal object AgentImageAttachmentSupport {
         }
         val mimeType = header.removePrefix("data:").substringBefore(';').trim()
         return if (mimeType.isBlank()) "image/jpeg" else mimeType
+    }
+
+    private fun normalizeImageDataUrl(dataUrl: String): String {
+        val trimmed = dataUrl.trim()
+        val separatorIndex = trimmed.indexOf(',')
+        if (separatorIndex <= 0) {
+            return trimmed
+        }
+        val header = trimmed.substring(0, separatorIndex)
+        if (!header.startsWith("data:", ignoreCase = true) || !header.contains(";base64", ignoreCase = true)) {
+            return trimmed
+        }
+        val payload = trimmed.substring(separatorIndex + 1).filterNot(Char::isWhitespace)
+        return "$header,$payload"
     }
 }

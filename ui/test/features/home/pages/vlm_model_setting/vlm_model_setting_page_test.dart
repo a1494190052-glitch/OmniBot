@@ -55,25 +55,47 @@ void main() {
     'cn.com.omnimind.bot/AssistCoreEvent',
   );
   Map<String, dynamic> profilePayload({
+    String name = 'Provider 1',
     String baseUrl = 'https://api.openai.com/v1',
+    String sourceType = 'custom',
     String protocolType = 'openai_compatible',
+    String wireApi = 'chat_completions',
   }) {
     return <String, dynamic>{
       'profiles': <Map<String, dynamic>>[
         <String, dynamic>{
           'id': 'provider-1',
-          'name': 'DeepSeek',
+          'name': name,
           'baseUrl': baseUrl,
           'apiKey': 'sk-demo',
-          'sourceType': 'custom',
+          'sourceType': sourceType,
           'readOnly': false,
           'ready': true,
           'statusText': '',
           'configured': true,
           'protocolType': protocolType,
+          'wireApi': wireApi,
         },
       ],
       'editingProfileId': 'provider-1',
+    };
+  }
+
+  Map<String, dynamic> savedProfileResponse(Map<dynamic, dynamic> args) {
+    return <String, dynamic>{
+      'id': 'provider-1',
+      'name': (args['name'] ?? 'Provider 1').toString(),
+      'baseUrl': (args['baseUrl'] ?? '').toString(),
+      'apiKey': (args['apiKey'] ?? '').toString(),
+      'customHeaders':
+          (args['customHeaders'] as Map?) ?? const <String, String>{},
+      'sourceType': (args['sourceType'] ?? 'custom').toString(),
+      'readOnly': false,
+      'ready': true,
+      'statusText': '',
+      'configured': true,
+      'protocolType': (args['protocolType'] ?? 'openai_compatible').toString(),
+      'wireApi': (args['wireApi'] ?? 'chat_completions').toString(),
     };
   }
 
@@ -118,14 +140,14 @@ void main() {
       expect(
         find.descendant(
           of: find.byKey(const Key('provider-config-title')),
-          matching: find.text('DeepSeek'),
+          matching: find.text('Provider 1'),
         ),
         findsOneWidget,
       );
       expect(
         find.descendant(
           of: find.byKey(const Key('provider-protocol-type-button')),
-          matching: find.text('OpenAI'),
+          matching: find.text('OpenAI Compatible'),
         ),
         findsOneWidget,
       );
@@ -140,6 +162,137 @@ void main() {
       expect(tester.takeException(), isNull);
     },
   );
+
+  testWidgets('provider labels stay bounded on narrow layout', (tester) async {
+    tester.view.devicePixelRatio = 1.0;
+    tester.view.physicalSize = const Size(360, 800);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    addTearDown(tester.view.resetPhysicalSize);
+
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    for (final entry in const <Map<String, String>>[
+      <String, String>{
+        'sourceType': 'deepseek',
+        'baseUrl': 'https://api.deepseek.com',
+        'protocolType': 'deepseek',
+        'label': 'DeepSeek',
+      },
+      <String, String>{
+        'sourceType': 'mimo',
+        'baseUrl': 'https://api.xiaomimimo.com/v1',
+        'label': 'Mimo',
+      },
+      <String, String>{
+        'sourceType': 'moonshot',
+        'baseUrl': 'https://api.moonshot.cn/v1',
+        'label': 'Kimi',
+      },
+      <String, String>{
+        'sourceType': 'minimax',
+        'baseUrl': 'https://api.minimaxi.com/v1',
+        'label': 'MiniMax',
+      },
+      <String, String>{
+        'sourceType': 'bailian',
+        'baseUrl': 'https://dashscope.aliyuncs.com/compatible-mode/v1',
+        'label': '阿里百炼',
+      },
+      <String, String>{
+        'sourceType': 'custom',
+        'baseUrl': 'https://api.openai.com/v1',
+        'label': 'OpenAI Compatible',
+      },
+      <String, String>{
+        'sourceType': 'custom',
+        'baseUrl': 'https://api.anthropic.com',
+        'protocolType': 'anthropic',
+        'label': 'Anthropic',
+      },
+    ]) {
+      messenger.setMockMethodCallHandler(assistCoreChannel, (call) async {
+        switch (call.method) {
+          case 'listModelProviderProfiles':
+            return profilePayload(
+              sourceType: entry['sourceType']!,
+              baseUrl: entry['baseUrl']!,
+              protocolType: entry['protocolType'] ?? 'openai_compatible',
+            );
+        }
+        return null;
+      });
+
+      await tester.pumpWidget(
+        MaterialApp(
+          key: ValueKey('provider-type-${entry['sourceType']}'),
+          theme: AppTheme.lightTheme,
+          darkTheme: AppTheme.darkTheme,
+          home: const VlmModelSettingPage(),
+        ),
+      );
+
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 50));
+
+      expect(
+        find.descendant(
+          of: find.byKey(const Key('provider-protocol-type-button')),
+          matching: find.text(entry['label']!),
+        ),
+        findsOneWidget,
+      );
+      expect(tester.takeException(), isNull);
+
+      await tester.pumpWidget(const SizedBox.shrink());
+      await tester.pump();
+    }
+  });
+
+  testWidgets('provider menu exposes builtin providers and protocols', (
+    tester,
+  ) async {
+    tester.view.devicePixelRatio = 1.0;
+    tester.view.physicalSize = const Size(360, 800);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    addTearDown(tester.view.resetPhysicalSize);
+
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    messenger.setMockMethodCallHandler(assistCoreChannel, (call) async {
+      switch (call.method) {
+        case 'listModelProviderProfiles':
+          return profilePayload();
+      }
+      return null;
+    });
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: AppTheme.lightTheme,
+        darkTheme: AppTheme.darkTheme,
+        home: const VlmModelSettingPage(),
+      ),
+    );
+
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 50));
+
+    await tester.tap(find.byKey(const Key('provider-protocol-type-button')));
+    await tester.pumpAndSettle();
+
+    final menuRect = tester.getRect(
+      find.byKey(const Key('provider-protocol-type-menu')),
+    );
+    expect(menuRect.width, greaterThanOrEqualTo(200));
+    expect(find.text('DeepSeek'), findsOneWidget);
+    expect(find.text('Mimo'), findsOneWidget);
+    expect(find.text('Kimi'), findsOneWidget);
+    expect(find.text('MiniMax'), findsOneWidget);
+    expect(find.text('阿里百炼'), findsOneWidget);
+    expect(find.text('OpenAI Compatible'), findsAtLeastNWidgets(1));
+    expect(find.text('Anthropic'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
 
   testWidgets('base url hint mentions trailing marker override', (
     tester,
@@ -191,7 +344,116 @@ void main() {
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 50));
 
+    expect(
+      find.descendant(
+        of: find.byKey(const Key('provider-protocol-type-button')),
+        matching: find.text('Anthropic'),
+      ),
+      findsOneWidget,
+    );
     expect(find.text('https://api.anthropic.com/v1/messages'), findsOneWidget);
+    expect(find.byKey(const Key('provider-wire-api-button')), findsNothing);
+  });
+
+  testWidgets('openai compatible profile shows direct wire api choice', (
+    tester,
+  ) async {
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    messenger.setMockMethodCallHandler(assistCoreChannel, (call) async {
+      switch (call.method) {
+        case 'listModelProviderProfiles':
+          return profilePayload(
+            baseUrl: 'https://api.openai.com/v1',
+            wireApi: 'responses',
+          );
+      }
+      return null;
+    });
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: AppTheme.lightTheme,
+        darkTheme: AppTheme.darkTheme,
+        home: const VlmModelSettingPage(),
+      ),
+    );
+
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 50));
+
+    expect(
+      find.descendant(
+        of: find.byKey(const Key('provider-protocol-type-button')),
+        matching: find.text('OpenAI Compatible'),
+      ),
+      findsOneWidget,
+    );
+    expect(
+      find.descendant(
+        of: find.byKey(const Key('provider-wire-api-button')),
+        matching: find.text('Responses'),
+      ),
+      findsOneWidget,
+    );
+    expect(find.text('https://api.openai.com/v1/responses'), findsOneWidget);
+  });
+
+  testWidgets('selecting official provider saves builtin profile payload', (
+    tester,
+  ) async {
+    var saveCalls = 0;
+    Map<dynamic, dynamic>? savedArgs;
+    String savedWireApi = '';
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    messenger.setMockMethodCallHandler(assistCoreChannel, (call) async {
+      switch (call.method) {
+        case 'listModelProviderProfiles':
+          return profilePayload();
+        case 'saveModelProviderProfile':
+          saveCalls += 1;
+          savedArgs = Map<dynamic, dynamic>.from(
+            (call.arguments as Map?) ?? const <String, dynamic>{},
+          );
+          savedWireApi = (savedArgs!['wireApi'] ?? '').toString();
+          return savedProfileResponse(savedArgs!);
+      }
+      return null;
+    });
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: AppTheme.lightTheme,
+        darkTheme: AppTheme.darkTheme,
+        home: const VlmModelSettingPage(),
+      ),
+    );
+
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 50));
+
+    await tester.tap(find.byKey(const Key('provider-protocol-type-button')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Kimi'), findsOneWidget);
+    expect(find.text('MiniMax'), findsOneWidget);
+
+    await tester.tap(find.text('Kimi'));
+    await tester.pumpAndSettle();
+
+    expect(saveCalls, 1);
+    expect(savedWireApi, 'chat_completions');
+    expect(savedArgs?['sourceType'], 'moonshot');
+    expect(savedArgs?['baseUrl'], 'https://api.moonshot.cn/v1');
+    expect(savedArgs?['protocolType'], 'openai_compatible');
+    expect(
+      find.descendant(
+        of: find.byKey(const Key('provider-protocol-type-button')),
+        matching: find.text('Kimi'),
+      ),
+      findsOneWidget,
+    );
   });
 
   testWidgets('provider fields do not auto-save while focused', (tester) async {
@@ -207,19 +469,7 @@ void main() {
           final args = Map<dynamic, dynamic>.from(
             (call.arguments as Map?) ?? const <String, dynamic>{},
           );
-          return <String, dynamic>{
-            'id': 'provider-1',
-            'name': (args['name'] ?? 'DeepSeek').toString(),
-            'baseUrl': (args['baseUrl'] ?? '').toString(),
-            'apiKey': (args['apiKey'] ?? '').toString(),
-            'sourceType': 'custom',
-            'readOnly': false,
-            'ready': true,
-            'statusText': '',
-            'configured': true,
-            'protocolType': (args['protocolType'] ?? 'openai_compatible')
-                .toString(),
-          };
+          return savedProfileResponse(args);
       }
       return null;
     });
@@ -257,6 +507,11 @@ void main() {
   testWidgets('renders models.dev grouping, context, and input modalities', (
     tester,
   ) async {
+    tester.view.devicePixelRatio = 1.0;
+    tester.view.physicalSize = const Size(800, 1000);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    addTearDown(tester.view.resetPhysicalSize);
+
     await ModelProviderConfigService.saveCachedFetchedModels(
       profileId: 'provider-1',
       apiBase: 'https://api.openai.com/v1',
@@ -264,8 +519,8 @@ void main() {
         ProviderModelOption(id: 'gpt-4o', displayName: 'gpt-4o'),
         ProviderModelOption(id: 'gpt-4o-mini', displayName: 'gpt-4o-mini'),
         ProviderModelOption(
-          id: 'text-embedding-3-large',
-          displayName: 'text-embedding-3-large',
+          id: 'claude-3-haiku',
+          displayName: 'claude-3-haiku',
         ),
       ],
     );
@@ -287,11 +542,11 @@ void main() {
       findsOneWidget,
     );
     expect(
-      find.byKey(const Key('provider-model-group-gpt-4o')),
+      find.byKey(const Key('provider-model-group-openai')),
       findsOneWidget,
     );
     expect(
-      find.byKey(const Key('provider-model-group-text-embedding')),
+      find.byKey(const Key('provider-model-group-anthropic')),
       findsOneWidget,
     );
     expect(find.text('2'), findsOneWidget);
@@ -316,7 +571,7 @@ void main() {
     expect(find.text('手动'), findsNothing);
     expect(
       find.byKey(const Key('provider-model-modality-text')),
-      findsNWidgets(3),
+      findsNWidgets(2),
     );
     expect(
       find.byKey(const Key('provider-model-modality-image')),
@@ -327,33 +582,33 @@ void main() {
       findsOneWidget,
     );
 
-    final groupBody = find.byKey(const Key('provider-model-group-body-gpt-4o'));
+    final groupBody = find.byKey(const Key('provider-model-group-body-openai'));
     expect(tester.getSize(groupBody).height, greaterThan(0));
     final shortLine = tester.getSize(
-      find.byKey(const Key('provider-model-group-line-gpt-4o')),
+      find.byKey(const Key('provider-model-group-line-openai')),
     );
     final longLine = tester.getSize(
-      find.byKey(const Key('provider-model-group-line-text-embedding')),
+      find.byKey(const Key('provider-model-group-line-anthropic')),
     );
     expect(shortLine.width, greaterThan(longLine.width));
     final shortHeaderRight = tester.getTopRight(
-      find.byKey(const Key('provider-model-group-gpt-4o')),
+      find.byKey(const Key('provider-model-group-openai')),
     );
     final shortIconRight = tester.getTopRight(
-      find.byKey(const Key('provider-model-group-icon-gpt-4o')),
+      find.byKey(const Key('provider-model-group-icon-openai')),
     );
     expect((shortHeaderRight.dx - shortIconRight.dx).abs(), lessThan(6));
     final shortCountRight = tester.getTopRight(
-      find.byKey(const Key('provider-model-group-count-gpt-4o')),
+      find.byKey(const Key('provider-model-group-count-openai')),
     );
     final shortLineLeft = tester.getTopLeft(
-      find.byKey(const Key('provider-model-group-line-gpt-4o')),
+      find.byKey(const Key('provider-model-group-line-openai')),
     );
     final shortLineRight = tester.getTopRight(
-      find.byKey(const Key('provider-model-group-line-gpt-4o')),
+      find.byKey(const Key('provider-model-group-line-openai')),
     );
     final shortIconLeft = tester.getTopLeft(
-      find.byKey(const Key('provider-model-group-icon-gpt-4o')),
+      find.byKey(const Key('provider-model-group-icon-openai')),
     );
     expect(shortLineLeft.dx - shortCountRight.dx, closeTo(10, 0.5));
     expect(shortIconLeft.dx - shortLineRight.dx, closeTo(6, 0.5));
@@ -375,9 +630,7 @@ void main() {
     expect(tester.getSize(groupBody).height, 0);
     expect(
       tester
-          .getSize(
-            find.byKey(const Key('provider-model-group-body-text-embedding')),
-          )
+          .getSize(find.byKey(const Key('provider-model-group-body-anthropic')))
           .height,
       0,
     );
@@ -389,12 +642,22 @@ void main() {
     await tester.pump(const Duration(milliseconds: 260));
     expect(tester.getSize(groupBody).height, greaterThan(0));
 
-    await tester.tap(find.byKey(const Key('provider-model-group-gpt-4o')));
+    await tester.scrollUntilVisible(
+      find.byKey(const Key('provider-model-group-openai')),
+      120,
+      scrollable: find.byType(Scrollable).first,
+    );
+    await tester.tap(find.byKey(const Key('provider-model-group-openai')));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 260));
     expect(tester.getSize(groupBody).height, 0);
 
-    await tester.tap(find.byKey(const Key('provider-model-group-gpt-4o')));
+    await tester.scrollUntilVisible(
+      find.byKey(const Key('provider-model-group-openai')),
+      120,
+      scrollable: find.byType(Scrollable).first,
+    );
+    await tester.tap(find.byKey(const Key('provider-model-group-openai')));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 260));
     expect(tester.getSize(groupBody).height, greaterThan(0));

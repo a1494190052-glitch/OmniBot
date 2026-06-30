@@ -22,6 +22,7 @@ import 'package:ui/services/omnibot_resource_service.dart';
 import 'package:ui/services/scheduled_task_storage_service.dart';
 import 'package:ui/services/storage_service.dart';
 import 'package:ui/theme/app_colors.dart';
+import 'package:ui/theme/app_font_effect_scope.dart';
 import 'package:ui/theme/theme_context.dart';
 import 'package:ui/utils/cache_util.dart';
 import 'package:ui/utils/ui.dart';
@@ -208,18 +209,20 @@ class HomeDrawerState extends ConsumerState<HomeDrawer> {
   @override
   Widget build(BuildContext context) {
     final backgroundColor = _drawerBackgroundColor;
-    final content = ColoredBox(
-      color: backgroundColor,
-      child: SafeArea(
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const SizedBox(height: 16),
-            Expanded(child: _buildConversationSection()),
-            const SizedBox(height: 12),
-            _buildFooterShortcutBar(),
-            const SizedBox(height: 12),
-          ],
+    final content = AppFontEffectScope.nonChat(
+      child: ColoredBox(
+        color: backgroundColor,
+        child: SafeArea(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const SizedBox(height: 16),
+              Expanded(child: _buildConversationSection()),
+              const SizedBox(height: 12),
+              _buildFooterShortcutBar(),
+              const SizedBox(height: 12),
+            ],
+          ),
         ),
       ),
     );

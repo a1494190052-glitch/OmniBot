@@ -1,6 +1,7 @@
 package cn.com.omnimind.bot.agent.tool.handlers
 
 import cn.com.omnimind.baselib.llm.ModelProviderConfigStore
+import cn.com.omnimind.baselib.llm.ProviderCustomHeaderUtils
 import cn.com.omnimind.bot.agent.AgentCallback
 import cn.com.omnimind.bot.agent.AgentExecutionEnvironment
 import cn.com.omnimind.bot.agent.AgentToolExecutionHandle
@@ -81,6 +82,11 @@ class ImageGenerationToolHandler(
                 bundledApiKey = bundledImageConfig.apiKey
             )
             val apiKey = if (useBundledImageProvider) bundledImageConfig.apiKey else profileApiKey
+            val customHeaders = if (useBundledImageProvider) {
+                emptyMap()
+            } else {
+                profile.customHeaders
+            }
             require(apiKey.isNotEmpty()) {
                 "Image provider apiKey is empty. Configure an OpenAI-compatible provider profile or build with OMNIBOT_IMAGE_API_KEY."
             }
@@ -141,7 +147,8 @@ class ImageGenerationToolHandler(
                     size = size,
                     quality = quality,
                     outputFormat = requestedFormat,
-                    background = background
+                    background = background,
+                    customHeaders = customHeaders
                 )
             }
             require(imageBytes.isNotEmpty()) { "image generation returned empty image data" }
@@ -186,7 +193,8 @@ class ImageGenerationToolHandler(
         size: String,
         quality: String,
         outputFormat: String,
-        background: String
+        background: String,
+        customHeaders: Map<String, String>
     ): ByteArray {
         val requestJson = JSONObject().apply {
             put("model", model)
@@ -197,10 +205,20 @@ class ImageGenerationToolHandler(
             put("output_format", outputFormat)
             put("background", background)
         }
+        val mergedHeaders = ProviderCustomHeaderUtils.mergeHeaders(
+            builtIn = linkedMapOf(
+                "Content-Type" to "application/json",
+                "Authorization" to "Bearer $apiKey"
+            ),
+            custom = customHeaders
+        )
         val request = Request.Builder()
             .url(endpoint)
-            .addHeader("Content-Type", "application/json")
-            .addHeader("Authorization", "Bearer $apiKey")
+            .apply {
+                mergedHeaders.forEach { (key, value) ->
+                    header(key, value)
+                }
+            }
             .post(requestJson.toString().toRequestBody("application/json".toMediaType()))
             .build()
 

@@ -2,8 +2,11 @@ package cn.com.omnimind.bot.manager
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import cn.com.omnimind.bot.agent.AgentFinalResponse
+import cn.com.omnimind.bot.agent.AgentResult
 
 class AssistsCoreManagerAgentFinalizationTest {
     @Test
@@ -58,5 +61,34 @@ class AssistsCoreManagerAgentFinalizationTest {
         assertEquals("agent-task", meta["parentTaskId"])
         assertEquals("agent-task-cancelled", meta["entryId"])
         assertEquals(true, meta["isFinal"])
+    }
+
+    @Test
+    fun `buildTurnUsageSnapshot maps per-turn usage fields onto ui payload`() {
+        val success = AgentResult.Success(
+            response = AgentFinalResponse(content = "done"),
+            executedTools = emptyList(),
+            outputKind = "text",
+            hasUserVisibleOutput = true,
+            latestPromptTokens = 10_000,
+            promptTokenThreshold = 128_000,
+            completionTokens = 87,
+            cachedTokens = 10_000,
+            totalTokens = 10_087
+        )
+
+        val snapshot = buildTurnUsageSnapshot(
+            latestPromptTokens = success.latestPromptTokens,
+            promptTokenThreshold = success.promptTokenThreshold,
+            result = success
+        )
+
+        assertNotNull(snapshot)
+        assertEquals(20_000, snapshot?.ctxTokens)
+        assertEquals(10_000, snapshot?.inputTokens)
+        assertEquals(87, snapshot?.outputTokens)
+        assertEquals(10_000, snapshot?.cacheTokens)
+        assertEquals(10_087, snapshot?.totalTokens)
+        assertEquals(128_000, snapshot?.promptTokenThreshold)
     }
 }

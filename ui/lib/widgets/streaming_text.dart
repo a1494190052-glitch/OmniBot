@@ -1,6 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:ui/l10n/legacy_text_localizer.dart';
 import 'package:ui/services/assists_core_service.dart';
+import 'package:ui/services/omnibot_resource_service.dart';
+import 'package:ui/theme/theme_context.dart';
+import 'package:ui/utils/ui.dart';
+import 'package:ui/widgets/omni_glass.dart';
 import 'package:ui/widgets/omnibot_markdown_body.dart';
 import 'package:ui/widgets/omnibot_resource_widgets.dart';
 
@@ -19,17 +23,14 @@ String get kSummaryCompleteText => LegacyTextLocalizer.localize('总结如下');
 
 /// 流式文本显示组件，支持平滑渐显效果
 ///
-/// 用于显示流式推送的文本内容，每次新增的文字都会平滑扩展并渐显
-/// 支持可选的Markdown渲染功能
+/// 用于显示流式推送的文本内容
 ///
-/// 示例：
-/// ```dart
-/// StreamingText(
-///   fullText: _content,
-///   style: TextStyle(fontSize: 14),
-///   enableMarkdown: true, // 启用Markdown支持
-/// )
-/// ```
+/// **性能策略**：
+/// - 启用 Markdown 时，绝不在动画帧里重新解析 markdown。
+///   - 已有 [markdownRenderedLength]（>0 且 <fullText）时：走 fast-path，
+///     固化 markdown 前缀 + 纯文本尾部，仅对尾部做 Opacity 渐入。
+///   - 否则：一次性渲染最新 markdown，不做逐字动画。
+/// - 未启用 Markdown 时仍走 TweenAnimationBuilder 做逐字渐显（轻量）。
 class StreamingText extends StatefulWidget {
   /// 完整的文本内容（会随着流式推送逐渐增加）
   final String fullText;
@@ -84,22 +85,6 @@ class _StreamingTextState extends State<StreamingText> {
   bool _isFirstBuild = true;
   String? _lastSelectedContent; // 跟踪最后选中的内容
   int? _lastNotifiedDisplayLength;
-
-  // ── Markdown 前缀缓存 ──
-  // 当 mdText 不变时，复用同一 OmnibotMarkdownBody widget 对象，
-  // Flutter 的 identical() 检查会跳过整棵子树的更新（含 markdown 解析）。
-  // 变化的 trailing（纯文本尾部）通过 ValueNotifier 独立更新。
-  String? _cachedMdPrefixText;
-  TextStyle? _cachedMdPrefixStyle;
-  OmnibotResourceOpenCallback? _cachedMdPrefixOnResourceOpen;
-  Widget? _cachedMdPrefixWidget;
-  final ValueNotifier<Widget?> _trailingInlineNotifier = ValueNotifier(null);
-
-  @override
-  void dispose() {
-    _trailingInlineNotifier.dispose();
-    super.dispose();
-  }
 
   @override
   void didUpdateWidget(StreamingText oldWidget) {
@@ -162,99 +147,151 @@ class _StreamingTextState extends State<StreamingText> {
             )
           : Text(localizedText, style: widget.style);
 
-      return widget.selectable
-          ? SelectionArea(
-              onSelectionChanged: (content) {
-                _lastSelectedContent = content?.plainText;
-              },
-              contextMenuBuilder: (context, selectableRegionState) {
-                return _buildSelectionContextMenu(selectableRegionState);
-              },
-              child: child,
-            )
-          : child;
+      return _wrapSelectable(child);
     }
 
-    // ── 分段渲染快速路径（在 TweenAnimationBuilder 之外） ──
-    // 中间 chunk 不走逐字动画，避免每帧重建 OmnibotMarkdownBody。
-    // build() 仅在 props 变化时调用（每个 chunk 一次），而非每帧。
-    //
-    // 缓存策略：当 markdown 前缀文本不变时，复用同一 OmnibotMarkdownBody
-    // widget 对象。Flutter 的 Element.updateChild 对 identical widget 直接
-    // 跳过更新，从而完全避免 markdown 重解析。变化的纯文本尾部通过
-    // ValueNotifier → ValueListenableBuilder 独立刷新，不触碰 markdown 子树。
     if (widget.enableMarkdown) {
-      final mdLen = widget.markdownRenderedLength;
-      if (mdLen != null && mdLen > 0 && mdLen < widget.fullText.length) {
-        final safeMdLen = _clampToCodePointBoundary(widget.fullText, mdLen);
-        final mdText = widget.fullText.substring(0, safeMdLen);
-        final plainTail = widget.fullText.substring(safeMdLen);
-
-        _notifyDisplayedTextChanged(widget.fullText.length);
-
-        // 将纯文本尾部 + 原始 trailing 组合为行内 Widget
-        Widget? inlineTrailing;
-        if (plainTail.isNotEmpty || widget.trailing != null) {
-          inlineTrailing = Text.rich(
-            TextSpan(
-              children: [
-                if (plainTail.isNotEmpty)
-                  TextSpan(text: plainTail, style: widget.style),
-                if (widget.trailing != null)
-                  WidgetSpan(
-                    alignment: PlaceholderAlignment.middle,
-                    child: Padding(
-                      padding: const EdgeInsets.only(left: 4),
-                      child: widget.trailing!,
-                    ),
-                  ),
-              ],
-            ),
-          );
-        }
-
-        // 缓存命中：mdText 和 style 均未变化 → 复用 identical widget，
-        // 仅通过 ValueNotifier 更新 trailing
-        if (_cachedMdPrefixText == mdText &&
-            _cachedMdPrefixStyle == widget.style &&
-            identical(_cachedMdPrefixOnResourceOpen, widget.onResourceOpen) &&
-            _cachedMdPrefixWidget != null) {
-          _trailingInlineNotifier.value = inlineTrailing;
-        } else {
-          // 缓存未命中：重建 OmnibotMarkdownBody 并缓存
-          _cachedMdPrefixText = mdText;
-          _cachedMdPrefixStyle = widget.style;
-          _cachedMdPrefixOnResourceOpen = widget.onResourceOpen;
-          _trailingInlineNotifier.value = inlineTrailing;
-          _cachedMdPrefixWidget = OmnibotMarkdownBody(
-            data: mdText,
-            baseStyle: widget.style,
-            inlineResourcePlainStyle: true,
-            onResourceOpen: widget.onResourceOpen,
-            trailingInline: ValueListenableBuilder<Widget?>(
-              valueListenable: _trailingInlineNotifier,
-              builder: (_, child, __) => child ?? const SizedBox.shrink(),
-            ),
-          );
-        }
-
-        Widget child = _cachedMdPrefixWidget!;
-
-        return widget.selectable
-            ? SelectionArea(
-                onSelectionChanged: (content) {
-                  _lastSelectedContent = content?.plainText;
-                },
-                contextMenuBuilder: (context, selectableRegionState) {
-                  return _buildSelectionContextMenu(selectableRegionState);
-                },
-                child: child,
-              )
-            : child;
-      }
+      return _buildMarkdownContent();
     }
 
-    // ── 全量渲染路径（flush 后 / 首批文本 / 非流式） ──
+    return _buildPlainAnimatedContent();
+  }
+
+  // ── Markdown 路径 ──
+  // 不在 TweenAnimationBuilder 里重渲染 markdown（避免 O(N²) 重解析）。
+  // 优先走 fast-path：cached markdown 前缀 + 尾部 Opacity 动画。
+  // 回退路径：直接渲染最新 fullText，不做动画。
+  Widget _buildMarkdownContent() {
+    final mdLen = widget.markdownRenderedLength;
+    final containsTable = omnibotMarkdownContainsTableCandidate(
+      widget.fullText,
+    );
+    if (mdLen != null && mdLen > 0 && mdLen < widget.fullText.length) {
+      return _buildMarkdownFastPath(mdLen, containsTable: containsTable);
+    }
+    _notifyDisplayedTextChanged(widget.fullText.length);
+    final visibleText = containsTable
+        ? omnibotMarkdownWithoutTrailingTableCandidate(widget.fullText)
+        : widget.fullText;
+    return _wrapSelectable(
+      OmnibotMarkdownBody(
+        data: visibleText,
+        baseStyle: widget.style,
+        inlineResourcePlainStyle: true,
+        onResourceOpen: widget.onResourceOpen,
+        trailingInline: widget.trailing,
+      ),
+      enabled: !containsTable,
+    );
+  }
+
+  Widget _buildMarkdownFastPath(int mdLen, {required bool containsTable}) {
+    final safeMdLen = _clampToCodePointBoundary(widget.fullText, mdLen);
+    final mdText = widget.fullText.substring(0, safeMdLen);
+    final plainTail = widget.fullText.substring(safeMdLen);
+
+    _notifyDisplayedTextChanged(widget.fullText.length);
+
+    // 尾部走带 Opacity 渐入的 stateful widget（轻量重绘，不触碰 markdown 子树）。
+    final inlineTrailing = (plainTail.isEmpty && widget.trailing == null)
+        ? null
+        : _AnimatedStreamingTail(
+            key: const ValueKey('omnibot-streaming-tail'),
+            text: plainTail,
+            style: widget.style,
+            trailing: widget.trailing,
+          );
+
+    if (containsTable) {
+      return _buildMarkdownFastPathWithBlockTail(
+        mdText: mdText,
+        plainTail: plainTail,
+      );
+    }
+
+    return _wrapSelectable(
+      OmnibotMarkdownBody(
+        data: mdText,
+        baseStyle: widget.style,
+        inlineResourcePlainStyle: true,
+        onResourceOpen: widget.onResourceOpen,
+        trailingInline: inlineTrailing,
+      ),
+    );
+  }
+
+  Widget _buildMarkdownFastPathWithBlockTail({
+    required String mdText,
+    required String plainTail,
+  }) {
+    final visibleMarkdown = omnibotMarkdownWithoutTrailingTableCandidate(
+      mdText,
+    );
+    final visibleTail = _visibleMarkdownTableStreamingTail(
+      plainTail: plainTail,
+    );
+    final hasTail = visibleTail.isNotEmpty || widget.trailing != null;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        OmnibotMarkdownBody(
+          data: visibleMarkdown,
+          baseStyle: widget.style,
+          inlineResourcePlainStyle: true,
+          onResourceOpen: widget.onResourceOpen,
+        ),
+        if (hasTail)
+          _AnimatedStreamingTail(
+            key: const ValueKey('omnibot-streaming-table-tail'),
+            text: visibleTail,
+            style: widget.style,
+            trailing: widget.trailing,
+          ),
+      ],
+    );
+  }
+
+  String _visibleMarkdownTableStreamingTail({required String plainTail}) {
+    if (plainTail.isEmpty) {
+      return '';
+    }
+    final tailLines = plainTail.split('\n');
+    final tableStartIndex = tailLines.indexWhere(
+      omnibotMarkdownLineLooksLikeTableCandidate,
+    );
+    if (tableStartIndex == -1) {
+      return plainTail;
+    }
+
+    var index = tableStartIndex;
+    while (index < tailLines.length) {
+      final line = tailLines[index];
+      if (line.trim().isEmpty) {
+        return _joinTailAfterTableBlock(tailLines, index + 1);
+      }
+      if (!omnibotMarkdownLineLooksLikeTableCandidate(line)) {
+        return tailLines.sublist(index).join('\n');
+      }
+      index += 1;
+    }
+    return '';
+  }
+
+  String _joinTailAfterTableBlock(List<String> lines, int startIndex) {
+    var index = startIndex;
+    while (index < lines.length && lines[index].trim().isEmpty) {
+      index += 1;
+    }
+    if (index >= lines.length) {
+      return '';
+    }
+    return lines.sublist(index).join('\n');
+  }
+
+  // ── 纯文本路径 ──
+  // 仍保留逐字渐显动画。RichText 重建廉价，可承受 60fps。
+  Widget _buildPlainAnimatedContent() {
     // 如果从思考中文案切换到实际内容，从0开始
     final previousLength = _previousFullText == kThinkingText
         ? 0
@@ -286,29 +323,6 @@ class _StreamingTextState extends State<StreamingText> {
         final displayText = widget.fullText.substring(0, displayLength);
         _notifyDisplayedTextChanged(displayText.length);
 
-        if (widget.enableMarkdown) {
-          // 全量 Markdown 渲染（默认 / flush 后 / 首批文本）
-          Widget child = OmnibotMarkdownBody(
-            data: displayText,
-            baseStyle: widget.style,
-            inlineResourcePlainStyle: true,
-            onResourceOpen: widget.onResourceOpen,
-            trailingInline: widget.trailing,
-          );
-
-          return widget.selectable
-              ? SelectionArea(
-                  onSelectionChanged: (content) {
-                    _lastSelectedContent = content?.plainText;
-                  },
-                  contextMenuBuilder: (context, selectableRegionState) {
-                    return _buildSelectionContextMenu(selectableRegionState);
-                  },
-                  child: child,
-                )
-              : child;
-        }
-
         // 计算动画进度（0.0 到 1.0）
         final progress = newCharsCount > 0
             ? ((value - previousLength) / newCharsCount).clamp(0.0, 1.0)
@@ -326,19 +340,23 @@ class _StreamingTextState extends State<StreamingText> {
           ),
         );
 
-        // 计算新增部分的透明度（最后几个字符渐显）
-        return widget.selectable
-            ? SelectionArea(
-                onSelectionChanged: (content) {
-                  _lastSelectedContent = content?.plainText;
-                },
-                contextMenuBuilder: (context, selectableRegionState) {
-                  return _buildSelectionContextMenu(selectableRegionState);
-                },
-                child: child,
-              )
-            : child;
+        return _wrapSelectable(child);
       },
+    );
+  }
+
+  Widget _wrapSelectable(Widget child, {bool enabled = true}) {
+    if (!widget.selectable || !enabled) {
+      return child;
+    }
+    return SelectionArea(
+      onSelectionChanged: (content) {
+        _lastSelectedContent = content?.plainText;
+      },
+      contextMenuBuilder: (context, selectableRegionState) {
+        return _buildSelectionContextMenu(selectableRegionState);
+      },
+      child: child,
     );
   }
 
@@ -419,32 +437,340 @@ class _StreamingTextState extends State<StreamingText> {
   Widget _buildSelectionContextMenu(
     SelectableRegionState selectableRegionState,
   ) {
-    return AdaptiveTextSelectionToolbar.buttonItems(
+    return _GlassSelectionContextMenu(
       anchors: selectableRegionState.contextMenuAnchors,
-      buttonItems: [
-        // 全选按钮
-        ContextMenuButtonItem(
-          label: LegacyTextLocalizer.localize('全选'),
-          onPressed: () {
-            selectableRegionState.selectAll(SelectionChangedCause.toolbar);
-          },
-        ),
-        // 复制按钮 - 使用 native channel 复制
-        ContextMenuButtonItem(
-          label: LegacyTextLocalizer.localize('复制'),
-          onPressed: () {
-            // 使用 onSelectionChanged 回调跟踪到的选中内容
-            final selectedText = _lastSelectedContent;
+      onSelectAll: () {
+        selectableRegionState.selectAll(SelectionChangedCause.toolbar);
+      },
+      onCopy: () {
+        final selectedText = _lastSelectedContent;
+        selectableRegionState.hideToolbar();
+        if (selectedText != null && selectedText.isNotEmpty) {
+          AssistsMessageService.copyToClipboard(selectedText);
+        }
+      },
+      onShare: () {
+        final selectedText = _lastSelectedContent;
+        selectableRegionState.hideToolbar();
+        if (selectedText == null || selectedText.isEmpty) {
+          return;
+        }
+        _shareSelectedText(selectedText);
+      },
+    );
+  }
 
-            if (selectedText != null && selectedText.isNotEmpty) {
-              // 使用 native channel 复制到剪贴板
-              AssistsMessageService.copyToClipboard(selectedText);
-            }
+  Future<void> _shareSelectedText(String selectedText) async {
+    try {
+      final shared = await OmnibotResourceService.shareText(selectedText);
+      if (!shared) {
+        showToast(
+          LegacyTextLocalizer.isEnglish
+              ? 'Share failed, please try again later'
+              : '发送失败，请稍后重试',
+          type: ToastType.error,
+        );
+      }
+    } catch (error) {
+      debugPrint('share selected text failed: $error');
+      showToast(
+        LegacyTextLocalizer.isEnglish ? 'Share failed' : '发送失败',
+        type: ToastType.error,
+      );
+    }
+  }
+}
 
-            selectableRegionState.hideToolbar();
-          },
+class _GlassSelectionContextMenu extends StatelessWidget {
+  const _GlassSelectionContextMenu({
+    required this.anchors,
+    required this.onSelectAll,
+    required this.onCopy,
+    required this.onShare,
+  });
+
+  final TextSelectionToolbarAnchors anchors;
+  final VoidCallback onSelectAll;
+  final VoidCallback onCopy;
+  final VoidCallback onShare;
+
+  @override
+  Widget build(BuildContext context) {
+    final anchorBelow = anchors.secondaryAnchor ?? anchors.primaryAnchor;
+    final safePadding = MediaQuery.paddingOf(context);
+    return CustomSingleChildLayout(
+      delegate: _GlassSelectionMenuLayoutDelegate(
+        anchorAbove: anchors.primaryAnchor,
+        anchorBelow: anchorBelow,
+        screenPadding: _kSelectionMenuScreenPadding,
+        topSafePadding: safePadding.top,
+        bottomSafePadding: safePadding.bottom,
+      ),
+      child: OmniGlassPanel(
+        borderRadius: BorderRadius.circular(14),
+        padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 4),
+        child: Material(
+          type: MaterialType.transparency,
+          child: SizedBox(
+            height: 28,
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                _GlassSelectionMenuButton(
+                  label: LegacyTextLocalizer.isEnglish ? 'Select all' : '全选',
+                  onPressed: onSelectAll,
+                ),
+                const _GlassSelectionMenuDivider(),
+                _GlassSelectionMenuButton(
+                  label: LegacyTextLocalizer.isEnglish ? 'Copy' : '复制',
+                  onPressed: onCopy,
+                ),
+                const _GlassSelectionMenuDivider(),
+                _GlassSelectionMenuButton(
+                  label: LegacyTextLocalizer.isEnglish ? 'Share' : '发送',
+                  onPressed: onShare,
+                ),
+              ],
+            ),
+          ),
         ),
-      ],
+      ),
+    );
+  }
+}
+
+class _GlassSelectionMenuButton extends StatelessWidget {
+  const _GlassSelectionMenuButton({
+    required this.label,
+    required this.onPressed,
+  });
+
+  final String label;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    final palette = context.omniPalette;
+    return Tooltip(
+      message: label,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(10),
+        onTap: onPressed,
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(minWidth: 50, minHeight: 34),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 8),
+            child: Center(
+              child: Text(
+                label,
+                maxLines: 1,
+                softWrap: false,
+                overflow: TextOverflow.ellipsis,
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  color: palette.textPrimary,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                  height: 1.0,
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _GlassSelectionMenuDivider extends StatelessWidget {
+  const _GlassSelectionMenuDivider();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 1,
+      height: 20,
+      color: context.omniPalette.borderSubtle.withValues(alpha: 0.55),
+    );
+  }
+}
+
+class _GlassSelectionMenuLayoutDelegate extends SingleChildLayoutDelegate {
+  const _GlassSelectionMenuLayoutDelegate({
+    required this.anchorAbove,
+    required this.anchorBelow,
+    required this.screenPadding,
+    required this.topSafePadding,
+    required this.bottomSafePadding,
+  });
+
+  final Offset anchorAbove;
+  final Offset anchorBelow;
+  final double screenPadding;
+  final double topSafePadding;
+  final double bottomSafePadding;
+
+  @override
+  BoxConstraints getConstraintsForChild(BoxConstraints constraints) {
+    return BoxConstraints(
+      maxWidth: (constraints.maxWidth - screenPadding * 2).clamp(
+        0.0,
+        double.infinity,
+      ),
+      maxHeight:
+          (constraints.maxHeight -
+                  topSafePadding -
+                  bottomSafePadding -
+                  screenPadding * 2)
+              .clamp(0.0, double.infinity),
+    );
+  }
+
+  @override
+  Offset getPositionForChild(Size size, Size childSize) {
+    final topLimit = topSafePadding + screenPadding;
+    final fitsAbove =
+        anchorAbove.dy - _kSelectionMenuAnchorGap - childSize.height >=
+        topLimit;
+    final anchor = fitsAbove ? anchorAbove : anchorBelow;
+    final minX = screenPadding;
+    final maxX = size.width - childSize.width - screenPadding;
+    final dx = _clampToMenuBounds(anchor.dx - childSize.width / 2, minX, maxX);
+    final dy = fitsAbove
+        ? anchor.dy - _kSelectionMenuAnchorGap - childSize.height
+        : anchor.dy + _kSelectionMenuAnchorGap;
+    final maxY =
+        size.height - childSize.height - bottomSafePadding - screenPadding;
+    return Offset(dx, _clampToMenuBounds(dy, topLimit, maxY));
+  }
+
+  @override
+  bool shouldRelayout(_GlassSelectionMenuLayoutDelegate oldDelegate) {
+    return anchorAbove != oldDelegate.anchorAbove ||
+        anchorBelow != oldDelegate.anchorBelow ||
+        screenPadding != oldDelegate.screenPadding ||
+        topSafePadding != oldDelegate.topSafePadding ||
+        bottomSafePadding != oldDelegate.bottomSafePadding;
+  }
+}
+
+double _clampToMenuBounds(double value, double min, double max) {
+  if (max < min) {
+    return min;
+  }
+  return value.clamp(min, max).toDouble();
+}
+
+const double _kSelectionMenuScreenPadding = 8.0;
+const double _kSelectionMenuAnchorGap = 10.0;
+
+/// 流式尾部文本（fast-path 内嵌）。
+///
+/// 当 [text] 增长时，对新增片段做 Opacity 0.3 → 1.0 的渐入动画，
+/// 已稳定的字符保持不透明；shrink（如 flush 把尾部"吃掉"）则瞬时收敛。
+///
+/// 整体动画仅触发本地小区域重绘，不会拉动外层 markdown 子树。
+class _AnimatedStreamingTail extends StatefulWidget {
+  const _AnimatedStreamingTail({
+    super.key,
+    required this.text,
+    required this.style,
+    this.trailing,
+  });
+
+  final String text;
+  final TextStyle style;
+  final Widget? trailing;
+
+  @override
+  State<_AnimatedStreamingTail> createState() => _AnimatedStreamingTailState();
+}
+
+class _AnimatedStreamingTailState extends State<_AnimatedStreamingTail>
+    with SingleTickerProviderStateMixin {
+  static const Duration _kFadeDuration = Duration(milliseconds: 220);
+
+  late final AnimationController _controller;
+  int _frozenLength = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+      vsync: this,
+      duration: _kFadeDuration,
+      value: 1.0,
+    );
+    _frozenLength = widget.text.length;
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  void didUpdateWidget(_AnimatedStreamingTail oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.text == oldWidget.text) {
+      return;
+    }
+    if (widget.text.length > oldWidget.text.length &&
+        widget.text.startsWith(oldWidget.text)) {
+      _frozenLength = oldWidget.text.length;
+      _controller.forward(from: 0.0);
+    } else {
+      // 文本回退或被替换：放弃动画，直接到末态。
+      _frozenLength = widget.text.length;
+      _controller.value = 1.0;
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final hasTrailing = widget.trailing != null;
+    if (widget.text.isEmpty && !hasTrailing) {
+      return const SizedBox.shrink();
+    }
+    return RepaintBoundary(
+      child: AnimatedBuilder(
+        animation: _controller,
+        builder: (context, _) {
+          final t = _controller.value;
+          final frozenLen = _frozenLength.clamp(0, widget.text.length);
+          final frozenText = widget.text.substring(0, frozenLen);
+          final freshText = widget.text.substring(frozenLen);
+          final baseColor = widget.style.color;
+          final freshOpacity = (0.3 + 0.7 * t).clamp(0.0, 1.0);
+          final freshColor = baseColor?.withValues(
+            alpha: (baseColor.a) * freshOpacity,
+          );
+
+          return Text.rich(
+            TextSpan(
+              style: widget.style,
+              children: <InlineSpan>[
+                if (frozenText.isNotEmpty) TextSpan(text: frozenText),
+                if (freshText.isNotEmpty)
+                  TextSpan(
+                    text: freshText,
+                    style: widget.style.copyWith(color: freshColor),
+                  ),
+                if (hasTrailing)
+                  WidgetSpan(
+                    alignment: PlaceholderAlignment.middle,
+                    child: Padding(
+                      padding: const EdgeInsets.only(left: 4),
+                      child: widget.trailing!,
+                    ),
+                  ),
+              ],
+            ),
+          );
+        },
+      ),
     );
   }
 }

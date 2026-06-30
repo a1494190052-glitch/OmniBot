@@ -20,13 +20,27 @@ import java.util.TreeMap
 class AgentLlmStreamAccumulator(
     private val json: Json,
     private val preferInlineThinkTags: Boolean = false,
-    private val includeReasoningInAssistantMessage: Boolean = false
+    private val includeReasoningInAssistantMessage: Boolean = false,
+    private val bufferLeadingTextUntilInlineThinkTag: Boolean = false,
+    private val guardLeadingReasoningLeak: Boolean = false
 ) {
     companion object {
         private const val TAG = "AgentLlmStreamAccumulator"
         private const val THINK_OPEN_TAG = "<think>"
         private const val THINK_CLOSE_TAG = "</think>"
+        private const val LEADING_VISIBLE_BUFFER_MAX_CHARS = 900
+        private const val LEADING_VISIBLE_BUFFER_MAX_CHUNKS = 6
         private val INLINE_THINK_TAGS = listOf(THINK_OPEN_TAG, THINK_CLOSE_TAG)
+        private val LEADING_REASONING_LEAK_STRONG_PATTERNS = listOf(
+            Regex("# Understanding the User's Question", RegexOption.IGNORE_CASE)
+        )
+        private val LEADING_REASONING_LEAK_SECONDARY_PATTERNS = listOf(
+            Regex("The user is asking", RegexOption.IGNORE_CASE),
+            Regex("Let me consider", RegexOption.IGNORE_CASE),
+            Regex("I should provide", RegexOption.IGNORE_CASE),
+            Regex("Let me structure a response", RegexOption.IGNORE_CASE),
+            Regex("Given that the user", RegexOption.IGNORE_CASE)
+        )
     }
 
     private val contentBuffer = StringBuilder()
@@ -42,6 +56,9 @@ class AgentLlmStreamAccumulator(
     private var lastChunkPreview: String = ""
     private var thinkSectionOpen = false
     private var inlineThinkTagObserved = false
+    private var autoInlineThinkTagMode = false
+    private var leadingVisibleBufferChunks = 0
+    private var leadingVisibleBufferReleased = false
 
     private var chunkIndex = 0
 
@@ -309,14 +326,17 @@ class AgentLlmStreamAccumulator(
     private fun consumeChoice(choice: JsonObject): Boolean {
         choice["finish_reason"]?.jsonPrimitive?.contentOrNull?.let { finishReason = it }
         var hasPayload = false
+        var hasChatContentPayload = false
 
         val delta = choice["delta"] as? JsonObject
         if (delta != null) {
+            hasChatContentPayload = hasTextPayload(delta["content"])
             hasPayload = consumeMessageLike(delta, isDelta = true) || hasPayload
         }
 
         val message = choice["message"] as? JsonObject
         if (message != null) {
+            hasChatContentPayload = hasTextPayload(message["content"]) || hasChatContentPayload
             hasPayload = consumeMessageLike(message, isDelta = false) || hasPayload
         }
 
@@ -338,8 +358,13 @@ class AgentLlmStreamAccumulator(
             hasPayload = true
         }
 
-        // 某些 OpenAI-compat 实现会返回 completion 风格的 choice.text
-        hasPayload = appendTextPayload(choice["text"]) || hasPayload
+        // Some OpenAI-compatible streams include completion-style choice.text
+        // alongside chat-style delta/message content in the same choice. Treat
+        // choice.text as a text fallback, otherwise the same token is appended
+        // twice before it reaches Flutter.
+        if (!hasChatContentPayload) {
+            hasPayload = appendTextPayload(choice["text"]) || hasPayload
+        }
         return hasPayload
     }
 
@@ -505,20 +530,37 @@ class AgentLlmStreamAccumulator(
         return text.isNotEmpty()
     }
 
+    private fun hasTextPayload(element: JsonElement?): Boolean {
+        return !extractText(element).isNullOrEmpty()
+    }
+
     private fun appendTextChunk(text: String) {
         if (text.isEmpty()) {
             return
         }
-        if (!preferInlineThinkTags) {
-            contentBuffer.append(text)
+        if (shouldTrackLeadingVisibleGuard()) {
+            leadingVisibleBufferChunks++
+        }
+        if (shouldBufferLeadingInlineText()) {
+            inlineTextBuffer.append(text)
+            flushInlineTextBuffer(final = false)
             return
+        }
+        if (!preferInlineThinkTags && !autoInlineThinkTagMode && !thinkSectionOpen) {
+            val containsThinkTag = text.contains(THINK_OPEN_TAG) || text.contains(THINK_CLOSE_TAG)
+            val hasTrailingTagPrefix = partialInlineTagSuffixLength(text) > 0
+            if (!containsThinkTag && !hasTrailingTagPrefix) {
+                contentBuffer.append(text)
+                return
+            }
+            autoInlineThinkTagMode = true
         }
         inlineTextBuffer.append(text)
         flushInlineTextBuffer(final = false)
     }
 
     private fun flushInlineTextBuffer(final: Boolean) {
-        if (!preferInlineThinkTags) {
+        if (!preferInlineThinkTags && !autoInlineThinkTagMode && !bufferLeadingTextUntilInlineThinkTag) {
             if (inlineTextBuffer.isNotEmpty()) {
                 appendVisibleText(inlineTextBuffer.toString())
                 inlineTextBuffer.setLength(0)
@@ -572,13 +614,21 @@ class AgentLlmStreamAccumulator(
                 continue
             }
 
+            if (shouldApplyLeadingVisibleGuard()) {
+                detectLeadingReasoningLeak(bufferText)
+                if (final || shouldReleaseLeadingVisibleBuffer(bufferText)) {
+                    releaseLeadingVisibleBuffer(bufferText)
+                }
+                return
+            }
+
             if (final) {
                 appendVisibleText(bufferText)
                 inlineTextBuffer.setLength(0)
                 return
             }
 
-            if (!inlineThinkTagObserved && contentBuffer.isEmpty()) {
+            if (shouldDelayVisibleInlineBufferCommit()) {
                 return
             }
 
@@ -591,6 +641,71 @@ class AgentLlmStreamAccumulator(
             inlineTextBuffer.delete(0, safeLength)
             return
         }
+    }
+
+    private fun shouldBufferLeadingInlineText(): Boolean {
+        return bufferLeadingTextUntilInlineThinkTag &&
+            !preferInlineThinkTags &&
+            !autoInlineThinkTagMode &&
+            !thinkSectionOpen &&
+            !inlineThinkTagObserved &&
+            !leadingVisibleBufferReleased &&
+            contentBuffer.isEmpty()
+    }
+
+    private fun shouldDelayVisibleInlineBufferCommit(): Boolean {
+        return !inlineThinkTagObserved &&
+            contentBuffer.isEmpty() &&
+            (preferInlineThinkTags || bufferLeadingTextUntilInlineThinkTag)
+    }
+
+    private fun shouldTrackLeadingVisibleGuard(): Boolean {
+        return guardLeadingReasoningLeak &&
+            !leadingVisibleBufferReleased &&
+            !inlineThinkTagObserved &&
+            !thinkSectionOpen &&
+            contentBuffer.isEmpty()
+    }
+
+    private fun shouldApplyLeadingVisibleGuard(): Boolean {
+        return guardLeadingReasoningLeak &&
+            !leadingVisibleBufferReleased &&
+            !inlineThinkTagObserved &&
+            !thinkSectionOpen &&
+            contentBuffer.isEmpty()
+    }
+
+    private fun shouldReleaseLeadingVisibleBuffer(bufferText: String): Boolean {
+        return bufferText.length >= LEADING_VISIBLE_BUFFER_MAX_CHARS ||
+            leadingVisibleBufferChunks >= LEADING_VISIBLE_BUFFER_MAX_CHUNKS
+    }
+
+    private fun releaseLeadingVisibleBuffer(bufferText: String) {
+        appendVisibleText(bufferText)
+        inlineTextBuffer.setLength(0)
+        leadingVisibleBufferReleased = true
+    }
+
+    private fun detectLeadingReasoningLeak(bufferText: String) {
+        val strongMatch = LEADING_REASONING_LEAK_STRONG_PATTERNS.firstOrNull {
+            it.containsMatchIn(bufferText)
+        }
+        if (strongMatch != null) {
+            throw AgentStreamReasoningLeakException(
+                "guarded route leaked reasoning-looking content before visible release: ${strongMatch.pattern}"
+            )
+        }
+        val secondaryMatches = LEADING_REASONING_LEAK_SECONDARY_PATTERNS.filter {
+            it.containsMatchIn(bufferText)
+        }
+        if (secondaryMatches.size < 2) {
+            return
+        }
+        throw AgentStreamReasoningLeakException(
+            "guarded route leaked reasoning-looking content before visible release: ${
+                secondaryMatches.joinToString(" + ") { it.pattern }
+            }"
+        )
     }
 
     private fun partialInlineTagSuffixLength(text: String): Int {
@@ -611,6 +726,7 @@ class AgentLlmStreamAccumulator(
         if (text.isEmpty()) {
             return
         }
+        leadingVisibleBufferReleased = true
         contentBuffer.append(text)
     }
 

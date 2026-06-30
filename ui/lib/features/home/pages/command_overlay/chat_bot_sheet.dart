@@ -284,7 +284,7 @@ class _ChatBotSheetState extends State<ChatBotSheet>
       _handleAiMessage(taskId, content, type);
     });
 
-    _aiService.setOnMessageEndCallback((taskId) {
+    _aiService.setOnMessageEndCallback((taskId, {Map<String, dynamic>? turnUsage}) {
       _handleAiMessageEnd(taskId);
     });
 

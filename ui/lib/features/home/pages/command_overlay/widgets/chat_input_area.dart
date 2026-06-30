@@ -5,10 +5,14 @@ import 'dart:math' as math;
 import 'dart:ui';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:flutter/material.dart';
+import 'package:ui/services/model_vendor_catalog.dart';
 import 'package:ui/services/special_permission.dart';
 import 'package:ui/services/storage_service.dart';
 import 'package:ui/theme/theme_context.dart';
+import 'package:ui/widgets/provider_vendor_icon.dart';
+import 'package:ui/widgets/glass_popup.dart';
 import 'package:ui/widgets/image_preview_overlay.dart';
+import 'package:ui/widgets/omni_glass.dart';
 import 'package:ui/widgets/text_input_context_menu.dart';
 
 part 'chat_input_area_composer.dart';
@@ -34,6 +38,41 @@ const String _kCodexPermissionFullAccessIconAsset =
     'assets/home/chat/permission_shield_alert.svg';
 
 enum CodexPermissionMode { defaultMode, autoReview, fullAccess }
+
+typedef CodexRunSettingsChanged =
+    FutureOr<void> Function({String? modelId, String? reasoningEffort});
+
+class CodexRunSettings {
+  const CodexRunSettings({
+    required this.modelId,
+    required this.reasoningEffort,
+    this.modelOptions = const <String>[],
+    this.reasoningEffortOptions = const <String>[],
+    this.isLoadingModels = false,
+    this.modelListError,
+  });
+
+  final String modelId;
+  final String reasoningEffort;
+  final List<String> modelOptions;
+  final List<String> reasoningEffortOptions;
+  final bool isLoadingModels;
+  final String? modelListError;
+}
+
+class ChatModelPickerSettings {
+  const ChatModelPickerSettings({
+    required this.modelId,
+    required this.hasSelectableModels,
+    required this.onOpen,
+    this.onPointerDown,
+  });
+
+  final String modelId;
+  final bool hasSelectableModels;
+  final FutureOr<void> Function(BuildContext anchorContext) onOpen;
+  final VoidCallback? onPointerDown;
+}
 
 class ChatInputAttachment {
   final String id;
@@ -74,6 +113,7 @@ class ChatInputAttachment {
 class ChatInputArea extends StatefulWidget {
   final TextEditingController controller;
   final FocusNode focusNode;
+  final VoidCallback? onRequestFocus;
   final bool isProcessing;
   final VoidCallback onSendMessage;
   final VoidCallback onCancelTask;
@@ -97,6 +137,10 @@ class ChatInputArea extends StatefulWidget {
   final double? contextUsageRatio;
   final String? contextUsageTooltipMessage;
   final VoidCallback? onLongPressContextUsageRing;
+  final ChatModelPickerSettings? modelPickerSettings;
+  final CodexRunSettings? codexRunSettings;
+  final CodexRunSettingsChanged? onCodexRunSettingsChanged;
+  final FutureOr<void> Function()? onCodexRunSettingsOpened;
   final CodexPermissionMode? codexPermissionMode;
   final ValueChanged<CodexPermissionMode>? onCodexPermissionModeChanged;
   final bool useIndependentSendButton;
@@ -105,6 +149,7 @@ class ChatInputArea extends StatefulWidget {
     super.key,
     required this.controller,
     required this.focusNode,
+    this.onRequestFocus,
     required this.isProcessing,
     required this.onSendMessage,
     required this.onCancelTask,
@@ -126,6 +171,10 @@ class ChatInputArea extends StatefulWidget {
     this.contextUsageRatio,
     this.contextUsageTooltipMessage,
     this.onLongPressContextUsageRing,
+    this.modelPickerSettings,
+    this.codexRunSettings,
+    this.onCodexRunSettingsChanged,
+    this.onCodexRunSettingsOpened,
     this.codexPermissionMode,
     this.onCodexPermissionModeChanged,
     this.useIndependentSendButton = true,
@@ -185,7 +234,7 @@ class _ContextUsageRing extends StatelessWidget {
   }
 }
 
-class _ContextUsageRingButton extends StatelessWidget {
+class _ContextUsageRingButton extends StatefulWidget {
   const _ContextUsageRingButton({
     required this.ratio,
     this.tooltipMessage,
@@ -197,49 +246,118 @@ class _ContextUsageRingButton extends StatelessWidget {
   final VoidCallback? onLongPress;
 
   @override
+  State<_ContextUsageRingButton> createState() =>
+      _ContextUsageRingButtonState();
+}
+
+class _ContextUsageRingButtonState extends State<_ContextUsageRingButton> {
+  // 走 [showOverlayGlassPopup] 而不是 [showGlassPopup] —— 后者 push Navigator
+  // route,ModalRoute.didPush 会调 setFirstFocus 把焦点从 TextField 抢到 popup
+  // 的 FocusScope,TextField 失焦 → 软键盘塌陷 → 输入栏下沉 → 已经算好的 popup
+  // 锚点还停在"键盘弹起时的高位置",视觉上就是 tooltip 飘在原地、输入栏掉到底。
+  // 详见 glass_popup.dart 里 [OverlayGlassPopupHandle] 的文档。
+  OverlayGlassPopupHandle<void>? _handle;
+  Timer? _autoDismissTimer;
+
+  @override
+  void dispose() {
+    _autoDismissTimer?.cancel();
+    unawaited(_handle?.dismiss());
+    _handle = null;
+    super.dispose();
+  }
+
+  void _showTooltip(BuildContext anchorContext, String message) {
+    if (_handle != null) {
+      // 二次点击当 toggle 关掉,免得反复点击堆叠多个 entry。
+      final h = _handle;
+      _handle = null;
+      _autoDismissTimer?.cancel();
+      _autoDismissTimer = null;
+      unawaited(h?.dismiss());
+      return;
+    }
+    final anchor = glassPopupAnchorFromContext(anchorContext);
+    if (anchor == null) return;
+
+    final handle = showOverlayGlassPopup<void>(
+      context: anchorContext,
+      anchor: anchor,
+      preferBelow: false,
+      verticalGap: 8,
+      horizontalPlacement: GlassPopupHorizontalPlacement.centerOnAnchor,
+      builder: (_) => _ContextUsageGlassTooltipBody(message: message),
+    );
+    _handle = handle;
+    // future resolve 后(任何一条 dismiss 路径触发,含 toggle / 自动 / tap-outside /
+    // back / 键盘塌陷)清空状态字段。
+    handle.future.whenComplete(() {
+      if (!mounted) return;
+      if (_handle == handle) {
+        _handle = null;
+      }
+      _autoDismissTimer?.cancel();
+      _autoDismissTimer = null;
+    });
+
+    _autoDismissTimer = Timer(const Duration(seconds: 3), () {
+      if (!mounted) return;
+      unawaited(handle.dismiss());
+    });
+  }
+
+  @override
   Widget build(BuildContext context) {
-    final child = SizedBox(
+    final ring = SizedBox(
       width: 22,
       height: 22,
-      child: Center(child: _ContextUsageRing(ratio: ratio)),
+      child: Center(child: _ContextUsageRing(ratio: widget.ratio)),
     );
-    final interactiveChild = onLongPress == null
-        ? child
-        : GestureDetector(
-            behavior: HitTestBehavior.opaque,
-            onLongPress: onLongPress,
-            child: child,
-          );
-    final tooltip = tooltipMessage?.trim() ?? '';
-    if (tooltip.isEmpty) {
-      return interactiveChild;
+    final tooltip = widget.tooltipMessage?.trim() ?? '';
+    final hasTooltip = tooltip.isEmpty == false;
+    if (!hasTooltip && widget.onLongPress == null) {
+      return ring;
     }
-    return Tooltip(
-      message: tooltip,
-      triggerMode: TooltipTriggerMode.tap,
-      waitDuration: Duration.zero,
-      showDuration: const Duration(seconds: 3),
-      preferBelow: false,
-      verticalOffset: 12,
-      decoration: BoxDecoration(
-        color: const Color(0xFF172033),
-        borderRadius: BorderRadius.circular(14),
-        boxShadow: const [
-          BoxShadow(
-            color: Color(0x24172033),
-            blurRadius: 24,
-            offset: Offset(0, 12),
+    return Builder(
+      builder: (anchorContext) {
+        return GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTap: hasTooltip
+              ? () => _showTooltip(anchorContext, tooltip)
+              : null,
+          onLongPress: widget.onLongPress,
+          child: ring,
+        );
+      },
+    );
+  }
+}
+
+class _ContextUsageGlassTooltipBody extends StatelessWidget {
+  const _ContextUsageGlassTooltipBody({required this.message});
+
+  final String message;
+
+  @override
+  Widget build(BuildContext context) {
+    final palette = context.omniPalette;
+    final isDark = context.isDarkTheme;
+    final textColor = isDark ? palette.textPrimary : const Color(0xFF1F2937);
+    return ConstrainedBox(
+      constraints: const BoxConstraints(maxWidth: 280),
+      child: OmniGlassPanel(
+        borderRadius: const BorderRadius.all(Radius.circular(14)),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+        child: Text(
+          message,
+          style: TextStyle(
+            color: textColor,
+            fontSize: 12,
+            height: 1.45,
+            fontWeight: FontWeight.w500,
           ),
-        ],
+        ),
       ),
-      textStyle: const TextStyle(
-        color: Colors.white,
-        fontSize: 12,
-        height: 1.45,
-        fontWeight: FontWeight.w500,
-      ),
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-      child: interactiveChild,
     );
   }
 }
@@ -360,6 +478,7 @@ abstract class _ChatInputAreaStateBase extends State<ChatInputArea>
   bool _inputHeightReportScheduled = false;
   bool _isComposerHovered = false;
   late AnimationController _composerFlowController;
+  late AnimationController _modelPickerSpinController;
 
   late Widget _terminalSvg;
   late Widget _sendSvg;
@@ -394,6 +513,10 @@ abstract class _ChatInputAreaStateBase extends State<ChatInputArea>
       vsync: this,
       duration: const Duration(milliseconds: 8000),
     )..repeat();
+    _modelPickerSpinController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 520),
+    );
     _reportInputHeightAfterBuild();
   }
 
@@ -605,7 +728,8 @@ abstract class _ChatInputAreaStateBase extends State<ChatInputArea>
     if (oldWidget.attachments != widget.attachments ||
         oldWidget.useLargeComposerStyle != widget.useLargeComposerStyle ||
         oldWidget.useFrostedGlass != widget.useFrostedGlass ||
-        oldWidget.selectedModelOverrideId != widget.selectedModelOverrideId) {
+        oldWidget.selectedModelOverrideId != widget.selectedModelOverrideId ||
+        oldWidget.modelPickerSettings != widget.modelPickerSettings) {
       _reportInputHeightAfterBuild();
     }
   }
@@ -616,6 +740,7 @@ abstract class _ChatInputAreaStateBase extends State<ChatInputArea>
     _textFieldScrollController.dispose();
     _composerStateNotifier.dispose();
     _composerFlowController.dispose();
+    _modelPickerSpinController.dispose();
     widget.controller.removeListener(_onTextChanged);
     widget.focusNode.removeListener(_onFocusChanged);
     super.dispose();

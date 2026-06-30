@@ -62,7 +62,8 @@ object MnnLocalProviderStateStore {
             providerType = profile.sourceType,
             readOnly = profile.readOnly,
             ready = profile.ready,
-            statusText = profile.statusText
+            statusText = profile.statusText,
+            wireApi = profile.wireApi
         )
     }
 }

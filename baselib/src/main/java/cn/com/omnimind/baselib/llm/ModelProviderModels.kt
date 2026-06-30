@@ -5,11 +5,13 @@ data class ModelProviderConfig(
     val name: String = "",
     val baseUrl: String = "",
     val apiKey: String = "",
+    val customHeaders: Map<String, String> = emptyMap(),
     val source: String = "none",
     val providerType: String = "custom",
     val readOnly: Boolean = false,
     val ready: Boolean = true,
-    val statusText: String? = null
+    val statusText: String? = null,
+    val wireApi: String = OpenAiWireApi.CHAT_COMPLETIONS
 ) {
     fun isConfigured(): Boolean = baseUrl.isNotBlank()
 }
@@ -19,11 +21,13 @@ data class ModelProviderProfile(
     val name: String,
     val baseUrl: String = "",
     val apiKey: String = "",
+    val customHeaders: Map<String, String> = emptyMap(),
     val sourceType: String = "custom",
     val readOnly: Boolean = false,
     val ready: Boolean = true,
     val statusText: String? = null,
-    val protocolType: String = "openai_compatible"
+    val protocolType: String = "openai_compatible",
+    val wireApi: String = OpenAiWireApi.CHAT_COMPLETIONS
 ) {
     fun isConfigured(): Boolean = baseUrl.isNotBlank()
 }

@@ -162,6 +162,9 @@ class _InfoRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final palette = context.omniPalette;
+    final labelColor = context.isDarkTheme
+        ? palette.textTertiary
+        : const Color(0xFF5F6F89);
     return Row(
       children: [
         SizedBox(
@@ -170,7 +173,7 @@ class _InfoRow extends StatelessWidget {
             label,
             style: TextStyle(
               fontSize: 12,
-              color: palette.textTertiary,
+              color: labelColor,
               fontWeight: FontWeight.w500,
             ),
           ),

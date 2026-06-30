@@ -28,6 +28,7 @@ search = "9.4.0"
 securityCrypto = "1.1.0-alpha06"
 okhttp = "4.9.0"
 okhttpVersion = "4.12.0"
+openilinkSdkJava = "2384d09b87c602bb8740d11bc98fbf53febb73b1"
 coreSplashscreen = "1.0.1"
 roomCompiler = "2.8.4"
 pagingCommon = "3.2.1"
@@ -124,6 +125,7 @@ androidx-security-crypto = { group = "androidx.security", name = "security-crypt
 mmkv = { module = "com.tencent:mmkv", version.ref = "mmkv" }
 okhttp = { module = "com.squareup.okhttp3:okhttp", version.ref = "okhttp" }
 okhttp-sse = { module = "com.squareup.okhttp3:okhttp-sse", version.ref = "okhttp" }
+openilink-sdk-java = { module = "com.github.openilink:openilink-sdk-java", version.ref = "openilinkSdkJava" }
 
 androidx-core-splashscreen = { group = "androidx.core", name = "core-splashscreen", version.ref = "coreSplashscreen" }
 androidx-room-compiler = { group = "androidx.room", name = "room-compiler", version.ref = "roomCompiler"}

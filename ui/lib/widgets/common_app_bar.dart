@@ -85,6 +85,15 @@ class CommonAppBar extends StatelessWidget implements PreferredSizeWidget {
     final palette = context.omniPalette;
     final resolvedTitleColor = titleStyle?.color ?? palette.textPrimary;
     final resolvedBackIconColor = backIconColor ?? resolvedTitleColor;
+    final defaultTitleStyle =
+        Theme.of(
+          context,
+        ).appBarTheme.titleTextStyle?.copyWith(color: palette.textPrimary) ??
+        TextStyle(
+          fontSize: 17,
+          fontWeight: FontWeight.w600,
+          color: palette.textPrimary,
+        );
     final resolvedBackgroundColor =
         backgroundColor ?? Theme.of(context).appBarTheme.backgroundColor;
     final resolvedLeading =
@@ -135,14 +144,7 @@ class CommonAppBar extends StatelessWidget implements PreferredSizeWidget {
                       context.trLegacy(title!),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style:
-                          titleStyle ??
-                          TextStyle(
-                            fontSize: 17,
-                            fontWeight: FontWeight.w600,
-                            color: palette.textPrimary,
-                            fontFamily: 'SF Pro',
-                          ),
+                      style: titleStyle ?? defaultTitleStyle,
                     ),
                     if (showAiBadge) const AiGeneratedBadge(),
                   ],

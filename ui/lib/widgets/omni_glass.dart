@@ -13,6 +13,8 @@ class OmniGlassPanel extends StatelessWidget {
     this.width,
     this.height,
     this.forceDark = false,
+    this.omitTopBorder = false,
+    this.showTopHighlight = true,
   });
 
   final Widget child;
@@ -21,6 +23,15 @@ class OmniGlassPanel extends StatelessWidget {
   final double? width;
   final double? height;
   final bool forceDark;
+
+  /// 是否省略**顶边**的 1px 边线（默认 false 即画完整四边）。
+  /// 当 popup 紧贴在另一块玻璃下方（如下拉模式列表贴在触发按钮下边）需要拼成
+  /// 一个完整胶囊时设为 true,避免顶边那条 1px 线在拼接处形成"双线"。
+  final bool omitTopBorder;
+
+  /// 是否绘制顶部 1px 的高光渐变（默认 true）。拼接到上方玻璃时也应关掉,
+  /// 否则在接缝处会出现一截多余的亮线。
+  final bool showTopHighlight;
 
   @override
   Widget build(BuildContext context) {
@@ -32,15 +43,28 @@ class OmniGlassPanel extends StatelessWidget {
     final bottomTint = isDark
         ? palette.surfaceSecondary.withValues(alpha: 0.12)
         : Colors.white.withValues(alpha: 0.18);
+    // 深色模式下故意把整圈边线压得极弱(0.08)——之前 0.22 在暗底上一圈白线
+    // 看起来就是"PPT 描边",完全没有玻璃感。真玻璃在暗环境里是"边线几乎消
+    // 失、顶部高光独自承担定义边界",所以这里把均匀边线退到肉眼几乎觉察不到,
+    // 让 [highlightColor] 的顶部 1px 渐变去做"光打在玻璃顶上"的活儿。
     final borderColor = isDark
-        ? Colors.white.withValues(alpha: 0.22)
+        ? Colors.white.withValues(alpha: 0.08)
         : Colors.white.withValues(alpha: 0.82);
     final highlightColor = isDark
-        ? Colors.white.withValues(alpha: 0.30)
+        ? Colors.white.withValues(alpha: 0.45)
         : Colors.white.withValues(alpha: 0.86);
     final accentGlow = palette.accentPrimary.withValues(
       alpha: isDark ? 0.10 : 0.08,
     );
+
+    final borderSide = BorderSide(color: borderColor);
+    final BoxBorder border = omitTopBorder
+        ? Border(
+            left: borderSide,
+            right: borderSide,
+            bottom: borderSide,
+          )
+        : Border.all(color: borderColor);
 
     return Container(
       width: width,
@@ -67,7 +91,7 @@ class OmniGlassPanel extends StatelessWidget {
           child: DecoratedBox(
             decoration: BoxDecoration(
               borderRadius: borderRadius,
-              border: Border.all(color: borderColor),
+              border: border,
               gradient: LinearGradient(
                 begin: Alignment.topLeft,
                 end: Alignment.bottomRight,
@@ -76,23 +100,27 @@ class OmniGlassPanel extends StatelessWidget {
             ),
             child: Stack(
               children: [
-                Positioned(
-                  left: 18,
-                  right: 18,
-                  top: 0,
-                  child: Container(
-                    height: 1,
-                    decoration: BoxDecoration(
-                      gradient: LinearGradient(
-                        colors: [
-                          Colors.transparent,
-                          highlightColor,
-                          Colors.transparent,
-                        ],
+                if (showTopHighlight)
+                  // 顶部高光横向覆盖更广(8 vs 之前 18),让"光面"延伸出去,
+                  // 不再只是中段一小截亮线——配合深色模式下基本消失的边框,
+                  // 视觉上更接近真实玻璃顶边的反光。
+                  Positioned(
+                    left: 8,
+                    right: 8,
+                    top: 0,
+                    child: Container(
+                      height: 1,
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          colors: [
+                            Colors.transparent,
+                            highlightColor,
+                            Colors.transparent,
+                          ],
+                        ),
                       ),
                     ),
                   ),
-                ),
                 Padding(padding: padding, child: child),
               ],
             ),

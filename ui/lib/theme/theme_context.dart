@@ -9,4 +9,7 @@ extension OmniThemeContext on BuildContext {
           : OmniThemePalette.light);
 
   bool get isDarkTheme => Theme.of(this).brightness == Brightness.dark;
+
+  TextStyle get omniInputTextStyle =>
+      TextStyle(color: omniPalette.textPrimary, fontSize: 13);
 }
