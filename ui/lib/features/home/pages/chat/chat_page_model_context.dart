@@ -5,7 +5,7 @@ mixin _ChatPageModelContextMixin on _ChatPageStateBase {
   Future<void> _loadNormalChatModelContext() async {
     try {
       final results = await Future.wait<dynamic>([
-        ModelProviderConfigService.loadModelGroups(),
+        ModelProviderConfigService.loadChatModelGroups(),
         SceneModelConfigService.getSceneCatalog(),
       ]);
       if (!mounted) return;
@@ -1396,6 +1396,116 @@ class _ConversationModelSelectorContentState
     );
   }
 
+  Widget _buildSelectorHeader() {
+    final palette = context.omniPalette;
+    final isDark = context.isDarkTheme;
+    final onManage = widget.onManage;
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        _buildSearchRow(),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
+          child: Align(
+            alignment: Alignment.centerRight,
+            child: TextButton.icon(
+              onPressed: onManage == null
+                  ? null
+                  : () {
+                      unawaited(Future<void>.value(onManage()));
+                    },
+              style: TextButton.styleFrom(
+                minimumSize: Size.zero,
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                foregroundColor: isDark
+                    ? palette.accentPrimary
+                    : const Color(0xFF2C7FEB),
+              ),
+              icon: const Icon(Icons.tune_rounded, size: 15),
+              label: Text(
+                LegacyTextLocalizer.localize('管理模型'),
+                style: const TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildSelectorEmptyState(
+    String title, {
+    String? subtitle,
+    bool showManageAction = false,
+    bool compact = false,
+  }) {
+    final palette = context.omniPalette;
+    final isDark = context.isDarkTheme;
+    final onManage = widget.onManage;
+    return Padding(
+      padding: compact
+          ? const EdgeInsets.fromLTRB(12, 6, 12, 10)
+          : const EdgeInsets.fromLTRB(16, 8, 16, 16),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            LegacyTextLocalizer.localize(title),
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              fontSize: 12,
+              color: isDark ? palette.textTertiary : const Color(0xFF94A3B8),
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+          if (subtitle != null) ...[
+            const SizedBox(height: 4),
+            Text(
+              LegacyTextLocalizer.localize(subtitle),
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                fontSize: 12,
+                color: isDark
+                    ? palette.textTertiary.withValues(alpha: 0.86)
+                    : const Color(0xFF9AA4B6),
+              ),
+            ),
+          ],
+          if (showManageAction && onManage != null) ...[
+            const SizedBox(height: 10),
+            TextButton(
+              onPressed: () {
+                unawaited(Future<void>.value(onManage()));
+              },
+              style: TextButton.styleFrom(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 6,
+                ),
+                minimumSize: Size.zero,
+                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                foregroundColor: isDark
+                    ? palette.accentPrimary
+                    : const Color(0xFF2C7FEB),
+              ),
+              child: Text(
+                LegacyTextLocalizer.localize('去管理模型'),
+                style: const TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
   Widget _buildProfileHeader(ModelProviderProfileSummary profile) {
     final expanded = _isExpanded(profile.id);
     final models = _filteredModels(profile.id);
@@ -1644,18 +1754,7 @@ class _ConversationModelSelectorContentState
   Widget _buildBackendGroupedModels(ModelProviderProfileSummary profile) {
     final groups = _groupByBackend(profile.id);
     if (groups.isEmpty) {
-      return Padding(
-        padding: const EdgeInsets.fromLTRB(12, 4, 12, 8),
-        child: Text(
-          LegacyTextLocalizer.localize('该 Provider 暂无可选模型'),
-          style: TextStyle(
-            fontSize: 12,
-            color: context.isDarkTheme
-                ? context.omniPalette.textTertiary
-                : const Color(0xFF94A3B8),
-          ),
-        ),
-      );
+      return _buildSelectorEmptyState('该 Provider 暂无可选模型', compact: true);
     }
     final sortedKeys = _sortedBackendKeys(groups.keys);
     return Column(
@@ -1696,36 +1795,18 @@ class _ConversationModelSelectorContentState
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                _buildSearchRow(),
+                _buildSelectorHeader(),
                 if (configuredProfiles.isEmpty)
-                  Padding(
-                    padding: EdgeInsets.all(16),
-                    child: Text(
-                      LegacyTextLocalizer.localize('请先在模型提供商页配置 Provider'),
-                      textAlign: TextAlign.center,
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: context.isDarkTheme
-                            ? palette.textTertiary
-                            : const Color(0xFF94A3B8),
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ),
+                  _buildSelectorEmptyState(
+                    '请先在模型提供商页配置 Provider',
+                    subtitle: '并把需要的模型添加到聊天页',
+                    showManageAction: true,
                   )
                 else if (visibleProfiles.isEmpty)
-                  Padding(
-                    padding: EdgeInsets.all(16),
-                    child: Text(
-                      LegacyTextLocalizer.localize('没有匹配的模型'),
-                      textAlign: TextAlign.center,
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: context.isDarkTheme
-                            ? palette.textTertiary
-                            : const Color(0xFF94A3B8),
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ),
+                  _buildSelectorEmptyState(
+                    '没有匹配的模型',
+                    subtitle: '可前往模型提供商页管理聊天页模型',
+                    showManageAction: true,
                   )
                 else
                   Flexible(
@@ -1747,19 +1828,9 @@ class _ConversationModelSelectorContentState
                                 if (_needsBackendGrouping(profile.id))
                                   _buildBackendGroupedModels(profile)
                                 else if (models.isEmpty)
-                                  Padding(
-                                    padding: EdgeInsets.fromLTRB(12, 4, 12, 8),
-                                    child: Text(
-                                      LegacyTextLocalizer.localize(
-                                        '该 Provider 暂无可选模型',
-                                      ),
-                                      style: TextStyle(
-                                        fontSize: 12,
-                                        color: context.isDarkTheme
-                                            ? palette.textTertiary
-                                            : const Color(0xFF94A3B8),
-                                      ),
-                                    ),
+                                  _buildSelectorEmptyState(
+                                    '该 Provider 暂无可选模型',
+                                    compact: true,
                                   )
                                 else
                                   Column(
