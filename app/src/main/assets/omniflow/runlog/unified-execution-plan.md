@@ -254,9 +254,8 @@ context and prompt only; model-backed enhancement requires an explicit
 background job, debug update, or offline tool. Passing only one of those flags
 still returns the offline analysis context without invoking the model.
 The UI background enhancement job also sets `background_enhancement=true`; that
-route uses the native stepwise offline enhancer for small description and
-parameter passes, while ordinary MCP/debug `update_function` calls keep the
-existing evidence/patch contract.
+route uses the same native Agent-backed evidence/patch contract as ordinary
+MCP/debug `update_function` calls.
 
 For local MCP/debug tooling, prefer the same payload shape:
 

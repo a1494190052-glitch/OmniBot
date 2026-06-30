@@ -86,6 +86,9 @@ class OobFunctionRunLogEvidencePackager {
             - Ads, skip buttons, close popups, and other transient interruptions are ${analysis.ROLE_OPTIONAL_CHECKER} evidence, not mandatory steps.
             - wait, pure perception wrappers, failed cards, and repeated input are ${analysis.ROLE_NOISE} unless they explain a concrete failure.
             - Successful RunLogs may improve description, step title/summary, selector hints, and evidence metadata.
+            - Successful reusable commands may generalize user-entered input into public parameters. Keep app/package/page context fixed; do not parameterize package names, coordinates, resource ids, or target descriptions.
+            - For parameters, use the existing patch shape: "parameters":[{"name":"query","type":"string","required":false,"default":"猫猫","description":"搜索关键词","bindings":["$.execution.steps[1].args.text"]}].
+            - If the Function name or description contains the recorded variable value, replace only that value with the matching template, for example "小红书搜索 ${'$'}{query}".
             - Failed RunLogs may only change a step when there is clear evidence.
         """.trimIndent()
     }

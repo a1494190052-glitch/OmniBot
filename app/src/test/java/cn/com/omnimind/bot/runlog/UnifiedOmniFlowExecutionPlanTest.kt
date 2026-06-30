@@ -722,7 +722,8 @@ class UnifiedOmniFlowExecutionPlanTest {
         assertTrue(invariants["ui_never_interprets_function_steps_in_dart"] == true)
         assertFalse(managementSource.contains("\"run_function\", \"oob_" + "function_run\" -> runFunction(args)"))
         assertTrue(managementSource.contains("suspend fun updateFunction(args: Map<String, Any?>?)"))
-        assertTrue(managementSource.contains("functionStepwiseUpdateOrchestrator.updateFunction(args)"))
+        assertTrue(managementSource.contains("functionUpdateOrchestrator.updateFunction(args)"))
+        assertFalse(managementSource.contains("functionStepwiseUpdateOrchestrator"))
     }
 
     private fun readSource(relativePath: String): String {

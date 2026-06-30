@@ -1496,7 +1496,7 @@ void main() {
     expect(methodCalls.where((call) => call.method == 'postLLMChat'), isEmpty);
   });
 
-  testWidgets('RunLog Agent enhancement applies native stepwise result', (
+  testWidgets('RunLog Agent enhancement applies native Agent result', (
     tester,
   ) async {
     final methodCalls = <MethodCall>[];

@@ -302,11 +302,10 @@ class RunLogFunctionEnhancementJobService {
       }
       if (_canceledJobIds.contains(jobId)) return;
 
-      // Delegate to the native stepwise orchestrator (run_id only, no patch).
-      // The native side makes two small focused LLM calls (description and
-      // parameters) and handles retries internally. Previously this step ran
-      // enhanceLabels in Flutter (4+ LLM calls), which failed whenever the
-      // model returned non-parseable JSON for any section.
+      // Delegate to the native Agent-backed enhancer (run_id only, no patch).
+      // Previously this step ran enhanceLabels in Flutter (4+ LLM calls),
+      // which failed whenever the model returned non-parseable JSON for any
+      // section.
       var saveJson = await AssistsMessageService.updateOobFunction(
         functionId: job.functionId,
         runId: job.runId,
