@@ -112,7 +112,7 @@ class _ComposerLiftPageHarnessState extends State<_ComposerLiftPageHarness> {
   @override
   Widget build(BuildContext context) {
     final shouldLift = _liftTracker.update(
-      isEditing: false,
+      hasInputIntent: _focusNode.hasFocus,
       bottomInset: _bottomInset,
     );
     final metrics = _metricsTracker.update(

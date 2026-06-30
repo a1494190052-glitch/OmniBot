@@ -42,6 +42,7 @@ import cn.com.omnimind.baselib.llm.ModelProviderConfigStore
 import cn.com.omnimind.baselib.llm.MnnLocalProviderStateStore
 import cn.com.omnimind.baselib.llm.ModelSceneRegistry
 import cn.com.omnimind.baselib.llm.ProviderModelOption
+import cn.com.omnimind.baselib.llm.ProviderCustomHeaderUtils
 import cn.com.omnimind.baselib.llm.SceneModelCatalogResolver
 import cn.com.omnimind.baselib.llm.SceneCatalogItem
 import cn.com.omnimind.baselib.llm.SceneModelBindingEntry
@@ -82,7 +83,6 @@ import cn.com.omnimind.bot.agent.AgentRuntimeContextRepository
 import cn.com.omnimind.bot.agent.AgentScheduleToolBridge
 import cn.com.omnimind.bot.agent.AgentRunControl
 import cn.com.omnimind.bot.agent.AgentToolExecutionHandle
-import cn.com.omnimind.bot.agent.AgentToolExposurePolicy
 import cn.com.omnimind.bot.agent.AgentToolNames
 import cn.com.omnimind.bot.agent.AgentToolProgressSnapshot
 import cn.com.omnimind.bot.agent.AgentWorkspaceManager
@@ -98,6 +98,7 @@ import cn.com.omnimind.bot.agent.WorkspaceMemoryRollupScheduler
 import cn.com.omnimind.bot.agent.WorkspaceMemoryService
 import cn.com.omnimind.bot.agent.WorkspaceScheduledTaskScheduler
 import cn.com.omnimind.bot.agent.tool.handlers.OobFunctionToolHandler
+import cn.com.omnimind.bot.omniflow.OobFunctionSkillProfile
 import cn.com.omnimind.bot.omniflow.OobFunctionToolNames
 import cn.com.omnimind.bot.runlog.OobFunctionManagementService
 import cn.com.omnimind.bot.runlog.OobUdegNodeStore
@@ -224,6 +225,7 @@ internal fun resolveChatTaskModelOverride(
         modelId = modelId,
         apiBase = providerProfile.baseUrl,
         apiKey = providerProfile.apiKey,
+        customHeaders = providerProfile.customHeaders,
         protocolType = providerProfile.protocolType.ifEmpty { "openai_compatible" },
         wireApi = providerProfile.wireApi,
         contextLimit = contextLimit
@@ -327,6 +329,80 @@ private fun sanitizeInteropMap(payload: Map<String, Any?>): Map<String, Any?> {
             put(key, sanitizeInteropValue(value))
         }
     }
+}
+
+private fun normalizeVisibleToolNames(raw: Collection<*>?): Set<String>? {
+    return raw
+        ?.mapNotNull { it?.toString()?.trim()?.takeIf(String::isNotEmpty) }
+        ?.toSet()
+        ?.takeIf { it.isNotEmpty() }
+}
+
+internal data class AgentTurnUsageSnapshot(
+    val ctxTokens: Int,
+    val inputTokens: Int,
+    val outputTokens: Int,
+    val cacheTokens: Int,
+    val promptTokens: Int,
+    val completionTokens: Int,
+    val totalTokens: Int,
+    val promptTokenThreshold: Int?
+) {
+    fun toPayload(): Map<String, Any?> {
+        return linkedMapOf(
+            "ctx" to ctxTokens,
+            "in" to inputTokens,
+            "out" to outputTokens,
+            "cache" to cacheTokens,
+            "promptTokens" to promptTokens,
+            "completionTokens" to completionTokens,
+            "totalTokens" to totalTokens,
+            "promptTokenThreshold" to promptTokenThreshold
+        )
+    }
+}
+
+internal fun buildTurnUsageSnapshot(
+    latestPromptTokens: Int?,
+    promptTokenThreshold: Int?,
+    result: AgentResult.Success?
+): AgentTurnUsageSnapshot? {
+    val promptTokens = latestPromptTokens ?: result?.latestPromptTokens ?: return null
+    val completionTokens = result?.completionTokens ?: 0
+    val cacheTokens = result?.cachedTokens ?: 0
+    val totalTokens = result?.totalTokens ?: (promptTokens + completionTokens)
+    val ctxTokens = (promptTokens + cacheTokens).coerceAtLeast(promptTokens)
+    return AgentTurnUsageSnapshot(
+        ctxTokens = ctxTokens,
+        inputTokens = promptTokens,
+        outputTokens = completionTokens,
+        cacheTokens = cacheTokens,
+        promptTokens = promptTokens,
+        completionTokens = completionTokens,
+        totalTokens = totalTokens,
+        promptTokenThreshold = promptTokenThreshold ?: result?.promptTokenThreshold
+    )
+}
+
+internal fun buildTurnUsageSnapshot(
+    latestPromptTokens: Int?,
+    promptTokenThreshold: Int?,
+    completionTokens: Int,
+    cachedTokens: Int
+): AgentTurnUsageSnapshot? {
+    val promptTokens = latestPromptTokens ?: return null
+    val totalTokens = promptTokens + completionTokens
+    val ctxTokens = (promptTokens + cachedTokens).coerceAtLeast(promptTokens)
+    return AgentTurnUsageSnapshot(
+        ctxTokens = ctxTokens,
+        inputTokens = promptTokens,
+        outputTokens = completionTokens,
+        cacheTokens = cachedTokens,
+        promptTokens = promptTokens,
+        completionTokens = completionTokens,
+        totalTokens = totalTokens,
+        promptTokenThreshold = promptTokenThreshold
+    )
 }
 
 internal const val AGENT_MANUAL_CANCELLATION_SEQUENCE = 1_000_000_000L
@@ -460,6 +536,26 @@ internal fun extractChatTaskPromptTokens(content: String): Int? {
         ?.toIntOrNull()
 }
 
+internal fun extractChatTaskCompletionTokens(content: String): Int? {
+    val normalized = content.trim()
+    if (normalized.isEmpty() || normalized == "[DONE]") return null
+    return Regex("\"completion_tokens\"\\s*:\\s*(\\d+)")
+        .find(normalized)
+        ?.groupValues
+        ?.getOrNull(1)
+        ?.toIntOrNull()
+}
+
+internal fun extractChatTaskCachedTokens(content: String): Int? {
+    val normalized = content.trim()
+    if (normalized.isEmpty() || normalized == "[DONE]") return null
+    return Regex("\"cached_tokens\"\\s*:\\s*(\\d+)")
+        .find(normalized)
+        ?.groupValues
+        ?.getOrNull(1)
+        ?.toIntOrNull()
+}
+
 internal fun chatModelOverrideToAgentModelOverride(
     modelOverride: TaskParams.ChatModelOverride?
 ): AgentModelOverride? {
@@ -475,6 +571,7 @@ internal fun chatModelOverrideToAgentModelOverride(
         modelId = modelOverride.modelId,
         apiBase = modelOverride.apiBase,
         apiKey = modelOverride.apiKey,
+        customHeaders = modelOverride.customHeaders,
         protocolType = modelOverride.protocolType.ifEmpty { "openai_compatible" },
         wireApi = modelOverride.wireApi,
         contextLimit = modelOverride.contextLimit
@@ -965,10 +1062,16 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
         val assistantBuffer: StringBuilder = StringBuilder(),
         var isError: Boolean = false,
         var latestPromptTokens: Int? = null,
-        var promptTokenThreshold: Int? = null
+        var promptTokenThreshold: Int? = null,
+        var completionTokens: Int? = null,
+        var cachedTokens: Int? = null
     )
 
     private data class FailedAgentRetryContext(
+        val arguments: Map<String, Any?>
+    )
+
+    private data class FailedAgentContinueContext(
         val arguments: Map<String, Any?>
     )
 
@@ -1201,6 +1304,7 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
 
     private val activeAgentRuns: MutableMap<String, ActiveAgentRunContext> = mutableMapOf()
     private val failedAgentRetryContexts: MutableMap<String, FailedAgentRetryContext> = mutableMapOf()
+    private val failedAgentContinueContexts: MutableMap<String, FailedAgentContinueContext> = mutableMapOf()
     private val chatTaskPersistenceStates: MutableMap<String, ChatTaskPersistenceState> =
         mutableMapOf()
     private val conversationDomainService by lazy { ConversationDomainService(context) }
@@ -1248,15 +1352,33 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
         }
     }
 
+    private fun registerFailedAgentContinueContext(taskId: String, context: FailedAgentContinueContext) {
+        synchronized(activeAgentLock) {
+            failedAgentContinueContexts[taskId] = context
+        }
+    }
+
     private fun getFailedAgentRetryContext(taskId: String): FailedAgentRetryContext? {
         return synchronized(activeAgentLock) {
             failedAgentRetryContexts[taskId]
         }
     }
 
+    private fun getFailedAgentContinueContext(taskId: String): FailedAgentContinueContext? {
+        return synchronized(activeAgentLock) {
+            failedAgentContinueContexts[taskId]
+        }
+    }
+
     private fun removeFailedAgentRetryContext(taskId: String): FailedAgentRetryContext? {
         return synchronized(activeAgentLock) {
             failedAgentRetryContexts.remove(taskId)
+        }
+    }
+
+    private fun removeFailedAgentContinueContext(taskId: String): FailedAgentContinueContext? {
+        return synchronized(activeAgentLock) {
+            failedAgentContinueContexts.remove(taskId)
         }
     }
 
@@ -1637,7 +1759,12 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
             "name" to name,
             "baseUrl" to baseUrl,
             "apiKey" to apiKey,
+            "customHeaders" to customHeaders,
             "source" to source,
+            "providerType" to providerType,
+            "readOnly" to readOnly,
+            "ready" to ready,
+            "statusText" to statusText,
             "configured" to isConfigured(),
             "wireApi" to wireApi
         )
@@ -1649,6 +1776,11 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
             "name" to name,
             "baseUrl" to baseUrl,
             "apiKey" to apiKey,
+            "customHeaders" to customHeaders,
+            "sourceType" to sourceType,
+            "readOnly" to readOnly,
+            "ready" to ready,
+            "statusText" to statusText,
             "configured" to isConfigured(),
             "protocolType" to protocolType,
             "wireApi" to wireApi
@@ -2801,6 +2933,133 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
         }
     }
 
+    fun continueAgentTask(
+        call: MethodCall,
+        result: MethodChannel.Result
+    ) {
+        mainJob.launch {
+            try {
+                val taskId = call.argument<String>("taskId")?.trim().orEmpty()
+                if (taskId.isBlank()) {
+                    withContext(Dispatchers.Main) {
+                        result.error("INVALID_ARGUMENTS", "taskId is required", null)
+                    }
+                    return@launch
+                }
+                val continueContext = getFailedAgentContinueContext(taskId)
+                if (continueContext != null) {
+                    handleCreateOrContinueAgentTask(
+                        MethodCall("createAgentTask", continueContext.arguments),
+                        result,
+                        isContinue = true
+                    )
+                    return@launch
+                }
+                val retryContext = getFailedAgentRetryContext(taskId)
+                if (retryContext != null) {
+                    val continueArgs = retryContext.arguments.toMutableMap()
+                    continueArgs["continueMode"] = true
+                    continueArgs["continueResumeMode"] = "approximate"
+                    handleCreateOrContinueAgentTask(
+                        MethodCall("createAgentTask", continueArgs),
+                        result,
+                        isContinue = true
+                    )
+                    return@launch
+                }
+                val currentRun = synchronized(activeAgentLock) { activeAgentRuns[taskId] }
+                val conversationId = currentRun?.conversationId
+                    ?: call.argument<Number>("conversationId")?.toLong()
+                    ?: 0L
+                val conversationMode = normalizeConversationMode(
+                    call.argument<String>("conversationMode") ?: currentRun?.conversationMode
+                )
+                if (conversationId <= 0L) {
+                    withContext(Dispatchers.Main) {
+                        result.error("NO_CONTINUE_CONTEXT", "No conversation context found", null)
+                    }
+                    return@launch
+                }
+                val repository = conversationHistoryRepository()
+                val messages = repository.listConversationMessages(
+                    conversationId = conversationId,
+                    conversationMode = conversationMode
+                )
+                val assistantEntries = messages.filter { entry ->
+                    (entry["user"] as? Number)?.toInt() == 2 &&
+                        (entry["type"] as? Number)?.toInt() != 2
+                }
+                val lastAssistant = assistantEntries.lastOrNull() ?: run {
+                    withContext(Dispatchers.Main) {
+                        result.error(
+                            "NO_CONTINUE_CONTEXT",
+                            "No resumable assistant turn found for taskId=$taskId",
+                            null
+                        )
+                    }
+                    return@launch
+                }
+                val lastUser = messages.lastOrNull { entry ->
+                    (entry["user"] as? Number)?.toInt() == 1
+                } ?: run {
+                    withContext(Dispatchers.Main) {
+                        result.error(
+                            "NO_CONTINUE_CONTEXT",
+                            "No user message found for continuation",
+                            null
+                        )
+                    }
+                    return@launch
+                }
+                val userMessage = (lastUser["content"] as? Map<*, *>)
+                    ?.get("text")
+                    ?.toString()
+                    ?.trim()
+                    .orEmpty()
+                // 进程重启或 context 被清等场景下走到这里:in-memory 的
+                // FailedAgentContinueContext 丢了,只能从 DB 反查"已经续跑过几代"。
+                // 看 thinking entry id 后缀里的 -c$N 取最大值;新一代 = max + 1。
+                // 没找到任何带后缀的 → max=0 → 新一代=1。
+                val continueSuffixRegex = Regex("-c(\\d+)$")
+                val maxExistingGeneration = messages.asSequence()
+                    .mapNotNull { it["id"]?.toString() }
+                    .filter { it.startsWith("$taskId-thinking") || it.startsWith("$taskId-tool") }
+                    .mapNotNull { continueSuffixRegex.find(it)?.groupValues?.getOrNull(1)?.toIntOrNull() }
+                    .maxOrNull()
+                    ?: 0
+                val continueArgs = linkedMapOf<String, Any?>(
+                    "taskId" to taskId,
+                    "userMessage" to userMessage,
+                    "conversationId" to conversationId,
+                    "conversationMode" to conversationMode,
+                    "continueMode" to true,
+                    "continueResumeMode" to "approximate",
+                    "continueFromAssistantEntryId" to lastAssistant["id"]?.toString(),
+                    "continueFromAssistantText" to (lastAssistant["content"] as? Map<*, *>)?.get("text")
+                        ?.toString()
+                        .orEmpty(),
+                    "continueTurnUsage" to (lastAssistant["turnUsage"] as? Map<*, *>)?.let(::sanitizeInteropValue),
+                    // 写入 parent generation;handleCreateOrContinueAgentTask 会 +1 得到新一代。
+                    "continueGeneration" to maxExistingGeneration
+                )
+                registerFailedAgentContinueContext(
+                    taskId,
+                    FailedAgentContinueContext(arguments = sanitizeInteropMap(continueArgs))
+                )
+                handleCreateOrContinueAgentTask(
+                    MethodCall("createAgentTask", continueArgs),
+                    result,
+                    isContinue = true
+                )
+            } catch (e: Exception) {
+                OmniLog.e(TAG, "continueAgentTask error: ${e.message}")
+                withContext(Dispatchers.Main) {
+                    result.error("CONTINUE_AGENT_TASK_ERROR", e.message, null)
+                }
+            }
+        }
+    }
+
     /**
      * 取消聊天任务
      */
@@ -3013,6 +3272,8 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
                     )
                     state.latestPromptTokens = promptTokens
                     state.promptTokenThreshold = promptTokenThreshold
+                    extractChatTaskCompletionTokens(content)?.let { state.completionTokens = it }
+                    extractChatTaskCachedTokens(content)?.let { state.cachedTokens = it }
                     repository.updatePromptTokenUsage(
                         conversationId = state.conversationId,
                         promptTokens = promptTokens,
@@ -3114,6 +3375,14 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
             taskID,
             persistenceState
         )
+        val turnUsagePayload = persistenceState?.let { state ->
+            buildTurnUsageSnapshot(
+                latestPromptTokens = state.latestPromptTokens,
+                promptTokenThreshold = state.promptTokenThreshold,
+                completionTokens = state.completionTokens ?: 0,
+                cachedTokens = state.cachedTokens ?: 0
+            )?.toPayload()
+        }
         withContext(Dispatchers.Main) {
             try {
                 val isSummary = isSummaryTask(taskID)
@@ -3122,7 +3391,8 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
                 if (isSummary && mainChannel != null && mainChannel != channel) {
                     mainChannel.invokeMethod(
                         "onChatMessageEnd", mapOf(
-                            "taskID" to taskID
+                            "taskID" to taskID,
+                            "turnUsage" to turnUsagePayload
                         )
                     )
                     // 如果当前不是主引擎通道，避免在半屏重复展示
@@ -3131,7 +3401,8 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
 
                 channel.invokeMethod(
                     "onChatMessageEnd", mapOf(
-                        "taskID" to taskID
+                        "taskID" to taskID,
+                        "turnUsage" to turnUsagePayload
                     )
                 )
             } catch (e: Exception) {
@@ -5214,6 +5485,10 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
         val name = call.argument<String>("name")?.trim().orEmpty()
         val baseUrl = call.argument<String>("baseUrl")?.trim().orEmpty()
         val apiKey = call.argument<String>("apiKey")?.trim().orEmpty()
+        val customHeaders = ProviderCustomHeaderUtils.coerceStringMap(
+            call.argument<Map<*, *>>("customHeaders")
+        )
+        val sourceType = call.argument<String>("sourceType")?.trim()
         val protocolType = call.argument<String>("protocolType")?.trim() ?: "openai_compatible"
         val wireApi = call.argument<String>("wireApi")?.trim().orEmpty()
 
@@ -5224,6 +5499,8 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
                     name = name,
                     baseUrl = baseUrl,
                     apiKey = apiKey,
+                    customHeaders = customHeaders,
+                    sourceType = sourceType,
                     protocolType = protocolType,
                     wireApi = wireApi
                 )
@@ -5286,10 +5563,13 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
     fun saveModelProviderConfig(call: MethodCall, result: MethodChannel.Result) {
         val baseUrl = call.argument<String>("baseUrl")?.trim() ?: ""
         val apiKey = call.argument<String>("apiKey")?.trim() ?: ""
+        val customHeaders = ProviderCustomHeaderUtils.coerceStringMap(
+            call.argument<Map<*, *>>("customHeaders")
+        )
 
         workJob.launch {
             try {
-                ModelProviderConfigStore.saveConfig(baseUrl, apiKey)
+                ModelProviderConfigStore.saveConfig(baseUrl, apiKey, customHeaders)
                 val saved = ModelProviderConfigStore.getConfig()
                 syncAgentAiCapabilityConfigFile()
                 withContext(Dispatchers.Main) {
@@ -5324,6 +5604,9 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
     fun fetchProviderModels(call: MethodCall, result: MethodChannel.Result) {
         val baseUrlArg = call.argument<String>("apiBase")?.trim().orEmpty()
         val apiKeyArg = call.argument<String>("apiKey")?.trim().orEmpty()
+        val customHeadersArg = ProviderCustomHeaderUtils.coerceStringMap(
+            call.argument<Map<*, *>>("customHeaders")
+        )
         val profileId = call.argument<String>("profileId")?.trim()
 
         workJob.launch {
@@ -5356,9 +5639,15 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
                     val apiKey = if (baseUrlArg.isNotEmpty()) apiKeyArg else currentConfig.apiKey
                     val profile = profileId?.let(ModelProviderConfigStore::getProfile)
                         ?: ModelProviderConfigStore.getEditingProfile()
+                    val customHeaders = if (baseUrlArg.isNotEmpty()) {
+                        customHeadersArg
+                    } else {
+                        profile.customHeaders
+                    }
                     HttpController.fetchProviderModels(
                         apiBase = apiBase,
                         apiKey = apiKey,
+                        customHeaders = customHeaders,
                         protocolType = profile.protocolType,
                         wireApi = profile.wireApi
                     )
@@ -5379,6 +5668,9 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
         val model = call.argument<String>("model")?.trim() ?: ""
         val baseUrlArg = call.argument<String>("apiBase")?.trim().orEmpty()
         val apiKeyArg = call.argument<String>("apiKey")?.trim().orEmpty()
+        val customHeadersArg = ProviderCustomHeaderUtils.coerceStringMap(
+            call.argument<Map<*, *>>("customHeaders")
+        )
         val profileId = call.argument<String>("profileId")?.trim()
 
         workJob.launch {
@@ -5404,10 +5696,17 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
                     val apiKey = if (baseUrlArg.isNotEmpty()) apiKeyArg else currentConfig.apiKey
                     val profile = profileId?.let(ModelProviderConfigStore::getProfile)
                         ?: ModelProviderConfigStore.getEditingProfile()
+                    val customHeaders = if (baseUrlArg.isNotEmpty()) {
+                        customHeadersArg
+                    } else {
+                        profile.customHeaders
+                    }
                     HttpController.checkProviderModelAvailability(
                         model = model,
                         apiBase = apiBase,
                         apiKey = apiKey,
+                        customHeaders = customHeaders,
+                        protocolType = profile.protocolType,
                         wireApi = profile.wireApi
                     )
                 }
@@ -6412,6 +6711,7 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
             modelId = modelId,
             apiBase = providerProfile.baseUrl,
             apiKey = providerProfile.apiKey,
+            customHeaders = providerProfile.customHeaders,
             protocolType = providerProfile.protocolType.ifEmpty { "openai_compatible" },
             wireApi = providerProfile.wireApi
         )
@@ -6421,6 +6721,14 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
         chatTaskPayloadJson.encodeToString(AgentToolJson.mapToJsonElement(payload))
 
     fun createAgentTask(call: MethodCall, result: MethodChannel.Result) {
+        handleCreateOrContinueAgentTask(call, result, isContinue = false)
+    }
+
+    private fun handleCreateOrContinueAgentTask(
+        call: MethodCall,
+        result: MethodChannel.Result,
+        isContinue: Boolean
+    ) {
         val rawCallArguments = (call.arguments as? Map<*, *>)
             ?.entries
             ?.filter { it.key != null }
@@ -6466,23 +6774,71 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
         val terminalEnvironment = parseTerminalEnvironmentMap(
             call.argument<Map<String, Any?>>("terminalEnvironment")
         )
-        val toolExposurePolicy = AgentToolExposurePolicy.fromRaw(
-            profile = call.argument<String>("toolProfile")
-                ?: call.argument<String>("tool_profile"),
-            allowedTools = call.argument<List<Any?>>("allowedTools")
-                ?: call.argument<List<Any?>>("allowed_tools"),
+        val toolProfile = call.argument<String>("toolProfile")
+            ?: call.argument<String>("tool_profile")
+        val explicitVisibleToolNames = normalizeVisibleToolNames(
+            call.argument<List<Any?>>("allowedTools")
+                ?: call.argument<List<Any?>>("allowed_tools")
         )
+        val isLightweightToolProfile = OobFunctionSkillProfile.isProfile(toolProfile)
+        val visibleToolNames = explicitVisibleToolNames
+            ?: if (isLightweightToolProfile) OobFunctionSkillProfile.toolNames else null
+        val continueMode = isContinue || call.argument<Boolean>("continueMode") == true
+        val continueResumeMode = call.argument<String>("continueResumeMode")
+            ?.trim()
+            ?.ifEmpty { null }
+            ?: (if (continueMode) "approximate" else null)
+        val continueFromAssistantEntryId = call.argument<String>("continueFromAssistantEntryId")
+            ?.trim()
+            ?.ifEmpty { null }
+        val continueFromAssistantText = call.argument<String>("continueFromAssistantText")
+            ?.let(AgentTextSanitizer::sanitizeUtf16)
+            ?.trim()
+            ?.ifEmpty { null }
+        val continueTurnUsage = call.argument<Map<String, Any?>>("continueTurnUsage")
+            ?.let(::sanitizeInteropMap)
+        // 续跑代数:每次点 Continue 触发的新 run 都 +1,用来给 thinking 和 tool entry id
+        // 加 -c$gen 后缀,避免与上一次 run 的卡片碰撞导致前端"被替代"。
+        // 0 = 首次任务(非续跑),无后缀,保持向后兼容。
+        val parentContinueGeneration =
+            call.argument<Number>("continueGeneration")?.toInt() ?: 0
+        val continueGeneration = if (isContinue || continueMode) {
+            (parentContinueGeneration + 1).coerceAtLeast(1)
+        } else {
+            0
+        }
         if (taskId.isBlank()) {
             result.error("INVALID_ARGUMENTS", "taskId is empty", null)
             return
         }
         removeFailedAgentRetryContext(taskId)
+        removeFailedAgentContinueContext(taskId)
         if (legacyConversationHistory.isNotEmpty()) {
             OmniLog.d(
                 TAG,
                 "Ignoring legacy conversationHistory for createAgentTask taskId=$taskId size=${legacyConversationHistory.size}"
             )
         }
+        val retryArguments = sanitizeInteropMap(
+            rawCallArguments + mapOf(
+                "taskId" to taskId,
+                "userMessage" to userMessage,
+                "attachments" to rawAttachments,
+                "userMessageCreatedAt" to userMessageCreatedAt,
+                "conversationId" to conversationId,
+                "conversationMode" to resolvedConversationMode,
+                "reasoningEffort" to reasoningEffort,
+                "terminalEnvironment" to terminalEnvironment,
+                "toolProfile" to toolProfile,
+                "allowedTools" to visibleToolNames?.toList(),
+                "continueMode" to continueMode,
+                "continueResumeMode" to continueResumeMode,
+                "continueFromAssistantEntryId" to continueFromAssistantEntryId,
+                "continueFromAssistantText" to continueFromAssistantText,
+                "continueTurnUsage" to continueTurnUsage,
+                "continueGeneration" to continueGeneration
+            )
+        )
         runCatching {
             InternalRunLogStore.beginRun(
                 context = context,
@@ -6517,6 +6873,12 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
                 val runtimeContextRepository = AgentRuntimeContextRepository(context)
                 historyRepository = conversationHistoryRepository()
                 val repository = historyRepository ?: return@launch
+                if (continueMode) {
+                    registerFailedAgentContinueContext(
+                        taskId,
+                        FailedAgentContinueContext(arguments = retryArguments)
+                    )
+                }
 
                 val scheduleBridge = object : AgentScheduleToolBridge {
                     override suspend fun createTask(arguments: Map<String, Any?>): Map<String, Any?> {
@@ -6566,10 +6928,16 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
                     historyRepository = historyRepository,
                     repository = repository,
                     agentRunContext = agentRunContext,
+                    retryArguments = retryArguments,
+                    continueMode = continueMode,
+                    continueResumeMode = continueResumeMode,
+                    continueFromAssistantEntryId = continueFromAssistantEntryId,
+                    continueTurnUsage = continueTurnUsage,
+                    continueGeneration = continueGeneration,
                 )
 
                 conversationId?.let { normalizedConversationId ->
-                    if (userMessage.isNotBlank() || historyAttachments.isNotEmpty()) {
+                    if (!continueMode && (userMessage.isNotBlank() || historyAttachments.isNotEmpty())) {
                         bridge.persistConversationMutation("upsert user message") {
                             repository.upsertUserMessage(
                                 conversationId = normalizedConversationId,
@@ -6596,8 +6964,10 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
                     reasoningEffort,
                     terminalEnvironment,
                     bridge,
-                    toolExposurePolicy = toolExposurePolicy,
-                    runControl = agentRunContext
+                    visibleToolNames = visibleToolNames,
+                    isLightweightToolProfile = isLightweightToolProfile,
+                    runControl = agentRunContext,
+                    continueMode = continueMode
                 )
             } catch (e: CancellationException) {
                 val completedByUser = e.message == "agent_vlm_ui_completed"
@@ -7690,6 +8060,12 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
         var historyRepository: AgentConversationHistoryRepository?,
         val repository: AgentConversationHistoryRepository,
         val agentRunContext: ActiveAgentRunContext,
+        val retryArguments: Map<String, Any?>,
+        val continueMode: Boolean,
+        val continueResumeMode: String?,
+        val continueFromAssistantEntryId: String?,
+        val continueTurnUsage: Map<String, Any?>?,
+        val continueGeneration: Int,
     ) : AgentCallback {
 
         // -----------------------------------------------------------------------
@@ -7714,11 +8090,26 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
         var latestAssistantVisibleText = ""
         var shouldStartNewThinkingSegment = false
         var shouldStartNewAssistantRound = false
+        var continueEntryPending = false
+        val continueGenerationSuffix =
+            if (continueGeneration > 0) "-c$continueGeneration" else ""
         // toolCallId (LLM-assigned, e.g. "toolu_01xxx") → our stable entryId.
         // Populated by onToolCallPreview during streaming; consumed by onToolCallStart
         // so both phases write to the same Flutter card.
         val previewEntryIdByToolCallId = mutableMapOf<String, String>()
         val previewEntryIdsByToolName = mutableMapOf<String, ArrayDeque<String>>()
+
+        init {
+            if (continueMode && continueFromAssistantEntryId != null) {
+                parseRoundFromAssistantEntryId(continueFromAssistantEntryId)?.let { parsedRound ->
+                    if (parsedRound >= 1) {
+                        activeAssistantEntryId = continueFromAssistantEntryId
+                        assistantRound = parsedRound
+                        continueEntryPending = true
+                    }
+                }
+            }
+        }
 
         // -----------------------------------------------------------------------
         // Helper methods
@@ -7749,6 +8140,16 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
                 store.remove(toolName)
             }
             return value
+        }
+
+        fun parseRoundFromAssistantEntryId(entryId: String): Int? {
+            val baseId = "$taskId-text"
+            return when {
+                entryId == baseId -> 1
+                entryId.startsWith("$baseId-") ->
+                    entryId.removePrefix("$baseId-").toIntOrNull()
+                else -> null
+            }
         }
 
         fun rememberPreviewToolEntry(
@@ -7845,6 +8246,10 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
             }
         }
 
+        fun resolveThinkingEntryId(round: Int): String {
+            return "$taskId-thinking-${round.coerceAtLeast(1)}$continueGenerationSuffix"
+        }
+
         fun nextEventSeq(): Long {
             eventSequence += 1
             return eventSequence
@@ -7889,6 +8294,13 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
         }
 
         fun ensureAssistantEntry(forceNewRound: Boolean = false): Pair<Int, String> {
+            if (continueEntryPending && activeAssistantEntryId != null) {
+                continueEntryPending = false
+                shouldStartNewAssistantRound = false
+                val entryId = activeAssistantEntryId!!
+                entryCreatedAtTimes.putIfAbsent(entryId, System.currentTimeMillis())
+                return assistantRound.coerceAtLeast(1) to entryId
+            }
             if (activeAssistantEntryId == null || shouldStartNewAssistantRound || forceNewRound) {
                 assistantRound = (assistantRound + 1).coerceAtLeast(1)
                 activeAssistantEntryId = resolveAssistantEntryId(assistantRound)
@@ -7998,7 +8410,10 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
             text: String,
             isError: Boolean,
             isFinal: Boolean = false,
-            streamKind: String = "text_snapshot"
+            streamKind: String = "text_snapshot",
+            usageSnapshot: AgentTurnUsageSnapshot? = null,
+            turnUsagePayload: Map<String, Any?>? = null,
+            interruptedTurn: Boolean = false
         ) {
             val normalizedConversationId = conversationId ?: return
             val normalizedText = sanitizeAgentVisibleText(text)
@@ -8013,12 +8428,14 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
                     entryId = entryId,
                     text = normalizedText,
                     isError = isError,
+                    interruptedTurn = interruptedTurn,
                     streamMeta = streamMeta(
                         entryId = entryId,
                         roundIndex = roundIndex,
                         kind = streamKind,
                         isFinal = isFinal
                     ),
+                    turnUsage = turnUsagePayload ?: usageSnapshot?.toPayload(),
                     createdAt = createdAt
                 )
             }
@@ -8183,6 +8600,7 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
             hasUserVisibleOutput: Boolean? = null,
             latestPromptTokens: Int? = null,
             promptTokenThreshold: Int? = null,
+            turnUsage: Map<String, Any?>? = null,
             error: String? = null,
             question: String? = null,
             missingFields: List<String>? = null,
@@ -8207,6 +8625,7 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
                 hasUserVisibleOutput = hasUserVisibleOutput,
                 latestPromptTokens = latestPromptTokens,
                 promptTokenThreshold = promptTokenThreshold,
+                turnUsage = turnUsage,
                 error = error,
                 question = question,
                 missingFields = missingFields,
@@ -8250,7 +8669,7 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
             if (previewEntryIdByToolCallId.containsKey(resolvedId)) return
 
             // Allocate the entry ID now; onToolCallStart will reuse it via the map.
-            val entryId = "$taskId-tool-${++toolSequence}"
+            val entryId = "$taskId-tool$continueGenerationSuffix-${++toolSequence}"
             rememberPreviewToolEntry(toolName, resolvedId, entryId)
 
             val roundIndex = currentToolRoundIndex()
@@ -8279,15 +8698,18 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
             if (startsNewSegment) {
                 finalizeThinkingCardIfNeeded(publish = false)
                 thinkingSequence += 1
-                activeThinkingEntryId = "$taskId-thinking-$thinkingSequence"
+                activeThinkingEntryId = resolveThinkingEntryId(thinkingSequence)
                 latestThinkingContent = ""
                 shouldStartNewThinkingSegment = false
             } else if (thinkingSequence <= 0) {
                 thinkingSequence = 1
-                activeThinkingEntryId = "$taskId-thinking-$thinkingSequence"
+                activeThinkingEntryId = resolveThinkingEntryId(thinkingSequence)
             }
             val entryId = activeThinkingEntryId
-                ?: run { thinkingSequence += 1; "$taskId-thinking-$thinkingSequence".also { activeThinkingEntryId = it } }
+                ?: run {
+                    thinkingSequence += 1
+                    resolveThinkingEntryId(thinkingSequence).also { activeThinkingEntryId = it }
+                }
             val startTime = System.currentTimeMillis()
             thinkingCardStartTimes.putIfAbsent(entryId, startTime)
             markAssistantRoundBoundary()
@@ -8307,7 +8729,7 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
             if (normalizedThinking.isBlank()) return
             if (activeThinkingEntryId == null || shouldStartNewThinkingSegment) {
                 thinkingSequence += 1
-                val generated = "$taskId-thinking-$thinkingSequence"
+                val generated = resolveThinkingEntryId(thinkingSequence)
                 activeThinkingEntryId = generated
                 latestThinkingContent = ""
                 shouldStartNewThinkingSegment = false
@@ -8357,7 +8779,7 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
             // confirmed event lands on the same Flutter card as the preview,
             // with a tool-name fallback for providers that rewrite streamed IDs.
             val entryId = takePreviewToolEntry(toolName, toolCallId)
-                ?: "$taskId-tool-${++toolSequence}"
+                ?: "$taskId-tool$continueGenerationSuffix-${++toolSequence}"
             val startedAtMillis = System.currentTimeMillis()
             activeToolStartTimes[entryId] = startedAtMillis
             val roundIndex = currentToolRoundIndex()
@@ -8584,7 +9006,7 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
         ) {
             val argsJson = popToolValue(activeToolArgs, toolName)
             val entryId = popToolValue(activeToolEntryIds, toolName).ifBlank {
-                "$taskId-tool-${++toolSequence}"
+                "$taskId-tool$continueGenerationSuffix-${++toolSequence}"
             }
             val roundIndex = currentToolRoundIndex()
             activeThinkingEntryId?.takeIf { latestThinkingContent.isNotBlank() }?.let { thinkingEntryId ->
@@ -8738,6 +9160,8 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
         }
 
         override suspend fun onComplete(result: AgentResult) {
+            removeFailedAgentRetryContext(taskId)
+            removeFailedAgentContinueContext(taskId)
             val isSuccess = result is AgentResult.Success
             runCatching {
                 InternalRunLogStore.finishRun(
@@ -8755,6 +9179,11 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
             val latestPromptTokens = (result as? AgentResult.Success)?.latestPromptTokens
             val promptTokenThreshold =
                 (result as? AgentResult.Success)?.promptTokenThreshold
+            val turnUsageSnapshot = buildTurnUsageSnapshot(
+                latestPromptTokens = latestPromptTokens,
+                promptTokenThreshold = promptTokenThreshold,
+                result = result as? AgentResult.Success
+            )
             val streamed = scheduledAssistantBuffer.toString().trim()
             val fallback = (result as? AgentResult.Success)
                 ?.response
@@ -8795,14 +9224,16 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
                         text = finalText,
                         isError = !isSuccess,
                         isFinal = true,
-                        streamKind = "text_snapshot"
+                        streamKind = "text_snapshot",
+                        usageSnapshot = turnUsageSnapshot
                     )
                     sendStreamEvent(
                         kind = "text_snapshot",
                         entryId = entryId,
                         roundIndex = roundIndex,
                         isFinal = true,
-                        text = finalText
+                        text = finalText,
+                        turnUsage = turnUsageSnapshot?.toPayload()
                     )
                 }
             }
@@ -8843,7 +9274,8 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
                 outputKind = outputKind,
                 hasUserVisibleOutput = hasUserVisibleOutput,
                 latestPromptTokens = latestPromptTokens,
-                promptTokenThreshold = promptTokenThreshold
+                promptTokenThreshold = promptTokenThreshold,
+                turnUsage = turnUsageSnapshot?.toPayload()
             )
             // Terminal event — bypass vsync and deliver immediately so the UI
             // drops the "running" state on the same frame. (cc-haha pattern:
@@ -8852,6 +9284,48 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
         }
 
         override suspend fun onError(error: String) {
+            onError(error, retryable = false)
+        }
+
+        override suspend fun onRetrying(
+            retryCount: Int,
+            maxRetries: Int,
+            retryDelayMs: Long,
+            message: String,
+            retryReason: String?
+        ) {
+            val retryEntryId = activeAssistantEntryId ?: activeThinkingEntryId
+            val retryRoundIndex = if (activeAssistantEntryId != null) {
+                assistantRound.coerceAtLeast(1)
+            } else {
+                thinkingSequence.coerceAtLeast(1)
+            }
+            sendStreamEvent(
+                kind = "retrying",
+                entryId = retryEntryId,
+                roundIndex = retryRoundIndex,
+                text = AgentTextSanitizer.sanitizeUtf16(message).trim(),
+                stage = 1,
+                extras = mapOf(
+                    "willRetry" to true,
+                    "retryable" to true,
+                    "retryCount" to retryCount,
+                    "maxRetries" to maxRetries,
+                    "retryDelayMs" to retryDelayMs,
+                    "retryReason" to retryReason
+                )
+            )
+        }
+
+        override suspend fun onError(error: String, retryable: Boolean) {
+            if (retryable) {
+                registerFailedAgentRetryContext(
+                    taskId,
+                    FailedAgentRetryContext(arguments = retryArguments)
+                )
+            } else {
+                removeFailedAgentRetryContext(taskId)
+            }
             runCatching {
                 InternalRunLogStore.finishRun(
                     context = this@AssistsCoreManager.context,
@@ -8873,7 +9347,14 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
                     "I can't generate a reply right now. Please try again."
                 )
             )
+            val errorText = AgentTextSanitizer.sanitizeUtf16(error).trim().ifEmpty {
+                this@AssistsCoreManager.t(
+                    "暂时无法生成回复，请重试。",
+                    "I can't generate a reply right now. Please try again."
+                )
+            }
             val finalText = resolution.text
+            val errorTurnUsagePayload = continueTurnUsage
             finalizeThinkingCardIfNeeded(publish = finalText.isBlank())
             var errorEntryId: String? = activeAssistantEntryId
             var errorRoundIndex = assistantRound
@@ -8895,16 +9376,41 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
                         text = finalText,
                         isError = resolution.persistAsError,
                         isFinal = true,
-                        streamKind = "text_snapshot"
+                        streamKind = "text_snapshot",
+                        turnUsagePayload = errorTurnUsagePayload,
+                        interruptedTurn = true
                     )
                     sendStreamEvent(
                         kind = "text_snapshot",
                         entryId = entryId,
                         roundIndex = roundIndex,
                         isFinal = true,
-                        text = finalText
+                        text = finalText,
+                        turnUsage = errorTurnUsagePayload
                     )
                 }
+            }
+            val continueResumeModeValue = continueResumeMode ?: "approximate"
+            val continueable = conversationId != null &&
+                errorEntryId?.isNotBlank() == true &&
+                finalText.isNotBlank()
+            if (continueable) {
+                registerFailedAgentContinueContext(
+                    taskId,
+                    FailedAgentContinueContext(
+                        arguments = sanitizeInteropMap(
+                            retryArguments + mapOf(
+                                "continueMode" to true,
+                                "continueResumeMode" to continueResumeModeValue,
+                                "continueFromAssistantEntryId" to errorEntryId,
+                                "continueFromAssistantText" to finalText,
+                                "continueTurnUsage" to errorTurnUsagePayload
+                            )
+                        )
+                    )
+                )
+            } else if (!continueMode) {
+                removeFailedAgentContinueContext(taskId)
             }
             scheduledSubagentMeta?.let { meta ->
                 runCatching {
@@ -8922,7 +9428,17 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
                 entryId = errorEntryId,
                 roundIndex = errorRoundIndex,
                 error = error,
-                extras = mapOf("persistAsError" to resolution.persistAsError)
+                turnUsage = errorTurnUsagePayload,
+                extras = mapOf(
+                    "persistAsError" to resolution.persistAsError,
+                    "willRetry" to false,
+                    "retryable" to retryable,
+                    "continueable" to continueable,
+                    "continueResumeMode" to if (continueable) continueResumeModeValue else null,
+                    "retryCount" to if (retryable) 3 else 0,
+                    "maxRetries" to 3,
+                    "errorText" to errorText
+                )
             )
             agentStreamEventBatcher.flushNow()
         }

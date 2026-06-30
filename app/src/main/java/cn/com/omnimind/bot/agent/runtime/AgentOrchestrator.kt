@@ -21,6 +21,8 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 
 class AgentOrchestrator(
@@ -38,6 +40,11 @@ class AgentOrchestrator(
     )
 
     private class ExhaustedRetryableTurnFailure(
+        val errorMessage: String,
+        cause: Throwable
+    ) : RuntimeException(errorMessage, cause)
+
+    private class TerminalTurnRequestFailure(
         val errorMessage: String,
         cause: Throwable
     ) : RuntimeException(errorMessage, cause)
@@ -70,8 +77,36 @@ class AgentOrchestrator(
     private val maxTurnRequestRetries = 3
     private val turnRetryDelaysMs = listOf(500L, 1500L, 3000L)
 
+    private data class TurnUsage(
+        val promptTokens: Int? = null,
+        val completionTokens: Int? = null,
+        val totalTokens: Int? = null,
+        val cachedTokens: Int? = null
+    )
+
     private fun t(zh: String, en: String): String {
         return if (AppLocaleManager.isEnglish()) en else zh
+    }
+
+    private fun resolveTurnUsage(turn: ChatCompletionTurn): TurnUsage {
+        val usage = turn.usage
+        val promptTokens = usage?.promptTokens
+        val completionTokens = usage?.completionTokens
+        val totalTokens = usage?.totalTokens
+        val cachedTokens = usage?.promptTokensDetails
+            ?.let { detail ->
+                (detail as? kotlinx.serialization.json.JsonObject)
+                    ?.get("cached_tokens")
+                    ?.jsonPrimitive
+                    ?.contentOrNull
+                    ?.toIntOrNull()
+            }
+        return TurnUsage(
+            promptTokens = promptTokens,
+            completionTokens = completionTokens,
+            totalTokens = totalTokens,
+            cachedTokens = cachedTokens
+        )
     }
 
     suspend fun run(input: Input): AgentResult {
@@ -86,6 +121,7 @@ class AgentOrchestrator(
         var lastFinishReason: String? = null
         var latestPromptTokens: Int? = null
         var latestPromptTokenThreshold: Int? = null
+        var lastTurnUsage: TurnUsage? = null
         var lastPrefillTokensPerSecond: Double? = null
         var lastDecodeTokensPerSecond: Double? = null
         var completedModelRounds = 0
@@ -111,23 +147,37 @@ class AgentOrchestrator(
                     "round=$round request_tools=${toolRegistry.toolsForModel.size}"
                 )
                 val disableThinking = input.executionEnv.reasoningEffort == "no"
-                val turn = streamTurnWithRetry(
-                    callback = callback,
-                    request = ChatCompletionRequest(
-                        messages = memory.snapshot(),
-                        model = model,
-                        maxCompletionTokens = 16384,
-                        stream = true,
-                        streamOptions = ChatCompletionStreamOptions(includeUsage = true),
-                        enableThinking = if (disableThinking) false else null,
-                        reasoningEffort = if (disableThinking) null else input.executionEnv.reasoningEffort,
-                        tools = toolRegistry.toolsForModel,
-                        toolChoice = toolChoiceForRound,
-                        parallelToolCalls = true
-                    ),
-                    assistantContentPrefix = assistantContentPrefix
-                )
+                val turn = try {
+                    streamTurnWithRetry(
+                        callback = callback,
+                        request = ChatCompletionRequest(
+                            messages = memory.snapshot(),
+                            model = model,
+                            maxCompletionTokens = 16384,
+                            stream = true,
+                            streamOptions = ChatCompletionStreamOptions(includeUsage = true),
+                            enableThinking = if (disableThinking) false else null,
+                            reasoningEffort = if (disableThinking) null else input.executionEnv.reasoningEffort,
+                            tools = toolRegistry.toolsForModel,
+                            toolChoice = toolChoiceForRound,
+                            parallelToolCalls = true
+                        ),
+                        assistantContentPrefix = assistantContentPrefix
+                    )
+                } catch (e: ExhaustedRetryableTurnFailure) {
+                    callback.onError(e.errorMessage, true)
+                    terminalError = AgentResult.Error(e.errorMessage, e)
+                    terminated = true
+                    break@roundLoop
+                } catch (e: TerminalTurnRequestFailure) {
+                    callback.onError(e.errorMessage, true)
+                    terminalError = AgentResult.Error(e.errorMessage, e)
+                    terminated = true
+                    break@roundLoop
+                }
 
+                val turnUsage = resolveTurnUsage(turn)
+                lastTurnUsage = turnUsage
                 lastFinishReason = turn.finishReason
                 lastPrefillTokensPerSecond =
                     turn.usage?.prefillTokensPerSecond ?: lastPrefillTokensPerSecond
@@ -166,7 +216,7 @@ class AgentOrchestrator(
                             ?.takeIf { it.isNotBlank() }
                     )
                 )
-                latestPromptTokens = turn.usage?.promptTokens
+                latestPromptTokens = turnUsage.promptTokens
                 latestPromptTokenThreshold =
                     input.contextCompactor?.resolvePromptTokenThreshold(input.conversationId)
                 latestPromptTokens?.let { promptTokens ->
@@ -507,13 +557,19 @@ class AgentOrchestrator(
                 content = lastAssistantContent,
                 finishReason = lastFinishReason,
                 latestPromptTokens = latestPromptTokens,
-                promptTokenThreshold = latestPromptTokens?.let { latestPromptTokenThreshold }
+                promptTokenThreshold = latestPromptTokenThreshold,
+                completionTokens = lastTurnUsage?.completionTokens,
+                cachedTokens = lastTurnUsage?.cachedTokens,
+                totalTokens = lastTurnUsage?.totalTokens
             ),
             executedTools = executedTools,
             outputKind = outputKind.value,
             hasUserVisibleOutput = hasUserFacingOutput,
             latestPromptTokens = latestPromptTokens,
-            promptTokenThreshold = latestPromptTokens?.let { latestPromptTokenThreshold }
+            promptTokenThreshold = latestPromptTokenThreshold,
+            completionTokens = lastTurnUsage?.completionTokens,
+            cachedTokens = lastTurnUsage?.cachedTokens,
+            totalTokens = lastTurnUsage?.totalTokens
         )
         callback.onComplete(finalResult)
         return finalResult
@@ -559,7 +615,10 @@ class AgentOrchestrator(
                             cause = e
                         )
                     }
-                    throw e
+                    throw TerminalTurnRequestFailure(
+                        errorMessage = decision.reason,
+                        cause = e
+                    )
                 }
 
                 retryCount += 1

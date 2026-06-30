@@ -14,7 +14,6 @@ object AgentSystemPrompt {
         memoryContext: WorkspaceMemoryPromptContext?,
         oobFunctionCandidateContext: String? = null,
         locale: PromptLocale = AppLocaleManager.currentPromptLocale(),
-        toolExposurePolicy: AgentToolExposurePolicy = AgentToolExposurePolicy.DEFAULT,
     ): String {
         val visibleInstalledSkills = installedSkills.filter { skill ->
             skill.installed &&

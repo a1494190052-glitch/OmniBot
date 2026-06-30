@@ -915,6 +915,38 @@ class AgentOrchestratorTest {
         assertTrue(callback.finalChatMessages().isEmpty())
     }
 
+    @Test
+    fun `surfaces non transient api error as manually resumable terminal error`() = runBlocking {
+        val llmClient = FakeLlmClient(
+            turns = emptyList(),
+            failures = listOf(
+                AgentStreamRequestException(
+                    statusCode = 400,
+                    reason = "invalid request payload",
+                    responseBody = null
+                )
+            )
+        )
+        val callback = RecordingCallback()
+
+        val result = createOrchestrator(
+            llmClient = llmClient,
+            toolExecutor = FakeToolExecutor()
+        ).run(
+            AgentOrchestrator.Input(
+                callback = callback,
+                initialMessages = initialMessages("缁х画鎵ц缃戦〉鏌ヨ"),
+                executionEnv = FakeExecutionEnvironment("缁х画鎵ц缃戦〉鏌ヨ")
+            )
+        )
+
+        assertTrue(result is AgentResult.Error)
+        assertTrue(callback.retryingEvents.isEmpty())
+        assertEquals("invalid request payload", callback.errors.single())
+        assertTrue(callback.lastErrorRetryable)
+        assertTrue(callback.finalChatMessages().isEmpty())
+    }
+
     private fun createOrchestrator(
         llmClient: FakeLlmClient,
         toolExecutor: FakeToolExecutor,

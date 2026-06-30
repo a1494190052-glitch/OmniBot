@@ -1180,6 +1180,7 @@ class ChatConversationRuntimeCoordinator extends ChangeNotifier {
     bool isFinal = false,
     bool isError = false,
     Map<String, dynamic>? streamMeta,
+    Map<String, dynamic>? turnUsage,
     double? prefillTokensPerSecond,
     double? decodeTokensPerSecond,
     String? reasoningContent,
@@ -1215,6 +1216,7 @@ class ChatConversationRuntimeCoordinator extends ChangeNotifier {
           content: content,
           isError: isError,
           streamMeta: resolvedStreamMeta,
+          turnUsage: turnUsage,
           reasoningContent: _normalizeReasoningContent(reasoningContent),
         ),
       );
@@ -1246,6 +1248,7 @@ class ChatConversationRuntimeCoordinator extends ChangeNotifier {
         entryId: messageId,
         isFinal: isFinal,
       ),
+      turnUsage: turnUsage ?? existing.turnUsage,
       reasoningContent:
           _normalizeReasoningContent(reasoningContent) ??
           existing.reasoningContent,
@@ -1386,6 +1389,7 @@ class ChatConversationRuntimeCoordinator extends ChangeNotifier {
     bool isSummarizing;
     var shouldUpdateAiMessage = false;
     var didSchedulePersistence = false;
+    var hadPartialText = false;
 
     if (isRateLimited) {
       _flushPureChatReplyBatch(runtime, taskId, emitVoiceUpdate: true);
@@ -1401,6 +1405,9 @@ class ChatConversationRuntimeCoordinator extends ChangeNotifier {
       );
       shouldUpdateAiMessage = true;
     } else if (isErrorMessage) {
+      hadPartialText =
+          (runtime.currentAiMessages[taskId]?.isNotEmpty ?? false) ||
+          _visiblePureChatReplyText(runtime, taskId).isNotEmpty;
       _flushPureChatReplyBatch(runtime, taskId, emitVoiceUpdate: true);
       messageText = kNetworkErrorMessage;
       isError = true;
@@ -1514,6 +1521,16 @@ class ChatConversationRuntimeCoordinator extends ChangeNotifier {
         )) {
       didSchedulePersistence = true;
     }
+    if (isError && isErrorMessage) {
+      final errIdx = runtime.messages.indexWhere((m) => m.id == taskId);
+      if (errIdx != -1) {
+        final errMsg = runtime.messages[errIdx];
+        final errContent = Map<String, dynamic>.from(errMsg.content ?? {});
+        errContent['agentRetryable'] = true;
+        if (hadPartialText) errContent['agentContinueable'] = true;
+        runtime.messages[errIdx] = errMsg.copyWith(content: errContent);
+      }
+    }
     runtime.isAiResponding = true;
     notifyListeners();
     if (!didSchedulePersistence &&
@@ -1525,7 +1542,10 @@ class ChatConversationRuntimeCoordinator extends ChangeNotifier {
     }
   }
 
-  void _handleChatTaskMessageEnd(String taskId) {
+  void _handleChatTaskMessageEnd(
+    String taskId, {
+    Map<String, dynamic>? turnUsage,
+  }) {
     final binding = _taskBindings[taskId];
     final runtime = _runtimeForTask(taskId);
     if (binding == null || runtime == null) return;
@@ -1581,7 +1601,10 @@ class ChatConversationRuntimeCoordinator extends ChangeNotifier {
 
     if (messageText.isNotEmpty && index != -1) {
       final existing = runtime.messages[index];
-      runtime.messages[index] = existing.copyWith(content: existing.content);
+      runtime.messages[index] = existing.copyWith(
+        content: existing.content,
+        turnUsage: turnUsage ?? existing.turnUsage,
+      );
       _syncMessageLinkPreviews(runtime, taskId);
     }
     if (!isErrorMessage && messageText.trim().isNotEmpty) {
@@ -1993,6 +2016,7 @@ class ChatConversationRuntimeCoordinator extends ChangeNotifier {
       renderMarkdown: true,
       isFinal: event.isFinal,
       streamMeta: _streamMetaFromEvent(event),
+      turnUsage: event.turnUsage,
       prefillTokensPerSecond: event.prefillTokensPerSecond,
       decodeTokensPerSecond: event.decodeTokensPerSecond,
       reasoningContent: event.thinking,
@@ -2223,6 +2247,7 @@ class ChatConversationRuntimeCoordinator extends ChangeNotifier {
         renderMarkdown: true,
         isFinal: true,
         streamMeta: _streamMetaFromEvent(event),
+        turnUsage: event.turnUsage,
         reasoningContent: event.thinking,
       );
     }
@@ -2313,6 +2338,7 @@ class ChatConversationRuntimeCoordinator extends ChangeNotifier {
             entryId: entryId,
             isFinal: true,
           ),
+          turnUsage: event.turnUsage ?? existing.turnUsage,
         );
       }
     }
@@ -2359,6 +2385,7 @@ class ChatConversationRuntimeCoordinator extends ChangeNotifier {
         renderMarkdown: true,
         isFinal: true,
         streamMeta: _streamMetaFromEvent(event),
+        turnUsage: event.turnUsage,
         reasoningContent: event.thinking,
       );
     }
@@ -2451,6 +2478,10 @@ class ChatConversationRuntimeCoordinator extends ChangeNotifier {
     content['agentMaxRetries'] = event.maxRetries;
     content['agentRetryDelayMs'] = event.retryDelayMs;
     content['agentRetryReason'] = event.retryReason;
+    content['agentContinuing'] = false;
+    content.remove('agentContinueStatusText');
+    content.remove('agentContinueable');
+    content.remove('agentContinueResumeMode');
     content.remove('agentErrorText');
     content.remove('agentRetryable');
   }
@@ -2467,7 +2498,11 @@ class ChatConversationRuntimeCoordinator extends ChangeNotifier {
     content['agentMaxRetries'] = event.maxRetries;
     content['agentRetryDelayMs'] = 0;
     content['agentRetryReason'] = event.retryReason;
+    content['agentContinuing'] = false;
+    content['agentContinueStatusText'] = '';
     content['agentRetryable'] = event.retryable;
+    content['agentContinueable'] = event.continueable;
+    content['agentContinueResumeMode'] = event.continueResumeMode;
     content['agentErrorText'] = errorText;
   }
 
@@ -2479,6 +2514,10 @@ class ChatConversationRuntimeCoordinator extends ChangeNotifier {
     content.remove('agentRetryDelayMs');
     content.remove('agentRetryReason');
     content.remove('agentRetryable');
+    content.remove('agentContinuing');
+    content.remove('agentContinueStatusText');
+    content.remove('agentContinueable');
+    content.remove('agentContinueResumeMode');
     content.remove('agentErrorText');
   }
 

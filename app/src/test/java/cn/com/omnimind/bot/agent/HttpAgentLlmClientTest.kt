@@ -32,7 +32,7 @@ class HttpAgentLlmClientTest {
             val client = HttpAgentLlmClient(
                 scope = scope,
                 modelOverride = testOverride(),
-                streamRequestOp = { _, _, listener, _, _, _, _, _, _ ->
+                streamRequestOp = { _, _, listener, _, _, _, _, _, _, _ ->
                     val source = dummyEventSource()
                     listener.onOpen(source, okResponse())
                     listener.onEvent(
@@ -68,7 +68,7 @@ class HttpAgentLlmClientTest {
             val client = HttpAgentLlmClient(
                 scope = scope,
                 modelOverride = testOverride(),
-                streamRequestOp = { _, _, listener, _, _, _, _, _, _ ->
+                streamRequestOp = { _, _, listener, _, _, _, _, _, _, _ ->
                     val source = dummyEventSource()
                     listener.onOpen(source, okResponse())
                     listener.onEvent(
@@ -101,7 +101,7 @@ class HttpAgentLlmClientTest {
             val client = HttpAgentLlmClient(
                 scope = scope,
                 modelOverride = testOverride(),
-                streamRequestOp = { _, _, listener, _, _, _, _, _, _ ->
+                streamRequestOp = { _, _, listener, _, _, _, _, _, _, _ ->
                     val source = dummyEventSource()
                     listener.onOpen(source, okResponse())
                     listener.onEvent(
@@ -132,7 +132,7 @@ class HttpAgentLlmClientTest {
             val client = HttpAgentLlmClient(
                 scope = scope,
                 modelOverride = testOverride(),
-                resolveRouteInfoOp = { model, _, _, _, protocolType, _ ->
+                resolveRouteInfoOp = { model, _, _, _, _, protocolType, _ ->
                     routeInfo(
                         requestedModel = model,
                         resolvedModel = "deepseek-v4-flash",
@@ -140,7 +140,7 @@ class HttpAgentLlmClientTest {
                         requiresReasoningEcho = true
                     )
                 },
-                streamRequestOp = { _, _, listener, _, _, _, _, _, _ ->
+                streamRequestOp = { _, _, listener, _, _, _, _, _, _, _ ->
                     val source = dummyEventSource()
                     listener.onOpen(source, okResponse())
                     listener.onEvent(
@@ -172,7 +172,7 @@ class HttpAgentLlmClientTest {
             val client = HttpAgentLlmClient(
                 scope = scope,
                 modelOverride = testOverride(),
-                resolveRouteInfoOp = { model, _, _, _, protocolType, _ ->
+                resolveRouteInfoOp = { model, _, _, _, _, protocolType, _ ->
                     routeInfo(
                         requestedModel = model,
                         resolvedModel = "qwen-plus",
@@ -180,7 +180,7 @@ class HttpAgentLlmClientTest {
                         requiresReasoningEcho = false
                     )
                 },
-                streamRequestOp = { _, _, listener, _, _, _, _, _, _ ->
+                streamRequestOp = { _, _, listener, _, _, _, _, _, _, _ ->
                     val source = dummyEventSource()
                     listener.onOpen(source, okResponse())
                     listener.onEvent(
@@ -268,7 +268,7 @@ class HttpAgentLlmClientTest {
             val client = HttpAgentLlmClient(
                 scope = scope,
                 modelOverride = testOverride(),
-                resolveRouteInfoOp = { model, _, _, _, protocolType, _ ->
+                resolveRouteInfoOp = { model, _, _, _, _, protocolType, _ ->
                     routeInfo(
                         requestedModel = model,
                         resolvedModel = "qwen3.6-plus",
@@ -276,7 +276,7 @@ class HttpAgentLlmClientTest {
                         requiresReasoningEcho = false
                     )
                 },
-                streamRequestOp = { _, _, listener, _, _, _, _, _, _ ->
+                streamRequestOp = { _, _, listener, _, _, _, _, _, _, _ ->
                     val source = dummyEventSource()
                     listener.onOpen(source, okResponse())
                     listener.onEvent(

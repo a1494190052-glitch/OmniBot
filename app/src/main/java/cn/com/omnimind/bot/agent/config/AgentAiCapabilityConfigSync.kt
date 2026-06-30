@@ -34,6 +34,7 @@ private data class AgentAiCapabilityProviderSnapshot(
     val name: String = "",
     val baseUrl: String = "",
     val apiKey: String = "",
+    val customHeaders: Map<String, String> = emptyMap(),
     val protocolType: String = "openai_compatible",
     val wireApi: String = "chat_completions"
 )
@@ -72,6 +73,7 @@ private data class AgentAiCapabilityProviderPartial(
     val name: String? = null,
     val baseUrl: String? = null,
     val apiKey: String? = null,
+    val customHeaders: Map<String, String>? = null,
     val protocolType: String? = null,
     val wireApi: String? = null
 )
@@ -282,6 +284,7 @@ class AgentAiCapabilityConfigSync private constructor(
                     name = profile.name,
                     baseUrl = profile.baseUrl,
                     apiKey = profile.apiKey,
+                    customHeaders = profile.customHeaders,
                     protocolType = profile.protocolType,
                     wireApi = profile.wireApi
                 )
@@ -318,6 +321,7 @@ class AgentAiCapabilityConfigSync private constructor(
                     name = provider.name.trim(),
                     baseUrl = provider.baseUrl.trim(),
                     apiKey = provider.apiKey.trim(),
+                    customHeaders = provider.customHeaders,
                     protocolType = normalizeProtocolType(provider.protocolType),
                     wireApi = OpenAiWireApi.normalize(provider.wireApi)
                 )
@@ -391,6 +395,7 @@ class AgentAiCapabilityConfigSync private constructor(
                     name = provider.name?.trim().orEmpty(),
                     baseUrl = provider.baseUrl?.trim().orEmpty(),
                     apiKey = provider.apiKey?.trim().orEmpty(),
+                    customHeaders = provider.customHeaders ?: emptyMap(),
                     protocolType = normalizeProtocolType(provider.protocolType),
                     wireApi = OpenAiWireApi.normalize(provider.wireApi)
                 )

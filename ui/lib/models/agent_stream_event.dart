@@ -140,9 +140,12 @@ class AgentStreamEvent {
     this.hasUserVisibleOutput = false,
     this.latestPromptTokens,
     this.promptTokenThreshold,
+    this.turnUsage,
     this.errorMessage = '',
     this.willRetry = false,
     this.retryable = false,
+    this.continueable = false,
+    this.continueResumeMode = '',
     this.retryCount = 0,
     this.maxRetries = 0,
     this.retryDelayMs = 0,
@@ -180,9 +183,12 @@ class AgentStreamEvent {
   final bool hasUserVisibleOutput;
   final int? latestPromptTokens;
   final int? promptTokenThreshold;
+  final Map<String, dynamic>? turnUsage;
   final String errorMessage;
   final bool willRetry;
   final bool retryable;
+  final bool continueable;
+  final String continueResumeMode;
   final int retryCount;
   final int maxRetries;
   final int retryDelayMs;
@@ -264,9 +270,15 @@ class AgentStreamEvent {
       hasUserVisibleOutput: raw['hasUserVisibleOutput'] == true,
       latestPromptTokens: _asInt(raw['latestPromptTokens']),
       promptTokenThreshold: _asInt(raw['promptTokenThreshold']),
+      turnUsage: raw['turnUsage'] is Map
+          ? Map<String, dynamic>.from(raw['turnUsage'] as Map)
+          : null,
       errorMessage: (raw['error'] ?? '').toString(),
       willRetry: raw['willRetry'] == true,
       retryable: raw['retryable'] == true,
+      continueable: raw['continueable'] == true,
+      continueResumeMode: (raw['continueResumeMode'] ?? raw['resumeMode'] ?? '')
+          .toString(),
       retryCount: _asInt(raw['retryCount']) ?? 0,
       maxRetries: _asInt(raw['maxRetries']) ?? 0,
       retryDelayMs: _asInt(raw['retryDelayMs']) ?? 0,

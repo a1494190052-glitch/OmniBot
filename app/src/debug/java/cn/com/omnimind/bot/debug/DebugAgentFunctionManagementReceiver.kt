@@ -18,7 +18,6 @@ import cn.com.omnimind.bot.agent.AgentExecutionEnvironment
 import cn.com.omnimind.bot.agent.AgentLlmClient
 import cn.com.omnimind.bot.agent.AgentRuntimeContextRepository
 import cn.com.omnimind.bot.agent.AgentScheduleToolBridge
-import cn.com.omnimind.bot.agent.AgentToolExposurePolicy
 import cn.com.omnimind.bot.agent.AgentToolRegistry
 import cn.com.omnimind.bot.agent.AgentToolRouter
 import cn.com.omnimind.bot.agent.AgentWorkspaceManager
@@ -29,6 +28,7 @@ import cn.com.omnimind.bot.agent.SubagentDispatcher
 import cn.com.omnimind.bot.agent.ToolExecutionResult
 import cn.com.omnimind.bot.agent.WorkspaceMemoryService
 import cn.com.omnimind.bot.agent.tool.handlers.OobFunctionToolHandler
+import cn.com.omnimind.bot.omniflow.OobFunctionSkillProfile
 import cn.com.omnimind.bot.runlog.OobFunctionManagementService
 import cn.com.omnimind.bot.runlog.RunLogPagePackageInference
 import cn.com.omnimind.bot.util.AssistsUtil
@@ -113,9 +113,8 @@ class DebugAgentFunctionManagementReceiver : BroadcastReceiver() {
             context = context,
             discoveredServers = emptyList(),
             conversationMode = AgentConversationModePolicy.NORMAL_MODE,
-            toolExposurePolicy = AgentToolExposurePolicy(
-                profile = AgentToolExposurePolicy.PROFILE_OMNIFLOW,
-            ),
+            visibleToolNames = OobFunctionSkillProfile.toolNames,
+            isLightweightToolProfile = true,
         )
         lateinit var router: AgentToolRouter
         val eventJson = Json {
@@ -160,7 +159,7 @@ class DebugAgentFunctionManagementReceiver : BroadcastReceiver() {
         )
 
         val exposedTools = registry.toolsForModel.map { it.function.name }.sorted()
-        val expectedTools = AgentToolExposurePolicy.OMNIFLOW_TOOLS.sorted()
+        val expectedTools = OobFunctionSkillProfile.toolNames.sorted()
         val missingTools = expectedTools.filterNot { it in exposedTools }
         val unexpectedTools = exposedTools.filterNot { it in expectedTools }
         val records = mutableListOf<Map<String, Any?>>()
@@ -272,7 +271,7 @@ class DebugAgentFunctionManagementReceiver : BroadcastReceiver() {
             "current_package_before" to currentBefore,
             "current_package_after" to currentAfter,
             "foreground_package_matched" to foregroundMatched,
-            "tool_profile" to AgentToolExposurePolicy.PROFILE_OMNIFLOW,
+            "tool_profile" to OobFunctionSkillProfile.PROFILE,
             "exposed_tools" to exposedTools,
             "missing_tools" to missingTools,
             "unexpected_tools" to unexpectedTools,

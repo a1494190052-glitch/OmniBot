@@ -10,6 +10,7 @@ class ModelProviderConfig {
   final String name;
   final String baseUrl;
   final String apiKey;
+  final Map<String, String> customHeaders;
   final String source;
   final String providerType;
   final bool readOnly;
@@ -23,6 +24,7 @@ class ModelProviderConfig {
     required this.name,
     required this.baseUrl,
     required this.apiKey,
+    required this.customHeaders,
     required this.source,
     required this.providerType,
     required this.readOnly,
@@ -38,6 +40,7 @@ class ModelProviderConfig {
       name: '',
       baseUrl: '',
       apiKey: '',
+      customHeaders: const <String, String>{},
       source: 'none',
       providerType: 'custom',
       readOnly: false,
@@ -57,6 +60,9 @@ class ModelProviderConfig {
       name: (map['name'] ?? '').toString(),
       baseUrl: (map['baseUrl'] ?? '').toString(),
       apiKey: (map['apiKey'] ?? '').toString(),
+      customHeaders: ModelProviderConfigService.normalizeCustomHeaders(
+        ModelProviderConfigService._readStringMap(map['customHeaders']),
+      ),
       source: (map['source'] ?? 'none').toString(),
       providerType: (map['providerType'] ?? 'custom').toString(),
       readOnly: map['readOnly'] == true,
@@ -73,6 +79,7 @@ class ModelProviderProfileSummary {
   final String name;
   final String baseUrl;
   final String apiKey;
+  final Map<String, String> customHeaders;
   final String sourceType;
   final bool readOnly;
   final bool ready;
@@ -86,6 +93,7 @@ class ModelProviderProfileSummary {
     required this.name,
     required this.baseUrl,
     required this.apiKey,
+    required this.customHeaders,
     required this.sourceType,
     required this.readOnly,
     required this.ready,
@@ -101,6 +109,9 @@ class ModelProviderProfileSummary {
       name: (map?['name'] ?? '').toString(),
       baseUrl: (map?['baseUrl'] ?? '').toString(),
       apiKey: (map?['apiKey'] ?? '').toString(),
+      customHeaders: ModelProviderConfigService.normalizeCustomHeaders(
+        ModelProviderConfigService._readStringMap(map?['customHeaders']),
+      ),
       sourceType: (map?['sourceType'] ?? 'custom').toString(),
       readOnly: map?['readOnly'] == true,
       ready: map?['ready'] == true,
@@ -117,6 +128,7 @@ class ModelProviderProfileSummary {
       name: name,
       baseUrl: baseUrl,
       apiKey: apiKey,
+      customHeaders: customHeaders,
       source: source,
       providerType: sourceType,
       readOnly: readOnly,
@@ -336,6 +348,12 @@ class ModelProviderConfigService {
   static const String _kLegacyCachedFetchedModelsKey =
       'cached_provider_models_with_base_v1';
   static const String _kDirectRequestUrlMarker = '#';
+  static const Set<String> _kForbiddenCustomHeaderNames = <String>{
+    'host',
+    'content-length',
+    'connection',
+    'transfer-encoding',
+  };
   static const List<String> _kCanonicalEndpointSuffixes = <String>[
     '/v1/chat/completions',
     '/chat/completions',
@@ -345,6 +363,10 @@ class ModelProviderConfigService {
     '/models',
     '/v1/messages',
     '/messages',
+  ];
+  static const List<String> _kCanonicalVersionBaseSuffixes = <String>[
+    '/v1',
+    '/compatible-mode/v1',
   ];
 
   static bool _isBuiltinLocalProfileId(String profileId) {
@@ -383,6 +405,7 @@ class ModelProviderConfigService {
         name: fallback.name.isNotEmpty ? fallback.name : 'Provider 1',
         baseUrl: fallback.baseUrl,
         apiKey: fallback.apiKey,
+        customHeaders: fallback.customHeaders,
         sourceType: fallback.providerType,
         readOnly: fallback.readOnly,
         ready: fallback.ready,
@@ -402,6 +425,8 @@ class ModelProviderConfigService {
     required String name,
     required String baseUrl,
     required String apiKey,
+    Map<String, String> customHeaders = const <String, String>{},
+    String sourceType = 'custom',
     String protocolType = 'openai_compatible',
     String? wireApi,
   }) async {
@@ -410,12 +435,15 @@ class ModelProviderConfigService {
       explicitWireApi: wireApi,
       protocolType: protocolType,
     );
+    final normalizedCustomHeaders = normalizeCustomHeaders(customHeaders);
     final result = await AssistsMessageService.assistCore
         .invokeMethod<Map<dynamic, dynamic>>('saveModelProviderProfile', {
           if (id != null && id.trim().isNotEmpty) 'id': id.trim(),
           'name': name,
           'baseUrl': baseUrl,
           'apiKey': apiKey,
+          'customHeaders': normalizedCustomHeaders,
+          'sourceType': sourceType,
           'protocolType': protocolType,
           'wireApi': resolvedWireApi,
         });
@@ -445,11 +473,13 @@ class ModelProviderConfigService {
   static Future<ModelProviderConfig> saveConfig({
     required String baseUrl,
     required String apiKey,
+    Map<String, String> customHeaders = const <String, String>{},
   }) async {
     final result = await AssistsMessageService.assistCore
         .invokeMethod<Map<dynamic, dynamic>>('saveModelProviderConfig', {
           'baseUrl': baseUrl,
           'apiKey': apiKey,
+          'customHeaders': normalizeCustomHeaders(customHeaders),
         });
     return ModelProviderConfig.fromMap(result);
   }
@@ -563,6 +593,7 @@ class ModelProviderConfigService {
   static Future<List<ProviderModelOption>> fetchModels({
     String apiBase = '',
     String apiKey = '',
+    Map<String, String> customHeaders = const <String, String>{},
     String? profileId,
     String providerName = '',
   }) async {
@@ -570,6 +601,7 @@ class ModelProviderConfigService {
         .invokeMethod<List<dynamic>>('fetchProviderModels', {
           'apiBase': apiBase,
           'apiKey': apiKey,
+          'customHeaders': normalizeCustomHeaders(customHeaders),
           if (profileId != null && profileId.trim().isNotEmpty)
             'profileId': profileId.trim(),
         });
@@ -959,6 +991,11 @@ class ModelProviderConfigService {
     return result.replaceAll(RegExp(r'/+$'), '');
   }
 
+  static bool _hasVersionedBasePath(String value) {
+    final normalized = _stripDirectRequestUrlMarker(value).toLowerCase();
+    return _kCanonicalVersionBaseSuffixes.any(normalized.endsWith);
+  }
+
   static String? normalizeApiBase(String value) {
     final normalized = value.trim();
     if (normalized.isEmpty) {
@@ -1044,7 +1081,7 @@ class ModelProviderConfigService {
     if (_hasDirectRequestUrlMarker(normalizedBase)) {
       return base;
     }
-    if (base.toLowerCase().endsWith('/v1')) {
+    if (_hasVersionedBasePath(base)) {
       return '$base$suffixAfterV1';
     }
     return '$base$suffixWithVersion';
@@ -1053,5 +1090,59 @@ class ModelProviderConfigService {
   static bool isValidModelName(String value) {
     final normalized = value.trim();
     return normalized.isNotEmpty && !normalized.startsWith('scene.');
+  }
+
+  static String normalizeCustomHeaderName(String value) {
+    return value.trim().toLowerCase();
+  }
+
+  static bool isForbiddenCustomHeaderName(String value) {
+    return _kForbiddenCustomHeaderNames.contains(
+      normalizeCustomHeaderName(value),
+    );
+  }
+
+  static Map<String, String> normalizeCustomHeaders(
+    Map<String, String> headers,
+  ) {
+    if (headers.isEmpty) {
+      return const <String, String>{};
+    }
+    final normalized = <String, MapEntry<String, String>>{};
+    for (final entry in headers.entries) {
+      final key = entry.key.trim();
+      if (key.isEmpty) {
+        continue;
+      }
+      final normalizedKey = normalizeCustomHeaderName(key);
+      if (_kForbiddenCustomHeaderNames.contains(normalizedKey)) {
+        continue;
+      }
+      normalized.remove(normalizedKey);
+      normalized[normalizedKey] = MapEntry(key, entry.value);
+    }
+    return Map<String, String>.unmodifiable(
+      normalized.values.fold<Map<String, String>>(<String, String>{}, (
+        acc,
+        entry,
+      ) {
+        acc[entry.key] = entry.value;
+        return acc;
+      }),
+    );
+  }
+
+  static Map<String, String> _readStringMap(Object? value) {
+    if (value is Map) {
+      final result = <String, String>{};
+      value.forEach((key, item) {
+        if (key == null) {
+          return;
+        }
+        result[key.toString()] = item?.toString() ?? '';
+      });
+      return result;
+    }
+    return const <String, String>{};
   }
 }

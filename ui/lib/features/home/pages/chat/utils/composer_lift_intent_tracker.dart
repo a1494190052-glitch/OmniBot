@@ -3,15 +3,22 @@ import 'dart:math' as math;
 /// Keeps the full-screen chat composer lifted through transient focus loss
 /// while the IME is still opening or visibly present.
 ///
-/// The latch only activates after a real input intent (focus/editing) has
-/// happened. Once focus is gone, it stays active until either:
-/// - the keyboard clearly starts closing, or
-/// - the keyboard has fully settled closed.
+/// Two signals cooperate:
+/// - `hasInputIntent` (focus or editing) is the continuous truth: while it is
+///   true, the composer should be lifted, full stop. This handles the steady
+///   state (focused field with the IME open, focused field after a back-press
+///   that hides the IME but keeps focus, focused field tapped to re-show the
+///   IME).
+/// - `arm()` latches the lift across transient focus loss, e.g. focus blips off
+///   for a frame or two while the IME is opening on devices with degraded
+///   focus signals. The latch survives `hasInputIntent` going false until the
+///   IME is observed clearly closing, has settled closed, or never came up at
+///   all within the opening grace window.
 class ComposerLiftIntentTracker {
   ComposerLiftIntentTracker({
     this.visibleInsetThreshold = 0.5,
     this.motionEpsilon = 1.0,
-    this.openingGraceFrames = 2,
+    this.openingGraceFrames = 24,
   });
 
   final double visibleInsetThreshold;
@@ -29,11 +36,11 @@ class ComposerLiftIntentTracker {
     _openingGraceFramesRemaining = openingGraceFrames;
   }
 
-  bool update({required bool isEditing, required double bottomInset}) {
+  bool update({required bool hasInputIntent, required double bottomInset}) {
     final inset = bottomInset.isFinite ? math.max(0.0, bottomInset) : 0.0;
     final keyboardVisible = inset > visibleInsetThreshold;
 
-    if (isEditing && !_latched) {
+    if (hasInputIntent && !_latched) {
       arm();
     }
 
@@ -45,14 +52,17 @@ class ComposerLiftIntentTracker {
       }
 
       final keyboardClearlyClosing =
+          !hasInputIntent &&
           _imeVisibleSinceArm &&
           lastInset != null &&
           inset < lastInset - motionEpsilon;
       final keyboardSettledClosed =
-          _imeVisibleSinceArm && inset <= visibleInsetThreshold;
+          !hasInputIntent &&
+          _imeVisibleSinceArm &&
+          inset <= visibleInsetThreshold;
       final openingExpired =
+          !hasInputIntent &&
           !_imeVisibleSinceArm &&
-          !isEditing &&
           inset <= visibleInsetThreshold &&
           _openingGraceFramesRemaining <= 0;
 
@@ -61,14 +71,14 @@ class ComposerLiftIntentTracker {
         _imeVisibleSinceArm = false;
         _openingGraceFramesRemaining = 0;
       } else if (!keyboardVisible &&
+          !hasInputIntent &&
           !_imeVisibleSinceArm &&
-          !isEditing &&
           _openingGraceFramesRemaining > 0) {
         _openingGraceFramesRemaining -= 1;
       }
     }
 
     _lastInset = inset;
-    return isEditing || _latched;
+    return hasInputIntent || _latched;
   }
 }

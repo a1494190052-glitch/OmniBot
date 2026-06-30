@@ -17,6 +17,7 @@ mixin _ChatPageUiMixin on _ChatPageStateBase {
   static const double _kHdPadPaneCollapseWidthRatio = 0.12;
   static const double _kHdPadPaneCollapseMinWidthFactor = 0.72;
   final Set<String> _pendingManualAgentRetryTaskIds = <String>{};
+  final Set<String> _pendingManualAgentContinueTaskIds = <String>{};
 
   bool get _showToolActivityStrip => false;
 
@@ -876,6 +877,7 @@ mixin _ChatPageUiMixin on _ChatPageStateBase {
       messages: resolvedMessages,
       activeAgentTaskIds: runtime?.activeAgentTaskIds ?? const <String>{},
       onRetryAgentMessage: _retryFailedAgentTurn,
+      onContinueAgentMessage: _continueFailedAgentTurn,
       expandedAgentRunTaskIds: _expandedAgentRunTaskIdsForMode(mode),
       onExpandedAgentRunTaskIdsChanged: (taskIds) {
         _updateExpandedAgentRunTaskIds(mode, taskIds);
@@ -1863,7 +1865,8 @@ mixin _ChatPageUiMixin on _ChatPageStateBase {
     final bottomInset = mediaQuery.viewInsets.bottom;
     final viewPaddingBottom = mediaQuery.viewPadding.bottom;
     final shouldLiftComposerForKeyboard = _composerLiftIntentTracker.update(
-      isEditing: _editingUserMessageId != null,
+      hasInputIntent:
+          _inputFocusNode.hasFocus || _editingUserMessageId != null,
       bottomInset: bottomInset,
     );
     final composerKeyboardMetrics = _composerKeyboardMetricsTracker.update(
@@ -1891,9 +1894,9 @@ mixin _ChatPageUiMixin on _ChatPageStateBase {
                 if (didPop) return;
                 // 模型选择器是 OverlayEntry，不在 Navigator 栈里，普通 pop
                 // 不会关掉它；这里手动关，让系统返回手势先吃掉它再走原本的退出逻辑。
-                if (_conversationModelSelectorOverlayEntry != null) {
-                  _conversationModelSelectorOverlayEntry?.remove();
-                  _conversationModelSelectorOverlayEntry = null;
+                if (_conversationModelSelectorHandle != null) {
+                  unawaited(_conversationModelSelectorHandle?.dismiss());
+                  _conversationModelSelectorHandle = null;
                   return;
                 }
                 if (isHdPadLandscape &&
@@ -2460,6 +2463,101 @@ mixin _ChatPageUiMixin on _ChatPageStateBase {
     }
   }
 
+  Future<void> _continueFailedAgentTurn(ChatMessageModel message) async {
+    final taskId = _resolveContinueableAgentTaskId(message);
+    if (taskId == null) {
+      showToast(
+        LegacyTextLocalizer.isEnglish
+            ? 'This reply can no longer continue from the current turn'
+            : '这条回复当前无法从本轮继续',
+        type: ToastType.warning,
+      );
+      return;
+    }
+    if (_pendingManualAgentContinueTaskIds.contains(taskId) ||
+        message.content?['agentContinuing'] == true) {
+      return;
+    }
+    if (_isAiResponding) {
+      showToast(
+        LegacyTextLocalizer.isEnglish
+            ? 'Wait for the current response to finish first'
+            : '请先等待当前回复结束',
+        type: ToastType.warning,
+      );
+      return;
+    }
+
+    final messageIndex = _messages.indexWhere((item) => item.id == message.id);
+    final previousMessage = messageIndex == -1 ? null : _messages[messageIndex];
+    final removedBlankThinkingCards = <ChatMessageModel>[];
+    _pendingManualAgentContinueTaskIds.add(taskId);
+    if (previousMessage != null && mounted) {
+      setState(() {
+        _messages[messageIndex] = _buildPendingManualContinueMessage(
+          previousMessage,
+          taskId: taskId,
+        );
+        // 失败 run 如果是卡在 thinking 阶段(还没出 tool 调用 / assistant 文本),
+        // 会留一张空内容的 "Thought for xx s" 卡。续跑后这张卡没有任何信息价值,
+        // 而且新 run 的 thinking 用了 -c$gen 后缀 id,不会原地覆盖它,
+        // 所以这里在续跑前先把它从消息流里移除。
+        //
+        // 注意:thinking 卡的 type / thinkingContent 都在 content.cardData 嵌套层里,
+        // 不是顶层 content,所以走 ChatMessageModel.cardData getter 读。
+        _messages.removeWhere((item) {
+          if (item.id == previousMessage.id) return false;
+          if (item.type != 2) return false;
+          if (agentRunParentTaskId(item) != taskId) return false;
+          final cardData = item.cardData;
+          if (cardData == null) return false;
+          final cardType = (cardData['type'] ?? '').toString().trim();
+          if (cardType != 'deep_thinking') return false;
+          final thinkingContent = (cardData['thinkingContent'] ?? '')
+              .toString()
+              .trim();
+          final shouldRemove = thinkingContent.isEmpty;
+          if (shouldRemove) removedBlankThinkingCards.add(item);
+          return shouldRemove;
+        });
+      });
+    }
+
+    final success = await AssistsMessageService.continueAgentTask(
+      taskId: taskId,
+    );
+    _pendingManualAgentContinueTaskIds.remove(taskId);
+    if (!mounted) {
+      return;
+    }
+    if (!success) {
+      if (previousMessage != null) {
+        final restoreIndex = _messages.indexWhere(
+          (item) => item.id == previousMessage.id,
+        );
+        if (restoreIndex != -1) {
+          setState(() {
+            _messages[restoreIndex] = previousMessage;
+            // 一并恢复因乐观更新被移除的空白 thinking 卡,
+            // 避免续跑请求本身失败时静默吞掉历史状态。
+            for (final card in removedBlankThinkingCards) {
+              if (_messages.indexWhere((item) => item.id == card.id) == -1) {
+                _messages.add(card);
+              }
+            }
+          });
+        }
+      }
+      showToast(
+        LegacyTextLocalizer.isEnglish
+            ? 'Continue failed. Please try again.'
+            : '继续失败，请稍后再试',
+        type: ToastType.error,
+      );
+      return;
+    }
+  }
+
   List<Map<String, dynamic>> _extractRetryAttachments(
     ChatMessageModel message,
   ) {
@@ -2472,6 +2570,20 @@ mixin _ChatPageUiMixin on _ChatPageStateBase {
   }
 
   String? _resolveRetryableAgentTaskId(ChatMessageModel message) {
+    if (message.content?['agentRetryable'] != true) {
+      return null;
+    }
+    return _resolveAgentTaskId(message);
+  }
+
+  String? _resolveContinueableAgentTaskId(ChatMessageModel message) {
+    if (message.content?['agentContinueable'] != true) {
+      return null;
+    }
+    return _resolveAgentTaskId(message);
+  }
+
+  String? _resolveAgentTaskId(ChatMessageModel message) {
     final contentTaskId = (message.content?['agentTaskId'] ?? '')
         .toString()
         .trim();
@@ -2494,6 +2606,7 @@ mixin _ChatPageUiMixin on _ChatPageStateBase {
     final content = Map<String, dynamic>.from(message.content ?? const {});
     content['agentTaskId'] = taskId;
     content['agentRetrying'] = true;
+    content['agentContinuing'] = false;
     content['agentRetryStatusText'] = LegacyTextLocalizer.isEnglish
         ? 'Retrying connection...'
         : '连接中断，正在重试…';
@@ -2503,6 +2616,48 @@ mixin _ChatPageUiMixin on _ChatPageStateBase {
     content['agentRetryDelayMs'] = 0;
     content.remove('agentRetryReason');
     content.remove('agentRetryable');
+    content.remove('agentContinueable');
+    content.remove('agentContinueResumeMode');
+    content.remove('agentContinueStatusText');
+    content.remove('agentErrorText');
+    return message.copyWith(content: content, isError: false);
+  }
+
+  ChatMessageModel _buildPendingManualContinueMessage(
+    ChatMessageModel message, {
+    required String taskId,
+  }) {
+    final content = Map<String, dynamic>.from(message.content ?? const {});
+    // 失败时如果整条 bubble 的正文就是错误文案(无半截输出场景,
+    // resolveAgentFinalErrorResolution 设了 persistAsError=true → isError=true),
+    // 续跑前清掉它,避免在新流到达前残留 "Failed to connect..." 一类文字。
+    // 若 isError=false,说明 text 是真实的半截输出,保留待新流首帧整体替换。
+    final errorTextSnapshot = (content['agentErrorText'] ?? '').toString().trim();
+    final bubbleText = (content['text'] ?? '').toString().trim();
+    final textIsErrorOnly = message.isError == true ||
+        (errorTextSnapshot.isNotEmpty && errorTextSnapshot == bubbleText);
+    if (textIsErrorOnly) {
+      content['text'] = '';
+      // 解析机制是按文本里出现的 URL 同步进 content.linkPreviews 的(详见
+      // chat_conversation_runtime_coordinator 的 syncLinkPreviewsForAssistantText)。
+      // 文本被清空后,linkPreviews 不会自动清,会一直渲染 "xxx.com" 这张卡片。
+      // 续跑前直接抹掉,新流的首帧文本会触发重新解析。
+      content.remove('linkPreviews');
+    }
+    content['agentTaskId'] = taskId;
+    content['agentRetrying'] = false;
+    content['agentContinuing'] = true;
+    content['agentContinueStatusText'] = LegacyTextLocalizer.isEnglish
+        ? 'Continuing from current turn...'
+        : '正在从当前轮继续…';
+    content.remove('agentRetryStatusText');
+    content.remove('agentRetryCount');
+    content.remove('agentMaxRetries');
+    content.remove('agentRetryDelayMs');
+    content.remove('agentRetryReason');
+    content.remove('agentRetryable');
+    content.remove('agentContinueable');
+    content.remove('agentContinueResumeMode');
     content.remove('agentErrorText');
     return message.copyWith(content: content, isError: false);
   }

@@ -19,7 +19,10 @@ typedef TaskFinishCallback = void Function();
 typedef ChatTaskMessageCallBack =
     void Function(String taskID, String content, String? type);
 //消息回执结束
-typedef ChatTaskMessageEndCallBack = void Function(String taskID);
+typedef ChatTaskMessageEndCallBack = void Function(
+  String taskID, {
+  Map<String, dynamic>? turnUsage,
+});
 //VLM任务结束
 typedef VLMTaskFinishEndCallBack = void Function(String? taskId);
 //普通任务结束
@@ -2206,9 +2209,15 @@ class AssistsMessageService {
           final Map<String, dynamic> data = Map<String, dynamic>.from(
             call.arguments,
           );
-          _onChatTaskMessageEndCallBack?.call(data['taskID']);
+          final endTurnUsage = data['turnUsage'] != null
+              ? Map<String, dynamic>.from(data['turnUsage'] as Map)
+              : null;
+          _onChatTaskMessageEndCallBack?.call(
+            data['taskID'],
+            turnUsage: endTurnUsage,
+          );
           for (final callback in _onChatTaskMessageEndCallBacks) {
-            callback(data['taskID']);
+            callback(data['taskID'], turnUsage: endTurnUsage);
           }
           break;
         case 'onVLMRequestUserInput':
@@ -2632,6 +2641,19 @@ class AssistsMessageService {
       return result == "SUCCESS";
     } on PlatformException catch (e) {
       debugPrint('retryAgentTask failed: ${e.message}');
+      return false;
+    }
+  }
+
+  static Future<bool> continueAgentTask({required String taskId}) async {
+    try {
+      final result = await assistCore.invokeMethod(
+        'continueAgentTask',
+        <String, String>{'taskId': taskId},
+      );
+      return result == "SUCCESS";
+    } on PlatformException catch (e) {
+      print('continueAgentTask failed: ${e.message}');
       return false;
     }
   }

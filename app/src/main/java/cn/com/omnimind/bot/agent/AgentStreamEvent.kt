@@ -21,6 +21,7 @@ data class AgentStreamEvent(
     val hasUserVisibleOutput: Boolean? = null,
     val latestPromptTokens: Int? = null,
     val promptTokenThreshold: Int? = null,
+    val turnUsage: Map<String, Any?>? = null,
     val error: String? = null,
     val question: String? = null,
     val missingFields: List<String>? = null,
@@ -65,6 +66,7 @@ data class AgentStreamEvent(
         hasUserVisibleOutput?.let { payload["hasUserVisibleOutput"] = it }
         latestPromptTokens?.let { payload["latestPromptTokens"] = it }
         promptTokenThreshold?.let { payload["promptTokenThreshold"] = it }
+        turnUsage?.let { payload["turnUsage"] = it }
         error?.takeIf { it.isNotBlank() }?.let { payload["error"] = it }
         question?.takeIf { it.isNotBlank() }?.let { payload["question"] = it }
         missingFields?.takeIf { it.isNotEmpty() }?.let { payload["missingFields"] = it }

@@ -542,6 +542,7 @@ mixin AgentStreamHandler<T extends StatefulWidget> on State<T> {
               entryId: entryId,
               isFinal: true,
             ),
+            turnUsage: event.turnUsage ?? existing.turnUsage,
           );
         }
       }
@@ -678,6 +679,10 @@ mixin AgentStreamHandler<T extends StatefulWidget> on State<T> {
     content['agentMaxRetries'] = event.maxRetries;
     content['agentRetryDelayMs'] = event.retryDelayMs;
     content['agentRetryReason'] = event.retryReason;
+    content['agentContinuing'] = false;
+    content.remove('agentContinueStatusText');
+    content.remove('agentContinueable');
+    content.remove('agentContinueResumeMode');
     content.remove('agentErrorText');
     content.remove('agentRetryable');
   }
@@ -694,7 +699,11 @@ mixin AgentStreamHandler<T extends StatefulWidget> on State<T> {
     content['agentMaxRetries'] = event.maxRetries;
     content['agentRetryDelayMs'] = 0;
     content['agentRetryReason'] = event.retryReason;
+    content['agentContinuing'] = false;
+    content['agentContinueStatusText'] = '';
     content['agentRetryable'] = event.retryable;
+    content['agentContinueable'] = event.continueable;
+    content['agentContinueResumeMode'] = event.continueResumeMode;
     content['agentErrorText'] = errorText;
   }
 
@@ -706,6 +715,10 @@ mixin AgentStreamHandler<T extends StatefulWidget> on State<T> {
     content.remove('agentRetryDelayMs');
     content.remove('agentRetryReason');
     content.remove('agentRetryable');
+    content.remove('agentContinuing');
+    content.remove('agentContinueStatusText');
+    content.remove('agentContinueable');
+    content.remove('agentContinueResumeMode');
     content.remove('agentErrorText');
   }
 

@@ -71,7 +71,9 @@ internal object AgentConversationHistorySupport {
         attachments: List<Map<String, Any?>> = emptyList(),
         reasoningContent: String? = null,
         isError: Boolean,
+        interruptedTurn: Boolean = false,
         streamMeta: Map<String, Any?>?,
+        turnUsage: Map<String, Any?>? = null,
         createdAt: Long
     ): Map<String, Any?> {
         val safeText = AgentTextSanitizer.sanitizeUtf16(text)
@@ -96,8 +98,10 @@ internal object AgentConversationHistorySupport {
             "isLoading" to false,
             "isFirst" to false,
             "isError" to isError,
+            "interruptedTurn" to if (interruptedTurn) true else null,
             "isSummarizing" to false,
             "streamMeta" to streamMeta,
+            "turnUsage" to turnUsage,
             "createAt" to Instant.ofEpochMilli(createdAt).toString()
         ).apply {
             if (user == 2 && safeReasoning != null) {
@@ -262,6 +266,9 @@ internal object AgentConversationHistorySupport {
                 }
 
                 AgentConversationHistoryRepository.ENTRY_TYPE_ASSISTANT_MESSAGE -> {
+                    if (isInterruptedAssistantEntry(entry)) {
+                        return@forEachIndexed
+                    }
                     if (shouldReplayAssistantContentAfterTools(relevantEntries, index, entry)) {
                         deferredAssistantEntries += entry
                     } else {
@@ -280,6 +287,14 @@ internal object AgentConversationHistorySupport {
 
         flushDeferredAssistantEntries()
         return replayMessages
+    }
+
+    private fun isInterruptedAssistantEntry(entry: AgentConversationEntry): Boolean {
+        if (entry.entryType != AgentConversationHistoryRepository.ENTRY_TYPE_ASSISTANT_MESSAGE) {
+            return false
+        }
+        val payload = runCatching { readMap(entry.payloadJson) }.getOrNull() ?: return false
+        return parseBoolean(payload["interruptedTurn"], default = false)
     }
 
     fun buildContextSummaryUserMessage(summary: String): ChatCompletionMessage {

@@ -560,7 +560,7 @@ class SceneVoicePlaybackManager(
         if (ModelProviderConfigStore.hasDirectRequestUrlMarker(apiBase)) {
             return base
         }
-        return if (base.endsWith("/v1", ignoreCase = true)) {
+        return if (ModelProviderConfigStore.hasVersionedBasePath(base)) {
             "$base/chat/completions"
         } else {
             "$base/v1/chat/completions"

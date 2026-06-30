@@ -34,6 +34,7 @@ class ChatMessageModel {
 
   /// 原生流式排序元数据
   final Map<String, dynamic>? streamMeta;
+  final Map<String, dynamic>? turnUsage;
   final String? reasoningContent;
 
   /// 创建时间
@@ -49,6 +50,7 @@ class ChatMessageModel {
     this.isError = false,
     this.isSummarizing = false,
     this.streamMeta,
+    this.turnUsage,
     this.reasoningContent,
     DateTime? createAt,
   }) : createAt = createAt ?? DateTime.now();
@@ -116,6 +118,9 @@ class ChatMessageModel {
       streamMeta: _normalizeDynamic(json['streamMeta']) is Map<String, dynamic>
           ? _normalizeDynamic(json['streamMeta']) as Map<String, dynamic>
           : null,
+      turnUsage: _normalizeDynamic(json['turnUsage']) is Map<String, dynamic>
+          ? _normalizeDynamic(json['turnUsage']) as Map<String, dynamic>
+          : null,
       reasoningContent: _normalizeOptionalString(
         json['reasoning_content'] ?? json['reasoningContent'],
       ),
@@ -135,6 +140,7 @@ class ChatMessageModel {
       'isError': isError,
       'isSummarizing': isSummarizing,
       if (streamMeta != null) 'streamMeta': streamMeta,
+      if (turnUsage != null) 'turnUsage': turnUsage,
       if (reasoningContent != null) 'reasoning_content': reasoningContent,
       'createAt': createAt.toIso8601String(),
     };
@@ -196,6 +202,7 @@ class ChatMessageModel {
     bool? isError,
     bool? isSummarizing,
     Map<String, dynamic>? streamMeta,
+    Map<String, dynamic>? turnUsage,
     String? reasoningContent,
     DateTime? createAt,
   }) {
@@ -209,6 +216,7 @@ class ChatMessageModel {
       isError: isError ?? this.isError,
       isSummarizing: isSummarizing ?? this.isSummarizing,
       streamMeta: streamMeta ?? this.streamMeta,
+      turnUsage: turnUsage ?? this.turnUsage,
       reasoningContent: reasoningContent ?? this.reasoningContent,
       createAt: createAt ?? this.createAt,
     );

@@ -60,17 +60,19 @@ class HttpAgentLlmClient(
         event: EventSourceListener,
         explicitApiBase: String?,
         explicitApiKey: String?,
+        explicitCustomHeaders: Map<String, String>?,
         explicitModel: String?,
         explicitProtocolType: String?,
         explicitWireApi: String?,
         forceHttp1: Boolean
-    ) -> EventSource = { model, requestBodyJson, event, explicitApiBase, explicitApiKey, explicitModel, explicitProtocolType, explicitWireApi, forceHttp1 ->
+    ) -> EventSource = { model, requestBodyJson, event, explicitApiBase, explicitApiKey, explicitCustomHeaders, explicitModel, explicitProtocolType, explicitWireApi, forceHttp1 ->
         HttpController.postChatCompletionsStreamRequest(
             model = model,
             requestBodyJson = requestBodyJson,
             event = event,
             explicitApiBase = explicitApiBase,
             explicitApiKey = explicitApiKey,
+            explicitCustomHeaders = explicitCustomHeaders,
             explicitModel = explicitModel,
             explicitProtocolType = explicitProtocolType,
             explicitWireApi = explicitWireApi,
@@ -81,14 +83,16 @@ class HttpAgentLlmClient(
         modelOrScene: String,
         explicitApiBase: String?,
         explicitApiKey: String?,
+        explicitCustomHeaders: Map<String, String>?,
         explicitModel: String?,
         explicitProtocolType: String?,
         explicitWireApi: String?
-    ) -> HttpController.ChatCompletionRouteInfo = { modelOrScene, explicitApiBase, explicitApiKey, explicitModel, explicitProtocolType, explicitWireApi ->
+    ) -> HttpController.ChatCompletionRouteInfo = { modelOrScene, explicitApiBase, explicitApiKey, explicitCustomHeaders, explicitModel, explicitProtocolType, explicitWireApi ->
         HttpController.resolveChatCompletionRouteInfo(
             modelOrScene = modelOrScene,
             explicitApiBase = explicitApiBase,
             explicitApiKey = explicitApiKey,
+            explicitCustomHeaders = explicitCustomHeaders,
             explicitModel = explicitModel,
             explicitProtocolType = explicitProtocolType,
             explicitWireApi = explicitWireApi
@@ -131,6 +135,7 @@ class HttpAgentLlmClient(
                 candidateModel,
                 modelOverride?.apiBase,
                 modelOverride?.apiKey,
+                modelOverride?.customHeaders,
                 modelOverride?.modelId,
                 modelOverride?.protocolType,
                 modelOverride?.wireApi
@@ -247,6 +252,7 @@ class HttpAgentLlmClient(
             model,
             modelOverride?.apiBase,
             modelOverride?.apiKey,
+            modelOverride?.customHeaders,
             modelOverride?.modelId,
             modelOverride?.protocolType,
             modelOverride?.wireApi
@@ -476,6 +482,7 @@ class HttpAgentLlmClient(
                 listener,
                 modelOverride?.apiBase,
                 modelOverride?.apiKey,
+                modelOverride?.customHeaders,
                 modelOverride?.modelId,
                 modelOverride?.protocolType,
                 modelOverride?.wireApi,

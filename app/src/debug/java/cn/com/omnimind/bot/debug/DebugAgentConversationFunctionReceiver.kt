@@ -5,8 +5,8 @@ import android.content.Context
 import android.content.Intent
 import android.util.Base64
 import cn.com.omnimind.baselib.util.OmniLog
-import cn.com.omnimind.bot.agent.AgentToolExposurePolicy
 import cn.com.omnimind.bot.agent.tool.handlers.OobFunctionToolHandler
+import cn.com.omnimind.bot.omniflow.OobFunctionSkillProfile
 import cn.com.omnimind.bot.runlog.OobFunctionManagementService
 import cn.com.omnimind.bot.webchat.AgentRunService
 import cn.com.omnimind.bot.webchat.ConversationDomainService
@@ -87,7 +87,7 @@ class DebugAgentConversationFunctionReceiver : BroadcastReceiver() {
             "userMessage" to userMessage,
             "title" to "Debug Agent Function Conversation",
             "conversationMode" to "normal",
-            "toolProfile" to AgentToolExposurePolicy.PROFILE_OMNIFLOW,
+            "toolProfile" to OobFunctionSkillProfile.PROFILE,
             "allowedTools" to listOf(
                 "oob_function_register",
                 "oob_function_list",
@@ -136,7 +136,7 @@ class DebugAgentConversationFunctionReceiver : BroadcastReceiver() {
             "accepted" to accepted,
             "function_id" to functionId,
             "target_package" to targetPackage,
-            "tool_profile" to AgentToolExposurePolicy.PROFILE_OMNIFLOW,
+            "tool_profile" to OobFunctionSkillProfile.PROFILE,
             "allowed_tools" to request["allowedTools"],
             "function_registered" to functionRegistered,
             "run_success" to runSuccess,

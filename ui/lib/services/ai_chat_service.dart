@@ -7,7 +7,7 @@ class AiChatService {
   Function(String taskId, String content, String? type)? _onMessageCallback;
 
   /// 消息结束回调
-  Function(String taskId)? _onMessageEndCallback;
+  Function(String taskId, {Map<String, dynamic>? turnUsage})? _onMessageEndCallback;
 
   AiChatService() {
     _initializeService();
@@ -36,8 +36,8 @@ class AiChatService {
     }
   }
 
-  void _handleChatMessageEndCallback(String taskId) {
-    _onMessageEndCallback?.call(taskId);
+  void _handleChatMessageEndCallback(String taskId, {Map<String, dynamic>? turnUsage}) {
+    _onMessageEndCallback?.call(taskId, turnUsage: turnUsage);
   }
 
   /// 设置消息回调
@@ -48,7 +48,7 @@ class AiChatService {
   }
 
   /// 设置消息结束回调
-  void setOnMessageEndCallback(Function(String taskId) callback) {
+  void setOnMessageEndCallback(Function(String taskId, {Map<String, dynamic>? turnUsage}) callback) {
     _onMessageEndCallback = callback;
   }
 

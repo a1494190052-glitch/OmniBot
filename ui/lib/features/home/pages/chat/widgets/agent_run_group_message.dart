@@ -22,6 +22,7 @@ class AgentRunGroupMessage extends StatefulWidget {
     required this.onBeforeTaskExecute,
     this.onCancelTask,
     this.onRetryAgentMessage,
+    this.onContinueAgentMessage,
     this.parentScrollController,
     this.onParentScrollHandoff,
     this.onRequestAuthorize,
@@ -36,6 +37,7 @@ class AgentRunGroupMessage extends StatefulWidget {
   final OnBeforeTaskExecute onBeforeTaskExecute;
   final void Function(String taskId)? onCancelTask;
   final ValueChanged<ChatMessageModel>? onRetryAgentMessage;
+  final ValueChanged<ChatMessageModel>? onContinueAgentMessage;
   final ScrollController? parentScrollController;
   final VoidCallback? onParentScrollHandoff;
   final OnRequestAuthorize? onRequestAuthorize;
@@ -161,6 +163,8 @@ class _AgentRunGroupMessageState extends State<AgentRunGroupMessage>
             onCancelTask: widget.onCancelTask,
             onRetryAgentMessage: () =>
                 widget.onRetryAgentMessage?.call(message),
+            onContinueAgentMessage: () =>
+                widget.onContinueAgentMessage?.call(message),
             enableThinkingCollapse: false,
             parentScrollController: widget.parentScrollController,
             onParentScrollHandoff: widget.onParentScrollHandoff,
@@ -283,6 +287,8 @@ class _AgentRunGroupMessageState extends State<AgentRunGroupMessage>
       onBeforeTaskExecute: widget.onBeforeTaskExecute,
       onCancelTask: widget.onCancelTask,
       onRetryAgentMessage: () => widget.onRetryAgentMessage?.call(message),
+      onContinueAgentMessage: () =>
+          widget.onContinueAgentMessage?.call(message),
       enableThinkingCollapse: true,
       thinkingAutoCollapseOnComplete: true,
       showThinkingAvatarOverride: hideAvatar ? false : null,
@@ -548,7 +554,9 @@ class _AgentRunSummaryHeader extends StatelessWidget {
     // a duration (single instant), we just show "已处理".
     final baseLabel = isEnglish ? 'Processed' : '已处理';
     final elapsedLabel = _agentRunElapsedLabel(group);
-    final label = elapsedLabel.isEmpty ? baseLabel : '$baseLabel  $elapsedLabel';
+    final label = elapsedLabel.isEmpty
+        ? baseLabel
+        : '$baseLabel  $elapsedLabel';
     final labelColor = expanded ? palette.textSecondary : palette.textTertiary;
     final lineColor = expanded
         ? palette.textSecondary.withValues(

@@ -679,6 +679,64 @@ void main() {
   );
 
   test(
+    'binds turn usage and continue metadata to the failed assistant turn',
+    () async {
+      const conversationId = 10042;
+      const taskId = 'agent-task-continueable-error';
+      const entryId = '$taskId-text';
+
+      final runtime = coordinator.ensureRuntime(
+        conversationId: conversationId,
+        mode: kChatRuntimeModeNormal,
+      );
+      coordinator.registerTask(
+        taskId: taskId,
+        conversationId: conversationId,
+        mode: kChatRuntimeModeNormal,
+      );
+
+      await emitPlatformEvent('onAgentStreamEvent', <String, dynamic>{
+        'taskId': taskId,
+        'conversationId': conversationId,
+        'conversationMode': ConversationMode.normal.storageValue,
+        'seq': 1,
+        'kind': 'text_snapshot',
+        'entryId': entryId,
+        'roundIndex': 1,
+        'isFinal': true,
+        'text': 'partial reply',
+        'turnUsage': {'ctx': 20000, 'in': 10000, 'out': 87, 'cache': 10000},
+      });
+
+      await emitPlatformEvent('onAgentStreamEvent', <String, dynamic>{
+        'taskId': taskId,
+        'conversationId': conversationId,
+        'conversationMode': ConversationMode.normal.storageValue,
+        'seq': 2,
+        'kind': 'error',
+        'entryId': entryId,
+        'roundIndex': 1,
+        'error': 'network interrupted',
+        'errorText': 'network interrupted',
+        'continueable': true,
+        'continueResumeMode': 'approximate',
+        'retryable': true,
+        'persistAsError': false,
+        'turnUsage': {'ctx': 20000, 'in': 10000, 'out': 87, 'cache': 10000},
+      });
+
+      expect(runtime.messages, hasLength(1));
+      final message = runtime.messages.single;
+      expect(message.id, entryId);
+      expect(message.turnUsage?['ctx'], 20000);
+      expect(message.turnUsage?['in'], 10000);
+      expect(message.content?['agentContinueable'], isTrue);
+      expect(message.content?['agentContinueResumeMode'], 'approximate');
+      expect(message.content?['agentRetryable'], isTrue);
+    },
+  );
+
+  test(
     'shows an error bubble when agent fails before any visible text',
     () async {
       const conversationId = 1005;

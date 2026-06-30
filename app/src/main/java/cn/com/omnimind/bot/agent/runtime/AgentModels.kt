@@ -27,7 +27,10 @@ data class AgentFinalResponse(
     val content: String = "",
     val finishReason: String? = null,
     val latestPromptTokens: Int? = null,
-    val promptTokenThreshold: Int? = null
+    val promptTokenThreshold: Int? = null,
+    val completionTokens: Int? = null,
+    val cachedTokens: Int? = null,
+    val totalTokens: Int? = null
 )
 
 /**
@@ -40,7 +43,10 @@ sealed class AgentResult {
         val outputKind: String = AgentOutputKind.NONE.value,
         val hasUserVisibleOutput: Boolean = false,
         val latestPromptTokens: Int? = null,
-        val promptTokenThreshold: Int? = null
+        val promptTokenThreshold: Int? = null,
+        val completionTokens: Int? = null,
+        val cachedTokens: Int? = null,
+        val totalTokens: Int? = null
     ) : AgentResult()
     
     data class Error(

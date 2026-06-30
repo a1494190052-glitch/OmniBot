@@ -575,6 +575,68 @@ class AgentConversationHistorySupportTest {
     }
 
     @Test
+    fun `buildPromptSeedFromEntries skips interruptedTurn assistant entries`() {
+        // 失败那一轮被 onError 标了 interruptedTurn=true。续跑时 LLM 应当看不见
+        // 这一段(无论里面是错误文案还是断流前的半截输出),只看见之前的工具结果。
+        val entries = listOf(
+            buildUserEntry(id = 1, entryId = "u1", text = "做点事"),
+            buildToolEntry(
+                id = 2,
+                entryId = "t1",
+                toolName = "browser_use",
+                summary = "页面抓取成功"
+            ),
+            buildInterruptedAssistantEntry(
+                id = 3,
+                entryId = "a-failed",
+                text = "Failed to connect to api.example.com"
+            )
+        )
+
+        val seed = AgentConversationHistorySupport.buildPromptSeedFromEntries(entries)
+
+        // 期望: user + tool 的 assistant 包装 + tool result, 共 3 条; 失败的 assistant 被跳过。
+        assertEquals(3, seed.historyMessages.size)
+        assertEquals(
+            listOf("user", "assistant", "tool"),
+            seed.historyMessages.map { it.role }
+        )
+        // 跳过的 assistant 内容不应该出现在任何一条消息里。
+        assertTrue(
+            seed.historyMessages.none { message ->
+                (message.content?.toString().orEmpty()).contains("Failed to connect")
+            }
+        )
+        // 工具调用仍然完整保留。
+        assertEquals(1, seed.historyMessages[1].toolCalls?.size)
+        assertEquals(
+            "browser_use",
+            seed.historyMessages[1].toolCalls?.single()?.function?.name
+        )
+    }
+
+    @Test
+    fun `buildPromptSeedFromEntries replays the latest normal assistant after an interrupted one`() {
+        // 用户点 Continue 成功跑完后,失败 entry 被同 entryId 覆盖回 interruptedTurn=false;
+        // 但万一 DB 里历史地遗留了一条"interruptedTurn=true 后又跟着一条正常 assistant",
+        // 过滤后只回放正常那条。
+        val entries = listOf(
+            buildUserEntry(id = 1, entryId = "u1", text = "ask"),
+            buildInterruptedAssistantEntry(id = 2, entryId = "a-bad", text = "Network error"),
+            buildAssistantEntry(id = 3, entryId = "a-good", text = "Here is the answer")
+        )
+
+        val seed = AgentConversationHistorySupport.buildPromptSeedFromEntries(entries)
+
+        assertEquals(2, seed.historyMessages.size)
+        assertEquals(listOf("user", "assistant"), seed.historyMessages.map { it.role })
+        assertEquals(
+            "Here is the answer",
+            seed.historyMessages[1].content!!.jsonPrimitive.content
+        )
+    }
+
+    @Test
     fun `buildPromptSeedFromEntries keeps all entries after cutoff without takeLast truncation`() {
         val entries = (1L..25L).map { index ->
             buildUserEntry(
@@ -1134,6 +1196,27 @@ class AgentConversationHistorySupportTest {
             summary = text,
             payloadJson = """
                 {"id":"$entryId","type":1,"user":2,"content":{"text":"$text","id":"$entryId"},"createAt":"2026-03-27T00:00:01Z"}
+            """.trimIndent(),
+            createdAt = id,
+            updatedAt = id
+        )
+    }
+
+    private fun buildInterruptedAssistantEntry(
+        id: Long,
+        entryId: String,
+        text: String
+    ): AgentConversationEntry {
+        return AgentConversationEntry(
+            id = id,
+            conversationId = 1,
+            conversationMode = "normal",
+            entryId = entryId,
+            entryType = AgentConversationHistoryRepository.ENTRY_TYPE_ASSISTANT_MESSAGE,
+            status = AgentConversationHistoryRepository.STATUS_ERROR,
+            summary = text,
+            payloadJson = """
+                {"id":"$entryId","type":1,"user":2,"content":{"text":"$text","id":"$entryId"},"isError":true,"interruptedTurn":true,"createAt":"2026-03-27T00:00:01Z"}
             """.trimIndent(),
             createdAt = id,
             updatedAt = id

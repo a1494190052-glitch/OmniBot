@@ -24,7 +24,8 @@ class AgentToolRegistry(
     discoveredServers: List<RemoteMcpDiscoveredServer>,
     conversationMode: String = AgentConversationModePolicy.NORMAL_MODE,
     dynamicDefinitions: List<JsonObject> = emptyList(),
-    toolExposurePolicy: AgentToolExposurePolicy = AgentToolExposurePolicy.DEFAULT,
+    visibleToolNames: Set<String>? = null,
+    isLightweightToolProfile: Boolean = false,
 ) : AgentToolCatalog {
     data class RuntimeToolDescriptor(
         val name: String,
@@ -88,7 +89,7 @@ class AgentToolRegistry(
                 )
             )
         }
-        if (OobFunctionSkillProfile.isProfile(toolExposurePolicy.profile)) {
+        if (isLightweightToolProfile) {
             runtimeDefinitions.addAll(OobFunctionSkillProfile.staticToolDefinitions(locale))
         } else {
             runtimeDefinitions.addAll(OobFunctionSkillProfile.runtimeToolDefinitions(locale))
@@ -99,7 +100,7 @@ class AgentToolRegistry(
             OobFunctionSkillProfile.dynamicFunctionToolDefinitions(
                 context = context,
                 locale = locale,
-                forceInclude = OobFunctionSkillProfile.isProfile(toolExposurePolicy.profile)
+                forceInclude = isLightweightToolProfile
             )
         )
 
@@ -107,15 +108,10 @@ class AgentToolRegistry(
 
         val conversationFilteredDefinitions = AgentConversationModePolicy
             .filterToolDefinitionsForConversationMode(runtimeDefinitions, conversationMode)
-        val explicitAllowedToolNames = toolExposurePolicy.normalizedAllowedTools()
-        val allowedToolNames = toolExposurePolicy.effectiveAllowedTools()
-        val includeOobFunctionToolsForProfile = explicitAllowedToolNames.isNullOrEmpty() &&
-            toolExposurePolicy.isLightweightProfile()
+        val allowedToolNames = normalizeVisibleToolNames(visibleToolNames)
         val filteredDefinitions = filterToolDefinitionsForExposurePolicy(
             definitions = conversationFilteredDefinitions,
-            allowedToolNames = allowedToolNames,
-            includeOobFunctionToolsForProfile = includeOobFunctionToolsForProfile,
-            toolProfile = toolExposurePolicy.profile,
+            allowedToolNames = allowedToolNames
         )
 
         val toolsByName = linkedMapOf<String, ChatCompletionTool>()
@@ -163,7 +159,7 @@ class AgentToolRegistry(
             tag,
                 "registered_tools count=${toolsForModel.size} " +
                 "conversationMode=$conversationMode " +
-                "tool_profile=${toolExposurePolicy.profile.orEmpty()} " +
+                "lightweight_tool_profile=$isLightweightToolProfile " +
                 "tool_allowlist_size=${allowedToolNames?.size ?: 0} " +
                 "subagent_present=${"subagent_dispatch" in runtimeDescriptors.keys} " +
                 "memory_load_present=${"memory_load" in runtimeDescriptors.keys} " +
@@ -174,8 +170,6 @@ class AgentToolRegistry(
     private fun filterToolDefinitionsForExposurePolicy(
         definitions: List<JsonObject>,
         allowedToolNames: Set<String>?,
-        includeOobFunctionToolsForProfile: Boolean,
-        toolProfile: String?,
     ): List<JsonObject> {
         if (allowedToolNames.isNullOrEmpty()) {
             return definitions
@@ -188,21 +182,15 @@ class AgentToolRegistry(
                 ?.contentOrNull
                 ?.trim()
                 .orEmpty()
-            val toolType = function
-                ?.get("toolType")
-                ?.jsonPrimitive
-                ?.contentOrNull
-                ?.trim()
-                .orEmpty()
-            toolName in allowedToolNames ||
-                (
-                    includeOobFunctionToolsForProfile &&
-                        OobFunctionSkillProfile.shouldKeepDynamicFunctionForProfile(
-                            profile = toolProfile,
-                            toolType = toolType
-                        )
-                )
+            toolName in allowedToolNames
         }
+    }
+
+    private fun normalizeVisibleToolNames(toolNames: Set<String>?): Set<String>? {
+        return toolNames
+            ?.mapNotNull { it.trim().takeIf(String::isNotEmpty) }
+            ?.toSet()
+            ?.takeIf { it.isNotEmpty() }
     }
 
     private fun isModelHiddenDynamicTool(definition: JsonObject): Boolean {

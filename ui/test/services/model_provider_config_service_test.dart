@@ -83,6 +83,27 @@ void main() {
     );
   });
 
+  test('builds request urls for compatible-mode versioned base', () {
+    expect(
+      ModelProviderConfigService.buildModelsRequestUrl(
+        'https://dashscope.aliyuncs.com/compatible-mode/v1',
+      ),
+      'https://dashscope.aliyuncs.com/compatible-mode/v1/models',
+    );
+    expect(
+      ModelProviderConfigService.buildChatCompletionsRequestUrl(
+        'https://dashscope.aliyuncs.com/compatible-mode/v1',
+      ),
+      'https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions',
+    );
+    expect(
+      ModelProviderConfigService.buildResponsesRequestUrl(
+        'https://dashscope.aliyuncs.com/compatible-mode/v1',
+      ),
+      'https://dashscope.aliyuncs.com/compatible-mode/v1/responses',
+    );
+  });
+
   test(
     'normalizes explicit endpoint inputs before rebuilding request urls',
     () {

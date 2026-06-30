@@ -373,6 +373,7 @@ Do NOT translate or alter code snippets, file paths, identifiers, or error messa
                 enableThinking = false,
                 explicitApiBase = modelOverride?.apiBase,
                 explicitApiKey = modelOverride?.apiKey,
+                explicitCustomHeaders = modelOverride?.customHeaders,
                 explicitModel = modelOverride?.modelId,
                 explicitProtocolType = modelOverride?.protocolType,
                 explicitWireApi = modelOverride?.wireApi,

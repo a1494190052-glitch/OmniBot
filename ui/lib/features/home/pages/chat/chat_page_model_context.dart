@@ -427,15 +427,6 @@ mixin _ChatPageModelContextMixin on _ChatPageStateBase {
     );
   }
 
-  void _removeConversationModelSelectorOverlay() {
-    final entry = _conversationModelSelectorOverlayEntry;
-    if (entry == null) {
-      return;
-    }
-    _conversationModelSelectorOverlayEntry = null;
-    entry.remove();
-  }
-
   @override
   Future<void> _openConversationModelSelector(
     BuildContext anchorContext,
@@ -443,7 +434,7 @@ mixin _ChatPageModelContextMixin on _ChatPageStateBase {
     if (_activeMode != ChatPageMode.normal) {
       return;
     }
-    if (_conversationModelSelectorOverlayEntry != null) {
+    if (_conversationModelSelectorHandle != null) {
       // 已经开着,不重开。
       return;
     }
@@ -468,6 +459,9 @@ mixin _ChatPageModelContextMixin on _ChatPageStateBase {
     // 时的焦点迁移——`ModalRoute.didPush` 里检查的是 `navigator.widget.requestFocus`
     // (Navigator 的 requestFocus),不是 Route 的。详见 routes.dart:1668。要彻底
     // 跳过这条焦点迁移路径，唯一干净的办法是不走 Navigator 路由——直接挂到 Overlay。
+    // 这里走 [showOverlayGlassPopup],它把 OverlayEntry + Material + tap-outside +
+    // BackButtonListener + DismissOverlayOnKeyboardHide + playReverse 清理时序
+    // 都封装好了。
     final anchorBox = anchorContext.findRenderObject() as RenderBox?;
     final anchorRect = glassPopupAnchorFromContext(anchorContext);
     if (anchorBox == null || !anchorBox.hasSize || anchorRect == null) {
@@ -478,85 +472,44 @@ mixin _ChatPageModelContextMixin on _ChatPageStateBase {
         .clamp(260.0, 320.0)
         .toDouble();
     const popupMaxHeight = 360.0;
-    final overlayState = Overlay.of(context, rootOverlay: true);
-    final completer = Completer<_ChatModelOverrideSelection?>();
-    final wrapperKey = GlobalKey<GlassPopupOverlayContentState>();
-    OverlayEntry? entry;
-    bool dismissing = false;
 
-    Future<void> finish(_ChatModelOverrideSelection? result) async {
-      if (dismissing) return;
-      dismissing = true;
-      if (!completer.isCompleted) {
-        // 立刻 resolve caller,让 _applyDispatchSceneModelSelection 可以并行启动；
-        // 收起动画在背景里跑完即可,UI 更响应。
-        completer.complete(result);
+    final handle = showOverlayGlassPopup<_ChatModelOverrideSelection>(
+      context: context,
+      anchor: anchorRect,
+      builder: (handle) => _ConversationModelSelectorContent(
+        width: popupWidth,
+        maxHeight: popupMaxHeight,
+        profiles: _modelProviderProfiles,
+        providerModelsByProfileId: _modelOptionsByProfileId,
+        currentSelection: _activeDispatchSceneSelection,
+        // 软键盘"确定"提交搜索时:先打开 popup 的"一次性键盘隐藏豁免",再 unfocus
+        // —— 这样 IME 塌陷不会被 DismissOverlayOnKeyboardHide 当作"用户想关 popup"
+        // 误关掉,搜索结果列表得以保留。
+        onSearchSubmitted: () {
+          handle.keepOpenOnNextKeyboardHide();
+          FocusManager.instance.primaryFocus?.unfocus();
+        },
+        // dismiss 内部会立刻 complete future,让下面 await 的逻辑并行起跑;
+        // 收起动画在后台跑完,UI 更响应。
+        onSelect: (selection) => unawaited(handle.dismiss(selection)),
+      ),
+    );
+    _conversationModelSelectorHandle = handle;
+
+    try {
+      final selected = await handle.future;
+      if (selected == null) {
+        return;
       }
-      final wrapper = wrapperKey.currentState;
-      if (wrapper != null) {
-        await wrapper.playReverse();
-      }
-      if (_conversationModelSelectorOverlayEntry == entry) {
-        _removeConversationModelSelectorOverlay();
+      await _applyDispatchSceneModelSelection(
+        providerProfileId: selected.providerProfileId,
+        modelId: selected.modelId,
+      );
+    } finally {
+      if (_conversationModelSelectorHandle == handle) {
+        _conversationModelSelectorHandle = null;
       }
     }
-
-    entry = OverlayEntry(
-      builder: (overlayContext) {
-        return BackButtonListener(
-          onBackButtonPressed: () async {
-            unawaited(finish(null));
-            return true;
-          },
-          // 系统返回手势在 Android 上的处理顺序:
-          //   1. 软键盘开着时,平台层先 hide IME,Flutter 收不到 back 事件;
-          //   2. IME 关掉后再按返回才会传到 Flutter 的 BackButtonListener / PopScope。
-          // 我们的 fix 让模型 popup 打开时键盘保持可见,所以第一击会被
-          // 平台吃掉变成"只关键盘",popup 留在原地。这里用一个 listener
-          // 观察 MediaQuery.viewInsets.bottom,从 >0 跳到 0 就主动关掉 popup,
-          // 这样从用户视角一次返回就把键盘和 popup 一起收掉。
-          child: _DismissOverlayOnKeyboardHide(
-            onKeyboardHide: () => unawaited(finish(null)),
-            child: Material(
-              color: Colors.transparent,
-              child: Stack(
-                children: [
-                  Positioned.fill(
-                    child: GestureDetector(
-                      behavior: HitTestBehavior.opaque,
-                      onTap: () => unawaited(finish(null)),
-                    ),
-                  ),
-                  GlassPopupOverlayContent(
-                    key: wrapperKey,
-                    anchor: anchorRect,
-                    child: _ConversationModelSelectorContent(
-                      width: popupWidth,
-                      maxHeight: popupMaxHeight,
-                      profiles: _modelProviderProfiles,
-                      providerModelsByProfileId: _modelOptionsByProfileId,
-                      currentSelection: _activeDispatchSceneSelection,
-                      onSelect: (selection) => unawaited(finish(selection)),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        );
-      },
-    );
-    _conversationModelSelectorOverlayEntry = entry;
-    overlayState.insert(entry);
-
-    final selected = await completer.future;
-    if (selected == null) {
-      return;
-    }
-    await _applyDispatchSceneModelSelection(
-      providerProfileId: selected.providerProfileId,
-      modelId: selected.modelId,
-    );
   }
 
   @override
@@ -1119,6 +1072,7 @@ class _ConversationModelSelectorContent extends StatefulWidget {
     required this.profiles,
     required this.providerModelsByProfileId,
     required this.currentSelection,
+    this.onSearchSubmitted,
     this.onSelect,
   });
 
@@ -1127,6 +1081,7 @@ class _ConversationModelSelectorContent extends StatefulWidget {
   final List<ModelProviderProfileSummary> profiles;
   final Map<String, List<ProviderModelOption>> providerModelsByProfileId;
   final _ChatModelOverrideSelection? currentSelection;
+  final VoidCallback? onSearchSubmitted;
 
   /// 非空时由调用方决定怎么消费选择(例如关闭外层 [OverlayEntry] + 触发后续逻辑)；
   /// 为空时回退到 [Navigator.of(context).pop(selection)],兼容老的 route 调用方。
@@ -1386,6 +1341,8 @@ class _ConversationModelSelectorContentState
                 controller: _searchController,
                 autofocus: false,
                 scrollPadding: EdgeInsets.zero,
+                textInputAction: TextInputAction.search,
+                onSubmitted: (_) => widget.onSearchSubmitted?.call(),
                 cursorColor: isDark ? palette.accentPrimary : null,
                 style: TextStyle(
                   fontSize: 13,
@@ -1810,65 +1767,8 @@ class _ConversationModelSelectorContentState
   }
 }
 
-/// 监听 [MediaQuery.viewInsetsOf] 的底部 inset。键盘从可见变成不可见时 (典型场景:
-/// Android 系统返回手势在键盘弹起状态下先被平台吃掉一击,只关键盘不传到 Flutter,
-/// popup 留在原地;还有 home/外部应用切走) 调一次 [onKeyboardHide]。
-///
-/// 用法:挂在 OverlayEntry 里包住 popup 内容。这样一次系统返回就能把键盘和
-/// popup 一起收掉,符合"输入框聚焦+popup 打开→返回→什么都没了"的直觉。
-class _DismissOverlayOnKeyboardHide extends StatefulWidget {
-  const _DismissOverlayOnKeyboardHide({
-    required this.onKeyboardHide,
-    required this.child,
-  });
-
-  final VoidCallback onKeyboardHide;
-  final Widget child;
-
-  @override
-  State<_DismissOverlayOnKeyboardHide> createState() =>
-      _DismissOverlayOnKeyboardHideState();
-}
-
-class _DismissOverlayOnKeyboardHideState
-    extends State<_DismissOverlayOnKeyboardHide> {
-  /// 要把 peak 视作"键盘是真的弹起过",最小高度;<50dp 通常是 nav bar / 手势
-  /// gutter 之类的固定 inset,不算键盘。
-  static const double _kKeyboardPeakMinimum = 50.0;
-
-  /// 已经看到的最大 viewInsets.bottom。键盘高度可能随键盘类型(文本/表情/语音)
-  /// 变化,我们只把"曾经达到过的最高值"当作 peak,避免切换布局时误触发收起。
-  double _peakInset = 0;
-  bool _firedOnce = false;
-
-  @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    final bottomInset = MediaQuery.viewInsetsOf(context).bottom;
-    if (bottomInset > _peakInset) {
-      _peakInset = bottomInset;
-    }
-    // 关键时序:Android 的 IME hide 是动画的(~250ms),如果等 viewInsets.bottom
-    // 全部跌到 0 再触发收起 popup,popup 的反向动画(220ms)就要排在 IME 动画
-    // 之后跑,用户看到的延迟 ≈ 250+220 ms,popup 卡顿明显。改为检测"开始下落"
-    // 的瞬间(从 peak 跌掉 ≥ 10%),触发 popup 反向动画并行跑——这样 IME 动画
-    // 跑完时 popup 也几乎同时消失。
-    //
-    // 阈值 10% 而不是固定像素,是因为 PJD110/ColorOS 的 viewPadding 在静稳态
-    // 也会有亚像素抖动(见 composer-keyboard-debug-rig 笔记),百分比阈值
-    // 对噪声更稳健;peak 必须 ≥ 50dp 进一步保证是真键盘弹起过。
-    if (!_firedOnce &&
-        _peakInset > _kKeyboardPeakMinimum &&
-        bottomInset < _peakInset * 0.9) {
-      _firedOnce = true;
-      // 不能在 didChangeDependencies 同步调 callback——callback 可能 setState,
-      // 而本帧正在 build。延到下一帧。
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) widget.onKeyboardHide();
-      });
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) => widget.child;
-}
+// DismissOverlayOnKeyboardHide 已提取到 lib/widgets/glass_popup.dart,
+// 给 chat_input_area.dart 里的 context-usage tooltip 一起复用。
+// PR #410 引入的 shouldDismissOnKeyboardHide 一次性豁免 + bottomInset<=0 复位
+// 修复也都搬到了那里;调用方通过 [OverlayGlassPopupHandle.keepOpenOnNextKeyboardHide]
+// 触发豁免(本文件 _openConversationModelSelector 的 onSearchSubmitted 即用法)。

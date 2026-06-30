@@ -607,3 +607,248 @@ Rect? glassPopupAnchorFromGlobalPosition(
   final local = overlay.globalToLocal(globalPosition);
   return Rect.fromLTWH(local.dx, local.dy, 0, 0);
 }
+
+/// 把 [GlassPopupOverlayContent] 打包成"开箱即用"的 [OverlayEntry] popup —— 一行
+/// 调用就能拿到一份覆盖完整生命周期的 popup:
+///   - 透明 [Material] 祖先(避免子树 [Text] 回落到 debug fallback 样式: 黄色
+///     下划线 + 红色波浪);
+///   - [BackButtonListener] 接管系统返回(可选);
+///   - [DismissOverlayOnKeyboardHide] 处理"软键盘弹起时返回手势被 IME 吃一击,
+///     Flutter 收不到 back"的特殊路径(可选);
+///   - [Positioned.fill] tap-outside 兜底关闭(可选);
+///   - [GlassPopupOverlayContent.playReverse] 收起动画 + [OverlayEntry.remove]
+///     的清理时序(含 `_dismissing` 防重入)。
+///
+/// 返回 [OverlayGlassPopupHandle]:
+///   - `await handle.future` 拿到 [dismiss] 携带的返回值;
+///   - `handle.dismiss([result])` 主动关闭(走 [playReverse]);
+///   - `handle.isOpen` 查当前是否还在显示。
+///
+/// 为什么不能走 [showGlassPopup] / [Navigator.push]: 见 [GlassPopupOverlayContent]
+/// 文档 —— 软键盘弹起时 push route 会调 `setFirstFocus` 抢走 TextField 焦点 → IME
+/// 塌陷 → 输入栏下沉 → popup 锚点错位。挂 Overlay 是唯一干净的绕道。
+class OverlayGlassPopupHandle<T> {
+  OverlayGlassPopupHandle._();
+
+  final Completer<T?> _completer = Completer<T?>();
+  final GlobalKey<GlassPopupOverlayContentState> _wrapperKey =
+      GlobalKey<GlassPopupOverlayContentState>();
+  OverlayEntry? _entry;
+  bool _dismissing = false;
+  bool _keepOpenOnNextKeyboardHide = false;
+
+  /// 等待 dismiss 携带的返回值。被取消(tap-outside / back / keyboard hide /
+  /// 调用方主动 dismiss 不传 result) 时 resolve 为 `null`。
+  Future<T?> get future => _completer.future;
+
+  /// popup 是否还挂在 overlay 上(尚未走完关闭动画 + remove)。
+  bool get isOpen => _entry != null;
+
+  /// 标记"接下来的这一次键盘隐藏不要关 popup"——豁免一次性。典型用法:popup 内部
+  /// 有搜索框,用户按软键盘的"确定"提交搜索时主动 unfocus,IME 会塌陷,但我们
+  /// 希望 popup 还留着展示搜索结果。调用方先打开这个标志再 unfocus 即可。
+  ///
+  /// 内部由 [showOverlayGlassPopup] 在挂的 [DismissOverlayOnKeyboardHide] 上
+  /// 通过 [_consumeKeepOpenForNextKeyboardHide] 消费,消费完即复位,下一次键盘
+  /// 隐藏(如系统返回手势先关 IME) 仍然会正常关 popup。
+  void keepOpenOnNextKeyboardHide() {
+    _keepOpenOnNextKeyboardHide = true;
+  }
+
+  bool _consumeKeepOpenForNextKeyboardHide() {
+    if (_keepOpenOnNextKeyboardHide) {
+      _keepOpenOnNextKeyboardHide = false;
+      return true;
+    }
+    return false;
+  }
+
+  /// 主动关闭 popup。可重复调用(后续调用是 no-op)。
+  ///
+  /// 时序: complete future(让 [future] 的 await 立刻 resolve,UI 后续逻辑可以并行
+  /// 起跑) → await playReverse 走完收起动画 → 从 overlay 摘除 entry。
+  Future<void> dismiss([T? result]) async {
+    if (_dismissing) return;
+    _dismissing = true;
+    if (!_completer.isCompleted) {
+      _completer.complete(result);
+    }
+    final wrapper = _wrapperKey.currentState;
+    if (wrapper != null) {
+      await wrapper.playReverse();
+    }
+    final entry = _entry;
+    _entry = null;
+    if (entry != null && entry.mounted) {
+      entry.remove();
+    }
+  }
+}
+
+/// 见 [OverlayGlassPopupHandle] 类的文档。
+OverlayGlassPopupHandle<T> showOverlayGlassPopup<T>({
+  required BuildContext context,
+  required Rect anchor,
+  required Widget Function(OverlayGlassPopupHandle<T> handle) builder,
+  bool preferBelow = true,
+  double verticalGap = 6,
+  EdgeInsets screenPadding = const EdgeInsets.all(8),
+  Alignment? unfoldAlignment,
+  GlassPopupHorizontalPlacement horizontalPlacement =
+      GlassPopupHorizontalPlacement.edgeAlign,
+  Duration transitionDuration = const Duration(milliseconds: 380),
+  Duration reverseTransitionDuration = const Duration(milliseconds: 220),
+  Curve curve = Curves.easeOutCubic,
+  Curve reverseCurve = Curves.easeInCubic,
+  bool useRootOverlay = true,
+  bool dismissOnTapOutside = true,
+  bool dismissOnKeyboardHide = true,
+  bool dismissOnBackButton = true,
+}) {
+  final handle = OverlayGlassPopupHandle<T>._();
+  final overlayState = Overlay.of(context, rootOverlay: useRootOverlay);
+
+  final entry = OverlayEntry(
+    builder: (overlayContext) {
+      Widget tree = Material(
+        type: MaterialType.transparency,
+        child: Stack(
+          children: [
+            if (dismissOnTapOutside)
+              Positioned.fill(
+                child: GestureDetector(
+                  behavior: HitTestBehavior.opaque,
+                  onTap: () => unawaited(handle.dismiss()),
+                ),
+              ),
+            GlassPopupOverlayContent(
+              key: handle._wrapperKey,
+              anchor: anchor,
+              preferBelow: preferBelow,
+              verticalGap: verticalGap,
+              screenPadding: screenPadding,
+              unfoldAlignment: unfoldAlignment,
+              horizontalPlacement: horizontalPlacement,
+              duration: transitionDuration,
+              reverseDuration: reverseTransitionDuration,
+              curve: curve,
+              reverseCurve: reverseCurve,
+              child: builder(handle),
+            ),
+          ],
+        ),
+      );
+      if (dismissOnKeyboardHide) {
+        tree = DismissOverlayOnKeyboardHide(
+          // popup 内有搜索框时,调用方按下软键盘"确定"会先调
+          // [OverlayGlassPopupHandle.keepOpenOnNextKeyboardHide] 然后 unfocus,
+          // IME 塌陷的这一次会被这里"消费豁免",popup 保留可见。
+          shouldDismissOnKeyboardHide: () =>
+              !handle._consumeKeepOpenForNextKeyboardHide(),
+          onKeyboardHide: () => unawaited(handle.dismiss()),
+          child: tree,
+        );
+      }
+      if (dismissOnBackButton) {
+        tree = BackButtonListener(
+          onBackButtonPressed: () async {
+            unawaited(handle.dismiss());
+            return true;
+          },
+          child: tree,
+        );
+      }
+      return tree;
+    },
+  );
+
+  handle._entry = entry;
+  overlayState.insert(entry);
+  return handle;
+}
+
+/// 监听 [MediaQuery.viewInsetsOf] 的底部 inset。键盘从可见变成不可见时 (典型场景:
+/// Android 系统返回手势在键盘弹起状态下先被平台吃掉一击,只关键盘不传到 Flutter,
+/// popup 留在原地;还有 home/外部应用切走) 调一次 [onKeyboardHide]。
+///
+/// 用法:挂在 OverlayEntry 里包住 popup 内容。这样一次系统返回就能把键盘和
+/// popup 一起收掉,符合"输入框聚焦+popup 打开→返回→什么都没了"的直觉。
+class DismissOverlayOnKeyboardHide extends StatefulWidget {
+  const DismissOverlayOnKeyboardHide({
+    super.key,
+    required this.onKeyboardHide,
+    required this.child,
+    this.shouldDismissOnKeyboardHide,
+  });
+
+  final VoidCallback onKeyboardHide;
+  final Widget child;
+
+  /// 可选谓词。返回 `false` 时本次键盘隐藏不触发 [onKeyboardHide],但 `_firedOnce`
+  /// 仍标记为已触发——也就是说"这一次豁免"是把这次键盘隐藏整个跳过去,而不是
+  /// 推迟到下次键盘再落时补触发。
+  ///
+  /// 典型用法:popup 内嵌搜索框,按软键盘"确定"主动 unfocus 时希望保留 popup;
+  /// 由调用方提前打开一次性豁免标志位,这里就会读到 `false`、跳过本次 dismiss。
+  final bool Function()? shouldDismissOnKeyboardHide;
+
+  @override
+  State<DismissOverlayOnKeyboardHide> createState() =>
+      _DismissOverlayOnKeyboardHideState();
+}
+
+class _DismissOverlayOnKeyboardHideState
+    extends State<DismissOverlayOnKeyboardHide> {
+  /// 要把 peak 视作"键盘是真的弹起过",最小高度;<50dp 通常是 nav bar / 手势
+  /// gutter 之类的固定 inset,不算键盘。
+  static const double _kKeyboardPeakMinimum = 50.0;
+
+  /// 已经看到的最大 viewInsets.bottom。键盘高度可能随键盘类型(文本/表情/语音)
+  /// 变化,我们只把"曾经达到过的最高值"当作 peak,避免切换布局时误触发收起。
+  double _peakInset = 0;
+  bool _firedOnce = false;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final bottomInset = MediaQuery.viewInsetsOf(context).bottom;
+    // 键盘从未弹起(或已经完全收起)时把 peak/firedOnce 复位。否则:用户打开 popup
+    // → 键盘弹一次塌一次 → _firedOnce 永远停在 true → 此后键盘再弹起再收起,
+    // 这个 widget 不会再触发 dismiss,Overlay 看起来"豁免错了次"。
+    if (bottomInset <= 0) {
+      _peakInset = 0;
+      _firedOnce = false;
+      return;
+    }
+    if (bottomInset > _peakInset) {
+      _peakInset = bottomInset;
+    }
+    // 关键时序:Android 的 IME hide 是动画的(~250ms),如果等 viewInsets.bottom
+    // 全部跌到 0 再触发收起 popup,popup 的反向动画(220ms)就要排在 IME 动画
+    // 之后跑,用户看到的延迟 ≈ 250+220 ms,popup 卡顿明显。改为检测"开始下落"
+    // 的瞬间(从 peak 跌掉 ≥ 10%),触发 popup 反向动画并行跑——这样 IME 动画
+    // 跑完时 popup 也几乎同时消失。
+    //
+    // 阈值 10% 而不是固定像素,是因为 PJD110/ColorOS 的 viewPadding 在静稳态
+    // 也会有亚像素抖动(见 composer-keyboard-debug-rig 笔记),百分比阈值
+    // 对噪声更稳健;peak 必须 ≥ 50dp 进一步保证是真键盘弹起过。
+    if (!_firedOnce &&
+        _peakInset > _kKeyboardPeakMinimum &&
+        bottomInset < _peakInset * 0.9) {
+      _firedOnce = true;
+      // 豁免本次键盘隐藏:谓词返回 false 就跳过整个 dismiss 路径,_firedOnce
+      // 仍保持 true 直到下次键盘从无到有再 reset。
+      if (widget.shouldDismissOnKeyboardHide?.call() == false) {
+        return;
+      }
+      // 不能在 didChangeDependencies 同步调 callback——callback 可能 setState,
+      // 而本帧正在 build。延到下一帧。
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) widget.onKeyboardHide();
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => widget.child;
+}
