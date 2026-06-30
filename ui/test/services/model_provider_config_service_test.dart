@@ -279,4 +279,35 @@ void main() {
       expect(enriched.single.toolCall, isTrue);
     },
   );
+
+  test(
+    'buildChatModelOptions keeps only manual ids and reuses remote metadata',
+    () {
+      final models = ModelProviderConfigService.buildChatModelOptions(
+        remoteModels: const [
+          ProviderModelOption(
+            id: 'gpt-4o-mini',
+            displayName: 'GPT-4o Mini',
+            ownedBy: 'openai',
+            contextLimit: 128000,
+          ),
+          ProviderModelOption(
+            id: 'gpt-4.1',
+            displayName: 'GPT-4.1',
+            ownedBy: 'openai',
+          ),
+        ],
+        manualModelIds: const ['gpt-4o-mini', 'custom-model', 'gpt-4o-mini'],
+      );
+
+      expect(models.map((item) => item.id).toList(), [
+        'gpt-4o-mini',
+        'custom-model',
+      ]);
+      expect(models.first.displayName, 'GPT-4o Mini');
+      expect(models.first.contextLimit, 128000);
+      expect(models.last.displayName, 'custom-model');
+      expect(models.last.ownedBy, 'manual');
+    },
+  );
 }

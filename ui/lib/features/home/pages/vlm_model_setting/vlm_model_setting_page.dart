@@ -198,6 +198,8 @@ class _VlmModelSettingPageState extends State<VlmModelSettingPage> {
   final TextEditingController _nameController = TextEditingController();
   final TextEditingController _baseUrlController = TextEditingController();
   final TextEditingController _apiKeyController = TextEditingController();
+  final TextEditingController _remoteModelSearchController =
+      TextEditingController();
   final FocusNode _nameFocusNode = FocusNode();
   final FocusNode _baseUrlFocusNode = FocusNode();
   final FocusNode _apiKeyFocusNode = FocusNode();
@@ -397,6 +399,51 @@ class _VlmModelSettingPageState extends State<VlmModelSettingPage> {
     return entries;
   }
 
+  List<ProviderModelOption> get _chatAddedModels => _manualModels;
+
+  List<ProviderModelOption> get _filteredRemoteModels {
+    final query = _remoteModelSearchController.text.trim().toLowerCase();
+    if (query.isEmpty) {
+      return _remoteModels;
+    }
+    return _remoteModels.where((model) {
+      final modelId = model.id.toLowerCase();
+      final displayName = model.displayName.toLowerCase();
+      return modelId.contains(query) || displayName.contains(query);
+    }).toList();
+  }
+
+  List<MapEntry<String, List<ProviderModelOption>>> _groupProviderModels(
+    List<ProviderModelOption> models,
+  ) {
+    final groups = <String, List<ProviderModelOption>>{};
+    final current = _currentProfile;
+    for (final model in models) {
+      final groupKey = ModelVendorCatalog.groupKeyFor(
+        model.id,
+        ownedBy: model.ownedBy,
+        providerId: model.modelsDevProviderId ?? current?.id,
+        providerName: current?.name,
+      );
+      groups.putIfAbsent(groupKey, () => <ProviderModelOption>[]).add(model);
+    }
+    final entries = groups.entries.toList()
+      ..sort((a, b) {
+        final orderCompare = ModelVendorCatalog.orderOf(
+          a.key,
+        ).compareTo(ModelVendorCatalog.orderOf(b.key));
+        if (orderCompare != 0) return orderCompare;
+        return a.key.compareTo(b.key);
+      });
+    return entries;
+  }
+
+  List<MapEntry<String, List<ProviderModelOption>>> get _addedModelGroups =>
+      _groupProviderModels(_chatAddedModels);
+
+  List<MapEntry<String, List<ProviderModelOption>>> get _remoteModelGroups =>
+      _groupProviderModels(_filteredRemoteModels);
+
   String _modelGroupExpansionKey(String groupName) {
     final profileKey = _editingProfileId.trim().isEmpty
         ? 'default'
@@ -462,6 +509,7 @@ class _VlmModelSettingPageState extends State<VlmModelSettingPage> {
     _nameController.addListener(_onProfileChanged);
     _baseUrlController.addListener(_onProfileChanged);
     _apiKeyController.addListener(_onProfileChanged);
+    _remoteModelSearchController.addListener(_handleRemoteModelSearchChanged);
     _nameFocusNode.addListener(_onProfileFieldFocusChanged);
     _baseUrlFocusNode.addListener(_onProfileFieldFocusChanged);
     _apiKeyFocusNode.addListener(_onProfileFieldFocusChanged);
@@ -481,9 +529,13 @@ class _VlmModelSettingPageState extends State<VlmModelSettingPage> {
     _nameController.removeListener(_onProfileChanged);
     _baseUrlController.removeListener(_onProfileChanged);
     _apiKeyController.removeListener(_onProfileChanged);
+    _remoteModelSearchController.removeListener(
+      _handleRemoteModelSearchChanged,
+    );
     _nameController.dispose();
     _baseUrlController.dispose();
     _apiKeyController.dispose();
+    _remoteModelSearchController.dispose();
     _nameFocusNode.dispose();
     _baseUrlFocusNode.dispose();
     _apiKeyFocusNode.dispose();
@@ -491,6 +543,13 @@ class _VlmModelSettingPageState extends State<VlmModelSettingPage> {
       entry.dispose();
     }
     super.dispose();
+  }
+
+  void _handleRemoteModelSearchChanged() {
+    if (!mounted) {
+      return;
+    }
+    setState(() {});
   }
 
   void _onProfileChanged() {
@@ -577,6 +636,31 @@ class _VlmModelSettingPageState extends State<VlmModelSettingPage> {
     } catch (_) {
       // no-op
     }
+  }
+
+  bool _hasAnyExpandedProviderGroups<T>(
+    List<MapEntry<String, List<T>>> groups,
+  ) {
+    return groups.any((group) => _isModelGroupExpanded(group.key));
+  }
+
+  bool _areAllProviderGroupsCollapsed<T>(
+    List<MapEntry<String, List<T>>> groups,
+  ) {
+    return groups.isNotEmpty &&
+        groups.every((group) => !_isModelGroupExpanded(group.key));
+  }
+
+  void _toggleAllProviderGroups<T>(List<MapEntry<String, List<T>>> groups) {
+    if (groups.isEmpty) {
+      return;
+    }
+    final shouldExpand = _areAllProviderGroupsCollapsed(groups);
+    setState(() {
+      for (final group in groups) {
+        _expandedModelGroups[_modelGroupExpansionKey(group.key)] = shouldExpand;
+      }
+    });
   }
 
   Future<void> _persistProfileDraft() async {
@@ -1192,8 +1276,7 @@ class _VlmModelSettingPageState extends State<VlmModelSettingPage> {
     }
 
     final existsInManual = _manualModelIds.any((item) => item == normalized);
-    final existsInRemote = _remoteModels.any((item) => item.id == normalized);
-    if (existsInManual || existsInRemote) {
+    if (existsInManual) {
       showToast(context.l10n.modelAlreadyExists, type: ToastType.warning);
       return;
     }
@@ -1217,53 +1300,97 @@ class _VlmModelSettingPageState extends State<VlmModelSettingPage> {
     showToast(context.l10n.modelAdded, type: ToastType.success);
   }
 
-  Future<void> _deleteModel(_ProviderModelItem item) async {
+  Future<void> _addModelToChatWhitelist(ProviderModelOption model) async {
     final current = _currentProfile;
-    if (current == null || _deletingModelIds.contains(item.id)) {
+    if (current == null || _manualModelIds.contains(model.id)) {
+      return;
+    }
+    final nextManual = [..._manualModelIds, model.id];
+    final nextManualModels = await _loadManualModelsForProfile(
+      current,
+      nextManual,
+    );
+    if (!mounted) {
+      return;
+    }
+    setState(() {
+      _manualModelIds = nextManual;
+      _manualModels = nextManualModels;
+    });
+    try {
+      await ModelProviderConfigService.saveManualModelIds(
+        profileId: current.id,
+        ids: nextManual,
+      );
+      if (!mounted) {
+        return;
+      }
+      showToast(context.l10n.modelAdded, type: ToastType.success);
+    } catch (_) {
+      if (!mounted) {
+        return;
+      }
+      final fallbackManualModels = await _loadManualModelsForProfile(
+        current,
+        _manualModelIds.where((id) => id != model.id).toList(),
+      );
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _manualModelIds = _manualModelIds
+            .where((id) => id != model.id)
+            .toList();
+        _manualModels = fallbackManualModels;
+      });
+      showToast(_headerText('添加失败', 'Failed to add'), type: ToastType.error);
+    }
+  }
+
+  Future<void> _removeModelFromChatWhitelist(ProviderModelOption model) async {
+    final current = _currentProfile;
+    if (current == null || _deletingModelIds.contains(model.id)) {
       return;
     }
 
     final prevManual = List<String>.from(_manualModelIds);
     final prevManualModels = List<ProviderModelOption>.from(_manualModels);
-    final prevRemote = List<ProviderModelOption>.from(_remoteModels);
 
     setState(() {
-      _deletingModelIds = {..._deletingModelIds, item.id};
-      _manualModelIds = _manualModelIds.where((id) => id != item.id).toList();
-      _manualModels = _manualModels.where((m) => m.id != item.id).toList();
-      _remoteModels = _remoteModels.where((m) => m.id != item.id).toList();
+      _deletingModelIds = {..._deletingModelIds, model.id};
+      _manualModelIds = _manualModelIds.where((id) => id != model.id).toList();
+      _manualModels = _manualModels.where((m) => m.id != model.id).toList();
     });
 
     try {
-      await Future.wait([
-        ModelProviderConfigService.saveManualModelIds(
-          profileId: current.id,
-          ids: _manualModelIds,
-        ),
-        ModelProviderConfigService.saveCachedFetchedModels(
-          profileId: current.id,
-          apiBase: _baseUrlController.text.trim(),
-          models: _remoteModels,
-        ),
-      ]);
+      await ModelProviderConfigService.saveManualModelIds(
+        profileId: current.id,
+        ids: _manualModelIds,
+      );
 
       if (!mounted) return;
-      showToast(context.l10n.modelDeleted, type: ToastType.success);
+      showToast(
+        _headerText('已从聊天页移除', 'Removed from chat'),
+        type: ToastType.success,
+      );
     } catch (_) {
       if (!mounted) return;
       setState(() {
         _manualModelIds = prevManual;
         _manualModels = prevManualModels;
-        _remoteModels = prevRemote;
       });
-      showToast(context.l10n.modelDeleteFailed, type: ToastType.error);
+      showToast(_headerText('移除失败', 'Failed to remove'), type: ToastType.error);
     } finally {
       if (mounted) {
         setState(() {
-          _deletingModelIds = {..._deletingModelIds}..remove(item.id);
+          _deletingModelIds = {..._deletingModelIds}..remove(model.id);
         });
       }
     }
+  }
+
+  Future<void> _deleteModel(_ProviderModelItem item) async {
+    await _removeModelFromChatWhitelist(item.model);
   }
 
   Future<void> _selectProviderType(String value) async {
@@ -2414,6 +2541,168 @@ class _VlmModelSettingPageState extends State<VlmModelSettingPage> {
     );
   }
 
+  Widget _buildProviderModelRow({
+    required ProviderModelOption model,
+    required bool added,
+    required VoidCallback? onAction,
+    required String actionLabel,
+    bool actionFilled = false,
+    bool actionDisabled = false,
+    bool removable = false,
+  }) {
+    final isBusy = _deletingModelIds.contains(model.id);
+    final metadataWidgets = _buildModelMetadataWidgets(model);
+    final accentColor = _isDarkTheme
+        ? context.omniPalette.accentPrimary
+        : const Color(0xFF2C7FEB);
+
+    Widget row = Material(
+      color: Colors.transparent,
+      child: SizedBox(
+        width: double.infinity,
+        height: 44,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 4),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              Expanded(
+                child: Text(
+                  model.id,
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                    color: _primaryTextColor,
+                    fontFamily: 'PingFang SC',
+                    height: 1.2,
+                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+              const SizedBox(width: 10),
+              SizedBox(
+                width: 120,
+                child: SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  physics: const BouncingScrollPhysics(),
+                  reverse: true,
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      for (
+                        var index = 0;
+                        index < metadataWidgets.length;
+                        index++
+                      ) ...[
+                        if (index > 0) const SizedBox(width: 6),
+                        metadataWidgets[index],
+                      ],
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              TextButton(
+                onPressed: (actionDisabled || isBusy) ? null : onAction,
+                style: TextButton.styleFrom(
+                  minimumSize: const Size(68, 30),
+                  padding: const EdgeInsets.symmetric(horizontal: 10),
+                  foregroundColor: actionFilled ? Colors.white : accentColor,
+                  backgroundColor: actionFilled
+                      ? accentColor
+                      : Colors.transparent,
+                  disabledForegroundColor: _tertiaryTextColor,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(999),
+                    side: BorderSide(
+                      color: actionFilled
+                          ? accentColor
+                          : (_isDarkTheme
+                                ? context.omniPalette.borderSubtle
+                                : const Color(0x1F000000)),
+                    ),
+                  ),
+                  textStyle: const TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    fontFamily: 'PingFang SC',
+                  ),
+                ),
+                child: isBusy
+                    ? const SizedBox(
+                        width: 12,
+                        height: 12,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : Text(actionLabel),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+
+    if (!removable) {
+      return row;
+    }
+
+    return IgnorePointer(
+      ignoring: isBusy,
+      child: AnimatedOpacity(
+        duration: const Duration(milliseconds: 180),
+        opacity: isBusy ? 0.72 : 1,
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            final initialActionWidth =
+                constraints.maxWidth * _modelDeleteExtentRatio;
+            final deleteIconRightPadding =
+                ((initialActionWidth - _modelDeleteIconSize) / 2)
+                    .clamp(0.0, double.infinity)
+                    .toDouble();
+            return Slidable(
+              key: ValueKey<String>('provider-model-added-${model.id}'),
+              groupTag: 'provider-added-model-items',
+              closeOnScroll: true,
+              endActionPane: ActionPane(
+                motion: const BehindMotion(),
+                extentRatio: _modelDeleteExtentRatio,
+                dismissible: DismissiblePane(
+                  dismissThreshold: 0.4,
+                  closeOnCancel: true,
+                  motion: const InversedDrawerMotion(),
+                  onDismissed: () => _removeModelFromChatWhitelist(model),
+                ),
+                children: [
+                  CustomSlidableAction(
+                    onPressed: (_) => _removeModelFromChatWhitelist(model),
+                    backgroundColor: AppColors.alertRed,
+                    borderRadius: _modelDeleteActionRadius,
+                    padding: EdgeInsets.zero,
+                    alignment: Alignment.centerRight,
+                    child: Padding(
+                      padding: EdgeInsets.only(right: deleteIconRightPadding),
+                      child: SvgPicture.asset(
+                        'assets/memory/memory_delete.svg',
+                        width: _modelDeleteIconSize,
+                        height: _modelDeleteIconSize,
+                        colorFilter: const ColorFilter.mode(
+                          Colors.white,
+                          BlendMode.srcIn,
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              child: row,
+            );
+          },
+        ),
+      ),
+    );
+  }
+
   Future<void> _openProviderSwitchMenu(BuildContext anchorContext) async {
     if (_profiles.isEmpty) {
       return;
@@ -2662,8 +2951,9 @@ class _VlmModelSettingPageState extends State<VlmModelSettingPage> {
 
   @override
   Widget build(BuildContext context) {
-    final modelItems = _modelItems;
-    final modelGroups = _modelGroups;
+    final addedModelGroups = _addedModelGroups;
+    final remoteModelGroups = _remoteModelGroups;
+    final filteredRemoteModels = _filteredRemoteModels;
 
     return Scaffold(
       backgroundColor: _pageBackground,
@@ -2855,7 +3145,10 @@ class _VlmModelSettingPageState extends State<VlmModelSettingPage> {
                           children: [
                             Expanded(
                               child: Text(
-                                context.l10n.modelListCount(modelItems.length),
+                                _headerText(
+                                  '已添加到聊天页 ${_chatAddedModels.length} 个',
+                                  '${_chatAddedModels.length} added to chat',
+                                ),
                                 style: TextStyle(
                                   color: _secondaryTextColor,
                                   fontSize: 12,
@@ -2870,23 +3163,63 @@ class _VlmModelSettingPageState extends State<VlmModelSettingPage> {
                                   ? null
                                   : _promptAddModel,
                             ),
-                            const SizedBox(width: 8),
-                            _buildModelActionButton(
-                              svg: _kArrowBigDownSvg,
-                              onPressed: _isFetchingModels
-                                  ? null
-                                  : _fetchModelsLocalized,
-                              highlighted: true,
-                              loading: _isFetchingModels,
-                            ),
                             const SizedBox(width: 4),
-                            _buildModelGroupToggleButton(modelGroups),
+                            Tooltip(
+                              message:
+                                  _areAllProviderGroupsCollapsed(
+                                    addedModelGroups,
+                                  )
+                                  ? _headerText('展开全部分组', 'Expand all groups')
+                                  : _headerText(
+                                      '折叠全部分组',
+                                      'Collapse all groups',
+                                    ),
+                              child: GestureDetector(
+                                onTap: addedModelGroups.isEmpty
+                                    ? null
+                                    : () => _toggleAllProviderGroups(
+                                        addedModelGroups,
+                                      ),
+                                behavior: HitTestBehavior.opaque,
+                                child: AnimatedOpacity(
+                                  duration: const Duration(milliseconds: 180),
+                                  opacity: addedModelGroups.isEmpty ? 0.36 : 1,
+                                  child: SizedBox(
+                                    width: 48,
+                                    height: 44,
+                                    child: Center(
+                                      child: SvgPicture.asset(
+                                        _hasAnyExpandedProviderGroups(
+                                              addedModelGroups,
+                                            )
+                                            ? _kGroupToggleOpenIconAsset
+                                            : _kGroupToggleClosedIconAsset,
+                                        width: 20,
+                                        height: 20,
+                                        colorFilter: ColorFilter.mode(
+                                          _hasAnyExpandedProviderGroups(
+                                                addedModelGroups,
+                                              )
+                                              ? context
+                                                    .omniPalette
+                                                    .accentPrimary
+                                              : context
+                                                    .omniPalette
+                                                    .textSecondary,
+                                          BlendMode.srcIn,
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ),
                           ],
                         ),
                         const SizedBox(height: 12),
                         SizedBox(
-                          height: 280,
-                          child: modelItems.isEmpty
+                          height: 220,
+                          child: _chatAddedModels.isEmpty
                               ? Padding(
                                   padding: const EdgeInsets.all(10),
                                   child: Center(
@@ -2904,7 +3237,10 @@ class _VlmModelSettingPageState extends State<VlmModelSettingPage> {
                                         ),
                                         const SizedBox(height: 10),
                                         Text(
-                                          context.l10n.modelAddPrompt,
+                                          _headerText(
+                                            '暂无已添加模型，请先从完整模型列表添加',
+                                            'No added models yet. Add from the full model list below.',
+                                          ),
                                           style: TextStyle(
                                             color: _secondaryTextColor,
                                             fontSize: 14,
@@ -2923,12 +3259,250 @@ class _VlmModelSettingPageState extends State<VlmModelSettingPage> {
                                     2,
                                     8,
                                   ),
-                                  itemCount: modelGroups.length,
+                                  itemCount: addedModelGroups.length,
                                   itemBuilder: (context, index) {
-                                    final group = modelGroups[index];
-                                    return _buildModelGroupSection(
-                                      group,
-                                      isLast: index == modelGroups.length - 1,
+                                    final group = addedModelGroups[index];
+                                    final expanded = _isModelGroupExpanded(
+                                      group.key,
+                                    );
+                                    return Padding(
+                                      padding: EdgeInsets.only(
+                                        bottom:
+                                            index == addedModelGroups.length - 1
+                                            ? 0
+                                            : 12,
+                                      ),
+                                      child: Column(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.stretch,
+                                        children: [
+                                          _buildModelGroupHeader(
+                                            group.key,
+                                            group.value.length,
+                                            expanded: expanded,
+                                            onTap: () =>
+                                                _toggleModelGroup(group.key),
+                                          ),
+                                          if (expanded)
+                                            ...group.value.map(
+                                              (model) => _buildProviderModelRow(
+                                                model: model,
+                                                added: true,
+                                                actionLabel: _headerText(
+                                                  '移除',
+                                                  'Remove',
+                                                ),
+                                                onAction: () =>
+                                                    _removeModelFromChatWhitelist(
+                                                      model,
+                                                    ),
+                                                removable: true,
+                                              ),
+                                            ),
+                                        ],
+                                      ),
+                                    );
+                                  },
+                                ),
+                        ),
+                        const SizedBox(height: 18),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: Text(
+                                _headerText(
+                                  '完整模型列表 ${_remoteModels.length} 个',
+                                  '${_remoteModels.length} full models',
+                                ),
+                                style: TextStyle(
+                                  color: _secondaryTextColor,
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w500,
+                                  fontFamily: 'PingFang SC',
+                                ),
+                              ),
+                            ),
+                            _buildModelActionButton(
+                              svg: _kArrowBigDownSvg,
+                              onPressed: _isFetchingModels
+                                  ? null
+                                  : _fetchModelsLocalized,
+                              highlighted: true,
+                              loading: _isFetchingModels,
+                            ),
+                            const SizedBox(width: 4),
+                            Tooltip(
+                              message:
+                                  _areAllProviderGroupsCollapsed(
+                                    remoteModelGroups,
+                                  )
+                                  ? _headerText('展开全部分组', 'Expand all groups')
+                                  : _headerText(
+                                      '折叠全部分组',
+                                      'Collapse all groups',
+                                    ),
+                              child: GestureDetector(
+                                onTap: remoteModelGroups.isEmpty
+                                    ? null
+                                    : () => _toggleAllProviderGroups(
+                                        remoteModelGroups,
+                                      ),
+                                behavior: HitTestBehavior.opaque,
+                                child: AnimatedOpacity(
+                                  duration: const Duration(milliseconds: 180),
+                                  opacity: remoteModelGroups.isEmpty ? 0.36 : 1,
+                                  child: SizedBox(
+                                    width: 48,
+                                    height: 44,
+                                    child: Center(
+                                      child: SvgPicture.asset(
+                                        _hasAnyExpandedProviderGroups(
+                                              remoteModelGroups,
+                                            )
+                                            ? _kGroupToggleOpenIconAsset
+                                            : _kGroupToggleClosedIconAsset,
+                                        width: 20,
+                                        height: 20,
+                                        colorFilter: ColorFilter.mode(
+                                          _hasAnyExpandedProviderGroups(
+                                                remoteModelGroups,
+                                              )
+                                              ? context
+                                                    .omniPalette
+                                                    .accentPrimary
+                                              : context
+                                                    .omniPalette
+                                                    .textSecondary,
+                                          BlendMode.srcIn,
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          _headerText(
+                            '从当前 Provider 拉取，仅用于挑选加入聊天页',
+                            'Fetched from the current provider and used only for choosing models for chat.',
+                          ),
+                          style: TextStyle(
+                            color: _tertiaryTextColor,
+                            fontSize: 12,
+                            fontFamily: 'PingFang SC',
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        TextField(
+                          key: const Key('provider-remote-model-search'),
+                          controller: _remoteModelSearchController,
+                          style: context.omniInputTextStyle,
+                          decoration: _buildInputDecoration(
+                            label: _headerText('搜索模型 ID', 'Search model ID'),
+                            hint: 'gpt-4o',
+                            suffixIcon:
+                                _remoteModelSearchController.text.trim().isEmpty
+                                ? null
+                                : IconButton(
+                                    splashRadius: 18,
+                                    onPressed: () {
+                                      _remoteModelSearchController.clear();
+                                    },
+                                    icon: Icon(
+                                      Icons.close_rounded,
+                                      color: _tertiaryTextColor,
+                                      size: 18,
+                                    ),
+                                  ),
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        SizedBox(
+                          height: 320,
+                          child: filteredRemoteModels.isEmpty
+                              ? Padding(
+                                  padding: const EdgeInsets.all(10),
+                                  child: Center(
+                                    child: Text(
+                                      _remoteModels.isEmpty
+                                          ? _headerText(
+                                              '暂无完整模型，请先获取模型列表',
+                                              'No full models yet. Fetch the model list first.',
+                                            )
+                                          : _headerText(
+                                              '没有匹配的模型',
+                                              'No matching models',
+                                            ),
+                                      style: TextStyle(
+                                        color: _secondaryTextColor,
+                                        fontSize: 14,
+                                        fontWeight: FontWeight.w600,
+                                        fontFamily: 'PingFang SC',
+                                      ),
+                                      textAlign: TextAlign.center,
+                                    ),
+                                  ),
+                                )
+                              : ListView.builder(
+                                  padding: const EdgeInsets.fromLTRB(
+                                    2,
+                                    2,
+                                    2,
+                                    8,
+                                  ),
+                                  itemCount: remoteModelGroups.length,
+                                  itemBuilder: (context, index) {
+                                    final group = remoteModelGroups[index];
+                                    final expanded = _isModelGroupExpanded(
+                                      group.key,
+                                    );
+                                    return Padding(
+                                      padding: EdgeInsets.only(
+                                        bottom:
+                                            index ==
+                                                remoteModelGroups.length - 1
+                                            ? 0
+                                            : 12,
+                                      ),
+                                      child: Column(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.stretch,
+                                        children: [
+                                          _buildModelGroupHeader(
+                                            group.key,
+                                            group.value.length,
+                                            expanded: expanded,
+                                            onTap: () =>
+                                                _toggleModelGroup(group.key),
+                                          ),
+                                          if (expanded)
+                                            ...group.value.map((model) {
+                                              final added = _manualModelIds
+                                                  .contains(model.id);
+                                              return _buildProviderModelRow(
+                                                model: model,
+                                                added: added,
+                                                actionLabel: added
+                                                    ? _headerText(
+                                                        '已添加',
+                                                        'Added',
+                                                      )
+                                                    : _headerText('添加', 'Add'),
+                                                actionDisabled: added,
+                                                actionFilled: !added,
+                                                onAction: added
+                                                    ? null
+                                                    : () =>
+                                                          _addModelToChatWhitelist(
+                                                            model,
+                                                          ),
+                                              );
+                                            }),
+                                        ],
+                                      ),
                                     );
                                   },
                                 ),

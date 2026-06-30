@@ -5,7 +5,7 @@ mixin _ChatPageModelContextMixin on _ChatPageStateBase {
   Future<void> _loadNormalChatModelContext() async {
     try {
       final results = await Future.wait<dynamic>([
-        ModelProviderConfigService.loadModelGroups(),
+        ModelProviderConfigService.loadChatModelGroups(),
         SceneModelConfigService.getSceneCatalog(),
       ]);
       if (!mounted) return;
@@ -447,7 +447,7 @@ mixin _ChatPageModelContextMixin on _ChatPageStateBase {
       return;
     }
     if (_conversationModelSelectorOverlayEntry != null) {
-      // 已经开着,不重开。
+      // 宸茬粡寮€鐫€,涓嶉噸寮€銆?
       return;
     }
     if (_showSlashCommandPanel ||
@@ -462,15 +462,15 @@ mixin _ChatPageModelContextMixin on _ChatPageStateBase {
     if (!_hasSelectableNormalChatModels) {
       return;
     }
-    // 关键：不能调 `_inputFocusNode.unfocus()`，也不能用 `showGlassPopup`
-    // (push Navigator route)。两条路径都会让 TextField 失焦 → 软键盘塌陷 →
-    // 输入栏下沉 → popup 锚点错位(锚点是 popup 弹出瞬间按按钮在屏幕上的位置算的，
-    // 键盘塌陷后按钮位置已经变了)。
+    // 鍏抽敭锛氫笉鑳借皟 `_inputFocusNode.unfocus()`锛屼篃涓嶈兘鐢?`showGlassPopup`
+    // (push Navigator route)銆備袱鏉¤矾寰勯兘浼氳 TextField 澶辩劍 鈫?杞敭鐩樺闄?鈫?
+    // 杈撳叆鏍忎笅娌?鈫?popup 閿氱偣閿欎綅(閿氱偣鏄?popup 寮瑰嚭鐬棿鎸夋寜閽湪灞忓箷涓婄殑浣嶇疆绠楃殑锛?
+    // 閿洏濉岄櫡鍚庢寜閽綅缃凡缁忓彉浜?銆?
     //
-    // Flutter 框架细节(重要)：`Route.requestFocus = false` **不能** 阻止 push
-    // 时的焦点迁移——`ModalRoute.didPush` 里检查的是 `navigator.widget.requestFocus`
-    // (Navigator 的 requestFocus),不是 Route 的。详见 routes.dart:1668。要彻底
-    // 跳过这条焦点迁移路径，唯一干净的办法是不走 Navigator 路由——直接挂到 Overlay。
+    // Flutter 妗嗘灦缁嗚妭(閲嶈)锛歚Route.requestFocus = false` **涓嶈兘** 闃绘 push
+    // 鏃剁殑鐒︾偣杩佺Щ鈥斺€擿ModalRoute.didPush` 閲屾鏌ョ殑鏄?`navigator.widget.requestFocus`
+    // (Navigator 鐨?requestFocus),涓嶆槸 Route 鐨勩€傝瑙?routes.dart:1668銆傝褰诲簳
+    // 璺宠繃杩欐潯鐒︾偣杩佺Щ璺緞锛屽敮涓€骞插噣鐨勫姙娉曟槸涓嶈蛋 Navigator 璺敱鈥斺€旂洿鎺ユ寕鍒?Overlay銆?
     final anchorBox = anchorContext.findRenderObject() as RenderBox?;
     final anchorRect = glassPopupAnchorFromContext(anchorContext);
     if (anchorBox == null || !anchorBox.hasSize || anchorRect == null) {
@@ -491,8 +491,8 @@ mixin _ChatPageModelContextMixin on _ChatPageStateBase {
       if (dismissing) return;
       dismissing = true;
       if (!completer.isCompleted) {
-        // 立刻 resolve caller,让 _applyDispatchSceneModelSelection 可以并行启动；
-        // 收起动画在背景里跑完即可,UI 更响应。
+        // 绔嬪埢 resolve caller,璁?_applyDispatchSceneModelSelection 鍙互骞惰鍚姩锛?
+        // 鏀惰捣鍔ㄧ敾鍦ㄨ儗鏅噷璺戝畬鍗冲彲,UI 鏇村搷搴斻€?
         completer.complete(result);
       }
       final wrapper = wrapperKey.currentState;
@@ -511,13 +511,13 @@ mixin _ChatPageModelContextMixin on _ChatPageStateBase {
             unawaited(finish(null));
             return true;
           },
-          // 系统返回手势在 Android 上的处理顺序:
-          //   1. 软键盘开着时,平台层先 hide IME,Flutter 收不到 back 事件;
-          //   2. IME 关掉后再按返回才会传到 Flutter 的 BackButtonListener / PopScope。
-          // 我们的 fix 让模型 popup 打开时键盘保持可见,所以第一击会被
-          // 平台吃掉变成"只关键盘",popup 留在原地。这里用一个 listener
-          // 观察 MediaQuery.viewInsets.bottom,从 >0 跳到 0 就主动关掉 popup,
-          // 这样从用户视角一次返回就把键盘和 popup 一起收掉。
+          // 绯荤粺杩斿洖鎵嬪娍鍦?Android 涓婄殑澶勭悊椤哄簭:
+          //   1. 杞敭鐩樺紑鐫€鏃?骞冲彴灞傚厛 hide IME,Flutter 鏀朵笉鍒?back 浜嬩欢;
+          //   2. IME 鍏虫帀鍚庡啀鎸夎繑鍥炴墠浼氫紶鍒?Flutter 鐨?BackButtonListener / PopScope銆?
+          // 鎴戜滑鐨?fix 璁╂ā鍨?popup 鎵撳紑鏃堕敭鐩樹繚鎸佸彲瑙?鎵€浠ョ涓€鍑讳細琚?
+          // 骞冲彴鍚冩帀鍙樻垚"鍙叧閿洏",popup 鐣欏湪鍘熷湴銆傝繖閲岀敤涓€涓?listener
+          // 瑙傚療 MediaQuery.viewInsets.bottom,浠?>0 璺冲埌 0 灏变富鍔ㄥ叧鎺?popup,
+          // 杩欐牱浠庣敤鎴疯瑙掍竴娆¤繑鍥炲氨鎶婇敭鐩樺拰 popup 涓€璧锋敹鎺夈€?
           child: _DismissOverlayOnKeyboardHide(
             onKeyboardHide: () => unawaited(finish(null)),
             child: Material(
@@ -540,6 +540,13 @@ mixin _ChatPageModelContextMixin on _ChatPageStateBase {
                       providerModelsByProfileId: _modelOptionsByProfileId,
                       currentSelection: _activeDispatchSceneSelection,
                       onSelect: (selection) => unawaited(finish(selection)),
+                      onManage: () async {
+                        await finish(null);
+                        if (!mounted) {
+                          return;
+                        }
+                        GoRouterManager.push('/home/vlm_model_setting');
+                      },
                     ),
                   ),
                 ],
@@ -1133,6 +1140,7 @@ class _ConversationModelSelectorContent extends StatefulWidget {
     required this.providerModelsByProfileId,
     required this.currentSelection,
     this.onSelect,
+    this.onManage,
   });
 
   final double width;
@@ -1140,10 +1148,8 @@ class _ConversationModelSelectorContent extends StatefulWidget {
   final List<ModelProviderProfileSummary> profiles;
   final Map<String, List<ProviderModelOption>> providerModelsByProfileId;
   final _ChatModelOverrideSelection? currentSelection;
-
-  /// 非空时由调用方决定怎么消费选择(例如关闭外层 [OverlayEntry] + 触发后续逻辑)；
-  /// 为空时回退到 [Navigator.of(context).pop(selection)],兼容老的 route 调用方。
   final ValueChanged<_ChatModelOverrideSelection>? onSelect;
+  final FutureOr<void> Function()? onManage;
 
   @override
   State<_ConversationModelSelectorContent> createState() =>
@@ -1170,13 +1176,19 @@ class _ConversationModelSelectorContentState
   late final Set<String> _expandedProfileIds;
   late final Set<String> _expandedBackendKeys;
 
-  // 估算滚动定位用的行高常量（与下方各行的固定 padding/字号对应）。
   static const double _kProfileHeaderExtent = 43.0;
   static const double _kModelRowExtent = 43.0;
   static const double _kBackendHeaderExtent = 28.0;
   static const double _kProfileGapExtent = 6.0;
 
   bool get _hasSearchQuery => _searchController.text.trim().isNotEmpty;
+  bool get _hasAnyVisibleModels => widget.profiles.any((profile) {
+    if (!profile.configured) {
+      return false;
+    }
+    final models = widget.providerModelsByProfileId[profile.id] ?? const [];
+    return models.isNotEmpty;
+  });
 
   @override
   void initState() {
@@ -1222,10 +1234,6 @@ class _ConversationModelSelectorContentState
     super.dispose();
   }
 
-  /// 打开弹窗后自动滚动到当前选中的模型行。
-  ///
-  /// 列表为懒加载（ListView.builder），选中行可能尚未构建，因此先按固定行高
-  /// 估算偏移跳转到目标附近，待目标行构建后再用 ensureVisible 精确对齐。
   void _autoScrollToSelectedModel() {
     final selection = widget.currentSelection;
     if (selection == null || !_listScrollController.hasClients) {
@@ -1283,7 +1291,6 @@ class _ConversationModelSelectorContentState
     if (position.maxScrollExtent <= 0) {
       return;
     }
-    // 让目标行落在视口上方约 1/3 处。
     final target = (offset - position.viewportDimension * 0.35).clamp(
       0.0,
       position.maxScrollExtent,
@@ -1426,6 +1433,116 @@ class _ConversationModelSelectorContentState
             ),
           ],
         ),
+      ),
+    );
+  }
+
+  Widget _buildSelectorHeader() {
+    final palette = context.omniPalette;
+    final isDark = context.isDarkTheme;
+    final onManage = widget.onManage;
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        _buildSearchRow(),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
+          child: Align(
+            alignment: Alignment.centerRight,
+            child: TextButton.icon(
+              onPressed: onManage == null
+                  ? null
+                  : () {
+                      unawaited(Future<void>.value(onManage()));
+                    },
+              style: TextButton.styleFrom(
+                minimumSize: Size.zero,
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                foregroundColor: isDark
+                    ? palette.accentPrimary
+                    : const Color(0xFF2C7FEB),
+              ),
+              icon: const Icon(Icons.tune_rounded, size: 15),
+              label: Text(
+                LegacyTextLocalizer.localize('管理模型'),
+                style: const TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildSelectorEmptyState(
+    String title, {
+    String? subtitle,
+    bool showManageAction = false,
+    bool compact = false,
+  }) {
+    final palette = context.omniPalette;
+    final isDark = context.isDarkTheme;
+    final onManage = widget.onManage;
+    return Padding(
+      padding: compact
+          ? const EdgeInsets.fromLTRB(12, 6, 12, 10)
+          : const EdgeInsets.fromLTRB(16, 8, 16, 16),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            LegacyTextLocalizer.localize(title),
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              fontSize: 12,
+              color: isDark ? palette.textTertiary : const Color(0xFF94A3B8),
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+          if (subtitle != null) ...[
+            const SizedBox(height: 4),
+            Text(
+              LegacyTextLocalizer.localize(subtitle),
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                fontSize: 12,
+                color: isDark
+                    ? palette.textTertiary.withValues(alpha: 0.86)
+                    : const Color(0xFF9AA4B6),
+              ),
+            ),
+          ],
+          if (showManageAction && onManage != null) ...[
+            const SizedBox(height: 10),
+            TextButton(
+              onPressed: () {
+                unawaited(Future<void>.value(onManage()));
+              },
+              style: TextButton.styleFrom(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 6,
+                ),
+                minimumSize: Size.zero,
+                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                foregroundColor: isDark
+                    ? palette.accentPrimary
+                    : const Color(0xFF2C7FEB),
+              ),
+              child: Text(
+                LegacyTextLocalizer.localize('去管理模型'),
+                style: const TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+          ],
+        ],
       ),
     );
   }
@@ -1678,17 +1795,11 @@ class _ConversationModelSelectorContentState
   Widget _buildBackendGroupedModels(ModelProviderProfileSummary profile) {
     final groups = _groupByBackend(profile.id);
     if (groups.isEmpty) {
-      return Padding(
-        padding: const EdgeInsets.fromLTRB(12, 4, 12, 8),
-        child: Text(
-          LegacyTextLocalizer.localize('该 Provider 暂无可选模型'),
-          style: TextStyle(
-            fontSize: 12,
-            color: context.isDarkTheme
-                ? context.omniPalette.textTertiary
-                : const Color(0xFF94A3B8),
-          ),
-        ),
+      return _buildSelectorEmptyState(
+        '暂无已添加模型',
+        subtitle: '请到模型提供商页添加',
+        showManageAction: true,
+        compact: true,
       );
     }
     final sortedKeys = _sortedBackendKeys(groups.keys);
@@ -1708,16 +1819,75 @@ class _ConversationModelSelectorContentState
 
   @override
   Widget build(BuildContext context) {
-    final palette = context.omniPalette;
+    final configuredProfiles = widget.profiles
+        .where((profile) => profile.configured)
+        .toList();
     final mediaQuery = MediaQuery.of(context);
     final dynamicMaxHeight =
         (mediaQuery.size.height - mediaQuery.viewInsets.bottom - 96)
             .clamp(220.0, widget.maxHeight)
             .toDouble();
-    final configuredProfiles = widget.profiles
-        .where((profile) => profile.configured)
-        .toList();
     final visibleProfiles = _visibleProfiles;
+
+    late final Widget content;
+    if (configuredProfiles.isEmpty) {
+      content = _buildSelectorEmptyState(
+        '请先在模型提供商页配置 Provider',
+        showManageAction: true,
+      );
+    } else if (!_hasAnyVisibleModels && !_hasSearchQuery) {
+      content = _buildSelectorEmptyState(
+        '暂无可切换模型',
+        subtitle: '请先到模型提供商页添加',
+        showManageAction: true,
+      );
+    } else if (visibleProfiles.isEmpty) {
+      content = _buildSelectorEmptyState('没有匹配的模型');
+    } else {
+      content = Flexible(
+        child: Scrollbar(
+          controller: _listScrollController,
+          child: ListView.builder(
+            controller: _listScrollController,
+            padding: const EdgeInsets.only(bottom: 8),
+            itemCount: visibleProfiles.length,
+            itemBuilder: (context, index) {
+              final profile = visibleProfiles[index];
+              final expanded = _isExpanded(profile.id);
+              final models = _filteredModels(profile.id);
+              return Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  _buildProfileHeader(profile),
+                  if (expanded)
+                    if (_needsBackendGrouping(profile.id))
+                      _buildBackendGroupedModels(profile)
+                    else if (models.isEmpty)
+                      _buildSelectorEmptyState(
+                        '暂无已添加模型',
+                        subtitle: '请到模型提供商页添加',
+                        showManageAction: true,
+                        compact: true,
+                      )
+                    else
+                      Column(
+                        children: models
+                            .map(
+                              (item) =>
+                                  _buildModelRow(profile: profile, model: item),
+                            )
+                            .toList(),
+                      ),
+                  if (index != visibleProfiles.length - 1)
+                    const SizedBox(height: 6),
+                ],
+              );
+            },
+          ),
+        ),
+      );
+    }
+
     return SizedBox(
       width: widget.width,
       child: OmniGlassPanel(
@@ -1729,92 +1899,7 @@ class _ConversationModelSelectorContentState
             constraints: BoxConstraints(maxHeight: dynamicMaxHeight),
             child: Column(
               mainAxisSize: MainAxisSize.min,
-              children: [
-                _buildSearchRow(),
-                if (configuredProfiles.isEmpty)
-                  Padding(
-                    padding: EdgeInsets.all(16),
-                    child: Text(
-                      LegacyTextLocalizer.localize('请先在模型提供商页配置 Provider'),
-                      textAlign: TextAlign.center,
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: context.isDarkTheme
-                            ? palette.textTertiary
-                            : const Color(0xFF94A3B8),
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ),
-                  )
-                else if (visibleProfiles.isEmpty)
-                  Padding(
-                    padding: EdgeInsets.all(16),
-                    child: Text(
-                      LegacyTextLocalizer.localize('没有匹配的模型'),
-                      textAlign: TextAlign.center,
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: context.isDarkTheme
-                            ? palette.textTertiary
-                            : const Color(0xFF94A3B8),
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ),
-                  )
-                else
-                  Flexible(
-                    child: Scrollbar(
-                      controller: _listScrollController,
-                      child: ListView.builder(
-                        controller: _listScrollController,
-                        padding: const EdgeInsets.only(bottom: 8),
-                        itemCount: visibleProfiles.length,
-                        itemBuilder: (context, index) {
-                          final profile = visibleProfiles[index];
-                          final expanded = _isExpanded(profile.id);
-                          final models = _filteredModels(profile.id);
-                          return Column(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              _buildProfileHeader(profile),
-                              if (expanded)
-                                if (_needsBackendGrouping(profile.id))
-                                  _buildBackendGroupedModels(profile)
-                                else if (models.isEmpty)
-                                  Padding(
-                                    padding: EdgeInsets.fromLTRB(12, 4, 12, 8),
-                                    child: Text(
-                                      LegacyTextLocalizer.localize(
-                                        '该 Provider 暂无可选模型',
-                                      ),
-                                      style: TextStyle(
-                                        fontSize: 12,
-                                        color: context.isDarkTheme
-                                            ? palette.textTertiary
-                                            : const Color(0xFF94A3B8),
-                                      ),
-                                    ),
-                                  )
-                                else
-                                  Column(
-                                    children: models
-                                        .map(
-                                          (item) => _buildModelRow(
-                                            profile: profile,
-                                            model: item,
-                                          ),
-                                        )
-                                        .toList(),
-                                  ),
-                              if (index != visibleProfiles.length - 1)
-                                const SizedBox(height: 6),
-                            ],
-                          );
-                        },
-                      ),
-                    ),
-                  ),
-              ],
+              children: [_buildSelectorHeader(), content],
             ),
           ),
         ),
@@ -1845,12 +1930,12 @@ class _DismissOverlayOnKeyboardHide extends StatefulWidget {
 
 class _DismissOverlayOnKeyboardHideState
     extends State<_DismissOverlayOnKeyboardHide> {
-  /// 要把 peak 视作"键盘是真的弹起过",最小高度;<50dp 通常是 nav bar / 手势
-  /// gutter 之类的固定 inset,不算键盘。
+  /// 瑕佹妸 peak 瑙嗕綔"閿洏鏄湡鐨勫脊璧疯繃",鏈€灏忛珮搴?<50dp 閫氬父鏄?nav bar / 鎵嬪娍
+  /// gutter 涔嬬被鐨勫浐瀹?inset,涓嶇畻閿洏銆?
   static const double _kKeyboardPeakMinimum = 50.0;
 
-  /// 已经看到的最大 viewInsets.bottom。键盘高度可能随键盘类型(文本/表情/语音)
-  /// 变化,我们只把"曾经达到过的最高值"当作 peak,避免切换布局时误触发收起。
+  /// 宸茬粡鐪嬪埌鐨勬渶澶?viewInsets.bottom銆傞敭鐩橀珮搴﹀彲鑳介殢閿洏绫诲瀷(鏂囨湰/琛ㄦ儏/璇煶)
+  /// 鍙樺寲,鎴戜滑鍙妸"鏇剧粡杈惧埌杩囩殑鏈€楂樺€?褰撲綔 peak,閬垮厤鍒囨崲甯冨眬鏃惰瑙﹀彂鏀惰捣銆?
   double _peakInset = 0;
   bool _firedOnce = false;
 
@@ -1861,21 +1946,21 @@ class _DismissOverlayOnKeyboardHideState
     if (bottomInset > _peakInset) {
       _peakInset = bottomInset;
     }
-    // 关键时序:Android 的 IME hide 是动画的(~250ms),如果等 viewInsets.bottom
-    // 全部跌到 0 再触发收起 popup,popup 的反向动画(220ms)就要排在 IME 动画
-    // 之后跑,用户看到的延迟 ≈ 250+220 ms,popup 卡顿明显。改为检测"开始下落"
-    // 的瞬间(从 peak 跌掉 ≥ 10%),触发 popup 反向动画并行跑——这样 IME 动画
-    // 跑完时 popup 也几乎同时消失。
+    // 鍏抽敭鏃跺簭:Android 鐨?IME hide 鏄姩鐢荤殑(~250ms),濡傛灉绛?viewInsets.bottom
+    // 鍏ㄩ儴璺屽埌 0 鍐嶈Е鍙戞敹璧?popup,popup 鐨勫弽鍚戝姩鐢?220ms)灏辫鎺掑湪 IME 鍔ㄧ敾
+    // 涔嬪悗璺?鐢ㄦ埛鐪嬪埌鐨勫欢杩?鈮?250+220 ms,popup 鍗￠】鏄庢樉銆傛敼涓烘娴?寮€濮嬩笅钀?
+    // 鐨勭灛闂?浠?peak 璺屾帀 鈮?10%),瑙﹀彂 popup 鍙嶅悜鍔ㄧ敾骞惰璺戔€斺€旇繖鏍?IME 鍔ㄧ敾
+    // 璺戝畬鏃?popup 涔熷嚑涔庡悓鏃舵秷澶便€?
     //
-    // 阈值 10% 而不是固定像素,是因为 PJD110/ColorOS 的 viewPadding 在静稳态
-    // 也会有亚像素抖动(见 composer-keyboard-debug-rig 笔记),百分比阈值
-    // 对噪声更稳健;peak 必须 ≥ 50dp 进一步保证是真键盘弹起过。
+    // 闃堝€?10% 鑰屼笉鏄浐瀹氬儚绱?鏄洜涓?PJD110/ColorOS 鐨?viewPadding 鍦ㄩ潤绋虫€?
+    // 涔熶細鏈変簹鍍忕礌鎶栧姩(瑙?composer-keyboard-debug-rig 绗旇),鐧惧垎姣旈槇鍊?
+    // 瀵瑰櫔澹版洿绋冲仴;peak 蹇呴』 鈮?50dp 杩涗竴姝ヤ繚璇佹槸鐪熼敭鐩樺脊璧疯繃銆?
     if (!_firedOnce &&
         _peakInset > _kKeyboardPeakMinimum &&
         bottomInset < _peakInset * 0.9) {
       _firedOnce = true;
-      // 不能在 didChangeDependencies 同步调 callback——callback 可能 setState,
-      // 而本帧正在 build。延到下一帧。
+      // 涓嶈兘鍦?didChangeDependencies 鍚屾璋?callback鈥斺€攃allback 鍙兘 setState,
+      // 鑰屾湰甯ф鍦?build銆傚欢鍒颁笅涓€甯с€?
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) widget.onKeyboardHide();
       });

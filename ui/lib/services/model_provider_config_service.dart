@@ -772,11 +772,63 @@ class ModelProviderConfigService {
     );
   }
 
+  static Future<List<ProviderModelOption>> getChatModelOptionsForProfile(
+    String profileId, {
+    ModelProviderProfileSummary? profile,
+  }) async {
+    final normalizedProfileId = _canonicalProfileId(profileId);
+    final resolvedProfile = profile ?? await _findProfileById(profileId);
+    final manualModelIds = await getManualModelIds(
+      profileId: normalizedProfileId,
+    );
+    List<ProviderModelOption> remoteModels;
+    if (_isBuiltinLocalProfileId(normalizedProfileId)) {
+      try {
+        remoteModels = await fetchModels(
+          profileId: normalizedProfileId,
+          providerName: resolvedProfile?.name ?? '',
+        );
+      } catch (_) {
+        remoteModels = await getCachedFetchedModels(
+          profileId: normalizedProfileId,
+        );
+      }
+    } else {
+      remoteModels = await getCachedFetchedModels(
+        profileId: normalizedProfileId,
+        apiBase: resolvedProfile?.baseUrl ?? '',
+      );
+    }
+    final chatModels = buildChatModelOptions(
+      remoteModels: remoteModels,
+      manualModelIds: manualModelIds,
+    );
+    return enrichModelsForProfile(
+      profileId: normalizedProfileId,
+      providerName: resolvedProfile?.name ?? '',
+      apiBase: resolvedProfile?.baseUrl ?? '',
+      models: chatModels,
+    );
+  }
+
   static Future<List<ProviderModelGroup>> loadModelGroups() async {
     final payload = await listProfiles();
     final groups = <ProviderModelGroup>[];
     for (final profile in payload.profiles) {
       final models = await getStoredModelOptionsForProfile(
+        profile.id,
+        profile: profile,
+      );
+      groups.add(ProviderModelGroup(profile: profile, models: models));
+    }
+    return groups;
+  }
+
+  static Future<List<ProviderModelGroup>> loadChatModelGroups() async {
+    final payload = await listProfiles();
+    final groups = <ProviderModelGroup>[];
+    for (final profile in payload.profiles) {
+      final models = await getChatModelOptionsForProfile(
         profile.id,
         profile: profile,
       );
@@ -810,6 +862,34 @@ class ModelProviderConfigService {
       }
     }
     return merged;
+  }
+
+  static List<ProviderModelOption> buildChatModelOptions({
+    required List<ProviderModelOption> remoteModels,
+    required List<String> manualModelIds,
+  }) {
+    if (manualModelIds.isEmpty) {
+      return const <ProviderModelOption>[];
+    }
+    final remoteById = <String, ProviderModelOption>{
+      for (final item in remoteModels) item.id: item,
+    };
+    final selected = <ProviderModelOption>[];
+    final seen = <String>{};
+    for (final modelId in _normalizeModelIds(manualModelIds)) {
+      if (!seen.add(modelId)) {
+        continue;
+      }
+      selected.add(
+        remoteById[modelId] ??
+            ProviderModelOption(
+              id: modelId,
+              displayName: modelId,
+              ownedBy: 'manual',
+            ),
+      );
+    }
+    return selected;
   }
 
   static String defaultModelGroupName(
