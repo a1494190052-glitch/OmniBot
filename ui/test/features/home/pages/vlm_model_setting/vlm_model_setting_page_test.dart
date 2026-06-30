@@ -538,7 +538,7 @@ void main() {
 
     expect(find.byKey(const Key('provider-logo')), findsNothing);
     expect(
-      find.byKey(const ValueKey('provider-model-group-toggle-button')),
+      find.byKey(const Key('provider-remote-model-search')),
       findsOneWidget,
     );
     expect(
@@ -582,8 +582,12 @@ void main() {
       findsOneWidget,
     );
 
-    final groupBody = find.byKey(const Key('provider-model-group-body-openai'));
-    expect(tester.getSize(groupBody).height, greaterThan(0));
+    final firstModel = find.byKey(const Key('provider-model-context-gpt-4o'));
+    final secondModel = find.byKey(
+      const Key('provider-model-context-gpt-4o-mini'),
+    );
+    expect(firstModel, findsOneWidget);
+    expect(secondModel, findsOneWidget);
     final shortLine = tester.getSize(
       find.byKey(const Key('provider-model-group-line-openai')),
     );
@@ -612,55 +616,23 @@ void main() {
     );
     expect(shortLineLeft.dx - shortCountRight.dx, closeTo(10, 0.5));
     expect(shortIconLeft.dx - shortLineRight.dx, closeTo(6, 0.5));
-    final firstModel = find.byKey(
-      const ValueKey<String>('provider-model-gpt-4o'),
-    );
-    final secondModel = find.byKey(
-      const ValueKey<String>('provider-model-gpt-4o-mini'),
-    );
-    expect(tester.getSize(firstModel).height, 44);
-    expect(tester.getSize(secondModel).height, 44);
-    expect(tester.getSize(firstModel).width, tester.getSize(secondModel).width);
-
-    await tester.tap(
-      find.byKey(const ValueKey('provider-model-group-toggle-button')),
-    );
-    await tester.pump();
-    await tester.pump(const Duration(milliseconds: 260));
-    expect(tester.getSize(groupBody).height, 0);
-    expect(
-      tester
-          .getSize(find.byKey(const Key('provider-model-group-body-anthropic')))
-          .height,
-      0,
-    );
-
-    await tester.tap(
-      find.byKey(const ValueKey('provider-model-group-toggle-button')),
-    );
-    await tester.pump();
-    await tester.pump(const Duration(milliseconds: 260));
-    expect(tester.getSize(groupBody).height, greaterThan(0));
-
-    await tester.scrollUntilVisible(
+    await tester.ensureVisible(
       find.byKey(const Key('provider-model-group-openai')),
-      120,
-      scrollable: find.byType(Scrollable).first,
     );
+    await tester.pump();
     await tester.tap(find.byKey(const Key('provider-model-group-openai')));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 260));
-    expect(tester.getSize(groupBody).height, 0);
+    expect(firstModel, findsNothing);
 
-    await tester.scrollUntilVisible(
+    await tester.ensureVisible(
       find.byKey(const Key('provider-model-group-openai')),
-      120,
-      scrollable: find.byType(Scrollable).first,
     );
+    await tester.pump();
     await tester.tap(find.byKey(const Key('provider-model-group-openai')));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 260));
-    expect(tester.getSize(groupBody).height, greaterThan(0));
+    expect(firstModel, findsOneWidget);
 
     expect(tester.takeException(), isNull);
   });

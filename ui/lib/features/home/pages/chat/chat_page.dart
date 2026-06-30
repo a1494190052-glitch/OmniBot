@@ -1168,14 +1168,7 @@ abstract class _ChatPageStateBase extends State<ChatPage>
   }
 
   bool get _hasSelectableNormalChatModels {
-    return _modelProviderProfiles.any((profile) {
-      if (!profile.configured) {
-        return false;
-      }
-      final models =
-          _modelOptionsByProfileId[profile.id] ?? const <ProviderModelOption>[];
-      return models.isNotEmpty;
-    });
+    return _modelProviderProfiles.any((profile) => profile.configured);
   }
 
   _ChatModelOverrideSelection? get _activeDispatchSceneSelection {

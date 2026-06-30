@@ -492,6 +492,13 @@ mixin _ChatPageModelContextMixin on _ChatPageStateBase {
           handle.keepOpenOnNextKeyboardHide();
           FocusManager.instance.primaryFocus?.unfocus();
         },
+        onManage: () async {
+          await handle.dismiss(null);
+          if (!mounted) {
+            return;
+          }
+          GoRouterManager.push('/home/vlm_model_setting');
+        },
         // dismiss 内部会立刻 complete future,让下面 await 的逻辑并行起跑;
         // 收起动画在后台跑完,UI 更响应。
         onSelect: (selection) => unawaited(handle.dismiss(selection)),
@@ -1087,6 +1094,7 @@ class _ConversationModelSelectorContent extends StatefulWidget {
     required this.currentSelection,
     this.onSearchSubmitted,
     this.onSelect,
+    this.onManage,
   });
 
   final double width;
@@ -1099,6 +1107,7 @@ class _ConversationModelSelectorContent extends StatefulWidget {
   /// 非空时由调用方决定怎么消费选择(例如关闭外层 [OverlayEntry] + 触发后续逻辑)；
   /// 为空时回退到 [Navigator.of(context).pop(selection)],兼容老的 route 调用方。
   final ValueChanged<_ChatModelOverrideSelection>? onSelect;
+  final Future<void> Function()? onManage;
 
   @override
   State<_ConversationModelSelectorContent> createState() =>
