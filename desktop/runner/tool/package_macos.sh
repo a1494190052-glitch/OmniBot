@@ -16,7 +16,7 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 BACKEND_DIR="$(cd "$ROOT_DIR/../backend" && pwd)"
 BUILD_DIR="$ROOT_DIR/build/macos/Build/Products/Release"
-APP_NAME="omnibot_desktop_runner.app"
+APP_NAME="OmniBot.app"
 APP_PATH="$BUILD_DIR/$APP_NAME"
 
 CODESIGN_IDENTITY=""
@@ -70,17 +70,17 @@ if [[ -n "$NOTARIZE_PROFILE" ]]; then
 fi
 
 echo "==> Creating .dmg"
-DMG="$BUILD_DIR/Omnibot.dmg"
+DMG="$BUILD_DIR/OmniBot.dmg"
 rm -f "$DMG"
 if command -v create-dmg > /dev/null; then
   create-dmg \
-    --volname "Omnibot" \
+    --volname "OmniBot" \
     --window-size 600 400 \
     --icon-size 96 \
     --app-drop-link 440 200 \
     --icon "$APP_NAME" 160 200 \
     "$DMG" "$APP_PATH"
 else
-  hdiutil create -volname Omnibot -srcfolder "$APP_PATH" -format UDZO "$DMG"
+  hdiutil create -volname OmniBot -srcfolder "$APP_PATH" -format UDZO "$DMG"
 fi
 echo "==> Done: $DMG"

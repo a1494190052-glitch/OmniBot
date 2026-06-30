@@ -1,4 +1,4 @@
-# OmnibotApp Desktop
+# OmniBot Desktop
 
 macOS (and forthcoming Windows) port of OmnibotApp. The Flutter UI from `ui/` is reused unchanged; the Kotlin Agent runtime is replaced by a standalone Rust backend that the Flutter app spawns as a child process and talks to over a local WebSocket.
 
@@ -23,6 +23,7 @@ desktop/
 │       ├── omnibot-db/        sqlx + SQLite migrations (3 core tables + ai_request_logs + codex_thread_binding stub)
 │       ├── omnibot-storage/   AppPaths + KvStore + WorkspaceStore
 │       └── omnibot-common/    AppError + types + tracing init
+├── tool/          desktop.sh unified local run/package entrypoint
 └── README.md      (this file)
 ```
 
@@ -39,14 +40,19 @@ The Dart-side bridge code lives in `../ui/lib/desktop/channel_bridge/` so it can
 ## Quick start (development)
 
 ```bash
-# 1) Build the Rust backend in debug mode and verify it runs.
-cd desktop/backend
-cargo run -p omnibot-backend -- --data-dir /tmp/omni-data --bind 127.0.0.1:0
-# Expect first stdout line: OMNIBOT_BACKEND_PORT=<port>; Ctrl-C to stop.
+cd desktop
 
-# 2) Build the Flutter app (Xcode build phases run cargo automatically).
-cd ../runner
-flutter run -d macos       # or `flutter build macos --debug`
+# Build the Rust backend in debug mode and run the Flutter desktop app.
+./tool/desktop.sh run
+
+# Run only the Rust backend for local API/model-provider debugging.
+./tool/desktop.sh backend --bind 127.0.0.1:58761
+```
+
+The Flutter app can also be launched with extra Flutter args:
+
+```bash
+./tool/desktop.sh run --device macos --verbose
 ```
 
 The macOS Xcode project includes two `PBXShellScriptBuildPhase` entries:
@@ -81,6 +87,18 @@ Channels are split three ways:
 - Replace the M0 placeholder shell in `runner/lib/main.dart` with the full `ui` chat UI once `bootstrapMain` is callable on desktop (drop `mobile_scanner` / `image_picker` on Platform.isDesktop, swap WebView backend).
 - Bridge the EventChannels listed in `bridge_websocket_client.dart` against `BridgingBinaryMessenger._handleEventChannel` after testing live subscriptions.
 - Code-sign + notarize CI step (currently the packaging script supports both, but credentials are not stored in CI).
+
+## Packaging
+
+```bash
+cd desktop
+
+# macOS .dmg. Pass codesign/notarization args through to runner/tool/package_macos.sh.
+./tool/desktop.sh package macos --skip-codesign
+
+# Windows portable directory and optional Inno Setup installer.
+./tool/desktop.sh package windows -Inno "C:\Program Files (x86)\Inno Setup 6\ISCC.exe"
+```
 
 ## Data locations
 

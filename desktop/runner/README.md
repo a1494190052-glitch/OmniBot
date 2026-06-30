@@ -1,4 +1,4 @@
-# omnibot_desktop_runner
+# OmniBot Desktop Runner
 
 A new Flutter project.
 

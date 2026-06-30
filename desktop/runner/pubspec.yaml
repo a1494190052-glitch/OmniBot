@@ -1,5 +1,5 @@
-name: omnibot_desktop_runner
-description: "Omnibot desktop runner — Flutter UI shell that hosts the Rust backend subprocess."
+name: omnibot
+description: "OmniBot desktop app - Flutter UI shell that hosts the Rust backend subprocess."
 publish_to: 'none'
 version: 1.0.0+1
 
