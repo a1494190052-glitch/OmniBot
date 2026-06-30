@@ -3,7 +3,9 @@ import 'dart:math' as math;
 import 'dart:ui' as ui;
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+import 'package:ui/desktop/desktop_window.dart';
 import 'package:ui/l10n/legacy_text_localizer.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:ui/services/home_greeting_settings_service.dart';
@@ -87,6 +89,12 @@ class ChatAppBar extends StatelessWidget {
   final bool isPureChatToggleLocked;
   final bool showWorkspacePaneButton;
   final VoidCallback? onWorkspacePaneTap;
+  // Left-edge inset that holds the macOS traffic-light controls when this bar
+  // doubles as the window title bar. Pushes the drawer button right so it no
+  // longer collides with the system buttons.
+  final double leadingInset;
+  // Treat the empty regions of the bar as a window drag handle (macOS).
+  final bool enableWindowDrag;
 
   const ChatAppBar({
     super.key,
@@ -125,6 +133,8 @@ class ChatAppBar extends StatelessWidget {
     this.isPureChatToggleLocked = true,
     this.showWorkspacePaneButton = false,
     this.onWorkspacePaneTap,
+    this.leadingInset = 0,
+    this.enableWindowDrag = false,
   });
 
   @override
@@ -158,7 +168,14 @@ class ChatAppBar extends StatelessWidget {
           child: LayoutBuilder(
             builder: (context, constraints) {
               const leftActionRowWidth = _kChatAppBarAccessoryButtonSize;
+              // On macOS desktop the traffic-light controls sit at the very
+              // left of the bar; reserve that space here so the drawer button
+              // never slides under them.
+              final effectiveLeadingInset = math
+                  .max(0.0, leadingInset)
+                  .toDouble();
               final leftReservedSpace =
+                  effectiveLeadingInset +
                   (showMenuButton ? _kChatAppBarMenuButtonSize : 0) +
                   leftActionRowWidth +
                   _kChatAppBarAccessoryGap * 2;
@@ -184,9 +201,11 @@ class ChatAppBar extends StatelessWidget {
                   .toDouble();
               final islandCenterX = constraints.maxWidth / 2;
               final islandLeft = islandCenterX - islandWidth / 2;
-              final accessoryLeftEdge = showMenuButton
-                  ? _kChatAppBarMenuButtonSize + _kChatAppBarAccessoryGap
-                  : _kChatAppBarAccessoryGap;
+              final accessoryLeftEdge =
+                  effectiveLeadingInset +
+                  (showMenuButton
+                      ? _kChatAppBarMenuButtonSize + _kChatAppBarAccessoryGap
+                      : _kChatAppBarAccessoryGap);
               final accessoryRightEdge = islandLeft - _kChatAppBarAccessoryGap;
               final accessoryAvailableWidth = math
                   .max(0, accessoryRightEdge - accessoryLeftEdge)
@@ -205,9 +224,14 @@ class ChatAppBar extends StatelessWidget {
               return Stack(
                 alignment: Alignment.center,
                 children: [
+                  // Drag layer sits at the bottom of the stack so the buttons
+                  // (later children, painted on top) absorb their own clicks
+                  // first. Only empty space falls through to the drag handler.
+                  if (enableWindowDrag && isMacOSDesktopFlutter)
+                    const Positioned.fill(child: _ChatAppBarWindowDragLayer()),
                   if (showMenuButton)
                     Positioned(
-                      left: 0,
+                      left: effectiveLeadingInset,
                       top: 0,
                       bottom: 0,
                       width: _kChatAppBarMenuButtonSize,
@@ -348,6 +372,32 @@ class ChatAppBar extends StatelessWidget {
 }
 
 enum _ChatAppBarModeShortcutAction { agent, codex, pureChat }
+
+/// Invisible drag handle that lives at the bottom of the [ChatAppBar] stack.
+/// Catches mouse presses in the bar's empty space and forwards them to AppKit
+/// via `omnibot/desktop_window` so the user can drag the window from the
+/// unified top bar — including the area to the right of the traffic lights.
+class _ChatAppBarWindowDragLayer extends StatelessWidget {
+  const _ChatAppBarWindowDragLayer();
+
+  @override
+  Widget build(BuildContext context) {
+    return Listener(
+      behavior: HitTestBehavior.opaque,
+      onPointerDown: (event) {
+        if (event.kind != ui.PointerDeviceKind.mouse) return;
+        if (event.buttons != kPrimaryMouseButton) return;
+        // ignore: discarded_futures
+        startMacOSWindowDrag();
+      },
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onDoubleTap: toggleMacOSWindowMaximize,
+        child: const SizedBox.expand(),
+      ),
+    );
+  }
+}
 
 class _ChatAppBarCompanionButton extends StatelessWidget {
   const _ChatAppBarCompanionButton({

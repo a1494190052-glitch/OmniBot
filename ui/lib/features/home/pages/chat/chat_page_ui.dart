@@ -1096,6 +1096,82 @@ mixin _ChatPageUiMixin on _ChatPageStateBase {
     );
   }
 
+  Widget _buildChatAppBar({
+    required VoidCallback onMenuTap,
+    required ChatSurfaceMode appBarMode,
+    required bool showMenuButton,
+    required bool showSurfaceSwitcher,
+    required bool showWorkspacePaneButton,
+    required VoidCallback? onWorkspacePaneTap,
+    required bool showAppUpdateIndicator,
+    required String appUpdateTooltip,
+    required bool translucent,
+    required AppBackgroundVisualProfile visualProfile,
+    double leadingInset = 0,
+    bool enableWindowDrag = false,
+  }) {
+    return ChatAppBar(
+      onMenuTap: onMenuTap,
+      onAgentTap: () {
+        unawaited(_handleAgentModeShortcutTap());
+      },
+      onPureChatToggleTap: () {
+        unawaited(_handlePureChatModeShortcutTap());
+      },
+      onCodexTap: () {
+        unawaited(_handleCodexTap());
+      },
+      onPrimaryModeTap: _activeMode == ChatPageMode.codex
+          ? () => GoRouterManager.push('/home/codex_sessions')
+          : null,
+      onCompanionTap: () {
+        unawaited(_toggleCompanionMode());
+      },
+      activeMode: appBarMode,
+      onModeChanged: (value) {
+        unawaited(_switchChatMode(value, syncPage: true));
+      },
+      displayLayer: _resolveChatPaneDisplayLayer(),
+      onDisplayLayerChanged: _handleChatIslandDisplayLayerChanged,
+      onTerminalEnvironmentTap: (anchorContext) {
+        unawaited(_openTerminalEnvironmentEditor(anchorContext));
+      },
+      onTerminalTap: _handleTerminalToolTap,
+      onBrowserTap: _handleBrowserToolTap,
+      hasTerminalEnvironment: _terminalEnvironmentVariables.isNotEmpty,
+      isBrowserEnabled: _isBrowserSessionAvailable,
+      activeToolType: _lastAgentToolType,
+      isCompanionModeEnabled: _isCompanionModeEnabled,
+      isCompanionToggleLoading: _isCompanionToggleLoading,
+      isCodexReady: _codexStatus.ready,
+      isCodexConnected: _codexStatus.connected,
+      isCodexLoading: _isCodexStatusLoading,
+      isCodexSelected: _activeMode == ChatPageMode.codex,
+      isAgentSelected:
+          _activeMode == ChatPageMode.normal && !_isPureChatSelected,
+      showAppUpdateIndicator: showAppUpdateIndicator,
+      appUpdateTooltip: appUpdateTooltip,
+      onAppUpdateTap: showAppUpdateIndicator
+          ? () {
+              unawaited(_handleAppUpdateBannerTap());
+            }
+          : null,
+      translucent: translucent,
+      visualProfile: visualProfile,
+      showMenuButton: showMenuButton,
+      showSurfaceSwitcher: showSurfaceSwitcher,
+      showPureChatToggle:
+          _activeMode == ChatPageMode.normal ||
+          _activeMode == ChatPageMode.codex,
+      isPureChatSelected: _isPureChatSelected,
+      isPureChatToggleLocked: _isPureChatToggleLocked,
+      showWorkspacePaneButton: showWorkspacePaneButton,
+      onWorkspacePaneTap: onWorkspacePaneTap,
+      leadingInset: leadingInset,
+      enableWindowDrag: enableWindowDrag,
+    );
+  }
+
   Widget _buildChatPaneShell({
     required BuildContext layoutContext,
     required BoxConstraints constraints,
@@ -1112,6 +1188,13 @@ mixin _ChatPageUiMixin on _ChatPageStateBase {
     required VoidCallback onMenuTap,
     VoidCallback? onWorkspacePaneTap,
     bool showWorkspacePaneButton = false,
+    // When false, the pane omits its top ChatAppBar — used by callers that
+    // hoist a single unified bar elsewhere.
+    bool includeAppBar = true,
+    // When true, the empty space inside the ChatAppBar becomes a draggable
+    // surface that moves the host window. Used by the macOS desktop variant
+    // so the merged title-bar row can be grabbed and dragged.
+    bool enableWindowDrag = false,
   }) {
     final toolActivitySnapshot = resolveAgentToolActivitySnapshot(
       List<ChatMessageModel>.from(_messages),
@@ -1195,64 +1278,21 @@ mixin _ChatPageUiMixin on _ChatPageStateBase {
       children: [
         Column(
           children: [
-            ChatAppBar(
-              onMenuTap: onMenuTap,
-              onAgentTap: () {
-                unawaited(_handleAgentModeShortcutTap());
-              },
-              onPureChatToggleTap: () {
-                unawaited(_handlePureChatModeShortcutTap());
-              },
-              onCodexTap: () {
-                unawaited(_handleCodexTap());
-              },
-              onPrimaryModeTap: _activeMode == ChatPageMode.codex
-                  ? () => GoRouterManager.push('/home/codex_sessions')
-                  : null,
-              onCompanionTap: () {
-                unawaited(_toggleCompanionMode());
-              },
-              activeMode: appBarMode,
-              onModeChanged: (value) {
-                unawaited(_switchChatMode(value, syncPage: true));
-              },
-              displayLayer: _resolveChatPaneDisplayLayer(),
-              onDisplayLayerChanged: _handleChatIslandDisplayLayerChanged,
-              onTerminalEnvironmentTap: (anchorContext) {
-                unawaited(_openTerminalEnvironmentEditor(anchorContext));
-              },
-              onTerminalTap: _handleTerminalToolTap,
-              onBrowserTap: _handleBrowserToolTap,
-              hasTerminalEnvironment: _terminalEnvironmentVariables.isNotEmpty,
-              isBrowserEnabled: _isBrowserSessionAvailable,
-              activeToolType: _lastAgentToolType,
-              isCompanionModeEnabled: _isCompanionModeEnabled,
-              isCompanionToggleLoading: _isCompanionToggleLoading,
-              isCodexReady: _codexStatus.ready,
-              isCodexConnected: _codexStatus.connected,
-              isCodexLoading: _isCodexStatusLoading,
-              isCodexSelected: _activeMode == ChatPageMode.codex,
-              isAgentSelected:
-                  _activeMode == ChatPageMode.normal && !_isPureChatSelected,
-              showAppUpdateIndicator: showAppUpdateIndicator,
-              appUpdateTooltip: appUpdateTooltip,
-              onAppUpdateTap: showAppUpdateIndicator
-                  ? () {
-                      unawaited(_handleAppUpdateBannerTap());
-                    }
-                  : null,
-              translucent: backgroundActive,
-              visualProfile: visualProfile,
-              showMenuButton: showMenuButton,
-              showSurfaceSwitcher: showSurfaceSwitcher,
-              showPureChatToggle:
-                  _activeMode == ChatPageMode.normal ||
-                  _activeMode == ChatPageMode.codex,
-              isPureChatSelected: _isPureChatSelected,
-              isPureChatToggleLocked: _isPureChatToggleLocked,
-              showWorkspacePaneButton: showWorkspacePaneButton,
-              onWorkspacePaneTap: onWorkspacePaneTap,
-            ),
+            if (includeAppBar)
+              _buildChatAppBar(
+                onMenuTap: onMenuTap,
+                appBarMode: appBarMode,
+                showMenuButton: showMenuButton,
+                showSurfaceSwitcher: showSurfaceSwitcher,
+                showWorkspacePaneButton: showWorkspacePaneButton,
+                onWorkspacePaneTap: onWorkspacePaneTap,
+                showAppUpdateIndicator: showAppUpdateIndicator,
+                appUpdateTooltip: appUpdateTooltip,
+                translucent: backgroundActive,
+                visualProfile: visualProfile,
+                leadingInset: 0,
+                enableWindowDrag: enableWindowDrag,
+              ),
             Expanded(child: conversationBody),
           ],
         ),
@@ -1512,6 +1552,87 @@ mixin _ChatPageUiMixin on _ChatPageStateBase {
           },
         );
       },
+    );
+  }
+
+  /// Desktop variant of the normal (non-HD-pad) chat shell: the floating
+  /// HomeDrawer is replaced by a left side panel so the page picks up the
+  /// web/tablet sidebar pattern. The chat pane keeps its own ChatAppBar at
+  /// the top — that bar's empty space becomes a window drag handle so the
+  /// merged title-bar row (traffic lights + drawer button + companion +
+  /// dynamic island) can move the window.
+  Widget _buildDesktopEmbeddedDrawerShell({
+    required AppBackgroundConfig backgroundConfig,
+    required AppBackgroundVisualProfile visualProfile,
+    required bool backgroundActive,
+    required double inputBottomPadding,
+    required double keyboardSpacer,
+    required double commandPanelBottomOffset,
+  }) {
+    const drawerWidth = 260.0;
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        SizedBox(
+          width: drawerWidth,
+          child: Padding(
+            // Push drawer content below the macOS traffic lights so they do
+            // not overlap the search field / conversation list.
+            padding: const EdgeInsets.only(top: kMacOSTitleBarHeight),
+            child: HomeDrawer(
+              key: _drawerKey,
+              embedded: true,
+              closeOnNavigate: false,
+              newConversationMode: _conversationModeForPageMode(_activeMode),
+              onThreadTargetSelected:
+                  _handleEmbeddedDrawerThreadTargetSelected,
+            ),
+          ),
+        ),
+        Expanded(
+          child: LayoutBuilder(
+            builder: (context, paneConstraints) {
+              return _buildChatPaneShell(
+                layoutContext: context,
+                constraints: paneConstraints,
+                backgroundConfig: backgroundConfig,
+                visualProfile: visualProfile,
+                backgroundActive: backgroundActive,
+                inputBottomPadding: inputBottomPadding,
+                keyboardSpacer: keyboardSpacer,
+                commandPanelBottomOffset: commandPanelBottomOffset,
+                conversationBody: ClipRect(
+                  child: NotificationListener<ScrollNotification>(
+                    onNotification: _handleModePageScrollNotification,
+                    child: PageView(
+                      controller: _modePageController,
+                      onPageChanged: _handleModePageChanged,
+                      children: [
+                        _buildModeMessagePage(
+                          _primaryChatMessagePageMode,
+                          backgroundConfig,
+                          visualProfile,
+                          bottomOverlayInset:
+                              _resolveNormalSurfaceComposerInset(
+                                inputBottomPadding: inputBottomPadding,
+                                keyboardSpacer: keyboardSpacer,
+                              ),
+                        ),
+                        _buildWorkspaceSurfacePage(),
+                      ],
+                    ),
+                  ),
+                ),
+                hideWorkspaceOverlays: _isWorkspaceSurface,
+                showMenuButton: false,
+                showSurfaceSwitcher: true,
+                onMenuTap: () {},
+                enableWindowDrag: true,
+              );
+            },
+          ),
+        ),
+      ],
     );
   }
 
@@ -1778,6 +1899,13 @@ mixin _ChatPageUiMixin on _ChatPageStateBase {
   Widget build(BuildContext context) {
     final mediaQuery = MediaQuery.of(context);
     final isHdPadLandscape = _isHdPadLandscapeForMediaQuery(mediaQuery);
+    // macOS desktop: when the HD-pad shell doesn't activate (e.g. the user is
+    // running a typical 800–950dp window), still render the HomeDrawer as a
+    // permanent left side panel instead of a floating overlay.
+    final isDesktopEmbeddedDrawer =
+        isMacOSDesktopFlutter &&
+        !isHdPadLandscape &&
+        mediaQuery.size.width >= kMacOSDesktopMinShellWidth;
     final bottomInset = mediaQuery.viewInsets.bottom;
     final viewPaddingBottom = mediaQuery.viewPadding.bottom;
     final shouldLiftComposerForKeyboard = _composerLiftIntentTracker.update(
@@ -1841,7 +1969,7 @@ mixin _ChatPageUiMixin on _ChatPageStateBase {
                 key: _scaffoldKey,
                 backgroundColor: Colors.transparent,
                 resizeToAvoidBottomInset: false,
-                drawer: isHdPadLandscape
+                drawer: (isHdPadLandscape || isDesktopEmbeddedDrawer)
                     ? null
                     : HomeDrawer(
                         key: _drawerKey,
@@ -1850,7 +1978,7 @@ mixin _ChatPageUiMixin on _ChatPageStateBase {
                         ),
                       ),
                 onDrawerChanged: (isOpen) {
-                  if (isHdPadLandscape) {
+                  if (isHdPadLandscape || isDesktopEmbeddedDrawer) {
                     return;
                   }
                   if (isOpen) {
@@ -1881,21 +2009,35 @@ mixin _ChatPageUiMixin on _ChatPageStateBase {
                           behavior: HitTestBehavior.translucent,
                           onPointerDown: (event) {
                             unawaited(_handleOutsideTap(event.position));
-                            if (!isHdPadLandscape) {
+                            if (!isHdPadLandscape &&
+                                !isDesktopEmbeddedDrawer) {
                               _handlePagePointerDown(event);
                             }
                           },
-                          onPointerMove: isHdPadLandscape
+                          onPointerMove:
+                              (isHdPadLandscape || isDesktopEmbeddedDrawer)
                               ? null
                               : _handlePagePointerMove,
-                          onPointerUp: isHdPadLandscape
+                          onPointerUp:
+                              (isHdPadLandscape || isDesktopEmbeddedDrawer)
                               ? null
                               : _handlePagePointerUp,
-                          onPointerCancel: isHdPadLandscape
+                          onPointerCancel:
+                              (isHdPadLandscape || isDesktopEmbeddedDrawer)
                               ? null
                               : _handlePagePointerCancel,
                           child: isHdPadLandscape
                               ? _buildHdPadLandscapeShell(
+                                  backgroundConfig: backgroundConfig,
+                                  visualProfile: visualProfile,
+                                  backgroundActive: backgroundActive,
+                                  inputBottomPadding: inputBottomPadding,
+                                  keyboardSpacer: keyboardSpacer,
+                                  commandPanelBottomOffset:
+                                      commandPanelBottomOffset,
+                                )
+                              : isDesktopEmbeddedDrawer
+                              ? _buildDesktopEmbeddedDrawerShell(
                                   backgroundConfig: backgroundConfig,
                                   visualProfile: visualProfile,
                                   backgroundActive: backgroundActive,
