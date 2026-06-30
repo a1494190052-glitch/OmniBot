@@ -241,21 +241,24 @@ class AssistsUtil {
                 val callArgs = buildMap<String, Any?> {
                     put("function_id", action.functionId)
                     put("arguments", arguments)
-                    put("allow_runtime_resolve", false)
                     if (runContext.taskId.isNotBlank()) put("frontend_task_id", runContext.taskId)
                     if (runContext.runId.isNotBlank()) put("frontend_run_id", runContext.runId)
                 }
                 val result = OobFunctionToolHandler(context).runFunction(callArgs)
                 val success = result["success"] == true
                 val stepCount = result["step_count"]?.toString()?.toIntOrNull()
-                val message = buildString {
-                    append(if (success) "Function ${action.functionId} completed" else "Function ${action.functionId} failed")
-                    if (stepCount != null && stepCount > 0) append(" ($stepCount steps)")
-                    val detail = listOfNotNull(
-                        result["error_message"]?.toString(),
-                        result["execution_summary"]?.toString(),
-                    ).firstOrNull { it.isNotBlank() }
-                    if (!detail.isNullOrBlank()) append(": $detail")
+                val failedStep = result["failed_step_index"]?.toString()?.toIntOrNull()
+                val message = if (success) {
+                    buildString {
+                        append("Function ${action.functionId} completed")
+                        if (stepCount != null && stepCount > 0) append(" ($stepCount steps)")
+                    }
+                } else {
+                    val stepNumber = failedStep?.plus(1)?.toString() ?: "?"
+                    val detail = result["error_message"]?.toString()?.takeIf { it.isNotBlank() }
+                        ?: result["error_code"]?.toString()?.takeIf { it.isNotBlank() }
+                        ?: "unknown error"
+                    "Function ${action.functionId} failed at step $stepNumber: $detail"
                 }
                 OperationResult(
                     success = success,

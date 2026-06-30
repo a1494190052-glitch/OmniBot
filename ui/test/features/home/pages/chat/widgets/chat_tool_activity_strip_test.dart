@@ -735,7 +735,7 @@ void main() {
         'type': 'agent_tool_summary',
         'status': 'running',
         'toolType': 'oob_function',
-        'toolName': 'oob_function_run',
+        'toolName': 'run_function',
         'toolTitle': 'OmniFlow',
         'summary': 'Preparing tool call...',
       }),

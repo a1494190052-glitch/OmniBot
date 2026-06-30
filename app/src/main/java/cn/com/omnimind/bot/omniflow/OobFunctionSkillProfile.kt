@@ -104,17 +104,17 @@ object OobFunctionSkillProfile {
             when (locale) {
                 PromptLocale.ZH_CN -> {
                     appendLine("本轮已根据用户目标完成 OmniFlow Function recall 检查。")
-                    appendLine("- Function 是可组合的复用片段；召回、runtime resolve 和重放由本地运行时处理。")
+                    appendLine("- Function 是可组合的复用片段；召回和重放由本地运行时处理。")
                     appendLine("- Function recall 是运行时内部流程，不是模型工具；不要尝试调用 function_recall、call_tool(function_id) 或隐藏 Function tool。")
                     appendLine("- 如需管理/查看已保存 Function，用 list/get/update/delete 工具；普通手机 UI 自动化继续走 vlm_task。")
-                    appendLine("- 候选复用指令（只作上下文；明确要执行某条复用指令时调用 oob_function_run，普通手机自动化仍走 vlm_task）：")
+                    appendLine("- 候选复用指令只作上下文；明确要执行时由本地运行时选择，普通手机自动化仍走 vlm_task：")
                 }
                 PromptLocale.EN_US -> {
                     appendLine("OmniFlow Function recall has been checked for this user goal.")
-                    appendLine("- A Function is a saved mobile workflow segment; recall, runtime resolve, and replay are handled by the local runtime.")
+                    appendLine("- A Function is a saved mobile workflow segment; recall and replay are handled by the local runtime.")
                     appendLine("- Function recall is an internal runtime flow, not a model tool; do not call function_recall, call_tool(function_id), or hidden Function tools.")
                     appendLine("- Use list/get/update/delete tools to manage saved Functions. Continue ordinary phone UI automation through vlm_task.")
-                    appendLine("- Candidate reusable Functions (context only; call oob_function_run when explicitly executing one reusable command, otherwise use vlm_task for ordinary phone automation):")
+                    appendLine("- Candidate reusable Functions are context only; explicit execution is selected by the local runtime, and ordinary phone automation still uses vlm_task:")
                 }
             }
             candidates.forEachIndexed { index, spec ->
@@ -241,9 +241,9 @@ object OobFunctionSkillProfile {
     ): String {
         val suffix = when (locale) {
             PromptLocale.ZH_CN ->
-                "这是一个 legacy 兼容描述；已保存 Function 不作为模型可见执行 tool 暴露。普通手机自动化应调用 vlm_task；明确执行复用指令时走 omniflow profile 的 oob_function_run。"
+                "这是一个 legacy 兼容描述；已保存 Function 不作为模型可见执行 tool 暴露。普通手机自动化应调用 vlm_task；明确执行复用指令由本地运行时处理。"
             PromptLocale.EN_US ->
-                "This is a legacy compatibility description; saved Functions are not exposed as model-visible execution tools. Ordinary phone automation should call vlm_task; explicit reusable-command execution should use oob_function_run in the omniflow profile."
+                "This is a legacy compatibility description; saved Functions are not exposed as model-visible execution tools. Ordinary phone automation should call vlm_task; explicit reusable-command execution is handled by the local runtime."
         }
         return "${base.take(360)} $suffix".trim().take(600)
     }
@@ -309,38 +309,6 @@ object OobFunctionSkillProfile {
                     }
                     putJsonObject("function_spec") { put("type", "object") }
                 }
-            }
-        }
-    }
-
-    private val oobFunctionRunTool: JsonObject = buildJsonObject {
-        put("type", "function")
-        putJsonObject("function") {
-            put("name", OobFunctionToolNames.FUNCTION_RUN)
-            put("displayName", "执行复用指令")
-            put("toolType", "oob_function")
-            put("description", "通过 Agent tool 执行一个已注册的 OmniFlow 复用指令。只在用户明确选择/要求执行指定复用指令时使用；普通手机自动化仍优先调用 vlm_task，不默认执行复用指令。如果用户消息提供 Previous local replay result，先用同一个 oob_function_run 继续该 Function；当结果显示需要 bounded runtime resolve / Agent 协助时，根据失败上下文补充 runtime_resolve_goal，而不是让前端或外层流程手写下一步动作。")
-            putJsonObject("parameters") {
-                put("type", "object")
-                putJsonObject("properties") {
-                    putJsonObject("function_id") {
-                        put("type", "string")
-                        put("description", "要执行的复用指令 Function id。")
-                    }
-                    putJsonObject("arguments") {
-                        put("type", "object")
-                        put("description", "公开参数名到值的映射。")
-                    }
-                    putJsonObject("runtime_resolve_goal") {
-                        put("type", "string")
-                        put("description", "可选。复用过程中需要一次 bounded runtime resolve 时使用的用户目标。")
-                    }
-                    putJsonObject("runtime_resolve_budget") {
-                        put("type", "integer")
-                        put("description", "可选。允许 runtime resolve 的次数，默认由本地 runtime 控制。")
-                    }
-                }
-                putJsonArray("required") { add("function_id") }
             }
         }
     }
@@ -445,7 +413,6 @@ object OobFunctionSkillProfile {
         oobFunctionListTool,
         oobFunctionGetTool,
         oobFunctionRegisterTool,
-        oobFunctionRunTool,
         updateFunctionTool,
         oobFunctionDeleteTool,
         oobFunctionClearTool,

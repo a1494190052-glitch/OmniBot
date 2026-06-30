@@ -34,9 +34,6 @@ ToastType functionRunResultToastType(UtgManualRunResult result) {
   if (result.completedLocal || result.completedVlmFallback) {
     return ToastType.success;
   }
-  if (result.canContinueWithAgent || result.modelRequired) {
-    return ToastType.warning;
-  }
   if (result.success) {
     return ToastType.success;
   }
@@ -63,13 +60,6 @@ String functionRunResultToastMessage(
   }
   if (result.completedLocal) {
     return _text(context, '复用指令直接执行完成', 'Reusable command ran directly');
-  }
-  if (result.canContinueWithAgent || result.modelRequired) {
-    return _text(
-      context,
-      '直接执行已停止，需要 Agent 继续处理',
-      'Direct run stopped; Agent continuation is required',
-    );
   }
   if (result.success) {
     return _text(context, '复用指令执行已开始', 'Reusable command run started');
@@ -169,41 +159,11 @@ class _FunctionRunResultSheet extends StatefulWidget {
 
 class _FunctionRunResultSheetState extends State<_FunctionRunResultSheet> {
   late UtgManualRunResult _result;
-  bool _continuing = false;
 
   @override
   void initState() {
     super.initState();
     _result = widget.initialResult;
-  }
-
-  Future<void> _continueWithAgent() async {
-    if (_continuing || !_result.canContinueWithAgent) return;
-    final functionId = _result.functionId.trim();
-    if (functionId.isEmpty) return;
-    setState(() => _continuing = true);
-    try {
-      final started =
-          await AssistsMessageService.runOobReusableFunctionWithAgent(
-            taskId:
-                'oob-function-continue-${DateTime.now().millisecondsSinceEpoch}',
-            functionId: functionId,
-            arguments: widget.arguments,
-            localReplayResult: _result.rawJson,
-          );
-      if (!mounted) return;
-      setState(() => _continuing = false);
-      showToast(
-        started
-            ? _text(context, '已交给 Agent 继续执行', 'Continuing with Agent')
-            : _text(context, 'Agent 继续执行失败', 'Agent continuation failed'),
-        type: started ? ToastType.success : ToastType.error,
-      );
-    } catch (error) {
-      if (!mounted) return;
-      setState(() => _continuing = false);
-      showToast(error.toString(), type: ToastType.error);
-    }
   }
 
   @override
@@ -337,7 +297,7 @@ class _FunctionRunResultSheetState extends State<_FunctionRunResultSheet> {
                       16,
                       14,
                       16,
-                      result.canContinueWithAgent ? 96 : 24,
+                      24,
                     ),
                     child: FunctionRunResultInlinePanel(
                       result: result,
@@ -345,41 +305,6 @@ class _FunctionRunResultSheetState extends State<_FunctionRunResultSheet> {
                     ),
                   ),
                 ),
-                if (result.canContinueWithAgent)
-                  SafeArea(
-                    top: false,
-                    child: Container(
-                      width: double.infinity,
-                      padding: const EdgeInsets.fromLTRB(16, 10, 16, 12),
-                      decoration: BoxDecoration(
-                        color: palette.pageBackground,
-                        border: Border(
-                          top: BorderSide(color: palette.borderSubtle),
-                        ),
-                      ),
-                      child: FilledButton.icon(
-                        onPressed: _continuing ? null : _continueWithAgent,
-                        icon: _continuing
-                            ? const SizedBox(
-                                width: 16,
-                                height: 16,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                ),
-                              )
-                            : const Icon(Icons.smart_toy_outlined, size: 18),
-                        label: Text(
-                          _continuing
-                              ? _text(context, '正在继续执行', 'Continuing')
-                              : _text(
-                                  context,
-                                  '用 Agent 继续',
-                                  'Continue with Agent',
-                                ),
-                        ),
-                      ),
-                    ),
-                  ),
               ],
             ),
           ),

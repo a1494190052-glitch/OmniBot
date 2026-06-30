@@ -21,8 +21,6 @@ import cn.com.omnimind.bot.agent.tool.handlers.ToolHandler
 import cn.com.omnimind.bot.agent.tool.handlers.VlmToolHandler
 import cn.com.omnimind.bot.agent.tool.handlers.WebSearchToolHandler
 import cn.com.omnimind.bot.agent.tool.handlers.LocalActionToolHandler
-import cn.com.omnimind.bot.agent.tool.handlers.OobFunctionToolHandler
-import cn.com.omnimind.bot.omniflow.WorkspaceFunctionStore
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
@@ -67,18 +65,6 @@ class AgentToolRouter(
         SubagentToolHandler(helper, subagentDispatcher)
     )
 
-    private val oobFunctionHandler = OobFunctionToolHandler(
-        context = context,
-        helper = helper,
-        deviceOperator = deviceOperator,
-        actionExecutor = actionExecutor,
-    )
-
-    init {
-        oobFunctionHandler.workspaceFunctionStore =
-            WorkspaceFunctionStore(AgentWorkspaceManager.rootDirectory(context))
-    }
-
     private val handlerMap: Map<String, ToolHandler> = buildMap {
         for (handler in orderedHandlers) {
             for (name in handler.toolNames) {
@@ -98,7 +84,6 @@ class AgentToolRouter(
         helper.ensureRunActive()
         val toolName = toolCall.function.name
         val handler = handlerMap[toolName]
-            ?: if (oobFunctionHandler.canHandle(toolName)) oobFunctionHandler else null
         return handler?.execute(toolCall, args, runtimeDescriptor, env, callback, toolHandle)
             ?: ToolExecutionResult.Error(toolName, "Unknown tool: $toolName")
     }

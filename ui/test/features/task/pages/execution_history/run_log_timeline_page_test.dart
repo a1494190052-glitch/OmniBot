@@ -596,19 +596,12 @@ void main() {
       expect(convertArgs['register'], isTrue);
 
       final runCall = methodCalls.singleWhere(
-        (call) => call.method == 'createAgentTask',
+        (call) => call.method == 'runOobReusableFunction',
       );
       final runArgs = Map<String, dynamic>.from(runCall.arguments as Map);
-      expect(runArgs['toolProfile'], 'omniflow');
-      expect(runArgs['allowedTools'], contains('oob_function_run'));
-      expect(runArgs['userMessage'], contains('Function id: fn_from_runlog'));
-      expect(runArgs['userMessage'], isNot(contains('只使用 oob_function_run')));
+      expect(runArgs['function_id'], 'fn_from_runlog');
       expect(
-        runArgs['userMessage'],
-        isNot(contains('Use the oob_function_run')),
-      );
-      expect(
-        methodCalls.where((call) => call.method == 'runOobReusableFunction'),
+        methodCalls.where((call) => call.method == 'createAgentTask'),
         isEmpty,
       );
       expect(find.text('RunLog 重放结果'), findsNothing);
@@ -1228,28 +1221,15 @@ void main() {
       );
       expect(
         methodCalls.where((call) => call.method == 'createAgentTask'),
-        hasLength(1),
+        isEmpty,
       );
-      final agentRunCall = methodCalls.singleWhere(
-        (call) => call.method == 'createAgentTask',
+      final functionRunCall = methodCalls.singleWhere(
+        (call) => call.method == 'runOobReusableFunction',
       );
-      final agentRunArgs = Map<String, dynamic>.from(
-        agentRunCall.arguments as Map,
+      final functionRunArgs = Map<String, dynamic>.from(
+        functionRunCall.arguments as Map,
       );
-      expect(agentRunArgs['toolProfile'], 'omniflow');
-      expect(agentRunArgs['allowedTools'], contains('oob_function_run'));
-      expect(
-        agentRunArgs['userMessage'],
-        contains('Function id: fn_from_runlog'),
-      );
-      expect(
-        agentRunArgs['userMessage'],
-        isNot(contains('只使用 oob_function_run')),
-      );
-      expect(
-        agentRunArgs['userMessage'],
-        isNot(contains('Use the oob_function_run')),
-      );
+      expect(functionRunArgs['function_id'], 'fn_from_runlog');
       await tester.pump();
 
       await tester.tap(find.text('注册', skipOffstage: false));

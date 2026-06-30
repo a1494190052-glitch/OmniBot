@@ -29,27 +29,6 @@ class OobFunctionRunResultBuilder {
         putAll(extras)
     }
 
-    fun runtimeResolveRequiredStep(
-        stepId: String,
-        tool: String,
-        prompt: String,
-        summary: String,
-        extras: Map<String, Any?> = emptyMap(),
-    ): Map<String, Any?> = linkedMapOf<String, Any?>(
-        "step_id" to stepId,
-        "tool" to tool,
-        "executor" to "omniflow_runtime_resolve",
-        "model_free" to true,
-        "success" to false,
-        "runtime_resolve_required" to true,
-        "runtime_resolve_available" to false,
-        "error_code" to "OOB_RUNTIME_RESOLVE_UNAVAILABLE",
-        "runtime_resolve_reason" to prompt.takeIf { it.isNotBlank() },
-        "summary" to summary,
-    ).apply {
-        putAll(extras)
-    }.filterValues { it != null }
-
     fun failedRun(
         functionId: String,
         spec: Map<String, Any?>,
@@ -98,19 +77,10 @@ class OobFunctionRunResultBuilder {
         activeSteps: List<Map<String, Any?>>,
         stepResults: List<Map<String, Any?>>,
         normalizedResumeFromStep: Int,
-        runtimeResolveSessionId: String,
-        runtimeResolveAttempt: Int,
         failureReason: String?,
     ): LinkedHashMap<String, Any?> {
         val successCount = stepResults.count { it["success"] != false }
         val allSuccess = stepResults.size == activeSteps.size && stepResults.none { it["success"] == false }
-        val runtimeResolveRequired = stepResults.any {
-            it["runtime_resolve_required"] == true
-        }
-        val runtimeResolveAvailable = !runtimeResolveRequired ||
-            stepResults.any {
-                it["runtime_resolve_required"] == true && it["runtime_resolve_available"] == true
-            }
         val failedStepIndex = stepResults.firstOrNull { it["success"] == false }?.get("index")
         val lastStepIndex = stepResults.lastOrNull()?.get("index")
         val currentStepIndex = failedStepIndex ?: lastStepIndex
@@ -123,22 +93,15 @@ class OobFunctionRunResultBuilder {
             "description" to spec["description"]?.toString().orEmpty(),
             "source" to OobFunctionToolHandler.FUNCTION_RUN_SOURCE,
             "run_source" to OobFunctionToolHandler.FUNCTION_RUN_SOURCE,
-            "runner" to when {
-                runtimeResolveRequired -> "oob_function_runtime_resolve_required"
-                else -> OobFunctionToolHandler.FUNCTION_DIRECT_RUNNER
-            },
+            "runner" to OobFunctionToolHandler.FUNCTION_DIRECT_RUNNER,
             "replay_mode" to "function_direct_run",
             "step_count" to steps.size,
             "active_step_count" to activeSteps.size,
             "success_step_count" to successCount,
             "completed_step_count" to (normalizedResumeFromStep + successCount).coerceAtMost(steps.size),
             "resume_from_step" to normalizedResumeFromStep,
-            "runtime_resolve_session_id" to runtimeResolveSessionId.takeIf { it.isNotBlank() },
-            "runtime_resolve_attempt" to runtimeResolveAttempt.takeIf { it > 0 },
             "model_used" to false,
             "model_required" to false,
-            "runtime_resolve_required" to runtimeResolveRequired.takeIf { it },
-            "runtime_resolve_available" to runtimeResolveAvailable.takeIf { runtimeResolveRequired },
             "failed_step_index" to failedStepIndex,
             "current_step_index" to currentStepIndex,
             "current_step_number" to currentStepNumber,
@@ -270,15 +233,6 @@ class OobFunctionRunResultBuilder {
             positiveInt(payload["success_step_count"]),
             stepResults.count { it["success"] != false }.takeIf { it > 0 },
         ).firstOrNull { it != null } ?: 0
-        val resolveCalls = listOf(
-            positiveInt(payload["resolve_calls"]),
-            stepResults.count { step ->
-                step["runtime_resolve_executed"] == true ||
-                    step["runtime_resolve_applied"] == true ||
-                    step["executor"] == "omniflow_runtime_resolve" ||
-                    mapArg(step["runtime_resolve"])["success"] == true
-            }.takeIf { it > 0 },
-        ).firstOrNull { it != null } ?: 0
         val elapsedMs = listOf(
             nonNegativeLong(timing["call_duration_ms"]),
             nonNegativeLong(timing["duration_ms"]),
@@ -289,7 +243,6 @@ class OobFunctionRunResultBuilder {
         return linkedMapOf<String, Any?>(
             "success" to success,
             "steps" to steps,
-            "resolve_calls" to resolveCalls,
             "model_calls" to (positiveInt(payload["model_calls"]) ?: 0),
             "tokens" to (positiveInt(payload["tokens"]) ?: positiveInt(payload["total_tokens"]) ?: 0),
             "elapsed_ms" to elapsedMs,

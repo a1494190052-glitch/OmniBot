@@ -15,7 +15,6 @@ import cn.com.omnimind.baselib.database.DatabaseHelper
 import cn.com.omnimind.baselib.util.OmniLog
 import cn.com.omnimind.bot.manager.AssistsCoreManager
 import cn.com.omnimind.bot.omniflow.OobFunctionSkillProfile
-import cn.com.omnimind.bot.omniflow.OobFunctionToolNames
 import cn.com.omnimind.bot.util.AssistsUtil
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
@@ -239,12 +238,34 @@ class WorkspaceScheduledTaskScheduler(
     }
 
     private fun executeTask(task: StoredTask): StoredTask {
+        if (!task.oobFunctionId.isNullOrBlank()) {
+            executeReusableFunctionTask(task)
+            return task
+        }
         return if (task.targetKind.equals("subagent", ignoreCase = true)) {
             executeSubagentTask(task)
         } else {
             executeVlmTask(task)
             task
         }
+    }
+
+    private fun executeReusableFunctionTask(task: StoredTask) {
+        val functionId = task.oobFunctionId?.trim().orEmpty()
+        require(functionId.isNotEmpty()) { "oobFunctionId is empty" }
+        AssistsCoreManager(appContext).runOobReusableFunction(
+            MethodCall(
+                "runOobReusableFunction",
+                mapOf(
+                    "function_id" to functionId,
+                    "arguments" to task.oobFunctionArguments,
+                    "taskId" to task.taskId,
+                    "frontend_task_id" to task.taskId,
+                    "frontend_parent" to "scheduled_task",
+                )
+            ),
+            NoopResult(task.taskId, "runOobReusableFunction")
+        )
     }
 
     private fun executeSubagentTask(task: StoredTask): StoredTask {
@@ -433,7 +454,7 @@ class WorkspaceScheduledTaskScheduler(
 
     private fun scheduledSubagentAllowedTools(task: StoredTask): List<String> {
         if (!task.oobFunctionId.isNullOrBlank()) {
-            return listOf(OobFunctionToolNames.FUNCTION_RUN)
+            return emptyList()
         }
         return task.allowedTools
     }

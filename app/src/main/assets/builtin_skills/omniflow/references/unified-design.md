@@ -7,9 +7,9 @@ why old replay concepts should not be reintroduced.
 
 ```text
 RunLog -> Function -> recall candidates -> runtime chooses high-confidence replay
-  -> runtime resolve supplies parameters or one current-step GUI action when replay cannot continue locally
+  -> bind public parameters from user goal when needed
   -> local runner executes checker/action-transfer/replay
-  -> returns success/result
+  -> returns success/result or failure diagnostics
   -> next turn fresh observe decides the next tool
 ```
 
@@ -49,27 +49,22 @@ Recall is local candidate retrieval. It should usually take milliseconds to tens
 of milliseconds. It writes candidate Functions into current-page context or
 guidance. It does not call the VLM model and does not execute a Function.
 
-Parameterized Function candidates are valid. The runtime resolves public
-business arguments from the user goal before replay.
+Parameterized Function candidates are valid. The runtime binds public business
+arguments from the user goal before replay.
 
 Recall finds candidates and writes guidance for diagnostics. The local runtime
 decides whether a candidate is safe to replay; the VLM does not select or invoke
 Function assets directly.
 
-## Runtime Resolve
+## Failure Handoff
 
-Use one product and prompt concept: runtime resolve. Before replay it may return
-public Function arguments, and after a local replay miss it may return one
-ordinary UI action for the current failed step.
+Function replay does not run an internal model repair step. Before replay, bind
+public Function arguments; after a local replay miss, return failure diagnostics.
 
-Do not split this into separate parameter-fill and step-repair concepts. The
-caller only observes one `resolve_calls` counter and one replay result.
-
-If replay fails, runtime resolve may ask the online model for exactly one normal
-GUI action for the current failed step. After that action, the runtime observes
-again and local checker/action-transfer decides whether replay can resume. Do
-not ask the outer Agent to resume hidden replay. If the saved Function is wrong,
-call `update_function` later with RunLog evidence.
+The ordinary VLM loop may continue with one or more normal GUI actions after the
+Function result is returned. Do not ask the outer Agent to resume hidden replay.
+If the saved Function is wrong, call `update_function` later with RunLog
+evidence.
 
 ## update_function
 
@@ -112,8 +107,8 @@ analysis plus minimal patch before saving.
 - generic `needs_agent` as a replay-state shortcut
 - `omniflow_vlm_fallback` as a first-class executor/state
 
-`needs_agent` can still appear as a guard decision or legacy compatibility
-value. It should not become a hidden runtime queue or planner state.
+`needs_agent` can still appear as legacy compatibility value. It should not
+become a hidden runtime queue or planner state.
 
 New Function specs write `has_agent_steps`. `requires_agent_fallback` is legacy
 input only and should be normalized before it reaches agent-facing output.

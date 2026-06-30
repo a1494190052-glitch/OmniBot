@@ -34,7 +34,7 @@ class OobFunctionSkillProfileTest {
     }
 
     @Test
-    fun `omniflow profile exposes agent managed function tools`() {
+    fun `omniflow profile exposes function management tools only`() {
         val definitions = OobFunctionSkillProfile.staticToolDefinitions(PromptLocale.EN_US)
         val toolNames = definitions
             .mapNotNull { definition ->
@@ -46,19 +46,8 @@ class OobFunctionSkillProfileTest {
             .toSet()
 
         assertEquals(OobFunctionToolNames.profileTools, toolNames)
-        assertTrue(toolNames.contains(OobFunctionToolNames.FUNCTION_RUN))
         assertFalse(toolNames.contains(RunLogReplayPolicy.TOOL_CALL_TOOL))
         assertFalse(toolNames.any { it.startsWith("omniflow.call") })
-
-        val runTool = definitions
-            .mapNotNull { it["function"] as? JsonObject }
-            .first { it["name"]?.jsonPrimitive?.contentOrNull == OobFunctionToolNames.FUNCTION_RUN }
-        val runToolDescription = runTool["description"]
-            ?.jsonPrimitive
-            ?.contentOrNull
-            .orEmpty()
-        assertTrue(runToolDescription.contains("Previous local replay result"))
-        assertTrue(runToolDescription.contains("runtime_resolve_goal"))
     }
 
     @Test
@@ -111,7 +100,7 @@ class OobFunctionSkillProfileTest {
         assertTrue(prompt.contains("dish"))
         assertTrue(prompt.contains("不要尝试调用 function_recall"))
         assertTrue(prompt.contains("普通手机自动化仍走 vlm_task"))
-        assertTrue(prompt.contains("oob_function_run"))
+        assertFalse(prompt.contains("oob_" + "function_run"))
     }
 
     private class MinimalContext : ContextWrapper(null) {

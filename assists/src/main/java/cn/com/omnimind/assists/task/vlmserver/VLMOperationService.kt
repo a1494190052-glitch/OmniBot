@@ -390,6 +390,9 @@ class VLMOperationService(
                 }
 
                 if (result.step?.action?.isRecoverableDeviceAction() == true) {
+                    if (result.step?.action is FunctionRunAction) {
+                        disableOmniFlowRecallForCurrentTask = true
+                    }
                     stepIndex++
                     continue
                 } else {

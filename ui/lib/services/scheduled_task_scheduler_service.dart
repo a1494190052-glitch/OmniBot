@@ -218,7 +218,19 @@ class ScheduledTaskSchedulerService {
       // 执行任务
       if (task.suggestionData != null) {
         final targetKind = task.targetKind.isNotEmpty ? task.targetKind : 'vlm';
-        if (targetKind == 'vlm') {
+        if (_isReusableFunctionSchedule(task)) {
+          final suggestionData = task.suggestionData!;
+          final functionId =
+              suggestionData['oobFunctionId']?.toString().trim() ?? '';
+          if (functionId.isEmpty) {
+            throw Exception('Reusable Function task missing function id');
+          }
+          await AssistsMessageService.runOobReusableFunction(
+            functionId: functionId,
+            arguments: _stringKeyMap(suggestionData['oobFunctionArguments']),
+            taskId: task.id,
+          );
+        } else if (targetKind == 'vlm') {
           final goal = task.suggestionData!['goal'] as String;
           debugPrint(
             'ScheduledTaskSchedulerService: Executing VLM task with goal: $goal',
@@ -299,7 +311,7 @@ class ScheduledTaskSchedulerService {
 
   static String? _subagentToolProfile(ScheduledTask task) {
     if (_isReusableFunctionSchedule(task)) {
-      return AssistsMessageService.oobReusableFunctionAgentToolProfile;
+      return null;
     }
     return AgentToolProfileNormalizer.canonicalize(
       _firstNonBlank([task.suggestionData?['toolProfile']]),
@@ -308,7 +320,7 @@ class ScheduledTaskSchedulerService {
 
   static List<String> _subagentAllowedTools(ScheduledTask task) {
     if (_isReusableFunctionSchedule(task)) {
-      return AssistsMessageService.oobReusableFunctionAgentAllowedTools;
+      return const <String>[];
     }
     return _stringList(task.suggestionData?['allowedTools']);
   }
@@ -336,6 +348,15 @@ class ScheduledTaskSchedulerService {
           .toList(growable: false);
     }
     return const <String>[];
+  }
+
+  static Map<String, dynamic> _stringKeyMap(dynamic value) {
+    if (value is Map) {
+      return value.map<String, dynamic>(
+        (key, item) => MapEntry(key.toString(), item),
+      );
+    }
+    return const <String, dynamic>{};
   }
 
   /// 取消定时任务

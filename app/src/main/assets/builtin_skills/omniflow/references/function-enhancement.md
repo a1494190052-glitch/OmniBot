@@ -73,8 +73,8 @@ Forbidden in `enhance` mode:
 
 Use correction when the user says the recorded Function did the wrong concrete
 action, for example "应该点「外卖」而不是点「美食」". The saved patch mode is
-still `repair` for compatibility; do not confuse this with runtime resolve
-during replay.
+still `repair` for compatibility; do not confuse this with replay failure
+handling.
 
 Patch shape:
 
@@ -169,7 +169,7 @@ way that a future user can actually benefit from, and every required section
 returned a valid patch.
 
 Use `unchanged` when patches are valid but normalize to the same Function, or
-when every proposed change is too vague to improve recall or runtime resolve.
+when every proposed change is too vague to improve recall or replay robustness.
 
 Use `partial` when a useful patch was applied but one or more sections failed,
 returned invalid JSON, referenced missing step indexes, or attempted unsafe

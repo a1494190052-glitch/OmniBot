@@ -94,7 +94,7 @@ internal object RunLogReplayStepCompiler {
                 )
             }
             RunLogReplayPolicy.isAgentTool(normalizedToolName) -> {
-                val runtimeResolvePrompt = runtimeResolvePrompt(title, toolName, args)
+                val agentStepPrompt = agentStepPrompt(title, toolName, args)
                 nullableMap(
                     "title" to title,
                     "kind" to "agent_call",
@@ -108,7 +108,7 @@ internal object RunLogReplayStepCompiler {
                     "agent_call" to linkedMapOf(
                         "tool" to RunLogReplayPolicy.TOOL_AGENT_RUN,
                         "args" to linkedMapOf(
-                            "prompt" to runtimeResolvePrompt,
+                            "prompt" to agentStepPrompt,
                             "original_tool" to toolName,
                             "original_args" to args,
                         ),
@@ -116,7 +116,7 @@ internal object RunLogReplayStepCompiler {
                     ),
                     "fallback" to linkedMapOf(
                         "tool" to RunLogReplayPolicy.TOOL_AGENT_RUN,
-                        "prompt" to runtimeResolvePrompt,
+                        "prompt" to agentStepPrompt,
                     ),
                     "observed_result" to result.takeUnless(::isEmptyJsonValue),
                 )
@@ -498,7 +498,7 @@ internal object RunLogReplayStepCompiler {
             vector.elementCount
     }
 
-    private fun runtimeResolvePrompt(
+    private fun agentStepPrompt(
         title: String,
         toolName: String,
         args: Map<String, Any?>,

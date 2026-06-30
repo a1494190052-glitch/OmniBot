@@ -203,7 +203,7 @@ class OobFunctionRecallService(
                 "direct_hit_min_margin" to DIRECT_HIT_MIN_MARGIN,
                 "direct_hit_requires_single_candidate" to false,
                 "direct_hit_requires_top1_margin" to true,
-                "direct_hit_allows_runtime_resolved_arguments" to true,
+                "direct_hit_allows_goal_bound_arguments" to true,
             ),
             "count" to candidates.size,
             "reason" to when {
@@ -1215,7 +1215,7 @@ class OobFunctionRecallService(
         if (isNoArgumentFunction(spec)) {
             "no_arguments_required"
         } else {
-            "runtime_resolve_required_arguments_from_user_goal"
+            "goal_bound_arguments_required"
         }
 
     private companion object {

@@ -17,105 +17,6 @@ void main() {
   });
 
   group('OOB reusable Function execution bridge', () {
-    test(
-      'builds factual reusable Function Agent message for all UI entrypoints',
-      () {
-        final message = AssistsMessageService.oobReusableFunctionAgentMessage(
-          functionId: ' search_settings ',
-          arguments: const {'keyword': 'wifi'},
-        );
-
-        expect(message, contains('执行已保存的复用指令。'));
-        expect(message, contains('Function id: search_settings'));
-        expect(message, contains('"keyword":"wifi"'));
-        expect(message, isNot(contains('runtime_resolve_goal')));
-        expect(message, isNot(contains('只使用 oob_function_run')));
-        expect(message, isNot(contains('Use the oob_function_run')));
-      },
-    );
-
-    test('exposes one focused Agent tool policy for reusable Function UI', () {
-      expect(
-        AssistsMessageService.oobReusableFunctionAgentToolProfile,
-        'omniflow',
-      );
-      expect(AssistsMessageService.oobReusableFunctionAgentAllowedTools, [
-        'oob_function_run',
-      ]);
-    });
-
-    test('starts agent managed execution with focused Function tool', () async {
-      final calls = <MethodCall>[];
-      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
-          .setMockMethodCallHandler(assistCoreChannel, (call) async {
-            calls.add(call);
-            expect(call.method, 'createAgentTask');
-            return 'SUCCESS';
-          });
-
-      final started =
-          await AssistsMessageService.runOobReusableFunctionWithAgent(
-            taskId: 'task-run-function-1',
-            functionId: ' open_settings ',
-            arguments: const {'package_name': 'com.android.settings'},
-          );
-
-      expect(started, isTrue);
-      expect(calls, hasLength(1));
-      final arguments = Map<String, dynamic>.from(
-        calls.single.arguments as Map,
-      );
-      expect(arguments['taskId'], 'task-run-function-1');
-      expect(arguments['toolProfile'], 'omniflow');
-      expect(arguments['allowedTools'], contains('oob_function_run'));
-      expect(arguments['userMessage'], contains('Function id: open_settings'));
-      expect(arguments['userMessage'], contains('com.android.settings'));
-      expect(arguments['userMessage'], isNot(contains('runtime_resolve_goal')));
-    });
-
-    test(
-      'keeps replay evidence factual and leaves resolve strategy to Agent',
-      () async {
-        final calls = <MethodCall>[];
-        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
-            .setMockMethodCallHandler(assistCoreChannel, (call) async {
-              calls.add(call);
-              expect(call.method, 'createAgentTask');
-              return 'SUCCESS';
-            });
-
-        final started =
-            await AssistsMessageService.runOobReusableFunctionWithAgent(
-              taskId: 'task-run-function-2',
-              functionId: 'search_settings',
-              localReplayResult: const <String, dynamic>{
-                'success': false,
-                'function_id': 'search_settings',
-                'context': <String, dynamic>{
-                  'step_results': <Map<String, dynamic>>[
-                    <String, dynamic>{
-                      'success': false,
-                      'needs_agent': true,
-                      'tool': 'input_text',
-                    },
-                  ],
-                },
-              },
-            );
-
-        expect(started, isTrue);
-        final arguments = Map<String, dynamic>.from(
-          calls.single.arguments as Map,
-        );
-        final userMessage = arguments['userMessage'].toString();
-        expect(userMessage, contains('Function id: search_settings'));
-        expect(userMessage, contains('Previous local replay result:'));
-        expect(userMessage, contains('"needs_agent":true'));
-        expect(userMessage, isNot(contains('runtime_resolve_goal')));
-        expect(userMessage, isNot(contains('继续使用 oob_function_run')));
-      },
-    );
-
     test('passes default arguments and parses local completion', () async {
       final calls = <MethodCall>[];
       TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
@@ -334,9 +235,7 @@ void main() {
           nodeId: '',
           suggestionId: '',
           targetKind: 'subagent',
-          subagentPrompt: AssistsMessageService.oobReusableFunctionAgentMessage(
-            functionId: 'open_settings',
-          ),
+          subagentPrompt: 'Run reusable function open_settings',
           type: ScheduledTaskType.fixedTime,
           fixedTime: '09:30',
           createdAt: DateTime.now().millisecondsSinceEpoch,
@@ -352,8 +251,8 @@ void main() {
           task,
         );
 
-        expect(policy.toolProfile, 'omniflow');
-        expect(policy.allowedTools, ['oob_function_run']);
+        expect(policy.toolProfile, isNull);
+        expect(policy.allowedTools, isEmpty);
       },
     );
   });

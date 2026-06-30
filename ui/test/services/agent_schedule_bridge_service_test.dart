@@ -47,7 +47,7 @@ void main() {
         'repeatDaily': false,
         'enabled': false,
         'toolProfile': 'function_management',
-        'allowedTools': ['oob_function_run'],
+        'allowedTools': ['legacy_function_run'],
         'oobFunctionId': 'open_settings',
         'oobFunctionArguments': {'package_name': 'com.android.settings'},
       });
@@ -91,7 +91,7 @@ void main() {
         'targetKind': 'subagent',
         'subagentPrompt': 'run task',
         'toolProfile': ' function-management ',
-        'allowedTools': ['oob_function_run'],
+        'allowedTools': ['vlm_task'],
       },
     );
 
@@ -100,6 +100,6 @@ void main() {
     );
 
     expect(policy.toolProfile, 'omniflow');
-    expect(policy.allowedTools, ['oob_function_run']);
+    expect(policy.allowedTools, ['vlm_task']);
   });
 }

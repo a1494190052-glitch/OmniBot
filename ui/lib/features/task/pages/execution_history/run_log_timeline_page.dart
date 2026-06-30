@@ -4144,10 +4144,7 @@ class _ReusableFunctionSpecSheetState
   Map<String, dynamic> _scheduleSuggestionData(String functionId) {
     return {
       'targetKind': 'subagent',
-      'subagentPrompt': AssistsMessageService.oobReusableFunctionAgentMessage(
-        functionId: functionId,
-        arguments: _defaultArguments,
-      ),
+      'subagentPrompt': 'Run reusable function $functionId',
       'notificationEnabled': true,
       'source': 'run_log_reusable_function',
       'sourceRunId': widget.runId,

@@ -301,17 +301,15 @@ When adding or migrating a generic agent tool name:
 - load and materialize the requested Function
 - validate missing required arguments
 - execute fixed replay through `OobFunctionToolHandler`
-- return compact failure or runtime-resolve diagnostics when deterministic replay
+- return compact failure diagnostics when deterministic replay
   cannot execute the current step
 - keep `Function.steps` as the only pending sequence. Function replay should
   re-localize and attempt each active step in order; it must not skip action
   steps because a terminal postcondition appears satisfied or because the page
   seems to have advanced. If the current step cannot be executed, return
-  `success=false` with a compact `{success, result}` payload. The public concept
-  is runtime resolve: before replay it may fill only public Function arguments;
-  during replay it may produce only one ordinary UI action for the current
-  failed step and must not reselect a Function. Legacy wire payload names remain
-  implementation compatibility only.
+  `success=false` with a compact `{success, result}` payload. Online recovery
+  after a replay failure belongs to the ordinary VLM loop, not the Function
+  runner.
 
 `OobFunctionToolHandler` owns runtime execution startup:
 
@@ -351,13 +349,6 @@ local action execution:
 - keep main-thread UI calls outside the deterministic step executor
 - skip Function calls so only the top-level replay owns the overlay
 
-`OobFunctionRuntimeResolveContextController` owns failed-step runtime resolve context:
-
-- build runtime resolve context from the failed step, materialized args, and recovery
-  snapshot
-- refetch the current page after deterministic replay failures
-- shape the compact failed-step payload that the runtime may use for one ordinary
-  UI action; legacy wire keys are compatibility details, not public concepts
 - keep recovery text outside the replay loop; it must not start a hidden Agent or
   VLM task by itself
 
@@ -410,9 +401,8 @@ Agent/MCP tool surface
   -> OobFunctionSkillProfile # OmniFlow profile and runtime recall metadata
       -> OobFunctionSchemaBuilder # Function spec -> call_tool argument schema
   -> OobFunctionToolHandler       # load/materialize/execute Functions
-      -> OobFunctionToolHandler   # deterministic replay and runtime resolve
+      -> OobFunctionToolHandler   # deterministic replay
           -> OobFunctionFrontendSessionController # replay overlay/session
-          -> OobFunctionRuntimeResolveContextController # recovery context/runtime resolve
           -> OobFunctionToolHandler # replay/call_tool args and step routing
           -> OobFunctionRunResultBuilder # run result/timing payloads
           -> OobFunctionCallCardPresenter # Function-call card payloads
@@ -493,8 +483,6 @@ Keep these pieces separate:
 - `OobFunctionToolHandler` and `ActionExecutor`: runtime step execution
 - `OobFunctionFrontendSessionController`: top-level replay overlay lifecycle
   and stop signal handling
-- `OobFunctionRuntimeResolveContextController`: failed-step recovery snapshots and
-  bounded runtime resolve context
 - `OobFunctionToolHandler`: replay step args, `call_tool` target resolution,
   Function-call argument extraction, skip-step detection, OmniFlow
   execution-tool resolution, Function-call classification, and unsupported
@@ -636,8 +624,8 @@ Use these owner rules when removing duplicated helper code:
   mechanical helper objects, and do not reintroduce separate `call_tool` or
   Function-call step executors for routing already owned by the handler.
 - Function run result payload shape belongs in `OobFunctionRunResultBuilder`.
-  Runtime components may decide that a step failed, requires runtime resolve,
-  or was delegated, but they should call this owner for stable fields such as
+  Runtime components may decide that a step failed or was delegated, but they
+  should call this owner for stable fields such as
   `step_id`, `executor`, `model_required`, `error_code`, and timing payloads
   instead of hand-building equivalent maps in each executor. Old per-step
   fallback aliases are not part of new run payloads. Disabled-fallback terminal

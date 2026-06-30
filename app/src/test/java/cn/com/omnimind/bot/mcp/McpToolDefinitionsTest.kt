@@ -119,11 +119,11 @@ class McpToolDefinitionsTest {
         ).first { it.exists() }.readText()
 
         assertFalse(names.contains("run_function"))
-        assertFalse(names.contains("oob_function_run"))
+        assertFalse(names.contains("oob_" + "function_run"))
         assertFalse(names.contains("omniflow.run_function"))
         assertFalse(names.contains("omniflow.call_function"))
         assertFalse(names.contains("omniflow.execute_function"))
-        assertTrue(routeSource.contains("\"run_function\", OobFunctionToolNames.FUNCTION_RUN -> OobFunctionToolHandler(context).runFunction(args)"))
+        assertTrue(routeSource.contains("\"run_function\" -> OobFunctionToolHandler(context).runFunction(args)"))
         assertFalse(routeSource.contains("\"omniflow.call_function\""))
 
         assertTrue(httpHostSource.contains("post(\"/omniflow/function/run\")"))

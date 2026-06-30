@@ -34,7 +34,7 @@ model-visible skill.
 - **Reusable command runtime** lives in `references/unified-design.md`,
   `references/function-management.md`, `references/function-enhancement.md`,
   `references/runlog-evidence.md`, and `references/replay-fallback.md`. Use
-  these for 复用指令 registration, recall, replay, runtime resolve, update, and
+  these for 复用指令 registration, recall, replay, update, and
   evidence-based repair.
 - **Checker management** lives in `references/checkers.md`. Use it for
   automatic checker creation/management, runtime checker, global checker,
@@ -85,7 +85,7 @@ run through OOB-native OmniFlow.
 
 ## Route The Task
 
-- Overall Function replay architecture, recall, runtime resolve, or over-design
+- Overall Function replay architecture, recall, failure handling, or over-design
   cleanup: read `references/unified-design.md`.
 - Online VLM execution, `vlm_task`, native `tool_calls`, prompt/tool schema
   debugging, indexed UI evidence, grounding, live action dispatch, or VLM
@@ -118,9 +118,8 @@ by default.
   OmniFlow Function work.
 - Do not explicitly call hidden Function replay tools from a normal agent-task.
   Function execution is selected by runtime recall/replay inside `vlm_task`;
-  runtime resolve is the single internal model-assist path. It may fill public
-  Function parameters before replay or output only one ordinary UI action for
-  the current failed step.
+  failed Function replay returns diagnostics and the ordinary VLM loop may
+  continue with normal UI actions.
 - Use `update_function` for all saved Function modifications.
 - Treat Function enhancement as explicit offline/background maintenance. It
   must not run inline before VLM auto-registration, recall-hit replay, direct

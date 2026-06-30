@@ -599,87 +599,8 @@ private fun extractTextPayload(raw: JsonElement?): String {
 }
 
 internal const val OOB_REUSABLE_EXECUTION_STATUS_COMPLETED_LOCAL = "completed_local"
-internal const val OOB_REUSABLE_EXECUTION_STATUS_RUNTIME_RESOLVE_REQUIRED =
-    "runtime_resolve_required"
 internal const val OOB_REUSABLE_EXECUTION_STATUS_FAILED = "failed"
 private const val AGENT_STREAM_META_SCHEMA_VERSION = "oob.agent_event.v1"
-
-internal fun isOobReusableFunctionRuntimeResolveStep(step: Map<*, *>): Boolean {
-    return step["runtime_resolve_required"] == true ||
-        step["error_code"]?.toString() == "OOB_RUNTIME_RESOLVE_UNAVAILABLE" ||
-        (step["success"] == false && step["executor"]?.toString() == RunLogReplayPolicy.EXECUTOR_AGENT) ||
-        step["vlm_step_required"] == true ||
-        step["error_code"]?.toString() == "OOB_VLM_CONTINUATION_REQUIRED"
-}
-
-internal fun buildOobReusableFunctionRuntimeResolvePayload(
-    functionId: String,
-    resolveId: String,
-    runPayload: Map<String, Any?>,
-    stepResults: List<Map<*, *>>,
-    completedStepCount: Int,
-    runtimeResolveStepCount: Int,
-    argumentCount: Int,
-): Map<String, Any?> {
-    val executionStatus = OOB_REUSABLE_EXECUTION_STATUS_RUNTIME_RESOLVE_REQUIRED
-    val stepCount = (runPayload["step_count"] as? Number)?.toInt() ?: stepResults.size
-    val successStepCount = stepResults.count { it["success"] != false }
-    val timing = runPayload["timing"]
-    val runner = runPayload["runner"] ?: "oob_mixed_runner"
-    val resolveStepIndex = runtimeResolveStepCount.takeIf { it > 0 }?.let {
-        stepResults.firstOrNull(::isOobReusableFunctionRuntimeResolveStep)?.get("index")
-    }
-    val currentStepIndex = runPayload["current_step_index"] ?: resolveStepIndex
-    val currentStepNumber = runPayload["current_step_number"]
-        ?: (currentStepIndex as? Number)?.toInt()?.plus(1)
-    val sharedExecutionMeta = linkedMapOf<String, Any?>(
-        "taskId" to resolveId,
-        "resolve_id" to resolveId,
-        "runtime_resolve_required" to true,
-        "runtime_resolve_available" to false,
-        "source" to "oob_function_replay",
-        "run_source" to "oob_function_replay",
-        "runner" to runner,
-        "local_steps_completed" to completedStepCount,
-        "resolve_calls" to runtimeResolveStepCount,
-        "step_count" to stepCount,
-        "active_step_count" to runPayload["active_step_count"],
-        "success_step_count" to successStepCount,
-        "completed_step_count" to (runPayload["completed_step_count"] ?: completedStepCount),
-        "resume_from_step" to runPayload["resume_from_step"],
-        "failed_step_index" to runPayload["failed_step_index"],
-        "current_step_index" to currentStepIndex,
-        "current_step_number" to currentStepNumber,
-        "arguments_applied" to true,
-        "model_required" to (runPayload["model_required"] == true),
-        "timing" to timing
-    ).filterValues { it != null }
-
-    return linkedMapOf(
-        "success" to false,
-        "goal" to "oob_reusable_function_run:$functionId",
-        "function_id" to functionId,
-        "execution_status" to executionStatus,
-        "error_code" to "OOB_RUNTIME_RESOLVE_UNAVAILABLE",
-        "error_message" to "Function replay stopped at a step that requires runtime resolve action inside the Function runner.",
-        "timing" to timing,
-        "terminal_state" to linkedMapOf<String, Any?>(
-            "status" to OOB_REUSABLE_EXECUTION_STATUS_RUNTIME_RESOLVE_REQUIRED,
-            "execution_status" to executionStatus
-        ).apply {
-            putAll(sharedExecutionMeta)
-        },
-        "context" to linkedMapOf<String, Any?>(
-            "source" to "oob_reusable_function",
-            "function_id" to functionId,
-            "execution_status" to executionStatus,
-            "argument_count" to argumentCount,
-            "step_results" to stepResults
-        ).apply {
-            putAll(sharedExecutionMeta)
-        }
-    )
-}
 
 internal fun buildOobReusableFunctionLocalPayload(
     functionId: String,
@@ -790,30 +711,6 @@ internal fun normalizeOobFunctionRunPayloadForChannel(payload: Map<String, Any?>
         put("current_step_number", payload["current_step_number"] ?: resultPayload["current_step_number"])
         put("model_used", payload["model_used"] ?: resultPayload["model_used"] ?: false)
         put("model_required", payload["model_required"] ?: resultPayload["model_required"])
-        put(
-            "runtime_resolve_required",
-            payload["runtime_resolve_required"] ?: resultPayload["runtime_resolve_required"]
-        )
-        put(
-            "runtime_resolve_available",
-            payload["runtime_resolve_available"] ?: resultPayload["runtime_resolve_available"]
-        )
-        put(
-            "runtime_resolve_session_id",
-            payload["runtime_resolve_session_id"] ?: resultPayload["runtime_resolve_session_id"]
-        )
-        put(
-            "runtime_resolve_attempt",
-            payload["runtime_resolve_attempt"] ?: resultPayload["runtime_resolve_attempt"]
-        )
-        put(
-            "runtime_resolve_unavailable_reason",
-            payload["runtime_resolve_unavailable_reason"] ?: resultPayload["runtime_resolve_unavailable_reason"]
-        )
-        put(
-            "runtime_resolve_context",
-            payload["runtime_resolve_context"] ?: resultPayload["runtime_resolve_context"]
-        )
         put("agent_prompt", payload["agent_prompt"] ?: resultPayload["agent_prompt"])
         put("timing", payload["timing"] ?: resultPayload["timing"])
         put("error_code", payload["error_code"] ?: resultPayload["error_code"])
@@ -4600,31 +4497,6 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
 
             val stepResults = (runPayload["step_results"] as? List<*>)
                 ?.filterIsInstance<Map<*, *>>() ?: emptyList()
-            val runtimeResolveSteps = stepResults.filter(::isOobReusableFunctionRuntimeResolveStep)
-
-            // Direct UI replay executes the deterministic local prefix. If a
-            // step needs runtime resolve action, report that requirement instead
-            // of starting a hidden Agent or handing the rest of the task to VLM.
-            if (runtimeResolveSteps.isNotEmpty()) {
-                val completedCount = stepResults.indexOfFirst(::isOobReusableFunctionRuntimeResolveStep)
-                val resolveId = firstNonBlankString(args["taskId"], args["task_id"])
-                    .takeIf { it.isNotEmpty() }
-                    ?: firstNonBlankString(runPayload["runtime_resolve_session_id"]).takeIf { it.isNotEmpty() }
-                    ?: "oob-runtime-resolve-${System.currentTimeMillis()}"
-                val payload = buildOobReusableFunctionRuntimeResolvePayload(
-                    functionId = functionId,
-                    resolveId = resolveId,
-                    runPayload = runPayload,
-                    stepResults = stepResults,
-                    completedStepCount = completedCount,
-                    runtimeResolveStepCount = runtimeResolveSteps.size,
-                    argumentCount = callArguments.size,
-                )
-                withContext(Dispatchers.Main) {
-                    result.success(payload)
-                }
-                return@launch
-            }
 
             val localSuccess = runPayload["success"] != false
             val payload = buildOobReusableFunctionLocalPayload(

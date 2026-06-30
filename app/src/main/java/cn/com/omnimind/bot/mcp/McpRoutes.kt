@@ -219,7 +219,7 @@ object McpRoutes {
             "act" -> McpToolExecutors.executeAct(context, args)
             "file_transfer" -> McpToolExecutors.executeFileTransfer(args)
             "agent_run" -> McpToolExecutors.executeAgentRun(context, args)
-            "run_function", OobFunctionToolNames.FUNCTION_RUN -> OobFunctionToolHandler(context).runFunction(args)
+            "run_function" -> OobFunctionToolHandler(context).runFunction(args)
             else -> {
                 if (isOmniflowMcpTool(name)) {
                     functionManagementService.executeTool(name, args)

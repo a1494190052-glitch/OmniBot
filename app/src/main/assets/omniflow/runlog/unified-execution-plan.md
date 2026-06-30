@@ -132,7 +132,7 @@ Python OmniFlow compatibility should be one-way for live tasks:
   must call OOB's native HTTP/MCP/debug surface, which then delegates to
   `OobFunctionToolHandler.runFunction` for Function replay.
 - There is no model-visible `function_id` execution tool in the normal agent
-  prompt. Saved Function recall, runtime resolve, and replay stay runtime-owned.
+  prompt. Saved Function recall and replay stay runtime-owned.
 
 ## Compatible Surface Design
 
@@ -177,8 +177,8 @@ This matrix is the implementation boundary for avoiding two execution systems:
 | Surface | Allowed Input | Owner | May Execute Phone Actions | Notes |
 | --- | --- | --- | --- | --- |
 | `vlm_task` | natural-language goal, optional package, max steps | `VlmToolCoordinator` | yes, through Kotlin only | Performs fresh observe, native recall, strict-hit replay, or ordinary VLM action loop. |
-| Product UI Function run | concrete `function_id`, public arguments | Flutter -> `createAgentTask(toolProfile=omniflow, allowedTools=[oob_function_run])` | yes, through the Agent profile then Kotlin runner | Product-facing buttons hand execution to Agent; Flutter must never interpret Function steps or call Android actions itself. |
-| UI direct Function adapter | concrete `function_id`, public arguments | Flutter/native debug compatibility -> `OobFunctionToolHandler.runFunction` | yes, through Kotlin only | Keep only as a low-level compatibility/debug adapter. Ordinary product UI should call the Agent path above. |
+| Product UI Function run | concrete `function_id`, public arguments | Flutter -> `runOobReusableFunction` -> `OobFunctionToolHandler.runFunction` | yes, through Kotlin only | Product-facing buttons call the native Function runner directly; Flutter must never interpret Function steps or call Android actions itself. |
+| UI direct Function adapter | concrete `function_id`, public arguments | Flutter/native debug compatibility -> `OobFunctionToolHandler.runFunction` | yes, through Kotlin only | Same native path as product UI Function run. |
 | MCP Function tools | concrete Function lifecycle payloads | `McpToolExecutors` -> `OobFunctionManagementService` | yes, only after native dispatch | The MCP layer is an adapter; it must not own replay semantics. |
 | HTTP/debug Function run | concrete debug payloads | debug receiver -> `OobFunctionToolHandler.runFunction` | yes, through Kotlin only | Useful for smoke tests and diagnostics. It should not become a separate product mode. |
 | `RUN_VLM_RECALL_HIT` | natural-language goal for strict-hit validation | debug receiver -> `VlmToolCoordinator.tryExecuteRecallHitOnly` | yes, through Kotlin only | Exists to isolate the second-run fast path without starting a fresh ordinary VLM loop. |
@@ -209,19 +209,10 @@ Use these as the compatibility target for new adapters:
 strict recall hit on a later run. The model should still see only ordinary UI
 actions if execution reaches the VLM action loop.
 
-```json
-{
-  "tool": "agent_run",
-  "toolProfile": "omniflow",
-  "allowedTools": ["oob_function_run"],
-  "userMessage": "执行已保存的复用指令。\nFunction id: open_network_settings\nArguments: {}"
-}
-```
-
-Product UI Function buttons should use the Agent path above. The Agent gets a
-focused `omniflow` tool profile and can call only `oob_function_run`,
-so it can bind public arguments or continue from a local replay result without
-exposing the full ordinary tool catalog.
+Product UI Function buttons call the native `runOobReusableFunction` bridge with
+`function_id` and public arguments. Function failure is surfaced as a failed run
+payload; online recovery is handled by the ordinary VLM loop when the Function
+was selected from VLM recall.
 
 Low-level debug or compatibility adapters may still use the native direct
 payload:
@@ -422,10 +413,8 @@ claiming broad benchmark readiness.
 Flutter should stay a presentation and request surface:
 
 - Product Function run buttons call
-  `AssistsMessageService.runOobReusableFunctionWithAgent`, which starts
-  `createAgentTask(toolProfile=omniflow, allowedTools=[oob_function_run])`.
-  The lower-level `runOobReusableFunction` MethodChannel remains a debug/compat
-  adapter only.
+  `AssistsMessageService.runOobReusableFunction`, which delegates to native
+  `OobFunctionToolHandler.runFunction`.
 - RunLog save/detail/enhancement UI calls the same native conversion/update
   services.
 - UI never replays a Function by interpreting steps in Dart.

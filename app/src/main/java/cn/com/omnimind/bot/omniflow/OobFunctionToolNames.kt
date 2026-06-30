@@ -10,7 +10,6 @@ object OobFunctionToolNames {
     const val FUNCTION_LIST = "oob_function_list"
     const val FUNCTION_GET = "oob_function_get"
     const val FUNCTION_REGISTER = "oob_function_register"
-    const val FUNCTION_RUN = "oob_function_run"
     const val FUNCTION_UPDATE = "update_function"
     const val FUNCTION_DELETE = "oob_function_delete"
     const val FUNCTION_CLEAR = "oob_function_clear"
@@ -28,15 +27,13 @@ object OobFunctionToolNames {
         FUNCTION_CLEAR,
     )
 
-    val agentFunctionTools: Set<String> = functionLifecycleTools + setOf(FUNCTION_RUN)
-
     val runLogTools: Set<String> = setOf(
         RUN_LOG_LIST,
         RUN_LOG_GET,
         RUN_LOG_CONVERT,
     )
 
-    val profileTools: Set<String> = agentFunctionTools + runLogTools
+    val profileTools: Set<String> = functionLifecycleTools + runLogTools
 
     val mcpLifecycleTools: Set<String> = functionLifecycleTools + runLogTools
 }

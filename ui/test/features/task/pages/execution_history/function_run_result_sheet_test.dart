@@ -254,14 +254,13 @@ void main() {
     },
   );
 
-  testWidgets('Failed local replay offers explicit Agent continuation', (
+  testWidgets('Failed local replay does not offer Agent continuation', (
     tester,
   ) async {
     final calls = <MethodCall>[];
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(assistCoreChannel, (call) async {
           calls.add(call);
-          expect(call.method, 'createAgentTask');
           return 'SUCCESS';
         });
 
@@ -323,22 +322,8 @@ void main() {
     await tester.tap(find.text('open'));
     await tester.pumpAndSettle();
 
-    expect(find.text('用 Agent 继续'), findsOneWidget);
-    await tester.tap(find.text('用 Agent 继续'));
-    await tester.pumpAndSettle();
-
-    expect(calls, hasLength(1));
-    final args = Map<String, dynamic>.from(calls.single.arguments as Map);
-    expect(args['toolProfile'], 'omniflow');
-    expect(args['allowedTools'], contains('oob_function_run'));
-    expect(args['userMessage'], contains('Function id: search_settings'));
-    expect(args['userMessage'].toString(), contains('bluetooth'));
-    expect(
-      args['userMessage'].toString(),
-      contains('Previous local replay result:'),
-    );
-    expect(args['userMessage'].toString(), contains('"success":false'));
-    expect(args['userMessage'].toString(), contains('"needs_agent":true'));
+    expect(find.text('用 Agent 继续'), findsNothing);
+    expect(calls, isEmpty);
   });
 }
 

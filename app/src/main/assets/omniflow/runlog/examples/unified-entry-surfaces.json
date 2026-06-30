@@ -15,22 +15,17 @@
   },
   "entry_surfaces": [
     {
-      "id": "ui_agent_function_run",
+      "id": "ui_direct_function_run",
       "surface": "flutter_method_channel",
-      "adapter": "AssistsMessageService.runOobReusableFunctionWithAgent -> createAgentTask",
+      "adapter": "AssistsMessageService.runOobReusableFunction -> OobFunctionToolHandler.runFunction",
       "input_shape": "function_id_plus_public_arguments",
       "delegates_to": [
-        "Agent profile omniflow",
-        "oob_function_run"
+        "OobFunctionToolHandler.runFunction"
       ],
       "may_execute_phone_actions": true,
-      "phone_action_owner": "agent_profile_then_kotlin_action_executor",
+      "phone_action_owner": "kotlin_action_executor",
       "requires_concrete_function_id": true,
-      "model_visible_function_execution_tool": true,
-      "tool_profile": "omniflow",
-      "allowed_tools": [
-        "oob_function_run"
-      ],
+      "model_visible_function_execution_tool": false,
       "arguments_field_policy": "nested_arguments_preserved",
       "mutates_saved_function": false,
       "enhance_inline_allowed": false
@@ -98,7 +93,6 @@
       "forbidden_public_tools": [
         "call_tool",
         "run_function",
-        "oob_function_run",
         "omniflow.call_function",
         "omniflow.run_function",
         "omniflow.execute_function",
