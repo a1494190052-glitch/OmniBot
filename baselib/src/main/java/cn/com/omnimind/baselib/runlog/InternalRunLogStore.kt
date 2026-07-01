@@ -213,7 +213,7 @@ object InternalRunLogStore {
         )
         saveRunLocked(context, updatedRecord)
         pruneLocked(context, preserveRunId = normalizedRunId)
-        return registeredFunctionBinding(context, updatedRecord)
+        return registeredFunctionBinding(updatedRecord)
     }
 
     @Synchronized
@@ -350,7 +350,7 @@ object InternalRunLogStore {
             "run_storage_dir" to dir.absolutePath,
             "event_schema_version" to RUN_LOG_EVENT_SCHEMA_VERSION,
             "runs" to runs.map { record ->
-                summaryMap(record, registeredFunctionBinding(context, record))
+                summaryMap(record, registeredFunctionBinding(record))
             }
         )
     }
@@ -379,7 +379,8 @@ object InternalRunLogStore {
     @Synchronized
     fun sourceRunSummariesForFunction(
         context: Context,
-        functionId: String
+        functionId: String,
+        sourceRunIds: List<String> = emptyList()
     ): Map<String, Any?> {
         val normalizedFunctionId = functionId.trim()
         if (normalizedFunctionId.isEmpty()) {
@@ -394,24 +395,24 @@ object InternalRunLogStore {
                 "error_message" to "function_id is required"
             )
         }
-        val sourceRunIds = OobReusableFunctionStore.sourceRunIdsForFunction(
-            context = context,
-            functionId = normalizedFunctionId
-        )
-        val sourceRuns = sourceRunIds.mapNotNull { runId ->
+        val normalizedSourceRunIds = sourceRunIds
+            .map { it.trim() }
+            .filter { it.isNotEmpty() }
+            .distinct()
+        val sourceRuns = normalizedSourceRunIds.mapNotNull { runId ->
             readRunLocked(context, runId)?.let { record ->
-                summaryMap(record, registeredFunctionBinding(context, record))
+                summaryMap(record, registeredFunctionBinding(record))
             }
         }
         val foundRunIds = sourceRuns.mapNotNull {
             textValue(it["run_id"]).takeIf(String::isNotEmpty)
         }.toSet()
-        val missingRunIds = sourceRunIds.filter { it !in foundRunIds }
+        val missingRunIds = normalizedSourceRunIds.filter { it !in foundRunIds }
         return linkedMapOf(
             "success" to true,
             "function_id" to normalizedFunctionId,
-            "source_run_ids" to sourceRunIds,
-            "source_run_count" to sourceRunIds.size,
+            "source_run_ids" to normalizedSourceRunIds,
+            "source_run_count" to normalizedSourceRunIds.size,
             "source_runs" to sourceRuns,
             "source_run_summary_count" to sourceRuns.size,
             "missing_source_run_ids" to missingRunIds,
@@ -429,7 +430,7 @@ object InternalRunLogStore {
         val record = readRunLocked(context, normalizedRunId)
             ?: return notFoundPayload(normalizedRunId)
         val tokenUsage = tokenUsageSummary(record.cards)
-        val registeredBinding = registeredFunctionBinding(context, record)
+        val registeredBinding = registeredFunctionBinding(record)
         return linkedMapOf(
             "success" to true,
             "provider" to PROVIDER,
@@ -501,71 +502,21 @@ object InternalRunLogStore {
         }
     }
 
-    private fun registeredFunctionBinding(
-        context: Context,
-        record: InternalRunLogRecord
-    ): Map<String, Any?> {
+    private fun registeredFunctionBinding(record: InternalRunLogRecord): Map<String, Any?> {
         val persistedBindings = registeredFunctionBindings(record.diagnostics)
         val persistedFunctionIds = persistedBindings.mapNotNull { binding ->
             textValue(binding["function_id"]).takeIf { it.isNotEmpty() }
         }.distinct()
-        val functions = runCatching {
-            OobReusableFunctionStore.functionsForSourceRunId(
-                context = context,
-                runId = record.runId,
-                limit = REGISTERED_FUNCTION_BINDING_LIMIT
-            )
-        }.onFailure {
-            OmniLog.w(TAG, "load registered function binding failed: ${it.message}")
-        }.getOrDefault(emptyList())
-
-        val mergedFunctions = linkedMapOf<String, Map<String, Any?>>()
-        functions.forEach { function ->
-            val summary = stringMap(function["summary"])
-            val spec = stringMap(function["function_spec"])
-            val functionId = textValue(summary["function_id"]).ifBlank {
-                textValue(spec["function_id"])
-            }
-            if (functionId.isNotEmpty()) {
-                mergedFunctions[functionId] = sanitizeMap(function)
-            }
-        }
-        persistedFunctionIds.forEach { functionId ->
-            if (mergedFunctions.containsKey(functionId)) return@forEach
-            val spec = runCatching {
-                OobReusableFunctionStore.get(context, functionId)
-            }.getOrNull() ?: return@forEach
-            mergedFunctions[functionId] = linkedMapOf(
-                "summary" to functionSummaryFromSpec(spec),
-                "function_spec" to sanitizeMap(spec)
-            )
-        }
-
         val summariesById = linkedMapOf<String, Map<String, Any?>>()
-        val specsById = linkedMapOf<String, Map<String, Any?>>()
-        mergedFunctions.forEach { (functionId, function) ->
-            val spec = stringMap(function["function_spec"])
-            val summary = stringMap(function["summary"]).takeIf { it.isNotEmpty() }
-                ?: spec.takeIf { it.isNotEmpty() }?.let(::functionSummaryFromSpec)
-                ?: emptyMap()
-            if (summary.isNotEmpty()) {
-                summariesById[functionId] = sanitizeMap(summary)
-            }
-            if (spec.isNotEmpty()) {
-                specsById[functionId] = sanitizeMap(spec)
-            }
-        }
         persistedBindings.forEach { binding ->
             val functionId = textValue(binding["function_id"])
             if (functionId.isNotEmpty() && !summariesById.containsKey(functionId)) {
                 summariesById[functionId] = functionSummaryFromBinding(binding)
             }
         }
-        val functionIds = (persistedFunctionIds + mergedFunctions.keys).distinct()
+        val functionIds = persistedFunctionIds
         val summaries = functionIds.mapNotNull { summariesById[it] }
-        val specs = functionIds.mapNotNull { specsById[it] }
         val firstSummary = summaries.firstOrNull()
-        val firstSpec = specs.firstOrNull()
         return linkedMapOf(
             "registered_as_function" to functionIds.isNotEmpty(),
             "is_registered_function" to functionIds.isNotEmpty(),
@@ -574,7 +525,6 @@ object InternalRunLogStore {
             "registered_function_id" to functionIds.firstOrNull().orEmpty(),
             "registered_function_summary" to firstSummary?.let(::sanitizeMap),
             "registered_function_summaries" to summaries.map(::sanitizeMap),
-            "registered_function_spec" to firstSpec?.let(::sanitizeMap),
             "has_registered_function_binding" to persistedFunctionIds.isNotEmpty(),
             "registered_function_binding_ids" to persistedFunctionIds,
             "registered_function_bindings" to persistedBindings.map(::sanitizeMap),
@@ -638,18 +588,6 @@ object InternalRunLogStore {
         return listOf(linkedMapOf("function_id" to functionId))
     }
 
-    private fun functionSummaryFromSpec(spec: Map<String, Any?>): Map<String, Any?> {
-        val execution = stringMap(spec["execution"])
-        val steps = specSteps(spec)
-        return linkedMapOf(
-            "function_id" to textValue(spec["function_id"]),
-            "name" to spec["name"],
-            "description" to spec["description"],
-            "step_count" to (numberToLong(execution["step_count"])?.toInt() ?: steps.size),
-            "source_run_ids" to sourceRunIds(spec)
-        )
-    }
-
     private fun functionSummaryFromBinding(binding: Map<String, Any?>): Map<String, Any?> {
         return linkedMapOf(
             "function_id" to textValue(binding["function_id"]),
@@ -671,13 +609,39 @@ object InternalRunLogStore {
         }
     }
 
-    private fun specSteps(spec: Map<String, Any?>): List<Map<String, Any?>> {
-        val execution = stringMap(spec["execution"])
-        return listOfMaps(execution["steps"])
-    }
-
     private fun sourceRunIds(spec: Map<String, Any?>): List<String> {
-        return OobReusableFunctionStore.sourceRunIds(spec)
+        fun MutableList<String>.addText(value: Any?) {
+            val text = value?.toString()?.trim().orEmpty()
+            if (text.isNotEmpty() && text !in this) add(text)
+        }
+
+        fun MutableList<String>.addList(value: Any?) {
+            when (value) {
+                is List<*> -> value
+                is Array<*> -> value.toList()
+                else -> emptyList<Any?>()
+            }.forEach { addText(it) }
+        }
+
+        val source = stringMap(spec["source"])
+        val metadata = stringMap(spec["metadata"])
+        val evidence = stringMap(metadata["oob_function_evidence"])
+        val asset = stringMap(metadata["omniflow_asset"])
+        return mutableListOf<String>().apply {
+            addList(spec["source_run_ids"])
+            addText(spec["source_run_id"])
+            addList(metadata["source_run_ids"])
+            addText(source["run_id"])
+            addText(source["run_log_id"])
+            addText(source["source_run_id"])
+            addList(evidence["source_run_ids"])
+            addList(asset["source_run_ids"])
+            addText(metadata["run_id"])
+            addText(metadata["run_log_id"])
+            addText(metadata["source_run_id"])
+            addText(evidence["latest_run_id"])
+            addText(asset["source_run_id"])
+        }
     }
 
     private fun runStatus(record: InternalRunLogRecord): String {

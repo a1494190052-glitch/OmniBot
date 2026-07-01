@@ -3464,9 +3464,6 @@ object HttpController {
         val seenPayloads = LinkedHashSet<String>()
         val requiresNativeToolCall = request.tools.isNotEmpty() &&
             request.toolChoice?.toString()?.trim('"')?.equals("required", ignoreCase = true) == true
-        val withoutToolStrict = request.copy(tools = request.tools.withoutStrictSchema())
-        val hasStrictToolSchema = request.tools.any { it.function.strict != null }
-
         fun add(name: String, candidate: ChatCompletionRequest) {
             val encoded = encodeChatCompletionRequest(candidate)
             if (seenPayloads.add(encoded)) {
@@ -3475,16 +3472,9 @@ object HttpController {
         }
 
         add("default", request)
-        if (hasStrictToolSchema) add("no_tool_strict", withoutToolStrict)
 
         if (request.responseFormat != null) {
             add("no_response_format", request.copy(responseFormat = null))
-            if (hasStrictToolSchema) {
-                add(
-                    "no_response_format_no_tool_strict",
-                    withoutToolStrict.copy(responseFormat = null)
-                )
-            }
         }
 
         if (request.tools.isEmpty()) {
@@ -3492,12 +3482,6 @@ object HttpController {
         }
 
         add("no_parallel_tool_calls", request.copy(parallelToolCalls = null))
-        if (hasStrictToolSchema) {
-            add(
-                "no_tool_strict_no_parallel_tool_calls",
-                withoutToolStrict.copy(parallelToolCalls = null)
-            )
-        }
         if (requiresNativeToolCall) {
             val normalizedMaxTokens = request.maxTokens ?: request.maxCompletionTokens
             add(
@@ -3510,18 +3494,6 @@ object HttpController {
                     maxTokens = normalizedMaxTokens
                 )
             )
-            if (hasStrictToolSchema) {
-                add(
-                    "minimal_required_tools",
-                    withoutToolStrict.copy(
-                        parallelToolCalls = null,
-                        temperature = null,
-                        topP = null,
-                        maxCompletionTokens = null,
-                        maxTokens = normalizedMaxTokens
-                    )
-                )
-            }
             return variants
         }
 
@@ -3547,17 +3519,6 @@ object HttpController {
         )
         return variants
     }
-
-    private fun List<cn.com.omnimind.baselib.llm.ChatCompletionTool>.withoutStrictSchema():
-        List<cn.com.omnimind.baselib.llm.ChatCompletionTool> =
-        map { tool ->
-            val function = tool.function
-            if (function.strict == null) {
-                tool
-            } else {
-                tool.copy(function = function.copy(strict = null))
-            }
-        }
 
     private fun buildFailureSceneResponse(
         code: String,

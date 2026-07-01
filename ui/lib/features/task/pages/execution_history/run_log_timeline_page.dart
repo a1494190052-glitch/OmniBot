@@ -5200,9 +5200,6 @@ void _syncReusableExecutionCounts(
   final omniflowStepCount = steps
       .where((step) => (step['executor'] ?? '').toString() == 'omniflow')
       .length;
-  final agentStepCount = steps
-      .where((step) => (step['executor'] ?? '').toString() == 'agent')
-      .length;
   final scriptableStepCount = steps
       .where((step) => step['scriptable'] == true)
       .length;
@@ -5212,8 +5209,6 @@ void _syncReusableExecutionCounts(
 
   execution['step_count'] = steps.length;
   execution['omniflow_step_count'] = omniflowStepCount;
-  execution['agent_step_count'] = agentStepCount;
-  execution['requires_agent_fallback'] = agentStepCount > 0;
 
   final metadata = _asStringKeyMap(spec['metadata']);
   if (metadata.isNotEmpty) {
@@ -5221,8 +5216,6 @@ void _syncReusableExecutionCounts(
     metadata['scriptable_step_count'] = scriptableStepCount;
     metadata['model_free_step_count'] = modelFreeStepCount;
     metadata['omniflow_step_count'] = omniflowStepCount;
-    metadata['agent_step_count'] = agentStepCount;
-    metadata['requires_agent_fallback'] = agentStepCount > 0;
     spec['metadata'] = metadata;
   }
 }
@@ -5753,13 +5746,6 @@ class _FunctionApiStatusBox extends StatelessWidget {
         context,
         '执行：自动执行完成$stepText',
         'Run: completed automatically$stepText',
-      );
-    }
-    if (result.startedAgentFallback) {
-      return _text(
-        context,
-        '执行：已交给 Agent 继续执行$stepText',
-        'Run: handed off to Agent$stepText',
       );
     }
     if (result.completedLocal) {

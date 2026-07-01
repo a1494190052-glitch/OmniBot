@@ -175,6 +175,7 @@ class VLMClientRequestTest {
         assertTrue(toolNames.contains("run_recalled_workflow_1"))
         assertTrue(toolNames.contains("run_recalled_workflow_2"))
         assertTrue(toolNames.contains("run_recalled_workflow_3"))
+        assertTrue(envelope.request.tools.orEmpty().all { it.function.strict == true })
         assertFalse(toolNames.contains("call_tool"))
         assertEquals(
             mapOf(
@@ -195,6 +196,39 @@ class VLMClientRequestTest {
         assertTrue(envelope.currentUserText.contains("run_recalled_workflow_1"))
         assertTrue(envelope.currentUserText.contains("run_recalled_workflow_2"))
         assertTrue(envelope.currentUserText.contains("run_recalled_workflow_3"))
+    }
+
+    @Test
+    fun `recalled workflow tool can expose xhs search query as required argument`() {
+        val client = VLMClient(
+            systemPromptBuilder = { "system prompt" },
+            turnPromptBuilder = { context, _ ->
+                PromptTemplate.buildTurnUserPrompt(context, "scene.vlm.operation.primary")
+            }
+        )
+
+        val envelope = client.buildUIOperationRequest(
+            context = UIContext(
+                overallTask = "小红书搜索狗狗",
+                dynamicToolDefinitions = listOf(recalledWorkflowToolDefinition(index = 1, parameterName = "query"))
+            ),
+            screenshot = null,
+            conversationState = VLMConversationState()
+        )
+
+        val tool = envelope.request.tools.orEmpty()
+            .first { it.function.name == "run_recalled_workflow_1" }
+        val parameters = tool.function.parameters.jsonObject
+        val properties = parameters["properties"]!!.jsonObject
+        val required = parameters["required"]!!.jsonArray
+            .map { it.jsonPrimitive.contentOrNull }
+
+        assertTrue(envelope.toolNames.contains("click"))
+        assertTrue(envelope.toolNames.contains("run_recalled_workflow_1"))
+        assertTrue(properties.containsKey("query"))
+        assertFalse(properties.containsKey("function_id"))
+        assertEquals(listOf("query"), required)
+        assertEquals("oob_fn_vlm_task_41329798_1", envelope.dynamicFunctionToolMappings["run_recalled_workflow_1"])
     }
 
     @Test
@@ -656,6 +690,7 @@ class VLMClientRequestTest {
         assertFalse(result.success)
         assertTrue(result.step == null)
         assertTrue(result.error.orEmpty().contains("Coordinate fields must be a single numeric scalar"))
+        assertTrue(result.shouldRetryForToolCall)
     }
 
     @Test
@@ -687,6 +722,7 @@ class VLMClientRequestTest {
         assertFalse(result.success)
         assertTrue(result.step == null)
         assertTrue(result.error.orEmpty().contains("Coordinate fields must be a single numeric scalar"))
+        assertTrue(result.shouldRetryForToolCall)
     }
 
     @Test
@@ -783,6 +819,43 @@ class VLMClientRequestTest {
         assertEquals("run_recalled_workflow_1", action.toolName)
         assertEquals("oob_fn_vlm_task_41329798", action.functionId)
         assertEquals("猫猫", action.arguments["keyword"]!!.jsonPrimitive.contentOrNull)
+        assertFalse(action.arguments.containsKey("function_id"))
+    }
+
+    @Test
+    fun `openai tool action parser binds xhs search query to function run api`() {
+        val client = VLMClient()
+        val result = client.parseVLMResponse(
+            SceneChatCompletionTurn(
+                parser = ModelSceneRegistry.ResponseParser.OPENAI_TOOL_ACTIONS,
+                route = "scene.vlm.operation.primary",
+                resolvedModel = "vlm-test-model",
+                turn = ChatCompletionTurn(
+                    message = ChatCompletionMessage(
+                        role = "assistant",
+                        toolCalls = listOf(
+                            AssistantToolCall(
+                                id = "call_1",
+                                function = AssistantToolCallFunction(
+                                    name = "run_recalled_workflow_1",
+                                    arguments = """{"query":"狗狗"}"""
+                                )
+                            )
+                        )
+                    )
+                )
+            ),
+            modelOrScene = "scene.vlm.operation.primary",
+            dynamicFunctionToolNames = setOf("run_recalled_workflow_1"),
+            dynamicFunctionToolMappings = mapOf("run_recalled_workflow_1" to "xhs_search")
+        )
+
+        assertTrue(result.success)
+        val action = result.step?.action as FunctionRunAction
+        assertEquals("call_tool", action.name)
+        assertEquals("run_recalled_workflow_1", action.toolName)
+        assertEquals("xhs_search", action.functionId)
+        assertEquals("狗狗", action.arguments["query"]!!.jsonPrimitive.contentOrNull)
         assertFalse(action.arguments.containsKey("function_id"))
     }
 
@@ -917,7 +990,7 @@ class VLMClientRequestTest {
     }
 
     @Test
-    fun `openai tool action parser preserves indexed grounding fields`() {
+    fun `openai tool action parser rejects hidden grounding fields`() {
         val client = VLMClient()
         val clickResult = client.parseVLMResponse(
             SceneChatCompletionTurn(
@@ -942,9 +1015,10 @@ class VLMClientRequestTest {
             modelOrScene = "scene.vlm.operation.primary"
         )
 
-        assertTrue(clickResult.success)
-        val click = requireNotNull(clickResult.step).action as ClickAction
-        assertEquals("Display", click.targetDescription)
+        assertFalse(clickResult.success)
+        assertTrue(clickResult.step == null)
+        assertTrue(clickResult.error.orEmpty().contains("unknown argument: element_index"))
+        assertTrue(clickResult.shouldRetryForToolCall)
 
 
         val scrollResult = client.parseVLMResponse(
@@ -970,10 +1044,10 @@ class VLMClientRequestTest {
             modelOrScene = "scene.vlm.operation.primary"
         )
 
-        assertTrue(scrollResult.success)
-        val scroll = requireNotNull(scrollResult.step).action as SwipeAction
-        assertEquals(0, scroll.scrollableIndex)
-        assertEquals("down", scroll.direction)
+        assertFalse(scrollResult.success)
+        assertTrue(scrollResult.step == null)
+        assertTrue(scrollResult.error.orEmpty().contains("unknown argument: scrollable_index"))
+        assertTrue(scrollResult.shouldRetryForToolCall)
     }
 
     companion object {
@@ -1022,7 +1096,10 @@ class VLMClientRequestTest {
             })
         }
 
-        private fun recalledWorkflowToolDefinition(index: Int = 1) = buildJsonObject {
+        private fun recalledWorkflowToolDefinition(
+            index: Int = 1,
+            parameterName: String = "keyword"
+        ) = buildJsonObject {
             put("type", "function")
             put("function_id", "oob_fn_vlm_task_41329798_$index")
             put("function", buildJsonObject {
@@ -1035,13 +1112,13 @@ class VLMClientRequestTest {
                         put("tool_title", buildJsonObject {
                             put("type", "string")
                         })
-                        put("keyword", buildJsonObject {
+                        put(parameterName, buildJsonObject {
                             put("type", "string")
                         })
                     })
                     put("required", buildJsonArray {
                         add("tool_title")
-                        add("keyword")
+                        add(parameterName)
                     })
                 })
             })

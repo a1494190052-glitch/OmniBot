@@ -69,7 +69,6 @@ class _FunctionLibraryPageState extends State<FunctionLibraryPage> {
       final result = await AssistsMessageService.listOobReusableFunctions(
         limit: _pageSize,
         offset: 0,
-        autoRegister: false,
         includeHidden: true,
       );
       if (!mounted) return;
@@ -101,7 +100,6 @@ class _FunctionLibraryPageState extends State<FunctionLibraryPage> {
       final result = await AssistsMessageService.listOobReusableFunctions(
         limit: _pageSize,
         offset: _nextOffset,
-        autoRegister: false,
         includeHidden: true,
       );
       if (!mounted) return;
@@ -568,7 +566,6 @@ class _FunctionCard extends StatelessWidget {
       failCount: group.failCount,
       lastRunSuccess: group.lastRunSuccess,
       agentVisible: group.isAgentVisible,
-      hasAgentSteps: group.primary.hasAgentSteps,
       isRunning: isRunning,
       onRun: onRun,
       onRunLogsTap: group.runLogIds.isEmpty ? null : onOpenRunLogs,
@@ -1309,7 +1306,6 @@ class _FunctionSummary {
     required this.stepSummaries,
     required this.agentVisible,
     required this.visibility,
-    required this.hasAgentSteps,
   });
 
   factory _FunctionSummary.fromMap(Map<String, dynamic> map) {
@@ -1373,7 +1369,6 @@ class _FunctionSummary {
       visibility:
           (map['visibility'] ?? _asMap(map['metadata'])['visibility'] ?? '')
               .toString(),
-      hasAgentSteps: _asNullableBool(map['has_agent_steps']),
     );
   }
 
@@ -1395,7 +1390,6 @@ class _FunctionSummary {
   final List<_StepSummary> stepSummaries;
   final bool agentVisible;
   final String visibility;
-  final bool? hasAgentSteps;
 
   String get displayName {
     final trimmedName = name.trim();

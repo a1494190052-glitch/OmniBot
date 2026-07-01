@@ -45,34 +45,36 @@ class VLMToolDefinitionsTest {
 
         assertTrue(properties.containsKey("target_description"))
         assertTrue(properties.containsKey("text"))
+        assertTrue(properties.containsKey("x"))
+        assertTrue(properties.containsKey("y"))
+        assertFalse(properties.containsKey("element_index"))
+        assertFalse(properties.containsKey("node_id"))
+        assertFalse(properties.containsKey("node_resource_id"))
         assertFalse(properties.containsKey("content"))
         assertFalse(properties.containsKey("value"))
     }
 
     @Test
-    fun `model visible tool schemas require coordinates instead of replacing them with indexes`() {
+    fun `model visible tool schemas only expose required output arguments`() {
         val tools = VLMToolDefinitions.tools(PromptLocale.EN_US).associateBy { it.function.name }
 
         listOf("click", "input_text").forEach { toolName ->
             val tool = tools.getValue(toolName)
+            val properties = tool.function.parameters["properties"]!!.jsonObject
             val required = tool.function.parameters["required"]!!.jsonArray
                 .mapNotNull { it.jsonPrimitive.contentOrNull }
                 .toSet()
             val description = tool.function.description
-            val elementIndexDescription = tool.function.parameters["properties"]!!
-                .jsonObject
-                .getValue("element_index")
-                .jsonObject
-                .getValue("description")
-                .jsonPrimitive
-                .content
 
+            assertTrue(required == properties.keys)
             assertTrue(required.contains("x"))
             assertTrue(required.contains("y"))
+            assertFalse(properties.containsKey("element_index"))
+            assertFalse(properties.containsKey("node_id"))
+            assertFalse(properties.containsKey("node_resource_id"))
             assertTrue(tool.function.strict == true)
             assertFalse(description.contains("prefer element_index", ignoreCase = true))
             assertFalse(description.contains("fallback only", ignoreCase = true))
-            assertTrue(elementIndexDescription.contains("cannot replace required coordinates"))
         }
     }
 
@@ -104,8 +106,8 @@ class VLMToolDefinitionsTest {
     fun `prompt guide teaches canonical tool calls`() {
         val promptGuide = VLMToolDefinitions.renderPromptGuide(PromptLocale.EN_US)
 
-        assertTrue(promptGuide.contains("wait(time_s?)"))
-        assertTrue(promptGuide.contains("input_text(target_description, text, x, y, element_index?)"))
+        assertTrue(promptGuide.contains("wait()"))
+        assertTrue(promptGuide.contains("input_text(target_description, text, x, y)"))
         assertTrue(promptGuide.contains("schema.required"))
         assertTrue(promptGuide.contains("Function replay is handled by the local runtime"))
         assertTrue(promptGuide.contains("run_recalled_workflow_*"))
@@ -120,6 +122,8 @@ class VLMToolDefinitionsTest {
         assertFalse(promptGuide.contains("preferred_call_tool"))
         assertFalse(promptGuide.contains("get_state("))
         assertTrue(promptGuide.contains("Coordinate fields in schema.required must be 0..1000 relative coordinates"))
+        assertTrue(promptGuide.contains("each field must be a single numeric scalar"))
+        assertTrue(promptGuide.contains("Do not emit [x,y], coordinates, objects"))
         assertTrue(promptGuide.contains("The system decodes coordinates to screen absolute pixels before execution"))
         assertTrue(promptGuide.contains("Use wait only when the page is clearly loading"))
     }
@@ -132,7 +136,7 @@ class VLMToolDefinitionsTest {
         assertTrue(promptGuide.contains("exactly one native tool_call"))
         assertTrue(promptGuide.contains("schema.required"))
         assertTrue(promptGuide.contains("about-20-word summary only"))
-        assertTrue(promptGuide.contains("cannot replace coordinates or other fields listed in the selected tool's schema.required"))
+        assertTrue(promptGuide.contains("output arguments may contain only fields listed in the selected tool's schema.properties"))
         assertTrue(promptGuide.contains("Action choice: use click for visible buttons"))
         assertTrue(promptGuide.contains("use swipe when the target is not currently visible"))
         assertTrue(promptGuide.contains("first decide whether the user's goal is already satisfied"))

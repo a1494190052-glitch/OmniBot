@@ -28,9 +28,6 @@ Future<void> showFunctionRunResultSheet(
 }
 
 ToastType functionRunResultToastType(UtgManualRunResult result) {
-  if (result.startedAgentFallback) {
-    return ToastType.info;
-  }
   if (result.completedLocal || result.completedVlmFallback) {
     return ToastType.success;
   }
@@ -49,13 +46,6 @@ String functionRunResultToastMessage(
       context,
       '复用指令自动执行完成',
       'Reusable command completed automatically',
-    );
-  }
-  if (result.startedAgentFallback) {
-    return _text(
-      context,
-      '直接执行已交给 Agent 继续处理',
-      'Direct run handed off to Agent',
     );
   }
   if (result.completedLocal) {
@@ -874,9 +864,6 @@ String _runStateText(
 }) {
   if (result.completedVlmFallback) {
     return _text(context, '自动执行完成', 'Completed automatically');
-  }
-  if (result.startedAgentFallback) {
-    return _text(context, '已交给 Agent 继续执行', 'Handed off to Agent');
   }
   if (result.completedLocal) {
     return _text(context, '本地执行完成', 'Completed locally');

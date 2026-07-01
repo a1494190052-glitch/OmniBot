@@ -110,5 +110,5 @@ analysis plus minimal patch before saving.
 `needs_agent` can still appear as legacy compatibility value. It should not
 become a hidden runtime queue or planner state.
 
-New Function specs write `has_agent_steps`. `requires_agent_fallback` is legacy
-input only and should be normalized before it reaches agent-facing output.
+Function specs keep durable capabilities limited to replay counts. Runtime
+fallback state belongs in run payloads, not durable Function capability fields.

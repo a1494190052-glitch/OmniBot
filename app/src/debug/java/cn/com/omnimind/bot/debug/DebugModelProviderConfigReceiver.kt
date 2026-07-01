@@ -193,7 +193,7 @@ class DebugModelProviderConfigReceiver : BroadcastReceiver() {
         private const val TAG = "DebugModelProviderConfigReceiver"
         private const val RESULT_FILE = "debug-model-provider-config-result.json"
         private const val DEFAULT_PROFILE_ID = "debug-runtime-provider"
-        private const val DEFAULT_PROFILE_NAME = "Debug Runtime Provider"
+        private const val DEFAULT_PROFILE_NAME = "Provider 1"
         private val DEFAULT_SCENE_IDS = listOf(
             "scene.dispatch.model",
             "scene.vlm.operation.primary",

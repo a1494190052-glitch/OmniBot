@@ -1093,10 +1093,11 @@ class VLMOperationService(
     private fun buildParseFailureThought(vlmResult: VLMResult): String {
         return if (vlmResult.shouldRetryForToolCall) {
             val thinking = buildThinkingOverlayText(vlmResult.thinking)
+            val reason = vlmResult.error?.takeIf { it.isNotBlank() }
             if (thinking.isNotBlank()) {
-                "模型连续多次只返回思考内容，未给出原生 tool_calls。最后一次思考：$thinking"
+                "模型连续多次未返回可解析的标准 tool_call。最后错误：${reason ?: "未知"}。最后一次思考：$thinking"
             } else {
-                "模型连续多次未给出原生 tool_calls，当前模型可能不支持标准工具调用。"
+                "模型连续多次未返回可解析的标准 tool_call。最后错误：${reason ?: "未知"}"
             }
         } else {
             "解析VLM返回的结构化响应时发生错误，可能是格式不正确或缺少必需字段,忽略后面的action字段"
@@ -1109,7 +1110,10 @@ class VLMOperationService(
                 ?.takeIf { it.isNotBlank() }
                 ?.let { "（finish_reason=$it）" }
                 .orEmpty()
-            return "模型多次未返回标准 tool_calls，可能仍停留在思考阶段或不支持标准工具调用$finishReasonSuffix"
+            val reason = vlmResult.error?.takeIf { it.isNotBlank() }
+                ?.let { "：$it" }
+                .orEmpty()
+            return "模型多次未返回可解析的标准 tool_call$finishReasonSuffix$reason"
         }
         return vlmResult.error ?: "VLM推理失败"
     }

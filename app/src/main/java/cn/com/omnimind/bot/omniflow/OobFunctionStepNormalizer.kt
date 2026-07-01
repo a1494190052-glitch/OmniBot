@@ -73,8 +73,6 @@ internal object OobFunctionStepNormalizer {
 
     fun executionCapabilities(steps: List<Map<String, Any?>>): Map<String, Any?> = linkedMapOf(
         "omniflow_step_count" to steps.count { it["executor"] == RunLogReplayPolicy.EXECUTOR_OMNIFLOW },
-        "agent_step_count" to steps.count { it["executor"] == RunLogReplayPolicy.EXECUTOR_AGENT },
-        "has_agent_steps" to steps.any { it["executor"] == RunLogReplayPolicy.EXECUTOR_AGENT },
     )
 
     private fun normalizeSimpleStepArgs(raw: Map<String, Any?>, rawTool: String): Map<String, Any?> {

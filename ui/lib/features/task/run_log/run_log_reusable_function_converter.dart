@@ -685,12 +685,6 @@ class RunLogReusableFunctionConverter {
           'omniflow_step_count': steps
               .where((step) => step['executor'] == 'omniflow')
               .length,
-          'agent_step_count': steps
-              .where((step) => step['executor'] == 'agent')
-              .length,
-          'requires_agent_fallback': steps.any(
-            (step) => step['executor'] == 'agent',
-          ),
         },
         'fallback_runner': 'oob.agent.run',
         'steps': steps,
@@ -2806,583 +2800,6 @@ class _ParameterBindingTarget {
   final dynamic value;
 }
 
-class _CheckerRuleEnhancement {
-  const _CheckerRuleEnhancement({
-    required this.rules,
-    required this.assets,
-    required this.allRuleIds,
-  });
-
-  final List<Map<String, dynamic>> rules;
-  final List<Map<String, dynamic>> assets;
-  final Set<String> allRuleIds;
-
-  Set<String> get ruleIds => allRuleIds;
-}
-
-_CheckerRuleEnhancement _checkerRuleEnhancement(
-  Map<String, dynamic> aiJson,
-  Map<String, dynamic> functionJson,
-) {
-  final metadata = _asStringKeyMap(functionJson['metadata']);
-  final existingRules = _asStringKeyMapList(metadata['checker_rules']);
-  final existingIds = existingRules
-      .map((rule) => _firstNonBlank([rule['id']]))
-      .where((id) => id.isNotEmpty)
-      .toSet();
-  final usedIds = <String>{...existingIds};
-  final signatureToId = <String, String>{};
-  final coreSignatureToId = <String, String>{};
-  for (final rule in existingRules) {
-    final sanitized = _sanitizeCheckerRule(
-      rule,
-      usedIds: <String>{},
-      reserveId: false,
-    );
-    if (sanitized == null) continue;
-    final checkerId = _firstNonBlank([rule['id'], sanitized['id']]);
-    signatureToId[_checkerRuleSignature(sanitized)] = checkerId;
-    coreSignatureToId[_checkerRuleCoreSignature(sanitized)] = checkerId;
-  }
-
-  final newRules = <Map<String, dynamic>>[];
-  for (final rawRule in _checkerRuleCandidates(aiJson)) {
-    final sanitized = _sanitizeCheckerRule(
-      _asStringKeyMap(rawRule),
-      usedIds: usedIds,
-      fallbackId: 'function_checker_${newRules.length + 1}',
-    );
-    if (sanitized == null) continue;
-    final signature = _checkerRuleSignature(sanitized);
-    if (signatureToId.containsKey(signature)) {
-      continue;
-    }
-    signatureToId[signature] = _firstNonBlank([sanitized['id']]);
-    coreSignatureToId[_checkerRuleCoreSignature(sanitized)] = _firstNonBlank([
-      sanitized['id'],
-    ]);
-    newRules.add(sanitized);
-  }
-
-  final steps = _executionSteps(functionJson);
-  final derivedAssets = <Map<String, dynamic>>[];
-  for (var index = 0; index < steps.length; index++) {
-    final derived = _deriveCheckerRuleFromOptionalStep(steps[index], index);
-    if (derived == null) continue;
-    final signature = _checkerRuleSignature(derived);
-    var checkerId =
-        signatureToId[signature] ??
-        coreSignatureToId[_checkerRuleCoreSignature(derived)];
-    if (checkerId == null || checkerId.isEmpty) {
-      final rule = _sanitizeCheckerRule(
-        derived,
-        usedIds: usedIds,
-        fallbackId: 'optional_checker_step_$index',
-      );
-      if (rule == null) continue;
-      checkerId = _firstNonBlank([rule['id']]);
-      signatureToId[signature] = checkerId;
-      coreSignatureToId[_checkerRuleCoreSignature(rule)] = checkerId;
-      newRules.add(rule);
-    }
-    derivedAssets.add(
-      _checkerAssetForStep(
-        checkerId: checkerId,
-        step: steps[index],
-        stepIndex: index,
-        reason: _optionalCheckerReason(steps[index]),
-      ),
-    );
-  }
-
-  final allRuleIds = <String>{
-    ...existingIds,
-    ...newRules.map((rule) => _firstNonBlank([rule['id']])),
-  }..removeWhere((id) => id.isEmpty);
-  final rawAssets = <Map<String, dynamic>>[];
-  for (final rawAsset in _checkerAssetCandidates(aiJson)) {
-    rawAssets.addAll(_safeCheckerAssets([rawAsset], steps, allRuleIds));
-  }
-  final assets = _mergeCheckerAssets(
-    const <Map<String, dynamic>>[],
-    [...rawAssets, ...derivedAssets],
-    steps,
-    allRuleIds,
-  );
-
-  return _CheckerRuleEnhancement(
-    rules: newRules,
-    assets: assets,
-    allRuleIds: allRuleIds,
-  );
-}
-
-void _applyCheckerRuleEnhancement(
-  Map<String, dynamic> functionJson,
-  _CheckerRuleEnhancement enhancement,
-) {
-  if (enhancement.rules.isEmpty) return;
-  final metadata = <String, dynamic>{
-    ..._asStringKeyMap(functionJson['metadata']),
-  };
-  final existing = metadata['checker_rules'] is List
-      ? (metadata['checker_rules'] as List).map(_jsonSafe).toList()
-      : const <dynamic>[];
-  final merged = _mergeCheckerRules(existing, enhancement.rules);
-  if (!_valuesEquivalent(existing, merged)) {
-    metadata['checker_rules'] = merged;
-    functionJson['metadata'] = metadata;
-  }
-}
-
-List<dynamic> _checkerRuleCandidates(Map<String, dynamic> aiJson) {
-  final metadata = _asStringKeyMap(aiJson['metadata']);
-  final agentReuse = _asStringKeyMap(aiJson['agent_reuse']);
-  return [
-    ..._firstListValue(aiJson, const ['checker_rules', 'checkerRules']),
-    ..._firstListValue(metadata, const ['checker_rules', 'checkerRules']),
-    ..._firstListValue(agentReuse, const ['checker_rules', 'checkerRules']),
-  ];
-}
-
-List<dynamic> _checkerAssetCandidates(Map<String, dynamic> aiJson) {
-  final agentReuse = _asStringKeyMap(aiJson['agent_reuse']);
-  return [
-    ..._firstListValue(aiJson, const ['checker_assets', 'checkerAssets']),
-    ..._firstListValue(agentReuse, const ['checker_assets', 'checkerAssets']),
-  ];
-}
-
-Map<String, dynamic>? _sanitizeCheckerRule(
-  Map<String, dynamic> raw, {
-  required Set<String> usedIds,
-  String fallbackId = 'function_checker',
-  bool reserveId = true,
-}) {
-  if (raw.isEmpty) return null;
-  final condition = _normalizeCheckerCondition(
-    _firstNonBlank([raw['condition'], raw['when'], raw['type']]),
-  );
-  if (condition.isEmpty) return null;
-  final action = _normalizeCheckerAction(
-    _firstNonBlank([raw['action'], raw['then'], raw['effect']]),
-    condition: condition,
-  );
-  if (action.isEmpty || !_isSupportedCheckerPair(condition, action)) {
-    return null;
-  }
-  final phase = _normalizeCheckerPhase(
-    _firstNonBlank([raw['phase'], raw['timing'], raw['stage']]),
-    condition: condition,
-  );
-  final rawParams = _asStringKeyMap(raw['params']);
-  final packageName = _firstNonBlank([
-    rawParams['package_name'],
-    raw['package_name'],
-  ]);
-  final params = <String, dynamic>{};
-  if (condition == 'package_mismatch' &&
-      RegExp(
-        r'^[A-Za-z][A-Za-z0-9_]*(\.[A-Za-z][A-Za-z0-9_]*)+$',
-      ).hasMatch(packageName)) {
-    params['package_name'] = packageName;
-  }
-  final id = reserveId
-      ? _uniqueCheckerRuleId(raw['id'], usedIds, fallbackId)
-      : _firstNonBlank([raw['id'], fallbackId]);
-  if (id.isEmpty) return null;
-  return {
-    'id': id,
-    'condition': condition,
-    'action': action,
-    'phase': phase,
-    'enabled': _asBool(raw['enabled']) ?? true,
-    'params': params,
-  };
-}
-
-Map<String, dynamic>? _deriveCheckerRuleFromOptionalStep(
-  Map<String, dynamic> step,
-  int index,
-) {
-  final annotation = _asStringKeyMap(step['cleanup_annotation']);
-  if (!_isOptionalCheckerAnnotation(annotation)) return null;
-  final text = _checkerInferenceText(step, annotation);
-  final condition = _checkerConditionFromText(text);
-  final action = _checkerActionForCondition(condition);
-  return {
-    'id': 'optional_checker_step_${index}_$condition',
-    'condition': condition,
-    'action': action,
-    'phase': _normalizeCheckerPhase('', condition: condition),
-    'enabled': true,
-    'params': {},
-  };
-}
-
-bool _isOptionalCheckerAnnotation(Map<String, dynamic> annotation) {
-  final normalized = _normalizeCleanupAction(
-    _firstNonBlank([
-      annotation['cleanup_action'],
-      annotation['cleanupAction'],
-      annotation['action'],
-    ]),
-  );
-  final usefulness = _firstNonBlank([annotation['usefulness']]).toLowerCase();
-  final category = _firstNonBlank([annotation['category']]).toLowerCase();
-  return normalized == 'optional_checker' ||
-      usefulness == 'conditional_checker' ||
-      category == 'conditional_obstruction' ||
-      category == 'runtime_checker' ||
-      category == 'checker_candidate';
-}
-
-String _checkerInferenceText(
-  Map<String, dynamic> step,
-  Map<String, dynamic> annotation,
-) {
-  final args = _asStringKeyMap(step['args']);
-  return [
-    step['title'],
-    step['summary'],
-    step['description'],
-    annotation['optional_condition'],
-    annotation['reason'],
-    annotation['action_purpose'],
-    args['target_description'],
-    args['text'],
-  ].map((value) => value?.toString() ?? '').join(' ').toLowerCase();
-}
-
-String _checkerConditionFromText(String text) {
-  if (_containsAny(text, const [
-    'hi_upgrade',
-    'hi upgrade',
-    'hi 升级',
-    'hi_update',
-    'hi update',
-    'hi 更新',
-    'upgrade',
-    'update',
-    'new version',
-    'version upgrade',
-    'version update',
-    '升级',
-    '更新',
-    '版本升级',
-    '版本更新',
-    '新版本',
-  ])) {
-    return 'app_upgrade_prompt';
-  }
-  if (_containsAny(text, const ['keyboard', 'ime', '键盘', '输入法'])) {
-    return 'keyboard_obscuring';
-  }
-  if (_containsAny(text, const [
-    'permission',
-    'allow',
-    'authorize',
-    'grant',
-    '权限',
-    '授权',
-    '允许',
-  ])) {
-    return 'permission_dialog';
-  }
-  return 'overlay_blocking';
-}
-
-String _checkerActionForCondition(String condition) => switch (condition) {
-  'keyboard_obscuring' => 'hide_keyboard',
-  'permission_dialog' => 'allow',
-  'package_mismatch' => 'open_app',
-  'app_upgrade_prompt' => 'dismiss',
-  _ => 'dismiss',
-};
-
-String _normalizeCheckerCondition(String raw) {
-  final text = raw.trim().toLowerCase().replaceAll(RegExp(r'[\s-]+'), '_');
-  if (_containsAny(text, const ['升级', '更新'])) {
-    return 'app_upgrade_prompt';
-  }
-  return switch (text) {
-    'overlay_blocking' ||
-    'blocking_overlay' ||
-    'popup_blocking' ||
-    'popup' ||
-    'ad_popup' ||
-    'ad' ||
-    'banner' ||
-    'coupon' ||
-    'obstruction' ||
-    'conditional_obstruction' => 'overlay_blocking',
-    'permission_dialog' ||
-    'permission' ||
-    'permission_prompt' ||
-    'permission_nudge' => 'permission_dialog',
-    'keyboard_obscuring' ||
-    'keyboard' ||
-    'ime_obscuring' ||
-    'soft_keyboard' => 'keyboard_obscuring',
-    'package_mismatch' ||
-    'wrong_app' ||
-    'app_mismatch' ||
-    'foreground_package_mismatch' => 'package_mismatch',
-    'app_upgrade_prompt' ||
-    'upgrade_prompt' ||
-    'update_prompt' ||
-    'app_upgrade_dialog' ||
-    'app_update_dialog' ||
-    'app_upgrade' ||
-    'app_update' ||
-    'version_update' ||
-    'version_upgrade' ||
-    'version_prompt' ||
-    'new_version_prompt' ||
-    'hi_upgrade' ||
-    'hi_upgrade_prompt' ||
-    'hi_update' ||
-    'hi_update_prompt' => 'app_upgrade_prompt',
-    _ => '',
-  };
-}
-
-String _normalizeCheckerAction(String raw, {required String condition}) {
-  final text = raw.trim().toLowerCase().replaceAll('-', '_');
-  if (text.isEmpty) return _checkerActionForCondition(condition);
-  return switch (text) {
-    'dismiss' ||
-    'close' ||
-    'close_popup' ||
-    'click_close' ||
-    'click_dismiss' ||
-    'skip' ||
-    'not_now' ||
-    'later' ||
-    'remind_later' ||
-    'postpone' ||
-    'defer' ||
-    'skip_update' ||
-    'cancel' => 'dismiss',
-    'allow' || 'grant' || 'grant_permission' || 'click_allow' => 'allow',
-    'hide_keyboard' ||
-    'dismiss_keyboard' ||
-    'close_keyboard' => 'hide_keyboard',
-    'open_app' || 'launch_app' || 'start_app' => 'open_app',
-    'click' when condition == 'overlay_blocking' => 'dismiss',
-    'click' when condition == 'permission_dialog' => 'allow',
-    'click' when condition == 'app_upgrade_prompt' => 'dismiss',
-    _ => '',
-  };
-}
-
-bool _isSupportedCheckerPair(String condition, String action) =>
-    (condition == 'overlay_blocking' && action == 'dismiss') ||
-    (condition == 'permission_dialog' && action == 'allow') ||
-    (condition == 'keyboard_obscuring' && action == 'hide_keyboard') ||
-    (condition == 'package_mismatch' && action == 'open_app') ||
-    (condition == 'app_upgrade_prompt' && action == 'dismiss');
-
-String _normalizeCheckerPhase(String raw, {required String condition}) {
-  if (condition == 'app_upgrade_prompt') {
-    return 'post_action';
-  }
-  final text = raw.trim().toLowerCase().replaceAll('-', '_');
-  return switch (text) {
-    'pre_transfer' || 'before_transfer' || 'before_replay' => 'pre_transfer',
-    'pre_action' || 'before_action' || 'before_step' => 'pre_action',
-    'post_action' || 'after_action' || 'after_step' => 'post_action',
-    _ => 'pre_action',
-  };
-}
-
-String _checkerRuleSignature(Map<String, dynamic> rule) {
-  final params = _asStringKeyMap(rule['params']);
-  return [
-    rule['phase'],
-    rule['condition'],
-    rule['action'],
-    params['package_name'] ?? '',
-  ].map((value) => value?.toString() ?? '').join('|');
-}
-
-String _checkerRuleCoreSignature(Map<String, dynamic> rule) {
-  final params = _asStringKeyMap(rule['params']);
-  return [
-    rule['condition'],
-    rule['action'],
-    params['package_name'] ?? '',
-  ].map((value) => value?.toString() ?? '').join('|');
-}
-
-String _uniqueCheckerRuleId(dynamic raw, Set<String> usedIds, String fallback) {
-  var base = _firstNonBlank([raw, fallback])
-      .replaceAllMapped(RegExp(r'([a-z])([A-Z])'), (m) => '${m[1]}_${m[2]}')
-      .replaceAll(RegExp(r'[^A-Za-z0-9_]+'), '_')
-      .toLowerCase()
-      .replaceAll(RegExp(r'_+'), '_')
-      .replaceAll(RegExp(r'^_|_$'), '');
-  if (base.isEmpty) {
-    base = 'function_checker';
-  }
-  if (base.length > 80) {
-    base = base.substring(0, 80).replaceAll(RegExp(r'_$'), '');
-  }
-  var candidate = base;
-  var suffix = 2;
-  while (usedIds.contains(candidate)) {
-    final suffixText = '_$suffix';
-    final prefixLength = (80 - suffixText.length).clamp(1, 80).toInt();
-    final safeLength = base.length.clamp(1, prefixLength).toInt();
-    candidate =
-        '${base.substring(0, safeLength)}'
-        '$suffixText';
-    suffix += 1;
-  }
-  usedIds.add(candidate);
-  return candidate;
-}
-
-List<dynamic> _mergeCheckerRules(
-  List<dynamic> existing,
-  List<Map<String, dynamic>> additions,
-) {
-  final output = existing.map(_jsonSafe).toList(growable: true);
-  final signatures = <String>{};
-  for (final raw in existing) {
-    final sanitized = _sanitizeCheckerRule(
-      _asStringKeyMap(raw),
-      usedIds: <String>{},
-      reserveId: false,
-    );
-    if (sanitized != null) {
-      signatures.add(_checkerRuleSignature(sanitized));
-    }
-  }
-  for (final rule in additions) {
-    final signature = _checkerRuleSignature(rule);
-    if (signatures.add(signature)) {
-      output.add(rule);
-    }
-  }
-  return output;
-}
-
-List<Map<String, dynamic>> _safeCheckerAssets(
-  dynamic raw,
-  List<Map<String, dynamic>> steps,
-  Set<String> checkerRuleIds,
-) {
-  final items = raw is List ? raw : const <dynamic>[];
-  return items
-      .map(_asStringKeyMap)
-      .map((item) => _safeCheckerAsset(item, steps, checkerRuleIds))
-      .whereType<Map<String, dynamic>>()
-      .toList(growable: false);
-}
-
-Map<String, dynamic>? _safeCheckerAsset(
-  Map<String, dynamic> item,
-  List<Map<String, dynamic>> steps,
-  Set<String> checkerRuleIds,
-) {
-  final checkerId = _firstNonBlank([
-    item['checker_id'],
-    item['checkerId'],
-    item['id'],
-    item['rule_id'],
-    item['ruleId'],
-  ]);
-  if (checkerId.isEmpty ||
-      (checkerRuleIds.isNotEmpty && !checkerRuleIds.contains(checkerId))) {
-    return null;
-  }
-  final index = _resolveStepIndex(item, steps);
-  if (index < 0 || index >= steps.length) return null;
-  return _checkerAssetForStep(
-    checkerId: checkerId,
-    step: steps[index],
-    stepIndex: index,
-    reason: _boundedText(
-      _firstNonBlank([item['reason'], item['description'], item['summary']]),
-      maxLength: 240,
-    ),
-  );
-}
-
-int _resolveStepIndex(
-  Map<String, dynamic> item,
-  List<Map<String, dynamic>> steps,
-) {
-  final index = _asInt(
-    item['step_index'] ?? item['stepIndex'] ?? item['index'],
-  );
-  if (index != null) return index;
-  final stepId = _firstNonBlank([item['step_id'], item['stepId']]);
-  if (stepId.isEmpty) return -1;
-  return steps.indexWhere((step) => _firstNonBlank([step['id']]) == stepId);
-}
-
-Map<String, dynamic> _checkerAssetForStep({
-  required String checkerId,
-  required Map<String, dynamic> step,
-  required int stepIndex,
-  required String reason,
-}) {
-  return {
-    'checker_id': checkerId,
-    'step_index': stepIndex,
-    'step_id': _firstNonBlank([step['id'], 'step_${stepIndex + 1}']),
-    'role': 'checker_candidate',
-    'materialization': 'metadata_checker_rule',
-    if (reason.isNotEmpty) 'reason': _boundedText(reason, maxLength: 240),
-  };
-}
-
-String _optionalCheckerReason(Map<String, dynamic> step) {
-  final annotation = _asStringKeyMap(step['cleanup_annotation']);
-  return _firstNonBlank([
-    annotation['optional_condition'],
-    annotation['reason'],
-    annotation['action_purpose'],
-    step['description'],
-    step['summary'],
-    step['title'],
-    'Conditional obstruction action converted to runtime checker.',
-  ]);
-}
-
-List<Map<String, dynamic>> _mergeCheckerAssets(
-  List<Map<String, dynamic>> existing,
-  List<Map<String, dynamic>> additions,
-  List<Map<String, dynamic>> steps,
-  Set<String> checkerRuleIds,
-) {
-  final output = <Map<String, dynamic>>[];
-  final seen = <String>{};
-  void addAsset(Map<String, dynamic> raw) {
-    final asset = _safeCheckerAsset(raw, steps, checkerRuleIds) ?? raw;
-    final checkerId = _firstNonBlank([asset['checker_id']]);
-    final index = _asInt(asset['step_index']);
-    if (checkerId.isEmpty || index == null || index < 0) return;
-    final signature = '$checkerId|$index|${_firstNonBlank([asset['step_id']])}';
-    if (seen.add(signature)) {
-      output.add(asset);
-    }
-  }
-
-  for (final asset in existing) {
-    addAsset(asset);
-  }
-  for (final asset in additions) {
-    addAsset(asset);
-  }
-  return output;
-}
-
-bool _containsAny(String text, List<String> needles) =>
-    needles.any((needle) => text.contains(needle));
-
 List<dynamic> _firstListValue(Map<String, dynamic> source, List<String> keys) {
   for (final key in keys) {
     final value = source[key];
@@ -4413,8 +3830,7 @@ String _jsonPathSuffix(List<String> segments) {
 }
 
 String _canonicalToolNameForStep(String toolName, dynamic args) {
-  if (RunLogReplayPolicy.isOmniflowFunctionTool(toolName) ||
-      RunLogReplayPolicy.isOmniflowToolCallTool(toolName)) {
+  if (RunLogReplayPolicy.isOmniflowToolCallTool(toolName)) {
     return 'call_tool';
   }
   return toolName;
@@ -4422,8 +3838,7 @@ String _canonicalToolNameForStep(String toolName, dynamic args) {
 
 Map<String, dynamic> _canonicalCallToolArgs(String toolName, dynamic args) {
   final normalizedTool = RunLogReplayPolicy.normalizeToolName(toolName);
-  if (!RunLogReplayPolicy.isOmniflowFunctionTool(normalizedTool) &&
-      !RunLogReplayPolicy.isOmniflowToolCallTool(normalizedTool)) {
+  if (!RunLogReplayPolicy.isOmniflowToolCallTool(normalizedTool)) {
     final safe = _jsonSafe(args);
     return safe is Map<String, dynamic> ? safe : _asStringKeyMap(safe);
   }
@@ -4438,8 +3853,7 @@ Map<String, dynamic> _canonicalCallToolArgs(String toolName, dynamic args) {
     mapped['target_tool'],
     mapped['targetTool'],
   ]);
-  if (targetTool.isNotEmpty &&
-      !RunLogReplayPolicy.isOmniflowFunctionTool(normalizedTool)) {
+  if (targetTool.isNotEmpty) {
     mapped['tool_name'] = targetTool;
   }
   return mapped;
@@ -4461,9 +3875,6 @@ String _stepKindForToolName(String toolName, String route, {dynamic args}) {
   if (RunLogReplayPolicy.isOmniflowGraphTool(toolName)) {
     return 'omniflow_graph';
   }
-  if (RunLogReplayPolicy.isOmniflowFunctionTool(toolName)) {
-    return 'omniflow_function';
-  }
   return executor == 'omniflow' ? 'function' : 'tool_call';
 }
 
@@ -4479,9 +3890,8 @@ String _toolBindingKindForStep({
   if (RunLogReplayPolicy.isOmniflowGraphTool(toolName)) {
     return 'omniflow_graph';
   }
-  if (RunLogReplayPolicy.isOmniflowFunctionTool(toolName) ||
-      (RunLogReplayPolicy.isOmniflowToolCallTool(toolName) &&
-          _callToolFunctionId(args).isNotEmpty)) {
+  if (RunLogReplayPolicy.isOmniflowToolCallTool(toolName) &&
+      _callToolFunctionId(args).isNotEmpty) {
     return 'omniflow_function';
   }
   if (executor == 'omniflow' && replayAction.isNotEmpty) {
@@ -5985,12 +5395,6 @@ Map<String, dynamic> _executionCapabilitiesForSteps(
     'omniflow_step_count': stepMaps
         .where((step) => step['executor'] == 'omniflow')
         .length,
-    'agent_step_count': stepMaps
-        .where((step) => step['executor'] == 'agent')
-        .length,
-    'requires_agent_fallback': stepMaps.any(
-      (step) => step['executor'] == 'agent',
-    ),
   };
 }
 
@@ -6032,7 +5436,7 @@ Map<String, dynamic> _normalizeAgentCall({
     'reason': _firstNonBlank([
       raw['reason'],
       reason,
-      enabled ? 'non_scriptable_or_vlm_step' : 'agent_fallback',
+      enabled ? 'non_scriptable_or_vlm_step' : 'model_required_step',
     ]),
   };
 }

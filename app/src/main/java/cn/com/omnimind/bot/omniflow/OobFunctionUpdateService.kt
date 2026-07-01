@@ -25,7 +25,6 @@ class OobFunctionUpdateService(
     private val functionRepository: OobFunctionRepository,
     private val targetSourceMatcher: OobFunctionTargetSourceMatcher = OobFunctionTargetSourceMatcher(),
     private val evidencePackager: OobFunctionRunLogEvidencePackager = OobFunctionRunLogEvidencePackager(),
-    private val intentParser: OobFunctionUpdateIntentParser = OobFunctionUpdateIntentParser(),
 ) {
     fun updateFunction(args: Map<String, Any?>?): Map<String, Any?> {
         val updateStartedAtMs = System.currentTimeMillis()
@@ -90,11 +89,9 @@ class OobFunctionUpdateService(
 
         val updated = mutableJsonMap(original)
         val changes = mutableListOf<Map<String, Any?>>()
-        val explicitOps = intentParser.operationsFromPatch(patch)
-        val inferredOps = if (explicitOps.isEmpty()) intentParser.operationsFromInstruction(instruction) else emptyList()
-        val ops = explicitOps + inferredOps
-        val inferredRepairIntent = requestedMode == "enhance" && ops.any(intentParser::isReplaceTargetOperation)
-        val inferredStructuralIntent = requestedMode == "enhance" && ops.any(intentParser::isStructuralOperation)
+        val ops = operationsFromPatch(patch)
+        val inferredRepairIntent = requestedMode == "enhance" && ops.any(::isReplaceTargetOperation)
+        val inferredStructuralIntent = requestedMode == "enhance" && ops.any(::isStructuralOperation)
         val mode = if (inferredRepairIntent || inferredStructuralIntent) "repair" else requestedMode
         val allowExecutionChange = boolArg(request["allow_execution_change"]) ||
             boolArg(request["allowExecutionChange"]) ||
@@ -210,6 +207,36 @@ class OobFunctionUpdateService(
         val requiresConfirmation: Boolean,
         val reason: String = "",
     )
+
+    private fun operationsFromPatch(patch: Map<String, Any?>): List<Map<String, Any?>> {
+        val direct = listArg(patch["ops"])
+            .ifEmpty { listArg(patch["operations"]) }
+            .ifEmpty { listArg(patch["repairs"]) }
+            .mapNotNull { mapArg(it).takeIf { op -> op.isNotEmpty() } }
+        if (direct.isNotEmpty()) return direct
+        return mapArg(patch["replace_target"])
+            .ifEmpty { mapArg(patch["replaceTarget"]) }
+            .takeIf { it.isNotEmpty() }
+            ?.let { listOf(linkedMapOf<String, Any?>("op" to "replace_target").apply { putAll(it) }) }
+            .orEmpty()
+    }
+
+    private fun isReplaceTargetOperation(op: Map<String, Any?>): Boolean =
+        firstNonBlank(op["op"], op["type"], op["operation"])
+            .lowercase() in setOf("replace_target", "replace_click_target", "retarget_action")
+
+    private fun isStructuralOperation(op: Map<String, Any?>): Boolean =
+        firstNonBlank(op["op"], op["type"], op["operation"])
+            .lowercase() in setOf(
+                "insert_step",
+                "add_step",
+                "insert_action",
+                "add_action",
+                "delete_step",
+                "remove_step",
+                "delete_action",
+                "remove_action",
+            )
 
     private fun applyReplaceTargetOperation(spec: MutableMap<String, Any?>, op: Map<String, Any?>): ReplaceTargetResult {
         val desiredText = firstNonBlank(op["desired_text"], op["desiredText"], op["new_text"], op["newText"],
@@ -365,11 +392,8 @@ class OobFunctionUpdateService(
         execution["steps"] = normalizedSteps
         execution["step_count"] = normalizedSteps.size
         execution["omniflow_step_count"] = capabilities["omniflow_step_count"]
-        execution["agent_step_count"] = capabilities["agent_step_count"]
-        execution["has_agent_steps"] = capabilities["has_agent_steps"]
-        execution.remove("requires_agent_fallback")
         execution["capabilities"] = linkedMapOf<String, Any?>().apply {
-            putAll(mapArg(execution["capabilities"])); remove("requires_agent_fallback"); putAll(capabilities)
+            putAll(mapArg(execution["capabilities"])); putAll(capabilities)
         }
         spec["execution"] = execution
     }

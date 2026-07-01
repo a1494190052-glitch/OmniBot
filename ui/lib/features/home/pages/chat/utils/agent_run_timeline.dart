@@ -183,6 +183,10 @@ List<AgentRunTimelineEntry> buildAgentRunTimelineEntries(
   }
 
   for (final message in messages) {
+    if (!_isAgentRunCandidateMessage(message)) {
+      entries.add(AgentRunTimelineEntry.message(message));
+      continue;
+    }
     final taskId = agentRunParentTaskId(message);
     if (taskId == null) {
       entries.add(AgentRunTimelineEntry.message(message));
@@ -485,7 +489,22 @@ bool _isAgentRunCandidateMessage(ChatMessageModel message) {
   if (message.type != 2) {
     return false;
   }
-  return ref.isThinkingCard || ref.isToolCard || ref.isPermissionCard;
+  return (ref.isThinkingCard && _hasExplicitAgentRunStreamMeta(message)) ||
+      ref.isToolCard ||
+      ref.isPermissionCard;
+}
+
+bool _hasExplicitAgentRunStreamMeta(ChatMessageModel message) {
+  final cardData = message.cardData;
+  final embeddedStreamMeta = _asStringMap(cardData?['streamMeta']);
+  final topLevelStreamMeta = _asStringMap(message.streamMeta);
+  final streamMeta = <String, dynamic>{
+    if (embeddedStreamMeta != null) ...embeddedStreamMeta,
+    if (topLevelStreamMeta != null) ...topLevelStreamMeta,
+  };
+  final parentTaskId = (streamMeta['parentTaskId'] ?? '').toString().trim();
+  final kind = (streamMeta['kind'] ?? '').toString().trim();
+  return parentTaskId.isNotEmpty && kind.isNotEmpty;
 }
 
 bool _isInternalToolPayloadMessage(

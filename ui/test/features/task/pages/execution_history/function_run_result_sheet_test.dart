@@ -109,7 +109,6 @@ void main() {
       expect(_selectableTextContaining('rank_functions_ms'), findsNothing);
       expect(_selectableTextContaining('segment_match_ms'), findsNothing);
       expect(_richTextContaining('执行到  第 1/1 步'), findsOneWidget);
-      expect(find.text('执行步骤 · 1'), findsOneWidget);
       expect(find.text('open_app'), findsNothing);
       expect(find.text('120ms'), findsNothing);
       expect(find.text('Runner'), findsNothing);
@@ -132,68 +131,6 @@ void main() {
       expect(_selectableTextContaining('duration_ms'), findsNothing);
       expect(_selectableTextContaining('started_at_ms'), findsNothing);
       expect(_selectableTextContaining('phase_ms'), findsNothing);
-    },
-  );
-
-  testWidgets(
-    'Reusable Function result separates local completion from Agent fallback',
-    (tester) async {
-      final result = UtgManualRunResult.fromMap(<String, dynamic>{
-        'success': true,
-        'goal': 'oob_reusable_function_run:open_settings',
-        'function_id': 'open_settings',
-        'execution_status': 'started_agent_fallback',
-        'terminal_state': <String, dynamic>{
-          'status': 'started_agent_fallback',
-          'execution_status': 'started_agent_fallback',
-          'taskId': 'task-agent-1',
-          'model_required': true,
-          'runner': 'oob_mixed_runner',
-          'local_steps_completed': 1,
-          'agent_steps_pending': 2,
-          'step_count': 3,
-          'success_step_count': 1,
-        },
-        'context': <String, dynamic>{
-          'step_results': <Map<String, dynamic>>[
-            <String, dynamic>{
-              'success': true,
-              'summary': '打开应用',
-              'tool': 'open_app',
-              'executor': 'omniflow',
-            },
-            <String, dynamic>{
-              'success': false,
-              'summary': '需要继续处理',
-              'tool': 'input_text',
-              'executor': 'agent',
-              'needs_agent': true,
-              'fallback_available': true,
-            },
-          ],
-        },
-      });
-
-      await tester.pumpWidget(
-        MaterialApp(
-          locale: const Locale('zh'),
-          localizationsDelegates: AppLocalizations.localizationsDelegates,
-          supportedLocales: AppLocalizations.supportedLocales,
-          home: Scaffold(
-            body: SingleChildScrollView(
-              child: FunctionRunResultInlinePanel(result: result),
-            ),
-          ),
-        ),
-      );
-
-      expect(result.startedAgentFallback, isTrue);
-      expect(result.completedLocal, isFalse);
-      expect(_richTextContaining('状态  已交给 Agent 继续执行'), findsOneWidget);
-      expect(_richTextContaining('步骤  1/3'), findsOneWidget);
-      expect(find.text('started_agent_fallback'), findsNothing);
-      expect(find.text('Runner'), findsNothing);
-      expect(find.text('oob_mixed_runner'), findsNothing);
     },
   );
 
@@ -269,7 +206,7 @@ void main() {
       'goal': 'oob_reusable_function_run:search_settings',
       'function_id': 'search_settings',
       'execution_status': 'failed',
-      'error_message': 'Omniflow step requires agent fallback',
+      'error_message': 'Omniflow step requires model continuation',
       'terminal_state': <String, dynamic>{
         'status': 'failed',
         'execution_status': 'failed',

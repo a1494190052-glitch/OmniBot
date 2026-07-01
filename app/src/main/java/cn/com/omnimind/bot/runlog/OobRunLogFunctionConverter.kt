@@ -6,8 +6,6 @@ import cn.com.omnimind.baselib.runlog.InternalRunLogStore
 import cn.com.omnimind.baselib.util.OmniLog
 import cn.com.omnimind.bot.agent.AgentWorkspaceManager
 import cn.com.omnimind.bot.omniflow.OobFunctionRepository
-import cn.com.omnimind.bot.omniflow.language.OmniflowCompiler
-import cn.com.omnimind.bot.omniflow.language.OmniflowFunctionStore
 import cn.com.omnimind.bot.omniflow.WorkspaceFunctionStore
 
 /**
@@ -87,22 +85,6 @@ class OobRunLogFunctionConverter(
 
         mirrorRunLogForWorkspace(record)
         val registration = functionRepository.register(spec).toMutableMap()
-        if (registration["success"] == true) {
-            val compiledSaved = runCatching {
-                val irFunction = OmniflowCompiler.compile(
-                    cards = record.cards,
-                    functionId = functionId,
-                    goal = record.goal.ifBlank { record.operationDescription },
-                    packageName = null,
-                    skipPerceptionTools = true,
-                )
-                OmniflowFunctionStore.save(context, irFunction)
-                true
-            }.onFailure {
-                OmniLog.w(TAG, "Function model compile/save failed for $functionId: ${it.message}")
-            }.getOrDefault(false)
-            registration["compiled_function_saved"] = compiledSaved
-        }
 
         return registration.apply {
             put("registered", this["success"] == true)

@@ -4415,7 +4415,6 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
         mainJob.launch {
             val limit = call.argument<Number>("limit")?.toInt() ?: 100
             val offset = call.argument<Number>("offset")?.toInt() ?: 0
-            val autoRegister = call.argument<Boolean>("autoRegister") ?: false
             val includeHidden =
                 call.argument<Boolean>("includeHidden")
                     ?: call.argument<Boolean>("include_hidden")
@@ -4425,7 +4424,6 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
                 args = linkedMapOf(
                     "limit" to limit,
                     "offset" to offset,
-                    "autoRegister" to autoRegister,
                     "includeHidden" to includeHidden,
                     "include_hidden" to includeHidden,
                 ),

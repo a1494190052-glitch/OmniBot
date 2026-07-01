@@ -1,17 +1,18 @@
 package cn.com.omnimind.bot.runlog
 
 import android.content.Context
+import cn.com.omnimind.assists.controller.http.HttpController
 import cn.com.omnimind.assists.task.vlmserver.AndroidDeviceOperator
 import cn.com.omnimind.assists.task.vlmserver.DeviceOperator
 import cn.com.omnimind.baselib.runlog.InternalRunLogRecord
 import cn.com.omnimind.baselib.runlog.InternalRunLogStore
 import cn.com.omnimind.baselib.util.OmniLog
+import cn.com.omnimind.bot.agent.AgentToolJson
 import cn.com.omnimind.bot.agent.AgentWorkspaceManager
 import cn.com.omnimind.bot.omniflow.OobFunctionRecallService
 import cn.com.omnimind.bot.omniflow.OobFunctionRepository
 import cn.com.omnimind.bot.omniflow.OobFunctionSchemaBuilder
 import cn.com.omnimind.bot.omniflow.OobFunctionToolNames
-import cn.com.omnimind.bot.omniflow.OobFunctionUpdateAgentOrchestrator
 import cn.com.omnimind.bot.omniflow.OobFunctionUpdateService
 import cn.com.omnimind.bot.omniflow.WorkspaceFunctionStore
 import cn.com.omnimind.bot.runlog.boolArgOrDefault
@@ -20,6 +21,9 @@ import cn.com.omnimind.bot.runlog.intArg
 import cn.com.omnimind.bot.runlog.listArg
 import cn.com.omnimind.bot.runlog.longArg
 import cn.com.omnimind.bot.runlog.mapArg
+import kotlinx.coroutines.CancellationException
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
 
 /**
  * OOB-native implementation of Function management tools.
@@ -36,15 +40,18 @@ class OobFunctionManagementService(
     ),
     private val updateAgentRequester: suspend (prompt: String, responseJsonObject: Boolean) -> String? =
         { prompt, responseJsonObject ->
-            OobFunctionUpdateAgentOrchestrator.requestAgentAnalysis(prompt, responseJsonObject)
+            requestAgentAnalysis(prompt, responseJsonObject)
         },
 ) {
     private val functionRepository = OobFunctionRepository(context, workspaceFunctionStore)
     private val runLogConverter = OobRunLogFunctionConverter(context, workspaceFunctionStore, functionRepository)
     private val functionRecallService = OobFunctionRecallService(context, functionRepository, deviceOperator)
     private val functionUpdateService = OobFunctionUpdateService(context, functionRepository)
-    private val functionUpdateOrchestrator =
-        OobFunctionUpdateAgentOrchestrator(functionUpdateService, updateAgentRequester)
+    private val updateAgentResponseJson = Json {
+        ignoreUnknownKeys = true
+        isLenient = true
+        encodeDefaults = true
+    }
 
     suspend fun executeTool(name: String?, args: Map<String, Any?>?): Map<String, Any?> {
         return when (name) {
@@ -104,10 +111,6 @@ class OobFunctionManagementService(
 
     fun listFunctions(args: Map<String, Any?>?): Map<String, Any?> {
         val request = args ?: emptyMap()
-        if (boolArg(request["auto_register"]) || boolArg(request["autoRegister"])) {
-            runCatching { runLogConverter.autoRegisterRecentRunLogs(limit = 50) }
-                .onFailure { OmniLog.w(TAG, "list OOB functions auto-register failed: ${it.message}") }
-        }
         return functionRepository.list(
             limit = intArg(request["limit"], defaultValue = 100),
             offset = intArg(request["offset"], defaultValue = 0),
@@ -241,8 +244,6 @@ class OobFunctionManagementService(
                 "steps" to normalizedSteps,
                 "step_count" to normalizedSteps.size,
                 "omniflow_step_count" to capabilities["omniflow_step_count"],
-                "agent_step_count" to capabilities["agent_step_count"],
-                "has_agent_steps" to capabilities["has_agent_steps"],
             ),
             "_oob_registry" to linkedMapOf(
                 "registered_at" to now,
@@ -304,8 +305,101 @@ class OobFunctionManagementService(
         )
     }
 
-    suspend fun updateFunction(args: Map<String, Any?>?): Map<String, Any?> =
-        functionUpdateOrchestrator.updateFunction(args)
+    suspend fun updateFunction(args: Map<String, Any?>?): Map<String, Any?> {
+        val request = args ?: emptyMap()
+        val initial = functionUpdateService.updateFunction(request)
+        if (initial["needs_agent_analysis"] != true || requestHasAnalysisOrPatch(request)) {
+            return initial
+        }
+        if (!shouldAutoAnalyze(request)) {
+            return linkedMapOf<String, Any?>().apply {
+                putAll(initial)
+                put("agent_model_invoked", false)
+                put("analysis_policy", "offline_only")
+                put(
+                    "message",
+                    "update_function enhancement analysis is queued for an explicit offline/background step."
+                )
+            }
+        }
+
+        val prompt = firstNonBlank(initial["agent_prompt"])
+        if (prompt.isBlank()) {
+            return agentFailure(
+                initial = initial,
+                code = "AGENT_PROMPT_EMPTY",
+                message = "update_function returned needs_agent_analysis without agent_prompt",
+                agentInvoked = false,
+            )
+        }
+
+        val raw = try {
+            val jsonResponse = updateAgentRequester(prompt, true).orEmpty()
+            if (jsonResponse.trim().isNotEmpty()) {
+                jsonResponse
+            } else {
+                updateAgentRequester(prompt, false).orEmpty()
+            }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            return agentFailure(
+                initial = initial,
+                code = "AGENT_ANALYSIS_REQUEST_FAILED",
+                message = e.message?.takeIf { it.isNotBlank() } ?: "Agent model request failed",
+                agentInvoked = true,
+            )
+        }
+
+        if (raw.trim().isEmpty()) {
+            return agentFailure(
+                initial = initial,
+                code = "AGENT_ANALYSIS_EMPTY_RESPONSE",
+                message = "Agent model returned an empty response for update_function",
+                agentInvoked = true,
+            )
+        }
+
+        val agentJson = extractJsonObject(raw)
+            ?: return agentFailure(
+                initial = initial,
+                code = "AGENT_ANALYSIS_UNPARSEABLE",
+                message = "Agent model did not return parseable update_function analysis JSON",
+                agentInvoked = true,
+                rawResponse = raw,
+            )
+        val analysis = analysisFromAgentUpdateJson(agentJson)
+        val patch = patchFromAgentUpdateJson(agentJson, analysis)
+        if (analysis.isEmpty() && patch.isEmpty()) {
+            return agentFailure(
+                initial = initial,
+                code = "AGENT_ANALYSIS_EMPTY",
+                message = "Agent model returned no analysis or patch for update_function",
+                agentInvoked = true,
+                agentResponse = agentJson,
+            )
+        }
+
+        val nextArgs = linkedMapOf<String, Any?>().apply {
+            putAll(request)
+            if (analysis.isNotEmpty()) put("analysis", analysis)
+            if (patch.isNotEmpty()) put("patch", patch)
+            put("source", "oob_function_management")
+            put("agent_model_invoked", true)
+        }
+        val updated = functionUpdateService.updateFunction(nextArgs)
+        return linkedMapOf<String, Any?>().apply {
+            putAll(updated)
+            if (!containsKey("function")) put("function", initial["function"])
+            if (!containsKey("updated_function")) {
+                put("updated_function", initial["updated_function"] ?: initial["function"])
+            }
+            put("needs_agent_analysis", false)
+            put("agent_model_invoked", true)
+            put("agent_analysis_initial", initial)
+            put("agent_response", agentJson)
+        }
+    }
 
     fun listRunLogs(args: Map<String, Any?>?): Map<String, Any?> {
         val limit = intArg(args?.get("limit"), defaultValue = 50).coerceIn(1, 200)
@@ -501,8 +595,6 @@ class OobFunctionManagementService(
             "description" to spec["description"],
             "step_count" to (execution["step_count"] ?: steps.size),
             "omniflow_step_count" to execution["omniflow_step_count"],
-            "agent_step_count" to execution["agent_step_count"],
-            "has_agent_steps" to (execution["has_agent_steps"] ?: execution["requires_agent_fallback"]),
             "parameter_names" to OobFunctionSchemaBuilder.parameterNames(spec),
             "step_summaries" to stepSummaries(spec),
             "source" to spec["source"],
@@ -517,6 +609,140 @@ class OobFunctionManagementService(
     private fun materializedSteps(spec: Map<String, Any?>): List<Map<String, Any?>> {
         return OobFunctionSchemaBuilder.materializedSteps(spec)
     }
+
+    private fun requestHasAnalysisOrPatch(request: Map<String, Any?>): Boolean =
+        firstNonEmptyMap(
+            request,
+            listOf("analysis", "evidence_analysis", "runlog_analysis"),
+        ).isNotEmpty() ||
+            firstNonEmptyMap(
+                request,
+                listOf("patch", "function_patch", "updates", "recommended_patch"),
+            ).isNotEmpty()
+
+    private fun shouldAutoAnalyze(request: Map<String, Any?>): Boolean {
+        val explicit = firstNonBlank(
+            request["auto_analyze_with_model"],
+            request["autoAnalyzeWithModel"],
+        )
+        val explicitModelAnalysis = explicit.equals("true", ignoreCase = true)
+        val offlineJob = boolArg(request["offline_job"]) ||
+            boolArg(request["offlineJob"])
+        return offlineJob && explicitModelAnalysis
+    }
+
+    private fun extractJsonObject(raw: String): Map<String, Any?>? {
+        val trimmed = raw.trim()
+        if (trimmed.isEmpty()) return null
+        val candidates = listOf(
+            trimmed,
+            stripJsonFence(trimmed),
+            substringJsonObject(trimmed),
+        )
+        for (candidate in candidates) {
+            val map = parseJsonObject(candidate)
+            if (!map.isNullOrEmpty()) return map
+        }
+        return null
+    }
+
+    private fun stripJsonFence(raw: String): String {
+        val match = JSON_FENCE_REGEX.find(raw.trim())
+        return match?.groupValues?.getOrNull(1)?.trim() ?: raw
+    }
+
+    private fun substringJsonObject(raw: String): String {
+        val start = raw.indexOf('{')
+        val end = raw.lastIndexOf('}')
+        if (start < 0 || end <= start) return ""
+        return raw.substring(start, end + 1)
+    }
+
+    private fun parseJsonObject(raw: String): Map<String, Any?>? {
+        val text = raw.trim()
+        if (text.isEmpty()) return null
+        return runCatching {
+            val jsonObject = updateAgentResponseJson.parseToJsonElement(text) as? JsonObject
+                ?: return null
+            AgentToolJson.jsonObjectToMap(jsonObject)
+        }.getOrNull()
+    }
+
+    private fun analysisFromAgentUpdateJson(json: Map<String, Any?>): Map<String, Any?> {
+        val direct = firstNonEmptyMap(json, listOf("analysis", "evidence_analysis", "runlog_analysis"))
+        if (direct.isNotEmpty()) return direct
+        val toolArgs = firstNonEmptyMap(json, listOf("arguments", "args", "tool_args", "toolArgs"))
+        if (toolArgs.isNotEmpty()) {
+            val nested = analysisFromAgentUpdateJson(toolArgs)
+            if (nested.isNotEmpty()) return nested
+        }
+        val hasAnalysisShape = listOf(
+            "summary",
+            "failure_reason",
+            "recommended_patch",
+            "evidence",
+            "confidence",
+        ).any(json::containsKey)
+        return if (hasAnalysisShape) cn.com.omnimind.bot.omniflow.OobFunctionJson.sanitizeMap(json) else emptyMap()
+    }
+
+    private fun patchFromAgentUpdateJson(
+        json: Map<String, Any?>,
+        analysis: Map<String, Any?>,
+    ): Map<String, Any?> {
+        val direct = firstNonEmptyMap(json, listOf("patch", "function_patch", "updates", "recommended_patch"))
+        if (direct.isNotEmpty()) return direct
+        val directShape = directPatchShape(json)
+        if (directShape.isNotEmpty()) return directShape
+        val analysisPatch = firstNonEmptyMap(analysis, listOf("recommended_patch", "patch", "function_patch"))
+        if (analysisPatch.isNotEmpty()) return analysisPatch
+        val toolArgs = firstNonEmptyMap(json, listOf("arguments", "args", "tool_args", "toolArgs"))
+        return if (toolArgs.isNotEmpty()) patchFromAgentUpdateJson(toolArgs, analysis) else emptyMap()
+    }
+
+    private fun directPatchShape(source: Map<String, Any?>): Map<String, Any?> {
+        val patch = linkedMapOf<String, Any?>()
+        DIRECT_PATCH_KEYS.forEach { key ->
+            if (source.containsKey(key)) patch[key] = source[key]
+        }
+        return cn.com.omnimind.bot.omniflow.OobFunctionJson.sanitizeMap(patch)
+    }
+
+    private fun firstNonEmptyMap(source: Map<String, Any?>, keys: List<String>): Map<String, Any?> {
+        for (key in keys) {
+            val value = mapFromAny(source[key])
+            if (value.isNotEmpty()) return value
+        }
+        return emptyMap()
+    }
+
+    private fun mapFromAny(value: Any?): Map<String, Any?> =
+        when (value) {
+            is Map<*, *> -> cn.com.omnimind.bot.omniflow.OobFunctionJson.sanitizeMap(value)
+            is String -> parseJsonObject(value) ?: emptyMap()
+            else -> emptyMap()
+        }
+
+    private fun agentFailure(
+        initial: Map<String, Any?>,
+        code: String,
+        message: String,
+        agentInvoked: Boolean,
+        rawResponse: String? = null,
+        agentResponse: Map<String, Any?>? = null,
+    ): Map<String, Any?> =
+        linkedMapOf<String, Any?>().apply {
+            putAll(initial)
+            put("success", false)
+            put("changed", false)
+            put("saved", false)
+            put("needs_agent_analysis", false)
+            put("error_code", code)
+            put("error_message", message)
+            put("agent_model_invoked", agentInvoked)
+            rawResponse?.let { put("agent_raw_response", it) }
+            agentResponse?.let { put("agent_response", it) }
+        }
 
     private fun errorPayload(
         code: String,
@@ -536,5 +762,31 @@ class OobFunctionManagementService(
 
     private companion object {
         const val TAG = "OobFunctionManagementService"
+        private const val AGENT_MODEL = "scene.dispatch.model"
+
+        private suspend fun requestAgentAnalysis(prompt: String, responseJsonObject: Boolean): String? =
+            HttpController.postLLMRequest(AGENT_MODEL, prompt, responseJsonObject).message
+
+        private val JSON_FENCE_REGEX = Regex(
+            "^```(?:json)?\\s*([\\s\\S]*?)\\s*```$",
+            setOf(RegexOption.IGNORE_CASE),
+        )
+
+        private val DIRECT_PATCH_KEYS = listOf(
+            "name",
+            "description",
+            "steps",
+            "parameters",
+            "agent_reuse",
+            "agentReuse",
+            "metadata",
+            "checker_rules",
+            "checkerRules",
+            "ops",
+            "operations",
+            "repairs",
+            "replace_target",
+            "replaceTarget",
+        )
     }
 }

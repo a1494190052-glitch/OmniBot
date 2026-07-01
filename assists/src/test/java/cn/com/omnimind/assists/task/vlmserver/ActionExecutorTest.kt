@@ -5,6 +5,7 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.put
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -174,6 +175,50 @@ class ActionExecutorTest {
                 JsonPrimitive("order_takeout"),
                 result.actionResultData?.jsonObject?.get("function_id")
             )
+        }
+    }
+
+    @Test
+    fun `function run action forwards recalled workflow arguments to function executor`() = runBlocking {
+        withQuietLogs {
+            val operator = FakeDeviceOperator()
+            var captured: FunctionRunAction? = null
+            val executor = ActionExecutor(
+                operator,
+                UIContextManager(),
+                FunctionRunExecutor { action, _ ->
+                    captured = action
+                    OperationResult(
+                        success = true,
+                        message = "function completed",
+                        data = buildJsonObject {
+                            put("function_id", action.functionId)
+                            put("query", action.arguments["query"] ?: JsonPrimitive(""))
+                        }
+                    )
+                }
+            )
+
+            val result = executor.executeAction(
+                UIStep(
+                    observation = "",
+                    thought = "reuse xhs search flow",
+                    action = FunctionRunAction(
+                        functionId = "xhs_search",
+                        toolName = "run_recalled_workflow_1",
+                        arguments = buildJsonObject {
+                            put("query", "狗狗")
+                        }
+                    )
+                )
+            )
+
+            assertEquals("function completed", result.result)
+            assertEquals("xhs_search", captured?.functionId)
+            assertEquals("run_recalled_workflow_1", captured?.toolName)
+            assertEquals(JsonPrimitive("狗狗"), captured?.arguments?.get("query"))
+            assertEquals(JsonPrimitive("狗狗"), result.actionResultData?.jsonObject?.get("query"))
+            assertEquals(emptyList<Pair<Float, Float>>(), operator.clickedCoordinates)
         }
     }
 

@@ -17,6 +17,7 @@ class RunLogReplayPolicy {
   };
 
   static const dataFlowTools = <String>{
+    'browser_use',
     'web_search',
     'memory_search',
     'memory_recall',
@@ -38,13 +39,9 @@ class RunLogReplayPolicy {
     'click_node',
   };
 
-  static const omniflowFunctionTools = <String>{};
-
   static const omniflowToolCallTools = <String>{
     'call_tool',
   };
-
-  static const providerOnlyTools = <String>{};
 
   static const skipTools = <String>{
     'notification_send',
@@ -53,7 +50,6 @@ class RunLogReplayPolicy {
     'status_update',
     'assistant_response',
     'get_state',
-    'wait',
   };
 
   static String normalizeToolName(String toolName) {
@@ -78,16 +74,8 @@ class RunLogReplayPolicy {
     return dataFlowTools.contains(normalizeToolName(toolName));
   }
 
-  static bool isProviderOnlyTool(String toolName) {
-    return providerOnlyTools.contains(normalizeToolName(toolName));
-  }
-
   static bool isOmniflowGraphTool(String toolName) {
     return omniflowGraphTools.contains(normalizeToolName(toolName));
-  }
-
-  static bool isOmniflowFunctionTool(String toolName) {
-    return omniflowFunctionTools.contains(normalizeToolName(toolName));
   }
 
   static bool isOmniflowToolCallTool(String toolName) {
@@ -95,15 +83,11 @@ class RunLogReplayPolicy {
   }
 
   static bool isOmniflowExecutionTool(String toolName) {
-    return isOmniflowGraphTool(toolName) ||
-        isOmniflowFunctionTool(toolName) ||
-        isOmniflowToolCallTool(toolName);
+    return isOmniflowGraphTool(toolName) || isOmniflowToolCallTool(toolName);
   }
 
   static bool isAgentTool(String toolName) {
-    return isPerceptionTool(toolName) ||
-        isDataFlowTool(toolName) ||
-        isProviderOnlyTool(toolName);
+    return isPerceptionTool(toolName) || isDataFlowTool(toolName);
   }
 
   static bool shouldSkipTool(String toolName) {
@@ -117,9 +101,6 @@ class RunLogReplayPolicy {
     }
     if (dataFlowTools.contains(normalized)) {
       return 'data_flow_tool_requires_live_context';
-    }
-    if (providerOnlyTools.contains(normalized)) {
-      return 'provider_owned_replay_requires_omniflow';
     }
     return 'non_scriptable_or_vlm_step';
   }

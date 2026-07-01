@@ -1,19 +1,16 @@
 package cn.com.omnimind.bot.omniflow
 
-import android.content.Context
 import cn.com.omnimind.baselib.runlog.InternalRunLogRecord
-import cn.com.omnimind.baselib.runlog.OobReusableFunctionStore
 import cn.com.omnimind.baselib.util.OmniLog
 import cn.com.omnimind.bot.runlog.RunLogReusableFunctionCompiler
 import com.google.gson.GsonBuilder
 import java.io.File
 
 /**
- * Portable OOB function store backed by workspace files instead of SharedPreferences.
+ * Portable OOB function store backed by workspace JSON files.
  *
- * Function specs are stored at {workspaceRoot}/commands/{functionId}.json and
- * travel with the workspace on export/import. The agent function runtime checks
- * this store alongside the SharedPreferences-based OobReusableFunctionStore.
+ * Function specs are stored under {workspaceRoot}/.omnibot/omniflow and
+ * travel with the workspace on export/import.
  */
 class WorkspaceFunctionStore(private val workspaceRoot: File) {
 
@@ -22,22 +19,43 @@ class WorkspaceFunctionStore(private val workspaceRoot: File) {
         .setPrettyPrinting()
         .create()
 
+    private val omniflowRootDir: File
+        get() = File(File(workspaceRoot, ".omnibot"), "omniflow").apply { mkdirs() }
+
     private val functionsDir: File
-        get() = File(workspaceRoot, "commands").apply { mkdirs() }
+        get() = File(omniflowRootDir, "functions").apply { mkdirs() }
 
     private val runLogsDir: File
-        get() = File(workspaceRoot, "run_logs").apply { mkdirs() }
+        get() = File(omniflowRootDir, "run_logs").apply { mkdirs() }
 
     fun register(spec: Map<String, Any?>): Map<String, Any?> {
         val functionId = OobFunctionSchemaBuilder.functionId(spec).takeIf { it.isNotEmpty() }
             ?: return mapOf("success" to false, "errorMessage" to "function_id required")
         val existing = get(functionId)
-        val sourceRunIds = (existing?.let(OobReusableFunctionStore::sourceRunIds).orEmpty() +
-            OobReusableFunctionStore.sourceRunIds(spec)).distinct()
+        val sourceRunIds = (existing?.let(OobFunctionSchemaBuilder::sourceRunIds).orEmpty() +
+            OobFunctionSchemaBuilder.sourceRunIds(spec)).distinct()
+        val now = System.currentTimeMillis().toString()
+        val existingRegistry = OobFunctionJson.mapArg(existing?.get("_oob_registry"))
+        val incomingRegistry = OobFunctionJson.mapArg(spec["_oob_registry"])
         val storedSpec = linkedMapOf<String, Any?>().apply {
             putAll(spec)
             put("function_id", functionId)
             putIfAbsent("name", functionId)
+            put(
+                "_oob_registry",
+                linkedMapOf<String, Any?>().apply {
+                    putAll(existingRegistry)
+                    putAll(incomingRegistry)
+                    put(
+                        "registered_at",
+                        existingRegistry["registered_at"]
+                            ?: incomingRegistry["registered_at"]
+                            ?: now
+                    )
+                    put("updated_at", now)
+                    put("runner", incomingRegistry["runner"] ?: existingRegistry["runner"] ?: RUNNER)
+                }
+            )
             if (sourceRunIds.isNotEmpty()) {
                 put(
                     "metadata",
@@ -113,6 +131,67 @@ class WorkspaceFunctionStore(private val workspaceRoot: File) {
 
     fun canHandle(functionId: String): Boolean = functionFile(functionId.trim()).exists()
 
+    fun recordRun(
+        functionId: String,
+        success: Boolean,
+        runId: String? = null,
+        runner: String? = null,
+        stepCount: Int? = null,
+        errorMessage: String? = null
+    ): Map<String, Any?> {
+        val normalized = functionId.trim()
+        if (normalized.isEmpty()) {
+            return linkedMapOf("success" to false, "error_message" to "function_id is empty")
+        }
+        val existing = get(normalized)
+            ?: return linkedMapOf(
+                "success" to false,
+                "function_id" to normalized,
+                "error_message" to "function not found"
+            )
+        val now = System.currentTimeMillis().toString()
+        val existingRegistry = OobFunctionJson.mapArg(existing["_oob_registry"])
+        val existingStats = OobFunctionJson.mapArg(existingRegistry["run_stats"])
+        val runCount = intValue(existingStats["run_count"]) + 1
+        val successCount = intValue(existingStats["success_count"]) + if (success) 1 else 0
+        val failCount = intValue(existingStats["fail_count"]) + if (success) 0 else 1
+        val lastRun = linkedMapOf<String, Any?>(
+            "run_id" to runId?.trim().orEmpty(),
+            "success" to success,
+            "runner" to runner?.trim().orEmpty(),
+            "step_count" to stepCount,
+            "error_message" to errorMessage?.trim().orEmpty(),
+            "created_at" to now
+        )
+        val runStats = linkedMapOf<String, Any?>(
+            "run_count" to runCount,
+            "success_count" to successCount,
+            "fail_count" to failCount,
+            "last_run_at" to now,
+            "last_success" to success,
+            "last_run" to lastRun
+        )
+        val updated = linkedMapOf<String, Any?>().apply {
+            putAll(existing)
+            put(
+                "_oob_registry",
+                linkedMapOf<String, Any?>().apply {
+                    putAll(existingRegistry)
+                    put("updated_at", now)
+                    put("runner", existingRegistry["runner"] ?: RUNNER)
+                    put("run_stats", runStats)
+                }
+            )
+        }
+        register(updated)
+        return linkedMapOf(
+            "success" to true,
+            "function_id" to normalized,
+            "run_stats" to runStats,
+            "last_run" to lastRun
+        )
+    }
+
     fun mirrorRunLog(record: InternalRunLogRecord) {
         val safeId = record.runId.replace(Regex("[^A-Za-z0-9._-]"), "_").take(80)
         val file = File(runLogsDir, "$safeId.json")
@@ -123,10 +202,7 @@ class WorkspaceFunctionStore(private val workspaceRoot: File) {
         }
     }
 
-    fun distillFromRun(
-        context: Context,
-        record: InternalRunLogRecord
-    ): Map<String, Any?> {
+    fun distillFromRun(record: InternalRunLogRecord): Map<String, Any?> {
         mirrorRunLog(record)
 
         val spec = compileRunLogFunctionSpec(record) ?: run {
@@ -145,7 +221,6 @@ class WorkspaceFunctionStore(private val workspaceRoot: File) {
         }
 
         register(storedSpec)
-        runCatching { OobReusableFunctionStore.register(context, storedSpec) }
 
         return mapOf(
             "success" to true,
@@ -177,5 +252,14 @@ class WorkspaceFunctionStore(private val workspaceRoot: File) {
 
     companion object {
         private const val TAG = "WorkspaceFunctionStore"
+        private const val RUNNER = "oob_agent_reusable_function"
+
+        private fun intValue(value: Any?): Int {
+            return when (value) {
+                is Number -> value.toInt()
+                is String -> value.trim().toIntOrNull() ?: 0
+                else -> 0
+            }
+        }
     }
 }

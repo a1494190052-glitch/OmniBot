@@ -19,8 +19,6 @@ mixin _ChatPageUiMixin on _ChatPageStateBase {
   final Set<String> _pendingManualAgentRetryTaskIds = <String>{};
   final Set<String> _pendingManualAgentContinueTaskIds = <String>{};
 
-  bool get _showToolActivityStrip => false;
-
   ChatPageMode get _primaryChatMessagePageMode =>
       _activeMode == ChatPageMode.codex
       ? ChatPageMode.codex
@@ -704,6 +702,22 @@ mixin _ChatPageUiMixin on _ChatPageStateBase {
     });
   }
 
+  bool _shouldShowToolActivityStripForMode({
+    required ChatPageMode mode,
+    required AgentToolActivitySnapshot snapshot,
+  }) {
+    if (mode != _activeMode ||
+        !_isInputAreaVisible ||
+        _showSlashCommandPanel ||
+        _openClawPanelExpanded) {
+      return false;
+    }
+    return shouldShowAgentToolActivitySnapshot(
+      snapshot,
+      expandedTaskIds: _expandedAgentRunTaskIdsForMode(mode),
+    );
+  }
+
   void _handleInputAreaHeightChanged(double height) {
     final normalized = height.isFinite ? height : 0.0;
     if ((_inputAreaHeight - normalized).abs() < 0.5) {
@@ -867,7 +881,16 @@ mixin _ChatPageUiMixin on _ChatPageStateBase {
   }) {
     final runtime = _runtimeForMode(mode);
     final resolvedMessages = runtime?.messages ?? _messagesByMode[mode]!;
-    final showToolActivityStrip = _showToolActivityStrip;
+    final activeAgentTaskIds = runtime?.activeAgentTaskIds ?? const <String>{};
+    final toolActivitySnapshot = resolveAgentToolActivitySnapshot(
+      List<ChatMessageModel>.from(resolvedMessages),
+      activeTaskIds: activeAgentTaskIds,
+      preferredCompletedTaskId: _latestExpandedAgentRunTaskIdForMode(mode),
+    );
+    final showToolActivityStrip = _shouldShowToolActivityStripForMode(
+      mode: mode,
+      snapshot: toolActivitySnapshot,
+    );
     final bottomInset = MediaQuery.maybeOf(context)?.viewInsets.bottom ?? 0.0;
     final liftEmptyGreeting =
         mode == _activeMode &&
@@ -1182,7 +1205,10 @@ mixin _ChatPageUiMixin on _ChatPageStateBase {
         : const <Map<String, dynamic>>[];
     final showSlashCommandStrip =
         _isInputAreaVisible && slashCommandCards.isNotEmpty;
-    final showToolActivityStrip = _showToolActivityStrip;
+    final showToolActivityStrip = _shouldShowToolActivityStripForMode(
+      mode: _activeMode,
+      snapshot: toolActivitySnapshot,
+    );
     final toolActivityCanExpand = toolActivityCards.length > 1;
     // The activity strip sits flush above the composer, so its downward drop
     // shadow reads as part of the input surface instead of as separate chrome.

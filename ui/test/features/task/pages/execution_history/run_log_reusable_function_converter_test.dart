@@ -82,16 +82,8 @@ void main() {
       RunLogReplayPolicy.omniflowGraphTools,
     );
     expect(
-      _stringSet(policy['omniflow_function_tools']),
-      RunLogReplayPolicy.omniflowFunctionTools,
-    );
-    expect(
       _stringSet(policy['omniflow_tool_call_tools']),
       RunLogReplayPolicy.omniflowToolCallTools,
-    );
-    expect(
-      _stringSet(policy['provider_only_tools']),
-      RunLogReplayPolicy.providerOnlyTools,
     );
     expect(_stringSet(policy['skip_tools']), RunLogReplayPolicy.skipTools);
   });
@@ -146,7 +138,7 @@ void main() {
     }
   });
 
-  test('skips legacy wait cards during local conversion', () {
+  test('keeps canonical wait cards during local conversion', () {
     final spec = RunLogReusableFunctionConverter.buildLocalFunctionJson(
       runId: 'run-wait-skip',
       title: 'Skip wait',
@@ -160,22 +152,13 @@ void main() {
     );
 
     final steps = stepsFrom(spec);
-    expect(steps.map((step) => step['tool']), ['click', 'input_text']);
+    expect(steps.map((step) => step['tool']), ['click', 'wait', 'input_text']);
     expect(steps.last['source_tool'], 'input_text');
-    expect(steps.map((step) => step['id']), ['step_1', 'step_2']);
-    expect(
-      steps.any(
-        (step) => step['tool'] == 'wait' || step['source_tool'] == 'wait',
-      ),
-      isFalse,
-    );
+    expect(steps.map((step) => step['id']), ['step_1', 'step_2', 'step_3']);
+    expect(steps[1]['source_tool'], 'wait');
 
-    final cleanup = (spec['metadata'] as Map)['oob_step_cleanup'] as Map;
-    expect(cleanup['execution_rewrite_allowed'], isFalse);
-    expect(cleanup['dropped_count'], 1);
-    final events = (cleanup['events'] as List).cast<Map>();
-    expect(events.single['source_index'], 1);
-    expect(events.single['reason'], 'non_replayable_noise_tool');
+    final metadata = (spec['metadata'] as Map?) ?? const {};
+    expect(metadata.containsKey('oob_step_cleanup'), isFalse);
   });
 
   test('deduplicates repeated input_text events', () {
@@ -253,7 +236,7 @@ void main() {
     );
   });
 
-  test('keeps unknown VLM-routed actions on agent fallback', () {
+  test('keeps unknown VLM-routed actions as model-required steps', () {
     final spec = RunLogReusableFunctionConverter.buildLocalFunctionJson(
       runId: 'run-2',
       title: 'Fallback action',
@@ -302,9 +285,7 @@ void main() {
     expect((agentCall['args'] as Map)['original_tool'], 'vlm_task');
 
     final capabilities = (spec['execution'] as Map)['capabilities'] as Map;
-    expect(capabilities['agent_step_count'], 1);
     expect(capabilities['omniflow_step_count'], 0);
-    expect(capabilities['requires_agent_fallback'], isTrue);
   });
 
   test('skips VLM perception wrapper when recorded action card exists', () {
@@ -569,8 +550,6 @@ void main() {
           ...(fallback['execution'] as Map),
           'capabilities': {
             'scriptable_step_count': 1,
-            'agent_step_count': 0,
-            'requires_agent_fallback': false,
           },
           'steps': [
             {
@@ -608,8 +587,6 @@ void main() {
       final capabilities =
           (normalized['execution'] as Map)['capabilities'] as Map;
       expect(capabilities['scriptable_step_count'], 0);
-      expect(capabilities['agent_step_count'], 1);
-      expect(capabilities['requires_agent_fallback'], isTrue);
     },
   );
 
@@ -908,12 +885,8 @@ Actual output:
       expect(prompt, contains('cleanup_action'));
       expect(prompt, contains('action_purpose'));
       expect(prompt, contains('Every executable step/action must have'));
-      expect(prompt, contains('optional_checker'));
-      expect(prompt, contains('conditional obstruction actions'));
+      expect(prompt, contains('Runtime checker generation is disabled'));
       expect(prompt, contains('metadata.checker_rules'));
-      expect(prompt, contains('agent_reuse.checker_assets'));
-      expect(prompt, contains('overlay_blocking'));
-      expect(prompt, contains('keyboard_obscuring'));
       expect(prompt, contains('user-visible operation sequence'));
       expect(prompt, contains('success signal when known'));
       expect(prompt, contains(r'$.execution.steps[1].args.text'));
@@ -1241,7 +1214,7 @@ Actual output:
   );
 
   test(
-    'optional checker annotation materializes supported runtime checker rule',
+    'optional checker annotation stays cleanup metadata only',
     () async {
       final fallback = RunLogReusableFunctionConverter.buildLocalFunctionJson(
         runId: 'run-optional-checker',
@@ -1305,36 +1278,15 @@ Actual output:
       expect(annotation['cleanup_action'], 'optional_checker');
       expect(annotation['optional_condition'], contains('popup is visible'));
 
-      final metadata = enhanced['metadata'] as Map;
-      final checkerRules = (metadata['checker_rules'] as List).cast<Map>();
-      expect(checkerRules, hasLength(1));
-      expect(
-        checkerRules.single['id'],
-        'dismiss_optional_overlay_before_action',
-      );
-      expect(checkerRules.single['condition'], 'overlay_blocking');
-      expect(checkerRules.single['action'], 'dismiss');
-      expect(checkerRules.single['phase'], 'pre_transfer');
-      expect(checkerRules.single['params'], isEmpty);
-      expect(
-        checkerRules.map((rule) => rule['id']),
-        isNot(contains('unsupported_model_checker')),
-      );
-
-      final reuse = enhanced['agent_reuse'] as Map;
-      final checkerAssets = (reuse['checker_assets'] as List).cast<Map>();
-      expect(
-        checkerAssets.single['checker_id'],
-        'dismiss_optional_overlay_before_action',
-      );
-      expect(checkerAssets.single['step_index'], 0);
-      expect(checkerAssets.single['role'], 'checker_candidate');
-      expect(checkerAssets.single['materialization'], 'metadata_checker_rule');
+      final metadata = (enhanced['metadata'] as Map?) ?? const {};
+      expect(metadata.containsKey('checker_rules'), isFalse);
+      final reuse = (enhanced['agent_reuse'] as Map?) ?? const {};
+      expect(reuse.containsKey('checker_assets'), isFalse);
     },
   );
 
   test(
-    'hi upgrade checker aliases normalize to app upgrade post action rule',
+    'hi upgrade checker aliases are ignored by frontend enhancement',
     () async {
       final fallback = RunLogReusableFunctionConverter.buildLocalFunctionJson(
         runId: 'run-hi-upgrade-checker',
@@ -1388,21 +1340,13 @@ Actual output:
             },
           }, fallback);
 
-      final metadata = enhanced['metadata'] as Map;
-      final checkerRules = (metadata['checker_rules'] as List).cast<Map>();
-      expect(checkerRules, hasLength(1));
-      expect(checkerRules.single['id'], 'hi_upgrade_checker');
-      expect(checkerRules.single['condition'], 'app_upgrade_prompt');
-      expect(checkerRules.single['action'], 'dismiss');
-      expect(checkerRules.single['phase'], 'post_action');
-      expect(checkerRules.single['params'], isEmpty);
+      final steps = stepsFrom(enhanced);
+      final annotation = steps.first['cleanup_annotation'] as Map;
+      expect(annotation['cleanup_action'], 'optional_checker');
+      expect(annotation['optional_condition'], contains('升级提示'));
 
-      final reuse = enhanced['agent_reuse'] as Map;
-      final checkerAssets = (reuse['checker_assets'] as List).cast<Map>();
-      expect(checkerAssets, hasLength(1));
-      expect(checkerAssets.single['checker_id'], 'hi_upgrade_checker');
-      expect(checkerAssets.single['step_index'], 0);
-      expect(checkerAssets.single['role'], 'checker_candidate');
+      final metadata = (enhanced['metadata'] as Map?) ?? const {};
+      expect(metadata.containsKey('checker_rules'), isFalse);
     },
   );
 

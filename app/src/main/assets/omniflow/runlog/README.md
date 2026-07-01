@@ -14,7 +14,7 @@ RunLog is a runtime contract, not just a UI feature. Keep these boundaries align
 
 1. Native records tool cards into `InternalRunLogStore`.
 2. Flutter displays the timeline and converts cards into a reusable Function.
-3. Native stores and materializes reusable Functions through `OobReusableFunctionStore`.
+3. Native stores and materializes reusable Functions through workspace JSON.
 4. `OobFunctionToolHandler` replays deterministic local steps and returns failure payloads when replay cannot finish; online recovery belongs to the VLM loop.
 5. Workspace Function save must follow the same executor policy as Flutter conversion.
 
@@ -88,7 +88,6 @@ record. Do not read only the snapshot when correctness matters.
 - Function update/evidence service: `app/src/main/java/cn/com/omnimind/bot/omniflow/OobFunctionUpdateService.kt`
   This owns structural patching, metadata/evidence patching, and checker patch
   normalization; do not recreate the old split patch-applier classes.
-- Function update intent parser: `app/src/main/java/cn/com/omnimind/bot/omniflow/OobFunctionUpdateIntentParser.kt`
 - Function RunLog evidence packager: `app/src/main/java/cn/com/omnimind/bot/omniflow/OobFunctionRunLogEvidencePackager.kt`
 - Function target repair source matcher: `app/src/main/java/cn/com/omnimind/bot/omniflow/OobFunctionTargetSourceMatcher.kt`
 - Function recall policy: `app/src/main/java/cn/com/omnimind/bot/omniflow/OobFunctionRecallService.kt`
@@ -104,13 +103,11 @@ record. Do not read only the snapshot when correctness matters.
 - Dynamic Function tool schema builder: `app/src/main/java/cn/com/omnimind/bot/omniflow/OobFunctionSchemaBuilder.kt`
 - MCP Function tool schema: `app/src/main/java/cn/com/omnimind/bot/mcp/McpToolDefinitions.kt`
 - MCP Function/tool call adapter: `app/src/main/java/cn/com/omnimind/bot/mcp/McpToolExecutors.kt`
-- SharedPreferences registry/materialization: `baselib/src/main/java/cn/com/omnimind/baselib/runlog/OobReusableFunctionStore.kt`
 - Native timeline and method channel handlers: `app/src/main/java/cn/com/omnimind/bot/manager/AssistsCoreManager.kt`
 - RunLog replay step noise normalizer: `app/src/main/java/cn/com/omnimind/bot/runlog/RunLogReplayStepNoiseNormalizer.kt`
 - RunLog reusable Function compiler: `app/src/main/java/cn/com/omnimind/bot/runlog/RunLogReusableFunctionCompiler.kt`
 - RunLog card-to-step compiler: `app/src/main/java/cn/com/omnimind/bot/runlog/RunLogReplayStepCompiler.kt`
 - RunLog card field/JSON accessors: `app/src/main/java/cn/com/omnimind/bot/runlog/RunLogCardAccessors.kt`
-- RunLog reusable Function parameterizer: `app/src/main/java/cn/com/omnimind/bot/runlog/RunLogReusableFunctionParameterizer.kt`
 - RunLog action/value parser: `app/src/main/java/cn/com/omnimind/bot/runlog/RunLogActionParser.kt`
 - Function execution startup: `app/src/main/java/cn/com/omnimind/bot/agent/tool/handlers/OobFunctionToolHandler.kt`
 - Replay step runner: `app/src/main/java/cn/com/omnimind/bot/agent/tool/handlers/OobFunctionToolHandler.kt`
@@ -258,21 +255,20 @@ Do not hard replay `browser_use` or `web_search`; their outputs are live context
   of routing through `SharedHelper` forwarding methods.
 - Do not force-merge helpers with intentionally different compatibility
   behavior. `OobFunctionSchemaBuilder.boolArg` is stricter for schema fields,
-  `RunLogReusableFunctionParameterizer.asMap` preserves its legacy map-key
-  behavior, `RunLogCardAccessors` owns card-field extraction helpers rather
+  `RunLogCardAccessors` owns card-field extraction helpers rather
   than generic action coercion, and MCP route/executor helpers may keep
   multi-key argument alias/default parsing local when the semantics are
   route-specific.
-- Keep `baselib` storage coercion local until the Function JSON owner is moved
-  to a shared module. App-layer owners such as `OobFunctionJson` must not be
-  imported into `OobReusableFunctionStore`.
+- Keep Function storage in workspace JSON. `baselib` runlog persistence should
+  only consume persisted diagnostics/source bindings supplied by app-layer
+  Function code.
 - Leave unrelated VLM, agent-config, and Assists string/default helpers in
   their owning features. They are not RunLog card conversion or Function
   payload helpers unless their feature boundary is intentionally changed.
-- Keep deterministic `input_text` parameter inference, canonical JSON schema
-  construction, legacy `actions` compatibility, and parameter binding metadata
-  in `RunLogReusableFunctionParameterizer`; do not put those rules back into
-  the card compiler or runtime replay handler.
+- Keep RunLog conversion literal by default. Parameter names, descriptions, and
+  bindings are added only by offline agent enhancement through `update_function`;
+  do not put deterministic parameter inference back into the compiler or runtime
+  replay handler.
 - Keep parameter bindings aligned with actual `execution.steps` indexes after skipping wrapper cards.
 - For agent steps, bind runtime parameters into both `step.args` and `step.agent_call.args.original_args`.
 - AI normalization may rename and parameterize, but must not change executor policy. Normalize data-flow tools back to `executor=agent`.

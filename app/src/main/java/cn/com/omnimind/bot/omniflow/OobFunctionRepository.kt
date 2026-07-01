@@ -2,21 +2,16 @@ package cn.com.omnimind.bot.omniflow
 
 import android.content.Context
 import cn.com.omnimind.baselib.runlog.InternalRunLogStore
-import cn.com.omnimind.baselib.runlog.OobReusableFunctionStore
 import cn.com.omnimind.baselib.util.OmniLog
 import cn.com.omnimind.bot.agent.AgentWorkspaceManager
 import cn.com.omnimind.bot.agent.config.AgentToolFeatureStore
-import cn.com.omnimind.bot.omniflow.OobFunctionSchemaBuilder
-import cn.com.omnimind.bot.omniflow.language.OmniflowFunctionStore
 import cn.com.omnimind.bot.runlog.OobUdegNodeStore
-import cn.com.omnimind.bot.omniflow.WorkspaceFunctionStore
 
 /**
- * Single owner for OmniFlow Function storage and index synchronization.
+ * Single owner for OmniFlow Function workspace storage.
  *
- * RunLog services should compile evidence into Function specs; management services should expose
- * agent/MCP APIs. All Function CRUD, workspace/registry mirroring, UDEG references, and tool
- * exposure cleanup should go through this repository.
+ * RunLog services compile evidence into Function specs; management services expose agent/MCP APIs.
+ * All Function CRUD, UDEG references, and tool exposure cleanup go through this repository.
  */
 class OobFunctionRepository(
     private val context: Context,
@@ -63,33 +58,8 @@ class OobFunctionRepository(
                 "error_message" to error.message.orEmpty()
             )
         }
-        val registryResult = runCatching {
-            OobReusableFunctionStore.register(context, spec)
-        }.getOrElse { error ->
-            linkedMapOf(
-                "success" to false,
-                "error_code" to "REGISTRY_REGISTER_FAILED",
-                "error_message" to error.message.orEmpty()
-            )
-        }
-        val success = registryResult["success"] == true
-        val invalidatedCompiledFunction = if (success) {
-            runCatching { OmniflowFunctionStore.delete(context, functionId) }
-                .onFailure { error ->
-                    OmniLog.w(
-                        TAG,
-                        "compiled function invalidation failed: $functionId, ${error.message}"
-                    )
-                }
-                .getOrDefault(false)
-        } else {
-            false
-        }
-        val registeredSpec = if (success) {
-            OobReusableFunctionStore.get(context, functionId)
-        } else {
-            null
-        }
+        val success = workspaceResult["success"] == true
+        val registeredSpec = if (success) workspaceFunctionStore.get(functionId) else null
         val sourceRunIds = registeredSpec?.let(::sourceRunIds) ?: sourceRunIds(spec)
         val runLogBindings = if (success) {
             sourceRunIds.mapNotNull { runId ->
@@ -135,8 +105,6 @@ class OobFunctionRepository(
             "oob_function_as_tool_enabled" to
                 AgentToolFeatureStore.isOobFunctionAsToolEnabled(context),
             "workspace" to workspaceResult,
-            "registry" to registryResult,
-            "compiled_function_invalidated" to invalidatedCompiledFunction,
             "udeg" to udegResult,
             "normalized_from_function_id" to rawFunctionId.takeIf { it != functionId },
             "source_run_ids" to sourceRunIds,
@@ -169,13 +137,8 @@ class OobFunctionRepository(
     fun get(functionId: String): Map<String, Any?>? {
         val normalized = functionId.trim()
         if (normalized.isEmpty()) return null
-        OobReusableFunctionStore.get(context, normalized)?.let { registrySpec ->
-            return withSourceRunSummary(OobFunctionJson.sanitizeMap(registrySpec))
-        }
         val workspaceSpec = workspaceFunctionStore.get(normalized)
         if (workspaceSpec != null) {
-            runCatching { OobReusableFunctionStore.register(context, workspaceSpec) }
-                .onFailure { OmniLog.w(TAG, "sync workspace function failed: ${it.message}") }
             return withSourceRunSummary(OobFunctionJson.sanitizeMap(workspaceSpec))
         }
         return null
@@ -188,9 +151,11 @@ class OobFunctionRepository(
     }
 
     fun sourceRunSummariesForFunction(functionId: String): Map<String, Any?> {
+        val sourceRunIds = sourceRunIdsForFunction(functionId)
         return InternalRunLogStore.sourceRunSummariesForFunction(
             context = context,
-            functionId = functionId
+            functionId = functionId,
+            sourceRunIds = sourceRunIds
         )
     }
 
@@ -203,10 +168,8 @@ class OobFunctionRepository(
             )
         }
         val deletedWorkspace = workspaceFunctionStore.delete(normalized)
-        val deletedPrefs = OobReusableFunctionStore.delete(context, normalized)
-        val deletedCompiledFunction = OmniflowFunctionStore.delete(context, normalized)
         val udegResult = OobUdegNodeStore(context).removeFunctionReferences(setOf(normalized))
-        val deleted = deletedWorkspace || deletedPrefs || deletedCompiledFunction
+        val deleted = deletedWorkspace
         if (listSpecs(limit = 1).isEmpty()) {
             AgentToolFeatureStore.clearOobFunctionAsToolEnabled(context)
         }
@@ -215,24 +178,17 @@ class OobFunctionRepository(
             "function_id" to normalized,
             "deleted" to deleted,
             "deleted_workspace" to deletedWorkspace,
-            "deleted_registry" to deletedPrefs,
-            "deleted_compiled_function" to deletedCompiledFunction,
             "udeg" to udegResult,
             "source" to "oob_function_repository",
         )
     }
 
     fun clear(): Map<String, Any?> {
-        val workspaceIds = workspaceFunctionStore.functionIds()
-        val registryIds = OobReusableFunctionStore.functionIds(context)
-        val compiledIds = OmniflowFunctionStore.ids(context)
-        val functionIds = (workspaceIds + registryIds + compiledIds)
+        val functionIds = workspaceFunctionStore.functionIds()
             .map { it.trim() }
             .filter { it.isNotEmpty() }
             .distinct()
         val workspaceResult = workspaceFunctionStore.clear()
-        val registryResult = OobReusableFunctionStore.clear(context)
-        val deletedCompiledIds = compiledIds.filter { OmniflowFunctionStore.delete(context, it) }
         val udegResult = OobUdegNodeStore(context).clearFunctionReferences()
         AgentToolFeatureStore.clearOobFunctionAsToolEnabled(context)
         return linkedMapOf(
@@ -241,8 +197,6 @@ class OobFunctionRepository(
             "deleted_count" to functionIds.size,
             "function_ids" to functionIds,
             "workspace" to workspaceResult,
-            "registry" to registryResult,
-            "deleted_compiled_function_ids" to deletedCompiledIds,
             "udeg" to udegResult,
             "oob_function_as_tool_enabled" to false,
             "source" to "oob_function_repository",
@@ -251,9 +205,7 @@ class OobFunctionRepository(
 
     fun contains(functionId: String): Boolean {
         val normalized = functionId.trim()
-        return normalized.isNotEmpty() &&
-            (workspaceFunctionStore.canHandle(normalized) ||
-                OobReusableFunctionStore.get(context, normalized) != null)
+        return normalized.isNotEmpty() && workspaceFunctionStore.canHandle(normalized)
     }
 
     fun summaryMap(spec: Map<String, Any?>): Map<String, Any?> {
@@ -274,10 +226,8 @@ class OobFunctionRepository(
                     ?: OobFunctionJson.intArg(source?.get("replayable_card_count"), defaultValue = 0)
                     .takeIf { it > 0 }
                     ?: steps.size
-                ),
+            ),
             "omniflow_step_count" to execution?.get("omniflow_step_count"),
-            "agent_step_count" to execution?.get("agent_step_count"),
-            "has_agent_steps" to execution?.let { it["has_agent_steps"] ?: it["requires_agent_fallback"] },
             "parameter_names" to OobFunctionSchemaBuilder.parameterNames(spec),
             "step_summaries" to OobFunctionSchemaBuilder.stepSummaries(spec),
             "function_kind" to functionKind(spec),
@@ -301,9 +251,11 @@ class OobFunctionRepository(
 
     private fun withSourceRunSummary(spec: Map<String, Any?>): Map<String, Any?> {
         val functionId = functionIdFromSpec(spec)
+        val sourceRunIds = sourceRunIds(spec)
         val sourceRuns = InternalRunLogStore.sourceRunSummariesForFunction(
             context = context,
-            functionId = functionId
+            functionId = functionId,
+            sourceRunIds = sourceRunIds
         )
         return linkedMapOf<String, Any?>().apply {
             putAll(spec)
@@ -324,33 +276,9 @@ class OobFunctionRepository(
         val safeLimit = limit.coerceIn(1, 500)
         val safeOffset = offset.coerceAtLeast(0)
         val scanLimit = (safeOffset + safeLimit + 1).coerceIn(1, 500)
-        syncWorkspaceToRegistry(limit = scanLimit)
-        val byId = linkedMapOf<String, Map<String, Any?>>()
-        workspaceFunctionStore.list(scanLimit).forEach { spec ->
-            val functionId = functionIdFromSpec(spec)
-            if (functionId.isNotEmpty()) {
-                val merged = linkedMapOf<String, Any?>().apply {
-                    putAll(OobFunctionJson.sanitizeMap(spec))
-                    val registry = OobReusableFunctionStore.get(context, functionId)
-                        ?.get("_oob_registry")
-                    if (registry is Map<*, *>) {
-                        put("_oob_registry", OobFunctionJson.sanitizeMap(registry))
-                    }
-                }
-                byId[functionId] = OobFunctionJson.sanitizeMap(merged)
-            }
-        }
-        val summaries = (OobReusableFunctionStore.list(context, scanLimit)["functions"] as? List<*>)
-            ?: emptyList<Any?>()
-        summaries.forEach { rawSummary ->
-            val summary = rawSummary as? Map<*, *> ?: return@forEach
-            val functionId = summary["function_id"]?.toString()?.trim().orEmpty()
-            if (functionId.isEmpty() || byId.containsKey(functionId)) return@forEach
-            OobReusableFunctionStore.get(context, functionId)?.let { spec ->
-                byId[functionId] = OobFunctionJson.sanitizeMap(spec)
-            }
-        }
-        val visibleSpecs = byId.values.filter { includeHidden || isAgentVisible(it) }
+        val visibleSpecs = workspaceFunctionStore.list(scanLimit)
+            .map(OobFunctionJson::sanitizeMap)
+            .filter { includeHidden || isAgentVisible(it) }
         val window = visibleSpecs.drop(safeOffset).take(safeLimit + 1).toList()
         return FunctionSpecPage(
             specs = window.take(safeLimit),
@@ -358,27 +286,6 @@ class OobFunctionRepository(
             offset = safeOffset,
             hasMore = window.size > safeLimit
         )
-    }
-
-    private fun syncWorkspaceToRegistry(limit: Int) {
-        var synced = 0
-        workspaceFunctionStore.list(limit).forEach { spec ->
-            val functionId = functionIdFromSpec(spec)
-            if (functionId.isEmpty()) return@forEach
-            if (OobReusableFunctionStore.get(context, functionId) != null) return@forEach
-            runCatching {
-                OobReusableFunctionStore.register(context, spec)
-                synced++
-            }.onFailure {
-                OmniLog.w(TAG, "sync workspace function failed: $functionId, ${it.message}")
-            }
-        }
-        if (synced > 0) {
-            OmniLog.i(
-                TAG,
-                "synced workspace functions to local registry; oob function model-tool exposure remains user-controlled"
-            )
-        }
     }
 
     private data class FunctionSpecPage(
@@ -394,7 +301,7 @@ class OobFunctionRepository(
         private const val TAG = "OobFunctionRepository"
 
         fun functionIdFromSpec(spec: Map<String, Any?>): String =
-            OobReusableFunctionStore.functionIdFromSpec(spec)
+            OobFunctionSchemaBuilder.functionIdFromSpec(spec)
 
         fun normalizeFunctionId(value: String): String {
             val trimmed = value.trim()
@@ -415,7 +322,7 @@ class OobFunctionRepository(
         }
 
         fun sourceRunIds(spec: Map<String, Any?>): List<String> {
-            return OobReusableFunctionStore.sourceRunIds(spec)
+            return OobFunctionSchemaBuilder.sourceRunIds(spec)
         }
 
         fun isAgentVisible(spec: Map<String, Any?>): Boolean {

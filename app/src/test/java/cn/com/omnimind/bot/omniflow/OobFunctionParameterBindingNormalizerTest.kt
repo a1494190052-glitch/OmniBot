@@ -1,6 +1,5 @@
 package cn.com.omnimind.bot.omniflow
 
-import cn.com.omnimind.baselib.runlog.OobReusableFunctionStore
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -58,7 +57,7 @@ class OobFunctionParameterBindingNormalizerTest {
             (table.single() as Map<*, *>)["bindings"],
         )
 
-        val materialized = OobReusableFunctionStore.materialize(
+        val materialized = OobFunctionSchemaBuilder.materialize(
             normalized,
             mapOf("input_text_3" to "猫猫"),
         )
@@ -75,7 +74,7 @@ class OobFunctionParameterBindingNormalizerTest {
 
     @Test
     fun `supplied argument without binding is rejected by validator`() {
-        val materialized = OobReusableFunctionStore.materialize(
+        val materialized = OobFunctionSchemaBuilder.materialize(
             mapOf(
                 "function_id" to "bad_search",
                 "parameters" to mapOf(
@@ -127,7 +126,7 @@ class OobFunctionParameterBindingNormalizerTest {
             )
         )
 
-        val materialized = OobReusableFunctionStore.materialize(
+        val materialized = OobFunctionSchemaBuilder.materialize(
             normalized,
             mapOf(
                 "file_name" to "new.pdf",
@@ -190,7 +189,7 @@ class OobFunctionParameterBindingNormalizerTest {
             (topLevelTable.single() as Map<*, *>)["bindings"],
         )
 
-        val materialized = OobReusableFunctionStore.materialize(
+        val materialized = OobFunctionSchemaBuilder.materialize(
             normalized,
             mapOf("search_query" to "猫猫"),
         )
@@ -225,7 +224,7 @@ class OobFunctionParameterBindingNormalizerTest {
             ),
         )
 
-        val materialized = OobReusableFunctionStore.materialize(
+        val materialized = OobFunctionSchemaBuilder.materialize(
             spec,
             mapOf("search_query" to "猫猫"),
         )
@@ -263,9 +262,9 @@ class OobFunctionParameterBindingNormalizerTest {
         val properties = schema["properties"] as Map<*, *>
         assertFalse(properties.containsKey("package_name"))
         assertFalse(properties.containsKey("target_description"))
-        assertEquals(emptyList<String>(), OobReusableFunctionStore.missingRequiredArguments(normalized, emptyMap()))
+        assertEquals(emptyList<String>(), OobFunctionSchemaBuilder.missingRequiredArguments(normalized, emptyMap()))
 
-        val materialized = OobReusableFunctionStore.materialize(
+        val materialized = OobFunctionSchemaBuilder.materialize(
             normalized,
             mapOf(
                 "package_name" to "com.hupu.games",
@@ -308,7 +307,7 @@ class OobFunctionParameterBindingNormalizerTest {
         val schema = OobFunctionSchemaBuilder.inputSchema(normalized)
         val properties = schema["properties"] as Map<*, *>
         assertTrue(properties.containsKey("merchant_name"))
-        val materialized = OobReusableFunctionStore.materialize(
+        val materialized = OobFunctionSchemaBuilder.materialize(
             normalized,
             mapOf("merchant_name" to "麦当劳"),
         )

@@ -63,14 +63,10 @@ class HttpVLMStreamClientTest {
 
             assertTrue(
                 turn.requestVariant in setOf(
-                    "no_tool_strict",
                     "no_thinking_controls",
-                    "no_tool_strict_no_thinking_controls",
                     "no_parallel_tool_calls",
-                    "no_tool_strict_no_parallel_tool_calls",
                     "no_stream_options",
-                    "minimal_strict_tools",
-                    "minimal_required_tools"
+                    "minimal_strict_tools"
                 )
             )
             assertEquals(2, seenRequests.size)
@@ -80,6 +76,9 @@ class HttpVLMStreamClientTest {
             assertTrue(retry.parallelToolCalls == false || retry.parallelToolCalls == null)
             assertFalse(seenRequests.any { it.toolChoice == null })
             assertFalse(seenRequests.any { it.tools.isEmpty() })
+            assertFalse(seenRequests.any { request ->
+                request.tools.any { it.function.strict != true }
+            })
         } finally {
             scope.cancel()
         }
@@ -119,7 +118,7 @@ class HttpVLMStreamClientTest {
     }
 
     @Test
-    fun `strict native tool request can fall back by removing strict schema only`() = runBlocking {
+    fun `strict native tool request retries without removing strict schema`() = runBlocking {
         val scope = CoroutineScope(Job() + Dispatchers.Default)
         val seenRequests = mutableListOf<ChatCompletionRequest>()
         try {
@@ -155,9 +154,16 @@ class HttpVLMStreamClientTest {
 
             val turn = client.streamTurn(request = strictToolRequest())
 
-            assertEquals("no_tool_strict", turn.requestVariant)
+            assertTrue(
+                turn.requestVariant in setOf(
+                    "no_thinking_controls",
+                    "no_parallel_tool_calls",
+                    "no_stream_options",
+                    "minimal_strict_tools"
+                )
+            )
             assertEquals(true, seenRequests.first().tools.single().function.strict)
-            assertEquals(null, seenRequests[1].tools.single().function.strict)
+            assertEquals(true, seenRequests[1].tools.single().function.strict)
             assertEquals("\"required\"", seenRequests[1].toolChoice.toString())
             assertTrue(seenRequests[1].tools.any { it.function.name == "click" })
         } finally {

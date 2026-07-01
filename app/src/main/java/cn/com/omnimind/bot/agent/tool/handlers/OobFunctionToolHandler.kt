@@ -15,7 +15,6 @@ import cn.com.omnimind.bot.omniflow.OobFunctionJson.intArg
 import cn.com.omnimind.bot.omniflow.OobFunctionJson.listArg
 import cn.com.omnimind.bot.omniflow.OobFunctionJson.longArg
 import cn.com.omnimind.bot.omniflow.OobFunctionJson.mapArg
-import cn.com.omnimind.baselib.runlog.OobReusableFunctionStore
 import cn.com.omnimind.bot.omniflow.OobFunctionArgumentBindingValidator
 import cn.com.omnimind.bot.runlog.OobFunctionCallTiming
 import cn.com.omnimind.bot.runlog.OobFunctionRunLogRecorder
@@ -64,12 +63,9 @@ class OobFunctionToolHandler(
             AgentWorkspaceManager.rootDirectory(context)
         )
 
-    /** Returns the function spec from workspace first so editable checker rules take effect. */
+    /** Returns the workspace-backed function spec so editable checker rules take effect. */
     private fun getSpec(functionId: String): Map<String, Any?>? =
         workspaceFunctionStore?.get(functionId)
-            ?: runCatching {
-            cn.com.omnimind.baselib.runlog.OobReusableFunctionStore.get(context, functionId)
-        }.getOrNull()
 
     private fun timedReplayStepShouldSettle(stepResult: Map<String, Any?>): Boolean =
         stepResult["success"] == true &&
@@ -95,8 +91,7 @@ class OobFunctionToolHandler(
             )
         }
         runPayload = normalizeIncompleteReplay(callTiming.attachTo(runPayload))
-        OobReusableFunctionStore.recordRun(
-            context = context,
+        workspaceFunctionStore?.recordRun(
             functionId = functionId,
             success = runPayload["success"] == true,
             runId = runPayload["run_id"]?.toString(),
@@ -257,7 +252,7 @@ class OobFunctionToolHandler(
             if (preparedSpec != null || argumentsValidated) {
                 emptyList()
             } else {
-                OobReusableFunctionStore.missingRequiredArguments(spec, arguments)
+                OobFunctionSchemaBuilder.missingRequiredArguments(spec, arguments)
             }
         }
         if (missing.isNotEmpty()) {
@@ -268,7 +263,7 @@ class OobFunctionToolHandler(
             ).let { attachExecutionTiming(it + linkedMapOf("missing_required_arguments" to missing), startupTiming) }
         }
         val specForRun = startupTiming.measure("bind_function_args_ms") {
-            preparedSpec ?: OobReusableFunctionStore.materialize(spec, arguments)
+            preparedSpec ?: OobFunctionSchemaBuilder.materialize(spec, arguments)
         }
         startupTiming.measure("bound_step_count_ms") {
             OobFunctionSchemaBuilder.materializedSteps(specForRun).size
@@ -846,11 +841,11 @@ class OobFunctionToolHandler(
         val calledFunctionSpec = getSpec(functionId)
             ?: return completeWithCard(failStep("OOB_FUNCTION_NOT_FOUND", "OmniFlow function not found: $functionId",
                 mapOf("called_function_id" to functionId)))
-        val missing = OobReusableFunctionStore.missingRequiredArguments(calledFunctionSpec, functionArguments)
+        val missing = OobFunctionSchemaBuilder.missingRequiredArguments(calledFunctionSpec, functionArguments)
         if (missing.isNotEmpty()) return completeWithCard(failStep("OOB_FUNCTION_ARGUMENTS_MISSING",
             "Missing required arguments: ${missing.joinToString(", ")}",
             mapOf("called_function_id" to functionId, "missing_required_arguments" to missing)))
-        val boundSpec = OobReusableFunctionStore.materialize(calledFunctionSpec, functionArguments)
+        val boundSpec = OobFunctionSchemaBuilder.materialize(calledFunctionSpec, functionArguments)
         val calledFunctionRun = runFunction(
             functionId = functionId,
             arguments = functionArguments,
@@ -1175,7 +1170,7 @@ class OobFunctionToolHandler(
     companion object {
         const val FUNCTION_DIRECT_RUNNER = "oob_function_direct_runner"
         const val FUNCTION_RUN_SOURCE = "oob_function_replay"
-        private const val CHECKER_RULES_FILE = "checkers/checker_rules.json"
+        private const val CHECKER_RULES_FILE = ".omnibot/omniflow/checkers/checker_rules.json"
         private const val CHECKER_RULES_ASSET = "omniflow/checkers/checker_rules.json"
         private const val TAG = "OobFunctionToolHandler"
         private const val MAX_OMNIFLOW_CALL_DEPTH = 8

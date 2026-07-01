@@ -5,7 +5,6 @@ import android.content.ContextWrapper
 import android.content.SharedPreferences
 import cn.com.omnimind.baselib.runlog.InternalRunLogFinishEvent
 import cn.com.omnimind.baselib.runlog.InternalRunLogStore
-import cn.com.omnimind.baselib.runlog.OobReusableFunctionStore
 import cn.com.omnimind.bot.omniflow.OobFunctionRepository
 import cn.com.omnimind.bot.omniflow.WorkspaceFunctionStore
 import java.io.File
@@ -48,34 +47,37 @@ class InternalRunLogStoreTest {
                 success = true,
                 doneReason = "finished"
             )
-            OobReusableFunctionStore.register(
-                context = context,
-                functionSpec = linkedMapOf(
-                    "schema_version" to "oob.reusable_function.v1",
-                    "function_id" to "fn_open_settings_from_run",
-                    "name" to "Open Settings",
-                    "description" to "Open Android Settings",
-                    "source" to linkedMapOf(
-                        "kind" to "run_log",
-                        "run_id" to runId
-                    ),
-                    "metadata" to linkedMapOf(
-                        "source_run_ids" to listOf(runId)
-                    ),
-                    "execution" to linkedMapOf(
-                        "kind" to "tool_sequence",
-                        "steps" to listOf(
-                            linkedMapOf(
-                                "id" to "step_1",
-                                "tool" to "open_app",
-                                "executor" to "omniflow",
-                                "args" to linkedMapOf(
-                                    "package_name" to "com.android.settings"
-                                )
+            val functionSpec = linkedMapOf(
+                "schema_version" to "oob.reusable_function.v1",
+                "function_id" to "fn_open_settings_from_run",
+                "name" to "Open Settings",
+                "description" to "Open Android Settings",
+                "source" to linkedMapOf(
+                    "kind" to "run_log",
+                    "run_id" to runId
+                ),
+                "metadata" to linkedMapOf(
+                    "source_run_ids" to listOf(runId)
+                ),
+                "execution" to linkedMapOf(
+                    "kind" to "tool_sequence",
+                    "steps" to listOf(
+                        linkedMapOf(
+                            "id" to "step_1",
+                            "tool" to "open_app",
+                            "executor" to "omniflow",
+                            "args" to linkedMapOf(
+                                "package_name" to "com.android.settings"
                             )
                         )
                     )
                 )
+            )
+            InternalRunLogStore.bindRegisteredFunction(
+                context = context,
+                runId = runId,
+                functionId = "fn_open_settings_from_run",
+                functionSpec = functionSpec
             )
 
             val timeline = InternalRunLogStore.timelinePayload(context, runId)
@@ -87,8 +89,6 @@ class InternalRunLogStoreTest {
             assertEquals(listOf("fn_open_settings_from_run"), ids)
             val summary = timeline["registered_function_summary"] as Map<*, *>
             assertEquals("Open Settings", summary["name"])
-            val spec = timeline["registered_function_spec"] as Map<*, *>
-            assertEquals("fn_open_settings_from_run", spec["function_id"])
 
             val listPayload = InternalRunLogStore.listRuns(context, limit = 10)
             val runs = listPayload["runs"] as List<*>
@@ -138,8 +138,6 @@ class InternalRunLogStoreTest {
                     )
                 )
             )
-            OobReusableFunctionStore.register(context, spec)
-
             val bindResult = InternalRunLogStore.bindRegisteredFunction(
                 context = context,
                 runId = runId,

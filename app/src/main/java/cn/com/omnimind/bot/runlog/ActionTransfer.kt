@@ -664,7 +664,7 @@ object ActionTransfer {
         val scaleY = targetPage.rootBounds.height / sourcePage.rootBounds.height.coerceAtLeast(1e-6f)
 
         val result = OmniflowNodeMatcher.match(srcInfo, srcVec, candInfos, candVecs, anchors, srcDiagonal, diagonal, scaleX, scaleY)
-        if (result.index < 0) {
+        if (result.abstain || result.index < 0) {
             return TargetMatchAttempt(
                 match = null,
                 debug = mapOf(

@@ -48,12 +48,8 @@ helper with mixed semantics.
 `OobFunctionRepository` is the single owner for Function storage:
 
 - register, list, get, delete, and clear Functions
-- keep workspace JSON and `OobReusableFunctionStore` in sync
-- prefer the local registry when both registry and workspace copies exist,
-  because runtime updates are committed there first and workspace JSON is the
-  portable mirror
-- report workspace/registry sync failures as structured diagnostics; registry
-  success remains the authoritative runtime registration result
+- use workspace JSON as the only durable Function store
+- report workspace write failures as structured diagnostics
 - update UDEG Function references
 - bind registered Functions back to source RunLogs
 - clear Function-as-tool exposure when the last Function is removed
@@ -85,10 +81,9 @@ helper with mixed semantics.
 
 - filter successful replayable cards before conversion
 - coordinate startup bridge cleanup, single-card step compilation, step noise
-  cleanup, and parameterization
+  cleanup, and raw action compatibility output
 - assemble top-level reusable Function fields and metadata
-- delegate deterministic parameter/action compatibility output to
-  `RunLogReusableFunctionParameterizer`
+- leave parameter names, descriptions, and bindings to offline agent enhancement
 
 `RunLogReplayStepCompiler` owns single-card replay semantics:
 
@@ -101,7 +96,7 @@ helper with mixed semantics.
 
 Replay page guard owns startup package correction:
 
-- compiled Functions do not inject a synthetic first `open_app` step
+- registered Function specs do not inject a synthetic first `open_app` step
 - replay checks the current package against the step source package at runtime
 - package correction remains separate from card action semantics
 
@@ -111,14 +106,6 @@ Replay page guard owns startup package correction:
   stable Kotlin map values
 - centralize JSON-safe conversion helpers used by conversion and cleanup code
 - prevent duplicate ad hoc card parsing across compiler services
-
-`RunLogReusableFunctionParameterizer` owns reusable Function parameterization:
-
-- infer deterministic `input_text` runtime parameters from compiled steps
-- build the canonical JSON schema exposed through `parameters`
-- build the legacy `actions` compatibility list from compiled execution steps
-- record parameter binding metadata under `metadata.oob_parameter_bindings`
-- keep canonical action compatibility separate from RunLog card filtering
 
 `OobFunctionManagementService` owns Function management tool routing:
 
@@ -201,8 +188,8 @@ When adding or migrating a generic agent tool name:
 - normalize simple register-request steps into canonical execution-step maps
 - normalize inserted steps for `update_function`
 - compute durable execution capability counts from canonical steps
-- report static agent presence as `has_agent_steps`/`agent_step_count`; runtime
-  fallback state belongs to run payloads, not durable Function capabilities
+- keep durable capabilities limited to replay counts; runtime fallback state
+  belongs to run payloads, not durable Function capabilities
 - do not expose `model_free`/`scriptable` capability counts; those are step-level
   compatibility flags and are derivable from executor policy
 - use `OobActionCodec` and `RunLogReplayPolicy` for action and replay-tool
@@ -212,8 +199,8 @@ When adding or migrating a generic agent tool name:
 
 - orchestrate Function loading, update mode decisions, dry-run/save behavior,
   and returned tool payloads
-- delegate raw patch op and natural-language repair intent normalization to
-  `OobFunctionUpdateIntentParser`
+- accept explicit patch operations from request payloads or agent-authored
+  structured patches; natural-language instructions are evidence/audit text
 - own consolidated metadata, step label, evidence, checker, parameter, agent
   reuse, audit, target-repair, insert-step, delete-step, and execution reindex
   patching
@@ -256,17 +243,6 @@ When adding or migrating a generic agent tool name:
   names, role labels, and failure codes embedded in that prompt
 - keep evidence-analysis prompt contracts outside Function mutation code
 - never save Functions or apply patches
-
-`OobFunctionUpdateIntentParser` owns update intent normalization:
-
-- normalize patch fields like `ops`, `operations`, `repairs`, and
-  `replace_target` into explicit update operations
-- infer simple target-repair operations from user instructions such as
-  `应该点「外卖」而不是点「美食」`
-- emit canonical action names from `OobActionCodec` when inferring simple
-  repair operations
-- classify replace-target and structural operations for update-mode decisions
-- never apply an operation or mutate a Function spec
 
 `OobFunctionJson` owns mechanical Function payload coercion:
 
@@ -415,7 +391,6 @@ Agent/MCP tool surface
           -> OobFunctionJson # shared value coercion for Function payloads
       -> OobFunctionUpdateService    # update_function evidence and patches
           -> OobFunctionJson # shared value coercion for Function payloads
-          -> OobFunctionUpdateIntentParser # patch/instruction -> update ops
           -> OobFunctionStepNormalizer # inserted step normalization
           -> OobFunctionTargetSourceMatcher # source XML repair matching
           -> OobFunctionRunLogEvidencePackager # Function + RunLog agent context
@@ -430,7 +405,6 @@ Agent/MCP tool surface
               -> RunLogReplayStepCompiler # single-card action -> replay step
                   -> RunLogCardAccessors # card field/JSON extraction helpers
               -> RunLogReplayStepNoiseNormalizer # compiled step noise cleanup
-              -> RunLogReusableFunctionParameterizer # parameters/actions/bindings
 
 Flutter method channel
   -> AssistsCoreManager
@@ -454,8 +428,6 @@ Keep these pieces separate:
 - `OobFunctionUpdateService`: update_function orchestration, permission gates,
   dry-run/save behavior, metadata/evidence/checker/retarget/insert/delete
   patching, execution reindexing, and tool response shaping
-- `OobFunctionUpdateIntentParser`: raw patch op and instruction intent
-  normalization
 - `OobFunctionRunLogEvidencePackager`: Function + RunLog evidence context and
   agent prompt packaging
 - `OobFunctionRunLogAnalysisContract`: agent-facing analysis JSON field names,
@@ -469,14 +441,12 @@ Keep these pieces separate:
   compact recall payload shaping
 - `OobFunctionCallTiming`: Function call timing payload construction
 - `RunLogReusableFunctionCompiler`: offline RunLog-to-Function assembly and
-  conversion orchestration
+  conversion orchestration; initial specs keep recorded args literal and expose
+  an empty parameter schema until agent enhancement updates them
 - `RunLogReplayStepCompiler`: single-card action semantics, executor selection,
   step titles, and source-context repair
 - `RunLogCardAccessors`: shared RunLog card field, tool-call, observation, and
   JSON-safe extraction helpers
-- `RunLogReusableFunctionParameterizer`: deterministic runtime parameter
-  inference, canonical JSON schema, canonical action binding, and binding
-  metadata for compiled Function specs
 - `RunLogReplayStepNoiseNormalizer`: repeated input and redundant compiled-step
   cleanup after card-to-step conversion
 - `OobFunctionToolHandler`: Function loading, materialization, and execution timing
@@ -640,8 +610,6 @@ change:
 
 - `OobFunctionSchemaBuilder.boolArg` is stricter for schema fields and
   intentionally does not accept every runtime truthy alias.
-- `RunLogReusableFunctionParameterizer.asMap` preserves legacy map-key behavior
-  for compatibility metadata.
 - `RunLogCardAccessors.asMap` and `RunLogCardAccessors.firstNonBlank` are the
   RunLog card-field extraction API, not duplicate action codecs.
 - `OobFunctionJson.boolArgOrDefault` owns default-aware Function boolean
@@ -662,9 +630,9 @@ change:
 - `OobPageVectorSet.firstNonBlank` is a low-risk local helper in vector
   internals; merge it only when touching the surrounding code for another
   reason.
-- `OobReusableFunctionStore` lives in `baselib` and cannot depend on app-layer
-  helper owners such as `OobFunctionJson`; keep its storage-compatibility
-  coercion local unless the owner is moved to a shared module.
+- Function storage lives in workspace JSON. Keep `baselib` runlog persistence
+  decoupled from app-layer Function JSON helpers except through explicit
+  source bindings/diagnostics supplied by app code.
 - `VlmToolCoordinator.firstNonBlank`, `VlmRecallGuidanceBuilder.boolArg`,
   `AgentAiCapabilityConfigSync.firstNonBlank`, and
   `AssistsCoreManager.firstNonBlankString` are outside Function payload

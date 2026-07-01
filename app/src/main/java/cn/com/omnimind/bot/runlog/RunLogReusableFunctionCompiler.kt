@@ -37,8 +37,8 @@ object RunLogReusableFunctionCompiler {
 
         if (steps.isEmpty()) return null
 
-        val parameterization = RunLogReusableFunctionParameterizer.parameterize(steps)
-        val behaviorIdentity = deriveBehaviorIdentity(record, parameterization.actions, steps)
+        val actions = steps.map(::actionFromStep)
+        val behaviorIdentity = deriveBehaviorIdentity(record, actions, steps)
         val now = System.currentTimeMillis().toString()
         val functionId = deriveFunctionId(record, behaviorIdentity)
         val goal = record.goal.ifBlank { record.operationDescription }
@@ -49,17 +49,15 @@ object RunLogReusableFunctionCompiler {
             "function_id" to functionId,
             "name" to name,
             "description" to goal.ifBlank { name },
-            "parameters" to parameterization.parameters,
-            "actions" to parameterization.actions,
+            "parameters" to emptyParameterSchema(),
+            "actions" to actions,
             "metadata" to linkedMapOf(
                 "source" to "run_log_import",
                 "run_id" to record.runId,
                 "source_run_ids" to listOf(record.runId),
                 "original_goal" to record.goal,
                 "goal" to goal.ifBlank { name },
-                "step_count" to parameterization.actions.size,
-                "oob_parameter_bindings" to parameterization.parameterBindings,
-                "oob_legacy_parameters" to parameterization.legacyParameters.takeIf { it.isNotEmpty() },
+                "step_count" to actions.size,
                 "oob_compat_execution" to true,
                 "oob_behavior_identity" to behaviorIdentity.toPayload().takeIf { it.isNotEmpty() },
             ).filterValues { it != null },
@@ -74,10 +72,6 @@ object RunLogReusableFunctionCompiler {
                 "compiled_replayable_card_count" to compileCards.size,
                 "converted_at" to now,
                 "converter" to "native_run_log_reusable_function_builder",
-                "parameter_inference" to linkedMapOf(
-                    "strategy" to "deterministic_input_text_bindings",
-                    "parameter_count" to parameterization.legacyParameters.size,
-                ),
             ),
             "execution" to linkedMapOf(
                 "kind" to "tool_sequence",
@@ -87,9 +81,6 @@ object RunLogReusableFunctionCompiler {
                 "steps" to steps,
                 "step_count" to steps.size,
                 "omniflow_step_count" to capabilities["omniflow_step_count"],
-                "agent_step_count" to capabilities["agent_step_count"],
-                "has_agent_steps" to
-                    capabilities["has_agent_steps"],
             ),
             "_oob_registry" to linkedMapOf(
                 "registered_at" to now,
@@ -100,13 +91,27 @@ object RunLogReusableFunctionCompiler {
         )
     }
 
+    private fun actionFromStep(step: Map<String, Any?>): Map<String, Any?> =
+        linkedMapOf<String, Any?>(
+            "tool" to actionNameForStep(step),
+            "args" to argsForStep(step),
+        ).apply {
+            step["title"]?.toString()?.takeIf { it.isNotBlank() }?.let {
+                put("description", it)
+            }
+        }
+
+    private fun emptyParameterSchema(): Map<String, Any?> =
+        linkedMapOf(
+            "type" to "object",
+            "properties" to emptyMap<String, Any?>(),
+            "required" to emptyList<String>(),
+            "additionalProperties" to false,
+        )
+
     private fun executionCapabilities(steps: List<Map<String, Any?>>): Map<String, Any?> {
         return linkedMapOf(
             "omniflow_step_count" to steps.count { it["executor"] == RunLogReplayPolicy.EXECUTOR_OMNIFLOW },
-            "agent_step_count" to steps.count { it["executor"] == RunLogReplayPolicy.EXECUTOR_AGENT },
-            "has_agent_steps" to steps.any {
-                it["executor"] == RunLogReplayPolicy.EXECUTOR_AGENT
-            },
         )
     }
 

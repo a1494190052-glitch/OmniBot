@@ -34,7 +34,6 @@ import cn.com.omnimind.assists.task.vlmserver.VLMStreamClient
 import cn.com.omnimind.assists.task.vlmserver.WaitAction
 import cn.com.omnimind.baselib.util.ImageQuality
 import cn.com.omnimind.baselib.util.OmniLog
-import cn.com.omnimind.bot.agent.tool.handlers.OobFunctionToolHandler
 import cn.com.omnimind.bot.mcp.McpTaskManager
 import cn.com.omnimind.bot.mcp.TaskState
 import cn.com.omnimind.bot.mcp.TaskStatus
@@ -289,13 +288,6 @@ object VlmToolCoordinator {
             mapOf("summary" to "正在启动视觉执行任务")
         )
 
-        tryExecuteStartupRecallHit(
-            context = context,
-            request = boundedRequest,
-            taskState = taskState,
-            scope = scope,
-        )?.let { return@withContext it }
-
         val executionRequest = prepareFastStartupRequest(boundedRequest, taskState)
 
         val startResult = startVlmTaskInternal(
@@ -398,90 +390,6 @@ object VlmToolCoordinator {
             McpTaskManager.scheduleTaskCleanup(normalizedTaskId, scope)
         }
         return canComplete || nativeCompleted
-    }
-
-    suspend fun tryExecuteRecallHitOnly(
-        context: Context,
-        request: VlmTaskRequest,
-        scope: CoroutineScope,
-        taskIdOverride: String = UUID.randomUUID().toString(),
-    ): VlmToolOutcome = withContext(Dispatchers.IO) {
-        val taskId = taskIdOverride.trim().takeIf { it.isNotEmpty() } ?: UUID.randomUUID().toString()
-        val taskState = McpTaskManager.createTask(
-            taskId = taskId,
-            goal = request.goal,
-            status = TaskStatus.RUNNING,
-            needSummary = false,
-        )
-        taskState.vlmRequest = request
-        taskState.executionRoute = "omniflow_recall_hit"
-        taskState.message = "正在执行召回命中的复用指令"
-        taskState.markStateChanged()
-
-        val recall = recallCurrentPage(context, request)
-        taskState.omniflowRecall = recall
-        val functionId = strictRecallFunctionId(recall)
-        if (recall["success"] != true || recall["decision"] != "hit" || functionId.isEmpty()) {
-            val reason = recall["reason"]?.toString()?.takeIf { it.isNotBlank() }
-                ?: "No strict OmniFlow recall hit"
-            taskState.status = TaskStatus.ERROR
-            taskState.message = reason
-            taskState.errorCode = "OOB_RECALL_HIT_MISSING"
-            taskState.markStateChanged()
-            McpTaskManager.scheduleTaskCleanup(taskId, scope)
-            return@withContext taskState.toOutcome(
-                status = VlmToolOutcomeStatus.ERROR,
-                message = reason,
-                errorMessage = reason,
-                errorCode = "OOB_RECALL_HIT_MISSING",
-            )
-        }
-
-        return@withContext executeRecallHit(
-            context = context,
-            request = request,
-            scope = scope,
-            taskState = taskState,
-            functionId = functionId,
-        )
-    }
-
-    private suspend fun executeRecallHit(
-        context: Context,
-        request: VlmTaskRequest,
-        scope: CoroutineScope,
-        taskState: TaskState,
-        functionId: String,
-    ): VlmToolOutcome {
-        val runResult = OobFunctionToolHandler(context).runFunction(
-            linkedMapOf(
-                "function_id" to functionId,
-                "goal" to request.goal,
-                "arguments" to emptyMap<String, Any?>(),
-                "frontend_parent" to "vlm_recall_hit",
-            )
-        )
-        taskState.omniflowExecutionSummary = runResult
-        taskState.executionRoute = "omniflow_recall_hit:$functionId"
-        val success = runResult["success"] == true
-        val message = if (success) {
-            "OmniFlow recall hit executed"
-        } else {
-            runResult["error_message"]?.toString()?.takeIf { it.isNotBlank() }
-                ?: "OmniFlow recall hit replay failed"
-        }
-        taskState.status = if (success) TaskStatus.FINISHED else TaskStatus.ERROR
-        taskState.message = message
-        taskState.finishedContent = if (success) message else null
-        taskState.errorCode = if (success) null else runResult["error_code"]?.toString()
-        taskState.markStateChanged()
-        McpTaskManager.scheduleTaskCleanup(taskState.taskId, scope)
-        return taskState.toOutcome(
-            status = if (success) VlmToolOutcomeStatus.FINISHED else VlmToolOutcomeStatus.ERROR,
-            message = message,
-            errorMessage = if (success) null else message,
-            errorCode = taskState.errorCode,
-        )
     }
 
     suspend fun parseOnlyNextAction(
@@ -758,13 +666,6 @@ object VlmToolCoordinator {
                 )
                 val boundedRequest = request.withRuntimeDefaults(config)
                 taskState.vlmRequest = boundedRequest
-                tryExecuteStartupRecallHit(
-                    context = context,
-                    request = boundedRequest,
-                    taskState = taskState,
-                    scope = scope,
-                )?.let { return@withContext it }
-
                 val executionRequest = prepareFastStartupRequest(boundedRequest, taskState)
                 val startResult = startVlmTaskInternal(
                     context,
@@ -1158,52 +1059,6 @@ object VlmToolCoordinator {
         taskState.executionRoute = "vlm"
         taskState.markStateChanged()
         return request
-    }
-
-    private suspend fun tryExecuteStartupRecallHit(
-        context: Context,
-        request: VlmTaskRequest,
-        taskState: TaskState,
-        scope: CoroutineScope,
-    ): VlmToolOutcome? {
-        taskState.vlmRequest = request
-        taskState.executionRoute = "vlm"
-        if (request.disableOmniFlowRecall) {
-            taskState.omniflowRecall = startupDeferredRecallPayload(request)
-            taskState.markStateChanged()
-            return null
-        }
-
-        val recall = runCatching { recallCurrentPage(context, request) }
-            .getOrElse { error ->
-                linkedMapOf(
-                    "success" to false,
-                    "decision" to "error",
-                    "reason" to (error.message ?: "startup_recall_failed"),
-                )
-            }
-        taskState.omniflowRecall = recall
-        val functionId = strictRecallFunctionId(recall)
-        if (recall["success"] != true || recall["decision"] != "hit" || functionId.isEmpty()) {
-            taskState.markStateChanged()
-            return null
-        }
-
-        taskState.message = "正在执行召回命中的复用指令"
-        taskState.executionRoute = "omniflow_recall_hit"
-        taskState.markStateChanged()
-        return executeRecallHit(
-            context = context,
-            request = request,
-            scope = scope,
-            taskState = taskState,
-            functionId = functionId,
-        )
-    }
-
-    private fun strictRecallFunctionId(recall: Map<String, Any?>): String {
-        val hit = recall["hit"] as? Map<*, *>
-        return hit?.get("function_id")?.toString()?.trim().orEmpty()
     }
 
     private fun startupDeferredRecallPayload(request: VlmTaskRequest): Map<String, Any?> =

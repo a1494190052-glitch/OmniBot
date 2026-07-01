@@ -5,6 +5,7 @@ import cn.com.omnimind.baselib.runlog.OobActionSchema
 import cn.com.omnimind.baselib.llm.ChatCompletionFunction
 import cn.com.omnimind.baselib.llm.ChatCompletionTool
 import cn.com.omnimind.baselib.i18n.PromptLocale
+import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonArray
@@ -22,6 +23,11 @@ import kotlinx.serialization.json.put
 
 object VLMToolDefinitions {
     private const val TOOL_TITLE_FIELD = "tool_title"
+    private val argumentJson = Json {
+        ignoreUnknownKeys = false
+        isLenient = false
+        explicitNulls = false
+    }
     private val HIDDEN_BASE_TOOL_NAMES = setOf(
         OobActionSchema.TOOL_GET_STATE,
     )
@@ -49,10 +55,16 @@ object VLMToolDefinitions {
     private fun buildParameters(
         schema: OobActionSchema.ToolSpec,
         locale: PromptLocale
-    ): JsonObject = objectSchema(
-        properties = schema.args.associate { arg -> arg.name to jsonSchemaForArg(arg, locale) },
-        required = schema.args.filter { it.required }.map { it.name },
-    )
+    ): JsonObject {
+        val args = vlmOutputArgs(schema)
+        return objectSchema(
+            properties = args.associate { arg -> arg.name to jsonSchemaForArg(arg, locale) },
+            required = args.map { it.name },
+        )
+    }
+
+    private fun vlmOutputArgs(schema: OobActionSchema.ToolSpec): List<OobActionSchema.ArgSpec> =
+        schema.args.filter { it.required }
 
     fun tools(
         locale: PromptLocale = currentLocale(),
@@ -81,7 +93,8 @@ object VLMToolDefinitions {
                     description = function["description"]?.jsonPrimitive?.contentOrNull.orEmpty(),
                     parameters = sanitizeVlmDynamicFunctionParameters(
                         (function["parameters"] as? JsonObject) ?: JsonObject(emptyMap())
-                    )
+                    ),
+                    strict = true
                 )
             )
         }
@@ -155,15 +168,15 @@ object VLMToolDefinitions {
     }
 
     fun renderPromptGuide(locale: PromptLocale = currentLocale()): String {
-        val guides = visibleSchemas(locale).joinToString(separator = "\n") { it.promptGuide.text(locale) }
+        val guides = visibleSchemas(locale).joinToString(separator = "\n") { vlmPromptGuide(it, locale) }
         return buildString {
             appendLine(guides)
             appendLine(actionChoiceGuide(locale, null))
             append(
                 t(
                     locale,
-                    "注意：每个 tool call 的 JSON 参数必须是严格合法的 object，并满足所选工具 schema.required。Function replay 由本地 runtime 自动处理；不要输出 call_tool、function_id 或隐藏 Function 工具。若本轮 tools[] 包含 run_recalled_workflow_*，它是当前页面可选的已召回工作流工具，可与普通 UI action 同级选择。schema.required 中的坐标字段必须是 0..1000 相对坐标，分别写入 x / y / x1 / y1 / x2 / y2，不要写成 \"x\": 827, 76 这类非法格式。系统会在执行前解码为屏幕绝对像素，本地记录始终保存绝对像素。wait 只在页面明确加载、动画或等待外部状态时使用。",
-                    "Important: every tool call JSON argument value must be a strict object and satisfy the selected tool's schema.required. Function replay is handled by the local runtime; do not emit call_tool, function_id, or hidden Function tools. If this turn's tools[] includes run_recalled_workflow_*, it is an optional recalled workflow tool for the current page and can be chosen at the same level as ordinary UI actions. Coordinate fields in schema.required must be 0..1000 relative coordinates, written into x / y / x1 / y1 / x2 / y2 as separate scalar fields. Do not emit invalid forms such as \"x\": 827, 76. The system decodes coordinates to screen absolute pixels before execution, and local records always store absolute pixels. Use wait only when the page is clearly loading, animating, or waiting for an external state change."
+                    "注意：每个 tool call 的 JSON 参数必须是严格合法的 object，并满足所选工具 schema.required。Function replay 由本地 runtime 自动处理；不要输出 call_tool、function_id 或隐藏 Function 工具。若本轮 tools[] 包含 run_recalled_workflow_*，它是当前页面可选的已召回工作流工具，可与普通 UI action 同级选择。schema.required 中的坐标字段必须是 0..1000 相对坐标，分别写入 x / y / x1 / y1 / x2 / y2，每个字段都只能是单个数值；不要返回 [x,y]、coordinates、对象，或 \"x\": 827, 76 这类非法格式。系统会在执行前解码为屏幕绝对像素，本地记录始终保存绝对像素。wait 只在页面明确加载、动画或等待外部状态时使用。",
+                    "Important: every tool call JSON argument value must be a strict object and satisfy the selected tool's schema.required. Function replay is handled by the local runtime; do not emit call_tool, function_id, or hidden Function tools. If this turn's tools[] includes run_recalled_workflow_*, it is an optional recalled workflow tool for the current page and can be chosen at the same level as ordinary UI actions. Coordinate fields in schema.required must be 0..1000 relative coordinates, written into x / y / x1 / y1 / x2 / y2 as separate scalar fields; each field must be a single numeric scalar. Do not emit [x,y], coordinates, objects, or invalid forms such as \"x\": 827, 76. The system decodes coordinates to screen absolute pixels before execution, and local records always store absolute pixels. Use wait only when the page is clearly loading, animating, or waiting for an external state change."
                 )
             )
         }
@@ -192,8 +205,8 @@ object VLMToolDefinitions {
             appendLine(
                 t(
                     locale,
-                    "可选的 element_index/scrollable_index 只能作为补充 grounding 线索，不能替代所选工具 schema.required 中的坐标或其他必填字段。",
-                    "Optional element_index/scrollable_index values are supplemental grounding hints only; they cannot replace coordinates or other fields listed in the selected tool's schema.required."
+                    "页面索引证据只用于你选择目标；输出参数只能包含所选工具 schema.properties 中列出的字段。",
+                    "Indexed page evidence is only for choosing the target; output arguments may contain only fields listed in the selected tool's schema.properties."
                 )
             )
             appendLine(actionChoiceGuide(locale, selectedNames))
@@ -269,6 +282,50 @@ object VLMToolDefinitions {
         return t(locale, "操作选择：$zh。", "Action choice: $en.")
     }
 
+    private fun vlmPromptGuide(
+        schema: OobActionSchema.ToolSpec,
+        locale: PromptLocale
+    ): String {
+        return when (schema.name) {
+            OobActionSchema.TOOL_CLICK -> t(
+                locale,
+                "- click(target_description, x, y): 点击可见目标；x/y 是 required 的 0..1000 相对坐标。",
+                "- click(target_description, x, y): Tap a visible target; x/y are required 0..1000 relative coordinates."
+            )
+            OobActionSchema.TOOL_LONG_PRESS -> t(
+                locale,
+                "- long_press(target_description, x, y): 长按目标；x/y 是 required 的 0..1000 相对坐标。",
+                "- long_press(target_description, x, y): Long-press a target; x/y are required 0..1000 relative coordinates."
+            )
+            OobActionSchema.TOOL_INPUT_TEXT -> t(
+                locale,
+                "- input_text(target_description, text, x, y): 向输入框输入；x/y 是 required 的 0..1000 相对坐标。",
+                "- input_text(target_description, text, x, y): Type into an input field; x/y are required 0..1000 relative coordinates."
+            )
+            OobActionSchema.TOOL_SWIPE -> t(
+                locale,
+                "- swipe(target_description, direction, x1, y1, x2, y2): 在屏幕或可滚动区域内滑动；direction 和 x1/y1/x2/y2 必须满足 schema.required。",
+                "- swipe(target_description, direction, x1, y1, x2, y2): Swipe on the screen or in a scrollable region; direction and x1/y1/x2/y2 must satisfy schema.required."
+            )
+            OobActionSchema.TOOL_WAIT -> t(
+                locale,
+                "- wait(): 只在页面明确处于加载、动画或等待外部状态变化时使用。",
+                "- wait(): Use only when the page is clearly loading, animating, or waiting for an external state change."
+            )
+            OobActionSchema.TOOL_FINISHED -> t(
+                locale,
+                "- finished(): 仅在当前页面或上一轮工具结果直接证明目标完成时调用；不确定就继续执行下一步。",
+                "- finished(): Call only when the current page or previous tool result directly proves completion; if uncertain, continue with the next action."
+            )
+            OobActionSchema.TOOL_ABORT -> t(
+                locale,
+                "- abort(): 在任务无法继续时终止。",
+                "- abort(): Abort when the task cannot continue."
+            )
+            else -> schema.promptGuide.text(locale)
+        }
+    }
+
     fun responseContract(locale: PromptLocale = currentLocale()): String {
         return when (locale) {
             PromptLocale.ZH_CN ->
@@ -285,22 +342,17 @@ object VLMToolDefinitions {
 
     fun propertiesFor(toolName: String, locale: PromptLocale = currentLocale()): Map<String, JsonObject> {
         val schema = toolSpec(toolName) ?: return emptyMap()
-        return schema.args.associate { arg -> arg.name to jsonSchemaForArg(arg, locale) }
+        return vlmOutputArgs(schema).associate { arg -> arg.name to jsonSchemaForArg(arg, locale) }
     }
 
     fun requiredFieldsFor(toolName: String): List<String> {
         val schema = toolSpec(toolName) ?: return emptyList()
-        return schema.args.filter { it.required }.map { it.name }
+        return vlmOutputArgs(schema).map { it.name }
     }
 
     fun normalizeArguments(toolName: String, arguments: JsonObject): JsonObject {
         if (arguments.isEmpty()) return arguments
         val normalized = arguments.toMutableMap()
-        if (toolName == OobActionSchema.TOOL_SWIPE) {
-            inferSwipeDirection(normalized)?.let { direction ->
-                normalized[OobActionSchema.ARG_DIRECTION] = JsonPrimitive(direction)
-            }
-        }
         normalizeEnumArguments(toolName, normalized)
         return JsonObject(normalized)
     }
@@ -319,6 +371,38 @@ object VLMToolDefinitions {
             }
         }
         return JsonObject(normalized)
+    }
+
+    fun parseArguments(toolName: String, rawArguments: String): JsonObject {
+        val parsed = parseRawArgumentsObject(toolName, rawArguments)
+        val normalizedFromParsed = coerceArguments(
+            toolName,
+            normalizeArguments(toolName, stripVlmMetadataArguments(parsed))
+        )
+        validateArguments(toolName, normalizedFromParsed)
+        return normalizedFromParsed
+    }
+
+    internal fun parseRawArgumentsObject(
+        toolName: String,
+        rawArguments: String,
+        allowEmpty: Boolean = false
+    ): JsonObject {
+        val normalized = rawArguments.trim()
+        if (normalized.isEmpty()) {
+            if (allowEmpty) return JsonObject(emptyMap())
+            throw IllegalArgumentException(
+                "Invalid tool arguments JSON for $toolName: function.arguments must be a JSON object; raw=${previewRawArguments(rawArguments)}"
+            )
+        }
+        val element = runCatching { argumentJson.parseToJsonElement(normalized) }.getOrElse { error ->
+            throw IllegalArgumentException(
+                "Invalid tool arguments JSON for $toolName: ${error.message ?: "unknown parse failure"}; raw=${previewRawArguments(rawArguments)}",
+                error
+            )
+        }
+        return element as? JsonObject
+            ?: throw IllegalArgumentException("Invalid tool arguments JSON for $toolName: function.arguments must be a JSON object")
     }
 
     fun validateArguments(toolName: String, arguments: JsonObject) {
@@ -361,22 +445,18 @@ object VLMToolDefinitions {
         }
     }
 
-    private fun inferSwipeDirection(arguments: Map<String, JsonElement>): String? {
-        if (!(arguments[OobActionSchema.ARG_DIRECTION] as? JsonPrimitive)?.contentOrNull.isNullOrBlank()) {
-            return null
+    private fun stripVlmMetadataArguments(arguments: JsonObject): JsonObject {
+        if (arguments.isEmpty()) return arguments
+        val stripped = arguments.filterKeys { key ->
+            !key.equals(TOOL_TITLE_FIELD, ignoreCase = true) &&
+                !key.equals("toolTitle", ignoreCase = true)
         }
-        val x1 = extractScalarNumber(arguments["x1"]) ?: return null
-        val y1 = extractScalarNumber(arguments["y1"]) ?: return null
-        val x2 = extractScalarNumber(arguments["x2"]) ?: return null
-        val y2 = extractScalarNumber(arguments["y2"]) ?: return null
-        val dx = x2 - x1
-        val dy = y2 - y1
-        if (kotlin.math.abs(dx) < 1.0 && kotlin.math.abs(dy) < 1.0) return null
-        return if (kotlin.math.abs(dy) >= kotlin.math.abs(dx)) {
-            if (dy < 0) "up" else "down"
-        } else {
-            if (dx < 0) "left" else "right"
-        }
+        return if (stripped.size == arguments.size) arguments else JsonObject(stripped)
+    }
+
+    private fun previewRawArguments(raw: String, maxLen: Int = 240): String {
+        val normalized = raw.replace(Regex("\\s+"), " ").trim()
+        return if (normalized.length <= maxLen) normalized else normalized.take(maxLen) + "..."
     }
 
     private fun normalizeEnumArguments(
@@ -397,13 +477,6 @@ object VLMToolDefinitions {
             if (resolved != raw) {
                 arguments[field] = JsonPrimitive(resolved)
             }
-        }
-    }
-
-    private fun extractScalarNumber(value: JsonElement?): Double? {
-        return when (value) {
-            is JsonPrimitive -> value.contentOrNull?.trim()?.toDoubleOrNull()
-            else -> null
         }
     }
 

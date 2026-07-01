@@ -33,7 +33,7 @@ class DebugVlmRecallHitReceiver : BroadcastReceiver() {
                     AssistsUtil.Core.initCore(appContext)
                 }
                 withTimeout(timeoutSeconds * 1000L) {
-                    VlmToolCoordinator.tryExecuteRecallHitOnly(
+                    VlmToolCoordinator.executeNewTask(
                         context = appContext,
                         request = VlmTaskRequest(
                             goal = goal,

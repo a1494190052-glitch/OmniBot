@@ -493,7 +493,7 @@ void main() {
     ]);
   });
 
-  test('uses card task ids when restored cards lack stream metadata', () {
+  test('keeps restored thinking cards without stream metadata ungrouped', () {
     final messages = <ChatMessageModel>[
       _assistantMessage(
         id: 'task-8-text',
@@ -537,9 +537,10 @@ void main() {
 
     final entries = buildAgentRunTimelineEntries(messages);
 
-    expect(entries, hasLength(1));
-    expect(entries.single.group?.toolCount, 1);
-    expect(entries.single.group?.thinkingCount, 1);
+    expect(entries, hasLength(2));
+    expect(entries.first.group?.toolCount, 1);
+    expect(entries.first.group?.thinkingCount, 0);
+    expect(entries.last.message?.id, 'task-8-thinking');
   });
 
   test(

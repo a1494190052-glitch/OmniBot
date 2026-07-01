@@ -1163,22 +1163,8 @@ object McpToolExecutors {
         if (toolName.isEmpty()) {
             return McpResponseBuilder.buildErrorText("Missing toolName or function_id")
         }
-        val goal = requestArgs["goal"]?.toString()?.trim().orEmpty()
-        val prompt = buildString {
-            appendLine("Call this OOB capability through the normal Agent tool chain.")
-            appendLine()
-            appendLine("Tool: $toolName")
-            if (goal.isNotEmpty()) appendLine("Goal: $goal")
-            appendLine("Arguments JSON: $toolArgs")
-            appendLine()
-            appendLine("Use existing OOB tools and permissions. Do not create a new Project unless the user explicitly asked for one.")
-        }
-        return executeAgentRun(
-            context,
-            linkedMapOf(
-                "userMessage" to prompt,
-                "title" to "OOB Tool Call: $toolName"
-            )
+        return McpResponseBuilder.buildErrorText(
+            "Unsupported call_tool target: $toolName. call_tool only supports OmniFlow function_id replay."
         )
     }
 

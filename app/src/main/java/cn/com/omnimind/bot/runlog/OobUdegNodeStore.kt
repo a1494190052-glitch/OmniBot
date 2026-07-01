@@ -2,6 +2,7 @@ package cn.com.omnimind.bot.runlog
 import cn.com.omnimind.baselib.runlog.OobActionSchema
 
 import android.content.Context
+import cn.com.omnimind.bot.agent.AgentWorkspaceManager
 import cn.com.omnimind.bot.omniflow.OobFunctionSchemaBuilder
 import com.google.gson.GsonBuilder
 import org.w3c.dom.Element
@@ -881,14 +882,17 @@ class OobUdegNodeStore(
     }
 
     private fun udegSkillArtifactsRoot(): File {
-        return File(context.filesDir, "workspace/.omnibot/memory/omniflow/$UDEG_NODE_CONTEXTS_DIR")
+        return File(omniflowWorkspaceRoot(), "memory/udeg/$UDEG_NODE_CONTEXTS_DIR")
     }
 
     private fun udegStatesRoot(): File =
-        File(context.filesDir, "oob-udeg/states")
+        File(omniflowWorkspaceRoot(), "memory/udeg/states")
 
     private fun udegExportsRoot(): File =
-        File(context.filesDir, "exports/oob-udeg")
+        File(omniflowWorkspaceRoot(), "exports/udeg")
+
+    private fun omniflowWorkspaceRoot(): File =
+        File(File(AgentWorkspaceManager.rootDirectory(context), ".omnibot"), "omniflow").apply { mkdirs() }
 
     private fun exportNodePayload(node: Map<String, Any?>): Map<String, Any?> {
         val nodeId = firstNonBlank(node["node_id"])

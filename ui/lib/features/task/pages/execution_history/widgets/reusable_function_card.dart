@@ -60,7 +60,6 @@ class ReusableFunctionCard extends StatelessWidget {
     this.onRunLogsTap,
     this.agentVisible,
     this.lastRunSuccess,
-    this.hasAgentSteps,
     this.isBusy = false,
     this.actions = const <ReusableFunctionCardAction>[],
   });
@@ -76,7 +75,6 @@ class ReusableFunctionCard extends StatelessWidget {
   final int failCount;
   final bool? lastRunSuccess;
   final bool? agentVisible;
-  final bool? hasAgentSteps;
   final bool isRunning;
   final VoidCallback? onRun;
   final Key? runButtonKey;
@@ -264,19 +262,6 @@ class ReusableFunctionCard extends StatelessWidget {
                       backgroundColor: agentVisible!
                           ? Colors.green.withValues(alpha: 0.10)
                           : palette.surfaceSecondary,
-                    ),
-                  if (hasAgentSteps != null)
-                    _MetricPill(
-                      label: _text(context, '执行方式', 'Mode'),
-                      value: hasAgentSteps!
-                          ? _text(context, '需自动执行', 'Auto')
-                          : _text(context, '无需模型', 'Local'),
-                      color: hasAgentSteps!
-                          ? Colors.orange.shade700
-                          : Colors.teal.shade700,
-                      backgroundColor: hasAgentSteps!
-                          ? Colors.orange.withValues(alpha: 0.10)
-                          : Colors.teal.withValues(alpha: 0.10),
                     ),
                 ],
               ),

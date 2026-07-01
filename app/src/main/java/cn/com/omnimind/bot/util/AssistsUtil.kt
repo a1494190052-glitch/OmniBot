@@ -243,6 +243,7 @@ class AssistsUtil {
                     put("arguments", arguments)
                     if (runContext.taskId.isNotBlank()) put("frontend_task_id", runContext.taskId)
                     if (runContext.runId.isNotBlank()) put("frontend_run_id", runContext.runId)
+                    put("frontend_parent", "vlm_task")
                 }
                 val result = OobFunctionToolHandler(context).runFunction(callArgs)
                 val success = result["success"] == true

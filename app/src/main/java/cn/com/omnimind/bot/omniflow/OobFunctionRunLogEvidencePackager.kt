@@ -53,7 +53,7 @@ class OobFunctionRunLogEvidencePackager {
         val runLog = mapArg(context["runlog"])
         val runId = firstNonBlank(runLog["run_id"])
         return """
-            Analyze this OmniFlow Function with the provided RunLog evidence, then call update_function again with analysis and the smallest safe patch.
+            Analyze this OmniFlow Function with the provided RunLog evidence, then return one JSON object containing analysis and the smallest safe patch.
 
             Required workflow:
             1. Compare function.steps with runlog.cards.
@@ -79,7 +79,7 @@ class OobFunctionRunLogEvidencePackager {
                 "${analysis.FIELD_OPS}": []
               }
             }
-            5. Call update_function with functionId="$functionId", run_id="$runId", analysis=<that object>, and patch=<${analysis.FIELD_RECOMMENDED_PATCH}> only when the evidence is clear.
+            5. Return {"analysis": <that object>, "patch": <${analysis.FIELD_RECOMMENDED_PATCH}>} only when the evidence is clear.
 
             Constraints:
             - If unsure, do not change the main path; return a suggested patch or an empty ${analysis.FIELD_RECOMMENDED_PATCH}.${analysis.FIELD_OPS}.

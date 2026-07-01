@@ -13,8 +13,6 @@ import cn.com.omnimind.bot.omniflow.OobFunctionToolNames
  */
 object RunLogReplayPolicy {
     const val schemaVersion: String = "oob.runlog_replay_policy.v1"
-    const val fixedReplayOnly: Boolean = false
-    const val fixedReplayRunner: String = "oob_omniflow_loop"
     const val EXECUTOR_OMNIFLOW: String = "omniflow"
     const val EXECUTOR_AGENT: String = "agent"
     const val EXECUTOR_TOOL: String = "tool"
@@ -55,14 +53,9 @@ object RunLogReplayPolicy {
         TOOL_OMNIFLOW_INGEST_RUN_LOG,
     ) + functionDataFlowTools
 
-    val omniflowFunctionTools: Set<String> = emptySet()
-
     val omniflowToolCallTools: Set<String> = setOf(
         TOOL_CALL_TOOL,
     )
-
-    /** Backward-compatible contract field. Graph route execution is not local. */
-    val providerOnlyTools: Set<String> = emptySet()
 
     val skipTools: Set<String> = setOf(
         "notification_send",
@@ -90,9 +83,6 @@ object RunLogReplayPolicy {
     fun isBrowserReplayTool(toolName: String): Boolean =
         normalizeToolName(toolName) == AgentToolNames.BROWSER_USE
 
-    fun isProviderOnlyTool(toolName: String): Boolean =
-        normalizeToolName(toolName) in providerOnlyTools
-
     fun isOmniflowToolCallTool(toolName: String): Boolean =
         normalizeToolName(toolName) in omniflowToolCallTools
 
@@ -100,7 +90,7 @@ object RunLogReplayPolicy {
         isOmniflowToolCallTool(toolName)
 
     fun isAgentTool(toolName: String): Boolean =
-        isPerceptionTool(toolName) || isDataFlowTool(toolName) || isProviderOnlyTool(toolName)
+        isPerceptionTool(toolName) || isDataFlowTool(toolName)
 
     fun shouldSkipTool(toolName: String): Boolean =
         normalizeToolName(toolName) in skipTools
@@ -110,7 +100,6 @@ object RunLogReplayPolicy {
         return when {
             normalized in perceptionTools -> "perception_only_step_without_recorded_actions"
             normalized in dataFlowTools -> "data_flow_tool_requires_live_context"
-            normalized in providerOnlyTools -> "provider_owned_replay_requires_omniflow"
             else -> "non_scriptable_or_vlm_step"
         }
     }

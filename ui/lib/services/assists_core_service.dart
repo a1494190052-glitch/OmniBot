@@ -804,17 +804,19 @@ class UtgManualRunResult {
           .toString()
           .trim();
 
-  String get executionStatus =>
-      (terminalState['execution_status'] ??
-              terminalState['executionStatus'] ??
-              rawJson['execution_status'] ??
-              rawJson['executionStatus'] ??
-              context['execution_status'] ??
-              context['executionStatus'] ??
-              terminalState['status'] ??
-              '')
-          .toString()
-          .trim();
+  String get executionStatus {
+    final status = (terminalState['execution_status'] ??
+            terminalState['executionStatus'] ??
+            rawJson['execution_status'] ??
+            rawJson['executionStatus'] ??
+            context['execution_status'] ??
+            context['executionStatus'] ??
+            terminalState['status'] ??
+            '')
+        .toString()
+        .trim();
+    return status;
+  }
 
   String get taskId =>
       (terminalState['taskId'] ??
@@ -834,18 +836,6 @@ class UtgManualRunResult {
   bool get completedVlmFallback =>
       executionStatus == 'completed_vlm_fallback' ||
       executionStatus == 'vlm_fallback_completed';
-
-  bool get startedAgentFallback {
-    if (completedVlmFallback) return false;
-    final agentTaskStarted =
-        terminalState['agent_task_started'] ??
-        rawJson['agent_task_started'] ??
-        context['agent_task_started'];
-    if (agentTaskStarted == false) return false;
-    return executionStatus == 'started_agent_fallback' ||
-        executionStatus == 'started_agent' ||
-        (success && taskId.isNotEmpty && modelRequired);
-  }
 
   bool get failed =>
       !success ||
@@ -3281,13 +3271,11 @@ class AssistsMessageService {
   static Future<Map<String, dynamic>> listOobReusableFunctions({
     int limit = 100,
     int offset = 0,
-    bool autoRegister = false,
     bool includeHidden = false,
   }) async {
     final result = await assistCore.invokeMethod('listOobReusableFunctions', {
       'limit': limit,
       'offset': offset,
-      'autoRegister': autoRegister,
       'includeHidden': includeHidden,
       'include_hidden': includeHidden,
     });

@@ -353,7 +353,8 @@ class VLMClient(
                 success = false,
                 step = null,
                 error = "Failed to parse native tool_call response: ${e.message}",
-                thinking = thinking
+                thinking = thinking,
+                shouldRetryForToolCall = true
             )
         }
     }
@@ -529,7 +530,7 @@ class VLMClient(
             throw IllegalArgumentException("Unsupported tool call: ${toolCall.function.name}")
         }
         val toolName = rawToolName
-        val args = parseArguments(toolName, toolCall.function.arguments)
+        val args = VLMToolDefinitions.parseArguments(toolName, toolCall.function.arguments)
         return when (toolName) {
             OobActionSchema.TOOL_CLICK -> ClickAction(
                 targetDescription = requireString(args, OobActionSchema.ARG_TARGET_DESCRIPTION),
@@ -618,25 +619,17 @@ class VLMClient(
     }
 
     private fun parseDynamicFunctionArguments(toolName: String, rawArguments: String): JsonObject {
-        val normalized = rawArguments.trim()
-        if (normalized.isEmpty()) return JsonObject(emptyMap())
-        val parsed = runCatching { json.parseToJsonElement(normalized) as? JsonObject }
-            .getOrElse { error ->
-                throw IllegalArgumentException(
-                    "Invalid tool arguments JSON for $toolName: ${error.message ?: "unknown parse failure"}",
-                    error,
-                )
-            } ?: throw IllegalArgumentException("Invalid tool arguments JSON for $toolName: function.arguments must be a JSON object")
+        val parsed = VLMToolDefinitions.parseRawArgumentsObject(
+            toolName = toolName,
+            rawArguments = rawArguments,
+            allowEmpty = true,
+        )
         return JsonObject(parsed.filterKeys { key ->
             !key.equals("tool_title", ignoreCase = true) &&
                 !key.equals("toolTitle", ignoreCase = true) &&
                 !key.equals("function_id", ignoreCase = true) &&
                 !key.equals("functionId", ignoreCase = true)
         })
-    }
-
-    private fun parseArguments(toolName: String, rawArguments: String): JsonObject {
-        return VLMToolArgumentParser.parse(toolName, rawArguments)
     }
 
     private fun isInternalRuntimeToolName(name: String): Boolean {

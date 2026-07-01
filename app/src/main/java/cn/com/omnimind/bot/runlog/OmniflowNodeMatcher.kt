@@ -426,7 +426,7 @@ internal object OmniflowNodeMatcher {
         val abstain = bestIdx < 0 || gate["decision"] != "execute"
 
         return MatchResult(
-            index = bestIdx,
+            index = if (abstain) -1 else bestIdx,
             abstain = abstain,
             pBest = pBest, pNull = pNull,
             confidence = entropyConfidence(probs),

@@ -8,12 +8,14 @@ import 'package:flutter/material.dart';
 import 'package:ui/features/home/pages/command_overlay/services/manual_recording_permission_guard.dart';
 import 'package:ui/l10n/app_text_localizer.dart';
 import 'package:ui/l10n/l10n.dart';
+import 'package:ui/services/model_vendor_catalog.dart';
 import 'package:ui/services/special_permission.dart';
 import 'package:ui/services/storage_service.dart';
 import 'package:ui/theme/theme_context.dart';
 import 'package:ui/widgets/glass_popup.dart';
 import 'package:ui/widgets/image_preview_overlay.dart';
 import 'package:ui/widgets/omni_glass.dart';
+import 'package:ui/widgets/provider_vendor_icon.dart';
 import 'package:ui/widgets/text_input_context_menu.dart';
 
 part 'chat_input_area_composer.dart';

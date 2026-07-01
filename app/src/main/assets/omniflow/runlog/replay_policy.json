@@ -43,11 +43,9 @@
     "go_to_node",
     "click_node"
   ],
-  "omniflow_function_tools": [],
   "omniflow_tool_call_tools": [
     "call_tool"
   ],
-  "provider_only_tools": [],
   "skip_tools": [
     "notification_send",
     "calendar_event_create",
@@ -60,8 +58,6 @@
     "perception": "perception_only_step_without_recorded_actions",
     "data_flow": "data_flow_tool_requires_live_context",
     "omniflow_graph": "omniflow_graph_local_execution",
-    "omniflow_function": "omniflow_function_local_execution",
-    "provider_only": "provider_owned_replay_requires_omniflow",
     "fallback": "non_scriptable_or_vlm_step"
   }
 }

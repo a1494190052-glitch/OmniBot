@@ -354,13 +354,11 @@ class DebugOobFunctionSegmentReceiver : BroadcastReceiver() {
                 "model_free_step_count" to steps.size,
                 "omniflow_step_count" to steps.size,
                 "agent_step_count" to 0,
-                "requires_agent_fallback" to false,
             ),
             "steps" to steps,
             "step_count" to steps.size,
             "omniflow_step_count" to steps.size,
             "agent_step_count" to 0,
-            "requires_agent_fallback" to false,
         ),
     )
 

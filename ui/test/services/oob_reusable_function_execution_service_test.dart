@@ -67,7 +67,6 @@ void main() {
       );
       expect(result.success, isTrue);
       expect(result.completedLocal, isTrue);
-      expect(result.startedAgentFallback, isFalse);
       expect(result.stepCount, 1);
       expect(result.activeStepCount, 1);
       expect(result.successStepCount, 1);
@@ -78,76 +77,7 @@ void main() {
     });
 
     test(
-      'parses Agent fallback start separately from local completion',
-      () async {
-        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
-            .setMockMethodCallHandler(assistCoreChannel, (call) async {
-              return <String, dynamic>{
-                'success': true,
-                'function_id': 'search_settings',
-                'execution_status': 'started_agent_fallback',
-                'terminal_state': <String, dynamic>{
-                  'status': 'started_agent_fallback',
-                  'execution_status': 'started_agent_fallback',
-                  'taskId': 'task-agent-1',
-                  'model_required': true,
-                  'local_steps_completed': 1,
-                  'agent_steps_pending': 2,
-                },
-                'context': <String, dynamic>{
-                  'step_results': <Map<String, dynamic>>[
-                    <String, dynamic>{
-                      'success': true,
-                      'tool': 'open_app',
-                      'executor': 'omniflow',
-                    },
-                    <String, dynamic>{
-                      'success': false,
-                      'tool': 'input_text',
-                      'executor': 'agent',
-                      'needs_agent': true,
-                      'fallback_available': true,
-                    },
-                  ],
-                },
-              };
-            });
-
-        final result = await AssistsMessageService.runOobReusableFunction(
-          functionId: 'search_settings',
-        );
-
-        expect(result.success, isTrue);
-        expect(result.executionStatus, 'started_agent_fallback');
-        expect(result.startedAgentFallback, isTrue);
-        expect(result.completedLocal, isFalse);
-        expect(result.taskId, 'task-agent-1');
-        expect(result.stepResults, hasLength(2));
-      },
-    );
-
-    test('does not classify failed Agent fallback start as handed off', () {
-      final result = UtgManualRunResult.fromMap(<String, dynamic>{
-        'success': false,
-        'function_id': 'search_settings',
-        'execution_status': 'failed',
-        'error_code': 'AGENT_RUN_ALREADY_ACTIVE',
-        'terminal_state': <String, dynamic>{
-          'status': 'error',
-          'execution_status': 'failed',
-          'taskId': 'task-agent-failed',
-          'agent_task_started': false,
-          'model_required': true,
-        },
-      });
-
-      expect(result.startedAgentFallback, isFalse);
-      expect(result.failed, isTrue);
-      expect(result.errorCode, 'AGENT_RUN_ALREADY_ACTIVE');
-    });
-
-    test(
-      'parses direct VLM fallback completion separately from agent start',
+      'parses direct VLM completion separately from local completion',
       () async {
         TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
             .setMockMethodCallHandler(assistCoreChannel, (call) async {
@@ -174,7 +104,6 @@ void main() {
         expect(result.success, isTrue);
         expect(result.executionStatus, 'completed_vlm_fallback');
         expect(result.completedVlmFallback, isTrue);
-        expect(result.startedAgentFallback, isFalse);
         expect(result.completedLocal, isFalse);
       },
     );

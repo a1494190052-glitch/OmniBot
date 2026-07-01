@@ -455,7 +455,7 @@ ArgSpec(
         ToolSpec(
             name = "call_tool",
             uiLabel = LocalizedText(zhCn = "调用工具", enUs = "Call tool"),
-            description = LocalizedText(zhCn = "内部工具调用动作。Function recall/replay 由运行时自动决定，普通 VLM/Agent fallback 不直接选择该动作。", enUs = "Internal tool-call action. Function recall/replay is selected by the runtime; normal VLM/Agent fallback does not choose this action directly."),
+            description = LocalizedText(zhCn = "内部工具调用动作。Function recall/replay 由运行时自动决定，普通 VLM/Agent 不直接选择该动作。", enUs = "Internal tool-call action. Function recall/replay is selected by the runtime; normal VLM/Agent output does not choose this action directly."),
             promptGuide = LocalizedText(zhCn = "- 内部动作：不要在普通 VLM/Agent 输出中生成 call_tool；Function 命中由运行时自动执行。", enUs = "- Internal action: do not emit call_tool in normal VLM/Agent output; Function hits are executed by the runtime."),
             argsTemplate = emptyMap(),
             args = listOf(

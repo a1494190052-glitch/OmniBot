@@ -19,6 +19,10 @@ const List<Color> _kDarkComposerFlowGradientColors = <Color>[
 ];
 
 mixin _ChatInputAreaComposerMixin on _ChatInputAreaStateBase {
+  final GlobalKey _modelPickerButtonKey = GlobalKey(
+    debugLabel: 'chat-model-picker-button',
+  );
+
   @override
   Widget build(BuildContext context) {
     final palette = context.omniPalette;
@@ -192,6 +196,10 @@ mixin _ChatInputAreaComposerMixin on _ChatInputAreaStateBase {
             height: 28,
             child: _buildManualRecordingButton(iconSize: 20),
           ),
+          const SizedBox(width: 4),
+        ],
+        if (_shouldShowModelPicker) ...[
+          _buildModelPickerButton(compact: false),
           const SizedBox(width: 4),
         ],
         if (_shouldShowCodexPermissionSelector) ...[
@@ -695,6 +703,10 @@ mixin _ChatInputAreaComposerMixin on _ChatInputAreaStateBase {
           ),
           const SizedBox(width: 2),
         ],
+        if (_shouldShowModelPicker) ...[
+          _buildModelPickerButton(compact: true),
+          const SizedBox(width: 2),
+        ],
         if (_shouldShowCodexPermissionSelector) ...[
           SizedBox(
             width: 24,
@@ -718,6 +730,58 @@ mixin _ChatInputAreaComposerMixin on _ChatInputAreaStateBase {
   bool get _shouldShowCodexPermissionSelector =>
       widget.codexPermissionMode != null &&
       widget.onCodexPermissionModeChanged != null;
+
+  bool get _shouldShowModelPicker => widget.modelPickerSettings != null;
+
+  Widget _buildModelPickerButton({required bool compact}) {
+    final settings = widget.modelPickerSettings!;
+    final palette = context.omniPalette;
+    final modelId = settings.modelId.trim();
+    final english = Localizations.localeOf(context).languageCode == 'en';
+    final enabled = settings.hasSelectableModels;
+    final vendor = modelId.isEmpty ? null : ModelVendorCatalog.resolve(modelId);
+    final selectedColor = palette.accentPrimary;
+
+    Future<void> openPicker() async {
+      final anchorContext = _modelPickerButtonKey.currentContext;
+      if (anchorContext == null || !enabled) return;
+      await Future<void>.sync(() => settings.onOpen(anchorContext));
+    }
+
+    return TextFieldTapRegion(
+      child: SizedBox(
+        key: _modelPickerButtonKey,
+        width: compact ? 24 : 28,
+        height: compact ? 24 : 28,
+        child: Listener(
+          behavior: HitTestBehavior.opaque,
+          onPointerDown: (_) => settings.onPointerDown?.call(),
+          child: Tooltip(
+            message: modelId.isEmpty
+                ? (english ? 'Select model' : '选择模型')
+                : modelId,
+            waitDuration: const Duration(milliseconds: 400),
+            child: InkWell(
+              key: const ValueKey('chat-input-model-picker-button'),
+              borderRadius: BorderRadius.circular(8),
+              onTap: enabled ? openPicker : null,
+              child: Center(
+                child: ProviderVendorIcon(
+                  vendor: vendor,
+                  size: compact ? 20 : 22,
+                  disabled: !enabled,
+                  forceMonochrome: true,
+                  monochromeColor: enabled
+                      ? selectedColor
+                      : palette.textTertiary.withValues(alpha: 0.82),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
 
   Widget _buildAnnotationButton({required double iconSize}) {
     final palette = context.omniPalette;

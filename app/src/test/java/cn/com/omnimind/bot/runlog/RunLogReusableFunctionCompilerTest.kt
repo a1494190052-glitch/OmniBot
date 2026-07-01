@@ -1,7 +1,6 @@
 package cn.com.omnimind.bot.runlog
 
 import cn.com.omnimind.baselib.runlog.InternalRunLogRecord
-import cn.com.omnimind.baselib.runlog.OobReusableFunctionStore
 import cn.com.omnimind.bot.omniflow.OobFunctionSchemaBuilder
 import com.google.gson.Gson
 import java.io.File
@@ -22,8 +21,6 @@ class RunLogReusableFunctionCompilerTest {
         assertEquals(RunLogReplayPolicy.coordinateActions, stringSet(policy["coordinate_actions"]))
         assertEquals(RunLogReplayPolicy.perceptionTools, stringSet(policy["perception_tools"]))
         assertEquals(RunLogReplayPolicy.dataFlowTools, stringSet(policy["data_flow_tools"]))
-        assertEquals(RunLogReplayPolicy.omniflowFunctionTools, stringSet(policy["omniflow_function_tools"]))
-        assertEquals(RunLogReplayPolicy.providerOnlyTools, stringSet(policy["provider_only_tools"]))
         assertEquals(RunLogReplayPolicy.skipTools, stringSet(policy["skip_tools"]))
     }
 
@@ -52,9 +49,7 @@ class RunLogReusableFunctionCompilerTest {
         )
 
         val capabilities = capabilitiesFrom(spec)
-        assertEquals(1, capabilities["agent_step_count"])
         assertEquals(0, capabilities["omniflow_step_count"])
-        assertEquals(true, capabilities["has_agent_steps"])
         assertEquals("oob.reusable_function.v1", spec["schema_version"])
         assertEquals("run_log", (spec["source"] as Map<*, *>)["kind"])
         assertFalse(spec.containsKey("runtime_targets"))
@@ -251,7 +246,7 @@ class RunLogReusableFunctionCompilerTest {
     }
 
     @Test
-    fun `recorded audio file name input becomes semantic function parameter`() {
+    fun `recorded audio file name input stays literal until agent enhancement`() {
         val spec = compile(
             listOf(
                 card(
@@ -269,20 +264,19 @@ class RunLogReusableFunctionCompilerTest {
 
         val parameters = spec["parameters"] as Map<*, *>
         val properties = parameters["properties"] as Map<*, *>
-        assertTrue(properties.containsKey("audio_file_name"))
-        assertFalse(properties.containsKey("input_text"))
+        assertTrue(properties.isEmpty())
 
         val action = (spec["actions"] as List<*>).single() as Map<*, *>
         val args = action["args"] as Map<*, *>
-        assertEquals("\${audio_file_name}", args["text"])
+        assertEquals("oob_audio_tau", args["text"])
 
         val metadata = spec["metadata"] as Map<*, *>
-        val bindings = metadata["oob_parameter_bindings"] as List<*>
-        assertEquals("audio_file_name", (bindings.single() as Map<*, *>)["parameter"])
+        assertFalse(metadata.containsKey("oob_parameter_bindings"))
+        assertFalse(metadata.containsKey("oob_legacy_parameters"))
     }
 
     @Test
-    fun `recorded contact inputs become semantic function parameters`() {
+    fun `recorded contact inputs stay literal until agent enhancement`() {
         val spec = compile(
             listOf(
                 card(
@@ -309,15 +303,13 @@ class RunLogReusableFunctionCompilerTest {
 
         val parameters = spec["parameters"] as Map<*, *>
         val properties = parameters["properties"] as Map<*, *>
-        assertTrue(properties.containsKey("contact_name"))
-        assertTrue(properties.containsKey("contact_phone"))
-        assertFalse(properties.containsKey("input_text"))
+        assertTrue(properties.isEmpty())
 
         val actions = spec["actions"] as List<*>
         val nameArgs = (actions[0] as Map<*, *>)["args"] as Map<*, *>
         val phoneArgs = (actions[1] as Map<*, *>)["args"] as Map<*, *>
-        assertEquals("\${contact_name}", nameArgs["text"])
-        assertEquals("\${contact_phone}", phoneArgs["text"])
+        assertEquals("OOB Contact Lambda", nameArgs["text"])
+        assertEquals("5558675309", phoneArgs["text"])
     }
 
     @Test
@@ -823,13 +815,10 @@ class RunLogReusableFunctionCompilerTest {
 
         val capabilities = capabilitiesFrom(spec)
         assertEquals(1, capabilities["omniflow_step_count"])
-        assertEquals(0, capabilities["agent_step_count"])
-        assertEquals(false, capabilities["has_agent_steps"])
     }
 
     @Test
     fun `provider only policy no longer classifies omniflow function execution tools as agent`() {
-        assertTrue(RunLogReplayPolicy.providerOnlyTools.isEmpty())
         for (toolName in listOf("call_tool")) {
             assertTrue(RunLogReplayPolicy.isOmniflowExecutionTool(toolName))
             assertFalse(RunLogReplayPolicy.isAgentTool(toolName))
@@ -1185,7 +1174,7 @@ class RunLogReusableFunctionCompilerTest {
     }
 
     @Test
-    fun `text input run log infers callable parameter and materializes changed argument`() {
+    fun `text input run log keeps literal argument and empty parameter schema`() {
         val spec = compile(
             listOf(
                 card("input_text", mapOf("text" to "hello")),
@@ -1195,27 +1184,20 @@ class RunLogReusableFunctionCompilerTest {
 
         val parameterSchema = parameterSchemaFrom(spec)
         assertEquals("object", parameterSchema["type"])
-        assertFalse((parameterSchema["required"] as List<*>).contains("input_text"))
-
-        val parameter = parameterPropertiesFrom(parameterSchema).getValue("input_text")
-        assertEquals("string", parameter["type"])
-        assertEquals("hello", parameter["default"])
-        assertEquals(
-            listOf("$.execution.steps[0].args.text", "$.actions[0].args.text"),
-            parameter["x_oob_bindings"],
-        )
+        assertTrue((parameterSchema["required"] as List<*>).isEmpty())
+        assertTrue(parameterPropertiesFrom(parameterSchema).isEmpty())
 
         val action = actionsFrom(spec).single()
         assertEquals("input_text", action["tool"])
-        assertEquals("${'$'}{input_text}", (action["args"] as Map<*, *>)["text"])
+        assertEquals("hello", (action["args"] as Map<*, *>)["text"])
 
-        val changed = OobReusableFunctionStore.materialize(
+        val changed = OobFunctionSchemaBuilder.materialize(
             spec,
             mapOf("input_text" to "world"),
         )
-        assertEquals("world", (stepsFrom(changed).single()["args"] as Map<*, *>)["text"])
+        assertEquals("hello", (stepsFrom(changed).single()["args"] as Map<*, *>)["text"])
 
-        val defaulted = OobReusableFunctionStore.materialize(spec, emptyMap())
+        val defaulted = OobFunctionSchemaBuilder.materialize(spec, emptyMap())
         assertEquals("hello", (stepsFrom(defaulted).single()["args"] as Map<*, *>)["text"])
     }
 
@@ -1237,7 +1219,7 @@ class RunLogReusableFunctionCompilerTest {
         assertEquals("speed first", ((actions[0] as Map<*, *>)["args"] as Map<*, *>)["target_description"])
         assertEquals("time first", ((actions[1] as Map<*, *>)["args"] as Map<*, *>)["target_description"])
 
-        val changed = OobReusableFunctionStore.materialize(
+        val changed = OobFunctionSchemaBuilder.materialize(
             spec,
             mapOf("speed_first" to "speed second", "time_first" to "time second"),
         )
@@ -1281,7 +1263,7 @@ class RunLogReusableFunctionCompilerTest {
             putAll(spec)
             remove("execution")
         }
-        val materializedActionOnly = OobReusableFunctionStore.materialize(actionOnlySpec, emptyMap())
+        val materializedActionOnly = OobFunctionSchemaBuilder.materialize(actionOnlySpec, emptyMap())
         val rebuiltStep = OobFunctionSchemaBuilder.materializedSteps(materializedActionOnly).single()
         val rebuiltArgs = rebuiltStep["args"] as Map<*, *>
         assertEquals("Alice", rebuiltArgs["text"])
