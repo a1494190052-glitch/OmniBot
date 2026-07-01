@@ -1,17 +1,17 @@
-package cn.com.omnimind.bot.omniflow
+package cn.com.omnimind.bot.omniflow.function
 import cn.com.omnimind.bot.runlog.argsForStep
 import cn.com.omnimind.bot.runlog.resolveActionName
 import cn.com.omnimind.baselib.runlog.OobActionSchema
 
-import cn.com.omnimind.bot.omniflow.OobFunctionJson.firstNonBlank
-import cn.com.omnimind.bot.omniflow.OobFunctionJson.mapArg
+import cn.com.omnimind.bot.omniflow.function.OmniFlowFunctionJson.firstNonBlank
+import cn.com.omnimind.bot.omniflow.function.OmniFlowFunctionJson.mapArg
 import cn.com.omnimind.bot.runlog.RunLogReplayPolicy
 
 /**
  * Normalizes raw step Maps into the canonical OmniFlow step format.
- * Used by OobFunctionUpdateService (insert_step) and OobFunctionManagementService (simple registration).
+ * Used by OmniFlowFunctionService simple registration.
  */
-internal object OobFunctionStepNormalizer {
+internal object OmniFlowFunctionStepNormalizer {
 
     fun normalizeSimpleRegisteredStep(
         raw: Map<String, Any?>,

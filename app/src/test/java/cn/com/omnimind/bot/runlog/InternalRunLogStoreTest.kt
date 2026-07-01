@@ -5,8 +5,9 @@ import android.content.ContextWrapper
 import android.content.SharedPreferences
 import cn.com.omnimind.baselib.runlog.InternalRunLogFinishEvent
 import cn.com.omnimind.baselib.runlog.InternalRunLogStore
-import cn.com.omnimind.bot.omniflow.OobFunctionRepository
-import cn.com.omnimind.bot.omniflow.WorkspaceFunctionStore
+import cn.com.omnimind.bot.omniflow.function.OmniFlowFunctionSchema
+import cn.com.omnimind.bot.omniflow.function.OmniFlowFunctionService
+import cn.com.omnimind.bot.omniflow.function.OmniFlowFunctionStore
 import java.io.File
 import java.nio.file.Files
 import org.junit.Assert.assertEquals
@@ -250,10 +251,10 @@ class InternalRunLogStoreTest {
                 doneReason = "finished"
             )
 
-            val result = OobFunctionRepository(
+            val result = OmniFlowFunctionService(
                 context = context,
-                workspaceFunctionStore = WorkspaceFunctionStore(File(context.root, "workspace"))
-            ).register(
+                workspaceFunctionStore = OmniFlowFunctionStore(File(context.root, "workspace"))
+            ).registerFunction(
                 linkedMapOf(
                     "schema_version" to "oob.reusable_function.v1",
                     "function_id" to functionId,
@@ -313,8 +314,8 @@ class InternalRunLogStoreTest {
                 )
             }
 
-            val workspaceStore = WorkspaceFunctionStore(File(context.root, "workspace"))
-            val repository = OobFunctionRepository(
+            val workspaceStore = OmniFlowFunctionStore(File(context.root, "workspace"))
+            val service = OmniFlowFunctionService(
                 context = context,
                 workspaceFunctionStore = workspaceStore
             )
@@ -338,7 +339,7 @@ class InternalRunLogStoreTest {
                 )
             )
 
-            repository.register(
+            service.registerFunction(
                 linkedMapOf<String, Any?>().apply {
                     putAll(baseSpec)
                     put(
@@ -351,7 +352,7 @@ class InternalRunLogStoreTest {
                     )
                 }
             )
-            val secondResult = repository.register(
+            val secondResult = service.registerFunction(
                 linkedMapOf<String, Any?>().apply {
                     putAll(baseSpec)
                     put(
@@ -366,12 +367,15 @@ class InternalRunLogStoreTest {
 
             assertEquals(true, secondResult["success"])
             assertEquals(2, secondResult["run_log_binding_count"])
-            val stored = repository.get(functionId)!!
-            assertEquals(listOf(firstRunId, secondRunId), OobFunctionRepository.sourceRunIds(stored))
+            val stored = service.getFunction(mapOf("function_id" to functionId))["function"] as Map<String, Any?>
+            assertEquals(listOf(firstRunId, secondRunId), OmniFlowFunctionSchema.sourceRunIds(stored))
             val workspaceStored = workspaceStore.get(functionId)!!
-            assertEquals(listOf(firstRunId, secondRunId), OobFunctionRepository.sourceRunIds(workspaceStored))
-            assertEquals(listOf(firstRunId, secondRunId), repository.sourceRunIdsForFunction(functionId))
-            val sourceRuns = repository.sourceRunSummariesForFunction(functionId)
+            assertEquals(listOf(firstRunId, secondRunId), OmniFlowFunctionSchema.sourceRunIds(workspaceStored))
+            val sourceRuns = InternalRunLogStore.sourceRunSummariesForFunction(
+                context = context,
+                functionId = functionId,
+                sourceRunIds = OmniFlowFunctionSchema.sourceRunIds(stored),
+            )
             assertEquals(listOf(firstRunId, secondRunId), sourceRuns["source_run_ids"])
             assertEquals(2, sourceRuns["source_run_count"])
             assertEquals(2, sourceRuns["source_run_summary_count"])

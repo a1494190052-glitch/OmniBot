@@ -108,8 +108,8 @@ class ManualRecordingRunLogRecoveryTest {
             "app/src/debug/java/cn/com/omnimind/bot/debug/DebugHumanRunRecordingReceiver.kt"
         )
 
-        assertTrue(source.contains("OobRunLogFunctionConverter(context).convertRunLog("))
-        assertTrue(source.contains("register = true"))
+        assertTrue(source.contains("OmniFlowFunctionService(context).convertRunLog("))
+        assertTrue(source.contains("\"register\" to true"))
         assertTrue(source.contains("\"recording_success\" to success"))
         assertTrue(source.contains("\"conversion_success\" to conversionSuccess"))
         assertTrue(source.contains("\"function_registered\" to (conversion?.get(\"registered\") == true)"))

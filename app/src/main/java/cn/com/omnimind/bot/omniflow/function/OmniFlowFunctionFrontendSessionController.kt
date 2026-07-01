@@ -1,10 +1,11 @@
-package cn.com.omnimind.bot.agent.tool.handlers
+package cn.com.omnimind.bot.omniflow.function
 
 import cn.com.omnimind.assists.OmniFlowUiSession
 import cn.com.omnimind.baselib.util.OmniLog
 import cn.com.omnimind.bot.agent.ManualToolStopCancellationException
+import cn.com.omnimind.bot.agent.tool.handlers.SharedHelper
 import cn.com.omnimind.bot.manager.AssistsCoreManager
-import cn.com.omnimind.bot.omniflow.OobFunctionJson.firstNonBlank
+import cn.com.omnimind.bot.omniflow.function.OmniFlowFunctionJson.firstNonBlank
 import cn.com.omnimind.uikit.loader.cat.DraggableBallInstance
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
@@ -17,7 +18,7 @@ import java.util.concurrent.atomic.AtomicBoolean
  * running. The replay handler owns execution; this controller only manages UI
  * lifecycle and user stop signals.
  */
-class OobFunctionFrontendSessionController(
+class OmniFlowFunctionFrontendSessionController(
     private val helper: SharedHelper,
 ) {
     suspend fun start(
@@ -252,7 +253,7 @@ class OobFunctionFrontendSessionController(
     }
 
     private companion object {
-        const val TAG = "OobFunctionFrontendSession"
+        const val TAG = "OmniFlowFunctionFrontendSession"
         const val OMNIFLOW_FINISH_VISIBLE_MS = 900L
         val STEP_PROGRESS_REGEX = Regex("""第\s*(\d+)\s*/\s*\d+\s*步""")
 
@@ -270,7 +271,7 @@ class OobFunctionFrontendSessionController(
             val currentStepIndex = currentStepNumber
                 ?.takeIf { it > 0 }
                 ?.minus(1)
-            AssistsCoreManager.dispatchOobFunctionRunProgress(
+            AssistsCoreManager.dispatchOmniFlowFunctionRunProgress(
                 linkedMapOf<String, Any?>(
                     "status" to status,
                     "run_id" to runId,

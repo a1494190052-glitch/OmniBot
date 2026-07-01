@@ -79,7 +79,7 @@ object PromptTemplate {
             1. 每轮必须且只能返回 tools[] 中一个原生 tool_call。
             2. function.arguments 必须是严格 JSON object，并满足所选工具的 schema。
             3. schema.required 里的字段必须全部填写；可选字段不能替代 required 字段。
-            4. 不要输出 tools[] 外的工具名、旧文本动作格式、call_tool、function_id 或隐藏 Function 工具；若 tools[] 中出现 run_recalled_workflow_*，它是当前页面可选的已召回工作流工具，可与普通 UI action 同级选择。
+            4. 不要输出 tools[] 外的工具名、旧文本动作格式、call_tool、function_id 或隐藏 Function 工具；若 tools[] 中出现 run_recalled_workflow_*，它是本轮已召回工作流工具，明显匹配当前目标时优先调用，否则继续普通 UI action。
             5. assistant.content 可为空；若返回，只能是 {"summary":"约20字本步摘要"}，不要包含动作参数。
 
             每轮先判断目标是否已经达成；若已达成，直接调用 finished，不要重复点击已经聚焦或已经打开的目标控件。
@@ -92,7 +92,7 @@ object PromptTemplate {
             1. Each turn must return exactly one native tool_call from tools[].
             2. function.arguments must be a strict JSON object that satisfies the selected tool schema.
             3. Every field listed in schema.required must be present; optional fields cannot replace required fields.
-            4. Do not output tool names outside tools[], legacy text action formats, call_tool, function_id, or hidden Function tools. If tools[] includes run_recalled_workflow_*, it is an optional recalled workflow tool for the current page and can be chosen at the same level as ordinary UI actions.
+            4. Do not output tool names outside tools[], legacy text action formats, call_tool, function_id, or hidden Function tools. If tools[] includes run_recalled_workflow_*, it is a recalled workflow tool for this turn; prefer it when it clearly matches the current goal, otherwise continue with ordinary UI actions.
             5. assistant.content may be empty. If present, it must only be {"summary":"about 20 words for this step"} and must not contain action arguments.
 
             First check whether the goal is already satisfied this turn. If it is, call finished and do not click a target control that is already focused or already open.

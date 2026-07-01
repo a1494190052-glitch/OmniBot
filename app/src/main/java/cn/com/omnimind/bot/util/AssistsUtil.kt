@@ -26,7 +26,7 @@ import cn.com.omnimind.baselib.util.exception.PermissionException
 import cn.com.omnimind.bot.App
 import cn.com.omnimind.bot.agent.AgentToolJson
 import cn.com.omnimind.bot.manager.OmniForegroundService
-import cn.com.omnimind.bot.agent.tool.handlers.OobFunctionToolHandler
+import cn.com.omnimind.bot.omniflow.function.OmniFlowFunctionRun
 import cn.com.omnimind.bot.util.AssistsUtil.Core.createCompanionTask
 import cn.com.omnimind.uikit.UIKit
 import cn.com.omnimind.uikit.api.callback.HalfScreenApi
@@ -245,7 +245,7 @@ class AssistsUtil {
                     if (runContext.runId.isNotBlank()) put("frontend_run_id", runContext.runId)
                     put("frontend_parent", "vlm_task")
                 }
-                val result = OobFunctionToolHandler(context).runFunction(callArgs)
+                val result = OmniFlowFunctionRun(context).runFunction(callArgs)
                 val success = result["success"] == true
                 val stepCount = result["step_count"]?.toString()?.toIntOrNull()
                 val failedStep = result["failed_step_index"]?.toString()?.toIntOrNull()

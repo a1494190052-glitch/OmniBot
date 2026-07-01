@@ -179,7 +179,7 @@ class AgentSystemPromptTest {
         ).readText()
 
         assertTrue(source.contains("if (isLightweightToolProfile)"))
-        assertTrue(source.contains("OobFunctionSkillProfile.promptCandidateContext"))
+        assertTrue(source.contains("OmniFlowFunctionApi.promptCandidateContext"))
         assertTrue(source.contains("currentPackageName = currentPackageName"))
         assertTrue(source.contains("} else {\n                null\n            }"))
     }

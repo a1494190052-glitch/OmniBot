@@ -7,7 +7,7 @@ import cn.com.omnimind.bot.agent.workspace.memory.LongTermMemoryIndex
 import cn.com.omnimind.bot.agent.workspace.memory.MemoryRetrievalPipeline
 import cn.com.omnimind.bot.agent.workspace.memory.TurnMemoryLoadTracker
 import cn.com.omnimind.bot.mcp.RemoteMcpDiscoveryRegistry
-import cn.com.omnimind.bot.omniflow.OobFunctionSkillProfile
+import cn.com.omnimind.bot.omniflow.function.OmniFlowFunctionApi
 import java.util.concurrent.atomic.AtomicReference
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -194,7 +194,7 @@ class OmniAgentExecutor(
                 isLightweightToolProfile = isLightweightToolProfile,
             )
             val oobFunctionCandidateContext = if (isLightweightToolProfile) {
-                OobFunctionSkillProfile.promptCandidateContext(
+                OmniFlowFunctionApi.promptCandidateContext(
                     context = context,
                     locale = promptLocale,
                     goal = userMessage,
@@ -375,7 +375,7 @@ class OmniAgentExecutor(
             entries = installedSkills
         )
         val forced = if (forceOmniflowSkill) {
-            installedSkills.firstOrNull { it.id == OobFunctionSkillProfile.SKILL_ID }
+            installedSkills.firstOrNull { it.id == OmniFlowFunctionApi.SKILL_ID }
                 ?.let { skill ->
                     listOf(
                         SkillMatchResult(

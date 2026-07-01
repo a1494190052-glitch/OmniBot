@@ -373,12 +373,30 @@ class ActionExecutor(
             OobActionSchema.TOOL_INPUT_TEXT -> {
                 val x = numberArg(args, OobActionSchema.ARG_X)?.toFloat()
                 val y = numberArg(args, OobActionSchema.ARG_Y)?.toFloat()
+                val text = stringArg(args, OobActionSchema.ARG_TEXT)
+                val targetDescription = stringArg(args, OobActionSchema.ARG_TARGET_DESCRIPTION)
+                val nodeResourceId = stringArg(
+                    args,
+                    OobActionSchema.ARG_NODE_RESOURCE_ID,
+                    OobActionSchema.ARG_NODE_ID,
+                    "resource_id",
+                    "nodeResourceId",
+                )
+                if (deviceOperator is AndroidDeviceOperator) {
+                    return deviceOperator.inputText(
+                        text = text,
+                        targetDescription = targetDescription,
+                        x = x,
+                        y = y,
+                        nodeResourceId = nodeResourceId,
+                    )
+                }
                 if (x != null && y != null) {
                     val focusResult = deviceOperator.clickCoordinate(x, y)
                     if (!focusResult.success) return focusResult
                     delay(INPUT_FOCUS_DELAY_MS)
                 }
-                deviceOperator.inputText(stringArg(args, OobActionSchema.ARG_TEXT))
+                deviceOperator.inputText(text)
             }
 
             OobActionSchema.TOOL_SWIPE -> dispatchSwipe(args)

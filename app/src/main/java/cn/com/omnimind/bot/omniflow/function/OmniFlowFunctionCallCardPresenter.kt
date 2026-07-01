@@ -1,13 +1,14 @@
-package cn.com.omnimind.bot.agent.tool.handlers
+package cn.com.omnimind.bot.omniflow.function
 
-import cn.com.omnimind.bot.omniflow.OobFunctionJson.firstNonBlank
+import cn.com.omnimind.bot.agent.tool.handlers.SharedHelper
+import cn.com.omnimind.bot.omniflow.function.OmniFlowFunctionJson.firstNonBlank
 
 /**
  * Shapes tool-card payloads for Function calls during replay. Execution remains
  * in the replay handler; this presenter only owns UI-facing card text and JSON
  * payload structure.
  */
-class OobFunctionCallCardPresenter(
+class OmniFlowFunctionCallCardPresenter(
     private val helper: SharedHelper,
 ) {
     fun cardId(parentToolCallId: String?, toolName: String, stepId: String): String {
@@ -51,8 +52,8 @@ class OobFunctionCallCardPresenter(
         val resultPayload = result?.let {
             linkedMapOf<String, Any?>(
                 "function_id" to functionId.takeIf { id -> id.isNotBlank() },
-                "source" to OobFunctionToolHandler.FUNCTION_RUN_SOURCE,
-                "run_source" to OobFunctionToolHandler.FUNCTION_RUN_SOURCE,
+                "source" to OmniFlowFunctionRun.FUNCTION_RUN_SOURCE,
+                "run_source" to OmniFlowFunctionRun.FUNCTION_RUN_SOURCE,
                 "runner" to it["runner"],
                 "called_function_run_id" to it["called_function_run_id"],
                 "called_function_step_count" to it["called_function_step_count"],
@@ -70,10 +71,10 @@ class OobFunctionCallCardPresenter(
             "toolName" to toolName,
             "displayName" to helper.localized("复用指令"),
             "toolType" to "oob_function",
-            "source" to OobFunctionToolHandler.FUNCTION_RUN_SOURCE,
-            "runSource" to OobFunctionToolHandler.FUNCTION_RUN_SOURCE,
-            "run_source" to OobFunctionToolHandler.FUNCTION_RUN_SOURCE,
-            "runner" to (result?.get("runner") ?: OobFunctionToolHandler.FUNCTION_DIRECT_RUNNER),
+            "source" to OmniFlowFunctionRun.FUNCTION_RUN_SOURCE,
+            "runSource" to OmniFlowFunctionRun.FUNCTION_RUN_SOURCE,
+            "run_source" to OmniFlowFunctionRun.FUNCTION_RUN_SOURCE,
+            "runner" to (result?.get("runner") ?: OmniFlowFunctionRun.FUNCTION_DIRECT_RUNNER),
             "toolTitle" to if (functionId.isNotBlank()) {
                 "${helper.localized("复用指令")}：$functionId"
             } else {

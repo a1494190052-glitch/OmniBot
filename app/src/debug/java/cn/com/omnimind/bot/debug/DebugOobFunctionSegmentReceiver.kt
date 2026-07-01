@@ -8,9 +8,9 @@ import cn.com.omnimind.accessibility.service.AssistsService
 import cn.com.omnimind.assists.controller.accessibility.AccessibilityController
 import cn.com.omnimind.assists.task.vlmserver.AndroidDeviceOperator
 import cn.com.omnimind.baselib.util.OmniLog
-import cn.com.omnimind.bot.agent.tool.handlers.OobFunctionToolHandler
+import cn.com.omnimind.bot.omniflow.function.OmniFlowFunctionRun
 import cn.com.omnimind.bot.runlog.RunLogPagePackageInference
-import cn.com.omnimind.bot.runlog.OobFunctionManagementService
+import cn.com.omnimind.bot.omniflow.function.OmniFlowFunctionService
 import cn.com.omnimind.bot.util.AssistsUtil
 import com.google.gson.GsonBuilder
 import kotlinx.coroutines.CoroutineScope
@@ -79,7 +79,7 @@ class DebugOobFunctionSegmentReceiver : BroadcastReceiver() {
         goal: String,
     ): Map<String, Any?> {
         val timing = ValidationTiming()
-        val managementService = OobFunctionManagementService(context)
+        val managementService = OmniFlowFunctionService(context)
         timing.measure("wait_accessibility_ms") {
             waitForAccessibility(context)
         }
@@ -119,7 +119,7 @@ class DebugOobFunctionSegmentReceiver : BroadcastReceiver() {
             )
         }
         val parentRun = timing.measure("parent_run_ms") {
-            OobFunctionToolHandler(context).runFunction(
+            OmniFlowFunctionRun(context).runFunction(
                 mapOf(
                     "function_id" to parentFunctionId,
                     "goal" to goal,

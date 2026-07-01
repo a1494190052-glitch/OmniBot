@@ -75,7 +75,7 @@ class VLMClient(
         val dynamicTools = VLMToolDefinitions
             .dynamicToolsFromDefinitions(promptContext.dynamicToolDefinitions)
             .filterNot { it.function.name in hiddenDynamicFunctionToolNames }
-        val tools = (baseTools + dynamicTools).distinctBy { it.function.name }
+        val tools = (dynamicTools + baseTools).distinctBy { it.function.name }
         val defaultToolCount = VLMToolDefinitions.tools().size
 
         OmniLog.i(
@@ -113,7 +113,7 @@ class VLMClient(
     private fun UIContext.withDynamicFunctionCallToolGuidance(functionNames: Set<String>): UIContext {
         if (functionNames.isEmpty()) return this
         val hint = "Recalled Functions for this turn are handled by the local runtime. " +
-            "You may call a recalled workflow tool if it appears in tools[] and clearly matches the current step. " +
+            "Prefer a recalled workflow tool over manual UI actions when it clearly matches the current step goal. " +
             "Do not emit call_tool, function_id, or raw Function ids."
         val mergedGuidance = listOf(stepSkillGuidance.trim(), hint)
             .filter(String::isNotBlank)

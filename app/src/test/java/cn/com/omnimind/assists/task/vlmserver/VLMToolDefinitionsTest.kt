@@ -111,7 +111,7 @@ class VLMToolDefinitionsTest {
         assertTrue(promptGuide.contains("schema.required"))
         assertTrue(promptGuide.contains("Function replay is handled by the local runtime"))
         assertTrue(promptGuide.contains("run_recalled_workflow_*"))
-        assertTrue(promptGuide.contains("same level as ordinary UI actions"))
+        assertTrue(promptGuide.contains("prefer it when it clearly matches the current goal"))
         assertTrue(promptGuide.contains("do not emit call_tool, function_id, or hidden Function tools"))
         assertTrue(promptGuide.contains("Action choice: use click for visible buttons"))
         assertTrue(promptGuide.contains("use input_text when known text must be typed"))

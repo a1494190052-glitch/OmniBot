@@ -1,14 +1,14 @@
-package cn.com.omnimind.bot.omniflow
+package cn.com.omnimind.bot.omniflow.function
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-class OobFunctionParameterBindingNormalizerTest {
+class OmniFlowFunctionParameterBindingNormalizerTest {
     @Test
     fun `normalizes input text step parameter into binding table and materializes`() {
-        val normalized = OobFunctionParameterBindingNormalizer.normalize(
+        val normalized = OmniFlowFunctionParameterBindingNormalizer.normalize(
             mapOf(
                 "function_id" to "xiaohongshu_search",
                 "name" to "小红书搜索关键词",
@@ -57,7 +57,7 @@ class OobFunctionParameterBindingNormalizerTest {
             (table.single() as Map<*, *>)["bindings"],
         )
 
-        val materialized = OobFunctionSchemaBuilder.materialize(
+        val materialized = OmniFlowFunctionSchema.materialize(
             normalized,
             mapOf("input_text_3" to "猫猫"),
         )
@@ -74,7 +74,7 @@ class OobFunctionParameterBindingNormalizerTest {
 
     @Test
     fun `supplied argument without binding is rejected by validator`() {
-        val materialized = OobFunctionSchemaBuilder.materialize(
+        val materialized = OmniFlowFunctionSchema.materialize(
             mapOf(
                 "function_id" to "bad_search",
                 "parameters" to mapOf(
@@ -95,7 +95,7 @@ class OobFunctionParameterBindingNormalizerTest {
             mapOf("search_query" to "猫猫"),
         )
 
-        val validation = OobFunctionArgumentBindingValidator.validate(materialized)
+        val validation = OmniFlowFunctionArgumentBindingValidator.validate(materialized)
         assertFalse(validation.success)
         assertTrue(validation.errorMessage.contains("search_query"))
         val unbound = validation.diagnostics["unbound_arguments"] as List<*>
@@ -104,7 +104,7 @@ class OobFunctionParameterBindingNormalizerTest {
 
     @Test
     fun `undeclared runtime arguments are ignored instead of blocking replay`() {
-        val normalized = OobFunctionParameterBindingNormalizer.normalize(
+        val normalized = OmniFlowFunctionParameterBindingNormalizer.normalize(
             mapOf(
                 "function_id" to "androidworld_file_delete",
                 "parameters" to mapOf(
@@ -126,7 +126,7 @@ class OobFunctionParameterBindingNormalizerTest {
             )
         )
 
-        val materialized = OobFunctionSchemaBuilder.materialize(
+        val materialized = OmniFlowFunctionSchema.materialize(
             normalized,
             mapOf(
                 "file_name" to "new.pdf",
@@ -143,12 +143,12 @@ class OobFunctionParameterBindingNormalizerTest {
             listOf("file_name", "subfolder", "noise_candidates", "seed"),
             ignored.map { (it as Map<*, *>)["name"] },
         )
-        assertTrue(OobFunctionArgumentBindingValidator.validate(materialized).success)
+        assertTrue(OmniFlowFunctionArgumentBindingValidator.validate(materialized).success)
     }
 
     @Test
     fun `normalizes semantic parameter into function call argument binding`() {
-        val normalized = OobFunctionParameterBindingNormalizer.normalize(
+        val normalized = OmniFlowFunctionParameterBindingNormalizer.normalize(
             mapOf(
                 "function_id" to "parent_search",
                 "name" to "小红书搜索",
@@ -189,7 +189,7 @@ class OobFunctionParameterBindingNormalizerTest {
             (topLevelTable.single() as Map<*, *>)["bindings"],
         )
 
-        val materialized = OobFunctionSchemaBuilder.materialize(
+        val materialized = OmniFlowFunctionSchema.materialize(
             normalized,
             mapOf("search_query" to "猫猫"),
         )
@@ -198,7 +198,7 @@ class OobFunctionParameterBindingNormalizerTest {
         val args = steps[0]["args"] as Map<*, *>
         val functionArguments = args["arguments"] as Map<*, *>
         assertEquals("猫猫", functionArguments["query"])
-        assertTrue(OobFunctionArgumentBindingValidator.validate(materialized).success)
+        assertTrue(OmniFlowFunctionArgumentBindingValidator.validate(materialized).success)
     }
 
     @Test
@@ -224,7 +224,7 @@ class OobFunctionParameterBindingNormalizerTest {
             ),
         )
 
-        val materialized = OobFunctionSchemaBuilder.materialize(
+        val materialized = OmniFlowFunctionSchema.materialize(
             spec,
             mapOf("search_query" to "猫猫"),
         )
@@ -233,12 +233,58 @@ class OobFunctionParameterBindingNormalizerTest {
         val args = steps[0]["args"] as Map<*, *>
         val functionArguments = args["arguments"] as Map<*, *>
         assertEquals("猫猫", functionArguments["search_query"])
-        assertTrue(OobFunctionArgumentBindingValidator.validate(materialized).success)
+        assertTrue(OmniFlowFunctionArgumentBindingValidator.validate(materialized).success)
+    }
+
+    @Test
+    fun `agent parameter descriptor binds query into input text step`() {
+        val spec = mapOf(
+            "function_id" to "zhihu_search",
+            "name" to "知乎搜索 \${query}",
+            "description" to "打开知乎搜索 \${query}",
+            "parameters" to listOf(
+                mapOf(
+                    "name" to "query",
+                    "type" to "string",
+                    "description" to "搜索关键词",
+                    "required" to true,
+                    "bindings" to listOf("$.execution.steps[0].args.text"),
+                ),
+            ),
+            "execution" to mapOf(
+                "steps" to listOf(
+                    step(
+                        "input_text",
+                        mapOf(
+                            "text" to "猫猫",
+                            "target_description" to "搜索框",
+                        ),
+                    ),
+                ),
+            ),
+        )
+
+        val schema = OmniFlowFunctionSchema.inputSchema(spec)
+        val properties = schema["properties"] as Map<*, *>
+        val query = properties["query"] as Map<*, *>
+        assertEquals(listOf("$.execution.steps[0].args.text"), query["x_oob_bindings"])
+        assertEquals(listOf("query"), schema["required"])
+
+        val materialized = OmniFlowFunctionSchema.materialize(
+            spec,
+            mapOf("query" to "清华大学"),
+        )
+        val steps = ((materialized["execution"] as Map<*, *>)["steps"] as List<*>)
+            .map { it as Map<*, *> }
+        val args = steps[0]["args"] as Map<*, *>
+        assertEquals("清华大学", args["text"])
+        assertEquals("知乎搜索 清华大学", materialized["name"])
+        assertTrue(OmniFlowFunctionArgumentBindingValidator.validate(materialized).success)
     }
 
     @Test
     fun `internal replay arguments are hidden from function schema and ignored at runtime`() {
-        val normalized = OobFunctionParameterBindingNormalizer.normalize(
+        val normalized = OmniFlowFunctionParameterBindingNormalizer.normalize(
             mapOf(
                 "function_id" to "open_game_and_click",
                 "parameters" to mapOf(
@@ -258,13 +304,13 @@ class OobFunctionParameterBindingNormalizerTest {
             )
         )
 
-        val schema = OobFunctionSchemaBuilder.inputSchema(normalized)
+        val schema = OmniFlowFunctionSchema.inputSchema(normalized)
         val properties = schema["properties"] as Map<*, *>
         assertFalse(properties.containsKey("package_name"))
         assertFalse(properties.containsKey("target_description"))
-        assertEquals(emptyList<String>(), OobFunctionSchemaBuilder.missingRequiredArguments(normalized, emptyMap()))
+        assertEquals(emptyList<String>(), OmniFlowFunctionSchema.missingRequiredArguments(normalized, emptyMap()))
 
-        val materialized = OobFunctionSchemaBuilder.materialize(
+        val materialized = OmniFlowFunctionSchema.materialize(
             normalized,
             mapOf(
                 "package_name" to "com.hupu.games",
@@ -278,12 +324,12 @@ class OobFunctionParameterBindingNormalizerTest {
             listOf("package_name", "target_description"),
             ignored.map { (it as Map<*, *>)["name"] },
         )
-        assertTrue(OobFunctionArgumentBindingValidator.validate(materialized).success)
+        assertTrue(OmniFlowFunctionArgumentBindingValidator.validate(materialized).success)
     }
 
     @Test
     fun `semantic click parameter remains public when explicitly bound`() {
-        val normalized = OobFunctionParameterBindingNormalizer.normalize(
+        val normalized = OmniFlowFunctionParameterBindingNormalizer.normalize(
             mapOf(
                 "function_id" to "click_brand",
                 "parameters" to mapOf(
@@ -304,10 +350,10 @@ class OobFunctionParameterBindingNormalizerTest {
             )
         )
 
-        val schema = OobFunctionSchemaBuilder.inputSchema(normalized)
+        val schema = OmniFlowFunctionSchema.inputSchema(normalized)
         val properties = schema["properties"] as Map<*, *>
         assertTrue(properties.containsKey("merchant_name"))
-        val materialized = OobFunctionSchemaBuilder.materialize(
+        val materialized = OmniFlowFunctionSchema.materialize(
             normalized,
             mapOf("merchant_name" to "麦当劳"),
         )
@@ -315,7 +361,7 @@ class OobFunctionParameterBindingNormalizerTest {
             .map { it as Map<*, *> }
         val args = steps[0]["args"] as Map<*, *>
         assertEquals("麦当劳", args["target_description"])
-        assertTrue(OobFunctionArgumentBindingValidator.validate(materialized).success)
+        assertTrue(OmniFlowFunctionArgumentBindingValidator.validate(materialized).success)
     }
 
     private fun step(tool: String, args: Map<String, Any?>): Map<String, Any?> =

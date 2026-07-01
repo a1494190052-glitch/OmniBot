@@ -6,7 +6,7 @@ import android.content.Intent
 import android.util.Base64
 import cn.com.omnimind.assists.controller.accessibility.AccessibilityController
 import cn.com.omnimind.baselib.util.OmniLog
-import cn.com.omnimind.bot.runlog.OobFunctionManagementService
+import cn.com.omnimind.bot.omniflow.function.OmniFlowFunctionService
 import com.google.gson.GsonBuilder
 import java.io.File
 
@@ -25,7 +25,7 @@ class DebugOobRecallReceiver : BroadcastReceiver() {
         val topK = intent?.getIntExtra("k", 8)?.coerceIn(1, 50) ?: 8
 
         val result = runCatching {
-            OobFunctionManagementService(appContext).recall(
+            OmniFlowFunctionService(appContext).recall(
                 linkedMapOf(
                     "goal" to goal,
                     "current_package" to currentPackage,

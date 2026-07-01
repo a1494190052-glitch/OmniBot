@@ -1,6 +1,6 @@
-package cn.com.omnimind.bot.runlog
+package cn.com.omnimind.bot.omniflow.function
 
-import cn.com.omnimind.bot.runlog.mapArg
+import cn.com.omnimind.bot.omniflow.function.OmniFlowFunctionJson.mapArg
 
 /**
  * Tracks phase timing for Function calls made through the Function management.
@@ -8,7 +8,7 @@ import cn.com.omnimind.bot.runlog.mapArg
  * The caller decides which phases to measure; this class owns the timing
  * payload shape and merge behavior so route code stays focused on routing.
  */
-class OobFunctionCallTiming {
+class OmniFlowFunctionCallTiming {
     private val startedAtNanos = System.nanoTime()
     val startedAtMs: Long = System.currentTimeMillis()
     private val phases = linkedMapOf<String, Long>()

@@ -2,7 +2,7 @@ package cn.com.omnimind.bot.runlog
 import cn.com.omnimind.baselib.runlog.OobActionSchema
 
 import cn.com.omnimind.bot.agent.AgentToolNames
-import cn.com.omnimind.bot.omniflow.OobFunctionToolNames
+import cn.com.omnimind.bot.omniflow.function.OmniFlowFunctionApi
 
 /**
  * Static replay classification shared by RunLog conversion and local replay.
@@ -36,11 +36,11 @@ object RunLogReplayPolicy {
     )
 
     private val functionDataFlowTools: Set<String> = setOf(
-        OobFunctionToolNames.FUNCTION_LIST,
-        OobFunctionToolNames.FUNCTION_GET,
-        OobFunctionToolNames.FUNCTION_REGISTER,
-        OobFunctionToolNames.FUNCTION_UPDATE,
-    ) + OobFunctionToolNames.runLogTools
+        OmniFlowFunctionApi.FUNCTION_LIST,
+        OmniFlowFunctionApi.FUNCTION_GET,
+        OmniFlowFunctionApi.FUNCTION_REGISTER,
+        OmniFlowFunctionApi.FUNCTION_UPDATE,
+    ) + OmniFlowFunctionApi.runLogTools
 
     val dataFlowTools: Set<String> = setOf(
         AgentToolNames.BROWSER_USE,

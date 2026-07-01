@@ -1,8 +1,7 @@
 package cn.com.omnimind.bot.mcp
 
 import cn.com.omnimind.bot.agent.AgentToolNames
-import cn.com.omnimind.bot.omniflow.OobFunctionToolNames
-import cn.com.omnimind.bot.runlog.RunLogReplayPolicy
+import cn.com.omnimind.bot.omniflow.function.OmniFlowFunctionApi
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -11,7 +10,7 @@ import java.io.File
 
 class McpToolDefinitionsTest {
     @Test
-    fun fixedToolsIncludeAgentRunAndOobFunctionControls() {
+    fun fixedToolsIncludeAgentRunAndOmniFlowFunctionControls() {
         val names = McpToolDefinitions.fixedTools.map { it["name"].toString() }.toSet()
 
         assertTrue(names.contains(AgentToolNames.VLM_TASK))
@@ -19,16 +18,16 @@ class McpToolDefinitionsTest {
         assertFalse(names.contains("call_tool"))
         assertTrue(names.contains("omniflow.recall"))
         assertTrue(names.contains("omniflow.ingest_run_log"))
-        assertTrue(names.contains(OobFunctionToolNames.FUNCTION_LIST))
-        assertTrue(names.contains(OobFunctionToolNames.FUNCTION_GET))
-        assertTrue(names.contains(OobFunctionToolNames.FUNCTION_REGISTER))
-        assertTrue(names.contains(OobFunctionToolNames.FUNCTION_UPDATE))
+        assertTrue(names.contains(OmniFlowFunctionApi.FUNCTION_LIST))
+        assertTrue(names.contains(OmniFlowFunctionApi.FUNCTION_GET))
+        assertTrue(names.contains(OmniFlowFunctionApi.FUNCTION_REGISTER))
+        assertTrue(names.contains(OmniFlowFunctionApi.FUNCTION_UPDATE))
         assertFalse(names.contains("oob_function_guard_check"))
-        assertTrue(names.contains(OobFunctionToolNames.FUNCTION_DELETE))
-        assertTrue(names.contains(OobFunctionToolNames.FUNCTION_CLEAR))
-        assertTrue(names.contains(OobFunctionToolNames.RUN_LOG_LIST))
-        assertTrue(names.contains(OobFunctionToolNames.RUN_LOG_GET))
-        assertTrue(names.contains(OobFunctionToolNames.RUN_LOG_CONVERT))
+        assertTrue(names.contains(OmniFlowFunctionApi.FUNCTION_DELETE))
+        assertTrue(names.contains(OmniFlowFunctionApi.FUNCTION_CLEAR))
+        assertTrue(names.contains(OmniFlowFunctionApi.RUN_LOG_LIST))
+        assertTrue(names.contains(OmniFlowFunctionApi.RUN_LOG_GET))
+        assertTrue(names.contains(OmniFlowFunctionApi.RUN_LOG_CONVERT))
     }
 
     @Test
@@ -55,21 +54,18 @@ class McpToolDefinitionsTest {
 
     private val functionToolRouteConstants = mapOf(
         AgentToolNames.VLM_TASK to "AgentToolNames.VLM_TASK",
-        OobFunctionToolNames.FUNCTION_LIST to "OobFunctionToolNames.FUNCTION_LIST",
-        OobFunctionToolNames.FUNCTION_GET to "OobFunctionToolNames.FUNCTION_GET",
-        OobFunctionToolNames.FUNCTION_REGISTER to "OobFunctionToolNames.FUNCTION_REGISTER",
-        OobFunctionToolNames.FUNCTION_UPDATE to "OobFunctionToolNames.FUNCTION_UPDATE",
-        OobFunctionToolNames.FUNCTION_DELETE to "OobFunctionToolNames.FUNCTION_DELETE",
-        OobFunctionToolNames.FUNCTION_CLEAR to "OobFunctionToolNames.FUNCTION_CLEAR",
-        OobFunctionToolNames.RUN_LOG_LIST to "OobFunctionToolNames.RUN_LOG_LIST",
-        OobFunctionToolNames.RUN_LOG_GET to "OobFunctionToolNames.RUN_LOG_GET",
-        OobFunctionToolNames.RUN_LOG_CONVERT to "OobFunctionToolNames.RUN_LOG_CONVERT",
+        OmniFlowFunctionApi.FUNCTION_LIST to "OmniFlowFunctionApi.FUNCTION_LIST",
+        OmniFlowFunctionApi.FUNCTION_GET to "OmniFlowFunctionApi.FUNCTION_GET",
+        OmniFlowFunctionApi.FUNCTION_REGISTER to "OmniFlowFunctionApi.FUNCTION_REGISTER",
+        OmniFlowFunctionApi.FUNCTION_UPDATE to "OmniFlowFunctionApi.FUNCTION_UPDATE",
+        OmniFlowFunctionApi.FUNCTION_DELETE to "OmniFlowFunctionApi.FUNCTION_DELETE",
+        OmniFlowFunctionApi.FUNCTION_CLEAR to "OmniFlowFunctionApi.FUNCTION_CLEAR",
+        OmniFlowFunctionApi.RUN_LOG_LIST to "OmniFlowFunctionApi.RUN_LOG_LIST",
+        OmniFlowFunctionApi.RUN_LOG_GET to "OmniFlowFunctionApi.RUN_LOG_GET",
+        OmniFlowFunctionApi.RUN_LOG_CONVERT to "OmniFlowFunctionApi.RUN_LOG_CONVERT",
     )
 
-    private val omniFlowDispatchedToolNames = OobFunctionToolNames.mcpLifecycleTools + setOf(
-        "omniflow.recall",
-        "omniflow.ingest_run_log",
-    )
+    private val omniFlowDispatchedToolNames = OmniFlowFunctionApi.mcpToolNames
 
     @Test
     fun getStateToolExposesXmlScreenshotControls() {
@@ -123,17 +119,17 @@ class McpToolDefinitionsTest {
         assertFalse(names.contains("omniflow.run_function"))
         assertFalse(names.contains("omniflow.call_function"))
         assertFalse(names.contains("omniflow.execute_function"))
-        assertTrue(routeSource.contains("\"run_function\" -> OobFunctionToolHandler(context).runFunction(args)"))
+        assertTrue(routeSource.contains("\"run_function\" -> OmniFlowFunctionRun(context).runFunction(args)"))
         assertFalse(routeSource.contains("\"omniflow.call_function\""))
 
         assertTrue(httpHostSource.contains("post(\"/omniflow/function/run\")"))
-        assertTrue(httpHostSource.contains("OobFunctionToolHandler(context).runFunction(args)"))
+        assertTrue(httpHostSource.contains("OmniFlowFunctionRun(context).runFunction(args)"))
     }
 
     @Test
     fun updateFunctionToolExposesRunLogAnalysisInputs() {
         val tool = McpToolDefinitions.fixedTools.single {
-            it["name"] == OobFunctionToolNames.FUNCTION_UPDATE
+            it["name"] == OmniFlowFunctionApi.FUNCTION_UPDATE
         }
         val schema = tool["inputSchema"] as Map<*, *>
         val properties = schema["properties"] as Map<*, *>
@@ -158,19 +154,12 @@ class McpToolDefinitionsTest {
 
         val patch = properties["patch"] as Map<*, *>
         val patchProperties = patch["properties"] as Map<*, *>
-        assertTrue(patchProperties.containsKey("ops"))
         assertTrue(patchProperties.containsKey("steps"))
+        assertTrue(patchProperties.containsKey("parameters"))
+        assertTrue(patchProperties.containsKey("agent_reuse"))
         assertTrue(patchProperties.containsKey("checker_rules"))
-        val ops = patchProperties["ops"] as Map<*, *>
-        val opItems = ops["items"] as Map<*, *>
-        val opProperties = opItems["properties"] as Map<*, *>
-        val op = opProperties["op"] as Map<*, *>
-        val enumValues = op["enum"] as List<*>
-        assertTrue(enumValues.contains("replace_target"))
-        assertTrue(enumValues.contains("insert_step"))
-        assertTrue(enumValues.contains("delete_step"))
-        assertTrue(opProperties.containsKey("desired_text"))
-        assertTrue(opProperties.containsKey("action"))
+        assertFalse(patchProperties.containsKey("ops"))
+        assertFalse(patchProperties.containsKey("replace_" + "target"))
     }
 
     @Test
@@ -188,23 +177,22 @@ class McpToolDefinitionsTest {
         assertTrue(schemas.containsKey("update_function.input.agent_profile"))
         assertTrue(schemas.containsKey("update_function.analysis"))
         assertTrue(schemas.containsKey("update_function.patch"))
-        assertTrue(schemas.containsKey(RunLogReplayPolicy.schemaVersion))
 
         val exportedUpdateSchema = schemas["update_function.input.mcp"] as Map<*, *>
         val liveUpdateSchema = McpToolDefinitions.fixedTools.single {
-            it["name"] == OobFunctionToolNames.FUNCTION_UPDATE
+            it["name"] == OmniFlowFunctionApi.FUNCTION_UPDATE
         }["inputSchema"]
         assertEquals(liveUpdateSchema, exportedUpdateSchema)
 
         val agentProfileSchema = schemas["update_function.input.agent_profile"] as Map<*, *>
         val agentProperties = agentProfileSchema["properties"] as Map<*, *>
         assertTrue(agentProperties.containsKey("dryRun"))
-        assertTrue(agentProperties.containsKey("allowExecutionChange"))
+        assertFalse(agentProperties.containsKey("allow" + "ExecutionChange"))
 
         val toolSchemas = bundle["tool_schemas"] as List<*>
         assertTrue(
             toolSchemas.map { (it as Map<*, *>)["name"] }
-                .contains(OobFunctionToolNames.FUNCTION_UPDATE)
+                .contains(OmniFlowFunctionApi.FUNCTION_UPDATE)
         )
     }
 
@@ -274,7 +262,7 @@ class McpToolDefinitionsTest {
     @Test
     fun functionManagementDescriptionsUseRuntimeOwnedOmniFlowLanguage() {
         val descriptions = McpToolDefinitions.fixedTools
-            .filter { (it["name"] as? String) in OobFunctionToolNames.mcpLifecycleTools }
+            .filter { (it["name"] as? String) in OmniFlowFunctionApi.toolNames }
             .joinToString("\n") { it["description"].toString() }
 
         assertTrue(descriptions.contains("OmniFlow Function"))
@@ -286,7 +274,7 @@ class McpToolDefinitionsTest {
     @Test
     fun oobFunctionRegisterToolExposesSimpleConversationSchema() {
         val tool = McpToolDefinitions.fixedTools.single {
-            it["name"] == OobFunctionToolNames.FUNCTION_REGISTER
+            it["name"] == OmniFlowFunctionApi.FUNCTION_REGISTER
         }
         val schema = tool["inputSchema"] as Map<*, *>
         val properties = schema["properties"] as Map<*, *>

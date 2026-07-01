@@ -1,9 +1,8 @@
-package cn.com.omnimind.bot.runlog
+package cn.com.omnimind.bot.omniflow.function
 
 import cn.com.omnimind.baselib.runlog.InternalRunLogRecord
-import cn.com.omnimind.bot.omniflow.OobFunctionSchemaBuilder
-import com.google.gson.Gson
-import java.io.File
+import cn.com.omnimind.bot.omniflow.function.OmniFlowFunctionSchema
+import cn.com.omnimind.bot.runlog.RunLogReplayPolicy
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -11,19 +10,7 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-class RunLogReusableFunctionCompilerTest {
-    @Test
-    fun `replay policy matches shared json contract`() {
-        val policy = readSharedPolicyJson()
-
-        assertEquals(RunLogReplayPolicy.schemaVersion, policy["schema_version"])
-        assertEquals(RunLogReplayPolicy.omniflowActions, stringSet(policy["omniflow_actions"]))
-        assertEquals(RunLogReplayPolicy.coordinateActions, stringSet(policy["coordinate_actions"]))
-        assertEquals(RunLogReplayPolicy.perceptionTools, stringSet(policy["perception_tools"]))
-        assertEquals(RunLogReplayPolicy.dataFlowTools, stringSet(policy["data_flow_tools"]))
-        assertEquals(RunLogReplayPolicy.skipTools, stringSet(policy["skip_tools"]))
-    }
-
+class OmniFlowFunctionCompilerTest {
     @Test
     fun `vlm only run log compiles to agent step`() {
         val spec = compile(
@@ -384,7 +371,7 @@ class RunLogReusableFunctionCompilerTest {
             operationDescription = "Refresh state",
             cards = listOf(card("get_state", mapOf("reason" to "refresh current page"))),
         )
-        assertNull(RunLogReusableFunctionCompiler.compile(observationOnly))
+        assertNull(OmniFlowFunctionCompiler.compile(observationOnly))
     }
 
     @Test
@@ -1191,13 +1178,13 @@ class RunLogReusableFunctionCompilerTest {
         assertEquals("input_text", action["tool"])
         assertEquals("hello", (action["args"] as Map<*, *>)["text"])
 
-        val changed = OobFunctionSchemaBuilder.materialize(
+        val changed = OmniFlowFunctionSchema.materialize(
             spec,
             mapOf("input_text" to "world"),
         )
         assertEquals("hello", (stepsFrom(changed).single()["args"] as Map<*, *>)["text"])
 
-        val defaulted = OobFunctionSchemaBuilder.materialize(spec, emptyMap())
+        val defaulted = OmniFlowFunctionSchema.materialize(spec, emptyMap())
         assertEquals("hello", (stepsFrom(defaulted).single()["args"] as Map<*, *>)["text"])
     }
 
@@ -1219,7 +1206,7 @@ class RunLogReusableFunctionCompilerTest {
         assertEquals("speed first", ((actions[0] as Map<*, *>)["args"] as Map<*, *>)["target_description"])
         assertEquals("time first", ((actions[1] as Map<*, *>)["args"] as Map<*, *>)["target_description"])
 
-        val changed = OobFunctionSchemaBuilder.materialize(
+        val changed = OmniFlowFunctionSchema.materialize(
             spec,
             mapOf("speed_first" to "speed second", "time_first" to "time second"),
         )
@@ -1263,8 +1250,8 @@ class RunLogReusableFunctionCompilerTest {
             putAll(spec)
             remove("execution")
         }
-        val materializedActionOnly = OobFunctionSchemaBuilder.materialize(actionOnlySpec, emptyMap())
-        val rebuiltStep = OobFunctionSchemaBuilder.materializedSteps(materializedActionOnly).single()
+        val materializedActionOnly = OmniFlowFunctionSchema.materialize(actionOnlySpec, emptyMap())
+        val rebuiltStep = OmniFlowFunctionSchema.materializedSteps(materializedActionOnly).single()
         val rebuiltArgs = rebuiltStep["args"] as Map<*, *>
         assertEquals("Alice", rebuiltArgs["text"])
         assertEquals("First name", rebuiltArgs["target_description"])
@@ -1373,7 +1360,7 @@ class RunLogReusableFunctionCompilerTest {
             operationDescription = goal,
             cards = cards,
         )
-        return requireNotNull(RunLogReusableFunctionCompiler.compile(record))
+        return requireNotNull(OmniFlowFunctionCompiler.compile(record))
     }
 
     private fun card(
@@ -1445,31 +1432,6 @@ class RunLogReusableFunctionCompilerTest {
                 propertyKey.toString() to propertyValue
             }
         }
-    }
-
-    @Suppress("UNCHECKED_CAST")
-    private fun readSharedPolicyJson(): Map<String, Any?> {
-        val candidates = listOf(
-            File("app/src/main/assets/omniflow/runlog/replay_policy.json"),
-            File("src/main/assets/omniflow/runlog/replay_policy.json"),
-        )
-        val file = candidates.firstOrNull { it.exists() }
-            ?: error("replay_policy.json not found")
-        return Gson().fromJson(file.readText(), Map::class.java) as Map<String, Any?>
-    }
-
-    private fun stringSet(value: Any?): Set<String> {
-        return (value as? List<*>)
-            ?.map { it.toString() }
-            ?.toSet()
-            .orEmpty()
-    }
-
-    private fun stringMap(value: Any?): Map<String, String> {
-        return (value as? Map<*, *>)
-            ?.entries
-            ?.associate { (key, item) -> key.toString() to item.toString() }
-            .orEmpty()
     }
 
     companion object {

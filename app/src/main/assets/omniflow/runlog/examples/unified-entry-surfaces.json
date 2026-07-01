@@ -2,8 +2,8 @@
   "schema_version": "oob.omniflow_entry_surface_contract.v1",
   "purpose": "Machine-readable contract for keeping UI, MCP, HTTP/debug, VLM recall, and Python OmniFlow on one OOB-native Function execution path.",
   "runtime_owner": "oob_native_kotlin",
-  "management_service": "OobFunctionManagementService",
-  "function_run_owner": "OobFunctionToolHandler",
+  "management_service": "OmniFlowFunctionService",
+  "function_run_owner": "OmniFlowFunctionRun",
   "phone_action_runner": "ActionExecutor",
   "enhancement_policy": "offline_only",
   "product_label": {
@@ -17,10 +17,10 @@
     {
       "id": "ui_direct_function_run",
       "surface": "flutter_method_channel",
-      "adapter": "AssistsMessageService.runOobReusableFunction -> OobFunctionToolHandler.runFunction",
+      "adapter": "AssistsMessageService.runOobReusableFunction -> OmniFlowFunctionRun.runFunction",
       "input_shape": "function_id_plus_public_arguments",
       "delegates_to": [
-        "OobFunctionToolHandler.runFunction"
+        "OmniFlowFunctionRun.runFunction"
       ],
       "may_execute_phone_actions": true,
       "phone_action_owner": "kotlin_action_executor",
@@ -36,7 +36,7 @@
       "adapter": "AssistsCoreManager.runOobReusableFunction",
       "input_shape": "function_id_plus_public_arguments",
       "delegates_to": [
-        "OobFunctionToolHandler.runFunction"
+        "OmniFlowFunctionRun.runFunction"
       ],
       "may_execute_phone_actions": true,
       "phone_action_owner": "kotlin_only",
@@ -54,7 +54,7 @@
       "adapter": "AssistsCoreManager.updateOobFunction",
       "input_shape": "function_id_runlog_evidence_analysis_patch",
       "delegates_to": [
-        "OobFunctionManagementService.executeTool(update_function)"
+        "OmniFlowFunctionService.executeTool(update_function)"
       ],
       "may_execute_phone_actions": false,
       "phone_action_owner": "none",
@@ -83,7 +83,7 @@
         "oob_run_log_convert"
       ],
       "delegates_to": [
-        "OobFunctionManagementService.executeTool"
+        "OmniFlowFunctionService.executeTool"
       ],
       "runlog_policy": "runlog_is_evidence; runlog_convert_creates_functions_only",
       "may_execute_phone_actions": false,
@@ -107,7 +107,7 @@
       "adapter": "LocalDeviceHttpHostManager.post(/omniflow/function/run)",
       "input_shape": "function_id_plus_public_arguments",
       "delegates_to": [
-        "OobFunctionToolHandler.runFunction"
+        "OmniFlowFunctionRun.runFunction"
       ],
       "may_execute_phone_actions": true,
       "phone_action_owner": "kotlin_only",
@@ -138,7 +138,7 @@
     }
   ],
   "invariants": {
-    "single_live_phone_executor": "All phone actions eventually enter OobFunctionToolHandler and ActionExecutor.",
+    "single_live_phone_executor": "All phone actions eventually enter OmniFlowFunctionRun and ActionExecutor.",
     "direct_function_calls_require_id": true,
     "ordinary_vlm_prompt_has_no_function_id_execution_tool": true,
     "enhance_never_blocks_registration_recall_or_replay": true,

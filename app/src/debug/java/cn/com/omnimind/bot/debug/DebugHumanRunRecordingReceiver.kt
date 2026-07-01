@@ -13,7 +13,7 @@ import cn.com.omnimind.assists.controller.accessibility.AccessibilityController
 import cn.com.omnimind.baselib.runlog.OobActionSchema
 import cn.com.omnimind.baselib.runlog.InternalRunLogStore
 import cn.com.omnimind.baselib.util.OmniLog
-import cn.com.omnimind.bot.runlog.OobRunLogFunctionConverter
+import cn.com.omnimind.bot.omniflow.function.OmniFlowFunctionService
 import cn.com.omnimind.bot.util.AssistsUtil
 import com.google.gson.GsonBuilder
 import kotlinx.coroutines.CompletableDeferred
@@ -417,12 +417,14 @@ class DebugHumanRunRecordingReceiver : BroadcastReceiver() {
         description: String
     ): Map<String, Any?> =
         runCatching {
-            OobRunLogFunctionConverter(context).convertRunLog(
-                runId = runId,
-                register = true,
-                agentVisible = false,
-                nameOverride = name,
-                descriptionOverride = description
+            OmniFlowFunctionService(context).convertRunLog(
+                mapOf(
+                    "run_id" to runId,
+                    "register" to true,
+                    "agent_visible" to false,
+                    "name" to name,
+                    "description" to description,
+                )
             )
         }.getOrElse { error ->
             OmniLog.e(TAG, "debug human recording conversion failed: ${error.fullMessage()}", error)

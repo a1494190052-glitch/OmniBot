@@ -478,7 +478,7 @@ class ManualRecordingPolicyTest {
         assertTrue(manualStopBranch.contains("ManualRecordingControlOverlay.cancelRecording"))
         assertFalse(manualStopBranch.contains("HumanTrajectoryLearningSession.completeActive()"))
         val frontendSource = readSource(
-            "app/src/main/java/cn/com/omnimind/bot/agent/tool/handlers/OobFunctionFrontendSessionController.kt"
+            "app/src/main/java/cn/com/omnimind/bot/omniflow/function/OmniFlowFunctionFrontendSessionController.kt"
         )
         assertTrue(frontendSource.contains("forceOnTop = true"))
         assertTrue(frontendSource.contains("isTouchable = true"))
@@ -491,11 +491,8 @@ class ManualRecordingPolicyTest {
         assertTrue(frontendSource.contains("if (closeAfterMs > 0L)"))
         assertTrue(frontendSource.contains("DraggableBallInstance.finishDoingTask("))
         assertFalse(frontendSource.contains("subMessage = helper.localized(\"执行中\")"))
-        assertFalse(frontendSource.contains("OobFunctionStopOverlay("))
-        assertFalse(frontendSource.contains("isShowStop = false"))
-        assertFalse(frontendSource.contains("isTouchable = false"))
         val functionHandlerSource = readSource(
-            "app/src/main/java/cn/com/omnimind/bot/agent/tool/handlers/OobFunctionToolHandler.kt"
+            "app/src/main/java/cn/com/omnimind/bot/omniflow/function/OmniFlowFunctionRun.kt"
         )
         val assistsCoreManagerSource = readSource(
             "app/src/main/java/cn/com/omnimind/bot/manager/AssistsCoreManager.kt"

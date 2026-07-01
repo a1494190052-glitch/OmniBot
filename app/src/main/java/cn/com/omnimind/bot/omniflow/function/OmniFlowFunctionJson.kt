@@ -1,4 +1,4 @@
-package cn.com.omnimind.bot.omniflow
+package cn.com.omnimind.bot.omniflow.function
 
 /**
  * Small JSON/value coercion helpers shared by Function services.
@@ -6,7 +6,7 @@ package cn.com.omnimind.bot.omniflow
  * Keep these helpers mechanical: they should normalize public tool payload
  * shapes, not encode Function policy.
  */
-internal object OobFunctionJson {
+internal object OmniFlowFunctionJson {
     fun mutableJsonMap(value: Map<String, Any?>): LinkedHashMap<String, Any?> =
         linkedMapOf<String, Any?>().apply {
             value.forEach { (key, item) ->

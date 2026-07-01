@@ -38,7 +38,7 @@ import cn.com.omnimind.bot.mcp.McpTaskManager
 import cn.com.omnimind.bot.mcp.TaskState
 import cn.com.omnimind.bot.mcp.TaskStatus
 import cn.com.omnimind.bot.mcp.VlmTaskRequest
-import cn.com.omnimind.bot.runlog.OobFunctionManagementService
+import cn.com.omnimind.bot.omniflow.function.OmniFlowFunctionService
 import cn.com.omnimind.bot.runlog.firstNonBlank
 import cn.com.omnimind.bot.util.AssistsUtil
 import kotlinx.coroutines.CompletableDeferred
@@ -441,7 +441,7 @@ object VlmToolCoordinator {
             .getOrDefault("")
         val currentXml = runCatching { AccessibilityController.getCaptureScreenShotXml(true).orEmpty() }
             .getOrDefault("")
-        return OobFunctionManagementService(context).recall(
+        return OmniFlowFunctionService(context).recall(
             linkedMapOf(
                 "goal" to request.goal,
                 "current_package" to firstNonBlank(request.packageName, currentPackage),

@@ -14,7 +14,7 @@ import cn.com.omnimind.baselib.database.Conversation
 import cn.com.omnimind.baselib.database.DatabaseHelper
 import cn.com.omnimind.baselib.util.OmniLog
 import cn.com.omnimind.bot.manager.AssistsCoreManager
-import cn.com.omnimind.bot.omniflow.OobFunctionSkillProfile
+import cn.com.omnimind.bot.omniflow.function.OmniFlowFunctionApi
 import cn.com.omnimind.bot.util.AssistsUtil
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
@@ -447,7 +447,7 @@ class WorkspaceScheduledTaskScheduler(
 
     private fun scheduledSubagentToolProfile(task: StoredTask): String? {
         if (!task.oobFunctionId.isNullOrBlank()) {
-            return OobFunctionSkillProfile.PROFILE
+            return OmniFlowFunctionApi.PROFILE
         }
         return task.toolProfile?.takeIf { it.isNotBlank() }
     }

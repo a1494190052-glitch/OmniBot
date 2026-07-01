@@ -7,7 +7,7 @@ import cn.com.omnimind.baselib.shizuku.ShizukuBackend
 import cn.com.omnimind.baselib.shizuku.ShizukuCapabilityManager
 import cn.com.omnimind.baselib.util.OmniLog
 import cn.com.omnimind.bot.mcp.RemoteMcpDiscoveredServer
-import cn.com.omnimind.bot.omniflow.OobFunctionSkillProfile
+import cn.com.omnimind.bot.omniflow.function.OmniFlowFunctionApi
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
@@ -90,19 +90,10 @@ class AgentToolRegistry(
             )
         }
         if (isLightweightToolProfile) {
-            runtimeDefinitions.addAll(OobFunctionSkillProfile.staticToolDefinitions(locale))
-        } else {
-            runtimeDefinitions.addAll(OobFunctionSkillProfile.runtimeToolDefinitions(locale))
+            runtimeDefinitions.addAll(OmniFlowFunctionApi.staticToolDefinitions(locale))
         }
         runtimeDefinitions.addAll(AgentToolDefinitions.memoryTools(locale))
         runtimeDefinitions.addAll(AgentToolDefinitions.subagentTools(locale))
-        runtimeDefinitions.addAll(
-            OobFunctionSkillProfile.dynamicFunctionToolDefinitions(
-                context = context,
-                locale = locale,
-                forceInclude = isLightweightToolProfile
-            )
-        )
 
         runtimeDefinitions.addAll(dynamicDefinitions.filterNot(::isModelHiddenDynamicTool))
 

@@ -8,8 +8,8 @@ import cn.com.omnimind.accessibility.service.AssistsService
 import cn.com.omnimind.assists.controller.accessibility.AccessibilityController
 import cn.com.omnimind.assists.task.vlmserver.AndroidDeviceOperator
 import cn.com.omnimind.baselib.util.OmniLog
-import cn.com.omnimind.bot.agent.tool.handlers.OobFunctionToolHandler
-import cn.com.omnimind.bot.runlog.OobFunctionManagementService
+import cn.com.omnimind.bot.omniflow.function.OmniFlowFunctionRun
+import cn.com.omnimind.bot.omniflow.function.OmniFlowFunctionService
 import cn.com.omnimind.bot.runlog.RunLogPagePackageInference
 import cn.com.omnimind.bot.util.AssistsUtil
 import cn.com.omnimind.uikit.settings.CompanionOverlaySettings
@@ -65,8 +65,8 @@ class DebugOobFunctionRunReceiver : BroadcastReceiver() {
         goal: String,
         arguments: Map<String, Any?>,
     ): Map<String, Any?> {
-        val service = OobFunctionManagementService(context)
-        val functionRunner = OobFunctionToolHandler(context)
+        val service = OmniFlowFunctionService(context)
+        val functionRunner = OmniFlowFunctionRun(context)
         val initial = functionRunner.runFunction(functionRunArgs(functionId, goal, arguments))
         if (!isFunctionNotFound(initial)) return initial
 

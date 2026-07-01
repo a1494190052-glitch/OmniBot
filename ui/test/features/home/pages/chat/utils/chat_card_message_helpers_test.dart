@@ -1,11 +1,18 @@
+import 'dart:ui';
+
 import 'package:flutter_test/flutter_test.dart';
+import 'package:ui/features/home/pages/chat/tool_activity_utils.dart'
+    show resolveAgentToolStatusLabel;
 import 'package:ui/features/home/pages/chat/utils/chat_card_message_helpers.dart';
+import 'package:ui/l10n/app_text_localizer.dart';
 import 'package:ui/models/chat_link_preview.dart';
 import 'package:ui/models/chat_message_model.dart';
 import 'package:ui/services/agent_tool_card_policy.dart';
 import 'package:ui/services/assists_core_service.dart';
 
 void main() {
+  tearDown(AppTextLocalizer.clearResolvedLocale);
+
   test('upserts function run progress as a shared summary card', () {
     final messages = <ChatMessageModel>[];
     final started = OobFunctionRunProgressEvent.fromMap(<String, dynamic>{
@@ -43,6 +50,29 @@ void main() {
     expect(messages, hasLength(1));
     expect(messages.single.cardData?['status'], 'success');
     expect(messages.single.cardData?['toolName'], 'function_run');
+  });
+
+  test('shows manually stopped function run as stopped instead of interrupted', () {
+    AppTextLocalizer.setResolvedLocale(const Locale('zh'));
+    final messages = <ChatMessageModel>[];
+    final stopped = OobFunctionRunProgressEvent.fromMap(<String, dynamic>{
+      'task_id': 'task-stop',
+      'run_id': 'run-stop',
+      'function_id': 'open_settings',
+      'status': 'stopped',
+      'message': '用户停止',
+    });
+
+    expect(
+      ChatCardMessageHelpers.upsertOobFunctionRunProgress(messages, stopped),
+      isTrue,
+    );
+
+    final cardData = messages.single.cardData!;
+    expect(cardData['status'], 'interrupted');
+    expect(cardData['rawStatus'], 'stopped');
+    expect(cardData['statusLabel'], '已停止');
+    expect(resolveAgentToolStatusLabel(cardData), '已停止');
   });
 
   test('thinking card default id is shared by create and update', () {

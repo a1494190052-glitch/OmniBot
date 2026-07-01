@@ -1,4 +1,4 @@
-package cn.com.omnimind.bot.omniflow
+package cn.com.omnimind.bot.omniflow.function
 
 /**
  * Agent-facing RunLog evidence analysis vocabulary for update_function.
@@ -6,7 +6,7 @@ package cn.com.omnimind.bot.omniflow
  * This is a prompt/schema contract only. It does not classify runtime replay
  * steps; replay/UDEG step-role policy stays in OobStepRoleClassifier.
  */
-internal object OobFunctionRunLogAnalysisContract {
+internal object OmniFlowFunctionRunLogAnalysisContract {
     const val FIELD_SUMMARY = "summary"
     const val FIELD_STEP_FINDINGS = "step_findings"
     const val FIELD_FUNCTION_STEP_INDEX = "function_step_index"

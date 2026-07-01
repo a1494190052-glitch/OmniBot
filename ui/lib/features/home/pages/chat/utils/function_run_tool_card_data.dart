@@ -22,6 +22,7 @@ Map<String, dynamic> functionRunToolCardDataForEvent(
   final stepLabel = _stepLabel(event);
   final detail = _messageFor(event, stepLabel);
   final title = _titleFor(event);
+  final statusLabel = _statusLabelFor(event);
   final summary = _uniqueNonBlank([title, stepLabel, detail]).join(' · ');
   final runLogId = event.runLogId;
   return <String, dynamic>{
@@ -33,6 +34,8 @@ Map<String, dynamic> functionRunToolCardDataForEvent(
     'status': _agentToolStatusFor(event),
     'rawStatus': event.status,
     'raw_status': event.status,
+    'statusLabel': statusLabel,
+    'status_label': statusLabel,
     'toolType': 'oob_function',
     'tool_type': 'oob_function',
     'toolName': 'function_run',
@@ -123,6 +126,13 @@ String _agentToolStatusFor(OobFunctionRunProgressEvent event) {
     return 'error';
   }
   return 'success';
+}
+
+String _statusLabelFor(OobFunctionRunProgressEvent event) {
+  if (event.status == 'stopped') {
+    return _choose(zh: '已停止', en: 'Stopped');
+  }
+  return '';
 }
 
 bool _looksFailed(String message) => message.contains('失败');

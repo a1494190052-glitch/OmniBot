@@ -1,4 +1,4 @@
-package cn.com.omnimind.bot.agent.tool.handlers
+package cn.com.omnimind.bot.omniflow.function
 
 import cn.com.omnimind.assists.task.vlmserver.ActionExecutor
 import cn.com.omnimind.assists.task.vlmserver.AndroidDeviceOperator
@@ -10,16 +10,13 @@ import cn.com.omnimind.bot.agent.AgentWorkspaceManager
 import cn.com.omnimind.bot.agent.BrowserUseRequest
 import cn.com.omnimind.bot.agent.LiveAgentBrowserSessionManager
 import cn.com.omnimind.bot.agent.ManualToolStopCancellationException
-import cn.com.omnimind.bot.omniflow.OobFunctionJson.firstNonBlank
-import cn.com.omnimind.bot.omniflow.OobFunctionJson.intArg
-import cn.com.omnimind.bot.omniflow.OobFunctionJson.listArg
-import cn.com.omnimind.bot.omniflow.OobFunctionJson.longArg
-import cn.com.omnimind.bot.omniflow.OobFunctionJson.mapArg
-import cn.com.omnimind.bot.omniflow.OobFunctionArgumentBindingValidator
-import cn.com.omnimind.bot.runlog.OobFunctionCallTiming
-import cn.com.omnimind.bot.runlog.OobFunctionRunLogRecorder
+import cn.com.omnimind.bot.agent.tool.handlers.SharedHelper
+import cn.com.omnimind.bot.omniflow.function.OmniFlowFunctionJson.firstNonBlank
+import cn.com.omnimind.bot.omniflow.function.OmniFlowFunctionJson.intArg
+import cn.com.omnimind.bot.omniflow.function.OmniFlowFunctionJson.listArg
+import cn.com.omnimind.bot.omniflow.function.OmniFlowFunctionJson.longArg
+import cn.com.omnimind.bot.omniflow.function.OmniFlowFunctionJson.mapArg
 import cn.com.omnimind.bot.runlog.OmniflowCheckerRule
-import cn.com.omnimind.bot.omniflow.OobFunctionSchemaBuilder
 import cn.com.omnimind.bot.runlog.ReplayHelper
 import cn.com.omnimind.bot.runlog.RunLogReplayPolicy
 import cn.com.omnimind.bot.runlog.argsForStep
@@ -32,7 +29,7 @@ import kotlinx.serialization.json.JsonObject
 import java.io.File
 import java.util.concurrent.atomic.AtomicLong
 
-class OobFunctionToolHandler(
+class OmniFlowFunctionRun(
     private val context: android.content.Context,
     private val helper: SharedHelper = SharedHelper(
         context,
@@ -44,12 +41,12 @@ class OobFunctionToolHandler(
     ),
     private val deviceOperator: DeviceOperator = AndroidDeviceOperator(null, context),
     private val actionExecutor: ActionExecutor = ActionExecutor(deviceOperator, UIContextManager()),
-    private val frontendSessionController: OobFunctionFrontendSessionController =
-        OobFunctionFrontendSessionController(helper),
-    private val functionCallCardPresenter: OobFunctionCallCardPresenter =
-        OobFunctionCallCardPresenter(helper),
-    private val runResultBuilder: OobFunctionRunResultBuilder =
-        OobFunctionRunResultBuilder(),
+    private val frontendSessionController: OmniFlowFunctionFrontendSessionController =
+        OmniFlowFunctionFrontendSessionController(helper),
+    private val functionCallCardPresenter: OmniFlowFunctionCallCardPresenter =
+        OmniFlowFunctionCallCardPresenter(helper),
+    private val runResultBuilder: OmniFlowFunctionRunResultBuilder =
+        OmniFlowFunctionRunResultBuilder(),
 ) {
     private val checkerRuleJson = Json {
         ignoreUnknownKeys = true
@@ -58,8 +55,8 @@ class OobFunctionToolHandler(
     }
 
     /** Workspace-backed function store; injected by the OmniFlow function layer on init. */
-    var workspaceFunctionStore: cn.com.omnimind.bot.omniflow.WorkspaceFunctionStore? =
-        cn.com.omnimind.bot.omniflow.WorkspaceFunctionStore(
+    var workspaceFunctionStore: cn.com.omnimind.bot.omniflow.function.OmniFlowFunctionStore? =
+        cn.com.omnimind.bot.omniflow.function.OmniFlowFunctionStore(
             AgentWorkspaceManager.rootDirectory(context)
         )
 
@@ -73,7 +70,7 @@ class OobFunctionToolHandler(
             stepResult["model_free"] == true
 
     suspend fun runFunction(args: Map<String, Any?>?): Map<String, Any?> {
-        val callTiming = OobFunctionCallTiming()
+        val callTiming = OmniFlowFunctionCallTiming()
         val request = args ?: emptyMap()
         val functionId = firstNonBlank(request["function_id"], request["functionId"])
         val executionMode = firstNonBlank(request["execution_mode"])
@@ -99,7 +96,7 @@ class OobFunctionToolHandler(
             stepCount = intArg(runPayload["step_count"], defaultValue = 0),
             errorMessage = runPayload["error_message"]?.toString()
         )
-        OobFunctionRunLogRecorder.record(
+        OmniFlowFunctionRunLogRecorder.record(
             context = context,
             functionId = functionId,
             runPayload = runPayload,
@@ -252,7 +249,7 @@ class OobFunctionToolHandler(
             if (preparedSpec != null || argumentsValidated) {
                 emptyList()
             } else {
-                OobFunctionSchemaBuilder.missingRequiredArguments(spec, arguments)
+                OmniFlowFunctionSchema.missingRequiredArguments(spec, arguments)
             }
         }
         if (missing.isNotEmpty()) {
@@ -263,10 +260,10 @@ class OobFunctionToolHandler(
             ).let { attachExecutionTiming(it + linkedMapOf("missing_required_arguments" to missing), startupTiming) }
         }
         val specForRun = startupTiming.measure("bind_function_args_ms") {
-            preparedSpec ?: OobFunctionSchemaBuilder.materialize(spec, arguments)
+            preparedSpec ?: OmniFlowFunctionSchema.materialize(spec, arguments)
         }
         startupTiming.measure("bound_step_count_ms") {
-            OobFunctionSchemaBuilder.materializedSteps(specForRun).size
+            OmniFlowFunctionSchema.materializedSteps(specForRun).size
         }
         val payload = runCatching {
             startupTiming.measureSuspend("run_function_steps_ms") {
@@ -302,7 +299,7 @@ class OobFunctionToolHandler(
         }
         val steps = timing.measure("bound_steps_ms") { boundSteps(specForRun) }
         val bindingValidation = timing.measure("argument_binding_validation_ms") {
-            OobFunctionArgumentBindingValidator.validate(specForRun)
+            OmniFlowFunctionArgumentBindingValidator.validate(specForRun)
         }
         if (!bindingValidation.success) {
             return@measureSuspend runResultBuilder.withRunnerTiming(
@@ -311,7 +308,7 @@ class OobFunctionToolHandler(
                     spec = spec,
                     auditRunId = auditRunId,
                     startedAtMs = runStartedAtMs,
-                    errorCode = OobFunctionArgumentBindingValidator.ERROR_CODE,
+                    errorCode = OmniFlowFunctionArgumentBindingValidator.ERROR_CODE,
                     errorMessage = bindingValidation.errorMessage,
                     extras = bindingValidation.diagnostics,
                 ),
@@ -319,7 +316,7 @@ class OobFunctionToolHandler(
             )
         }
         val argumentSourcesByStepIndex =
-            OobFunctionArgumentBindingValidator.argumentSourcesByStepIndex(specForRun)
+            OmniFlowFunctionArgumentBindingValidator.argumentSourcesByStepIndex(specForRun)
         val normalizedResumeFromStep = resumeFromStep.coerceIn(0, steps.size)
         val activeSteps = steps.drop(normalizedResumeFromStep)
 
@@ -358,7 +355,7 @@ class OobFunctionToolHandler(
             normalizedResumeFromStep = normalizedResumeFromStep,
             failureReason = failureReason,
         ).also {
-            it.putAll(OobFunctionArgumentBindingValidator.runtimeDiagnostics(specForRun))
+            it.putAll(OmniFlowFunctionArgumentBindingValidator.runtimeDiagnostics(specForRun))
         }
         fun isUserCompletedReplay(): Boolean =
             frontendSession?.isUserFinishedRequested() == true &&
@@ -841,11 +838,11 @@ class OobFunctionToolHandler(
         val calledFunctionSpec = getSpec(functionId)
             ?: return completeWithCard(failStep("OOB_FUNCTION_NOT_FOUND", "OmniFlow function not found: $functionId",
                 mapOf("called_function_id" to functionId)))
-        val missing = OobFunctionSchemaBuilder.missingRequiredArguments(calledFunctionSpec, functionArguments)
+        val missing = OmniFlowFunctionSchema.missingRequiredArguments(calledFunctionSpec, functionArguments)
         if (missing.isNotEmpty()) return completeWithCard(failStep("OOB_FUNCTION_ARGUMENTS_MISSING",
             "Missing required arguments: ${missing.joinToString(", ")}",
             mapOf("called_function_id" to functionId, "missing_required_arguments" to missing)))
-        val boundSpec = OobFunctionSchemaBuilder.materialize(calledFunctionSpec, functionArguments)
+        val boundSpec = OmniFlowFunctionSchema.materialize(calledFunctionSpec, functionArguments)
         val calledFunctionRun = runFunction(
             functionId = functionId,
             arguments = functionArguments,
@@ -974,7 +971,7 @@ class OobFunctionToolHandler(
     }
 
     private fun boundSteps(boundSpec: Map<String, Any?>): List<Map<String, Any?>> =
-        OobFunctionSchemaBuilder.materializedSteps(boundSpec)
+        OmniFlowFunctionSchema.materializedSteps(boundSpec)
 
     private fun attachExecutionTiming(
         payload: Map<String, Any?>,
@@ -1135,10 +1132,6 @@ class OobFunctionToolHandler(
         return CallRequest(targetTool = targetTool, targetArgs = targetArgs, functionId = functionId)
     }
 
-    // -----------------------------------------------------------------------
-    // Inlined from OobFunctionStepClassifier
-    // -----------------------------------------------------------------------
-
     private fun omniflowExecutionToolForStep(step: Map<String, Any?>, callableTool: String): String {
         val agentCall = mapArg(step["agent_call"])
         val agentArgs = mapArg(agentCall["args"])
@@ -1172,7 +1165,7 @@ class OobFunctionToolHandler(
         const val FUNCTION_RUN_SOURCE = "oob_function_replay"
         private const val CHECKER_RULES_FILE = ".omnibot/omniflow/checkers/checker_rules.json"
         private const val CHECKER_RULES_ASSET = "omniflow/checkers/checker_rules.json"
-        private const val TAG = "OobFunctionToolHandler"
+        private const val TAG = "OmniFlowFunctionRun"
         private const val MAX_OMNIFLOW_CALL_DEPTH = 8
         private const val REPLAY_UI_STEP_SETTLE_DELAY_MS = 1_000L
         private const val FRONTEND_SUCCESS_POPUP_VISIBLE_MS = 900L

@@ -1,4 +1,4 @@
-package cn.com.omnimind.bot.omniflow
+package cn.com.omnimind.bot.omniflow.function
 
 /**
  * Agent-facing JSON schemas for update_function.
@@ -7,7 +7,7 @@ package cn.com.omnimind.bot.omniflow
  * both legacy and agent-generated aliases, so the schema should guide generation
  * without rejecting safe extra metadata too early.
  */
-object OobFunctionUpdateToolSchema {
+object OmniFlowFunctionUpdateToolSchema {
     fun inputSchema(includeCamelCaseAliases: Boolean): Map<String, Any?> =
         obj(
             properties = inputProperties(includeCamelCaseAliases = includeCamelCaseAliases),
@@ -78,11 +78,6 @@ object OobFunctionUpdateToolSchema {
                 ),
                 "checker_rules" to checkerRulesSchema,
                 "checkerRules" to checkerRulesSchema,
-                "ops" to operationArraySchema,
-                "operations" to operationArraySchema,
-                "repairs" to operationArraySchema,
-                "replace_target" to replaceTargetOperationSchema,
-                "replaceTarget" to replaceTargetOperationSchema,
             ),
         )
 
@@ -99,15 +94,11 @@ object OobFunctionUpdateToolSchema {
             "usage" to obj(description = "Optional token usage from the API call that produced this enhancement analysis."),
             "cost" to obj(description = "Optional cost estimate from the API call that produced this enhancement analysis."),
             "dry_run" to boolean("Preview changes without saving."),
-            "allow_execution_change" to boolean("Allow repair operations that alter executable step targets."),
-            "allow_structural_change" to boolean("Allow insert/delete step operations."),
         )
         if (includeCamelCaseAliases) {
             properties["offlineJob"] = boolean("Alias of offline_job.")
             properties["autoAnalyzeWithModel"] = boolean("Alias of auto_analyze_with_model.")
             properties["dryRun"] = boolean("Alias of dry_run.")
-            properties["allowExecutionChange"] = boolean("Alias of allow_execution_change.")
-            properties["allowStructuralChange"] = boolean("Alias of allow_structural_change.")
         }
         return properties
     }
@@ -117,44 +108,6 @@ object OobFunctionUpdateToolSchema {
 
     val agentReuseExportSchema: Map<String, Any?>
         get() = agentReuseSchema
-
-    private val operationProperties: Map<String, Any?>
-        get() = linkedMapOf(
-            "op" to enumString(
-                "Operation type.",
-                listOf("replace_target", "replace_click_target", "retarget_action", "insert_step", "add_step", "delete_step", "remove_step"),
-            ),
-            "tool" to string("Target action/tool name, for example click, input_text, swipe, open_app."),
-            "action" to string("Alias of tool."),
-            "tool_name" to string("Alias of tool."),
-            "step_index" to integer("Target step index, or insert index for insert_step."),
-            "stepIndex" to integer("Alias of step_index."),
-            "step_id" to string("Target step id."),
-            "stepId" to string("Alias of step_id."),
-            "wrong_text" to string("Current/wrong target text to avoid."),
-            "wrongText" to string("Alias of wrong_text."),
-            "desired_text" to string("Desired replacement target text."),
-            "desiredText" to string("Alias of desired_text."),
-            "target_text" to string("Alias of desired_text."),
-            "title" to string("Title for inserted or updated step."),
-            "description" to string("Description for inserted or updated step."),
-            "target_description" to string("Target description for inserted step."),
-            "text" to string("Input text for input_text inserted step."),
-            "x" to number("Optional recorded x coordinate for inserted step."),
-            "y" to number("Optional recorded y coordinate for inserted step."),
-            "bounds" to obj(description = "Optional bounds for inserted or retargeted step."),
-            "args" to obj(description = "Optional full args for inserted step."),
-            "arguments" to obj(description = "Alias of args."),
-            "step" to obj(description = "Optional full step object for insert_step."),
-            "new_step" to obj(description = "Alias of step."),
-            "reason" to string("Why this operation is needed."),
-        )
-
-    private val operationArraySchema: Map<String, Any?>
-        get() = array("Executable repair operations.", obj(properties = operationProperties))
-
-    private val replaceTargetOperationSchema: Map<String, Any?>
-        get() = obj(description = "Replace one step target with a safer target.", properties = operationProperties)
 
     private val stepLabelPatchSchema: Map<String, Any?>
         get() = obj(
@@ -229,9 +182,6 @@ object OobFunctionUpdateToolSchema {
 
     private fun integer(description: String): Map<String, Any?> =
         primitive("integer", description)
-
-    private fun number(description: String): Map<String, Any?> =
-        primitive("number", description)
 
     private fun boolean(description: String): Map<String, Any?> =
         primitive("boolean", description)

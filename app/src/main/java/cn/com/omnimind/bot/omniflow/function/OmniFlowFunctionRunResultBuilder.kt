@@ -1,13 +1,13 @@
-package cn.com.omnimind.bot.agent.tool.handlers
+package cn.com.omnimind.bot.omniflow.function
 
-import cn.com.omnimind.bot.omniflow.OobFunctionJson.listArg
-import cn.com.omnimind.bot.omniflow.OobFunctionJson.mapArg
+import cn.com.omnimind.bot.omniflow.function.OmniFlowFunctionJson.listArg
+import cn.com.omnimind.bot.omniflow.function.OmniFlowFunctionJson.mapArg
 
 /**
  * Builds Function run and step result payloads. The handler owns execution order;
  * this builder owns the stable result schema exposed to tools, RunLogs, and UI.
  */
-class OobFunctionRunResultBuilder {
+class OmniFlowFunctionRunResultBuilder {
     fun timing(startedAtMs: Long): Timing = Timing(startedAtMs)
 
     fun failureStep(
@@ -45,9 +45,9 @@ class OobFunctionRunResultBuilder {
             "audit_run_id" to auditRunId,
             "function_id" to (spec["function_id"] ?: functionId),
             "description" to spec["description"]?.toString().orEmpty(),
-            "source" to OobFunctionToolHandler.FUNCTION_RUN_SOURCE,
-            "run_source" to OobFunctionToolHandler.FUNCTION_RUN_SOURCE,
-            "runner" to OobFunctionToolHandler.FUNCTION_DIRECT_RUNNER,
+            "source" to OmniFlowFunctionRun.FUNCTION_RUN_SOURCE,
+            "run_source" to OmniFlowFunctionRun.FUNCTION_RUN_SOURCE,
+            "runner" to OmniFlowFunctionRun.FUNCTION_DIRECT_RUNNER,
             "step_count" to stepCountFromSpec(spec),
             "success_step_count" to 0,
             "model_used" to false,
@@ -91,9 +91,9 @@ class OobFunctionRunResultBuilder {
             "audit_run_id" to auditRunId,
             "function_id" to (spec["function_id"] ?: functionId),
             "description" to spec["description"]?.toString().orEmpty(),
-            "source" to OobFunctionToolHandler.FUNCTION_RUN_SOURCE,
-            "run_source" to OobFunctionToolHandler.FUNCTION_RUN_SOURCE,
-            "runner" to OobFunctionToolHandler.FUNCTION_DIRECT_RUNNER,
+            "source" to OmniFlowFunctionRun.FUNCTION_RUN_SOURCE,
+            "run_source" to OmniFlowFunctionRun.FUNCTION_RUN_SOURCE,
+            "runner" to OmniFlowFunctionRun.FUNCTION_DIRECT_RUNNER,
             "replay_mode" to "function_direct_run",
             "step_count" to steps.size,
             "active_step_count" to activeSteps.size,

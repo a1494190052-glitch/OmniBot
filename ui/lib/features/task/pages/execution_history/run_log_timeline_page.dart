@@ -8,7 +8,7 @@ import 'package:flutter/services.dart';
 import 'package:ui/features/task/pages/execution_history/function_run_result_sheet.dart';
 import 'package:ui/features/task/pages/execution_history/widgets/reusable_function_card.dart';
 import 'package:ui/features/task/run_log/oob_canonical_action_schema.dart';
-import 'package:ui/features/task/run_log/run_log_reusable_function_converter.dart';
+import 'package:ui/features/task/run_log/omniflow_function_spec.dart';
 import 'package:ui/features/task/run_log/run_log_replay_policy.dart';
 import 'package:ui/features/task/pages/scheduled_tasks/widgets/schedule_task_sheet.dart';
 import 'package:ui/l10n/app_text_localizer.dart';
@@ -66,7 +66,7 @@ Future<void> showRunLogStepDetailSheet(
 
 Future<void> showReusableFunctionSpecSheet(
   BuildContext context, {
-  required RunLogReusableFunctionSpec spec,
+  required OmniFlowFunctionSpec spec,
   required String runId,
   String? baseUrl,
   UtgRunLogImportResult? initialImportResult,
@@ -226,7 +226,7 @@ class _RunLogTimelinePageState extends State<RunLogTimelinePage> {
   bool _isLoading = true;
   bool _isConvertingFunction = false;
   bool _isReplayingRunLog = false;
-  RunLogReusableFunctionSpec? _savedFunctionSpec;
+  OmniFlowFunctionSpec? _savedFunctionSpec;
   UtgRunLogImportResult? _savedFunctionImportResult;
   _RunLogFunctionPanelStatus _functionPanelStatus =
       _RunLogFunctionPanelStatus.idle;
@@ -310,14 +310,9 @@ class _RunLogTimelinePageState extends State<RunLogTimelinePage> {
       specJson = _minimalRegisteredFunctionSpecFromPayload(payload, functionId);
     }
     if (!mounted) return null;
-    final useEnglish = _localeValue(context, zh: false, en: true);
-    final agentPrompt = RunLogReusableFunctionConverter.buildAgentPrompt(
-      specJson,
-      useEnglish: useEnglish,
-    );
-    final spec = RunLogReusableFunctionSpec(
+    final spec = OmniFlowFunctionSpec(
       json: specJson,
-      agentPrompt: agentPrompt,
+      agentPrompt: omniFlowFunctionAgentPrompt(specJson),
       aiEnhanced: false,
     );
     final importResult = UtgRunLogImportResult.fromMap({
@@ -616,14 +611,9 @@ class _RunLogTimelinePageState extends State<RunLogTimelinePage> {
                 'steps': <dynamic>[],
               },
             };
-      final agentPrompt =
-          await RunLogReusableFunctionConverter.buildAgentPromptAsync(
-            specJson,
-            useEnglish: useEnglish,
-          );
-      final spec = RunLogReusableFunctionSpec(
+      final spec = OmniFlowFunctionSpec(
         json: specJson,
-        agentPrompt: agentPrompt,
+        agentPrompt: omniFlowFunctionAgentPrompt(specJson),
         aiEnhanced: false,
       );
       final importResult = UtgRunLogImportResult.fromMap(result);
@@ -935,7 +925,7 @@ class _RunLogTimelinePageState extends State<RunLogTimelinePage> {
   }
 
   Future<void> _showReusableFunctionSheet(
-    RunLogReusableFunctionSpec spec, {
+    OmniFlowFunctionSpec spec, {
     UtgRunLogImportResult? initialImportResult,
   }) {
     return showReusableFunctionSpecSheet(
@@ -967,17 +957,17 @@ _RunLogFunctionPanelStatus _panelStatusFromEnhancementJob(
     return _RunLogFunctionPanelStatus.failed;
   }
   switch (job.enhancementStatus) {
-    case RunLogReusableFunctionEnhancementStatus.enhanced:
+    case OmniFlowFunctionEnhancementStatus.enhanced:
       return _RunLogFunctionPanelStatus.enhanced;
-    case RunLogReusableFunctionEnhancementStatus.partial:
+    case OmniFlowFunctionEnhancementStatus.partial:
       return _RunLogFunctionPanelStatus.partial;
-    case RunLogReusableFunctionEnhancementStatus.unchanged:
+    case OmniFlowFunctionEnhancementStatus.unchanged:
       return _RunLogFunctionPanelStatus.unchanged;
-    case RunLogReusableFunctionEnhancementStatus.failed:
+    case OmniFlowFunctionEnhancementStatus.failed:
       return _RunLogFunctionPanelStatus.failed;
-    case RunLogReusableFunctionEnhancementStatus.enhancing:
+    case OmniFlowFunctionEnhancementStatus.enhancing:
       return _RunLogFunctionPanelStatus.enhancing;
-    case RunLogReusableFunctionEnhancementStatus.none:
+    case OmniFlowFunctionEnhancementStatus.none:
       return _RunLogFunctionPanelStatus.saved;
   }
 }
@@ -1026,7 +1016,7 @@ class _RunLogRegisteredFunctionBinding {
     required this.importResult,
   });
 
-  final RunLogReusableFunctionSpec spec;
+  final OmniFlowFunctionSpec spec;
   final UtgRunLogImportResult importResult;
 }
 
@@ -1096,7 +1086,7 @@ class _RunLogFunctionStatusStrip extends StatelessWidget {
   });
 
   final _RunLogFunctionPanelStatus status;
-  final RunLogReusableFunctionSpec? spec;
+  final OmniFlowFunctionSpec? spec;
   final String? message;
   final String? error;
   final bool canView;
@@ -2861,7 +2851,7 @@ class _ReusableFunctionSpecSheet extends StatefulWidget {
     this.initialImportResult,
   });
 
-  final RunLogReusableFunctionSpec spec;
+  final OmniFlowFunctionSpec spec;
   final String runId;
   final String? baseUrl;
   final UtgRunLogImportResult? initialImportResult;
@@ -2873,7 +2863,7 @@ class _ReusableFunctionSpecSheet extends StatefulWidget {
 
 class _ReusableFunctionSpecSheetState
     extends State<_ReusableFunctionSpecSheet> {
-  late RunLogReusableFunctionSpec _draftSpec;
+  late OmniFlowFunctionSpec _draftSpec;
   late TextEditingController _nameController;
   late TextEditingController _descriptionController;
   late UtgRunLogImportResult? _importResult;
@@ -2884,22 +2874,22 @@ class _ReusableFunctionSpecSheetState
   bool _isEnhancing = false;
   bool _hasAgentEnhanced = false;
   bool _hasStructuralEdits = false;
-  RunLogReusableFunctionEnhancementStatus _enhancementStatus =
-      RunLogReusableFunctionEnhancementStatus.none;
+  OmniFlowFunctionEnhancementStatus _enhancementStatus =
+      OmniFlowFunctionEnhancementStatus.none;
   String? _enhancementMessage;
   RunLogFunctionEnhancementJob? _enhancementJob;
   StreamSubscription<RunLogFunctionEnhancementJob>? _enhancementJobSub;
   late String _lastSavedSpecFingerprint;
   String? _apiError;
 
-  RunLogReusableFunctionSpec get spec =>
+  OmniFlowFunctionSpec get spec =>
       _draftSpec.copyWith(json: _functionJsonWithHeaderEdits(_draftSpec.json));
 
-  RunLogReusableFunctionEnhancementStatus get _visibleEnhancementStatus {
+  OmniFlowFunctionEnhancementStatus get _visibleEnhancementStatus {
     if (_enhancementJob?.isRunning == true) {
-      return RunLogReusableFunctionEnhancementStatus.enhancing;
+      return OmniFlowFunctionEnhancementStatus.enhancing;
     }
-    if (_enhancementStatus != RunLogReusableFunctionEnhancementStatus.none) {
+    if (_enhancementStatus != OmniFlowFunctionEnhancementStatus.none) {
       return _enhancementStatus;
     }
     return spec.enhancementStatus;
@@ -2912,11 +2902,11 @@ class _ReusableFunctionSpecSheetState
 
   bool get _hasCompletedEnhancement =>
       _visibleEnhancementStatus ==
-          RunLogReusableFunctionEnhancementStatus.enhanced ||
+          OmniFlowFunctionEnhancementStatus.enhanced ||
       _visibleEnhancementStatus ==
-          RunLogReusableFunctionEnhancementStatus.partial ||
+          OmniFlowFunctionEnhancementStatus.partial ||
       _visibleEnhancementStatus ==
-          RunLogReusableFunctionEnhancementStatus.unchanged;
+          OmniFlowFunctionEnhancementStatus.unchanged;
 
   @override
   void initState() {
@@ -2968,7 +2958,7 @@ class _ReusableFunctionSpecSheetState
         _hasAgentEnhanced || spec.aiEnhanced || enhancementStatus.isApplied;
     final showOfflineEnhancementHint =
         _hasOfflineEnhancementPolicy &&
-        enhancementStatus == RunLogReusableFunctionEnhancementStatus.none;
+        enhancementStatus == OmniFlowFunctionEnhancementStatus.none;
 
     return GestureDetector(
       onTap: () => Navigator.of(context, rootNavigator: true).maybePop(),
@@ -3041,7 +3031,7 @@ class _ReusableFunctionSpecSheetState
                                           'Edited, save to apply',
                                         )
                                       : enhancementStatus ==
-                                            RunLogReusableFunctionEnhancementStatus
+                                            OmniFlowFunctionEnhancementStatus
                                                 .enhancing
                                       ? _text(
                                           context,
@@ -3049,7 +3039,7 @@ class _ReusableFunctionSpecSheetState
                                           'Enhancing in background',
                                         )
                                       : enhancementStatus ==
-                                            RunLogReusableFunctionEnhancementStatus
+                                            OmniFlowFunctionEnhancementStatus
                                                 .failed
                                       ? _text(
                                           context,
@@ -3057,7 +3047,7 @@ class _ReusableFunctionSpecSheetState
                                           'Agent enhancement failed',
                                         )
                                       : enhancementStatus ==
-                                            RunLogReusableFunctionEnhancementStatus
+                                            OmniFlowFunctionEnhancementStatus
                                                 .unchanged
                                       ? _text(
                                           context,
@@ -3065,7 +3055,7 @@ class _ReusableFunctionSpecSheetState
                                           'Agent checked',
                                         )
                                       : enhancementStatus ==
-                                            RunLogReusableFunctionEnhancementStatus
+                                            OmniFlowFunctionEnhancementStatus
                                                 .partial
                                       ? _text(
                                           context,
@@ -3169,7 +3159,7 @@ class _ReusableFunctionSpecSheetState
                               _WarningBox(text: _apiError!),
                             ],
                             if (enhancementStatus !=
-                                RunLogReusableFunctionEnhancementStatus
+                                OmniFlowFunctionEnhancementStatus
                                     .none) ...[
                               const SizedBox(height: 12),
                               _EnhancementStatusBox(
@@ -3198,7 +3188,7 @@ class _ReusableFunctionSpecSheetState
                                     icon: hasUnsavedEdits
                                         ? Icons.cloud_upload_outlined
                                         : enhancementStatus ==
-                                              RunLogReusableFunctionEnhancementStatus
+                                              OmniFlowFunctionEnhancementStatus
                                                   .failed
                                         ? Icons.refresh_rounded
                                         : Icons.auto_awesome_rounded,
@@ -3213,7 +3203,7 @@ class _ReusableFunctionSpecSheetState
                                             'Background enhance',
                                           )
                                         : enhancementStatus ==
-                                              RunLogReusableFunctionEnhancementStatus
+                                              OmniFlowFunctionEnhancementStatus
                                                   .failed
                                         ? _text(
                                             context,
@@ -3221,7 +3211,7 @@ class _ReusableFunctionSpecSheetState
                                             'Retry enhance',
                                           )
                                         : enhancementStatus ==
-                                              RunLogReusableFunctionEnhancementStatus
+                                              OmniFlowFunctionEnhancementStatus
                                                   .unchanged
                                         ? _text(context, '已检查', 'Checked')
                                         : hasAgentEnhanced
@@ -3237,7 +3227,7 @@ class _ReusableFunctionSpecSheetState
                                         : isEnhancing
                                         ? null
                                         : enhancementStatus ==
-                                              RunLogReusableFunctionEnhancementStatus
+                                              OmniFlowFunctionEnhancementStatus
                                                   .failed
                                         ? _enhanceWithAgent
                                         : _hasCompletedEnhancement ||
@@ -3595,7 +3585,7 @@ class _ReusableFunctionSpecSheetState
     final useEnglish = _localeValue(context, zh: false, en: true);
     setState(() {
       _isEnhancing = true;
-      _enhancementStatus = RunLogReusableFunctionEnhancementStatus.enhancing;
+      _enhancementStatus = OmniFlowFunctionEnhancementStatus.enhancing;
       _enhancementMessage = _text(
         context,
         'Agent 已将这个复用指令加入后台增强队列。',
@@ -3638,7 +3628,7 @@ class _ReusableFunctionSpecSheetState
       if (!mounted) return;
       setState(() {
         _isEnhancing = false;
-        _enhancementStatus = RunLogReusableFunctionEnhancementStatus.failed;
+        _enhancementStatus = OmniFlowFunctionEnhancementStatus.failed;
         _enhancementMessage = _text(
           context,
           '后台增强启动失败，当前复用指令保持原样。',
@@ -3724,15 +3714,12 @@ class _ReusableFunctionSpecSheetState
     Map<String, dynamic> json, {
     required bool structuralEdit,
   }) async {
-    final useEnglish = _localeValue(context, zh: false, en: true);
-    final agentPrompt =
-        await RunLogReusableFunctionConverter.buildAgentPromptAsync(
-          json,
-          useEnglish: useEnglish,
-        );
     if (!mounted) return;
     setState(() {
-      _draftSpec = _draftSpec.copyWith(json: json, agentPrompt: agentPrompt);
+      _draftSpec = _draftSpec.copyWith(
+        json: json,
+        agentPrompt: omniFlowFunctionAgentPrompt(json),
+      );
       _runResult = null;
       if (structuralEdit) {
         _hasStructuralEdits = true;
@@ -3781,9 +3768,11 @@ class _ReusableFunctionSpecSheetState
           showToast(message, type: ToastType.error);
           return false;
         }
+        final savedSpec = _specFromSavePayload(spec, result);
         setState(() {
           _importResult = UtgRunLogImportResult.fromMap(result);
-          _lastSavedSpecFingerprint = _specFingerprint(spec.json);
+          _draftSpec = savedSpec;
+          _lastSavedSpecFingerprint = _specFingerprint(savedSpec.json);
           _hasStructuralEdits = false;
           _isImporting = false;
         });
@@ -3819,6 +3808,7 @@ class _ReusableFunctionSpecSheetState
         showToast(message, type: ToastType.error);
         return false;
       }
+      final savedSpec = _specFromSavePayload(spec, result.rawJson);
       setState(() {
         _importResult = UtgRunLogImportResult.fromMap({
           'success': result.success,
@@ -3832,7 +3822,8 @@ class _ReusableFunctionSpecSheetState
               result.rawJson['oob_function_as_tool_enabled'] == true,
         });
         if (result.success) {
-          _lastSavedSpecFingerprint = _specFingerprint(spec.json);
+          _draftSpec = savedSpec;
+          _lastSavedSpecFingerprint = _specFingerprint(savedSpec.json);
           _hasStructuralEdits = false;
         }
         _isImporting = false;
@@ -4006,6 +3997,24 @@ class _ReusableFunctionSpecSheetState
 
   bool get _hasUnsavedEdits =>
       _specFingerprint(spec.json) != _lastSavedSpecFingerprint;
+
+  OmniFlowFunctionSpec _specFromSavePayload(
+    OmniFlowFunctionSpec current,
+    Map<String, dynamic> payload,
+  ) {
+    final savedJson = _functionSpecJsonFromSavePayload(payload);
+    if (savedJson.isEmpty) return current;
+    final prompt = _firstNonBlank([
+      savedJson['agent_prompt'],
+      savedJson['display_prompt'],
+    ]);
+    return current.copyWith(
+      json: savedJson,
+      agentPrompt: prompt.isNotEmpty
+          ? prompt
+          : omniFlowFunctionAgentPrompt(savedJson),
+    );
+  }
 
   Map<String, dynamic> _functionJsonWithHeaderEdits(
     Map<String, dynamic> rawJson,
@@ -5451,6 +5460,21 @@ Map<String, dynamic> _deepCopyStringMap(Map<String, dynamic> value) {
   return <String, dynamic>{};
 }
 
+Map<String, dynamic> _functionSpecJsonFromSavePayload(
+  Map<String, dynamic> payload,
+) {
+  for (final key in const [
+    'function',
+    'function_spec',
+    'updated_function',
+    'spec',
+  ]) {
+    final map = _asStringKeyMap(payload[key]);
+    if (map.isNotEmpty) return _deepCopyStringMap(map);
+  }
+  return const <String, dynamic>{};
+}
+
 String _specFingerprint(Map<String, dynamic> value) {
   return jsonEncode(_jsonSafe(value));
 }
@@ -5463,7 +5487,7 @@ class _EnhancementStatusBox extends StatelessWidget {
     required this.isSaved,
   });
 
-  final RunLogReusableFunctionEnhancementStatus status;
+  final OmniFlowFunctionEnhancementStatus status;
   final String? message;
   final bool isSaving;
   final bool isSaved;
@@ -5519,43 +5543,43 @@ class _EnhancementStatusBox extends StatelessWidget {
 
   IconData get _icon {
     switch (status) {
-      case RunLogReusableFunctionEnhancementStatus.enhancing:
+      case OmniFlowFunctionEnhancementStatus.enhancing:
         return Icons.sync_rounded;
-      case RunLogReusableFunctionEnhancementStatus.enhanced:
+      case OmniFlowFunctionEnhancementStatus.enhanced:
         return Icons.auto_awesome_rounded;
-      case RunLogReusableFunctionEnhancementStatus.partial:
+      case OmniFlowFunctionEnhancementStatus.partial:
         return Icons.rule_rounded;
-      case RunLogReusableFunctionEnhancementStatus.unchanged:
+      case OmniFlowFunctionEnhancementStatus.unchanged:
         return Icons.fact_check_outlined;
-      case RunLogReusableFunctionEnhancementStatus.failed:
+      case OmniFlowFunctionEnhancementStatus.failed:
         return Icons.error_outline_rounded;
-      case RunLogReusableFunctionEnhancementStatus.none:
+      case OmniFlowFunctionEnhancementStatus.none:
         return Icons.info_outline_rounded;
     }
   }
 
   Color _statusColor(BuildContext context) {
     switch (status) {
-      case RunLogReusableFunctionEnhancementStatus.enhanced:
+      case OmniFlowFunctionEnhancementStatus.enhanced:
         return _successColor(context);
-      case RunLogReusableFunctionEnhancementStatus.partial:
+      case OmniFlowFunctionEnhancementStatus.partial:
         return _warningColor(context);
-      case RunLogReusableFunctionEnhancementStatus.failed:
+      case OmniFlowFunctionEnhancementStatus.failed:
         return _errorColor(context);
-      case RunLogReusableFunctionEnhancementStatus.enhancing:
-      case RunLogReusableFunctionEnhancementStatus.unchanged:
-      case RunLogReusableFunctionEnhancementStatus.none:
+      case OmniFlowFunctionEnhancementStatus.enhancing:
+      case OmniFlowFunctionEnhancementStatus.unchanged:
+      case OmniFlowFunctionEnhancementStatus.none:
         return _routeColor(context);
     }
   }
 
   String _title(BuildContext context) {
     switch (status) {
-      case RunLogReusableFunctionEnhancementStatus.enhancing:
+      case OmniFlowFunctionEnhancementStatus.enhancing:
         return isSaving
             ? _text(context, '增强：保存中', 'Enhancement: saving')
             : _text(context, '增强：后台执行中', 'Enhancement: running in background');
-      case RunLogReusableFunctionEnhancementStatus.enhanced:
+      case OmniFlowFunctionEnhancementStatus.enhanced:
         if (!isSaved) {
           return _text(
             context,
@@ -5564,7 +5588,7 @@ class _EnhancementStatusBox extends StatelessWidget {
           );
         }
         return _text(context, '增强：已增强并保存', 'Enhancement: enhanced and saved');
-      case RunLogReusableFunctionEnhancementStatus.partial:
+      case OmniFlowFunctionEnhancementStatus.partial:
         if (!isSaved) {
           return _text(
             context,
@@ -5577,7 +5601,7 @@ class _EnhancementStatusBox extends StatelessWidget {
           '增强：部分增强并保存',
           'Enhancement: partially enhanced and saved',
         );
-      case RunLogReusableFunctionEnhancementStatus.unchanged:
+      case OmniFlowFunctionEnhancementStatus.unchanged:
         if (!isSaved) {
           return _text(
             context,
@@ -5586,50 +5610,50 @@ class _EnhancementStatusBox extends StatelessWidget {
           );
         }
         return _text(context, '增强：已检查，无需修改', 'Enhancement: checked, no change');
-      case RunLogReusableFunctionEnhancementStatus.failed:
+      case OmniFlowFunctionEnhancementStatus.failed:
         return _text(
           context,
           '增强：失败，可重试',
           'Enhancement: failed, retry available',
         );
-      case RunLogReusableFunctionEnhancementStatus.none:
+      case OmniFlowFunctionEnhancementStatus.none:
         return _text(context, '增强：未执行', 'Enhancement: not run');
     }
   }
 
   String _defaultMessage(BuildContext context) {
     switch (status) {
-      case RunLogReusableFunctionEnhancementStatus.enhancing:
+      case OmniFlowFunctionEnhancementStatus.enhancing:
         return _text(
           context,
           'Agent 正在后台整理名称、步骤、参数和复用元数据。',
           'Agent is refining labels, steps, parameters, and reuse metadata in the background.',
         );
-      case RunLogReusableFunctionEnhancementStatus.enhanced:
+      case OmniFlowFunctionEnhancementStatus.enhanced:
         return _text(
           context,
           '已产生可用增强并写回复用指令库。',
           'Useful enhancement was produced and written back to the reusable command library.',
         );
-      case RunLogReusableFunctionEnhancementStatus.partial:
+      case OmniFlowFunctionEnhancementStatus.partial:
         return _text(
           context,
           '有可用增强已保留，未通过的片段已跳过。',
           'Useful enhancement was kept; failed sections were skipped.',
         );
-      case RunLogReusableFunctionEnhancementStatus.unchanged:
+      case OmniFlowFunctionEnhancementStatus.unchanged:
         return _text(
           context,
           'Agent 已检查当前复用指令，没有安全可应用的变化。',
           'Agent checked the reusable command and found no safe applicable change.',
         );
-      case RunLogReusableFunctionEnhancementStatus.failed:
+      case OmniFlowFunctionEnhancementStatus.failed:
         return _text(
           context,
           '没有写入增强结果，当前复用指令保持原样。',
           'No enhancement was written. The current reusable command is unchanged.',
         );
-      case RunLogReusableFunctionEnhancementStatus.none:
+      case OmniFlowFunctionEnhancementStatus.none:
         return '';
     }
   }

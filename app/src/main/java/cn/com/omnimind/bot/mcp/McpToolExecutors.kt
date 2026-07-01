@@ -14,13 +14,13 @@ import cn.com.omnimind.assists.task.vlmserver.VLMIndexedPageContext
 import cn.com.omnimind.baselib.i18n.AppLocaleManager
 import cn.com.omnimind.baselib.util.ImageQuality
 import cn.com.omnimind.baselib.util.OmniLog
-import cn.com.omnimind.bot.omniflow.OobFunctionJson.firstNonBlank
-import cn.com.omnimind.bot.omniflow.OobFunctionJson.mapArg
-import cn.com.omnimind.bot.agent.tool.handlers.OobFunctionToolHandler
+import cn.com.omnimind.bot.omniflow.function.OmniFlowFunctionJson.firstNonBlank
+import cn.com.omnimind.bot.omniflow.function.OmniFlowFunctionJson.mapArg
+import cn.com.omnimind.bot.omniflow.function.OmniFlowFunctionRun
 import cn.com.omnimind.bot.vlm.VlmToolCoordinator
 import cn.com.omnimind.bot.vlm.VlmToolOutcome
 import cn.com.omnimind.bot.vlm.VlmToolOutcomeStatus
-import cn.com.omnimind.bot.runlog.OobFunctionManagementService
+import cn.com.omnimind.bot.omniflow.function.OmniFlowFunctionService
 import cn.com.omnimind.bot.runlog.RunLogReplayPolicy
 import cn.com.omnimind.bot.util.AssistsUtil
 import cn.com.omnimind.bot.webchat.AgentRunRequestNormalizer
@@ -1149,7 +1149,7 @@ object McpToolExecutors {
             ).ifBlank {
                 if (frontendRunId.isNotEmpty() || frontendTaskId.isNotEmpty()) "vlm_task" else ""
             }
-            return OobFunctionToolHandler(context).runFunction(
+            return OmniFlowFunctionRun(context).runFunction(
                 linkedMapOf(
                     "function_id" to functionId,
                     "arguments" to toolArgs,

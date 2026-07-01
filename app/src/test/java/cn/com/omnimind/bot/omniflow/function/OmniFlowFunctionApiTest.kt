@@ -1,7 +1,5 @@
-package cn.com.omnimind.bot.omniflow
+package cn.com.omnimind.bot.omniflow.function
 
-import android.content.Context
-import android.content.ContextWrapper
 import cn.com.omnimind.baselib.i18n.PromptLocale
 import cn.com.omnimind.bot.runlog.RunLogReplayPolicy
 import kotlinx.serialization.json.JsonObject
@@ -12,30 +10,10 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-class OobFunctionSkillProfileTest {
-    @Test
-    fun `saved Functions are not exposed as dynamic model tools`() {
-        val context = MinimalContext()
-
-        assertTrue(
-            OobFunctionSkillProfile.dynamicFunctionToolDefinitions(
-                context = context,
-                locale = PromptLocale.EN_US,
-            ).isEmpty()
-        )
-        assertTrue(
-            OobFunctionSkillProfile.dynamicFunctionToolDefinitions(
-                context = context,
-                locale = PromptLocale.EN_US,
-                forceInclude = true,
-            ).isEmpty()
-        )
-        assertTrue(OobFunctionSkillProfile.runtimeToolDefinitions(PromptLocale.EN_US).isEmpty())
-    }
-
+class OmniFlowFunctionApiTest {
     @Test
     fun `omniflow profile exposes function management tools only`() {
-        val definitions = OobFunctionSkillProfile.staticToolDefinitions(PromptLocale.EN_US)
+        val definitions = OmniFlowFunctionApi.staticToolDefinitions(PromptLocale.EN_US)
         val toolNames = definitions
             .mapNotNull { definition ->
                 (definition["function"] as? JsonObject)
@@ -45,24 +23,25 @@ class OobFunctionSkillProfileTest {
             }
             .toSet()
 
-        assertEquals(OobFunctionToolNames.profileTools, toolNames)
+        assertEquals(OmniFlowFunctionApi.profileTools, toolNames)
+        assertEquals(OmniFlowFunctionApi.profileTools, OmniFlowFunctionApi.toolNames)
         assertFalse(toolNames.contains(RunLogReplayPolicy.TOOL_CALL_TOOL))
         assertFalse(toolNames.any { it.startsWith("omniflow.call") })
     }
 
     @Test
     fun `omniflow profile accepts legacy function management spelling`() {
-        assertEquals("omniflow", OobFunctionSkillProfile.PROFILE)
-        assertEquals("function_management", OobFunctionSkillProfile.LEGACY_PROFILE)
-        assertEquals("omniflow", OobFunctionSkillProfile.SKILL_ID)
-        assertEquals("omniflow", OobFunctionSkillProfile.canonicalProfile(" function-management "))
-        assertEquals("omniflow", OobFunctionSkillProfile.canonicalProfile("function_management"))
-        assertTrue(OobFunctionSkillProfile.isProfile("function_management"))
+        assertEquals("omniflow", OmniFlowFunctionApi.PROFILE)
+        assertEquals("function_management", OmniFlowFunctionApi.LEGACY_PROFILE)
+        assertEquals("omniflow", OmniFlowFunctionApi.SKILL_ID)
+        assertEquals("omniflow", OmniFlowFunctionApi.canonicalProfile(" function-management "))
+        assertEquals("omniflow", OmniFlowFunctionApi.canonicalProfile("function_management"))
+        assertTrue(OmniFlowFunctionApi.isProfile("function_management"))
     }
 
     @Test
     fun `prompt candidate context includes reusable function summaries without direct calls`() {
-        val prompt = OobFunctionSkillProfile.buildPromptCandidateContext(
+        val prompt = OmniFlowFunctionApi.buildPromptCandidateContext(
             candidates = listOf(
                 mapOf(
                     "function_id" to "oob_fn_order_lunch",
@@ -101,9 +80,5 @@ class OobFunctionSkillProfileTest {
         assertTrue(prompt.contains("不要尝试调用 function_recall"))
         assertTrue(prompt.contains("普通手机自动化仍走 vlm_task"))
         assertFalse(prompt.contains("oob_" + "function_run"))
-    }
-
-    private class MinimalContext : ContextWrapper(null) {
-        override fun getApplicationContext(): Context = this
     }
 }

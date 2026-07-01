@@ -175,8 +175,8 @@ object VLMToolDefinitions {
             append(
                 t(
                     locale,
-                    "注意：每个 tool call 的 JSON 参数必须是严格合法的 object，并满足所选工具 schema.required。Function replay 由本地 runtime 自动处理；不要输出 call_tool、function_id 或隐藏 Function 工具。若本轮 tools[] 包含 run_recalled_workflow_*，它是当前页面可选的已召回工作流工具，可与普通 UI action 同级选择。schema.required 中的坐标字段必须是 0..1000 相对坐标，分别写入 x / y / x1 / y1 / x2 / y2，每个字段都只能是单个数值；不要返回 [x,y]、coordinates、对象，或 \"x\": 827, 76 这类非法格式。系统会在执行前解码为屏幕绝对像素，本地记录始终保存绝对像素。wait 只在页面明确加载、动画或等待外部状态时使用。",
-                    "Important: every tool call JSON argument value must be a strict object and satisfy the selected tool's schema.required. Function replay is handled by the local runtime; do not emit call_tool, function_id, or hidden Function tools. If this turn's tools[] includes run_recalled_workflow_*, it is an optional recalled workflow tool for the current page and can be chosen at the same level as ordinary UI actions. Coordinate fields in schema.required must be 0..1000 relative coordinates, written into x / y / x1 / y1 / x2 / y2 as separate scalar fields; each field must be a single numeric scalar. Do not emit [x,y], coordinates, objects, or invalid forms such as \"x\": 827, 76. The system decodes coordinates to screen absolute pixels before execution, and local records always store absolute pixels. Use wait only when the page is clearly loading, animating, or waiting for an external state change."
+                    "注意：每个 tool call 的 JSON 参数必须是严格合法的 object，并满足所选工具 schema.required。Function replay 由本地 runtime 自动处理；不要输出 call_tool、function_id 或隐藏 Function 工具。若本轮 tools[] 包含 run_recalled_workflow_*，它是本轮已召回工作流工具，明显匹配当前目标时优先调用，否则继续普通 UI action。schema.required 中的坐标字段必须是 0..1000 相对坐标，分别写入 x / y / x1 / y1 / x2 / y2，每个字段都只能是单个数值；不要返回 [x,y]、coordinates、对象，或 \"x\": 827, 76 这类非法格式。系统会在执行前解码为屏幕绝对像素，本地记录始终保存绝对像素。wait 只在页面明确加载、动画或等待外部状态时使用。",
+                    "Important: every tool call JSON argument value must be a strict object and satisfy the selected tool's schema.required. Function replay is handled by the local runtime; do not emit call_tool, function_id, or hidden Function tools. If this turn's tools[] includes run_recalled_workflow_*, it is a recalled workflow tool for this turn; prefer it when it clearly matches the current goal, otherwise choose an ordinary UI action. Coordinate fields in schema.required must be 0..1000 relative coordinates, written into x / y / x1 / y1 / x2 / y2 as separate scalar fields; each field must be a single numeric scalar. Do not emit [x,y], coordinates, objects, or invalid forms such as \"x\": 827, 76. The system decodes coordinates to screen absolute pixels before execution, and local records always store absolute pixels. Use wait only when the page is clearly loading, animating, or waiting for an external state change."
                 )
             )
         }
@@ -214,8 +214,8 @@ object VLMToolDefinitions {
                 appendLine(
                     t(
                         locale,
-                        "已召回工作流：${dynamicAllowedNames.joinToString(", ")} 可在它明显匹配当前子目标时直接调用；否则继续选择普通 UI action。",
-                        "Recalled workflows: ${dynamicAllowedNames.joinToString(", ")} may be called when one clearly matches the current sub-goal; otherwise choose an ordinary UI action."
+                        "已召回工作流：${dynamicAllowedNames.joinToString(", ")} 明显匹配当前子目标时优先调用；否则继续选择普通 UI action。",
+                        "Recalled workflows: prefer ${dynamicAllowedNames.joinToString(", ")} when one clearly matches the current sub-goal; otherwise choose an ordinary UI action."
                     )
                 )
             }

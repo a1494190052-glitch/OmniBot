@@ -69,90 +69,13 @@ Forbidden in `enhance` mode:
 - Do not bind parameters to coordinates, bounds, width, height, screenshots,
   XML nodes, or invented JSON paths.
 
-## Correction Mode
+## Correction Scope
 
-Use correction when the user says the recorded Function did the wrong concrete
-action, for example "应该点「外卖」而不是点「美食」". The saved patch mode is
-still `repair` for compatibility; do not confuse this with replay failure
-handling.
-
-Patch shape:
-
-```json
-{
-  "function_id": "<id>",
-  "instruction": "应该点「外卖」而不是点「美食」",
-  "mode": "repair",
-  "patch": {
-    "ops": [
-      {
-        "op": "replace_target",
-        "tool": "click",
-        "wrong_text": "美食",
-        "desired_text": "外卖"
-      }
-    ]
-  }
-}
-```
-
-If more than one step matches, let `update_function` return confirmation
-candidates or call it with `dryRun=true`, then ask the user which candidate to
-save.
-
-## Structural Correction
-
-Only add or delete executable actions when the user explicitly asks for it.
-Use `allowStructuralChange=true`.
-
-Insert:
-
-```json
-{
-  "function_id": "<id>",
-  "mode": "repair",
-  "allowStructuralChange": true,
-  "patch": {
-    "ops": [
-      {
-        "op": "insert_step",
-        "step_index": 2,
-        "step": {
-          "tool": "click",
-          "title": "点击外卖入口",
-          "args": {
-            "target_description": "外卖",
-            "x": 500,
-            "y": 500
-          }
-        }
-      }
-    ]
-  }
-}
-```
-
-Delete:
-
-```json
-{
-  "function_id": "<id>",
-  "mode": "repair",
-  "allowStructuralChange": true,
-  "patch": {
-    "ops": [
-      {
-        "op": "delete_step",
-        "step_index": 3,
-        "reason": "重复等待，已被前一步覆盖。"
-      }
-    ]
-  }
-}
-```
-
-Do not invent coordinates for a new action. Include coordinates only when they
-come from Function context, XML, or an explicit user correction.
+`update_function` is not a replay editor. It may improve user-facing Function
+semantics and metadata, but it must not rewrite executable targets, insert
+actions, delete actions, or invent coordinates. If the recorded path is wrong,
+save a new recording or ask for a new explicit Function instead of mutating the
+old execution stack.
 
 ## Status Contract
 

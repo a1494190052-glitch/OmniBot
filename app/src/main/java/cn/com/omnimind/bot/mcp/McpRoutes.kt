@@ -2,10 +2,10 @@ package cn.com.omnimind.bot.mcp
 
 import android.content.Context
 import cn.com.omnimind.bot.agent.AgentToolNames
-import cn.com.omnimind.bot.agent.tool.handlers.OobFunctionToolHandler
-import cn.com.omnimind.bot.omniflow.OobFunctionSchemaExport
-import cn.com.omnimind.bot.omniflow.OobFunctionToolNames
-import cn.com.omnimind.bot.runlog.OobFunctionManagementService
+import cn.com.omnimind.bot.omniflow.function.OmniFlowFunctionRun
+import cn.com.omnimind.bot.omniflow.function.OmniFlowFunctionSchemaExport
+import cn.com.omnimind.bot.omniflow.function.OmniFlowFunctionApi
+import cn.com.omnimind.bot.omniflow.function.OmniFlowFunctionService
 import cn.com.omnimind.bot.util.AssistsUtil
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.application.call
@@ -143,14 +143,14 @@ object McpRoutes {
             "resources/read" -> {
                 val params = request["params"] as? Map<String, Any?>
                 val uri = params?.get("uri")?.toString()?.trim().orEmpty()
-                if (uri == OobFunctionSchemaExport.RESOURCE_URI) {
+                if (uri == OmniFlowFunctionSchemaExport.RESOURCE_URI) {
                     mapOf(
                         "jsonrpc" to "2.0",
                         "id" to id,
                         "result" to mapOf(
                             "contents" to listOf(
                                 mapOf(
-                                    "uri" to OobFunctionSchemaExport.RESOURCE_URI,
+                                    "uri" to OmniFlowFunctionSchemaExport.RESOURCE_URI,
                                     "mimeType" to "application/json",
                                     "text" to McpServerManager.gson.toJson(McpToolDefinitions.schemaExportBundle),
                                 )
@@ -209,7 +209,7 @@ object McpRoutes {
         args: Map<String, Any?>?
     ): Map<String, Any?> {
         return runCatching {
-            val functionManagementService by lazy { OobFunctionManagementService(context) }
+            val functionManagementService by lazy { OmniFlowFunctionService(context) }
             when (name) {
             AgentToolNames.VLM_TASK -> McpToolExecutors.executeVlmTask(context, args, serverScope)
             "task_status" -> McpToolExecutors.executeTaskStatus(args)
@@ -219,7 +219,7 @@ object McpRoutes {
             "act" -> McpToolExecutors.executeAct(context, args)
             "file_transfer" -> McpToolExecutors.executeFileTransfer(args)
             "agent_run" -> McpToolExecutors.executeAgentRun(context, args)
-            "run_function" -> OobFunctionToolHandler(context).runFunction(args)
+            "run_function" -> OmniFlowFunctionRun(context).runFunction(args)
             else -> {
                 if (isOmniflowMcpTool(name)) {
                     functionManagementService.executeTool(name, args)
@@ -240,10 +240,7 @@ object McpRoutes {
     }
 
     private val OMNIFLOW_MCP_TOOL_NAMES: Set<String> =
-        OobFunctionToolNames.mcpLifecycleTools + setOf(
-            "omniflow.recall",
-            "omniflow.ingest_run_log",
-        )
+        OmniFlowFunctionApi.mcpToolNames
 
     private fun isOmniflowMcpTool(name: String?): Boolean =
         !name.isNullOrBlank() && name in OMNIFLOW_MCP_TOOL_NAMES

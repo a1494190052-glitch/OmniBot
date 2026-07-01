@@ -5,7 +5,7 @@ package cn.com.omnimind.bot.agent
  * adapters, and RunLog classification.
  *
  * Function and RunLog lifecycle tool names live in
- * [cn.com.omnimind.bot.omniflow.OobFunctionToolNames]. Replay-only taxonomy
+ * [cn.com.omnimind.bot.omniflow.function.OmniFlowFunctionApi]. Replay-only taxonomy
  * such as `call_tool` stays in
  * [cn.com.omnimind.bot.runlog.RunLogReplayPolicy].
  */

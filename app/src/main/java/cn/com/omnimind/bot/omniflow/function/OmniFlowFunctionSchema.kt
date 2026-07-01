@@ -1,23 +1,23 @@
-package cn.com.omnimind.bot.omniflow
+package cn.com.omnimind.bot.omniflow.function
 import cn.com.omnimind.bot.runlog.argsForStep
 import cn.com.omnimind.bot.runlog.actionNameForStep
 import cn.com.omnimind.bot.runlog.resolveActionName
 import cn.com.omnimind.baselib.runlog.OobActionSchema
 
-import cn.com.omnimind.bot.omniflow.OobFunctionJson.boolArg
-import cn.com.omnimind.bot.omniflow.OobFunctionJson.firstNonBlank
-import cn.com.omnimind.bot.omniflow.OobFunctionJson.listArg
-import cn.com.omnimind.bot.omniflow.OobFunctionJson.mapArg
-import cn.com.omnimind.bot.omniflow.OobFunctionJson.mutableJsonMap
-import cn.com.omnimind.bot.omniflow.OobFunctionJson.sanitizeMap
-import cn.com.omnimind.bot.omniflow.OobFunctionJson.sanitizeValue
+import cn.com.omnimind.bot.omniflow.function.OmniFlowFunctionJson.boolArg
+import cn.com.omnimind.bot.omniflow.function.OmniFlowFunctionJson.firstNonBlank
+import cn.com.omnimind.bot.omniflow.function.OmniFlowFunctionJson.listArg
+import cn.com.omnimind.bot.omniflow.function.OmniFlowFunctionJson.mapArg
+import cn.com.omnimind.bot.omniflow.function.OmniFlowFunctionJson.mutableJsonMap
+import cn.com.omnimind.bot.omniflow.function.OmniFlowFunctionJson.sanitizeMap
+import cn.com.omnimind.bot.omniflow.function.OmniFlowFunctionJson.sanitizeValue
 import cn.com.omnimind.bot.runlog.RunLogReplayPolicy
 
 /**
  * Builds the public argument contract used by runtime recall/resolve before an
  * OmniFlow Function is replayed.
  */
-object OobFunctionSchemaBuilder {
+object OmniFlowFunctionSchema {
     fun inputSchema(spec: Map<String, Any?>): Map<String, Any?> {
         val explicit = mapArg(spec["inputSchema"]).ifEmpty { mapArg(spec["input_schema"]) }
         if (explicit.isNotEmpty()) return publicInputSchema(explicit)

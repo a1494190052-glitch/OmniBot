@@ -5,9 +5,9 @@ import android.content.Context
 import android.content.Intent
 import android.util.Base64
 import cn.com.omnimind.baselib.util.OmniLog
-import cn.com.omnimind.bot.agent.tool.handlers.OobFunctionToolHandler
-import cn.com.omnimind.bot.omniflow.OobFunctionSkillProfile
-import cn.com.omnimind.bot.runlog.OobFunctionManagementService
+import cn.com.omnimind.bot.omniflow.function.OmniFlowFunctionRun
+import cn.com.omnimind.bot.omniflow.function.OmniFlowFunctionApi
+import cn.com.omnimind.bot.omniflow.function.OmniFlowFunctionService
 import cn.com.omnimind.bot.webchat.AgentRunService
 import cn.com.omnimind.bot.webchat.ConversationDomainService
 import com.google.gson.GsonBuilder
@@ -87,7 +87,7 @@ class DebugAgentConversationFunctionReceiver : BroadcastReceiver() {
             "userMessage" to userMessage,
             "title" to "Debug Agent Function Conversation",
             "conversationMode" to "normal",
-            "toolProfile" to OobFunctionSkillProfile.PROFILE,
+            "toolProfile" to OmniFlowFunctionApi.PROFILE,
             "allowedTools" to listOf(
                 "oob_function_register",
                 "oob_function_list",
@@ -106,12 +106,12 @@ class DebugAgentConversationFunctionReceiver : BroadcastReceiver() {
         waitForAgentIdle(context, startedAt, waitMs)
         delay(AGENT_SETTLE_MS)
 
-        val functionPayload = OobFunctionManagementService(context).getFunction(
+        val functionPayload = OmniFlowFunctionService(context).getFunction(
             mapOf("function_id" to functionId)
         )
         val functionRegistered = functionPayload["success"] == true
         val runPayload = if (functionRegistered) {
-            OobFunctionToolHandler(context).runFunction(
+            OmniFlowFunctionRun(context).runFunction(
                 mapOf(
                     "function_id" to functionId,
                     "goal" to "Validate agent-conversation registered Function replay.",
@@ -136,7 +136,7 @@ class DebugAgentConversationFunctionReceiver : BroadcastReceiver() {
             "accepted" to accepted,
             "function_id" to functionId,
             "target_package" to targetPackage,
-            "tool_profile" to OobFunctionSkillProfile.PROFILE,
+            "tool_profile" to OmniFlowFunctionApi.PROFILE,
             "allowed_tools" to request["allowedTools"],
             "function_registered" to functionRegistered,
             "run_success" to runSuccess,

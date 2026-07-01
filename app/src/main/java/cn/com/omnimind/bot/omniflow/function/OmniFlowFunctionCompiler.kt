@@ -1,4 +1,4 @@
-package cn.com.omnimind.bot.runlog
+package cn.com.omnimind.bot.omniflow.function
 
 import cn.com.omnimind.baselib.runlog.InternalRunLogRecord
 import cn.com.omnimind.bot.agent.AgentToolNames
@@ -7,10 +7,17 @@ import cn.com.omnimind.bot.runlog.RunLogCardAccessors.asBoolean
 import cn.com.omnimind.bot.runlog.RunLogCardAccessors.asMap
 import cn.com.omnimind.bot.runlog.RunLogCardAccessors.extractArgs
 import cn.com.omnimind.bot.runlog.RunLogCardAccessors.toolNameForCard
+import cn.com.omnimind.bot.runlog.RunLogReplayStepCompiler
+import cn.com.omnimind.bot.runlog.RunLogReplayStepNoiseNormalizer
+import cn.com.omnimind.bot.runlog.RunLogReplayPolicy
+import cn.com.omnimind.bot.runlog.actionNameForStep
+import cn.com.omnimind.bot.runlog.argsForStep
+import cn.com.omnimind.bot.runlog.mapArg
+import cn.com.omnimind.bot.runlog.resolveActionName
 import com.google.gson.GsonBuilder
 import java.security.MessageDigest
 
-object RunLogReusableFunctionCompiler {
+object OmniFlowFunctionCompiler {
     fun compile(record: InternalRunLogRecord): Map<String, Any?>? {
         val replayableCards = record.cards.filter(::isSuccessfulCard)
         val compileCards = replayableCards

@@ -1,14 +1,12 @@
-package cn.com.omnimind.bot.omniflow
+package cn.com.omnimind.bot.omniflow.function
 
 import android.content.Context
 import cn.com.omnimind.baselib.i18n.PromptLocale
+import cn.com.omnimind.baselib.runlog.OobActionSchema
 import cn.com.omnimind.baselib.util.OmniLog
 import cn.com.omnimind.bot.agent.AgentToolDefinitions
 import cn.com.omnimind.bot.agent.AgentToolJson.mapToJsonElement
-import cn.com.omnimind.bot.agent.config.AgentToolFeatureStore
-import cn.com.omnimind.bot.omniflow.OobFunctionSchemaBuilder
 import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.add
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
@@ -20,23 +18,47 @@ import kotlinx.serialization.json.putJsonObject
  *
  * Workflow rules and prompts belong in `omniflow/SKILL.md`.
  */
-object OobFunctionSkillProfile {
+object OmniFlowFunctionApi {
     const val PROFILE = "omniflow"
     const val LEGACY_PROFILE = "function_management"
     const val SKILL_ID = "omniflow"
-    private const val ENABLE_AGENT_DIRECT_FUNCTION_TOOLS = false
-    private const val MAX_DYNAMIC_FUNCTION_TOOLS = 500
     private const val MAX_PROMPT_FUNCTION_CANDIDATES = 50
-    private val MODEL_TOOL_NAME_REGEX = Regex("^[A-Za-z0-9_-]{1,64}$")
 
-    val toolNames: Set<String> =
-        OobFunctionToolNames.profileTools
+    const val FUNCTION_LIST = "oob_function_list"
+    const val FUNCTION_GET = "oob_function_get"
+    const val FUNCTION_REGISTER = "oob_function_register"
+    const val FUNCTION_UPDATE = "update_function"
+    const val FUNCTION_DELETE = "oob_function_delete"
+    const val FUNCTION_CLEAR = "oob_function_clear"
+
+    const val RUN_LOG_LIST = "oob_run_log_list"
+    const val RUN_LOG_GET = "oob_run_log_get"
+    const val RUN_LOG_CONVERT = "oob_run_log_convert"
+
+    const val OMNIFLOW_RECALL = "omniflow.recall"
+    const val OMNIFLOW_INGEST_RUN_LOG = "omniflow.ingest_run_log"
+
+    val functionLifecycleTools: Set<String> = setOf(
+        FUNCTION_LIST,
+        FUNCTION_GET,
+        FUNCTION_REGISTER,
+        FUNCTION_UPDATE,
+        FUNCTION_DELETE,
+        FUNCTION_CLEAR,
+    )
+
+    val runLogTools: Set<String> = setOf(
+        RUN_LOG_LIST,
+        RUN_LOG_GET,
+        RUN_LOG_CONVERT,
+    )
+
+    val profileTools: Set<String> = functionLifecycleTools + runLogTools
+    val toolNames: Set<String> = profileTools
+    val mcpToolNames: Set<String> = profileTools + setOf(OMNIFLOW_RECALL, OMNIFLOW_INGEST_RUN_LOG)
 
     fun isProfile(profile: String?): Boolean =
         canonicalProfile(profile) == PROFILE
-
-    fun allowedToolsForProfile(profile: String?): Set<String>? =
-        if (isProfile(profile)) toolNames else null
 
     fun canonicalProfile(profile: String?): String {
         val normalized = normalizeProfile(profile)
@@ -51,29 +73,20 @@ object OobFunctionSkillProfile {
             AgentToolDefinitions.decorateToolDefinition(definition, locale)
         }
 
-    fun runtimeToolDefinitions(locale: PromptLocale): List<JsonObject> =
-        emptyList()
-
-    fun dynamicFunctionToolDefinitions(
-        context: Context,
-        locale: PromptLocale,
-        forceInclude: Boolean = false,
-    ): List<JsonObject> {
-        if (!ENABLE_AGENT_DIRECT_FUNCTION_TOOLS) return emptyList()
-        if (!forceInclude && !AgentToolFeatureStore.isOobFunctionAsToolEnabled(context)) {
-            return emptyList()
-        }
-        return runCatching {
-            OobFunctionRepository(context)
-                .listSpecs(MAX_DYNAMIC_FUNCTION_TOOLS)
-                .mapNotNull { spec -> dynamicFunctionToolDefinition(spec, locale) }
-        }.onFailure {
-            OmniLog.w("OobFunctionSkillProfile", "load Function call candidates failed: ${it.message}")
-        }.getOrDefault(emptyList())
-    }
-
-    fun shouldKeepDynamicFunctionForProfile(profile: String?, toolType: String): Boolean =
-        isProfile(profile) && toolType == "oob_function"
+    val mcpToolDefinitions: List<Map<String, Any?>>
+        get() = listOf(
+            omniflowRecallMcpTool,
+            omniflowIngestRunLogMcpTool,
+            oobFunctionListMcpTool,
+            oobFunctionGetMcpTool,
+            oobFunctionRegisterMcpTool,
+            updateFunctionMcpTool,
+            oobFunctionDeleteMcpTool,
+            oobFunctionClearMcpTool,
+            oobRunLogListMcpTool,
+            oobRunLogGetMcpTool,
+            oobRunLogConvertMcpTool,
+        )
 
     fun promptCandidateContext(
         context: Context,
@@ -90,7 +103,7 @@ object OobFunctionSkillProfile {
                 limit = limit.coerceIn(1, MAX_PROMPT_FUNCTION_CANDIDATES),
             )
         }.onFailure {
-            OmniLog.w("OobFunctionSkillProfile", "load prompt Function candidates failed: ${it.message}")
+            OmniLog.w("OmniFlowFunctionApi", "load prompt Function candidates failed: ${it.message}")
         }.getOrDefault(emptyList())
         return buildPromptCandidateContext(candidates, locale)
     }
@@ -131,10 +144,7 @@ object OobFunctionSkillProfile {
     ): List<Map<String, Any?>> {
         val normalizedGoal = goal?.trim().orEmpty()
         if (normalizedGoal.isNotEmpty()) {
-            val recall = OobFunctionRecallService(
-                context = context,
-                functionRepository = OobFunctionRepository(context),
-            ).recall(
+            val recall = OmniFlowFunctionService(context).recall(
                 mapOf(
                     "goal" to normalizedGoal,
                     "current_package" to currentPackageName.orEmpty(),
@@ -142,11 +152,11 @@ object OobFunctionSkillProfile {
                     "include_debug" to false,
                 )
             )
-            val recalled = OobFunctionJson.listArg(recall["candidates"])
-                .mapNotNull { OobFunctionJson.mapArg(it).takeIf { candidate -> candidate.isNotEmpty() } }
+            val recalled = OmniFlowFunctionJson.listArg(recall["candidates"])
+                .mapNotNull { OmniFlowFunctionJson.mapArg(it).takeIf { candidate -> candidate.isNotEmpty() } }
             if (recalled.isNotEmpty()) return recalled
         }
-        return OobFunctionRepository(context).listSpecs(limit)
+        return OmniFlowFunctionService(context).listFunctionSpecs(limit)
     }
 
     private fun normalizeProfile(profile: String?): String = profile
@@ -171,7 +181,7 @@ object OobFunctionSkillProfile {
             ?: (metadata?.get("agent_reuse") as? Map<*, *>)
         val reuseWhen = agentReuse?.get("reuse_when")?.toString()?.trim().orEmpty()
         val successSignal = agentReuse?.get("success_signal")?.toString()?.trim().orEmpty()
-        val inputSchema = OobFunctionSchemaBuilder.inputSchema(spec)
+        val inputSchema = OmniFlowFunctionSchema.inputSchema(spec)
         val params = ((inputSchema["properties"] as? Map<*, *>)?.keys ?: emptySet<Any?>())
             .mapNotNull { it?.toString()?.trim()?.takeIf(String::isNotEmpty) }
             .take(6)
@@ -201,57 +211,163 @@ object OobFunctionSkillProfile {
         }
     }
 
-    fun dynamicFunctionToolDefinition(
-        spec: Map<String, Any?>,
-        locale: PromptLocale
-    ): JsonObject? {
-        val functionId = spec["function_id"]?.toString()?.trim().orEmpty()
-        if (functionId.isEmpty()) return null
-        if (!MODEL_TOOL_NAME_REGEX.matches(functionId)) {
-            OmniLog.w("OobFunctionSkillProfile", "skip invalid Function tool name: $functionId")
-            return null
-        }
-        val displayName = spec["name"]?.toString()?.trim()
-            ?.takeIf { it.isNotEmpty() }
-            ?: functionId
-        val description = spec["description"]?.toString()?.trim()
-            ?.takeIf { it.isNotEmpty() }
-            ?: displayName
-        val toolDescription = dynamicFunctionDescription(description, locale)
-        val parameters = mapToJsonElement(
-            OobFunctionSchemaBuilder.inputSchema(spec)
-        ) as? JsonObject ?: JsonObject(emptyMap())
+    private val canonicalReplayTools: String =
+        OobActionSchema.replayableToolNames.joinToString(", ")
 
-        return AgentToolDefinitions.decorateToolDefinition(buildJsonObject {
-            put("type", JsonPrimitive("function"))
-            put("function", buildJsonObject {
-                put("name", JsonPrimitive(functionId))
-                put("displayName", JsonPrimitive(displayName))
-                put("toolType", JsonPrimitive("oob_function"))
-                put("model_visible", JsonPrimitive(false))
-                put("description", JsonPrimitive(toolDescription))
-                put("parameters", parameters)
-            })
-        }, locale)
-    }
+    private val omniflowRecallMcpTool = mapOf(
+        "name" to OMNIFLOW_RECALL,
+        "description" to """Recall by the UDEG path: page match -> UDEG node -> node skill-like decision context. The result is candidate context for inspection and diagnostics. Online execution should use vlm_task; saved Function execution is selected by the local runtime, not by a direct model tool call.""".trimIndent(),
+        "inputSchema" to mapOf(
+            "type" to "object",
+            "properties" to mapOf(
+                "goal" to mapOf("type" to "string", "description" to "Natural-language task goal."),
+                "current_package" to mapOf("type" to "string", "description" to "Optional foreground Android package for scope matching."),
+                "current_node_id" to mapOf("type" to "string", "description" to "Optional current page/node id for future OmniFlow compatibility."),
+                "current_xml" to mapOf("type" to "string", "description" to "Optional live accessibility XML. When omitted, OmniFlow captures the foreground page and page-matches it to a UDEG node."),
+                "k" to mapOf("type" to "integer", "description" to "Maximum candidates to return. Default 8."),
+                "include_debug" to mapOf(
+                    "type" to "boolean",
+                    "default" to false,
+                    "description" to "Default false returns an agent-compact payload without timing, full node skill body, page vectors, or artifacts. Set true only for tests/debugging."
+                )
+            ),
+            "required" to listOf("goal")
+        )
+    )
 
-    private fun dynamicFunctionDescription(
-        base: String,
-        locale: PromptLocale,
-    ): String {
-        val suffix = when (locale) {
-            PromptLocale.ZH_CN ->
-                "这是一个 legacy 兼容描述；已保存 Function 不作为模型可见执行 tool 暴露。普通手机自动化应调用 vlm_task；明确执行复用指令由本地运行时处理。"
-            PromptLocale.EN_US ->
-                "This is a legacy compatibility description; saved Functions are not exposed as model-visible execution tools. Ordinary phone automation should call vlm_task; explicit reusable-command execution is handled by the local runtime."
-        }
-        return "${base.take(360)} $suffix".trim().take(600)
-    }
+    private val omniflowIngestRunLogMcpTool = mapOf(
+        "name" to OMNIFLOW_INGEST_RUN_LOG,
+        "description" to """Convert a successful OmniFlow RunLog into a local manual Function asset. By default this returns or saves an agent-hidden manual Function; set register=true only when explicitly publishing it for runtime recall.""".trimIndent(),
+        "inputSchema" to mapOf(
+            "type" to "object",
+            "properties" to mapOf(
+                "run_id" to mapOf("type" to "string", "description" to "Existing OmniFlow RunLog id."),
+                "run_log" to mapOf("type" to "object", "description" to "Optional inline canonical run log."),
+                "register" to mapOf("type" to "boolean", "description" to "Persist the converted manual Function. Default false."),
+                "agent_visible" to mapOf("type" to "boolean", "description" to "Compatibility flag for older callers. Function recall/replay is runtime-owned and not exposed as model-callable tools."),
+                "auto_enrich" to mapOf("type" to "boolean", "description" to "Accepted for compatibility; OmniFlow simple mode does deterministic local import.")
+            )
+        )
+    )
+
+    private val oobFunctionListMcpTool = mapOf(
+        "name" to FUNCTION_LIST,
+        "description" to "List registered OmniFlow Functions available for runtime recall and replay.",
+        "inputSchema" to mapOf(
+            "type" to "object",
+            "properties" to mapOf(
+                "limit" to mapOf("type" to "integer", "description" to "Maximum number of Functions to return. Default: 100.")
+            )
+        )
+    )
+
+    private val oobFunctionGetMcpTool = mapOf(
+        "name" to FUNCTION_GET,
+        "description" to "Read one registered OmniFlow Function by id.",
+        "inputSchema" to mapOf(
+            "type" to "object",
+            "properties" to mapOf(
+                "function_id" to mapOf("type" to "string", "description" to "Function id to read.")
+            ),
+            "required" to listOf("function_id")
+        )
+    )
+
+    private val oobFunctionRegisterMcpTool = mapOf(
+        "name" to FUNCTION_REGISTER,
+        "description" to "Register or update one OmniFlow Function. Prefer the simple shape {function_id,name,description,steps,source_page}; pass function_spec only when you already have a full oob.reusable_function.v1 spec. Registration never auto-executes the Function.",
+        "inputSchema" to mapOf(
+            "type" to "object",
+            "properties" to mapOf(
+                "function_id" to mapOf("type" to "string", "description" to "Optional stable Function id. Generated from name when omitted."),
+                "name" to mapOf("type" to "string", "description" to "User-readable Function name."),
+                "description" to mapOf("type" to "string", "description" to "One-sentence description of when to reuse this Function."),
+                "package_name" to mapOf("type" to "string", "description" to "Optional target/source app package for page-scoped recall."),
+                "source_page" to mapOf("type" to "object", "description" to "Optional source page context, for example {xml, package_name, activity_name}."),
+                "parameters" to mapOf("type" to "array", "description" to "Optional Function parameter descriptors with name/type/required/default/bindings."),
+                "steps" to mapOf(
+                    "type" to "array",
+                    "description" to "Simple canonical step list. Each item must use {tool,args,title?}. Supported tool values are $canonicalReplayTools. input_text uses args.text; finished uses args.content.",
+                    "items" to mapOf("type" to "object")
+                ),
+                "function_spec" to mapOf("type" to "object", "description" to "Optional full oob.reusable_function.v1 spec object.")
+            )
+        )
+    )
+
+    private val updateFunctionMcpTool = mapOf(
+        "name" to FUNCTION_UPDATE,
+        "description" to "Update one saved OmniFlow Function from a structured patch, user correction, or RunLog evidence. Passing run_id without analysis/patch returns analysis_context and agent_prompt; saving RunLog evidence uses analysis plus an optional patch.",
+        "inputSchema" to OmniFlowFunctionUpdateToolSchema.inputSchema(includeCamelCaseAliases = false)
+    )
+
+    private val oobFunctionDeleteMcpTool = mapOf(
+        "name" to FUNCTION_DELETE,
+        "description" to "Delete one registered OmniFlow Function from Workspace, local registry, and UDEG node references.",
+        "inputSchema" to mapOf(
+            "type" to "object",
+            "properties" to mapOf(
+                "function_id" to mapOf("type" to "string", "description" to "Function id to delete.")
+            ),
+            "required" to listOf("function_id")
+        )
+    )
+
+    private val oobFunctionClearMcpTool = mapOf(
+        "name" to FUNCTION_CLEAR,
+        "description" to "Clear all registered OmniFlow Functions and detach all Function references from UDEG node skills. Requires confirm=true.",
+        "inputSchema" to mapOf(
+            "type" to "object",
+            "properties" to mapOf(
+                "confirm" to mapOf("type" to "boolean", "description" to "Must be true to clear all Functions.")
+            ),
+            "required" to listOf("confirm")
+        )
+    )
+
+    private val oobRunLogListMcpTool = mapOf(
+        "name" to RUN_LOG_LIST,
+        "description" to "List recent OmniFlow RunLogs that can be inspected or converted to Functions.",
+        "inputSchema" to mapOf(
+            "type" to "object",
+            "properties" to mapOf(
+                "limit" to mapOf("type" to "integer", "description" to "Maximum number of RunLogs to return. Default: 50.")
+            )
+        )
+    )
+
+    private val oobRunLogGetMcpTool = mapOf(
+        "name" to RUN_LOG_GET,
+        "description" to "Read one OmniFlow RunLog timeline payload by id.",
+        "inputSchema" to mapOf(
+            "type" to "object",
+            "properties" to mapOf(
+                "run_id" to mapOf("type" to "string", "description" to "RunLog id to read.")
+            ),
+            "required" to listOf("run_id")
+        )
+    )
+
+    private val oobRunLogConvertMcpTool = mapOf(
+        "name" to RUN_LOG_CONVERT,
+        "description" to "Convert one successful OmniFlow RunLog into a reusable Function and optionally register it.",
+        "inputSchema" to mapOf(
+            "type" to "object",
+            "properties" to mapOf(
+                "run_id" to mapOf("type" to "string", "description" to "RunLog id to convert."),
+                "register" to mapOf("type" to "boolean", "description" to "Register the converted Function. Default follows service policy."),
+                "function_id" to mapOf("type" to "string", "description" to "Optional Function id override."),
+                "name" to mapOf("type" to "string", "description" to "Optional Function name override."),
+                "description" to mapOf("type" to "string", "description" to "Optional Function description override.")
+            ),
+            "required" to listOf("run_id")
+        )
+    )
 
     private val oobFunctionListTool: JsonObject = buildJsonObject {
         put("type", "function")
         putJsonObject("function") {
-            put("name", OobFunctionToolNames.FUNCTION_LIST)
+            put("name", OmniFlowFunctionApi.FUNCTION_LIST)
             put("displayName", "列出复用指令")
             put("toolType", "oob_function")
             put("description", "列出本机已注册的 OmniFlow 复用指令。用于查看可选 Function 候选；不会执行任何手机操作。")
@@ -270,7 +386,7 @@ object OobFunctionSkillProfile {
     private val oobFunctionGetTool: JsonObject = buildJsonObject {
         put("type", "function")
         putJsonObject("function") {
-            put("name", OobFunctionToolNames.FUNCTION_GET)
+            put("name", OmniFlowFunctionApi.FUNCTION_GET)
             put("displayName", "查看复用指令")
             put("toolType", "oob_function")
             put("description", "读取一个 OmniFlow 复用指令的结构化 Function spec，用于确认步骤、参数和来源。不会执行手机操作。")
@@ -290,7 +406,7 @@ object OobFunctionSkillProfile {
     private val oobFunctionRegisterTool: JsonObject = buildJsonObject {
         put("type", "function")
         putJsonObject("function") {
-            put("name", OobFunctionToolNames.FUNCTION_REGISTER)
+            put("name", OmniFlowFunctionApi.FUNCTION_REGISTER)
             put("displayName", "注册复用指令")
             put("toolType", "oob_function")
             put("description", "注册或更新一个 OmniFlow 复用指令。优先使用轻量字段 function_id/name/description/steps；只有已有完整底层结构时才传 function_spec。")
@@ -316,18 +432,18 @@ object OobFunctionSkillProfile {
     private val updateFunctionTool: JsonObject = buildJsonObject {
         put("type", "function")
         putJsonObject("function") {
-            put("name", OobFunctionToolNames.FUNCTION_UPDATE)
+            put("name", OmniFlowFunctionApi.FUNCTION_UPDATE)
             put("displayName", "更新复用指令")
             put("toolType", "oob_function")
             put("description", "离线维护一个已保存的 OmniFlow Function：根据结构化 patch、用户纠错指令或 RunLog 证据更新语义信息。传 run_id 且不传 analysis/patch 时后台会分析 RunLog、生成 patch 并保存结果；不会执行手机操作，也不属于 vlm_task 实时路径。")
-            put("parameters", mapToJsonElement(OobFunctionUpdateToolSchema.inputSchema(includeCamelCaseAliases = true)))
+            put("parameters", mapToJsonElement(OmniFlowFunctionUpdateToolSchema.inputSchema(includeCamelCaseAliases = true)))
         }
     }
 
     private val oobFunctionDeleteTool: JsonObject = buildJsonObject {
         put("type", "function")
         putJsonObject("function") {
-            put("name", OobFunctionToolNames.FUNCTION_DELETE)
+            put("name", OmniFlowFunctionApi.FUNCTION_DELETE)
             put("displayName", "删除复用指令")
             put("toolType", "oob_function")
             put("description", "删除一个 OmniFlow 复用指令。")
@@ -344,7 +460,7 @@ object OobFunctionSkillProfile {
     private val oobFunctionClearTool: JsonObject = buildJsonObject {
         put("type", "function")
         putJsonObject("function") {
-            put("name", OobFunctionToolNames.FUNCTION_CLEAR)
+            put("name", OmniFlowFunctionApi.FUNCTION_CLEAR)
             put("displayName", "清空复用指令")
             put("toolType", "oob_function")
             put("description", "清空所有 OmniFlow 复用指令。只有用户明确要求清空全部时使用，必须传 confirm=true。")
@@ -360,7 +476,7 @@ object OobFunctionSkillProfile {
     private val oobRunLogListTool: JsonObject = buildJsonObject {
         put("type", "function")
         putJsonObject("function") {
-            put("name", OobFunctionToolNames.RUN_LOG_LIST)
+            put("name", OmniFlowFunctionApi.RUN_LOG_LIST)
             put("displayName", "列出 RunLog")
             put("toolType", "oob_function")
             put("description", "列出 OOB 内部最近的 RunLogs，用于选择可固化或检查的历史执行。")
@@ -374,7 +490,7 @@ object OobFunctionSkillProfile {
     private val oobRunLogGetTool: JsonObject = buildJsonObject {
         put("type", "function")
         putJsonObject("function") {
-            put("name", OobFunctionToolNames.RUN_LOG_GET)
+            put("name", OmniFlowFunctionApi.RUN_LOG_GET)
             put("displayName", "查看 RunLog")
             put("toolType", "oob_function")
             put("description", "读取一个 OOB 内部 RunLog 时间线。只在需要检查具体历史执行时使用。")
@@ -391,7 +507,7 @@ object OobFunctionSkillProfile {
     private val oobRunLogConvertTool: JsonObject = buildJsonObject {
         put("type", "function")
         putJsonObject("function") {
-            put("name", OobFunctionToolNames.RUN_LOG_CONVERT)
+            put("name", OmniFlowFunctionApi.RUN_LOG_CONVERT)
             put("displayName", "转换 RunLog")
             put("toolType", "oob_function")
             put("description", "把成功完成的 RunLog 转换为 oob.reusable_function.v1。register=true 默认保存为 agent 不可见的人工 Function；只有显式 agent_visible=true 才发布为可复用指令候选。")

@@ -3,7 +3,7 @@ import cn.com.omnimind.baselib.runlog.OobActionSchema
 
 import android.content.Context
 import cn.com.omnimind.bot.agent.AgentWorkspaceManager
-import cn.com.omnimind.bot.omniflow.OobFunctionSchemaBuilder
+import cn.com.omnimind.bot.omniflow.function.OmniFlowFunctionSchema
 import com.google.gson.GsonBuilder
 import org.w3c.dom.Element
 import org.xml.sax.InputSource
@@ -1357,18 +1357,18 @@ class OobUdegNodeStore(
             "function_id" to functionId,
             "name" to firstNonBlank(functionSpec["name"], functionId),
             "description" to firstNonBlank(functionSpec["description"], functionSpec["name"], functionId),
-            "input_schema" to OobFunctionSchemaBuilder.inputSchema(functionSpec),
+            "input_schema" to OmniFlowFunctionSchema.inputSchema(functionSpec),
             "step_summaries" to stepSummaries(functionSpec),
             "source" to mapArg(functionSpec["source"]),
         )
     }
 
     private fun stepSummaries(functionSpec: Map<String, Any?>): List<Map<String, Any?>> {
-        return OobFunctionSchemaBuilder.stepSummaries(functionSpec)
+        return OmniFlowFunctionSchema.stepSummaries(functionSpec)
     }
 
     private fun materializedSteps(functionSpec: Map<String, Any?>): List<Map<String, Any?>> =
-        OobFunctionSchemaBuilder.materializedSteps(functionSpec)
+        OmniFlowFunctionSchema.materializedSteps(functionSpec)
 
     private fun upsertFunctionEdges(
         functionSpec: Map<String, Any?>,
@@ -1619,7 +1619,7 @@ class OobUdegNodeStore(
             "name" to name,
             "description" to description,
             "step_count" to materializedSteps(functionSpec).size,
-            "input_schema" to OobFunctionSchemaBuilder.inputSchema(functionSpec),
+            "input_schema" to OmniFlowFunctionSchema.inputSchema(functionSpec),
             "callable" to true,
             "role" to "callable_function",
             "route_safe" to isRouteBridgeFunction(functionSpec),
@@ -1823,7 +1823,7 @@ class OobUdegNodeStore(
     }
 
     private fun hasRequiredInput(functionSpec: Map<String, Any?>): Boolean {
-        val schema = OobFunctionSchemaBuilder.inputSchema(functionSpec)
+        val schema = OmniFlowFunctionSchema.inputSchema(functionSpec)
         val required = (schema["required"] as? List<*>).orEmpty()
             .mapNotNull { it?.toString()?.trim() }
             .filter { it.isNotEmpty() }

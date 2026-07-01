@@ -1,7 +1,7 @@
 package cn.com.omnimind.bot.runlog
 
 import cn.com.omnimind.bot.agent.AgentToolNames
-import cn.com.omnimind.bot.omniflow.OobFunctionToolNames
+import cn.com.omnimind.bot.omniflow.function.OmniFlowFunctionApi
 import cn.com.omnimind.baselib.runlog.OobActionSchema
 import cn.com.omnimind.bot.runlog.RunLogCardAccessors.androidPrivilegedReplayAction
 import cn.com.omnimind.bot.runlog.RunLogCardAccessors.androidPrivilegedReplayArgs

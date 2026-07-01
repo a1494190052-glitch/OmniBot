@@ -1,19 +1,15 @@
 package cn.com.omnimind.bot.mcp
 
 import cn.com.omnimind.baselib.i18n.AppLocaleManager
-import cn.com.omnimind.baselib.runlog.OobActionSchema
 import cn.com.omnimind.bot.agent.AgentToolNames
-import cn.com.omnimind.bot.omniflow.OobFunctionSchemaExport
-import cn.com.omnimind.bot.omniflow.OobFunctionToolNames
-import cn.com.omnimind.bot.omniflow.OobFunctionUpdateToolSchema
+import cn.com.omnimind.bot.omniflow.function.OmniFlowFunctionSchemaExport
+import cn.com.omnimind.bot.omniflow.function.OmniFlowFunctionApi
 
 /**
  * MCP 工具定义
  */
 object McpToolDefinitions {
     private fun brandName(): String = AppLocaleManager.brandName()
-    private val canonicalReplayTools: String =
-        OobActionSchema.replayableToolNames.joinToString(", ")
     
     val vlmTaskTool = mapOf(
         "name" to AgentToolNames.VLM_TASK,
@@ -375,156 +371,6 @@ BEHAVIOR:
         )
     )
 
-    val omniflowRecallTool = mapOf(
-        "name" to "omniflow.recall",
-        "description" to """Recall by the UDEG path: page match -> UDEG node -> node skill-like decision context. The result is candidate context for inspection and diagnostics. Online execution should use vlm_task; saved Function execution is selected by the local runtime, not by a direct model tool call.""".trimIndent(),
-        "inputSchema" to mapOf(
-            "type" to "object",
-            "properties" to mapOf(
-                "goal" to mapOf("type" to "string", "description" to "Natural-language task goal."),
-                "current_package" to mapOf("type" to "string", "description" to "Optional foreground Android package for scope matching."),
-                "current_node_id" to mapOf("type" to "string", "description" to "Optional current page/node id for future OmniFlow compatibility."),
-                "current_xml" to mapOf("type" to "string", "description" to "Optional live accessibility XML. When omitted, OmniFlow captures the foreground page and page-matches it to a UDEG node."),
-                "k" to mapOf("type" to "integer", "description" to "Maximum candidates to return. Default 8."),
-                "include_debug" to mapOf(
-                    "type" to "boolean",
-                    "default" to false,
-                    "description" to "Default false returns an agent-compact payload without timing, full node skill body, page vectors, or artifacts. Set true only for tests/debugging."
-                )
-            ),
-            "required" to listOf("goal")
-        )
-    )
-
-    val omniflowIngestRunLogTool = mapOf(
-        "name" to "omniflow.ingest_run_log",
-        "description" to """Convert a successful OmniFlow RunLog into a local manual Function asset. By default this returns or saves an agent-hidden manual Function; set register=true only when explicitly publishing it for runtime recall.""".trimIndent(),
-        "inputSchema" to mapOf(
-            "type" to "object",
-            "properties" to mapOf(
-                "run_id" to mapOf("type" to "string", "description" to "Existing OmniFlow RunLog id."),
-                "run_log" to mapOf("type" to "object", "description" to "Optional inline canonical run log."),
-                "register" to mapOf("type" to "boolean", "description" to "Persist the converted manual Function. Default false."),
-                "agent_visible" to mapOf("type" to "boolean", "description" to "Compatibility flag for older callers. Function recall/replay is runtime-owned and not exposed as model-callable tools."),
-                "auto_enrich" to mapOf("type" to "boolean", "description" to "Accepted for compatibility; OmniFlow simple mode does deterministic local import.")
-            )
-        )
-    )
-
-    val oobFunctionListTool = mapOf(
-        "name" to OobFunctionToolNames.FUNCTION_LIST,
-        "description" to "List registered OmniFlow Functions available for runtime recall and replay.",
-        "inputSchema" to mapOf(
-            "type" to "object",
-            "properties" to mapOf(
-                "limit" to mapOf("type" to "integer", "description" to "Maximum number of Functions to return. Default: 100.")
-            )
-        )
-    )
-
-    val oobFunctionGetTool = mapOf(
-        "name" to OobFunctionToolNames.FUNCTION_GET,
-        "description" to "Read one registered OmniFlow Function by id.",
-        "inputSchema" to mapOf(
-            "type" to "object",
-            "properties" to mapOf(
-                "function_id" to mapOf("type" to "string", "description" to "Function id to read.")
-            ),
-            "required" to listOf("function_id")
-        )
-    )
-
-    val oobFunctionRegisterTool = mapOf(
-        "name" to OobFunctionToolNames.FUNCTION_REGISTER,
-        "description" to "Register or update one OmniFlow Function. Prefer the simple shape {function_id,name,description,steps,source_page}; pass function_spec only when you already have a full oob.reusable_function.v1 spec. Registration never auto-executes the Function.",
-        "inputSchema" to mapOf(
-            "type" to "object",
-            "properties" to mapOf(
-                "function_id" to mapOf("type" to "string", "description" to "Optional stable Function id. Generated from name when omitted."),
-                "name" to mapOf("type" to "string", "description" to "User-readable Function name."),
-                "description" to mapOf("type" to "string", "description" to "One-sentence description of when to reuse this Function."),
-                "package_name" to mapOf("type" to "string", "description" to "Optional target/source app package for page-scoped recall."),
-                "source_page" to mapOf("type" to "object", "description" to "Optional source page context, for example {xml, package_name, activity_name}."),
-                "parameters" to mapOf("type" to "array", "description" to "Optional Function parameter descriptors with name/type/required/default/bindings."),
-                "steps" to mapOf(
-                    "type" to "array",
-                    "description" to "Simple canonical step list. Each item must use {tool,args,title?}. Supported tool values are $canonicalReplayTools. input_text uses args.text; finished uses args.content.",
-                    "items" to mapOf("type" to "object")
-                ),
-                "function_spec" to mapOf("type" to "object", "description" to "Optional full oob.reusable_function.v1 spec object.")
-            )
-        )
-    )
-
-    val updateFunctionTool = mapOf(
-        "name" to OobFunctionToolNames.FUNCTION_UPDATE,
-        "description" to "Update one saved OmniFlow Function from a structured patch, user correction, or RunLog evidence. Passing run_id without analysis/patch returns analysis_context and agent_prompt; saving RunLog evidence uses analysis plus an optional patch.",
-        "inputSchema" to OobFunctionUpdateToolSchema.inputSchema(includeCamelCaseAliases = false)
-    )
-
-    val oobFunctionDeleteTool = mapOf(
-        "name" to OobFunctionToolNames.FUNCTION_DELETE,
-        "description" to "Delete one registered OmniFlow Function from Workspace, local registry, and UDEG node references.",
-        "inputSchema" to mapOf(
-            "type" to "object",
-            "properties" to mapOf(
-                "function_id" to mapOf("type" to "string", "description" to "Function id to delete.")
-            ),
-            "required" to listOf("function_id")
-        )
-    )
-
-    val oobFunctionClearTool = mapOf(
-        "name" to OobFunctionToolNames.FUNCTION_CLEAR,
-        "description" to "Clear all registered OmniFlow Functions and detach all Function references from UDEG node skills. Requires confirm=true.",
-        "inputSchema" to mapOf(
-            "type" to "object",
-            "properties" to mapOf(
-                "confirm" to mapOf("type" to "boolean", "description" to "Must be true to clear all Functions.")
-            ),
-            "required" to listOf("confirm")
-        )
-    )
-
-    val oobRunLogListTool = mapOf(
-        "name" to OobFunctionToolNames.RUN_LOG_LIST,
-        "description" to "List recent OmniFlow RunLogs that can be inspected or converted to Functions.",
-        "inputSchema" to mapOf(
-            "type" to "object",
-            "properties" to mapOf(
-                "limit" to mapOf("type" to "integer", "description" to "Maximum number of RunLogs to return. Default: 50.")
-            )
-        )
-    )
-
-    val oobRunLogGetTool = mapOf(
-        "name" to OobFunctionToolNames.RUN_LOG_GET,
-        "description" to "Read one OmniFlow RunLog timeline payload by id.",
-        "inputSchema" to mapOf(
-            "type" to "object",
-            "properties" to mapOf(
-                "run_id" to mapOf("type" to "string", "description" to "RunLog id to read.")
-            ),
-            "required" to listOf("run_id")
-        )
-    )
-
-    val oobRunLogConvertTool = mapOf(
-        "name" to OobFunctionToolNames.RUN_LOG_CONVERT,
-        "description" to "Convert one successful OmniFlow RunLog into a reusable Function and optionally register it.",
-        "inputSchema" to mapOf(
-            "type" to "object",
-            "properties" to mapOf(
-                "run_id" to mapOf("type" to "string", "description" to "RunLog id to convert."),
-                "register" to mapOf("type" to "boolean", "description" to "Register the converted Function. Default follows service policy."),
-                "function_id" to mapOf("type" to "string", "description" to "Optional Function id override."),
-                "name" to mapOf("type" to "string", "description" to "Optional Function name override."),
-                "description" to mapOf("type" to "string", "description" to "Optional Function description override.")
-            ),
-            "required" to listOf("run_id")
-        )
-    )
-
     val fixedTools
         get() = listOf(
             vlmTaskTool,
@@ -535,32 +381,21 @@ BEHAVIOR:
             actTool,
             fileTransferTool,
             agentRunTool,
-            omniflowRecallTool,
-            omniflowIngestRunLogTool,
-            oobFunctionListTool,
-            oobFunctionGetTool,
-            oobFunctionRegisterTool,
-            updateFunctionTool,
-            oobFunctionDeleteTool,
-            oobFunctionClearTool,
-            oobRunLogListTool,
-            oobRunLogGetTool,
-            oobRunLogConvertTool
-        )
+        ) + OmniFlowFunctionApi.mcpToolDefinitions
 
     val fixedToolNames: Set<String>
         get() = fixedTools.mapNotNull { it["name"]?.toString() }.toSet()
 
     val schemaExportResource: Map<String, Any?>
         get() = mapOf(
-            "uri" to OobFunctionSchemaExport.RESOURCE_URI,
+            "uri" to OmniFlowFunctionSchemaExport.RESOURCE_URI,
             "name" to "OmniFlow Function Management Schemas",
             "description" to "Exported JSON schema bundle for OmniFlow Function, update_function, enhancement reports, replay policy, and MCP tool inputs.",
             "mimeType" to "application/json",
         )
 
     val schemaExportBundle: Map<String, Any?>
-        get() = OobFunctionSchemaExport.bundle(fixedTools)
+        get() = OmniFlowFunctionSchemaExport.bundle(fixedTools)
 
     val allTools
         get() = fixedTools

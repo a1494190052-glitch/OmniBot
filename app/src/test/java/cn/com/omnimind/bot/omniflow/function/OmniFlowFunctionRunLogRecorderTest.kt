@@ -1,4 +1,4 @@
-package cn.com.omnimind.bot.runlog
+package cn.com.omnimind.bot.omniflow.function
 
 import android.content.Context
 import android.content.ContextWrapper
@@ -10,7 +10,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-class OobFunctionRunLogRecorderTest {
+class OmniFlowFunctionRunLogRecorderTest {
     @Test
     fun `records function step results as a finished internal run log`() {
         val context = TempFilesContext()
@@ -19,7 +19,7 @@ class OobFunctionRunLogRecorderTest {
             val startedAtMs = 1_700_000_000_000L
             val finishedAtMs = startedAtMs + 1_200L
 
-            val record = OobFunctionRunLogRecorder.record(
+            val record = OmniFlowFunctionRunLogRecorder.record(
                 context = context,
                 functionId = "fn_open_settings",
                 functionSpec = linkedMapOf(
@@ -96,7 +96,7 @@ class OobFunctionRunLogRecorderTest {
             val runId = "omniflow_run_evidence_${System.nanoTime()}"
             val screenshotPath = "/data/user/0/cn.com.omnimind.bot.debug/files/oob_runlog_artifacts/run/screenshots/0001_before.jpg"
 
-            OobFunctionRunLogRecorder.record(
+            OmniFlowFunctionRunLogRecorder.record(
                 context = context,
                 functionId = "fn_click_contact",
                 functionSpec = linkedMapOf(

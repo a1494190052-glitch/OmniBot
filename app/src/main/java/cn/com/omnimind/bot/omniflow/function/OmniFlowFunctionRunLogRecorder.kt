@@ -1,7 +1,12 @@
-package cn.com.omnimind.bot.runlog
+package cn.com.omnimind.bot.omniflow.function
 
 import android.content.Context
 import cn.com.omnimind.baselib.runlog.InternalRunLogStore
+import cn.com.omnimind.bot.omniflow.function.OmniFlowFunctionJson.firstNonBlank
+import cn.com.omnimind.bot.omniflow.function.OmniFlowFunctionJson.intArg
+import cn.com.omnimind.bot.omniflow.function.OmniFlowFunctionJson.listArg
+import cn.com.omnimind.bot.omniflow.function.OmniFlowFunctionJson.longArg
+import cn.com.omnimind.bot.omniflow.function.OmniFlowFunctionJson.mapArg
 
 /**
  * Persists an executed OmniFlow Function payload as an InternalRunLog timeline.
@@ -10,7 +15,7 @@ import cn.com.omnimind.baselib.runlog.InternalRunLogStore
  * records them under the same `run_id` that the OmniFlow Function lifecycle stores as
  * `last_run`, so the UI can reopen the previous execution as a normal RunLog.
  */
-object OobFunctionRunLogRecorder {
+object OmniFlowFunctionRunLogRecorder {
     fun record(
         context: Context,
         functionId: String,

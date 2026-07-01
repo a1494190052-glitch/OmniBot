@@ -1,7 +1,6 @@
-package cn.com.omnimind.bot.omniflow
+package cn.com.omnimind.bot.omniflow.function
 
 import cn.com.omnimind.baselib.runlog.OobActionSchema
-import cn.com.omnimind.bot.runlog.RunLogReplayPolicy
 
 /**
  * Exportable schema bundle for OmniFlow Function lifecycle/debugging.
@@ -9,7 +8,7 @@ import cn.com.omnimind.bot.runlog.RunLogReplayPolicy
  * Keep this as data-only JSON-compatible maps so MCP resources, tests, and
  * docs can all inspect the same contract without adding another model tool.
  */
-object OobFunctionSchemaExport {
+object OmniFlowFunctionSchemaExport {
     const val RESOURCE_URI = "omniflow://schemas/function-management"
     const val SCHEMA_VERSION = "oob.function_schema_export.v1"
 
@@ -19,19 +18,17 @@ object OobFunctionSchemaExport {
             "kind" to "oob_function_schema_export",
             "resource_uri" to RESOURCE_URI,
             "canonical_actions_schema_version" to OobActionSchema.SCHEMA_VERSION,
-            "runlog_replay_policy_schema_version" to RunLogReplayPolicy.schemaVersion,
             "schemas" to linkedMapOf(
                 "oob.reusable_function.v1" to reusableFunctionSchema,
                 "oob.function_enhancement.v1" to enhancementReportSchema,
-                "update_function.input.mcp" to OobFunctionUpdateToolSchema.inputSchema(
+                "update_function.input.mcp" to OmniFlowFunctionUpdateToolSchema.inputSchema(
                     includeCamelCaseAliases = false
                 ),
-                "update_function.input.agent_profile" to OobFunctionUpdateToolSchema.inputSchema(
+                "update_function.input.agent_profile" to OmniFlowFunctionUpdateToolSchema.inputSchema(
                     includeCamelCaseAliases = true
                 ),
-                "update_function.analysis" to OobFunctionUpdateToolSchema.analysisSchema,
-                "update_function.patch" to OobFunctionUpdateToolSchema.patchSchema,
-                RunLogReplayPolicy.schemaVersion to replayPolicySchema,
+                "update_function.analysis" to OmniFlowFunctionUpdateToolSchema.analysisSchema,
+                "update_function.patch" to OmniFlowFunctionUpdateToolSchema.patchSchema,
             ),
             "tool_schemas" to mcpTools.mapNotNull(::toolSchemaSummary),
         )
@@ -80,14 +77,14 @@ object OobFunctionSchemaExport {
                                     "title" to string("Short step title."),
                                     "description" to string("Visible action intent."),
                                     "args" to obj(description = "Concrete replay arguments."),
-                                    "cleanup_annotation" to OobFunctionUpdateToolSchema.cleanupAnnotationExportSchema,
+                                    "cleanup_annotation" to OmniFlowFunctionUpdateToolSchema.cleanupAnnotationExportSchema,
                                     "source_context" to obj(description = "Recorder evidence. Not sent to label enhancement prompts."),
                                 )
                             ),
                         ),
                     )
                 ),
-                "agent_reuse" to OobFunctionUpdateToolSchema.agentReuseExportSchema,
+                "agent_reuse" to OmniFlowFunctionUpdateToolSchema.agentReuseExportSchema,
                 "metadata" to obj(description = "Runtime metadata, enhancement report, checker rules, and diagnostics."),
             ),
         )
@@ -119,19 +116,6 @@ object OobFunctionSchemaExport {
                         )
                     ),
                 ),
-            ),
-        )
-
-    private val replayPolicySchema: Map<String, Any?>
-        get() = obj(
-            description = "Replay policy summary for RunLog conversion and local replay.",
-            properties = linkedMapOf(
-                "schema_version" to constString(RunLogReplayPolicy.schemaVersion),
-                "omniflow_actions" to enumArray(RunLogReplayPolicy.omniflowActions),
-                "coordinate_actions" to enumArray(RunLogReplayPolicy.coordinateActions),
-                "data_flow_tools" to enumArray(RunLogReplayPolicy.dataFlowTools),
-                "perception_tools" to enumArray(RunLogReplayPolicy.perceptionTools),
-                "skip_tools" to enumArray(RunLogReplayPolicy.skipTools),
             ),
         )
 

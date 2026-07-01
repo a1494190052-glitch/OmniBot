@@ -7,7 +7,7 @@ import org.junit.Test
 class AssistsCoreManagerOobReusableFunctionPayloadTest {
     @Test
     fun `function run payload normalization keeps compact failure fields on errors`() {
-        val payload = normalizeOobFunctionRunPayloadForChannel(
+        val payload = normalizeOmniFlowFunctionRunPayloadForChannel(
             mapOf(
                 "success" to false,
                 "function_id" to "missing_function",

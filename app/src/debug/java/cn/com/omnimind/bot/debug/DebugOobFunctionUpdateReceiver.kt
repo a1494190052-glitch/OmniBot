@@ -5,7 +5,7 @@ import android.content.Context
 import android.content.Intent
 import android.util.Base64
 import cn.com.omnimind.baselib.util.OmniLog
-import cn.com.omnimind.bot.runlog.OobFunctionManagementService
+import cn.com.omnimind.bot.omniflow.function.OmniFlowFunctionService
 import com.google.gson.GsonBuilder
 import com.google.gson.reflect.TypeToken
 import kotlinx.coroutines.CoroutineScope
@@ -37,10 +37,6 @@ class DebugOobFunctionUpdateReceiver : BroadcastReceiver() {
                     ?: emptyMap()
                 val dryRun = intent.booleanExtra("dryRun")
                     ?: intent.booleanExtra("dry_run")
-                val allowExecutionChange = intent.booleanExtra("allowExecutionChange")
-                    ?: intent.booleanExtra("allow_execution_change")
-                val allowStructuralChange = intent.booleanExtra("allowStructuralChange")
-                    ?: intent.booleanExtra("allow_structural_change")
                 val backgroundEnhancement = intent.booleanExtra("backgroundEnhancement")
                     ?: intent.booleanExtra("background_enhancement")
                 val autoAnalyzeWithModel = intent.booleanExtra("autoAnalyzeWithModel")
@@ -57,13 +53,11 @@ class DebugOobFunctionUpdateReceiver : BroadcastReceiver() {
                     if (analysis.isNotEmpty()) put("analysis", analysis)
                     if (patch.isNotEmpty()) put("patch", patch)
                     dryRun?.let { put("dry_run", it) }
-                    allowExecutionChange?.let { put("allow_execution_change", it) }
-                    allowStructuralChange?.let { put("allow_structural_change", it) }
                     backgroundEnhancement?.let { put("background_enhancement", it) }
                     autoAnalyzeWithModel?.let { put("auto_analyze_with_model", it) }
                 }.filterValues { it != null }
 
-                val service = OobFunctionManagementService(appContext)
+                val service = OmniFlowFunctionService(appContext)
                 val before = if (functionId.isNotBlank()) {
                     service.getFunction(linkedMapOf("function_id" to functionId))
                 } else {

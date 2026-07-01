@@ -97,12 +97,10 @@ import cn.com.omnimind.bot.agent.UserDialog
 import cn.com.omnimind.bot.agent.WorkspaceMemoryRollupScheduler
 import cn.com.omnimind.bot.agent.WorkspaceMemoryService
 import cn.com.omnimind.bot.agent.WorkspaceScheduledTaskScheduler
-import cn.com.omnimind.bot.agent.tool.handlers.OobFunctionToolHandler
-import cn.com.omnimind.bot.omniflow.OobFunctionSkillProfile
-import cn.com.omnimind.bot.omniflow.OobFunctionToolNames
-import cn.com.omnimind.bot.runlog.OobFunctionManagementService
+import cn.com.omnimind.bot.omniflow.function.OmniFlowFunctionRun
+import cn.com.omnimind.bot.omniflow.function.OmniFlowFunctionApi
+import cn.com.omnimind.bot.omniflow.function.OmniFlowFunctionService
 import cn.com.omnimind.bot.runlog.OobUdegNodeStore
-import cn.com.omnimind.bot.runlog.OobRunLogFunctionConverter
 import cn.com.omnimind.bot.runlog.RunLogReplayPolicy
 import cn.com.omnimind.bot.localmodel.LocalModelFeature
 import cn.com.omnimind.bot.mcp.McpTaskManager
@@ -677,7 +675,7 @@ internal fun buildOobReusableFunctionLocalPayload(
     )
 }
 
-internal fun normalizeOobFunctionRunPayloadForChannel(payload: Map<String, Any?>): Map<String, Any?> {
+internal fun normalizeOmniFlowFunctionRunPayloadForChannel(payload: Map<String, Any?>): Map<String, Any?> {
     val resultPayload = normalizeOobChannelMap(payload["result"])
     val stepResults = normalizeOobChannelStepResultList(
         payload["step_results"] ?: resultPayload["step_results"]
@@ -797,7 +795,7 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
             }
         }
 
-        fun dispatchOobFunctionRunProgress(payload: Map<String, Any?>) {
+        fun dispatchOmniFlowFunctionRunProgress(payload: Map<String, Any?>) {
             val eventPayload = LinkedHashMap<String, Any?>().apply {
                 putAll(payload)
             }
@@ -2703,7 +2701,13 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
                 val runContext = synchronized(activeAgentLock) {
                     activeAgentRuns[taskId]
                 }
-                val stopped = runContext?.requestManualToolStop(cardId) == true
+                val stoppedAgentTool = runContext?.requestManualToolStop(cardId) == true
+                val stoppedOmniFlowSession = if (stoppedAgentTool) {
+                    false
+                } else {
+                    OmniFlowUiSession.requestStopSession(taskId)
+                }
+                val stopped = stoppedAgentTool || stoppedOmniFlowSession
                 withContext(Dispatchers.Main) {
                     if (stopped) {
                         result.success("SUCCESS")
@@ -3658,7 +3662,7 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
                 else -> null
             }
             if (oobEnabled != null) {
-                AgentToolFeatureStore.setOobFunctionAsToolEnabled(context, oobEnabled)
+                AgentToolFeatureStore.setOmniFlowFunctionRecallEnabled(context, oobEnabled)
             }
             val payload = AgentToolFeatureStore.getFeatures(context)
             withContext(Dispatchers.Main) { result.success(payload) }
@@ -3671,7 +3675,7 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
         errorCode: String,
     ): Map<String, Any?> = withContext(Dispatchers.IO) {
         runCatching {
-            OobFunctionManagementService(context).executeTool(toolName, args)
+            OmniFlowFunctionService(context).executeTool(toolName, args)
         }.getOrElse { error ->
             linkedMapOf(
                 "success" to false,
@@ -3696,7 +3700,7 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
                 else -> emptyMap()
             }
             val payload = executeFunctionManagementToolForChannel(
-                toolName = OobFunctionToolNames.FUNCTION_REGISTER,
+                toolName = OmniFlowFunctionApi.FUNCTION_REGISTER,
                 args = linkedMapOf("function_spec" to functionSpec),
                 errorCode = "OOB_FUNCTION_REGISTER_FAILED",
             )
@@ -3710,7 +3714,7 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
         mainJob.launch {
             val args = normalizeMethodCallMap(call.arguments)
             val payload = executeFunctionManagementToolForChannel(
-                toolName = OobFunctionToolNames.FUNCTION_UPDATE,
+                toolName = OmniFlowFunctionApi.FUNCTION_UPDATE,
                 args = args,
                 errorCode = "OOB_FUNCTION_UPDATE_FAILED",
             )
@@ -3735,7 +3739,7 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
                 else -> false
             }
             val payload = executeFunctionManagementToolForChannel(
-                toolName = OobFunctionToolNames.RUN_LOG_CONVERT,
+                toolName = OmniFlowFunctionApi.RUN_LOG_CONVERT,
                 args = linkedMapOf<String, Any?>(
                     "run_id" to runId,
                     "register" to register,
@@ -3869,12 +3873,14 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
                 }
                 val conversion = withContext(Dispatchers.Default) {
                     runCatching {
-                        OobRunLogFunctionConverter(context).convertRunLog(
-                            runId = learningResult.runId,
-                            register = true,
-                            agentVisible = false,
-                            nameOverride = learningResult.name,
-                            descriptionOverride = learningResult.description
+                        OmniFlowFunctionService(context).convertRunLog(
+                            mapOf(
+                                "run_id" to learningResult.runId,
+                                "register" to true,
+                                "agent_visible" to false,
+                                "name" to learningResult.name,
+                                "description" to learningResult.description,
+                            )
                         )
                     }.getOrElse { error ->
                         OmniLog.e(TAG, "human trajectory conversion failed: ${error.fullCauseMessage()}", error)
@@ -4395,7 +4401,7 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
             val args = normalizeMethodCallMap(call.arguments)
             val functionId = args["function_id"]?.toString()?.trim().orEmpty()
             val payload = executeFunctionManagementToolForChannel(
-                toolName = OobFunctionToolNames.FUNCTION_GET,
+                toolName = OmniFlowFunctionApi.FUNCTION_GET,
                 args = linkedMapOf("function_id" to functionId),
                 errorCode = "OOB_FUNCTION_GET_FAILED",
             ).let { response ->
@@ -4420,7 +4426,7 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
                     ?: call.argument<Boolean>("include_hidden")
                     ?: false
             val payload = executeFunctionManagementToolForChannel(
-                toolName = OobFunctionToolNames.FUNCTION_LIST,
+                toolName = OmniFlowFunctionApi.FUNCTION_LIST,
                 args = linkedMapOf(
                     "limit" to limit,
                     "offset" to offset,
@@ -4440,7 +4446,7 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
             val args = normalizeMethodCallMap(call.arguments)
             val functionId = args["function_id"]?.toString()?.trim().orEmpty()
             val payload = executeFunctionManagementToolForChannel(
-                toolName = OobFunctionToolNames.FUNCTION_DELETE,
+                toolName = OmniFlowFunctionApi.FUNCTION_DELETE,
                 args = linkedMapOf("function_id" to functionId),
                 errorCode = "OOB_FUNCTION_DELETE_FAILED",
             )
@@ -4460,7 +4466,7 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
             )
             val runPayload = providedLocalReplayResult ?: runCatching {
                 val functionRunPayload = withContext(Dispatchers.IO) {
-                    OobFunctionToolHandler(context).runFunction(
+                    OmniFlowFunctionRun(context).runFunction(
                         linkedMapOf<String, Any?>(
                             "function_id" to functionId,
                             "arguments" to callArguments,
@@ -4478,7 +4484,7 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
                         ).filterValues { it != null }
                     )
                 }
-                normalizeOobFunctionRunPayload(functionRunPayload)
+                normalizeOmniFlowFunctionRunPayload(functionRunPayload)
             }.getOrElse { error ->
                 linkedMapOf<String, Any?>(
                     "success" to false,
@@ -6377,8 +6383,8 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
         return runPayload
     }
 
-    private fun normalizeOobFunctionRunPayload(payload: Map<String, Any?>): Map<String, Any?> =
-        normalizeOobFunctionRunPayloadForChannel(payload)
+    private fun normalizeOmniFlowFunctionRunPayload(payload: Map<String, Any?>): Map<String, Any?> =
+        normalizeOmniFlowFunctionRunPayloadForChannel(payload)
 
     private fun normalizeStepResultList(value: Any?): List<Map<String, Any?>> {
         val rawList = value as? List<*> ?: return emptyList()
@@ -6650,9 +6656,9 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
             call.argument<List<Any?>>("allowedTools")
                 ?: call.argument<List<Any?>>("allowed_tools")
         )
-        val isLightweightToolProfile = OobFunctionSkillProfile.isProfile(toolProfile)
+        val isLightweightToolProfile = OmniFlowFunctionApi.isProfile(toolProfile)
         val visibleToolNames = explicitVisibleToolNames
-            ?: if (isLightweightToolProfile) OobFunctionSkillProfile.toolNames else null
+            ?: if (isLightweightToolProfile) OmniFlowFunctionApi.toolNames else null
         val continueMode = isContinue || call.argument<Boolean>("continueMode") == true
         val continueResumeMode = call.argument<String>("continueResumeMode")
             ?.trim()

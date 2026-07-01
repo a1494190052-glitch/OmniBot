@@ -7,7 +7,7 @@ import 'package:ui/features/home/pages/command_overlay/widgets/cards/agent_tool_
 import 'package:ui/features/task/pages/execution_history/function_run_result_sheet.dart';
 import 'package:ui/features/task/pages/execution_history/run_log_timeline_page.dart';
 import 'package:ui/features/task/pages/execution_history/widgets/reusable_function_card.dart';
-import 'package:ui/features/task/run_log/run_log_reusable_function_converter.dart';
+import 'package:ui/features/task/run_log/omniflow_function_spec.dart';
 import 'package:ui/l10n/app_text_localizer.dart';
 import 'package:ui/services/assists_core_service.dart';
 import 'package:ui/theme/app_colors.dart';
@@ -665,17 +665,10 @@ Future<void> _showFunctionSpecDetails(
       );
       return;
     }
-    final useEnglish = Localizations.localeOf(
-      context,
-    ).languageCode.toLowerCase().startsWith('en');
-    final agentPrompt = RunLogReusableFunctionConverter.buildAgentPrompt(
-      specJson,
-      useEnglish: useEnglish,
-    );
     final metadata = _FunctionSummary._asMap(specJson['metadata']);
-    final spec = RunLogReusableFunctionSpec(
+    final spec = OmniFlowFunctionSpec(
       json: specJson,
-      agentPrompt: agentPrompt,
+      agentPrompt: omniFlowFunctionAgentPrompt(specJson),
       aiEnhanced:
           _asBool(specJson['ai_enhanced']) ||
           _asBool(specJson['aiEnhanced']) ||

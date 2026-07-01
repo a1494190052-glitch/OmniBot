@@ -5,10 +5,10 @@ import cn.com.omnimind.assists.task.vlmserver.UIContext
 import cn.com.omnimind.assists.task.vlmserver.VLMRecallContextProvider
 import cn.com.omnimind.assists.task.vlmserver.VLMRecallContextRequest
 import cn.com.omnimind.baselib.util.OmniLog
-import cn.com.omnimind.bot.omniflow.OobFunctionJson.firstNonBlank
-import cn.com.omnimind.bot.omniflow.OobFunctionJson.listArg
-import cn.com.omnimind.bot.omniflow.OobFunctionJson.mapArg
-import cn.com.omnimind.bot.runlog.OobFunctionManagementService
+import cn.com.omnimind.bot.omniflow.function.OmniFlowFunctionJson.firstNonBlank
+import cn.com.omnimind.bot.omniflow.function.OmniFlowFunctionJson.listArg
+import cn.com.omnimind.bot.omniflow.function.OmniFlowFunctionJson.mapArg
+import cn.com.omnimind.bot.omniflow.function.OmniFlowFunctionService
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
@@ -46,7 +46,7 @@ class VlmFunctionRecall(context: Context) : VLMRecallContextProvider {
             )
         }
         val recallResult = runCatching {
-            OobFunctionManagementService(appContext).recall(
+            OmniFlowFunctionService(appContext).recall(
                 mapOf(
                     "goal" to goal,
                     "current_package" to request.currentPackageName,
@@ -144,7 +144,7 @@ class VlmFunctionRecall(context: Context) : VLMRecallContextProvider {
             .take(config.recallStepSummaryCount)
             .joinToString("; ") { it.toString() }
         return buildString {
-            append("Use this saved workflow when it clearly matches the current step goal. ")
+            append("Prefer this saved workflow over manual UI actions when it clearly matches the current goal. ")
             append("If it does not clearly match, do not call this tool; continue with ordinary UI actions. ")
             if (goal.isNotBlank()) {
                 append("Current user goal: ")

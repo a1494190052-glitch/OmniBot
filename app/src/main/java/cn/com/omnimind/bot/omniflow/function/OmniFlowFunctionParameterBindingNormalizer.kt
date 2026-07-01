@@ -1,10 +1,10 @@
-package cn.com.omnimind.bot.omniflow
+package cn.com.omnimind.bot.omniflow.function
 import cn.com.omnimind.bot.runlog.argsForStep
 import cn.com.omnimind.bot.runlog.actionNameForStep
 import cn.com.omnimind.bot.runlog.resolveActionName
 
 import cn.com.omnimind.baselib.runlog.OobActionSchema
-import cn.com.omnimind.bot.omniflow.OobFunctionSchemaBuilder
+import cn.com.omnimind.bot.omniflow.function.OmniFlowFunctionSchema
 
 /**
  * Normalizes runtime parameter bindings at the Function storage boundary.
@@ -14,10 +14,10 @@ import cn.com.omnimind.bot.omniflow.OobFunctionSchemaBuilder
  * boundaries, but execution only honors explicit JSONPath bindings stored on
  * the Function spec.
  */
-object OobFunctionParameterBindingNormalizer {
+object OmniFlowFunctionParameterBindingNormalizer {
     fun normalize(functionSpec: Map<String, Any?>): Map<String, Any?> {
-        val spec = OobFunctionJson.mutableJsonMap(OobFunctionJson.sanitizeMap(functionSpec))
-        val steps = OobFunctionSchemaBuilder.materializedSteps(spec)
+        val spec = OmniFlowFunctionJson.mutableJsonMap(OmniFlowFunctionJson.sanitizeMap(functionSpec))
+        val steps = OmniFlowFunctionSchema.materializedSteps(spec)
         val parameterBindings = linkedMapOf<String, LinkedHashSet<String>>()
         val changes = mutableListOf<Map<String, Any?>>()
 
@@ -33,12 +33,12 @@ object OobFunctionParameterBindingNormalizer {
         parameterBindings: MutableMap<String, LinkedHashSet<String>>,
     ) {
         val metadata = mutableMapArg(spec["metadata"])
-        val entries = OobFunctionJson.listArg(spec["x_oob_parameter_bindings"]) +
-            OobFunctionJson.listArg(spec["parameter_bindings"]) +
-            OobFunctionJson.listArg(metadata["oob_parameter_bindings"])
+        val entries = OmniFlowFunctionJson.listArg(spec["x_oob_parameter_bindings"]) +
+            OmniFlowFunctionJson.listArg(spec["parameter_bindings"]) +
+            OmniFlowFunctionJson.listArg(metadata["oob_parameter_bindings"])
         entries.forEach { raw ->
-            val entry = OobFunctionJson.mapArg(raw)
-            val name = OobFunctionJson.firstNonBlank(entry["name"], entry["parameter"])
+            val entry = OmniFlowFunctionJson.mapArg(raw)
+            val name = OmniFlowFunctionJson.firstNonBlank(entry["name"], entry["parameter"])
             if (name.isEmpty()) return@forEach
             val bindings = (
                 bindingList(entry["bindings"]) +
@@ -110,7 +110,7 @@ object OobFunctionParameterBindingNormalizer {
         }
         @Suppress("UNCHECKED_CAST")
         (schema as MutableMap<String, Any?>)["properties"] = normalizedProperties
-        val normalizedRequired = OobFunctionJson.listArg(schema["required"])
+        val normalizedRequired = OmniFlowFunctionJson.listArg(schema["required"])
             .mapNotNull { it?.toString()?.trim()?.takeIf(String::isNotEmpty) }
             .filter(::isPublicParameterName)
             .filter { it in normalizedProperties.keys }
@@ -125,9 +125,9 @@ object OobFunctionParameterBindingNormalizer {
         if (parameterBindings.isEmpty() && changes.isEmpty()) return
         val metadata = mutableMapArg(spec["metadata"])
         val byName = linkedMapOf<String, LinkedHashSet<String>>()
-        OobFunctionJson.listArg(metadata["oob_parameter_bindings"]).forEach { raw ->
-            val entry = OobFunctionJson.mapArg(raw)
-            val name = OobFunctionJson.firstNonBlank(entry["name"], entry["parameter"])
+        OmniFlowFunctionJson.listArg(metadata["oob_parameter_bindings"]).forEach { raw ->
+            val entry = OmniFlowFunctionJson.mapArg(raw)
+            val name = OmniFlowFunctionJson.firstNonBlank(entry["name"], entry["parameter"])
             if (name.isEmpty()) return@forEach
             if (!isPublicParameterName(name)) return@forEach
             val bindings = (
@@ -310,15 +310,15 @@ object OobFunctionParameterBindingNormalizer {
         spec: Map<String, Any?>,
         stepIndex: Int,
     ): List<String> {
-        val actions = OobFunctionJson.listArg(spec["actions"])
-        val action = OobFunctionJson.mapArg(actions.getOrNull(stepIndex))
+        val actions = OmniFlowFunctionJson.listArg(spec["actions"])
+        val action = OmniFlowFunctionJson.mapArg(actions.getOrNull(stepIndex))
         if (action.isEmpty()) return emptyList()
-        val actionType = OobFunctionJson.firstNonBlank(action["tool"])
+        val actionType = OmniFlowFunctionJson.firstNonBlank(action["tool"])
         if (resolveActionName(actionType) != OobActionSchema.TOOL_INPUT_TEXT) {
             return emptyList()
         }
         val output = linkedSetOf<String>()
-        val args = OobFunctionJson.mapArg(action["args"])
+        val args = OmniFlowFunctionJson.mapArg(action["args"])
         if (args.isNotEmpty()) {
             INPUT_TEXT_ARG_KEYS.forEach { key -> output += "$.actions[$stepIndex].args.$key" }
         }
@@ -340,7 +340,7 @@ object OobFunctionParameterBindingNormalizer {
     }
 
     private fun bindingList(value: Any?): List<String> =
-        OobFunctionJson.listArg(value)
+        OmniFlowFunctionJson.listArg(value)
             .mapNotNull { it?.toString()?.trim()?.takeIf(String::isNotEmpty) }
             .filter(::isCanonicalBindingPath)
 
@@ -349,7 +349,7 @@ object OobFunctionParameterBindingNormalizer {
             CANONICAL_ACTION_BINDING_REGEX.matches(path)
 
     private fun mutableMapArg(value: Any?): LinkedHashMap<String, Any?> =
-        OobFunctionJson.mutableJsonMap(OobFunctionJson.mapArg(value))
+        OmniFlowFunctionJson.mutableJsonMap(OmniFlowFunctionJson.mapArg(value))
 
     private fun changeEntry(
         name: String,
