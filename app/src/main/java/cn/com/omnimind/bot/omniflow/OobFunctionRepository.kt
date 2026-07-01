@@ -134,6 +134,10 @@ class OobFunctionRepository(
         return listSpecsPage(limit = limit, offset = 0, includeHidden = includeHidden).specs
     }
 
+    fun recall(goal: String, limit: Int = 50): List<FunctionRecallIndex.Hit> {
+        return workspaceFunctionStore.recall(goal = goal, limit = limit)
+    }
+
     fun get(functionId: String): Map<String, Any?>? {
         val normalized = functionId.trim()
         if (normalized.isEmpty()) return null

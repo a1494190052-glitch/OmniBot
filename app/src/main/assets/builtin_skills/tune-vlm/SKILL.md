@@ -128,5 +128,5 @@ App 会自动蒸馏成功任务的经验更新这个文件，也可以手动编�
 
 改完文件后，执行任意 VLM 任务，查看 logcat：
 - `VlmWorkspaceConfig` tag — 显示 `reloaded vlm_config.json`
-- `VlmRecalledFunctionToolProvider` tag — 确认 recall 候选工具注入生效
+- `VlmFunctionRecall` tag — 确认 recall 候选工具注入生效
 - `VlmGuidanceManager` tag — 确认 guidance 已加载

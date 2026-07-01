@@ -447,7 +447,6 @@ object VlmToolCoordinator {
                 "current_package" to firstNonBlank(request.packageName, currentPackage),
                 "current_xml" to currentXml,
                 "k" to 8,
-                "auto_execute" to true,
             )
         )
     }

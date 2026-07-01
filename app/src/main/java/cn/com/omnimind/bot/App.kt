@@ -144,7 +144,7 @@ class App : BaseApplication() {
         }
         runCatching {
             cn.com.omnimind.assists.task.vlmserver.VLMRecallContextProviderRegistry.register(
-                cn.com.omnimind.bot.vlm.VlmRecalledFunctionToolProvider(this)
+                cn.com.omnimind.bot.vlm.VlmFunctionRecall(this)
             )
         }
         runCatching {

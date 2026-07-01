@@ -40,7 +40,7 @@ class McpResponseBuilderPermissionTest {
             needSummary = true,
         ).apply {
             compileStatus = "hit"
-            executionRoute = "omniflow_recall_hit:open_settings"
+            executionRoute = "recalled_workflow:open_settings"
             finishedContent = "done"
             summaryText = "opened settings"
             feedback = "ok"

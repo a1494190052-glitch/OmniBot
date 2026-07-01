@@ -28,6 +28,9 @@ class WorkspaceFunctionStore(private val workspaceRoot: File) {
     private val runLogsDir: File
         get() = File(omniflowRootDir, "run_logs").apply { mkdirs() }
 
+    private val recallIndex: FunctionRecallIndex
+        get() = FunctionRecallIndex(workspaceRoot)
+
     fun register(spec: Map<String, Any?>): Map<String, Any?> {
         val functionId = OobFunctionSchemaBuilder.functionId(spec).takeIf { it.isNotEmpty() }
             ?: return mapOf("success" to false, "errorMessage" to "function_id required")
@@ -75,6 +78,7 @@ class WorkspaceFunctionStore(private val workspaceRoot: File) {
                 file.writeText(gson.toJson(storedSpec))
                 tmp.delete()
             }
+            recallIndex.upsert(storedSpec)
             mapOf("success" to true, "function_id" to functionId, "path" to file.absolutePath)
         }.onFailure {
             tmp.delete()
@@ -110,8 +114,12 @@ class WorkspaceFunctionStore(private val workspaceRoot: File) {
             OobFunctionSchemaBuilder.functionId(spec).takeIf { it.isNotEmpty() }
         }
 
-    fun delete(functionId: String): Boolean =
-        functionFile(functionId.trim()).takeIf { it.exists() }?.delete() == true
+    fun delete(functionId: String): Boolean {
+        val normalized = functionId.trim()
+        val deleted = functionFile(normalized).takeIf { it.exists() }?.delete() == true
+        if (deleted) recallIndex.delete(normalized)
+        return deleted
+    }
 
     fun clear(): Map<String, Any?> {
         val dir = functionsDir
@@ -122,6 +130,7 @@ class WorkspaceFunctionStore(private val workspaceRoot: File) {
         files.forEach { file ->
             if (file.delete()) deleted += 1
         }
+        recallIndex.clear()
         return mapOf(
             "success" to true,
             "deleted_count" to deleted,
@@ -130,6 +139,14 @@ class WorkspaceFunctionStore(private val workspaceRoot: File) {
     }
 
     fun canHandle(functionId: String): Boolean = functionFile(functionId.trim()).exists()
+
+    fun recall(goal: String, limit: Int = 50): List<FunctionRecallIndex.Hit> {
+        val index = recallIndex
+        if (!index.exists()) {
+            list(500).forEach(index::upsert)
+        }
+        return index.search(goal, limit)
+    }
 
     fun recordRun(
         functionId: String,

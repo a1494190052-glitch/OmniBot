@@ -115,7 +115,6 @@ class DebugOobFunctionSegmentReceiver : BroadcastReceiver() {
                     "current_package" to beforePackage,
                     "current_xml" to beforeXml,
                     "k" to 3,
-                    "auto_execute" to true,
                 )
             )
         }

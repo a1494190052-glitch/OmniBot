@@ -8,1205 +8,155 @@ import cn.com.omnimind.bot.omniflow.OobFunctionJson.firstNonBlank
 import cn.com.omnimind.bot.omniflow.OobFunctionJson.intArg
 import cn.com.omnimind.bot.omniflow.OobFunctionJson.listArg
 import cn.com.omnimind.bot.omniflow.OobFunctionJson.mapArg
-import cn.com.omnimind.bot.omniflow.OobFunctionSchemaBuilder
-import cn.com.omnimind.bot.runlog.OobUdegNodeStore
-import cn.com.omnimind.bot.runlog.RunLogReplayPolicy
-import kotlin.math.roundToInt
 
-/**
- * Owns OmniFlow Function recall policy: current-page matching, UDEG capability
- * ranking, direct-hit decisions, and agent-facing compact payloads.
- */
 class OobFunctionRecallService(
     private val context: Context,
     private val functionRepository: OobFunctionRepository,
     private val deviceOperator: DeviceOperator = AndroidDeviceOperator(null, context),
 ) {
     fun recall(args: Map<String, Any?>?): Map<String, Any?> {
-        val timing = RecallTiming()
-        val request = timing.measure("parse_request_ms") { args ?: emptyMap() }
+        val startedAt = System.currentTimeMillis()
+        val request = args ?: emptyMap()
         val goal = firstNonBlank(request["goal"], request["query"], request["task"])
         val includeDebug = boolArg(request["include_debug"]) ||
             boolArg(request["includeDebug"]) ||
             boolArg(request["debug"])
-        val currentPackage = timing.measure("read_current_package_ms") {
-            firstNonBlank(
-                request["current_package"],
-                request["currentPackage"],
-                runCatching { deviceOperator.currentPackageName() }.getOrNull(),
-            )
+        val currentPackage = firstNonBlank(
+            request["current_package"],
+            request["currentPackage"],
+            runCatching { deviceOperator.currentPackageName() }.getOrNull(),
+        )
+        val limit = intArg(request["k"], defaultValue = DEFAULT_RECALL_LIMIT)
+            .coerceIn(1, MAX_RECALLED_FUNCTIONS)
+        val hits = functionRepository.recall(goal = goal, limit = limit)
+        val candidates = hits.mapNotNull { hit ->
+            val spec = functionRepository.get(hit.functionId) ?: return@mapNotNull null
+            if (!OobFunctionRepository.isAgentVisible(spec)) return@mapNotNull null
+            candidateMap(spec = spec, hit = hit, currentPackage = currentPackage)
         }
-        val currentNodeId = firstNonBlank(request["current_node_id"], request["currentNodeId"])
-        val k = intArg(request["k"], defaultValue = DEFAULT_RECALL_LIMIT).coerceIn(1, MAX_RECALLED_FUNCTIONS)
-        val allowDirectExecutionDecision = boolArg(request["auto_execute"]) ||
-            boolArg(request["autoExecute"]) ||
-            boolArg(request["allow_direct_hit"]) ||
-            boolArg(request["allowDirectHit"]) ||
-            firstNonBlank(
-                request["decision_mode"],
-                request["decisionMode"],
-                request["execution_policy"],
-                request["executionPolicy"],
-            ).lowercase() in setOf("direct", "auto_execute", "auto-execute")
-        val currentXml = timing.measure("read_current_page_ms") {
-            firstNonBlank(
-                request["current_xml"],
-                request["currentXml"],
-                request["xml"],
-                request["page"],
-                request["observation_xml"],
-                request["observationXml"],
-            ).ifBlank {
-                runCatching { deviceOperator.currentXml()?.trim().orEmpty() }
-                    .getOrDefault("")
-            }
-        }
-        val nodeStore = OobUdegNodeStore(context)
-        val nodeMatches = timing.measure("page_match_ms") {
-            if (currentXml.isBlank()) {
-                emptyList()
-            } else {
-                nodeStore.recall(
-                    currentXml = currentXml,
-                    currentPackage = currentPackage,
-                    topK = k,
-                )
-            }
-        }
-        val nodeCandidates = nodeMatches.map { it.toMap() }
-        val decisionNodeMatches = nodeMatches.take(1)
-        val recallRanking = timing.measure("rank_functions_ms") {
-            val nodeRanking = rankNodeCapabilities(
-                nodeMatches = decisionNodeMatches,
-                goal = goal,
-                currentPackage = currentPackage,
-                topK = k,
-            )
-            val catalogFunctions = rankCatalogFunctions(
-                goal = goal,
-                currentPackage = currentPackage,
-                topK = k,
-                excludeFunctionIds = nodeRanking.functions
-                    .map { it.functionId }
-                    .toSet()
-            )
-            RecallRanking(
-                node = nodeRanking,
-                catalogFunctions = catalogFunctions,
-                mergedFunctions = mergeRankedFunctions(
-                    nodeRanking.functions + catalogFunctions,
-                    limit = k
-                ),
-            )
-        }
-        val nodeCapabilityRanking = recallRanking.node
-        val ranked = recallRanking.mergedFunctions
-
-        val candidates = ranked.map { rankedFunction ->
-            if (rankedFunction.node.isEmpty()) {
-                catalogCapabilityMap(rankedFunction)
-            } else {
-                val extras = linkedMapOf(
-                    "text_score" to roundScore(rankedFunction.textScore),
-                    "page_similarity" to roundScore(rankedFunction.pageScore),
-                    "udeg_node" to rankedFunction.node,
-                    "node_skill_context" to rankedFunction.node["node_skill_context"],
-                    "recall_scope" to "udeg_node",
-                    "source" to "oob_udeg_node_function_recall",
-                )
-                candidateMap(
-                    spec = rankedFunction.spec,
-                    score = rankedFunction.score,
-                    reason = rankedFunction.reason,
-                    extras = extras
-                )
-            }
-        }
-        val nodeDirectHit = nodeCapabilityRanking.functions.firstOrNull()?.takeIf { candidate ->
-            allowDirectExecutionDecision &&
-                isHighConfidenceFunctionHit(candidate, nodeCapabilityRanking.functions.drop(1).firstOrNull())
-        }
-        val catalogDirectHit = recallRanking.catalogFunctions.firstOrNull()?.takeIf { candidate ->
-            allowDirectExecutionDecision &&
-                nodeDirectHit == null &&
-                isHighConfidenceCatalogFunctionHit(
-                    candidate = candidate,
-                    nextCandidate = recallRanking.catalogFunctions.drop(1).firstOrNull(),
-                    goal = goal,
-                    currentPackage = currentPackage,
-                )
-        }
-        val directHit = nodeDirectHit ?: catalogDirectHit
-        val directHitPolicy = when (directHit) {
-            null -> null
-            nodeDirectHit -> "top1_high_confidence_margin"
-            else -> "catalog_exact_match_same_package_goal"
-        }
-        val decision = when {
-            directHit != null -> "hit"
-            candidates.isNotEmpty() -> "recall"
-            else -> "miss"
-        }
-
-        val payload = linkedMapOf<String, Any?>(
+        val decision = if (candidates.isNotEmpty()) "recall" else "miss"
+        return linkedMapOf<String, Any?>(
             "success" to true,
             "decision" to decision,
-            "decision_path" to OobUdegNodeStore.UDEG_DECISION_PATH,
-            "hit" to directHit?.let {
-                linkedMapOf(
-                    "function_id" to it.functionId,
-                    "inputSchema" to inputSchema(it.spec),
-                    "score" to it.score,
-                    "reason" to it.reason,
-                    "text_score" to roundScore(it.textScore),
-                    "page_similarity" to roundScore(it.pageScore),
-                    "strict_direct_hit" to true,
-                    "direct_hit_policy" to directHitPolicy,
-                    "recall_scope" to if (it.node.isEmpty()) "function_catalog" else "udeg_node",
-                    "source" to if (it.node.isEmpty()) {
-                        "oob_agent_visible_function_catalog"
-                    } else {
-                        "oob_udeg_node_function_recall"
-                    },
-                    "requires_arguments" to !isNoArgumentFunction(it.spec),
-                    "resolve_policy" to argumentResolvePolicy(it.spec),
-                    "udeg_node" to it.node,
-                    "node_skill_context" to it.node["node_skill_context"],
-                    "function_profile" to functionProfile(it.spec),
-                    "step_summaries" to stepSummaries(it.spec)
-                )
-            },
-            "candidates" to if (directHit == null) candidates else emptyList<Map<String, Any?>>(),
-            "capability_candidates" to nodeCapabilityRanking.capabilities,
-            "node_capabilities" to nodeCapabilityRanking.capabilities,
-            "node_function_capabilities" to nodeCapabilityRanking.functionCapabilities,
-            "catalog_function_candidates" to recallRanking.catalogFunctions.map { rankedFunction ->
-                catalogCapabilityMap(rankedFunction)
-            },
-            "node_candidates" to nodeCandidates,
-            "current_node" to nodeCandidates.firstOrNull(),
-            "node_skill" to (nodeCandidates.firstOrNull()?.get("skill")),
-            "node_skill_context" to (nodeCandidates.firstOrNull()?.get("node_skill_context")),
-            "decision_context" to (nodeCandidates.firstOrNull()?.get("decision_context")),
-            "decision_policy" to linkedMapOf(
-                "mode" to when {
-                    allowDirectExecutionDecision -> "direct_execution_allowed"
-                    nodeCandidates.isNotEmpty() -> "node_skill_context_only"
-                    ranked.isNotEmpty() -> "function_catalog_context"
-                    else -> "current_page_required"
-                },
-                "requires_vlm_or_tool_decision" to !allowDirectExecutionDecision,
-                "direct_hit_requested" to allowDirectExecutionDecision,
-                "direct_hit_min_score" to DIRECT_HIT_MIN_SCORE,
-                "direct_hit_min_page_similarity" to DIRECT_HIT_MIN_PAGE_SCORE,
-                "direct_hit_min_text_score" to DIRECT_HIT_MIN_TEXT_SCORE,
-                "direct_hit_min_margin" to DIRECT_HIT_MIN_MARGIN,
-                "direct_hit_requires_single_candidate" to false,
-                "direct_hit_requires_top1_margin" to true,
-                "direct_hit_allows_goal_bound_arguments" to true,
-            ),
+            "candidates" to candidates,
             "count" to candidates.size,
             "reason" to when {
-                directHit != null && directHit.node.isEmpty() ->
-                    "function_catalog_exact_match_direct_function_hit"
-                directHit != null -> "udeg_page_match_direct_function_hit"
-                nodeCandidates.isEmpty() && currentXml.isBlank() ->
-                    if (ranked.isNotEmpty()) {
-                        "function_catalog_goal_match_without_current_page"
-                    } else {
-                        "missing_current_page_for_udeg_page_match"
-                    }
-                nodeCandidates.isEmpty() ->
-                    if (ranked.isNotEmpty()) {
-                        "function_catalog_goal_match_without_udeg_page_match"
-                    } else {
-                        "no_udeg_node_page_match_or_function_candidate"
-                    }
-                nodeCapabilityRanking.capabilities.isEmpty() && candidates.isEmpty() ->
-                    "udeg_node_match_without_attached_capability_or_function_candidate"
-                candidates.isEmpty() -> "udeg_node_match_without_attached_function"
-                recallRanking.catalogFunctions.isNotEmpty() && nodeCapabilityRanking.functions.isEmpty() ->
-                    "function_catalog_goal_match"
-                else -> "udeg_node_skill_context_recall"
+                goal.isBlank() -> "empty_goal"
+                candidates.isEmpty() -> "no_function_index_match"
+                else -> "function_index_match"
             },
-            "current_package" to currentPackage.takeIf { it.isNotEmpty() },
-            "current_node_id" to currentNodeId.takeIf { it.isNotEmpty() },
-            "timing" to timing.finish(
-                decision = decision,
-                counts = linkedMapOf(
-                    "node_candidates" to nodeCandidates.size,
-                    "decision_node_candidates" to decisionNodeMatches.size,
-                    "function_candidates" to ranked.size,
-                    "catalog_function_candidates" to recallRanking.catalogFunctions.size,
-                    "node_capabilities" to nodeCapabilityRanking.capabilities.size,
-                    "node_function_capabilities" to nodeCapabilityRanking.functionCapabilities.size,
+            "current_package" to currentPackage.takeIf { it.isNotBlank() },
+            "source" to "oob_function_recall_index",
+            "payload_mode" to if (includeDebug) "debug_full" else "agent_compact",
+            "timing" to linkedMapOf(
+                "source" to "oob_function_recall_index",
+                "decision" to decision,
+                "duration_ms" to (System.currentTimeMillis() - startedAt).coerceAtLeast(0L),
+                "counts" to linkedMapOf(
+                    "index_hits" to hits.size,
+                    "function_candidates" to candidates.size,
                 )
             ),
-            "source" to if (nodeCandidates.isNotEmpty()) {
-                if (directHit != null && directHit.node.isEmpty()) {
-                    "oob_native_function_catalog_recall"
-                } else {
-                    "oob_native_udeg_page_match"
-                }
-            } else if (recallRanking.catalogFunctions.isNotEmpty()) {
-                "oob_native_function_catalog_recall"
-            } else {
-                "oob_native_function_recall"
-            }
-        )
-        return compactRecallPayload(payload, includeDebug)
-    }
-
-    private fun rankNodeCapabilities(
-        nodeMatches: List<OobUdegNodeStore.RecallMatch>,
-        goal: String,
-        currentPackage: String,
-        topK: Int,
-    ): NodeCapabilityRanking {
-        val rankedFunctions = mutableListOf<RankedFunction>()
-        val functionCapabilities = mutableListOf<Map<String, Any?>>()
-        nodeMatches.forEach { nodeMatch ->
-            val node = nodeMatch.toMap()
-            val pageScore = nodeMatch.pageSimilarity.toDouble()
-            OobUdegNodeStore.functionSummaries(nodeMatch.node).forEach { functionSummary ->
-                val functionId = firstNonBlank(functionSummary["function_id"])
-                if (functionId.isBlank()) return@forEach
-                val spec = functionRepository.get(functionId) ?: return@forEach
-                if (!OobFunctionRepository.isAgentVisible(spec)) return@forEach
-                val textScore = scoreNodeFunctionText(
-                    spec = spec,
-                    function = functionSummary,
-                    goal = goal,
-                    currentPackage = currentPackage,
-                )
-                val combinedScore = (
-                    PAGE_MATCH_WEIGHT * pageScore +
-                        GOAL_MATCH_WEIGHT * textScore.score
-                    ).coerceIn(0.0, 1.0)
-                val rankedFunction = RankedFunction(
-                    spec = spec,
-                    functionId = functionId,
-                    score = roundScore(combinedScore),
-                    reason = "udeg_${nodeMatch.reason};${textScore.reason}",
-                    textScore = textScore.score,
-                    pageScore = pageScore,
-                    node = node,
-                )
-                rankedFunctions += rankedFunction
-                functionCapabilities += nodeCapabilityMap(
-                    node = node,
-                    functionId = functionId,
-                    capabilityType = "function",
-                    score = rankedFunction.score,
-                    textScore = textScore.score,
-                    pageScore = pageScore,
-                    reason = rankedFunction.reason,
-                    spec = spec,
-                    nodeCapability = functionSummary,
-                )
-            }
-        }
-        val limit = topK.coerceIn(1, 50)
-        val sortedFunctionCapabilities = functionCapabilities.sortedWith(capabilityComparator())
-        return NodeCapabilityRanking(
-            functions = rankedFunctions
-                .sortedWith(
-                    compareByDescending<RankedFunction> { it.score }
-                        .thenBy { it.functionId }
-                )
-                .take(limit),
-            capabilities = sortedFunctionCapabilities.take(limit),
-            functionCapabilities = sortedFunctionCapabilities.take(limit),
-        )
-    }
-
-    private fun rankCatalogFunctions(
-        goal: String,
-        currentPackage: String,
-        topK: Int,
-        excludeFunctionIds: Set<String>,
-    ): List<RankedFunction> {
-        if (goal.isBlank()) return emptyList()
-        return functionRepository
-            .listSpecs(limit = MAX_RECALLED_FUNCTIONS, includeHidden = false)
-            .mapNotNull { spec ->
-                if (!OobFunctionRepository.isAgentVisible(spec)) return@mapNotNull null
-                val functionId = OobFunctionSchemaBuilder.functionId(spec)
-                    .trim()
-                    .takeIf { it.isNotEmpty() && it !in excludeFunctionIds }
-                    ?: return@mapNotNull null
-                val textScore = scoreFunctionText(
-                    spec = spec,
-                    goal = goal,
-                    currentPackage = currentPackage,
-                )
-                if (textScore.score < CATALOG_MIN_TEXT_SCORE) return@mapNotNull null
-                RankedFunction(
-                    spec = spec,
-                    functionId = functionId,
-                    score = textScore.score,
-                    reason = "catalog_${textScore.reason}",
-                    textScore = textScore.score,
-                    pageScore = 0.0,
-                )
-            }
-            .sortedWith(
-                compareByDescending<RankedFunction> { it.score }
-                    .thenByDescending { functionFreshnessMs(it.spec) }
-                    .thenBy { it.functionId }
-            )
-            .take(topK.coerceIn(1, MAX_RECALLED_FUNCTIONS))
-    }
-
-    private fun mergeRankedFunctions(
-        functions: List<RankedFunction>,
-        limit: Int,
-    ): List<RankedFunction> {
-        val byId = linkedMapOf<String, RankedFunction>()
-        functions.forEach { candidate ->
-            val existing = byId[candidate.functionId]
-            if (existing == null || rankedComparator.compare(candidate, existing) < 0) {
-                byId[candidate.functionId] = candidate
-            }
-        }
-        return byId.values
-            .sortedWith(rankedComparator)
-            .take(limit.coerceIn(1, MAX_RECALLED_FUNCTIONS))
-    }
-
-    private val rankedComparator: Comparator<RankedFunction> =
-        compareByDescending<RankedFunction> { it.score }
-            .thenByDescending { it.pageScore }
-            .thenBy { it.functionId }
-
-    private fun catalogCapabilityMap(rankedFunction: RankedFunction): Map<String, Any?> {
-        return candidateMap(
-            spec = rankedFunction.spec,
-            score = rankedFunction.score,
-            reason = rankedFunction.reason,
-            extras = linkedMapOf(
-                "capability_type" to "function",
-                "text_score" to roundScore(rankedFunction.textScore),
-                "page_similarity" to 0.0,
-                "recall_scope" to "function_catalog",
-                "source" to "oob_agent_visible_function_catalog",
-            )
-        )
-    }
-
-    private fun capabilityComparator(): Comparator<Map<String, Any?>> =
-        compareByDescending<Map<String, Any?>> { numberDouble(it["score"]) }
-            .thenByDescending { numberDouble(it["page_similarity"]) }
-            .thenBy { it["function_id"]?.toString().orEmpty() }
-
-    private fun nodeCapabilityMap(
-        node: Map<String, Any?>,
-        functionId: String,
-        capabilityType: String,
-        score: Double,
-        textScore: Double,
-        pageScore: Double,
-        reason: String,
-        spec: Map<String, Any?>,
-        nodeCapability: Map<String, Any?> = emptyMap(),
-    ): Map<String, Any?> {
-        val functionSteps = stepSummaries(spec)
-        val call = linkedMapOf<String, Any?>(
-            "tool" to RunLogReplayPolicy.TOOL_CALL_TOOL,
-            "function_id" to functionId,
-            "arguments" to emptyMap<String, Any?>(),
-        )
-        return linkedMapOf(
-            "capability_type" to capabilityType,
-            "recall_scope" to "udeg_node",
-            "function_id" to functionId,
-            "name" to firstNonBlank(nodeCapability["name"], spec["name"], functionId),
-            "description" to firstNonBlank(
-                nodeCapability["description"],
-                spec["description"],
-                spec["name"],
-                functionId
-            ),
-            "score" to roundScore(score),
-            "text_score" to roundScore(textScore),
-            "page_similarity" to roundScore(pageScore),
-            "strict_direct_hit" to (
-                score >= DIRECT_HIT_MIN_SCORE &&
-                    pageScore >= DIRECT_HIT_MIN_PAGE_SCORE &&
-                    textScore >= DIRECT_HIT_MIN_TEXT_SCORE
-                ),
-            "reason" to reason,
-            "node_id" to firstNonBlank(node["node_id"]),
-            "udeg_node" to node.takeIf { it.isNotEmpty() },
-            "node_skill_context" to node["node_skill_context"],
-            "node_capability" to nodeCapability.takeIf { it.isNotEmpty() },
-            "inputSchema" to inputSchema(spec),
-            "remaining_step_count" to functionSteps.size,
-            "execution_scope" to "function",
-            "call" to call,
-            "requires_arguments" to !isNoArgumentFunction(spec),
-            "resolve_policy" to argumentResolvePolicy(spec),
-            "step_summaries" to functionSteps,
-            "function_profile" to functionProfile(spec, nodeCapability),
-            "function_kind" to "oob_reusable_function",
-            "asset_state" to "native_local",
-            "source" to "oob_udeg_node_capability",
         ).filterValues { it != null }
-    }
-
-    private fun compactRecallPayload(
-        payload: Map<String, Any?>,
-        includeDebug: Boolean,
-    ): Map<String, Any?> {
-        if (includeDebug) {
-            return linkedMapOf<String, Any?>().apply {
-                putAll(payload)
-                put("payload_mode", "debug_full")
-            }
-        }
-        return linkedMapOf<String, Any?>().apply {
-            put("success", payload["success"])
-            put("decision", payload["decision"])
-            put("decision_path", payload["decision_path"])
-            put("hit", compactRecallCandidate(payload["hit"]))
-            put(
-                "candidates",
-                listArg(payload["candidates"]).mapNotNull { compactRecallCandidate(it) }
-            )
-            put(
-                "capability_candidates",
-                listArg(payload["capability_candidates"]).mapNotNull { compactRecallCandidate(it) }
-            )
-            put(
-                "node_capabilities",
-                listArg(payload["node_capabilities"]).mapNotNull { compactRecallCandidate(it) }
-            )
-            put(
-                "node_function_capabilities",
-                listArg(payload["node_function_capabilities"]).mapNotNull { compactRecallCandidate(it) }
-            )
-            put(
-                "catalog_function_candidates",
-                listArg(payload["catalog_function_candidates"]).mapNotNull { compactRecallCandidate(it) }
-            )
-            put(
-                "node_candidates",
-                listArg(payload["node_candidates"]).mapNotNull { compactRecallNode(it) }
-            )
-            put("current_node", compactRecallNode(payload["current_node"]))
-            put("node_skill_context", compactNodeSkillContext(payload["node_skill_context"]))
-            put("decision_context", compactDecisionContext(payload["decision_context"]))
-            put("decision_policy", payload["decision_policy"])
-            put("count", payload["count"])
-            put("reason", payload["reason"])
-            put("current_package", payload["current_package"])
-            put("current_node_id", payload["current_node_id"])
-            put("source", payload["source"])
-            put("payload_mode", "agent_compact")
-            put("debug_available", true)
-        }.filterValues { it != null }
-    }
-
-    private fun compactRecallCandidate(value: Any?): Map<String, Any?>? {
-        val candidate = mapArg(value).takeIf { it.isNotEmpty() } ?: return null
-        return linkedMapOf<String, Any?>(
-            "capability_type" to candidate["capability_type"],
-            "function_id" to candidate["function_id"],
-            "description" to candidate["description"],
-            "name" to candidate["name"],
-            "inputSchema" to candidate["inputSchema"],
-            "score" to candidate["score"],
-            "text_score" to candidate["text_score"],
-            "page_similarity" to candidate["page_similarity"],
-            "strict_direct_hit" to candidate["strict_direct_hit"],
-            "direct_hit_policy" to candidate["direct_hit_policy"],
-            "reason" to candidate["reason"],
-            "node_id" to firstNonBlank(
-                candidate["node_id"],
-                mapArg(candidate["udeg_node"])["node_id"],
-            ).takeIf { it.isNotBlank() },
-            "node_skill_context" to compactNodeSkillContext(candidate["node_skill_context"]),
-            "recall_scope" to candidate["recall_scope"],
-            "remaining_step_count" to candidate["remaining_step_count"],
-            "requires_arguments" to candidate["requires_arguments"],
-            "resolve_policy" to (
-                candidate["resolve_policy"] ?: candidate["argument_fill_policy"]
-            ),
-            "execution_scope" to candidate["execution_scope"],
-            "call" to candidate["call"],
-            "step_count" to candidate["step_count"],
-            "function_profile" to candidate["function_profile"],
-            "step_summaries" to listArg(candidate["step_summaries"]).mapNotNull {
-                compactStepSummary(it)
-            },
-            "function_kind" to candidate["function_kind"],
-            "asset_state" to candidate["asset_state"],
-            "source" to candidate["source"],
-        ).filterValues { it != null }
-    }
-
-    private fun compactRecallNode(value: Any?): Map<String, Any?>? {
-        val node = mapArg(value).takeIf { it.isNotEmpty() } ?: return null
-        return linkedMapOf<String, Any?>(
-            "node_id" to node["node_id"],
-            "package_name" to node["package_name"],
-            "page_similarity" to node["page_similarity"],
-            "reason" to node["reason"],
-            "decision_context" to compactDecisionContext(node["decision_context"]),
-            "node_skill_context" to compactNodeSkillContext(node["node_skill_context"]),
-            "function_ids" to listArg(node["function_ids"]).mapNotNull {
-                it?.toString()?.trim()?.takeIf(String::isNotEmpty)
-            },
-            "source" to node["source"],
-        ).filterValues { it != null }
-    }
-
-    private fun compactNodeSkillContext(value: Any?): Map<String, Any?>? {
-        val context = mapArg(value).takeIf { it.isNotEmpty() } ?: return null
-        val pageMatch = mapArg(context["page_match"])
-        val udegNode = mapArg(context["udeg_node"])
-        return linkedMapOf<String, Any?>(
-            "schema_version" to context["schema_version"],
-            "role" to context["role"],
-            "context_kind" to context["context_kind"],
-            "decision_path" to context["decision_path"],
-            "entry_policy" to context["entry_policy"],
-            "page_match" to linkedMapOf(
-                "node_id" to pageMatch["node_id"],
-                "page_similarity" to pageMatch["page_similarity"],
-                "reason" to pageMatch["reason"],
-            ).filterValues { it != null }.takeIf { it.isNotEmpty() },
-            "udeg_node" to linkedMapOf(
-                "node_id" to udegNode["node_id"],
-                "package_name" to udegNode["package_name"],
-                "activity_name" to udegNode["activity_name"],
-            ).filterValues { it != null }.takeIf { it.isNotEmpty() },
-            "decision_context" to compactDecisionContext(context["decision_context"]),
-            "attached_function_count" to listArg(context["attached_functions"]).size,
-        ).filterValues { it != null }
-    }
-
-    private fun compactDecisionContext(value: Any?): Map<String, Any?>? {
-        val context = mapArg(value).takeIf { it.isNotEmpty() } ?: return null
-        return linkedMapOf<String, Any?>(
-            "schema_version" to context["schema_version"],
-            "role" to context["role"],
-            "entry_policy" to context["entry_policy"],
-            "skill_id" to context["skill_id"],
-            "decision_path" to context["decision_path"],
-            "function_count" to context["function_count"],
-            "page_analysis" to compactPageAnalysis(context["page_analysis"]),
-        ).filterValues { it != null }
-    }
-
-    private fun compactPageAnalysis(value: Any?): Map<String, Any?>? {
-        val analysis = mapArg(value).takeIf { it.isNotEmpty() } ?: return null
-        return linkedMapOf<String, Any?>(
-            "package_name" to analysis["package_name"],
-            "activity_name" to analysis["activity_name"],
-            "page_title" to analysis["page_title"],
-            "summary" to analysis["summary"],
-            "visible_text" to listArg(analysis["visible_text"]).take(8),
-            "primary_actions" to listArg(analysis["primary_actions"]).take(8),
-        ).filterValues { it != null }
-    }
-
-    private fun compactStepSummary(value: Any?): Map<String, Any?>? {
-        val step = mapArg(value).takeIf { it.isNotEmpty() } ?: return null
-        return linkedMapOf<String, Any?>(
-            "index" to step["index"],
-            "id" to step["id"],
-            "title" to step["title"],
-            "kind" to step["kind"],
-            "tool" to step["tool"],
-        ).filterValues { it != null }
-    }
-
-    private fun scoreNodeFunctionText(
-        spec: Map<String, Any?>,
-        function: Map<String, Any?>,
-        goal: String,
-        currentPackage: String,
-    ): FunctionTextScore {
-        val base = scoreFunctionText(spec, goal, currentPackage)
-        val capabilityCorpus = listOf(
-            function["function_id"],
-            function["name"],
-            function["description"],
-            listArg(function["step_summaries"]).joinToString(" ") { raw ->
-                val step = mapArg(raw)
-                listOf(step["title"], step["tool"], step["id"])
-                    .joinToString(" ")
-            },
-        ).joinToString(" ").trim()
-        val capabilityScore = if (goal.isBlank() || capabilityCorpus.isBlank()) {
-            0.0
-        } else {
-            tokenOverlapScore(goal, capabilityCorpus)
-        }
-        return if (capabilityScore > base.score) {
-            FunctionTextScore(capabilityScore, "node_function_capability_match")
-        } else {
-            base
-        }
-    }
-
-    private fun scoreFunctionText(
-        spec: Map<String, Any?>,
-        goal: String,
-        currentPackage: String,
-    ): FunctionTextScore {
-        val functionId = OobFunctionSchemaBuilder.functionId(spec)
-        val name = spec["name"]?.toString()?.trim().orEmpty()
-        val description = spec["description"]?.toString()?.trim().orEmpty()
-        val source = mapArg(spec["source"])
-        val corpus = listOf(
-            functionId,
-            name,
-            description,
-            source["goal"]?.toString().orEmpty(),
-            source["tool_name"]?.toString().orEmpty(),
-        ).joinToString(" ").trim()
-        if (goal.isBlank()) {
-            return FunctionTextScore(0.25, "empty_goal")
-        }
-
-        val normalizedGoal = normalizeText(goal)
-        val normalizedId = normalizeText(functionId)
-        val normalizedName = normalizeText(name)
-        val normalizedDescription = normalizeText(description)
-        val normalizedSourceGoal = normalizeText(source["goal"]?.toString().orEmpty())
-        var score = when {
-            normalizedGoal == normalizedId -> 1.0
-            normalizedGoal == normalizedName && normalizedName.isNotEmpty() -> 0.99
-            normalizedGoal == normalizedDescription && normalizedDescription.isNotEmpty() -> 0.96
-            normalizedGoal == normalizedSourceGoal && normalizedSourceGoal.isNotEmpty() -> 0.98
-            containsNonBlank(normalizedId, normalizedGoal) -> 0.92
-            containsNonBlank(normalizedName, normalizedGoal) -> 0.90
-            containsNonBlank(normalizedSourceGoal, normalizedGoal) -> 0.90
-            else -> tokenOverlapScore(goal, corpus)
-        }
-        var reason = when {
-            score >= 0.97 -> "exact_match"
-            score >= 0.85 -> "text_match"
-            else -> "token_overlap"
-        }
-        if (currentPackage.isNotEmpty() && packageScopeMatches(spec, currentPackage)) {
-            score = (score + 0.05).coerceAtMost(1.0)
-            reason = "${reason}_package_scope"
-        }
-        return FunctionTextScore(roundScore(score), reason)
-    }
-
-    private fun containsNonBlank(a: String, b: String): Boolean =
-        a.isNotEmpty() && b.isNotEmpty() && (a.contains(b) || b.contains(a))
-
-    private fun tokenOverlapScore(goal: String, corpus: String): Double {
-        val goalTokens = tokenize(goal)
-        if (goalTokens.isEmpty()) return 0.0
-        val corpusTokens = tokenize(corpus).toSet()
-        val overlap = goalTokens.count { it in corpusTokens }
-        return if (overlap == 0) 0.0 else 0.30 + 0.55 * (overlap.toDouble() / goalTokens.size)
-    }
-
-    private fun packageScopeMatches(spec: Map<String, Any?>, currentPackage: String): Boolean {
-        return packageScopes(spec).contains(currentPackage)
     }
 
     private fun candidateMap(
         spec: Map<String, Any?>,
-        score: Double,
-        reason: String,
-        extras: Map<String, Any?> = emptyMap(),
+        hit: FunctionRecallIndex.Hit,
+        currentPackage: String,
     ): Map<String, Any?> {
-        val execution = mapArg(spec["execution"])
-        val steps = materializedSteps(spec)
         val functionId = OobFunctionSchemaBuilder.functionId(spec)
-        val call = linkedMapOf<String, Any?>(
-            "tool" to RunLogReplayPolicy.TOOL_CALL_TOOL,
-            "function_id" to functionId,
-            "arguments" to emptyMap<String, Any?>(),
-        )
+        val packageNames = packageScopes(spec)
         return linkedMapOf<String, Any?>(
+            "capability_type" to "function",
             "function_id" to functionId,
-            "description" to (spec["description"] ?: spec["name"] ?: functionId),
+            "description" to firstNonBlank(spec["description"], spec["name"], functionId),
             "name" to spec["name"],
-            "inputSchema" to inputSchema(spec),
-            "score" to score,
-            "reason" to reason,
-            "step_count" to (execution["step_count"] ?: steps.size),
+            "inputSchema" to OobFunctionSchemaBuilder.inputSchema(spec),
+            "score" to hit.score,
+            "score_order" to "sqlite_fts5_bm25_ascending",
+            "reason" to "sqlite_fts5_bm25",
+            "recall_scope" to "function_index",
+            "current_package_match" to (
+                currentPackage.isNotBlank() && packageNames.contains(currentPackage)
+                ),
+            "package_names" to packageNames.takeIf { it.isNotEmpty() },
             "requires_arguments" to !isNoArgumentFunction(spec),
             "resolve_policy" to argumentResolvePolicy(spec),
             "execution_scope" to "function",
-            "call" to call,
-            "step_summaries" to stepSummaries(spec),
+            "step_count" to OobFunctionSchemaBuilder.materializedSteps(spec).size,
+            "step_summaries" to OobFunctionSchemaBuilder.stepSummaries(spec),
             "function_profile" to functionProfile(spec),
             "function_kind" to "oob_reusable_function",
-            "asset_state" to "native_local"
-        ).apply { putAll(extras) }
+            "asset_state" to "native_local",
+            "source" to "oob_function_recall_index",
+        ).filterValues { it != null }
     }
 
-    private fun isHighConfidenceFunctionHit(
-        candidate: RankedFunction,
-        nextCandidate: RankedFunction?,
-    ): Boolean {
-        if (candidate.score < DIRECT_HIT_MIN_SCORE) return false
-        if (candidate.pageScore < DIRECT_HIT_MIN_PAGE_SCORE) return false
-        if (candidate.textScore < DIRECT_HIT_MIN_TEXT_SCORE) return false
-        if (nextCandidate != null && sameBehaviorIdentity(candidate.spec, nextCandidate.spec)) {
-            return true
-        }
-        if (nextCandidate != null && duplicateDirectHitCandidate(candidate, nextCandidate)) {
-            return true
-        }
-        val margin = candidate.score - (nextCandidate?.score ?: 0.0)
-        return nextCandidate == null || margin >= DIRECT_HIT_MIN_MARGIN
-    }
-
-    private fun isHighConfidenceCatalogFunctionHit(
-        candidate: RankedFunction,
-        nextCandidate: RankedFunction?,
-        goal: String,
-        currentPackage: String,
-    ): Boolean {
-        if (candidate.score < DIRECT_HIT_MIN_SCORE) return false
-        if (candidate.textScore < DIRECT_HIT_MIN_TEXT_SCORE) return false
-        if (!candidate.reason.contains("catalog_exact_match")) return false
-        if (!isReusableVlmFunction(candidate.spec)) return false
-        if (!catalogGoalMatches(candidate.spec, goal)) return false
-        if (!catalogPackageMatches(candidate.spec, currentPackage)) return false
-        if (nextCandidate != null && sameCatalogDirectHitIntent(candidate, nextCandidate, goal, currentPackage)) {
-            return true
-        }
-        val margin = candidate.score - (nextCandidate?.score ?: 0.0)
-        return nextCandidate == null || margin >= DIRECT_HIT_MIN_MARGIN
-    }
-
-    private fun sameCatalogDirectHitIntent(
-        candidate: RankedFunction,
-        nextCandidate: RankedFunction,
-        goal: String,
-        currentPackage: String,
-    ): Boolean {
-        if (nextCandidate.score < DIRECT_HIT_MIN_SCORE) return false
-        if (nextCandidate.textScore < DIRECT_HIT_MIN_TEXT_SCORE) return false
-        if (!nextCandidate.reason.contains("catalog_exact_match")) return false
-        if (!isReusableVlmFunction(nextCandidate.spec)) return false
-        if (!catalogGoalMatches(nextCandidate.spec, goal)) return false
-        if (!catalogPackageMatches(nextCandidate.spec, currentPackage)) return false
-        if (sameBehaviorIdentity(candidate.spec, nextCandidate.spec)) return true
-        return sameGoalIdentity(candidate.spec, nextCandidate.spec) &&
-            packageScopes(candidate.spec).intersect(packageScopes(nextCandidate.spec)).isNotEmpty()
-    }
-
-    private fun duplicateDirectHitCandidate(
-        candidate: RankedFunction,
-        nextCandidate: RankedFunction,
-    ): Boolean {
-        if (nextCandidate.score < DIRECT_HIT_MIN_SCORE) return false
-        if (nextCandidate.pageScore < DIRECT_HIT_MIN_PAGE_SCORE) return false
-        if (nextCandidate.textScore < DIRECT_HIT_MIN_TEXT_SCORE) return false
-        if (!sameNode(candidate, nextCandidate)) return false
-        if (!samePackageScope(candidate.spec, nextCandidate.spec, candidate.node, nextCandidate.node)) return false
-        if (!bothReusableVlmFunctions(candidate.spec, nextCandidate.spec)) return false
-        if (!sameGoalIdentity(candidate.spec, nextCandidate.spec)) return false
-        if (sameReplayShape(candidate.spec, nextCandidate.spec)) return true
-        return samePublicArgumentContract(candidate.spec, nextCandidate.spec)
-    }
-
-    private fun sameNode(first: RankedFunction, second: RankedFunction): Boolean {
-        val firstNodeId = firstNonBlank(first.node["node_id"])
-        val secondNodeId = firstNonBlank(second.node["node_id"])
-        return firstNodeId.isNotBlank() && firstNodeId == secondNodeId
-    }
-
-    private fun samePackageScope(
-        first: Map<String, Any?>,
-        second: Map<String, Any?>,
-        firstNode: Map<String, Any?>,
-        secondNode: Map<String, Any?>,
-    ): Boolean {
-        val firstPackage = packageScope(first).ifBlank { firstNonBlank(firstNode["package_name"]) }
-        val secondPackage = packageScope(second).ifBlank { firstNonBlank(secondNode["package_name"]) }
-        val sharedPackages = packageScopes(first).intersect(packageScopes(second))
-        return (firstPackage.isNotBlank() && firstPackage == secondPackage) || sharedPackages.isNotEmpty()
-    }
-
-    private fun packageScope(spec: Map<String, Any?>): String {
-        return packageScopes(spec).firstOrNull().orEmpty()
+    private fun functionProfile(spec: Map<String, Any?>): Map<String, Any?> {
+        val metadata = mapArg(spec["metadata"])
+        val agentReuse = mapArg(spec["agent_reuse"])
+            .ifEmpty { mapArg(metadata["agent_reuse"]) }
+        val source = mapArg(spec["source"])
+        return linkedMapOf<String, Any?>(
+            "purpose" to firstNonBlank(
+                spec["description"],
+                spec["name"],
+                OobFunctionSchemaBuilder.functionId(spec),
+            ),
+            "use_when" to firstNonBlank(
+                agentReuse["use_when"],
+                agentReuse["reuse_when"],
+                source["goal"],
+            ).takeIf { it.isNotBlank() },
+            "success_signal" to firstNonBlank(
+                agentReuse["success_signal"],
+                agentReuse["successSignal"],
+            ).takeIf { it.isNotBlank() },
+            "limitations" to listArg(agentReuse["limitations"]).take(5).takeIf { it.isNotEmpty() },
+            "common_situations" to listArg(agentReuse["common_situations"])
+                .ifEmpty { listArg(agentReuse["commonSituations"]) }
+                .take(5)
+                .takeIf { it.isNotEmpty() },
+            "package_name" to packageScopes(spec).firstOrNull(),
+        ).filterValues { it != null }
     }
 
     private fun packageScopes(spec: Map<String, Any?>): Set<String> {
         val constraints = mapArg(spec["constraints"])
         val source = mapArg(spec["source"])
-        val metadata = mapArg(spec["metadata"])
-        val sourceBehaviorIdentity = mapArg(source["behavior_identity"])
-        val metadataBehaviorIdentity = mapArg(metadata["oob_behavior_identity"])
-        val sourceBehaviorPayload = mapArg(sourceBehaviorIdentity["payload"])
-        val metadataBehaviorPayload = mapArg(metadataBehaviorIdentity["payload"])
         return buildList {
             listOf(
                 constraints["package_name"],
                 constraints["packageName"],
                 source["package_name"],
                 source["packageName"],
-                source["source_package"],
-                source["sourcePackage"],
-                sourceBehaviorPayload["source_package"],
-                sourceBehaviorPayload["sourcePackage"],
-                metadataBehaviorPayload["source_package"],
-                metadataBehaviorPayload["sourcePackage"],
             ).map { firstNonBlank(it) }
                 .filterTo(this) { it.isNotBlank() }
-            materializedSteps(spec).forEach { step ->
-                addAll(stepPackageScopes(step))
+            OobFunctionSchemaBuilder.materializedSteps(spec).forEach { step ->
+                val args = mapArg(step["args"])
+                val sourceContext = mapArg(step["source_context"])
+                val srcCtx = mapArg(sourceContext["src_ctx"])
+                val dstCtx = mapArg(sourceContext["dst_ctx"])
+                val sourceAction = mapArg(sourceContext["action"])
+                listOf(
+                    args["package_name"],
+                    args["packageName"],
+                    srcCtx["package_name"],
+                    srcCtx["packageName"],
+                    dstCtx["package_name"],
+                    dstCtx["packageName"],
+                    sourceAction["package_name"],
+                    sourceAction["packageName"],
+                ).map { firstNonBlank(it) }
+                    .filterTo(this) { it.isNotBlank() }
             }
         }.toSet()
     }
 
-    private fun stepPackageScopes(step: Map<String, Any?>): Set<String> {
-        val args = mapArg(step["args"])
-        val sourceContext = mapArg(step["source_context"])
-        val srcCtx = mapArg(sourceContext["src_ctx"])
-        val dstCtx = mapArg(sourceContext["dst_ctx"])
-        val sourceAction = mapArg(sourceContext["action"])
-        return listOf(
-            args["package_name"],
-            args["packageName"],
-            srcCtx["package_name"],
-            srcCtx["packageName"],
-            dstCtx["package_name"],
-            dstCtx["packageName"],
-            sourceAction["package_name"],
-            sourceAction["packageName"],
-        ).map { firstNonBlank(it) }
-            .filter { it.isNotBlank() }
-            .toSet()
-    }
-
-    private fun catalogPackageMatches(spec: Map<String, Any?>, currentPackage: String): Boolean =
-        currentPackage.isNotBlank() && packageScopes(spec).contains(currentPackage)
-
-    private fun catalogGoalMatches(spec: Map<String, Any?>, goal: String): Boolean =
-        goal.isNotBlank() && semanticGoalIdentity(spec) == normalizeText(goal)
-
-    private fun isReusableVlmFunction(spec: Map<String, Any?>): Boolean {
-        val source = mapArg(spec["source"])
-        val tool = normalizeText(firstNonBlank(source["tool_name"], source["toolName"]))
-        val kind = normalizeText(firstNonBlank(source["kind"], spec["function_kind"]))
-        return tool == "vlm_task" && kind == "run_log"
-    }
-
-    private fun bothReusableVlmFunctions(
-        first: Map<String, Any?>,
-        second: Map<String, Any?>,
-    ): Boolean {
-        val firstSource = mapArg(first["source"])
-        val secondSource = mapArg(second["source"])
-        val firstTool = normalizeText(firstNonBlank(firstSource["tool_name"], firstSource["toolName"]))
-        val secondTool = normalizeText(firstNonBlank(secondSource["tool_name"], secondSource["toolName"]))
-        val firstKind = normalizeText(firstNonBlank(firstSource["kind"], first["function_kind"]))
-        val secondKind = normalizeText(firstNonBlank(secondSource["kind"], second["function_kind"]))
-        val firstLooksVlm = firstTool == "vlm_task" || firstKind == "run_log"
-        val secondLooksVlm = secondTool == "vlm_task" || secondKind == "run_log"
-        return firstLooksVlm && secondLooksVlm
-    }
-
-    private fun sameGoalIdentity(
-        first: Map<String, Any?>,
-        second: Map<String, Any?>,
-    ): Boolean {
-        val firstGoal = semanticGoalIdentity(first)
-        val secondGoal = semanticGoalIdentity(second)
-        return firstGoal.isNotBlank() && firstGoal == secondGoal
-    }
-
-    private fun semanticGoalIdentity(spec: Map<String, Any?>): String {
-        val source = mapArg(spec["source"])
-        return normalizeText(
-            firstNonBlank(
-                source["goal"],
-                spec["name"],
-                spec["description"],
-            )
-        )
-    }
-
-    private fun sameReplayShape(
-        first: Map<String, Any?>,
-        second: Map<String, Any?>,
-    ): Boolean {
-        val firstShape = replayShapeKey(first)
-        return firstShape.isNotBlank() && firstShape == replayShapeKey(second)
-    }
-
-    private fun samePublicArgumentContract(
-        first: Map<String, Any?>,
-        second: Map<String, Any?>,
-    ): Boolean {
-        val firstSchema = inputSchema(first)
-        val secondSchema = inputSchema(second)
-        val firstProperties = mapArg(firstSchema["properties"]).keys.toSet()
-        val secondProperties = mapArg(secondSchema["properties"]).keys.toSet()
-        val firstRequired = listArg(firstSchema["required"])
-            .mapNotNull { it?.toString()?.trim()?.takeIf(String::isNotEmpty) }
-            .toSet()
-        val secondRequired = listArg(secondSchema["required"])
-            .mapNotNull { it?.toString()?.trim()?.takeIf(String::isNotEmpty) }
-            .toSet()
-        return firstProperties == secondProperties && firstRequired == secondRequired
-    }
-
-    private fun replayShapeKey(spec: Map<String, Any?>): String {
-        val steps = materializedSteps(spec)
-            .mapNotNull { step -> normalizeText(firstNonBlank(step["tool"])).takeIf { it.isNotBlank() } }
-            .filterNot { it == "wait" }
-        if (steps.isEmpty()) return ""
-        return steps.joinToString("|")
-    }
-
-    private fun sameBehaviorIdentity(
-        first: Map<String, Any?>,
-        second: Map<String, Any?>,
-    ): Boolean {
-        val firstHash = behaviorIdentityHash(first)
-        val secondHash = behaviorIdentityHash(second)
-        if (firstHash.isNotBlank() && firstHash == secondHash) return true
-        val firstLegacyKey = replayIntentEquivalenceKey(first)
-        if (firstLegacyKey.isBlank()) return false
-        return firstLegacyKey == replayIntentEquivalenceKey(second)
-    }
-
-    private fun behaviorIdentityHash(spec: Map<String, Any?>): String {
-        val metadata = mapArg(spec["metadata"])
-        val source = mapArg(spec["source"])
-        return firstNonBlank(
-            mapArg(metadata["oob_behavior_identity"])["hash"],
-            mapArg(source["behavior_identity"])["hash"],
-        )
-    }
-
-    private fun replayIntentEquivalenceKey(spec: Map<String, Any?>): String {
-        val source = mapArg(spec["source"])
-        val packageName = firstNonBlank(
-            mapArg(spec["constraints"])["package_name"],
-            mapArg(spec["constraints"])["packageName"],
-            source["package_name"],
-            source["packageName"],
-        )
-        val steps = materializedSteps(spec)
-        if (steps.isEmpty()) return ""
-        return listOf(
-            packageName,
-            steps.joinToString("|") { step -> replayStepEquivalenceKey(step) },
-        ).joinToString("::")
-    }
-
-    private fun replayStepEquivalenceKey(step: Map<String, Any?>): String {
-        val args = mapArg(step["args"])
-        return listOf(
-            normalizeText(firstNonBlank(step["tool"])),
-            normalizeText(firstNonBlank(step["title"])),
-            normalizeText(firstNonBlank(args["target_description"])),
-            normalizeText(firstNonBlank(args["package_name"], args["packageName"])),
-            normalizeText(firstNonBlank(args["direction"])),
-            normalizeText(firstNonBlank(args["key"])),
-        ).joinToString(":")
-    }
-
-    private fun functionProfile(
-        spec: Map<String, Any?>,
-        nodeCapability: Map<String, Any?> = emptyMap(),
-    ): Map<String, Any?> {
-        val metadata = mapArg(spec["metadata"])
-        val agentReuse = mapArg(spec["agent_reuse"])
-            .ifEmpty { mapArg(metadata["agent_reuse"]) }
-        val constraints = mapArg(spec["constraints"])
-        val source = mapArg(spec["source"])
-        val useWhen = firstNonBlank(
-            agentReuse["reuse_when"],
-            agentReuse["use_when"],
-            nodeCapability["reuse_when"],
-            nodeCapability["use_when"],
-            source["goal"],
-        )
-        val successSignal = firstNonBlank(
-            agentReuse["success_signal"],
-            agentReuse["successSignal"],
-            nodeCapability["success_signal"],
-            nodeCapability["successSignal"],
-        )
-        val limitations = listArg(agentReuse["limitations"])
-            .ifEmpty { listArg(agentReuse["constraints"]) }
-            .ifEmpty { listArg(nodeCapability["limitations"]) }
-        val commonSituations = listArg(agentReuse["common_situations"])
-            .ifEmpty { listArg(agentReuse["commonSituations"]) }
-            .ifEmpty { listArg(nodeCapability["common_situations"]) }
-            .ifEmpty { listArg(nodeCapability["commonSituations"]) }
-        return linkedMapOf<String, Any?>(
-            "purpose" to firstNonBlank(
-                nodeCapability["description"],
-                spec["description"],
-                spec["name"],
-                OobFunctionSchemaBuilder.functionId(spec),
-            ),
-            "use_when" to useWhen.takeIf { it.isNotBlank() },
-            "success_signal" to successSignal.takeIf { it.isNotBlank() },
-            "limitations" to limitations.take(5).takeIf { it.isNotEmpty() },
-            "common_situations" to commonSituations.take(5).takeIf { it.isNotEmpty() },
-            "package_name" to firstNonBlank(
-                constraints["package_name"],
-                constraints["packageName"],
-                source["package_name"],
-                source["packageName"],
-            ).takeIf { it.isNotBlank() },
-            "wrong_choice_recovery" to "If replay fails, continue with the next fresh VLM step using the returned success/result and current page evidence; then call update_function with run_id evidence if the Function should be improved.",
-        ).filterValues { it != null }
-    }
-
-    private fun stepSummaries(spec: Map<String, Any?>): List<Map<String, Any?>> =
-        OobFunctionSchemaBuilder.stepSummaries(spec)
-
-    private fun inputSchema(spec: Map<String, Any?>): Map<String, Any?> =
-        OobFunctionSchemaBuilder.inputSchema(spec)
-
     private fun isNoArgumentFunction(spec: Map<String, Any?>): Boolean {
-        val schema = inputSchema(spec)
-        val required = listArg(schema["required"])
-        val properties = mapArg(schema["properties"])
-        return required.isEmpty() && properties.isEmpty()
-    }
-
-    private fun materializedSteps(spec: Map<String, Any?>): List<Map<String, Any?>> =
-        OobFunctionSchemaBuilder.materializedSteps(spec)
-
-    private fun normalizeText(value: String): String =
-        value.trim().lowercase().replace(Regex("\\s+"), " ")
-
-    private fun tokenize(value: String): List<String> {
-        val tokens = linkedSetOf<String>()
-        Regex("[\\p{L}\\p{N}]+")
-            .findAll(value.lowercase())
-            .map { it.value }
-            .forEach { chunk ->
-                if (chunk.length >= 2) tokens += chunk
-                if (chunk.any(::isCjk)) {
-                    val cjkChars = chunk.filter(::isCjk).map { it.toString() }
-                    tokens += cjkChars
-                    cjkChars.windowed(size = 2).forEach { pair ->
-                        tokens += pair.joinToString(separator = "")
-                    }
-                    cjkChars.windowed(size = 3).forEach { triple ->
-                        tokens += triple.joinToString(separator = "")
-                    }
-                }
-            }
-        return tokens.filter { it.length >= 1 }
-    }
-
-    private fun isCjk(char: Char): Boolean {
-        val block = Character.UnicodeBlock.of(char)
-        return block == Character.UnicodeBlock.CJK_UNIFIED_IDEOGRAPHS ||
-            block == Character.UnicodeBlock.CJK_UNIFIED_IDEOGRAPHS_EXTENSION_A ||
-            block == Character.UnicodeBlock.CJK_UNIFIED_IDEOGRAPHS_EXTENSION_B ||
-            block == Character.UnicodeBlock.CJK_COMPATIBILITY_IDEOGRAPHS
-    }
-
-    private fun roundScore(value: Double): Double =
-        ((value.coerceIn(0.0, 1.0) * 1000.0).roundToInt() / 1000.0)
-
-    private fun numberDouble(value: Any?): Double =
-        when (value) {
-            is Number -> value.toDouble()
-            is String -> value.trim().toDoubleOrNull() ?: 0.0
-            else -> 0.0
-        }
-
-    private fun functionFreshnessMs(spec: Map<String, Any?>): Long {
-        val source = mapArg(spec["source"])
-        val registry = mapArg(spec["_oob_registry"])
-        return firstNonBlank(
-            source["converted_at"],
-            source["convertedAt"],
-            registry["updated_at"],
-            registry["updatedAt"],
-            registry["registered_at"],
-            registry["registeredAt"],
-        ).toLongOrNull() ?: 0L
-    }
-
-    private data class RankedFunction(
-        val spec: Map<String, Any?>,
-        val functionId: String,
-        val score: Double,
-        val reason: String,
-        val textScore: Double = score,
-        val pageScore: Double = 0.0,
-        val node: Map<String, Any?> = emptyMap(),
-    )
-
-    private data class FunctionTextScore(
-        val score: Double,
-        val reason: String,
-    )
-
-    private data class RecallRanking(
-        val node: NodeCapabilityRanking,
-        val catalogFunctions: List<RankedFunction>,
-        val mergedFunctions: List<RankedFunction>,
-    )
-
-    private data class NodeCapabilityRanking(
-        val functions: List<RankedFunction>,
-        val capabilities: List<Map<String, Any?>>,
-        val functionCapabilities: List<Map<String, Any?>>,
-    )
-
-    private class RecallTiming {
-        private val startedAtNanos = System.nanoTime()
-        private val phases = linkedMapOf<String, Long>()
-        val startedAtMs: Long = System.currentTimeMillis()
-
-        fun <T> measure(phaseName: String, block: () -> T): T {
-            val phaseStartedAt = System.nanoTime()
-            return try {
-                block()
-            } finally {
-                phases[phaseName] = elapsedMs(phaseStartedAt)
-            }
-        }
-
-        fun finish(
-            decision: String,
-            counts: Map<String, Any?>,
-        ): Map<String, Any?> {
-            val finishedAtMs = System.currentTimeMillis()
-            val completedPhases = linkedMapOf<String, Long>()
-            listOf(
-                "parse_request_ms",
-                "read_current_package_ms",
-                "read_current_page_ms",
-                "page_match_ms",
-                "rank_functions_ms",
-            ).forEach { phaseName ->
-                completedPhases[phaseName] = phases[phaseName] ?: 0L
-            }
-            phases.forEach { (phaseName, durationMs) ->
-                completedPhases.putIfAbsent(phaseName, durationMs)
-            }
-            return linkedMapOf(
-                "source" to "oob_omniflow_recall",
-                "decision" to decision,
-                "started_at_ms" to startedAtMs,
-                "finished_at_ms" to finishedAtMs,
-                "duration_ms" to elapsedMs(startedAtNanos),
-                "phase_ms" to completedPhases,
-                "counts" to counts,
-            )
-        }
-
-        private fun elapsedMs(startedAtNanos: Long): Long =
-            ((System.nanoTime() - startedAtNanos) / 1_000_000L).coerceAtLeast(0L)
+        val schema = OobFunctionSchemaBuilder.inputSchema(spec)
+        return listArg(schema["required"]).isEmpty() && mapArg(schema["properties"]).isEmpty()
     }
 
     private fun argumentResolvePolicy(spec: Map<String, Any?>): String =
@@ -1217,13 +167,6 @@ class OobFunctionRecallService(
         }
 
     private companion object {
-        private const val DIRECT_HIT_MIN_SCORE = 0.92
-        private const val DIRECT_HIT_MIN_PAGE_SCORE = 0.90
-        private const val DIRECT_HIT_MIN_TEXT_SCORE = 0.85
-        private const val DIRECT_HIT_MIN_MARGIN = 0.08
-        private const val PAGE_MATCH_WEIGHT = 0.70
-        private const val GOAL_MATCH_WEIGHT = 0.30
-        private const val CATALOG_MIN_TEXT_SCORE = 0.55
         private const val DEFAULT_RECALL_LIMIT = 50
         private const val MAX_RECALLED_FUNCTIONS = 50
     }

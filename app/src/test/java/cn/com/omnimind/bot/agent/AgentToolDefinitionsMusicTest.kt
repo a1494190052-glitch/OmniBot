@@ -75,7 +75,6 @@ class AgentToolDefinitionsMusicTest {
         assertFalse(description.contains("function_id"))
         assertFalse(properties.containsKey("disableOmniFlowRecall"))
         assertFalse(properties.containsKey("parseOnly"))
-        assertFalse(properties.containsKey("allowOmniFlowFunctionAutoExecute"))
     }
 
     @Test
@@ -91,8 +90,6 @@ class AgentToolDefinitionsMusicTest {
         ).first { it.exists() }.readText()
 
         assertFalse(properties.containsKey("disableOmniFlowRecall"))
-        assertFalse(properties.containsKey("allowOmniFlowFunctionAutoExecute"))
-        assertFalse(handlerSource.contains("allowOmniFlowFunctionAutoExecute"))
         assertFalse(handlerSource.contains("hasOmniFlowSkillContext"))
     }
 

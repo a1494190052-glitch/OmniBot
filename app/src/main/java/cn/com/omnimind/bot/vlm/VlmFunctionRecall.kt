@@ -20,7 +20,7 @@ import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 
-class VlmRecalledFunctionToolProvider(context: Context) : VLMRecallContextProvider {
+class VlmFunctionRecall(context: Context) : VLMRecallContextProvider {
     private val appContext = context.applicationContext
     private val config get() = VlmWorkspaceConfig.getInstance(appContext).get()
 
@@ -68,7 +68,7 @@ class VlmRecalledFunctionToolProvider(context: Context) : VLMRecallContextProvid
         val candidates = recalledCandidates(recallResult)
             .take(injectMax)
         val tools = candidates.mapIndexedNotNull { index, candidate ->
-            buildToolDefinition(index = index, candidate = candidate)
+            buildToolDefinition(index = index, candidate = candidate, currentGoal = goal)
         }
         val ids = tools.mapNotNull { definition ->
             val function = definition["function"] as? JsonObject
@@ -95,7 +95,6 @@ class VlmRecalledFunctionToolProvider(context: Context) : VLMRecallContextProvid
             candidates += candidate
         }
 
-        mapArg(payload["hit"]).takeIf { it.isNotEmpty() }?.let(::add)
         listArg(payload["candidates"]).forEach { raw ->
             mapArg(raw).takeIf { it.isNotEmpty() }?.let(::add)
         }
@@ -108,13 +107,18 @@ class VlmRecalledFunctionToolProvider(context: Context) : VLMRecallContextProvid
         return candidates
     }
 
-    private fun buildToolDefinition(index: Int, candidate: Map<String, Any?>): JsonObject? {
+    private fun buildToolDefinition(
+        index: Int,
+        candidate: Map<String, Any?>,
+        currentGoal: String,
+    ): JsonObject? {
         val functionId = firstNonBlank(candidate["function_id"]).takeIf { it.isNotEmpty() } ?: return null
+        // TODO: Consider semantic API-style names once naming, deduping, and stable mapping are settled.
         val toolName = "${config.recallToolNamePrefix}_${index + 1}"
         val inputSchema = mapArg(candidate["inputSchema"]).ifEmpty {
             mapArg(candidate["input_schema"])
         }
-        val description = buildDescription(candidate, functionId)
+        val description = buildDescription(candidate, functionId, currentGoal)
         return buildJsonObject {
             put("type", "function")
             put("function_id", functionId)
@@ -127,15 +131,26 @@ class VlmRecalledFunctionToolProvider(context: Context) : VLMRecallContextProvid
         }
     }
 
-    private fun buildDescription(candidate: Map<String, Any?>, functionId: String): String {
+    private fun buildDescription(
+        candidate: Map<String, Any?>,
+        functionId: String,
+        currentGoal: String,
+    ): String {
         val profile = mapArg(candidate["function_profile"])
         val purpose = firstNonBlank(profile["purpose"], profile["use_when"])
         val description = firstNonBlank(candidate["description"], candidate["name"], purpose, functionId)
+        val goal = currentGoal.replace(Regex("\\s+"), " ").trim().take(160)
         val steps = listArg(candidate["step_summaries"])
             .take(config.recallStepSummaryCount)
             .joinToString("; ") { it.toString() }
         return buildString {
             append("Use this saved workflow when it clearly matches the current step goal. ")
+            append("If it does not clearly match, do not call this tool; continue with ordinary UI actions. ")
+            if (goal.isNotBlank()) {
+                append("Current user goal: ")
+                append(goal)
+                append(". Fill tool arguments from the current user goal; pass only the argument value, not the whole sentence. ")
+            }
             append(description.ifBlank { "Saved mobile workflow" }.take(config.recallDescriptionChars))
             if (steps.isNotBlank()) {
                 append(" Steps: ")
@@ -201,7 +216,7 @@ class VlmRecalledFunctionToolProvider(context: Context) : VLMRecallContextProvid
         (System.currentTimeMillis() - startedAtMs).coerceAtLeast(0L).toString()
 
     private companion object {
-        private const val TAG = "VlmRecalledFunctionToolProvider"
+        private const val TAG = "VlmFunctionRecall"
         private const val TOOL_TITLE_FIELD = "tool_title"
     }
 }
