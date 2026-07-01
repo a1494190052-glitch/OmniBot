@@ -527,7 +527,7 @@ class FunctionService(
     }
 
     private fun summaryMap(spec: Map<String, Any?>): Map<String, Any?> {
-        val api = FunctionSchema.apiDescriptor(spec)
+        val callable = FunctionSchema.callableSummary(spec)
         val execution = spec["execution"] as? Map<*, *>
         val steps = FunctionSchema.materializedSteps(spec)
         val registry = spec["_oob_registry"] as? Map<*, *>
@@ -535,12 +535,11 @@ class FunctionService(
         val runStats = registry?.get("run_stats") as? Map<*, *>
         val sourceRunIds = sourceRunIds(spec)
         return linkedMapOf(
-            "api" to api,
-            "function_id" to api["function_id"],
-            "name" to api["name"],
-            "description" to api["description"],
-            "parameters" to api["parameters"],
-            "input_schema" to api["parameters"],
+            "function_id" to callable["function_id"],
+            "name" to callable["name"],
+            "description" to callable["description"],
+            "parameters" to callable["parameters"],
+            "input_schema" to callable["parameters"],
             "step_count" to (execution?.get("step_count") ?: steps.size),
             "card_count" to (
                 FunctionJson.intArg(source?.get("card_count"), defaultValue = 0)
@@ -553,7 +552,7 @@ class FunctionService(
                 execution?.get("function_step_count")
                     ?: execution?.get("omniflow_step_count")
             ),
-            "parameter_names" to api["argument_names"],
+            "parameter_names" to callable["argument_names"],
             "step_summaries" to FunctionSchema.stepSummaries(spec),
             "function_kind" to functionKind(spec),
             "asset_state" to assetState(spec),
@@ -773,18 +772,17 @@ class FunctionService(
         hit: FunctionStore.RecallHit,
         currentPackage: String,
     ): Map<String, Any?> {
-        val api = FunctionSchema.apiDescriptor(spec)
-        val functionId = firstNonBlank(api["function_id"], FunctionSchema.functionId(spec))
+        val callable = FunctionSchema.callableSummary(spec)
+        val functionId = firstNonBlank(callable["function_id"], FunctionSchema.functionId(spec))
         val packageNames = packageScopes(spec)
         return linkedMapOf<String, Any?>(
             "capability_type" to "function",
-            "api" to api,
             "function_id" to functionId,
-            "description" to firstNonBlank(api["description"], api["name"], functionId),
-            "name" to api["name"],
-            "parameters" to api["parameters"],
-            "inputSchema" to api["parameters"],
-            "input_schema" to api["parameters"],
+            "description" to firstNonBlank(callable["description"], callable["name"], functionId),
+            "name" to callable["name"],
+            "parameters" to callable["parameters"],
+            "inputSchema" to callable["parameters"],
+            "input_schema" to callable["parameters"],
             "score" to hit.score,
             "score_order" to "local_token_overlap_descending",
             "reason" to "local_token_overlap",

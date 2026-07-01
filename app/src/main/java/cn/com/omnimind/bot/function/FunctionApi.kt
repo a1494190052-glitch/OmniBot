@@ -177,12 +177,10 @@ object FunctionApi {
         spec: Map<String, Any?>,
         locale: PromptLocale,
     ): String {
-        val api = FunctionJson.mapArg(spec["api"]).ifEmpty {
-            FunctionSchema.apiDescriptor(spec)
-        }
-        val functionId = FunctionJson.firstNonBlank(api["function_id"], spec["function_id"])
-        val name = FunctionJson.firstNonBlank(api["name"], spec["name"], functionId)
-        val description = FunctionJson.firstNonBlank(api["description"], spec["description"], name)
+        val callable = FunctionSchema.callableSummary(spec)
+        val functionId = FunctionJson.firstNonBlank(callable["function_id"], spec["function_id"])
+        val name = FunctionJson.firstNonBlank(callable["name"], spec["name"], functionId)
+        val description = FunctionJson.firstNonBlank(callable["description"], spec["description"], name)
             .trim()
             .replace(Regex("\\s+"), " ")
             .takeIf { it.isNotEmpty() }
@@ -192,7 +190,7 @@ object FunctionApi {
             ?: (metadata?.get("agent_reuse") as? Map<*, *>)
         val reuseWhen = agentReuse?.get("reuse_when")?.toString()?.trim().orEmpty()
         val successSignal = agentReuse?.get("success_signal")?.toString()?.trim().orEmpty()
-        val inputSchema = FunctionJson.mapArg(api["parameters"]).ifEmpty {
+        val inputSchema = FunctionJson.mapArg(callable["parameters"]).ifEmpty {
             FunctionSchema.inputSchema(spec)
         }
         val params = ((inputSchema["properties"] as? Map<*, *>)?.keys ?: emptySet<Any?>())

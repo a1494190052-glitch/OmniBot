@@ -106,7 +106,7 @@ object FunctionSchema {
         }
     }
 
-    fun apiDescriptor(spec: Map<String, Any?>): Map<String, Any?> {
+    fun callableSummary(spec: Map<String, Any?>): Map<String, Any?> {
         val functionId = functionIdFromSpec(spec)
         val name = firstNonBlank(spec["name"], functionId)
         val description = firstNonBlank(spec["description"], name, functionId)

@@ -85,8 +85,8 @@ class FunctionApiTest {
     }
 
     @Test
-    fun `function api descriptor exposes stable api-like contract`() {
-        val descriptor = FunctionSchema.apiDescriptor(
+    fun `function callable summary exposes stable callable contract`() {
+        val summary = FunctionSchema.callableSummary(
             mapOf(
                 "function_id" to "xhs_search",
                 "name" to "小红书搜索",
@@ -115,13 +115,13 @@ class FunctionApiTest {
             )
         )
 
-        assertEquals("xhs_search", descriptor["function_id"])
-        assertEquals("小红书搜索", descriptor["name"])
-        assertEquals("在小红书搜索指定关键词", descriptor["description"])
-        assertEquals(listOf("query"), descriptor["argument_names"])
-        assertEquals(2, descriptor["step_count"])
+        assertEquals("xhs_search", summary["function_id"])
+        assertEquals("小红书搜索", summary["name"])
+        assertEquals("在小红书搜索指定关键词", summary["description"])
+        assertEquals(listOf("query"), summary["argument_names"])
+        assertEquals(2, summary["step_count"])
 
-        val parameters = descriptor["parameters"] as Map<*, *>
+        val parameters = summary["parameters"] as Map<*, *>
         val properties = parameters["properties"] as Map<*, *>
         assertTrue(properties.containsKey("query"))
         assertFalse(properties.containsKey("x"))

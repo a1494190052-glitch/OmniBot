@@ -112,15 +112,20 @@ class VlmFunctionRecall(context: Context) : VLMRecallContextProvider {
         candidate: Map<String, Any?>,
         currentGoal: String,
     ): JsonObject? {
-        val api = apiDescriptor(candidate)
-        val functionId = firstNonBlank(api["function_id"], candidate["function_id"]).takeIf { it.isNotEmpty() } ?: return null
+        val callable = callableSummary(candidate)
+        val functionId = firstNonBlank(callable["function_id"], candidate["function_id"]).takeIf { it.isNotEmpty() } ?: return null
         val toolName = "${config.recallToolNamePrefix}_${index + 1}"
-        val inputSchema = mapArg(api["parameters"]).ifEmpty {
+        val inputSchema = mapArg(callable["parameters"]).ifEmpty {
             mapArg(candidate["inputSchema"]).ifEmpty {
                 mapArg(candidate["input_schema"])
             }
         }
-        val description = buildDescription(api = api, candidate = candidate, functionId = functionId, currentGoal = currentGoal)
+        val description = buildDescription(
+            callable = callable,
+            candidate = candidate,
+            functionId = functionId,
+            currentGoal = currentGoal
+        )
         return buildJsonObject {
             put("type", "function")
             put("function_id", functionId)
@@ -133,9 +138,7 @@ class VlmFunctionRecall(context: Context) : VLMRecallContextProvider {
         }
     }
 
-    private fun apiDescriptor(candidate: Map<String, Any?>): Map<String, Any?> {
-        val api = mapArg(candidate["api"])
-        if (api.isNotEmpty()) return api
+    private fun callableSummary(candidate: Map<String, Any?>): Map<String, Any?> {
         return linkedMapOf<String, Any?>(
             "function_id" to firstNonBlank(candidate["function_id"]),
             "name" to firstNonBlank(candidate["name"]),
@@ -145,18 +148,18 @@ class VlmFunctionRecall(context: Context) : VLMRecallContextProvider {
     }
 
     private fun buildDescription(
-        api: Map<String, Any?>,
+        callable: Map<String, Any?>,
         candidate: Map<String, Any?>,
         functionId: String,
         currentGoal: String,
     ): String {
         val profile = mapArg(candidate["function_profile"])
         val purpose = firstNonBlank(profile["purpose"], profile["use_when"])
-        val apiName = firstNonBlank(api["name"], candidate["name"], functionId)
-        val description = firstNonBlank(api["description"], candidate["description"], apiName, purpose, functionId)
+        val functionName = firstNonBlank(callable["name"], candidate["name"], functionId)
+        val description = firstNonBlank(callable["description"], candidate["description"], functionName, purpose, functionId)
         val goal = currentGoal.replace(Regex("\\s+"), " ").trim().take(160)
-        val argumentNames = listArg(api["argument_names"]).ifEmpty {
-            mapArg(mapArg(api["parameters"])["properties"]).keys.toList()
+        val argumentNames = listArg(callable["argument_names"]).ifEmpty {
+            mapArg(mapArg(callable["parameters"])["properties"]).keys.toList()
         }
             .mapNotNull { it?.toString()?.trim()?.takeIf(String::isNotEmpty) }
             .take(6)
@@ -165,8 +168,8 @@ class VlmFunctionRecall(context: Context) : VLMRecallContextProvider {
             .take(config.recallStepSummaryCount)
             .joinToString("; ") { it.toString() }
         return buildString {
-            append("Saved Function API: ")
-            append(apiName.ifBlank { functionId }.take(80))
+            append("Saved Function: ")
+            append(functionName.ifBlank { functionId }.take(80))
             append(". Call it only when it clearly matches the current goal; otherwise continue with ordinary UI actions. ")
             if (goal.isNotBlank()) {
                 append("Current user goal: ")
