@@ -1,4 +1,4 @@
-# OmniFlow Function Backend
+# Function Backend
 
 This document records backend ownership for reusable Functions. Flutter owns
 display, input state, and explicit save/update requests. Kotlin owns Function
@@ -18,21 +18,21 @@ or frontend replay compilers.
 
 ## Owners
 
-`OmniFlowFunctionService`
+`FunctionService`
 
 - register, list, get, delete, and clear Functions
 - use workspace JSON as the durable store
 - update UDEG references and source RunLog bindings
 
-`OmniFlowFunctionService.convertRunLog`
+`FunctionService.convertRunLog`
 
 - read an explicit RunLog id
-- compile it through `OmniFlowFunctionCompiler`
+- compile it through `FunctionCompiler`
 - apply explicit id/name/description overrides
 - mirror source RunLog artifacts best-effort
 - save through the same Function service path
 
-`OmniFlowFunctionCompiler`
+`FunctionCompiler`
 
 - filter successful replay evidence
 - invoke card-to-step compilation
@@ -47,14 +47,14 @@ or frontend replay compilers.
 - emit canonical action names
 - keep live planning/data lookup out of Function replay steps
 
-`OmniFlowFunctionService`
+`FunctionService`
 
 - parse public Function management tool arguments
 - expose recall, register, update, delete, clear, and RunLog conversion
-- route durable IO through `OmniFlowFunctionStore`
-- leave execution to `OmniFlowFunctionRun.runFunction`
+- route durable IO through `FunctionStore`
+- leave execution to `FunctionRun.runFunction`
 
-`OmniFlowFunctionRun`
+`FunctionRun`
 
 - run one Function by id/spec
 - materialize arguments

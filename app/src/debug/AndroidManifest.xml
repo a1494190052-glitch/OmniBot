@@ -26,7 +26,7 @@
             </intent-filter>
         </receiver>
         <receiver
-            android:name=".debug.DebugOobFunctionRunReceiver"
+            android:name=".debug.DebugFunctionRunReceiver"
             android:enabled="true"
             android:exported="true">
             <intent-filter>
@@ -42,7 +42,7 @@
             </intent-filter>
         </receiver>
         <receiver
-            android:name=".debug.DebugOobFunctionUpdateReceiver"
+            android:name=".debug.DebugFunctionUpdateReceiver"
             android:enabled="true"
             android:exported="true">
             <intent-filter>
@@ -50,7 +50,7 @@
             </intent-filter>
         </receiver>
         <receiver
-            android:name=".debug.DebugOobFunctionImportExportReceiver"
+            android:name=".debug.DebugFunctionImportExportReceiver"
             android:enabled="true"
             android:exported="true">
             <intent-filter>
@@ -59,7 +59,7 @@
             </intent-filter>
         </receiver>
         <receiver
-            android:name=".debug.DebugOobFunctionSegmentReceiver"
+            android:name=".debug.DebugFunctionSegmentReceiver"
             android:enabled="true"
             android:exported="true">
             <intent-filter>

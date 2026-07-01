@@ -476,23 +476,23 @@ abstract class AppLocalizations {
   /// **'MCP 开关失败'**
   String get settingsMcpToggleFailed;
 
-  /// No description provided for @settingsOobFunctionAsToolTitle.
+  /// No description provided for @settingsFunctionRecallTitle.
   ///
   /// In zh, this message translates to:
   /// **'复用指令召回'**
-  String get settingsOobFunctionAsToolTitle;
+  String get settingsFunctionRecallTitle;
 
-  /// No description provided for @settingsOobFunctionAsToolSubtitle.
+  /// No description provided for @settingsFunctionRecallSubtitle.
   ///
   /// In zh, this message translates to:
   /// **'手机任务可在当前页面匹配时复用已保存的指令'**
-  String get settingsOobFunctionAsToolSubtitle;
+  String get settingsFunctionRecallSubtitle;
 
-  /// No description provided for @settingsOobFunctionAsToolToggleFailed.
+  /// No description provided for @settingsFunctionRecallToggleFailed.
   ///
   /// In zh, this message translates to:
   /// **'复用指令召回开关失败'**
-  String get settingsOobFunctionAsToolToggleFailed;
+  String get settingsFunctionRecallToggleFailed;
 
   /// No description provided for @settingsCopiedAddress.
   ///
@@ -4763,7 +4763,7 @@ abstract class AppLocalizations {
   /// No description provided for @executionActionCallTool.
   ///
   /// In zh, this message translates to:
-  /// **'调用工具'**
+  /// **'复用指令'**
   String get executionActionCallTool;
 
   /// No description provided for @executionActionDefault.

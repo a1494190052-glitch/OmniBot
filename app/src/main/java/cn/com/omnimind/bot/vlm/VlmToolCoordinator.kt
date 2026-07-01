@@ -38,7 +38,7 @@ import cn.com.omnimind.bot.mcp.McpTaskManager
 import cn.com.omnimind.bot.mcp.TaskState
 import cn.com.omnimind.bot.mcp.TaskStatus
 import cn.com.omnimind.bot.mcp.VlmTaskRequest
-import cn.com.omnimind.bot.omniflow.function.OmniFlowFunctionService
+import cn.com.omnimind.bot.function.FunctionService
 import cn.com.omnimind.bot.runlog.firstNonBlank
 import cn.com.omnimind.bot.util.AssistsUtil
 import kotlinx.coroutines.CompletableDeferred
@@ -84,8 +84,8 @@ data class VlmToolOutcome(
     val executionRoute: String = "",
     val errorCode: String? = null,
     val missingPermissions: List<String> = emptyList(),
-    val omniflowRecall: Map<String, Any?>? = null,
-    val omniflowExecutionSummary: Map<String, Any?>? = null,
+    val functionRecall: Map<String, Any?>? = null,
+    val functionExecutionSummary: Map<String, Any?>? = null,
 ) {
     fun toPayload(): Map<String, Any?> = linkedMapOf(
         "taskId" to taskId,
@@ -103,8 +103,8 @@ data class VlmToolOutcome(
         "executionRoute" to executionRoute,
         "errorCode" to errorCode,
         "missingPermissions" to missingPermissions,
-        "omniflowRecall" to omniflowRecall,
-        "omniflowExecutionSummary" to omniflowExecutionSummary,
+        "functionRecall" to functionRecall,
+        "functionExecutionSummary" to functionExecutionSummary,
     )
 }
 
@@ -426,7 +426,7 @@ object VlmToolCoordinator {
             config = config,
             model = boundedRequest.model ?: config.primaryModel,
             streamClient = streamClient,
-            disableOmniFlowRecall = boundedRequest.disableOmniFlowRecall,
+            disableFunctionRecall = boundedRequest.disableFunctionRecall,
             phaseMs = phaseMs,
         )
         phaseMs["duration_ms"] = System.currentTimeMillis() - phaseStartedAt
@@ -441,7 +441,7 @@ object VlmToolCoordinator {
             .getOrDefault("")
         val currentXml = runCatching { AccessibilityController.getCaptureScreenShotXml(true).orEmpty() }
             .getOrDefault("")
-        return OmniFlowFunctionService(context).recall(
+        return FunctionService(context).recall(
             linkedMapOf(
                 "goal" to request.goal,
                 "current_package" to firstNonBlank(request.packageName, currentPackage),
@@ -458,7 +458,7 @@ object VlmToolCoordinator {
         streamClient: VLMStreamClient,
         conversationState: VLMConversationState = VLMConversationState(),
         vlmClient: VLMClient = VLMClient(),
-        disableOmniFlowRecall: Boolean = false,
+        disableFunctionRecall: Boolean = false,
         phaseMs: MutableMap<String, Long> = linkedMapOf(),
         config: VlmWorkspaceConfig.Snapshot = VlmWorkspaceConfig.defaultSnapshot(),
     ): VlmParseOnlyResult {
@@ -493,7 +493,7 @@ object VlmToolCoordinator {
                     screenshotBase64 = snapshot.screenshotBase64,
                     stepIndex = 0,
                     snapshot = snapshot,
-                    disableOmniFlowRecall = disableOmniFlowRecall,
+                    disableFunctionRecall = disableFunctionRecall,
                 )
             )
         }
@@ -928,7 +928,7 @@ object VlmToolCoordinator {
                         skipGoHome = payload.skipGoHome,
                         stepSkillGuidance = payload.stepSkillGuidance,
                         taskId = taskId,
-                        disableOmniFlowRecall = payload.disableOmniFlowRecall,
+                        disableFunctionRecall = payload.disableFunctionRecall,
                     )
                     deferred.complete(Result.success(Unit))
                 } catch (e: Exception) {
@@ -1054,7 +1054,7 @@ object VlmToolCoordinator {
         taskState: TaskState,
     ): VlmTaskRequest {
         taskState.vlmRequest = request
-        taskState.omniflowRecall = startupDeferredRecallPayload(request)
+        taskState.functionRecall = startupDeferredRecallPayload(request)
         taskState.executionRoute = "vlm"
         taskState.markStateChanged()
         return request
@@ -1063,10 +1063,10 @@ object VlmToolCoordinator {
     private fun startupDeferredRecallPayload(request: VlmTaskRequest): Map<String, Any?> =
         linkedMapOf(
             "success" to false,
-            "decision" to if (request.disableOmniFlowRecall) "disabled" else "deferred",
+            "decision" to if (request.disableFunctionRecall) "disabled" else "deferred",
             "pre_run_recall_skipped" to true,
-            "reason" to if (request.disableOmniFlowRecall) {
-                "request_disable_omniflow_recall"
+            "reason" to if (request.disableFunctionRecall) {
+                "request_disable_function_recall"
             } else {
                 "startup_fast_path_deferred_to_vlm_step"
             },
@@ -1238,8 +1238,8 @@ object VlmToolCoordinator {
             executionRoute = executionRoute,
             errorCode = errorCode,
             missingPermissions = missingPermissions,
-            omniflowRecall = omniflowRecall,
-            omniflowExecutionSummary = omniflowExecutionSummary,
+            functionRecall = functionRecall,
+            functionExecutionSummary = functionExecutionSummary,
         )
     }
 

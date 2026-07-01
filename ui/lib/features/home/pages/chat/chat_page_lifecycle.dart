@@ -45,11 +45,11 @@ mixin _ChatPageLifecycleMixin on _ChatPageStateBase {
     AppUpdateService.statusNotifier.addListener(_handleAppUpdateStatusChanged);
     _appUpdateStatus = AppUpdateService.statusNotifier.value;
     unawaited(AppUpdateService.initialize());
-    AssistsMessageService.oobFunctionRunProgressNotifier.addListener(
-      _handleOobFunctionRunProgressStatusChanged,
+    AssistsMessageService.functionRunProgressNotifier.addListener(
+      _handleFunctionRunProgressStatusChanged,
     );
-    _oobFunctionRunProgressStatus =
-        AssistsMessageService.oobFunctionRunProgressNotifier.value;
+    _functionRunProgressStatus =
+        AssistsMessageService.functionRunProgressNotifier.value;
     _conversationListChangedSubscription = AssistsMessageService
         .conversationListChangedStream
         .listen((_) {
@@ -63,9 +63,9 @@ mixin _ChatPageLifecycleMixin on _ChatPageStateBase {
     _browserSessionSnapshotChangedSubscription = AssistsMessageService
         .browserSessionSnapshotChangedStream
         .listen(_handleBrowserSessionSnapshotChanged);
-    _oobFunctionRunProgressSubscription = AssistsMessageService
-        .oobFunctionRunProgressStream
-        .listen(_handleOobFunctionRunProgressEvent);
+    _functionRunProgressSubscription = AssistsMessageService
+        .functionRunProgressStream
+        .listen(_handleFunctionRunProgressEvent);
     _codexEventSubscription = CodexAppServerService.events.listen(
       _handleCodexAppServerEvent,
     );
@@ -608,7 +608,7 @@ mixin _ChatPageLifecycleMixin on _ChatPageStateBase {
     _conversationListChangedSubscription?.cancel();
     _conversationMessagesChangedSubscription?.cancel();
     _browserSessionSnapshotChangedSubscription?.cancel();
-    _oobFunctionRunProgressSubscription?.cancel();
+    _functionRunProgressSubscription?.cancel();
     if (_subscribedRoute != null) {
       GoRouterManager.routeObserver.unsubscribe(this);
       _subscribedRoute = null;
@@ -620,8 +620,8 @@ mixin _ChatPageLifecycleMixin on _ChatPageStateBase {
     AppUpdateService.statusNotifier.removeListener(
       _handleAppUpdateStatusChanged,
     );
-    AssistsMessageService.oobFunctionRunProgressNotifier.removeListener(
-      _handleOobFunctionRunProgressStatusChanged,
+    AssistsMessageService.functionRunProgressNotifier.removeListener(
+      _handleFunctionRunProgressStatusChanged,
     );
     _messageController.removeListener(_handleSlashCommandInput);
     _messageController.dispose();
@@ -762,11 +762,11 @@ mixin _ChatPageLifecycleMixin on _ChatPageStateBase {
   }
 
   @override
-  void _handleOobFunctionRunProgressStatusChanged() {
+  void _handleFunctionRunProgressStatusChanged() {
     if (!mounted) return;
     setState(() {
-      _oobFunctionRunProgressStatus =
-          AssistsMessageService.oobFunctionRunProgressNotifier.value;
+      _functionRunProgressStatus =
+          AssistsMessageService.functionRunProgressNotifier.value;
     });
   }
 

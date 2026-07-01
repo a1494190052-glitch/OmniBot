@@ -14,7 +14,7 @@ import cn.com.omnimind.baselib.database.Conversation
 import cn.com.omnimind.baselib.database.DatabaseHelper
 import cn.com.omnimind.baselib.util.OmniLog
 import cn.com.omnimind.bot.manager.AssistsCoreManager
-import cn.com.omnimind.bot.omniflow.function.OmniFlowFunctionApi
+import cn.com.omnimind.bot.function.FunctionApi
 import cn.com.omnimind.bot.util.AssistsUtil
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
@@ -253,9 +253,9 @@ class WorkspaceScheduledTaskScheduler(
     private fun executeReusableFunctionTask(task: StoredTask) {
         val functionId = task.oobFunctionId?.trim().orEmpty()
         require(functionId.isNotEmpty()) { "oobFunctionId is empty" }
-        AssistsCoreManager(appContext).runOobReusableFunction(
+        AssistsCoreManager(appContext).runFunction(
             MethodCall(
-                "runOobReusableFunction",
+                "runFunction",
                 mapOf(
                     "function_id" to functionId,
                     "arguments" to task.oobFunctionArguments,
@@ -264,7 +264,7 @@ class WorkspaceScheduledTaskScheduler(
                     "frontend_parent" to "scheduled_task",
                 )
             ),
-            NoopResult(task.taskId, "runOobReusableFunction")
+            NoopResult(task.taskId, "runFunction")
         )
     }
 
@@ -447,7 +447,7 @@ class WorkspaceScheduledTaskScheduler(
 
     private fun scheduledSubagentToolProfile(task: StoredTask): String? {
         if (!task.oobFunctionId.isNullOrBlank()) {
-            return OmniFlowFunctionApi.PROFILE
+            return FunctionApi.PROFILE
         }
         return task.toolProfile?.takeIf { it.isNotBlank() }
     }

@@ -626,16 +626,16 @@ object ActionTransfer {
         val srcArea = sourcePage.rootBounds.area.coerceAtLeast(1f)
         val tgtArea = targetPage.rootBounds.area.coerceAtLeast(1f)
         val allTgtInfos = targetPage.nodes.map { it.toNodeInfo(tgtArea) }
-        val allTgtVecs = allTgtInfos.map { OmniflowNodeMatcher.vector(it) }
+        val allTgtVecs = allTgtInfos.map { ActionTransferNodeMatcher.vector(it) }
 
         val anchorSourceSelection = selectLocalAnchorSourceNodes(sourcePage, sourceNode)
         val anchorSrcNodes = anchorSourceSelection.nodes.map { it.toNodeInfo(srcArea) }
-        val anchorSrcVecs = anchorSrcNodes.map { OmniflowNodeMatcher.vector(it) }
+        val anchorSrcVecs = anchorSrcNodes.map { ActionTransferNodeMatcher.vector(it) }
         val anchorTgtIdx = targetPage.nodes.indices.filter { isAnchorCandidate(targetPage.nodes[it], targetPage.rootBounds) }
         val anchorTgtInfos = anchorTgtIdx.map { allTgtInfos[it] }
         val anchorTgtVecs = anchorTgtIdx.map { allTgtVecs[it] }
         val anchors = weightAnchorsByLocality(
-            anchors = OmniflowNodeMatcher.findAnchors(anchorSrcNodes, anchorSrcVecs, anchorTgtInfos, anchorTgtVecs),
+            anchors = ActionTransferNodeMatcher.findAnchors(anchorSrcNodes, anchorSrcVecs, anchorTgtInfos, anchorTgtVecs),
             sourceNode = sourceNode,
             rootBounds = sourcePage.rootBounds,
         )
@@ -657,13 +657,13 @@ object ActionTransfer {
         val candVecs = candIdx.map { allTgtVecs[it] }
 
         val srcInfo = sourceNode.toNodeInfo(srcArea)
-        val srcVec = OmniflowNodeMatcher.vector(srcInfo)
+        val srcVec = ActionTransferNodeMatcher.vector(srcInfo)
         val srcDiagonal = hypot(sourcePage.rootBounds.width, sourcePage.rootBounds.height).coerceAtLeast(1f)
         val diagonal = hypot(targetPage.rootBounds.width, targetPage.rootBounds.height).coerceAtLeast(1f)
         val scaleX = targetPage.rootBounds.width / sourcePage.rootBounds.width.coerceAtLeast(1e-6f)
         val scaleY = targetPage.rootBounds.height / sourcePage.rootBounds.height.coerceAtLeast(1e-6f)
 
-        val result = OmniflowNodeMatcher.match(srcInfo, srcVec, candInfos, candVecs, anchors, srcDiagonal, diagonal, scaleX, scaleY)
+        val result = ActionTransferNodeMatcher.match(srcInfo, srcVec, candInfos, candVecs, anchors, srcDiagonal, diagonal, scaleX, scaleY)
         if (result.abstain || result.index < 0) {
             return TargetMatchAttempt(
                 match = null,
@@ -728,10 +728,10 @@ object ActionTransfer {
     }
 
     private fun weightAnchorsByLocality(
-        anchors: List<OmniflowNodeMatcher.Anchor>,
+        anchors: List<ActionTransferNodeMatcher.Anchor>,
         sourceNode: UiNode,
         rootBounds: Rect,
-    ): List<OmniflowNodeMatcher.Anchor> {
+    ): List<ActionTransferNodeMatcher.Anchor> {
         if (anchors.isEmpty()) return emptyList()
         return anchors.map { anchor ->
             val distanceRatio = anchorDistanceRatio(
@@ -1036,7 +1036,7 @@ object ActionTransfer {
         return interactiveNodes <= 1 && fullScreenInteractiveNodes == 0
     }
 
-    private fun UiNode.toNodeInfo(rootArea: Float) = OmniflowNodeMatcher.NodeInfo(
+    private fun UiNode.toNodeInfo(rootArea: Float) = ActionTransferNodeMatcher.NodeInfo(
         resourceId = resourceId,
         resourceTail = resourceTail,
         text = text,

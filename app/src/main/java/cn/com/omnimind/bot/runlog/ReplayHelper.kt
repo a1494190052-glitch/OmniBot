@@ -3,6 +3,7 @@ package cn.com.omnimind.bot.runlog
 import cn.com.omnimind.bot.agent.ManualToolStopCancellationException
 import cn.com.omnimind.assists.task.vlmserver.DeviceOperator
 import cn.com.omnimind.baselib.runlog.OobActionSchema
+import cn.com.omnimind.bot.function.FunctionSchema
 import cn.com.omnimind.omniintelligence.models.ScrollDirection
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -30,10 +31,10 @@ object ReplayHelper {
     class CheckerTriggerBudget {
         private val triggerCounts = linkedMapOf<String, Int>()
 
-        fun canTrigger(rule: OmniflowCheckerRule): Boolean =
+        fun canTrigger(rule: ReplayCheckerRule): Boolean =
             triggerCounts[rule.budgetKey()].orZero() < checkerTriggerLimit(rule)
 
-        fun recordTrigger(rule: OmniflowCheckerRule): CheckerTriggerRecord {
+        fun recordTrigger(rule: ReplayCheckerRule): CheckerTriggerRecord {
             val key = rule.budgetKey()
             val limit = checkerTriggerLimit(rule)
             val count = triggerCounts[key].orZero() + 1
@@ -65,13 +66,8 @@ object ReplayHelper {
         recoverySnapshotMap(readBackendSnapshot(deviceOperator), reason)
 
     fun isUIStep(step: Map<String, Any?>): Boolean {
-        val executor = step["executor"]?.toString()?.trim()?.lowercase().orEmpty()
-        val modelFree = step["model_free"] == true ||
-            step["modelFree"] == true ||
-            step["model_free"]?.toString()?.equals("true", ignoreCase = true) == true
         val action = actionNameForStep(step)
-        return action in OobActionSchema.replayableToolNames &&
-            (executor == RunLogReplayPolicy.EXECUTOR_OMNIFLOW || modelFree)
+        return action in OobActionSchema.replayableToolNames
     }
 
     fun actionNameForStep(step: Map<String, Any?>): String {
@@ -107,7 +103,7 @@ object ReplayHelper {
 
     private fun throwIfStopRequested(stopRequested: (() -> Boolean)?) {
         if (stopRequested?.invoke() == true) {
-            throw ManualToolStopCancellationException("OmniFlow execution stopped manually")
+            throw ManualToolStopCancellationException("Function execution stopped manually")
         }
     }
 
@@ -258,9 +254,9 @@ object ReplayHelper {
         val replayEngine = step["replay_engine"]?.toString()?.trim()?.lowercase().orEmpty()
         val action = actionNameForStep(step)
         val sourceContext = sourceContextForStep(step)
-        return coordinateHook == RunLogReplayPolicy.EXECUTOR_OMNIFLOW ||
+        return FunctionSchema.isFunctionExecutor(coordinateHook) ||
             step["omniflow"] == true ||
-            (RunLogReplayPolicy.isCoordinateAction(action) && sourceContext.isNotEmpty())
+            (FunctionSchema.isCoordinateAction(action) && sourceContext.isNotEmpty())
     }
 
     internal fun numberArg(args: Map<String, Any?>, vararg keys: String): Number? {
@@ -287,12 +283,12 @@ object ReplayHelper {
         deviceOperator: DeviceOperator,
         state: ReplayState,
         replayAction: ReplayAction,
-        extraRules: List<OmniflowCheckerRule>,
+        extraRules: List<ReplayCheckerRule>,
         checkerBudget: CheckerTriggerBudget,
     ): List<Map<String, Any?>> {
         val action = replayAction.action
         if (action == OobActionSchema.TOOL_FINISHED) return emptyList()
-        if (action == OobActionSchema.TOOL_OPEN_APP && phase != OmniflowCheckerRule.PHASE_POST_ACTION) {
+        if (action == OobActionSchema.TOOL_OPEN_APP && phase != ReplayCheckerRule.PHASE_POST_ACTION) {
             return emptyList()
         }
         val activeRules = extraRules.filter { it.phase == phase && it.enabled }
@@ -311,7 +307,7 @@ object ReplayHelper {
         deviceOperator: DeviceOperator,
         initialState: ReplayState,
         replayAction: ReplayAction,
-        extraRules: List<OmniflowCheckerRule>,
+        extraRules: List<ReplayCheckerRule>,
         checkerBudget: CheckerTriggerBudget,
         refreshState: suspend (String) -> ReplayState,
         refreshReasonPrefix: String,
@@ -339,7 +335,7 @@ object ReplayHelper {
         step: Map<String, Any?>,
         action: String,
         args: Map<String, Any?>,
-        checkerRules: List<OmniflowCheckerRule> = emptyList(),
+        checkerRules: List<ReplayCheckerRule> = emptyList(),
         checkerBudget: CheckerTriggerBudget = CheckerTriggerBudget(),
         stopRequested: (() -> Boolean)? = null,
     ): List<Map<String, Any?>> {
@@ -352,7 +348,7 @@ object ReplayHelper {
         val replayAction = ReplayAction(step, action, args)
         val effects = mutableListOf<Map<String, Any?>>()
         effects += runCheckerPhaseUntilStable(
-            phase = OmniflowCheckerRule.PHASE_PRE_TRANSFER,
+            phase = ReplayCheckerRule.PHASE_PRE_TRANSFER,
             deviceOperator = deviceOperator,
             initialState = initialState,
             replayAction = replayAction,
@@ -367,7 +363,7 @@ object ReplayHelper {
         throwIfStopRequested(stopRequested)
         val preActionState = observeReplayState(deviceOperator, ReplayStepTiming(), "before_pre_action_checker")
         effects += runCheckerPhaseUntilStable(
-            phase = OmniflowCheckerRule.PHASE_PRE_ACTION,
+            phase = ReplayCheckerRule.PHASE_PRE_ACTION,
             deviceOperator = deviceOperator,
             initialState = preActionState,
             replayAction = replayAction,
@@ -576,7 +572,7 @@ object ReplayHelper {
             val overhead = overheadNanos.mapValues { (_, durationNanos) -> nanosToMs(durationNanos) }
                 .filterValues { it > 0L }
             return linkedMapOf<String, Any?>(
-                "source" to "oob_omniflow_step_executor",
+                "source" to "function_step_executor",
                 "started_at_ms" to startedAtMs,
                 "finished_at_ms" to finishedAtMs,
                 "duration_ms" to nanosToMs(elapsedNanos(startedAtNanos)),

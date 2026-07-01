@@ -34,7 +34,7 @@ List<GoRoute> taskRoutes = [
     name: 'task/execution_history',
     builder: (context, state) => TrajectoryPage(),
   ),
-  // OmniFlow RunLog 列表页
+  // Function RunLog 列表页
   GoRoute(
     path: '/task/run_logs',
     name: 'task/run_logs',
@@ -43,7 +43,7 @@ List<GoRoute> taskRoutes = [
       return RunLogListPage(baseUrl: params?['baseUrl']?.toString());
     },
   ),
-  // OmniFlow RunLog 时间线详情页
+  // Function RunLog 时间线详情页
   GoRoute(
     path: '/task/run_log_timeline',
     name: 'task/run_log_timeline',

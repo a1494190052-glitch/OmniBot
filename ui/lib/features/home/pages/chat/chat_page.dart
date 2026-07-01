@@ -398,7 +398,7 @@ abstract class _ChatPageStateBase extends State<ChatPage>
   bool _isCompanionModeEnabled = false;
   bool _isCompanionToggleLoading = false;
   AppUpdateStatus? _appUpdateStatus;
-  OobFunctionRunProgressEvent? _oobFunctionRunProgressStatus;
+  FunctionRunProgressEvent? _functionRunProgressStatus;
   ModalRoute<dynamic>? _subscribedRoute;
   StreamSubscription<Map<String, dynamic>>?
   _conversationListChangedSubscription;
@@ -406,8 +406,8 @@ abstract class _ChatPageStateBase extends State<ChatPage>
   _conversationMessagesChangedSubscription;
   StreamSubscription<Map<String, dynamic>>?
   _browserSessionSnapshotChangedSubscription;
-  StreamSubscription<OobFunctionRunProgressEvent>?
-  _oobFunctionRunProgressSubscription;
+  StreamSubscription<FunctionRunProgressEvent>?
+  _functionRunProgressSubscription;
   StreamSubscription<Map<String, dynamic>>? _codexEventSubscription;
   Timer? _remoteCodexSessionSyncTimer;
   bool _remoteCodexSessionSyncInFlight = false;
@@ -1423,11 +1423,11 @@ abstract class _ChatPageStateBase extends State<ChatPage>
   @override
   Future<void> persistAgentConversation() => saveConversation();
 
-  void _handleOobFunctionRunProgressEvent(OobFunctionRunProgressEvent event) {
+  void _handleFunctionRunProgressEvent(FunctionRunProgressEvent event) {
     if (!mounted || _activeMode != ChatPageMode.normal) return;
     var didUpsert = false;
     setState(() {
-      didUpsert = ChatCardMessageHelpers.upsertOobFunctionRunProgress(
+      didUpsert = ChatCardMessageHelpers.upsertFunctionRunProgress(
         _messages,
         event,
       );
@@ -1838,7 +1838,7 @@ abstract class _ChatPageStateBase extends State<ChatPage>
 
   void _handleAppUpdateStatusChanged();
 
-  void _handleOobFunctionRunProgressStatusChanged();
+  void _handleFunctionRunProgressStatusChanged();
 
   double _popupMenuBottomOffset();
 

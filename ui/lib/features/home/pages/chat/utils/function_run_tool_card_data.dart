@@ -2,7 +2,7 @@ import 'package:ui/l10n/app_text_localizer.dart';
 import 'package:ui/services/agent_tool_card_policy.dart';
 import 'package:ui/services/assists_core_service.dart';
 
-String functionRunToolCardIdForEvent(OobFunctionRunProgressEvent event) {
+String functionRunToolCardIdForEvent(FunctionRunProgressEvent event) {
   for (final value in <String>[event.taskId, event.runId, event.functionId]) {
     final normalized = value.trim();
     if (normalized.isNotEmpty) {
@@ -13,7 +13,7 @@ String functionRunToolCardIdForEvent(OobFunctionRunProgressEvent event) {
 }
 
 Map<String, dynamic> functionRunToolCardDataForEvent(
-  OobFunctionRunProgressEvent event,
+  FunctionRunProgressEvent event,
 ) {
   final derivedCardId = functionRunToolCardIdForEvent(event);
   final cardId = derivedCardId.isNotEmpty
@@ -36,8 +36,8 @@ Map<String, dynamic> functionRunToolCardDataForEvent(
     'raw_status': event.status,
     'statusLabel': statusLabel,
     'status_label': statusLabel,
-    'toolType': 'oob_function',
-    'tool_type': 'oob_function',
+    'toolType': 'reusable_function',
+    'tool_type': 'reusable_function',
     'toolName': 'function_run',
     'tool_name': 'function_run',
     'toolTitle': title,
@@ -76,7 +76,7 @@ Map<String, dynamic> functionRunToolCardDataForEvent(
   });
 }
 
-String _titleFor(OobFunctionRunProgressEvent event) {
+String _titleFor(FunctionRunProgressEvent event) {
   if (event.isRunning) {
     return _choose(zh: '复用指令执行中', en: 'Reusable command running');
   }
@@ -89,7 +89,7 @@ String _titleFor(OobFunctionRunProgressEvent event) {
   return _choose(zh: '复用指令执行完成', en: 'Reusable command completed');
 }
 
-String _stepLabel(OobFunctionRunProgressEvent event) {
+String _stepLabel(FunctionRunProgressEvent event) {
   final currentStep = event.displayStepNumber;
   final stepCount = event.stepCount;
   if (currentStep != null && currentStep > 0) {
@@ -102,7 +102,7 @@ String _stepLabel(OobFunctionRunProgressEvent event) {
   return '';
 }
 
-String _messageFor(OobFunctionRunProgressEvent event, String stepLabel) {
+String _messageFor(FunctionRunProgressEvent event, String stepLabel) {
   final message = event.message.trim();
   final label = event.label.trim();
   final cleaned = _stripStepPrefix(message);
@@ -119,7 +119,7 @@ String _stripStepPrefix(String message) {
   return message.replaceFirst(RegExp(r'^第\s*\d+\s*/\s*\d+\s*步\s*'), '').trim();
 }
 
-String _agentToolStatusFor(OobFunctionRunProgressEvent event) {
+String _agentToolStatusFor(FunctionRunProgressEvent event) {
   if (event.isRunning) return 'running';
   if (event.status == 'stopped') return 'interrupted';
   if (event.status == 'failed' || _looksFailed(event.message)) {
@@ -128,7 +128,7 @@ String _agentToolStatusFor(OobFunctionRunProgressEvent event) {
   return 'success';
 }
 
-String _statusLabelFor(OobFunctionRunProgressEvent event) {
+String _statusLabelFor(FunctionRunProgressEvent event) {
   if (event.status == 'stopped') {
     return _choose(zh: '已停止', en: 'Stopped');
   }

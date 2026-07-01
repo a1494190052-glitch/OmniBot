@@ -274,7 +274,7 @@ class TaskManager(
             params.onTaskFinishListener,
             params.skipGoHome,
             params.stepSkillGuidance,
-            params.disableOmniFlowRecall
+            params.disableFunctionRecall
         )
     }
 

@@ -5,9 +5,9 @@ import android.content.Context
 import android.content.Intent
 import android.util.Base64
 import cn.com.omnimind.baselib.util.OmniLog
-import cn.com.omnimind.bot.omniflow.function.OmniFlowFunctionRun
-import cn.com.omnimind.bot.omniflow.function.OmniFlowFunctionApi
-import cn.com.omnimind.bot.omniflow.function.OmniFlowFunctionService
+import cn.com.omnimind.bot.function.FunctionRun
+import cn.com.omnimind.bot.function.FunctionApi
+import cn.com.omnimind.bot.function.FunctionService
 import cn.com.omnimind.bot.webchat.AgentRunService
 import cn.com.omnimind.bot.webchat.ConversationDomainService
 import com.google.gson.GsonBuilder
@@ -87,7 +87,7 @@ class DebugAgentConversationFunctionReceiver : BroadcastReceiver() {
             "userMessage" to userMessage,
             "title" to "Debug Agent Function Conversation",
             "conversationMode" to "normal",
-            "toolProfile" to OmniFlowFunctionApi.PROFILE,
+            "toolProfile" to FunctionApi.PROFILE,
             "allowedTools" to listOf(
                 "oob_function_register",
                 "oob_function_list",
@@ -106,12 +106,12 @@ class DebugAgentConversationFunctionReceiver : BroadcastReceiver() {
         waitForAgentIdle(context, startedAt, waitMs)
         delay(AGENT_SETTLE_MS)
 
-        val functionPayload = OmniFlowFunctionService(context).getFunction(
+        val functionPayload = FunctionService(context).getFunction(
             mapOf("function_id" to functionId)
         )
         val functionRegistered = functionPayload["success"] == true
         val runPayload = if (functionRegistered) {
-            OmniFlowFunctionRun(context).runFunction(
+            FunctionRun(context).runFunction(
                 mapOf(
                     "function_id" to functionId,
                     "goal" to "Validate agent-conversation registered Function replay.",
@@ -136,7 +136,7 @@ class DebugAgentConversationFunctionReceiver : BroadcastReceiver() {
             "accepted" to accepted,
             "function_id" to functionId,
             "target_package" to targetPackage,
-            "tool_profile" to OmniFlowFunctionApi.PROFILE,
+            "tool_profile" to FunctionApi.PROFILE,
             "allowed_tools" to request["allowedTools"],
             "function_registered" to functionRegistered,
             "run_success" to runSuccess,
@@ -207,7 +207,7 @@ class DebugAgentConversationFunctionReceiver : BroadcastReceiver() {
 
         private fun buildDefaultUserMessage(functionId: String, targetPackage: String): String =
             """
-            Use the available OmniFlow reusable-command tools to create and verify a reusable instruction.
+            Use the available Function tools to create and verify a reusable instruction.
             Register a reusable instruction with functionId "$functionId".
             Name it "Debug agent conversation open settings".
             Description: "Open Android Settings from an agent conversation."

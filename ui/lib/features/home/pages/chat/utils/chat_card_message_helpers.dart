@@ -46,9 +46,9 @@ class ChatCardMessageHelpers {
     return true;
   }
 
-  static bool upsertOobFunctionRunProgress(
+  static bool upsertFunctionRunProgress(
     List<ChatMessageModel> messages,
-    OobFunctionRunProgressEvent event,
+    FunctionRunProgressEvent event,
   ) {
     final cardId = functionRunToolCardIdForEvent(event);
     if (cardId.isEmpty) {

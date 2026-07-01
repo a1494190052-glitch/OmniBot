@@ -26,7 +26,7 @@ import cn.com.omnimind.baselib.util.exception.PermissionException
 import cn.com.omnimind.bot.App
 import cn.com.omnimind.bot.agent.AgentToolJson
 import cn.com.omnimind.bot.manager.OmniForegroundService
-import cn.com.omnimind.bot.omniflow.function.OmniFlowFunctionRun
+import cn.com.omnimind.bot.function.FunctionRun
 import cn.com.omnimind.bot.util.AssistsUtil.Core.createCompanionTask
 import cn.com.omnimind.uikit.UIKit
 import cn.com.omnimind.uikit.api.callback.HalfScreenApi
@@ -197,7 +197,7 @@ class AssistsUtil {
             skipGoHome: Boolean = false,  // 是否跳过回到主页，从当前页面开始执行
             stepSkillGuidance: String = "",
             taskId: String? = null,
-            disableOmniFlowRecall: Boolean = false
+            disableFunctionRecall: Boolean = false
         ) {
 
             if (!AssistsCore.isAccessibilityServiceEnabled()) {
@@ -229,7 +229,7 @@ class AssistsUtil {
                     skipGoHome,
                     stepSkillGuidance,
                     taskId,
-                    disableOmniFlowRecall,
+                    disableFunctionRecall,
                     functionRunExecutor(context.applicationContext)
                 )
             )
@@ -245,7 +245,7 @@ class AssistsUtil {
                     if (runContext.runId.isNotBlank()) put("frontend_run_id", runContext.runId)
                     put("frontend_parent", "vlm_task")
                 }
-                val result = OmniFlowFunctionRun(context).runFunction(callArgs)
+                val result = FunctionRun(context).runFunction(callArgs)
                 val success = result["success"] == true
                 val stepCount = result["step_count"]?.toString()?.toIntOrNull()
                 val failedStep = result["failed_step_index"]?.toString()?.toIntOrNull()

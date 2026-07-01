@@ -7,7 +7,7 @@ import cn.com.omnimind.baselib.shizuku.ShizukuBackend
 import cn.com.omnimind.baselib.shizuku.ShizukuCapabilityManager
 import cn.com.omnimind.baselib.util.OmniLog
 import cn.com.omnimind.bot.mcp.RemoteMcpDiscoveredServer
-import cn.com.omnimind.bot.omniflow.function.OmniFlowFunctionApi
+import cn.com.omnimind.bot.function.FunctionApi
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
@@ -90,7 +90,7 @@ class AgentToolRegistry(
             )
         }
         if (isLightweightToolProfile) {
-            runtimeDefinitions.addAll(OmniFlowFunctionApi.staticToolDefinitions(locale))
+            runtimeDefinitions.addAll(FunctionApi.staticToolDefinitions(locale))
         }
         runtimeDefinitions.addAll(AgentToolDefinitions.memoryTools(locale))
         runtimeDefinitions.addAll(AgentToolDefinitions.subagentTools(locale))

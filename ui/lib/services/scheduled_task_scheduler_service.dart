@@ -225,7 +225,7 @@ class ScheduledTaskSchedulerService {
           if (functionId.isEmpty) {
             throw Exception('Reusable Function task missing function id');
           }
-          await AssistsMessageService.runOobReusableFunction(
+          await AssistsMessageService.runFunction(
             functionId: functionId,
             arguments: _stringKeyMap(suggestionData['oobFunctionArguments']),
             taskId: task.id,

@@ -29,7 +29,7 @@ void main() {
     (tester) async {
       TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
           .setMockMethodCallHandler(assistCoreChannel, (call) async {
-            if (call.method == 'listOobReusableFunctions') {
+            if (call.method == 'listFunctions') {
               return <String, dynamic>{
                 'success': true,
                 'count': 3,
@@ -120,7 +120,7 @@ void main() {
                 ],
               };
             }
-            if (call.method == 'getOobReusableFunction') {
+            if (call.method == 'getFunction') {
               return <String, dynamic>{
                 'success': true,
                 'function_id': 'open_settings_a',
@@ -167,7 +167,7 @@ void main() {
       expect(find.text('打开 Settings'), findsOneWidget);
       expect(find.text('Debug VLM RunLog'), findsNothing);
       expect(find.text('打开 WiFi'), findsOneWidget);
-      expect(find.text('类型 OmniFlow'), findsNothing);
+      expect(find.text('类型 复用指令'), findsNothing);
       expect(find.text('状态 已注册'), findsNothing);
       expect(find.text('步骤 3'), findsOneWidget);
       expect(find.text('参数 1'), findsOneWidget);
@@ -192,7 +192,7 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.text('轨迹保存结果'), findsOneWidget);
-      expect(find.text('类型 OmniFlow'), findsNothing);
+      expect(find.text('类型 复用指令'), findsNothing);
       expect(find.text('状态 已注册'), findsNothing);
       expect(find.text('package_name'), findsOneWidget);
       expect(find.text('离线来源'), findsNothing);
@@ -214,7 +214,7 @@ void main() {
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(assistCoreChannel, (call) async {
           methodCalls.add(call);
-          if (call.method == 'listOobReusableFunctions') {
+          if (call.method == 'listFunctions') {
             return <String, dynamic>{
               'success': true,
               'count': 1,
@@ -328,7 +328,7 @@ void main() {
       hasLength(1),
     );
     expect(
-      methodCalls.where((call) => call.method == 'getOobReusableFunction'),
+      methodCalls.where((call) => call.method == 'getFunction'),
       isEmpty,
     );
   });
@@ -337,7 +337,7 @@ void main() {
   ) async {
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(assistCoreChannel, (call) async {
-          if (call.method == 'listOobReusableFunctions') {
+          if (call.method == 'listFunctions') {
             return <String, dynamic>{
               'success': true,
               'count': 1,
@@ -362,7 +362,7 @@ void main() {
               ],
             };
           }
-          if (call.method == 'getOobReusableFunction') {
+          if (call.method == 'getFunction') {
             return <String, dynamic>{
               'success': true,
               'function_id': 'screen_vlm',
@@ -424,7 +424,7 @@ void main() {
   ) async {
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(assistCoreChannel, (call) async {
-          if (call.method == 'listOobReusableFunctions') {
+          if (call.method == 'listFunctions') {
             return <String, dynamic>{
               'success': true,
               'count': 1,
@@ -465,7 +465,7 @@ void main() {
 
     expect(find.text('搜索设置'), findsOneWidget);
 
-    AssistsMessageService.debugDispatchOobFunctionRunProgressForTest(
+    AssistsMessageService.debugDispatchFunctionRunProgressForTest(
       <String, dynamic>{
         'status': 'progress',
         'function_id': 'search_settings',
@@ -481,7 +481,7 @@ void main() {
     expect(find.textContaining('第 2/4 步'), findsOneWidget);
     expect(find.textContaining('点击蓝牙'), findsOneWidget);
 
-    AssistsMessageService.debugDispatchOobFunctionRunProgressForTest(
+    AssistsMessageService.debugDispatchFunctionRunProgressForTest(
       <String, dynamic>{
         'status': 'finished',
         'function_id': 'search_settings',
@@ -502,7 +502,7 @@ void main() {
   ) async {
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(assistCoreChannel, (call) async {
-          if (call.method == 'listOobReusableFunctions') {
+          if (call.method == 'listFunctions') {
             return <String, dynamic>{
               'success': true,
               'functions': <Map<String, dynamic>>[
@@ -526,7 +526,7 @@ void main() {
               ],
             };
           }
-          if (call.method == 'getOobReusableFunction') {
+          if (call.method == 'getFunction') {
             return <String, dynamic>{
               'function_id': 'search_contact',
               'name': '搜索联系人',
@@ -604,7 +604,7 @@ void main() {
   ) async {
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(assistCoreChannel, (call) async {
-          if (call.method == 'listOobReusableFunctions') {
+          if (call.method == 'listFunctions') {
             return <String, dynamic>{
               'success': true,
               'functions': <Map<String, dynamic>>[
@@ -628,7 +628,7 @@ void main() {
               ],
             };
           }
-          if (call.method == 'getOobReusableFunction') {
+          if (call.method == 'getFunction') {
             return <String, dynamic>{
               'function_id': 'open_then_tap',
               'name': '打开后点击',
@@ -693,7 +693,7 @@ void main() {
   ) async {
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(assistCoreChannel, (call) async {
-          if (call.method == 'listOobReusableFunctions') {
+          if (call.method == 'listFunctions') {
             return <String, dynamic>{
               'success': true,
               'functions': <Map<String, dynamic>>[
@@ -717,7 +717,7 @@ void main() {
               ],
             };
           }
-          if (call.method == 'getOobReusableFunction') {
+          if (call.method == 'getFunction') {
             return <String, dynamic>{
               'function_id': 'tap_with_raw_coordinates',
               'name': '点击入口',
@@ -802,7 +802,7 @@ void main() {
   ) async {
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(assistCoreChannel, (call) async {
-          if (call.method == 'listOobReusableFunctions') {
+          if (call.method == 'listFunctions') {
             return <String, dynamic>{
               'success': true,
               'functions': <Map<String, dynamic>>[
@@ -830,7 +830,7 @@ void main() {
               ],
             };
           }
-          if (call.method == 'getOobReusableFunction') {
+          if (call.method == 'getFunction') {
             return <String, dynamic>{
               'function_id': 'duplicate_type',
               'parameters': <Map<String, dynamic>>[
@@ -899,7 +899,7 @@ void main() {
     expect(find.text('删除步骤'), findsOneWidget);
   });
 
-  testWidgets('Reusable Function run button starts local OmniFlow execution', (
+  testWidgets('Reusable Function run button starts local Function execution', (
     tester,
   ) async {
     final methodCalls = <MethodCall>[];
@@ -908,7 +908,7 @@ void main() {
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(assistCoreChannel, (call) async {
           methodCalls.add(call);
-          if (call.method == 'listOobReusableFunctions') {
+          if (call.method == 'listFunctions') {
             return <String, dynamic>{
               'success': true,
               'count': 1,
@@ -933,7 +933,7 @@ void main() {
               ],
             };
           }
-          if (call.method == 'getOobReusableFunction') {
+          if (call.method == 'getFunction') {
             return <String, dynamic>{
               'success': true,
               'function_id': 'open_settings',
@@ -947,7 +947,7 @@ void main() {
               ],
             };
           }
-          if (call.method == 'runOobReusableFunction') {
+          if (call.method == 'runFunction') {
             localRunCalls += 1;
             return <String, dynamic>{
               'success': true,
@@ -988,7 +988,7 @@ void main() {
 
     expect(localRunCalls, 1);
     final runCall = methodCalls.singleWhere(
-      (call) => call.method == 'runOobReusableFunction',
+      (call) => call.method == 'runFunction',
     );
     final runArgs = Map<String, dynamic>.from(runCall.arguments as Map);
     expect(runArgs['function_id'], 'open_settings');
@@ -1014,7 +1014,7 @@ void main() {
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(assistCoreChannel, (call) async {
           methodCalls.add(call);
-          if (call.method == 'listOobReusableFunctions') {
+          if (call.method == 'listFunctions') {
             return <String, dynamic>{
               'success': true,
               'count': 1,
@@ -1037,7 +1037,7 @@ void main() {
               ],
             };
           }
-          if (call.method == 'getOobReusableFunction') {
+          if (call.method == 'getFunction') {
             return <String, dynamic>{
               'success': true,
               'function_id': 'search_settings',
@@ -1051,7 +1051,7 @@ void main() {
               ],
             };
           }
-          if (call.method == 'runOobReusableFunction') {
+          if (call.method == 'runFunction') {
             return <String, dynamic>{
               'success': true,
               'function_id': 'search_settings',
@@ -1092,7 +1092,7 @@ void main() {
     expect(find.text('填写执行参数'), findsOneWidget);
     expect(find.text('query'), findsOneWidget);
     expect(
-      methodCalls.where((call) => call.method == 'runOobReusableFunction'),
+      methodCalls.where((call) => call.method == 'runFunction'),
       isEmpty,
     );
 
@@ -1101,7 +1101,7 @@ void main() {
     await tester.pumpAndSettle();
 
     final runCall = methodCalls.singleWhere(
-      (call) => call.method == 'runOobReusableFunction',
+      (call) => call.method == 'runFunction',
     );
     final runArgs = Map<String, dynamic>.from(runCall.arguments as Map);
     expect(runArgs['function_id'], 'search_settings');
@@ -1125,7 +1125,7 @@ void main() {
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(assistCoreChannel, (call) async {
           methodCalls.add(call);
-          if (call.method == 'listOobReusableFunctions') {
+          if (call.method == 'listFunctions') {
             return <String, dynamic>{
               'success': true,
               'count': deleted ? 0 : 1,
@@ -1153,7 +1153,7 @@ void main() {
                     ],
             };
           }
-          if (call.method == 'getOobReusableFunction') {
+          if (call.method == 'getFunction') {
             return <String, dynamic>{
               'success': true,
               'function_id': 'open_settings',
@@ -1181,7 +1181,7 @@ void main() {
               },
             };
           }
-          if (call.method == 'runOobReusableFunction') {
+          if (call.method == 'runFunction') {
             return <String, dynamic>{
               'success': true,
               'function_id': 'open_settings',
@@ -1203,7 +1203,7 @@ void main() {
               },
             };
           }
-          if (call.method == 'deleteOobReusableFunction') {
+          if (call.method == 'deleteFunction') {
             deleted = true;
             return <String, dynamic>{'success': true, 'deleted': true};
           }
@@ -1222,7 +1222,7 @@ void main() {
 
     expect(find.text('打开 Settings'), findsOneWidget);
     expect(find.text('打开 Android 设置'), findsOneWidget);
-    expect(find.text('类型 OmniFlow'), findsNothing);
+    expect(find.text('类型 复用指令'), findsNothing);
     expect(find.text('状态 已注册'), findsNothing);
     expect(find.text('步骤 1'), findsOneWidget);
     expect(find.text('参数 1'), findsOneWidget);
@@ -1236,7 +1236,7 @@ void main() {
 
     expect(find.text('复用指令详情'), findsNothing);
     expect(
-      methodCalls.where((call) => call.method == 'getOobReusableFunction'),
+      methodCalls.where((call) => call.method == 'getFunction'),
       isEmpty,
     );
 
@@ -1245,7 +1245,7 @@ void main() {
 
     expect(find.text('轨迹保存结果'), findsOneWidget);
     expect(
-      methodCalls.where((call) => call.method == 'getOobReusableFunction'),
+      methodCalls.where((call) => call.method == 'getFunction'),
       hasLength(1),
     );
 
@@ -1256,7 +1256,7 @@ void main() {
     await tester.pumpAndSettle();
 
     final runCall = methodCalls.singleWhere(
-      (call) => call.method == 'runOobReusableFunction',
+      (call) => call.method == 'runFunction',
     );
     final runArgs = Map<String, dynamic>.from(runCall.arguments as Map);
     expect(runArgs['function_id'], 'open_settings');
@@ -1279,7 +1279,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(
-      methodCalls.where((call) => call.method == 'deleteOobReusableFunction'),
+      methodCalls.where((call) => call.method == 'deleteFunction'),
       hasLength(1),
     );
     expect(find.text('打开 Settings'), findsNothing);

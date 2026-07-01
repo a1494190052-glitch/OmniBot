@@ -9,7 +9,7 @@ data class VLMRecallContextRequest(
     val screenshotBase64: String?,
     val stepIndex: Int,
     val snapshot: VLMCurrentPageSnapshot? = null,
-    val disableOmniFlowRecall: Boolean = false,
+    val disableFunctionRecall: Boolean = false,
 )
 
 data class VLMCurrentPageSnapshot(

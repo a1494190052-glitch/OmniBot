@@ -14,14 +14,14 @@ import cn.com.omnimind.assists.task.vlmserver.VLMIndexedPageContext
 import cn.com.omnimind.baselib.i18n.AppLocaleManager
 import cn.com.omnimind.baselib.util.ImageQuality
 import cn.com.omnimind.baselib.util.OmniLog
-import cn.com.omnimind.bot.omniflow.function.OmniFlowFunctionJson.firstNonBlank
-import cn.com.omnimind.bot.omniflow.function.OmniFlowFunctionJson.mapArg
-import cn.com.omnimind.bot.omniflow.function.OmniFlowFunctionRun
+import cn.com.omnimind.bot.function.FunctionJson.firstNonBlank
+import cn.com.omnimind.bot.function.FunctionJson.mapArg
+import cn.com.omnimind.bot.function.FunctionRun
 import cn.com.omnimind.bot.vlm.VlmToolCoordinator
 import cn.com.omnimind.bot.vlm.VlmToolOutcome
 import cn.com.omnimind.bot.vlm.VlmToolOutcomeStatus
-import cn.com.omnimind.bot.omniflow.function.OmniFlowFunctionService
-import cn.com.omnimind.bot.runlog.RunLogReplayPolicy
+import cn.com.omnimind.bot.function.FunctionSchema
+import cn.com.omnimind.bot.function.FunctionService
 import cn.com.omnimind.bot.util.AssistsUtil
 import cn.com.omnimind.bot.webchat.AgentRunRequestNormalizer
 import cn.com.omnimind.bot.webchat.AgentRunService
@@ -74,9 +74,11 @@ object McpToolExecutors {
         val shouldSummary = shouldEnableSummary(goal, needSummaryArg)
         val startFromCurrent = boolArg(requestArgs, "startFromCurrent", "start_from_current", "skipGoHome", "skip_go_home")
         val parseOnly = boolArg(requestArgs, "parseOnly", "parse_only", "dryRun", "dry_run")
-        val disableOmniFlowRecall = boolArgOrDefault(
+        val disableFunctionRecall = boolArgOrDefault(
             requestArgs,
             default = false,
+            "disableFunctionRecall",
+            "disable_function_recall",
             "disableOmniFlowRecall",
             "disable_omniflow_recall",
             "disableRecall",
@@ -90,7 +92,7 @@ object McpToolExecutors {
             packageName = if (startFromCurrent) null else firstString(requestArgs, "packageName", "package_name"),
             needSummary = shouldSummary,
             skipGoHome = startFromCurrent,
-            disableOmniFlowRecall = disableOmniFlowRecall,
+            disableFunctionRecall = disableFunctionRecall,
         )
 
         try {
@@ -1123,7 +1125,7 @@ object McpToolExecutors {
         )
         val functionId = firstNonBlank(
             requestArgs["function_id"],
-            if (RunLogReplayPolicy.isOmniflowToolCallTool(toolName)) toolArgs["function_id"] else null,
+            if (FunctionSchema.isFunctionCallTool(toolName)) toolArgs["function_id"] else null,
         )
         if (functionId.isNotEmpty()) {
             val frontendRunId = firstNonBlank(
@@ -1149,7 +1151,7 @@ object McpToolExecutors {
             ).ifBlank {
                 if (frontendRunId.isNotEmpty() || frontendTaskId.isNotEmpty()) "vlm_task" else ""
             }
-            return OmniFlowFunctionRun(context).runFunction(
+            return FunctionRun(context).runFunction(
                 linkedMapOf(
                     "function_id" to functionId,
                     "arguments" to toolArgs,
@@ -1164,7 +1166,7 @@ object McpToolExecutors {
             return McpResponseBuilder.buildErrorText("Missing toolName or function_id")
         }
         return McpResponseBuilder.buildErrorText(
-            "Unsupported call_tool target: $toolName. call_tool only supports OmniFlow function_id replay."
+            "Unsupported call_tool target: $toolName. call_tool only supports Function function_id replay."
         )
     }
 

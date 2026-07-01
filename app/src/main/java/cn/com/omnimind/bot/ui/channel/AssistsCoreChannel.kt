@@ -61,14 +61,14 @@ class AssistsCoreChannel {
                 "setAgentToolFeatures" -> {
                     assistsCoreManager!!.setAgentToolFeatures(call, result)
                 }
-                "registerOobReusableFunction" -> {
-                    assistsCoreManager!!.registerOobReusableFunction(call, result)
+                "registerFunction" -> {
+                    assistsCoreManager!!.registerFunction(call, result)
                 }
-                "updateOobFunction" -> {
-                    assistsCoreManager!!.updateOobFunction(call, result)
+                "updateFunction" -> {
+                    assistsCoreManager!!.updateFunction(call, result)
                 }
-                "convertInternalRunLogToOobFunction" -> {
-                    assistsCoreManager!!.convertInternalRunLogToOobFunction(call, result)
+                "convertInternalRunLogToFunction" -> {
+                    assistsCoreManager!!.convertInternalRunLogToFunction(call, result)
                 }
                 "startHumanTrajectoryLearning" -> {
                     assistsCoreManager!!.startHumanTrajectoryLearning(call, result)
@@ -88,17 +88,17 @@ class AssistsCoreChannel {
                 "exportOobUdeg" -> {
                     assistsCoreManager!!.exportOobUdeg(call, result)
                 }
-                "getOobReusableFunction" -> {
-                    assistsCoreManager!!.getOobReusableFunction(call, result)
+                "getFunction" -> {
+                    assistsCoreManager!!.getFunction(call, result)
                 }
-                "listOobReusableFunctions" -> {
-                    assistsCoreManager!!.listOobReusableFunctions(call, result)
+                "listFunctions" -> {
+                    assistsCoreManager!!.listFunctions(call, result)
                 }
-                "deleteOobReusableFunction" -> {
-                    assistsCoreManager!!.deleteOobReusableFunction(call, result)
+                "deleteFunction" -> {
+                    assistsCoreManager!!.deleteFunction(call, result)
                 }
-                "runOobReusableFunction" -> {
-                    assistsCoreManager!!.runOobReusableFunction(call, result)
+                "runFunction" -> {
+                    assistsCoreManager!!.runFunction(call, result)
                 }
                 "agentRunList" -> {
                     assistsCoreManager!!.agentRunList(call, result)

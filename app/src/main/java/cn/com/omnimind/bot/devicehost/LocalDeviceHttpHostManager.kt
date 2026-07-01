@@ -6,9 +6,9 @@ import android.content.Context
 import cn.com.omnimind.assists.task.vlmserver.AndroidDeviceOperator
 import cn.com.omnimind.baselib.util.OmniLog
 import cn.com.omnimind.bot.BuildConfig
-import cn.com.omnimind.bot.omniflow.function.OmniFlowFunctionRun
+import cn.com.omnimind.bot.function.FunctionRun
 import cn.com.omnimind.bot.mcp.McpToolExecutors
-import cn.com.omnimind.bot.omniflow.function.OmniFlowFunctionService
+import cn.com.omnimind.bot.function.FunctionService
 import cn.com.omnimind.omniintelligence.models.ScrollDirection
 import io.ktor.http.HttpStatusCode
 import io.ktor.serialization.gson.gson
@@ -151,7 +151,7 @@ object LocalDeviceHttpHostManager {
         runCatching {
             val toolName = firstNonBlank(body["tool"], body["tool_name"], body["toolName"], body["name"])
             val args = mapArg(body["arguments"]).ifEmpty { mapArg(body["args"]) }.ifEmpty { body }
-            withHttpAdapterSource(OmniFlowFunctionService(context).executeTool(toolName, args))
+            withHttpAdapterSource(FunctionService(context).executeTool(toolName, args))
         }.getOrElse { error ->
             linkedMapOf(
                 "success" to false,
@@ -172,7 +172,7 @@ object LocalDeviceHttpHostManager {
                     put("goal", it)
                 }
             }
-            withHttpAdapterSource(OmniFlowFunctionRun(context).runFunction(args)) + mapOf(
+            withHttpAdapterSource(FunctionRun(context).runFunction(args)) + mapOf(
                 "tool" to "run_function",
             )
         }.getOrElse { error ->

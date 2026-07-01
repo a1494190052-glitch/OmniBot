@@ -894,7 +894,7 @@ diff --git a/lib/main.dart b/lib/main.dart
           body: AgentToolSummaryCard(
             cardData: {
               'status': 'success',
-              'toolType': 'oob_function',
+              'toolType': 'reusable_function',
               'toolName': 'manual_recording',
               'toolTitle': '手动录制完成',
               'summary': '手动录制完成',

@@ -1,7 +1,7 @@
 package cn.com.omnimind.bot.runlog
 
 import cn.com.omnimind.bot.agent.AgentToolNames
-import cn.com.omnimind.bot.omniflow.function.OmniFlowFunctionApi
+import cn.com.omnimind.bot.function.FunctionSchema
 import cn.com.omnimind.baselib.runlog.OobActionSchema
 import cn.com.omnimind.bot.runlog.RunLogCardAccessors.androidPrivilegedReplayAction
 import cn.com.omnimind.bot.runlog.RunLogCardAccessors.androidPrivilegedReplayArgs
@@ -15,7 +15,6 @@ import cn.com.omnimind.bot.runlog.RunLogCardAccessors.jsonSafe
 import cn.com.omnimind.bot.runlog.RunLogCardAccessors.jsonSafeMap
 import cn.com.omnimind.bot.runlog.RunLogCardAccessors.nullableMap
 import cn.com.omnimind.bot.runlog.RunLogCardAccessors.observationXml
-import cn.com.omnimind.bot.runlog.RunLogCardAccessors.toJson
 import cn.com.omnimind.bot.runlog.RunLogCardAccessors.toolNameForCard
 
 /**
@@ -23,6 +22,12 @@ import cn.com.omnimind.bot.runlog.RunLogCardAccessors.toolNameForCard
  */
 internal object RunLogReplayStepCompiler {
     private const val SOURCE_CONTEXT_MODE_COORDINATE_ONLY_NO_XML = "coordinate_only_no_xml"
+    private val perceptionOnlyTools = setOf(
+        AgentToolNames.VLM_TASK,
+        "image_picker",
+        "android_privileged_action_screenshot",
+        "screen_capture",
+    )
 
     fun compileCard(
         card: Map<String, Any?>,
@@ -30,7 +35,7 @@ internal object RunLogReplayStepCompiler {
         nextReplayableCard: Map<String, Any?>? = null,
     ): Map<String, Any?>? {
         val toolName = toolNameForCard(card).ifBlank { "unknown_tool" }
-        val normalizedToolName = RunLogReplayPolicy.normalizeToolName(toolName)
+        val normalizedToolName = OobActionSchema.normalizeToolName(toolName)
         val args = jsonSafeMap(extractArgs(card))
         val title = cleanStepTitle(
             rawTitle = firstNonBlank(
@@ -48,11 +53,11 @@ internal object RunLogReplayStepCompiler {
         val utg = jsonSafeMap(card["utg"])
 
         return when {
-            RunLogReplayPolicy.shouldSkipTool(normalizedToolName) -> null
-            RunLogReplayPolicy.isPerceptionTool(normalizedToolName) && skipPerceptionTools -> null
+            FunctionSchema.shouldSkipCapturedTool(normalizedToolName) -> null
+            normalizedToolName in perceptionOnlyTools && skipPerceptionTools -> null
             normalizedToolName == AgentToolNames.ANDROID_PRIVILEGED_ACTION -> {
                 val action = androidPrivilegedReplayAction(args) ?: return null
-                omniflowStep(
+                functionStep(
                     title = cleanStepTitle(title, action, androidPrivilegedReplayArgs(args)),
                     replayAction = action,
                     sourceToolName = normalizedToolName,
@@ -74,7 +79,7 @@ internal object RunLogReplayStepCompiler {
                     ),
                     rawArgs = args,
                 )
-                omniflowStep(
+                functionStep(
                     title = cleanStepTitle(title, replayAction, replayArgs),
                     replayAction = replayAction,
                     sourceToolName = normalizedToolName,
@@ -83,8 +88,8 @@ internal object RunLogReplayStepCompiler {
                     utg = utg,
                 )
             }
-            RunLogReplayPolicy.isOmniflowExecutionTool(normalizedToolName) -> {
-                omniflowExecutionStep(
+            FunctionSchema.isFunctionCallTool(normalizedToolName) -> {
+                functionExecutionStep(
                     title = title,
                     toolName = normalizedToolName,
                     args = args,
@@ -93,41 +98,12 @@ internal object RunLogReplayStepCompiler {
                     utg = utg,
                 )
             }
-            RunLogReplayPolicy.isAgentTool(normalizedToolName) -> {
-                val agentStepPrompt = agentStepPrompt(title, toolName, args)
-                nullableMap(
-                    "title" to title,
-                    "kind" to "agent_call",
-                    "tool" to toolName,
-                    "executor" to RunLogReplayPolicy.EXECUTOR_AGENT,
-                    "scriptable" to false,
-                    "args" to args,
-                    "tool_binding" to linkedMapOf(
-                        "name" to toolName,
-                    ),
-                    "agent_call" to linkedMapOf(
-                        "tool" to RunLogReplayPolicy.TOOL_AGENT_RUN,
-                        "args" to linkedMapOf(
-                            "prompt" to agentStepPrompt,
-                            "original_tool" to toolName,
-                            "original_args" to args,
-                        ),
-                        "reason" to RunLogReplayPolicy.agentStepReason(normalizedToolName),
-                    ),
-                    "fallback" to linkedMapOf(
-                        "tool" to RunLogReplayPolicy.TOOL_AGENT_RUN,
-                        "prompt" to agentStepPrompt,
-                    ),
-                    "observed_result" to result.takeUnless(::isEmptyJsonValue),
-                )
-            }
             else -> {
                 nullableMap(
                     "title" to title,
                     "kind" to "tool_call",
-                    "executor" to RunLogReplayPolicy.EXECUTOR_TOOL,
-            "scriptable" to true,
-            "tool" to toolName,
+                    "scriptable" to true,
+                    "tool" to toolName,
                     "args" to args,
                     "observed_result" to result.takeUnless(::isEmptyJsonValue),
                 )
@@ -193,7 +169,7 @@ internal object RunLogReplayStepCompiler {
         }
     }
 
-    private fun omniflowExecutionStep(
+    private fun functionExecutionStep(
         title: String,
         toolName: String,
         args: Map<String, Any?>,
@@ -201,23 +177,17 @@ internal object RunLogReplayStepCompiler {
         sourceContext: Map<String, Any?>,
         utg: Map<String, Any?> = emptyMap(),
     ): Map<String, Any?> {
-        val isCallTool = RunLogReplayPolicy.isOmniflowToolCallTool(toolName)
-        val canonicalToolName = if (isCallTool) RunLogReplayPolicy.TOOL_CALL_TOOL else toolName
+        val isCallTool = FunctionSchema.isFunctionCallTool(toolName)
+        val canonicalToolName = if (isCallTool) OobActionSchema.TOOL_CALL_TOOL else toolName
         val canonicalArgs = if (isCallTool) canonicalCallToolArgs(toolName, args) else args
         val hasFunctionId = firstNonBlank(canonicalArgs["function_id"]).isNotEmpty()
-        val executor = if (hasFunctionId) {
-            RunLogReplayPolicy.EXECUTOR_OMNIFLOW
-        } else {
-            RunLogReplayPolicy.EXECUTOR_TOOL
-        }
         return nullableMap(
             "title" to title,
             "kind" to when {
-                hasFunctionId -> "omniflow_function"
+                hasFunctionId -> "function"
                 else -> "tool_call"
             },
-            "executor" to executor,
-            "model_free" to true.takeIf { executor == RunLogReplayPolicy.EXECUTOR_OMNIFLOW },
+            "model_free" to true.takeIf { hasFunctionId },
             "scriptable" to true,
             "tool" to canonicalToolName,
             "args" to canonicalArgs,
@@ -285,7 +255,7 @@ internal object RunLogReplayStepCompiler {
         toolName: String,
         args: Map<String, Any?>,
     ): Map<String, Any?> {
-        val normalizedTool = RunLogReplayPolicy.normalizeToolName(toolName)
+        val normalizedTool = OobActionSchema.normalizeToolName(toolName)
         return linkedMapOf<String, Any?>().apply {
             putAll(args)
             val functionId = firstNonBlank(args["function_id"])
@@ -297,13 +267,13 @@ internal object RunLogReplayStepCompiler {
                 args["target_tool"],
                 args["tool"],
             )
-            if (targetTool.isNotEmpty() && !RunLogReplayPolicy.isOmniflowToolCallTool(normalizedTool)) {
+            if (targetTool.isNotEmpty() && !FunctionSchema.isFunctionCallTool(normalizedTool)) {
                 put("tool_name", targetTool)
             }
         }
     }
 
-    private fun omniflowStep(
+    private fun functionStep(
         title: String,
         replayAction: String,
         sourceToolName: String,
@@ -314,7 +284,6 @@ internal object RunLogReplayStepCompiler {
         return nullableMap(
             "title" to title,
             "kind" to "function",
-            "executor" to RunLogReplayPolicy.EXECUTOR_OMNIFLOW,
             "model_free" to true,
             "scriptable" to true,
             "tool" to replayAction,
@@ -341,7 +310,7 @@ internal object RunLogReplayStepCompiler {
             .ifEmpty { asMap(card["after_observation"]) }
         val sourceXml = observationXml(before)
         val rawToolName = toolNameForCard(card)
-        val normalizedToolName = RunLogReplayPolicy.normalizeToolName(rawToolName)
+        val normalizedToolName = OobActionSchema.normalizeToolName(rawToolName)
         val actionArgs = if (normalizedToolName == AgentToolNames.ANDROID_PRIVILEGED_ACTION) {
             androidPrivilegedReplayArgs(args)
         } else {
@@ -498,12 +467,4 @@ internal object RunLogReplayStepCompiler {
             vector.elementCount
     }
 
-    private fun agentStepPrompt(
-        title: String,
-        toolName: String,
-        args: Map<String, Any?>,
-    ): String {
-        return "Resolve only this step from the current screen: $title " +
-            "(original tool: $toolName, args: ${toJson(args)})"
-    }
 }

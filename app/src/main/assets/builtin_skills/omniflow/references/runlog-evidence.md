@@ -18,7 +18,7 @@ especially after replay failure or after a successful run shows a better path.
 ## Required Analysis Shape
 
 The Kotlin prompt contract owner is
-`OmniFlowFunctionRunLogAnalysisContract`; keep field names, evidence roles, and
+`FunctionRunLogAnalysisContract`; keep field names, evidence roles, and
 failure codes aligned with it.
 
 ```json

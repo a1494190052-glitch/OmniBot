@@ -2,8 +2,8 @@ package cn.com.omnimind.bot.mcp
 
 import cn.com.omnimind.baselib.i18n.AppLocaleManager
 import cn.com.omnimind.bot.agent.AgentToolNames
-import cn.com.omnimind.bot.omniflow.function.OmniFlowFunctionSchemaExport
-import cn.com.omnimind.bot.omniflow.function.OmniFlowFunctionApi
+import cn.com.omnimind.bot.function.FunctionSchemaExport
+import cn.com.omnimind.bot.function.FunctionApi
 
 /**
  * MCP 工具定义
@@ -83,10 +83,10 @@ WORKFLOW:
                     "type" to "boolean",
                     "description" to "Optional: Set true for summarization/report tasks so the summary is generated and returned in the tool result. Default: false."
                 ),
-                "disableOmniFlowRecall" to mapOf(
+                "disableFunctionRecall" to mapOf(
                     "type" to "boolean",
                     "default" to false,
-                    "description" to "Optional: set true to disable local OmniFlow Function recall for this run. This is mainly for first-run capture, diagnostics, and A/B testing."
+                    "description" to "Optional: set true to disable local Function recall for this run. This is mainly for first-run capture, diagnostics, and A/B testing."
                 )
             ),
             "required" to listOf("goal")
@@ -358,8 +358,8 @@ BEHAVIOR:
                 ),
                 "toolProfile" to mapOf(
                     "type" to "string",
-                    "enum" to listOf("omniflow"),
-                    "description" to "Optional focused tool exposure profile. Use omniflow when the Agent only needs to list, inspect, register, convert, run, update, or delete OmniFlow Functions; this keeps regular Agent behavior unchanged while reducing tool-schema tokens. Legacy function_management inputs are still accepted and normalized."
+                    "enum" to listOf(FunctionApi.PROFILE),
+                    "description" to "Optional focused tool exposure profile. Use function when the Agent only needs to list, inspect, register, convert, run, update, or delete Functions; this keeps regular Agent behavior unchanged while reducing tool-schema tokens. Legacy omniflow and function_management inputs are still accepted and normalized."
                 ),
                 "allowedTools" to mapOf(
                     "type" to "array",
@@ -381,21 +381,21 @@ BEHAVIOR:
             actTool,
             fileTransferTool,
             agentRunTool,
-        ) + OmniFlowFunctionApi.mcpToolDefinitions
+        ) + FunctionApi.mcpToolDefinitions
 
     val fixedToolNames: Set<String>
         get() = fixedTools.mapNotNull { it["name"]?.toString() }.toSet()
 
     val schemaExportResource: Map<String, Any?>
         get() = mapOf(
-            "uri" to OmniFlowFunctionSchemaExport.RESOURCE_URI,
-            "name" to "OmniFlow Function Management Schemas",
-            "description" to "Exported JSON schema bundle for OmniFlow Function, update_function, enhancement reports, replay policy, and MCP tool inputs.",
+            "uri" to FunctionSchemaExport.RESOURCE_URI,
+            "name" to "Function Management Schemas",
+            "description" to "Exported JSON schema bundle for Function, update_function, enhancement reports, function schemas and MCP tool inputs.",
             "mimeType" to "application/json",
         )
 
     val schemaExportBundle: Map<String, Any?>
-        get() = OmniFlowFunctionSchemaExport.bundle(fixedTools)
+        get() = FunctionSchemaExport.bundle(fixedTools)
 
     val allTools
         get() = fixedTools

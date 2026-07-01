@@ -201,13 +201,13 @@ class AppLocalizationsZh extends AppLocalizations {
   String get settingsMcpToggleFailed => 'MCP 开关失败';
 
   @override
-  String get settingsOobFunctionAsToolTitle => '复用指令召回';
+  String get settingsFunctionRecallTitle => '复用指令召回';
 
   @override
-  String get settingsOobFunctionAsToolSubtitle => '手机任务可在当前页面匹配时复用已保存的指令';
+  String get settingsFunctionRecallSubtitle => '手机任务可在当前页面匹配时复用已保存的指令';
 
   @override
-  String get settingsOobFunctionAsToolToggleFailed => '复用指令召回开关失败';
+  String get settingsFunctionRecallToggleFailed => '复用指令召回开关失败';
 
   @override
   String get settingsCopiedAddress => '已复制访问地址';
@@ -2486,7 +2486,7 @@ class AppLocalizationsZh extends AppLocalizations {
   String get executionActionFinished => '完成';
 
   @override
-  String get executionActionCallTool => '调用工具';
+  String get executionActionCallTool => '复用指令';
 
   @override
   String get executionActionDefault => '动作';

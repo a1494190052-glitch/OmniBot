@@ -99,7 +99,7 @@ void main() {
       task,
     );
 
-    expect(policy.toolProfile, 'omniflow');
+    expect(policy.toolProfile, 'function');
     expect(policy.allowedTools, ['vlm_task']);
   });
 }

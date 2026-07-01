@@ -921,7 +921,7 @@ open class VLMOperationTask(
         onTaskFinishListener: () -> Unit,
         skipGoHome: Boolean = false,  // 是否跳过回到主页，从当前页面开始执行
         stepSkillGuidance: String = "",
-        disableOmniFlowRecall: Boolean = false
+        disableFunctionRecall: Boolean = false
     ) {
         this.goal = goal;
         this.taskContext = context
@@ -962,7 +962,7 @@ open class VLMOperationTask(
                     summary = shouldSummary,
                     currentStepGoal = goal,
                     stepSkillGuidance = stepSkillGuidance,
-                    disableOmniFlowRecall = disableOmniFlowRecall
+                    disableFunctionRecall = disableFunctionRecall
                 )
                 OmniLog.d(Tag, "VLM Operation Task Finished: $taskExecutionReport")
                 throwIfCancellationRequested("task_report_ready")

@@ -2,10 +2,10 @@ package cn.com.omnimind.bot.mcp
 
 import android.content.Context
 import cn.com.omnimind.bot.agent.AgentToolNames
-import cn.com.omnimind.bot.omniflow.function.OmniFlowFunctionRun
-import cn.com.omnimind.bot.omniflow.function.OmniFlowFunctionSchemaExport
-import cn.com.omnimind.bot.omniflow.function.OmniFlowFunctionApi
-import cn.com.omnimind.bot.omniflow.function.OmniFlowFunctionService
+import cn.com.omnimind.bot.function.FunctionRun
+import cn.com.omnimind.bot.function.FunctionSchemaExport
+import cn.com.omnimind.bot.function.FunctionApi
+import cn.com.omnimind.bot.function.FunctionService
 import cn.com.omnimind.bot.util.AssistsUtil
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.application.call
@@ -143,14 +143,14 @@ object McpRoutes {
             "resources/read" -> {
                 val params = request["params"] as? Map<String, Any?>
                 val uri = params?.get("uri")?.toString()?.trim().orEmpty()
-                if (uri == OmniFlowFunctionSchemaExport.RESOURCE_URI) {
+                if (uri == FunctionSchemaExport.RESOURCE_URI) {
                     mapOf(
                         "jsonrpc" to "2.0",
                         "id" to id,
                         "result" to mapOf(
                             "contents" to listOf(
                                 mapOf(
-                                    "uri" to OmniFlowFunctionSchemaExport.RESOURCE_URI,
+                                    "uri" to FunctionSchemaExport.RESOURCE_URI,
                                     "mimeType" to "application/json",
                                     "text" to McpServerManager.gson.toJson(McpToolDefinitions.schemaExportBundle),
                                 )
@@ -209,7 +209,7 @@ object McpRoutes {
         args: Map<String, Any?>?
     ): Map<String, Any?> {
         return runCatching {
-            val functionManagementService by lazy { OmniFlowFunctionService(context) }
+            val functionManagementService by lazy { FunctionService(context) }
             when (name) {
             AgentToolNames.VLM_TASK -> McpToolExecutors.executeVlmTask(context, args, serverScope)
             "task_status" -> McpToolExecutors.executeTaskStatus(args)
@@ -219,9 +219,9 @@ object McpRoutes {
             "act" -> McpToolExecutors.executeAct(context, args)
             "file_transfer" -> McpToolExecutors.executeFileTransfer(args)
             "agent_run" -> McpToolExecutors.executeAgentRun(context, args)
-            "run_function" -> OmniFlowFunctionRun(context).runFunction(args)
+            "run_function" -> FunctionRun(context).runFunction(args)
             else -> {
-                if (isOmniflowMcpTool(name)) {
+                if (isFunctionMcpTool(name)) {
                     functionManagementService.executeTool(name, args)
                 } else if (name.isNullOrBlank()) {
                     McpResponseBuilder.buildErrorText("Missing tool name")
@@ -239,11 +239,11 @@ object McpRoutes {
         return McpToolDefinitions.fixedTools
     }
 
-    private val OMNIFLOW_MCP_TOOL_NAMES: Set<String> =
-        OmniFlowFunctionApi.mcpToolNames
+    private val FUNCTION_MCP_TOOL_NAMES: Set<String> =
+        FunctionApi.acceptedMcpToolNames
 
-    private fun isOmniflowMcpTool(name: String?): Boolean =
-        !name.isNullOrBlank() && name in OMNIFLOW_MCP_TOOL_NAMES
+    private fun isFunctionMcpTool(name: String?): Boolean =
+        !name.isNullOrBlank() && name in FUNCTION_MCP_TOOL_NAMES
 
     // ==================== 传统端点处理（保持兼容） ====================
 
@@ -290,7 +290,7 @@ object McpRoutes {
             "packageName" to payload.packageName,
             "needSummary" to payload.needSummary,
             "skipGoHome" to payload.skipGoHome,
-            "disableOmniFlowRecall" to payload.disableOmniFlowRecall,
+            "disableFunctionRecall" to payload.disableFunctionRecall,
         )
 
     private suspend fun handleLegacyTaskReply(

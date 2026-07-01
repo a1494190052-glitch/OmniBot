@@ -139,8 +139,6 @@ class ExecutionStep {
         return 'Open App';
       case 'click':
         return 'Click';
-      case 'click_node':
-        return 'Click Element';
       case 'long_press':
         return 'Long Press';
       case 'input_text':
@@ -152,7 +150,7 @@ class ExecutionStep {
       case 'finished':
         return 'Finished';
       case 'call_tool':
-        return 'Call Tool';
+        return 'Reusable command';
       default:
         return actionType.trim().isEmpty ? 'Action' : actionType.trim();
     }

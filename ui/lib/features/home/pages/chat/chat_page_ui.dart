@@ -1482,7 +1482,7 @@ mixin _ChatPageUiMixin on _ChatPageStateBase {
                               });
                             }
                           : null,
-                      // Keep OmniFlow/RunLog capabilities available through
+                      // Keep Function/RunLog capabilities available through
                       // agent tools and natural-language commands, without
                       // adding default composer shortcuts that diverge from
                       // the main chat interaction.

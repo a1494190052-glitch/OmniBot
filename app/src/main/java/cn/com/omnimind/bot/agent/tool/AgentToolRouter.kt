@@ -11,6 +11,7 @@ import cn.com.omnimind.bot.agent.tool.handlers.ImageGenerationToolHandler
 import cn.com.omnimind.bot.agent.tool.handlers.ImagePickerToolHandler
 import cn.com.omnimind.bot.agent.tool.handlers.MemoryLoadToolHandler
 import cn.com.omnimind.bot.agent.tool.handlers.MemoryToolHandler
+import cn.com.omnimind.bot.agent.tool.handlers.FunctionToolHandler
 import cn.com.omnimind.bot.agent.tool.handlers.PrivilegedToolHandler
 import cn.com.omnimind.bot.agent.tool.handlers.SharedHelper
 import cn.com.omnimind.bot.agent.tool.handlers.SkillsToolHandler
@@ -59,6 +60,7 @@ class AgentToolRouter(
         FileToolHandler(helper, workspaceManager),
         SkillsToolHandler(helper, workspaceManager),
         LocalActionToolHandler(actionExecutor),
+        FunctionToolHandler(context),
         SystemToolHandler(helper, scheduleToolBridge, workspaceManager),
         MemoryToolHandler(helper),
         MemoryLoadToolHandler(helper),

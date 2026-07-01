@@ -12,7 +12,7 @@ object AgentSystemPrompt {
         skillsRootAndroidPath: String,
         resolvedSkills: List<ResolvedSkillContext>,
         memoryContext: WorkspaceMemoryPromptContext?,
-        oobFunctionCandidateContext: String? = null,
+        functionCandidateContext: String? = null,
         locale: PromptLocale = AppLocaleManager.currentPromptLocale(),
     ): String {
         val visibleInstalledSkills = installedSkills.filter { skill ->
@@ -159,7 +159,7 @@ object AgentSystemPrompt {
             enUS = "Workspace memory is unavailable, so continue without memory context for this turn."
         ).resolve(locale)
 
-        val oobFunctionCandidateSection = oobFunctionCandidateContext
+        val functionCandidateSection = functionCandidateContext
             ?.takeIf { it.isNotBlank() }
             .orEmpty()
 
@@ -228,7 +228,7 @@ object AgentSystemPrompt {
                 $loadedSkillSection
                 $soulSection
                 $memorySection
-                $oobFunctionCandidateSection
+                $functionCandidateSection
             """.trimIndent()
             PromptLocale.EN_US -> """
                 You are an AI Agent operating inside an Alpine workspace environment, and you can also control the user's phone through tool calls.
@@ -294,7 +294,7 @@ object AgentSystemPrompt {
                 $loadedSkillSection
                 $soulSection
                 $memorySection
-                $oobFunctionCandidateSection
+                $functionCandidateSection
             """.trimIndent()
         }
     }

@@ -14,7 +14,7 @@ import cn.com.omnimind.bot.agent.AgentAiCapabilityConfigSync
 import cn.com.omnimind.bot.agent.ResolvedSkillContext
 import cn.com.omnimind.bot.manager.AssistsCoreManager
 import cn.com.omnimind.bot.mcp.VlmTaskRequest
-import cn.com.omnimind.bot.omniflow.function.OmniFlowFunctionService
+import cn.com.omnimind.bot.function.FunctionService
 import cn.com.omnimind.bot.util.AssistsUtil
 import cn.com.omnimind.bot.vlm.VlmToolCoordinator
 import cn.com.omnimind.bot.vlm.VlmToolOutcomeStatus
@@ -50,7 +50,9 @@ class DebugVlmRunLogReceiver : BroadcastReceiver() {
         val profileId = intent?.getStringExtra("profileId")?.trim().orEmpty()
         val modelId = intent?.getStringExtra("modelId")?.trim().orEmpty()
         val skillId = intent?.getStringExtra("skillId")?.trim().orEmpty()
-        val disableOmniFlowRecall = intent.readBooleanExtra(
+        val disableFunctionRecall = intent.readBooleanExtra(
+            "disableFunctionRecall",
+            "disable_function_recall",
             "disableOmniFlowRecall",
             "disable_omniflow_recall",
             "disableRecall",
@@ -79,7 +81,7 @@ class DebugVlmRunLogReceiver : BroadcastReceiver() {
                     startFromCurrent,
                     skipGoHome,
                     stepSkillGuidance,
-                    disableOmniFlowRecall,
+                    disableFunctionRecall,
                     parseOnly,
                     offlineSeed,
                 )
@@ -120,7 +122,7 @@ class DebugVlmRunLogReceiver : BroadcastReceiver() {
         startFromCurrent: Boolean,
         skipGoHome: Boolean,
         stepSkillGuidance: String,
-        disableOmniFlowRecall: Boolean,
+        disableFunctionRecall: Boolean,
         parseOnly: Boolean,
         offlineSeed: Boolean,
     ): Map<String, Any?> {
@@ -140,7 +142,7 @@ class DebugVlmRunLogReceiver : BroadcastReceiver() {
                 prelaunch = prelaunch,
                 startFromCurrent = startFromCurrent,
                 skipGoHome = skipGoHome,
-                disableOmniFlowRecall = disableOmniFlowRecall,
+                disableFunctionRecall = disableFunctionRecall,
                 waitTimeoutMs = waitTimeoutMs,
                 stepSkillGuidance = stepSkillGuidance,
                 configuredBinding = configuredBinding,
@@ -159,7 +161,7 @@ class DebugVlmRunLogReceiver : BroadcastReceiver() {
                     needSummary = false,
                     skipGoHome = startFromCurrent || skipGoHome,
                     stepSkillGuidance = stepSkillGuidance,
-                    disableOmniFlowRecall = disableOmniFlowRecall,
+                    disableFunctionRecall = disableFunctionRecall,
                 ),
                 scope = scope,
             )
@@ -173,7 +175,7 @@ class DebugVlmRunLogReceiver : BroadcastReceiver() {
                 "prelaunch" to prelaunch,
                 "startFromCurrent" to startFromCurrent,
                 "skipGoHome" to skipGoHome,
-                "disable_omniflow_recall" to disableOmniFlowRecall,
+                "disable_function_recall" to disableFunctionRecall,
                 "wait_timeout_ms" to waitTimeoutMs,
                 "step_skill_guidance_chars" to stepSkillGuidance.length,
                 "configured_binding" to configuredBinding,
@@ -193,7 +195,7 @@ class DebugVlmRunLogReceiver : BroadcastReceiver() {
                 needSummary = false,
                 skipGoHome = startFromCurrent || skipGoHome,
                 stepSkillGuidance = stepSkillGuidance,
-                disableOmniFlowRecall = disableOmniFlowRecall,
+                disableFunctionRecall = disableFunctionRecall,
             ),
             scope = scope,
         )
@@ -213,7 +215,7 @@ class DebugVlmRunLogReceiver : BroadcastReceiver() {
             if (register && timeline?.get("registered_as_function") == true) {
                 autoRegisteredConvertPayload(runId, timeline.orEmpty())
             } else {
-                OmniFlowFunctionService(context).convertRunLog(
+                FunctionService(context).convertRunLog(
                     mapOf(
                         "run_id" to runId,
                         "register" to register,
@@ -238,7 +240,7 @@ class DebugVlmRunLogReceiver : BroadcastReceiver() {
             "prelaunch" to prelaunch,
             "startFromCurrent" to startFromCurrent,
             "skipGoHome" to skipGoHome,
-            "disable_omniflow_recall" to disableOmniFlowRecall,
+            "disable_function_recall" to disableFunctionRecall,
             "wait_timeout_ms" to waitTimeoutMs,
             "step_skill_guidance_chars" to stepSkillGuidance.length,
             "configured_binding" to configuredBinding,
@@ -291,7 +293,7 @@ class DebugVlmRunLogReceiver : BroadcastReceiver() {
         prelaunch: Boolean,
         startFromCurrent: Boolean,
         skipGoHome: Boolean,
-        disableOmniFlowRecall: Boolean,
+        disableFunctionRecall: Boolean,
         waitTimeoutMs: Long?,
         stepSkillGuidance: String,
         configuredBinding: Map<String, Any?>?,
@@ -369,7 +371,7 @@ class DebugVlmRunLogReceiver : BroadcastReceiver() {
             "prelaunch" to prelaunch,
             "startFromCurrent" to startFromCurrent,
             "skipGoHome" to skipGoHome,
-            "disable_omniflow_recall" to disableOmniFlowRecall,
+            "disable_function_recall" to disableFunctionRecall,
             "wait_timeout_ms" to waitTimeoutMs,
             "step_skill_guidance_chars" to stepSkillGuidance.length,
             "configured_binding" to configuredBinding,

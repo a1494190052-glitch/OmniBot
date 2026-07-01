@@ -5,9 +5,9 @@ package cn.com.omnimind.bot.agent
  * adapters, and RunLog classification.
  *
  * Function and RunLog lifecycle tool names live in
- * [cn.com.omnimind.bot.omniflow.function.OmniFlowFunctionApi]. Replay-only taxonomy
- * such as `call_tool` stays in
- * [cn.com.omnimind.bot.runlog.RunLogReplayPolicy].
+ * [cn.com.omnimind.bot.function.FunctionApi]. Internal
+ * canonical actions such as `call_tool` live in
+ * [cn.com.omnimind.baselib.runlog.OobActionSchema].
  */
 object AgentToolNames {
     const val VLM_TASK = "vlm_task"

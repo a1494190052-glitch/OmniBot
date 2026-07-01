@@ -33,24 +33,24 @@ snapshots. The snapshot is a cache for timeline/list APIs; correctness-sensitive
 readers should treat snapshot plus later events as one logical record.
 
 Function specs live under the workspace store and are accessed through
-`OmniFlowFunctionService`.
+`FunctionService`.
 
 ## Code Map
 
 - RunLog storage: `baselib/src/main/java/cn/com/omnimind/baselib/runlog/InternalRunLogStore.kt`
-- RunLog conversion entry: `app/src/main/java/cn/com/omnimind/bot/omniflow/function/OmniFlowFunctionService.kt`
-- Function assembly: `app/src/main/java/cn/com/omnimind/bot/omniflow/function/OmniFlowFunctionCompiler.kt`
+- RunLog conversion entry: `app/src/main/java/cn/com/omnimind/bot/function/FunctionService.kt`
+- Function assembly: `app/src/main/java/cn/com/omnimind/bot/function/FunctionCompiler.kt`
 - Card-to-step compilation: `app/src/main/java/cn/com/omnimind/bot/runlog/RunLogReplayStepCompiler.kt`
 - Step cleanup: `app/src/main/java/cn/com/omnimind/bot/runlog/RunLogReplayStepNoiseNormalizer.kt`
-- Function management tools: `app/src/main/java/cn/com/omnimind/bot/omniflow/function/OmniFlowFunctionService.kt`
-- Function storage: `app/src/main/java/cn/com/omnimind/bot/omniflow/function/OmniFlowFunctionStore.kt`
-- Function replay: `app/src/main/java/cn/com/omnimind/bot/omniflow/function/OmniFlowFunctionRun.kt`
+- Function management tools: `app/src/main/java/cn/com/omnimind/bot/function/FunctionService.kt`
+- Function storage: `app/src/main/java/cn/com/omnimind/bot/function/FunctionStore.kt`
+- Function replay: `app/src/main/java/cn/com/omnimind/bot/function/FunctionRun.kt`
 - Canonical action executor: `assists/src/main/java/cn/com/omnimind/assists/task/vlmserver/ActionExecutor.kt`
 - Replay helper callbacks: `app/src/main/java/cn/com/omnimind/bot/runlog/ReplayHelper.kt`
 - Action transfer: `app/src/main/java/cn/com/omnimind/bot/runlog/ActionTransfer.kt`
-- Checker rules: `app/src/main/java/cn/com/omnimind/bot/runlog/OmniflowCheckerRule.kt`
+- Checker rules: `app/src/main/java/cn/com/omnimind/bot/runlog/ReplayCheckerRule.kt`
 - Flutter timeline UI: `ui/lib/features/task/pages/execution_history/run_log_timeline_page.dart`
-- Flutter display model: `ui/lib/features/task/run_log/omniflow_function_spec.dart`
+- Flutter display model: `ui/lib/features/task/run_log/function_spec.dart`
 
 ## Conversion Rules
 

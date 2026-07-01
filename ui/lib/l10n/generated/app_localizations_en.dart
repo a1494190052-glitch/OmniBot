@@ -220,14 +220,14 @@ class AppLocalizationsEn extends AppLocalizations {
   String get settingsMcpToggleFailed => 'Failed to toggle MCP';
 
   @override
-  String get settingsOobFunctionAsToolTitle => 'Reusable command recall';
+  String get settingsFunctionRecallTitle => 'Reusable command recall';
 
   @override
-  String get settingsOobFunctionAsToolSubtitle =>
+  String get settingsFunctionRecallSubtitle =>
       'Allow phone tasks to reuse saved commands when they match the current screen';
 
   @override
-  String get settingsOobFunctionAsToolToggleFailed =>
+  String get settingsFunctionRecallToggleFailed =>
       'Failed to update reusable command recall setting';
 
   @override
@@ -2626,7 +2626,7 @@ class AppLocalizationsEn extends AppLocalizations {
   String get executionActionFinished => 'Finished';
 
   @override
-  String get executionActionCallTool => 'Call Tool';
+  String get executionActionCallTool => 'Reusable command';
 
   @override
   String get executionActionDefault => 'Action';

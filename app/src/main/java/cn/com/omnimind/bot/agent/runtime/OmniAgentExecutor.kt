@@ -7,7 +7,7 @@ import cn.com.omnimind.bot.agent.workspace.memory.LongTermMemoryIndex
 import cn.com.omnimind.bot.agent.workspace.memory.MemoryRetrievalPipeline
 import cn.com.omnimind.bot.agent.workspace.memory.TurnMemoryLoadTracker
 import cn.com.omnimind.bot.mcp.RemoteMcpDiscoveryRegistry
-import cn.com.omnimind.bot.omniflow.function.OmniFlowFunctionApi
+import cn.com.omnimind.bot.function.FunctionApi
 import java.util.concurrent.atomic.AtomicReference
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -193,8 +193,8 @@ class OmniAgentExecutor(
                 visibleToolNames = visibleToolNames,
                 isLightweightToolProfile = isLightweightToolProfile,
             )
-            val oobFunctionCandidateContext = if (isLightweightToolProfile) {
-                OmniFlowFunctionApi.promptCandidateContext(
+            val functionCandidateContext = if (isLightweightToolProfile) {
+                FunctionApi.promptCandidateContext(
                     context = context,
                     locale = promptLocale,
                     goal = userMessage,
@@ -218,7 +218,7 @@ class OmniAgentExecutor(
                 skillsRootAndroidPath = workspaceManager.skillsRoot().absolutePath,
                 resolvedSkills = resolvedSkills,
                 memoryContext = promptMemoryContext,
-                oobFunctionCandidateContext = oobFunctionCandidateContext,
+                functionCandidateContext = functionCandidateContext,
                 locale = promptLocale,
                 prefetchedMemoryHits = prefetchedMemoryHits,
             )
@@ -330,7 +330,7 @@ class OmniAgentExecutor(
         skillsRootAndroidPath: String,
         resolvedSkills: List<ResolvedSkillContext>,
         memoryContext: WorkspaceMemoryPromptContext?,
-        oobFunctionCandidateContext: String?,
+        functionCandidateContext: String?,
         locale: cn.com.omnimind.baselib.i18n.PromptLocale,
         prefetchedMemoryHits: List<WorkspaceMemorySearchHit> = emptyList(),
     ): List<cn.com.omnimind.baselib.llm.ChatCompletionMessage> {
@@ -346,7 +346,7 @@ class OmniAgentExecutor(
             skillsRootAndroidPath = skillsRootAndroidPath,
             resolvedSkills = resolvedSkills,
             memoryContext = memoryContext,
-            oobFunctionCandidateContext = oobFunctionCandidateContext,
+            functionCandidateContext = functionCandidateContext,
             locale = locale,
         )
         messages.add(
@@ -375,7 +375,7 @@ class OmniAgentExecutor(
             entries = installedSkills
         )
         val forced = if (forceOmniflowSkill) {
-            installedSkills.firstOrNull { it.id == OmniFlowFunctionApi.SKILL_ID }
+            installedSkills.firstOrNull { it.id == FunctionApi.SKILL_ID }
                 ?.let { skill ->
                     listOf(
                         SkillMatchResult(

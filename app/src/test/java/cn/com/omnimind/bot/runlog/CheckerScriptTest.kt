@@ -2,6 +2,7 @@ package cn.com.omnimind.bot.runlog
 
 import cn.com.omnimind.assists.task.vlmserver.DeviceOperator
 import cn.com.omnimind.assists.task.vlmserver.OperationResult
+import cn.com.omnimind.bot.function.FunctionSchema
 import java.io.File
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
@@ -25,7 +26,7 @@ class CheckerScriptTest {
         val effects = ReplayHelper.runChecker(
             deviceOperator = backend,
             step = mapOf(
-                "executor" to RunLogReplayPolicy.EXECUTOR_OMNIFLOW,
+                "executor" to FunctionSchema.EXECUTOR_FUNCTION,
                 "tool" to "click",
                 "args" to mapOf("x" to 100, "y" to 100),
             ),
@@ -111,12 +112,12 @@ class CheckerScriptTest {
             }
         }
 
-        private fun skipOverlayRule(): OmniflowCheckerRule =
+        private fun skipOverlayRule(): ReplayCheckerRule =
             requireNotNull(
-                OmniflowCheckerRule.fromMap(
+                ReplayCheckerRule.fromMap(
                     mapOf(
                         "id" to "dismiss_transient_overlay",
-                        "phase" to OmniflowCheckerRule.PHASE_PRE_TRANSFER,
+                        "phase" to ReplayCheckerRule.PHASE_PRE_TRANSFER,
                         "when" to mapOf(
                             "xpath_exists" to "//node[@clickable='true' and contains(@text,'跳过')]",
                         ),

@@ -5,10 +5,10 @@ import cn.com.omnimind.assists.task.vlmserver.UIContext
 import cn.com.omnimind.assists.task.vlmserver.VLMRecallContextProvider
 import cn.com.omnimind.assists.task.vlmserver.VLMRecallContextRequest
 import cn.com.omnimind.baselib.util.OmniLog
-import cn.com.omnimind.bot.omniflow.function.OmniFlowFunctionJson.firstNonBlank
-import cn.com.omnimind.bot.omniflow.function.OmniFlowFunctionJson.listArg
-import cn.com.omnimind.bot.omniflow.function.OmniFlowFunctionJson.mapArg
-import cn.com.omnimind.bot.omniflow.function.OmniFlowFunctionService
+import cn.com.omnimind.bot.function.FunctionJson.firstNonBlank
+import cn.com.omnimind.bot.function.FunctionJson.listArg
+import cn.com.omnimind.bot.function.FunctionJson.mapArg
+import cn.com.omnimind.bot.function.FunctionService
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
@@ -25,7 +25,7 @@ class VlmFunctionRecall(context: Context) : VLMRecallContextProvider {
     private val config get() = VlmWorkspaceConfig.getInstance(appContext).get()
 
     override suspend fun enrich(request: VLMRecallContextRequest): UIContext {
-        if (request.disableOmniFlowRecall || !config.recallEnabled) {
+        if (request.disableFunctionRecall || !config.recallEnabled) {
             return request.context
         }
         val goal = request.context.activeGoal().ifBlank { request.context.overallTask }.trim()
@@ -46,7 +46,7 @@ class VlmFunctionRecall(context: Context) : VLMRecallContextProvider {
             )
         }
         val recallResult = runCatching {
-            OmniFlowFunctionService(appContext).recall(
+            FunctionService(appContext).recall(
                 mapOf(
                     "goal" to goal,
                     "current_package" to request.currentPackageName,
@@ -112,13 +112,15 @@ class VlmFunctionRecall(context: Context) : VLMRecallContextProvider {
         candidate: Map<String, Any?>,
         currentGoal: String,
     ): JsonObject? {
-        val functionId = firstNonBlank(candidate["function_id"]).takeIf { it.isNotEmpty() } ?: return null
-        // TODO: Consider semantic API-style names once naming, deduping, and stable mapping are settled.
+        val api = apiDescriptor(candidate)
+        val functionId = firstNonBlank(api["function_id"], candidate["function_id"]).takeIf { it.isNotEmpty() } ?: return null
         val toolName = "${config.recallToolNamePrefix}_${index + 1}"
-        val inputSchema = mapArg(candidate["inputSchema"]).ifEmpty {
-            mapArg(candidate["input_schema"])
+        val inputSchema = mapArg(api["parameters"]).ifEmpty {
+            mapArg(candidate["inputSchema"]).ifEmpty {
+                mapArg(candidate["input_schema"])
+            }
         }
-        val description = buildDescription(candidate, functionId, currentGoal)
+        val description = buildDescription(api = api, candidate = candidate, functionId = functionId, currentGoal = currentGoal)
         return buildJsonObject {
             put("type", "function")
             put("function_id", functionId)
@@ -131,25 +133,50 @@ class VlmFunctionRecall(context: Context) : VLMRecallContextProvider {
         }
     }
 
+    private fun apiDescriptor(candidate: Map<String, Any?>): Map<String, Any?> {
+        val api = mapArg(candidate["api"])
+        if (api.isNotEmpty()) return api
+        return linkedMapOf<String, Any?>(
+            "function_id" to firstNonBlank(candidate["function_id"]),
+            "name" to firstNonBlank(candidate["name"]),
+            "description" to firstNonBlank(candidate["description"], candidate["name"], candidate["function_id"]),
+            "parameters" to mapArg(candidate["inputSchema"]).ifEmpty { mapArg(candidate["input_schema"]) },
+        )
+    }
+
     private fun buildDescription(
+        api: Map<String, Any?>,
         candidate: Map<String, Any?>,
         functionId: String,
         currentGoal: String,
     ): String {
         val profile = mapArg(candidate["function_profile"])
         val purpose = firstNonBlank(profile["purpose"], profile["use_when"])
-        val description = firstNonBlank(candidate["description"], candidate["name"], purpose, functionId)
+        val apiName = firstNonBlank(api["name"], candidate["name"], functionId)
+        val description = firstNonBlank(api["description"], candidate["description"], apiName, purpose, functionId)
         val goal = currentGoal.replace(Regex("\\s+"), " ").trim().take(160)
+        val argumentNames = listArg(api["argument_names"]).ifEmpty {
+            mapArg(mapArg(api["parameters"])["properties"]).keys.toList()
+        }
+            .mapNotNull { it?.toString()?.trim()?.takeIf(String::isNotEmpty) }
+            .take(6)
+            .joinToString(", ")
         val steps = listArg(candidate["step_summaries"])
             .take(config.recallStepSummaryCount)
             .joinToString("; ") { it.toString() }
         return buildString {
-            append("Prefer this saved workflow over manual UI actions when it clearly matches the current goal. ")
-            append("If it does not clearly match, do not call this tool; continue with ordinary UI actions. ")
+            append("Saved Function API: ")
+            append(apiName.ifBlank { functionId }.take(80))
+            append(". Call it only when it clearly matches the current goal; otherwise continue with ordinary UI actions. ")
             if (goal.isNotBlank()) {
                 append("Current user goal: ")
                 append(goal)
-                append(". Fill tool arguments from the current user goal; pass only the argument value, not the whole sentence. ")
+                append(". Fill arguments from the current user goal; pass only the argument value, not the whole sentence. ")
+            }
+            if (argumentNames.isNotBlank()) {
+                append("Arguments: ")
+                append(argumentNames)
+                append(". ")
             }
             append(description.ifBlank { "Saved mobile workflow" }.take(config.recallDescriptionChars))
             if (steps.isNotBlank()) {

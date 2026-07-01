@@ -175,7 +175,7 @@ void main() {
         .setMockMethodCallHandler(assistCoreChannel, null);
   });
 
-  testWidgets('VLM OmniFlow runlog localizes fixed labels and opens detail', (
+  testWidgets('VLM Function runlog localizes fixed labels and opens detail', (
     tester,
   ) async {
     await tester.pumpWidget(
@@ -222,8 +222,8 @@ void main() {
     expect(find.text('复用指令动作'), findsOneWidget);
     expect(_richTextContaining('执行方式  复用指令'), findsOneWidget);
     expect(_richTextContaining('模型用量  1.23k · P1000/C234'), findsOneWidget);
-    expect(_richTextContaining('VLM 决策 / OmniFlow 本地重放'), findsNothing);
-    expect(_richTextContaining('重放  OmniFlow 本地'), findsNothing);
+    expect(_richTextContaining('VLM 决策 / 复用指令本地重放'), findsNothing);
+    expect(_richTextContaining('重放  复用指令本地'), findsNothing);
     expect(find.textContaining('Visual task'), findsNothing);
 
     await tester.scrollUntilVisible(
@@ -480,16 +480,16 @@ void main() {
                   'name': '已有 Settings 指令',
                   'description': '已经保存过的 Android 设置轨迹',
                 },
-                'registered_function_spec': _runLogReusableFunctionSpec(
+                'registered_function_spec': _runLogFunctionSpec(
                   name: '已有 Settings 指令',
                   description: '已经保存过的 Android 设置轨迹',
                 ),
               };
             }
-            if (call.method == 'getOobReusableFunction') {
+            if (call.method == 'getFunction') {
               return null;
             }
-            if (call.method == 'convertInternalRunLogToOobFunction') {
+            if (call.method == 'convertInternalRunLogToFunction') {
               throw Exception('saved runlog should not convert again');
             }
             return null;
@@ -510,7 +510,7 @@ void main() {
       expect(find.text('已保存为复用指令'), findsOneWidget);
       expect(
         methodCalls.where(
-          (call) => call.method == 'convertInternalRunLogToOobFunction',
+          (call) => call.method == 'convertInternalRunLogToFunction',
         ),
         isEmpty,
       );
@@ -537,10 +537,10 @@ void main() {
             if (call.method == 'getInternalRunLogTimeline') {
               return _runLogTimelinePayload(runId: 'run-vlm');
             }
-            if (call.method == 'getOobReusableFunction') {
+            if (call.method == 'getFunction') {
               return null;
             }
-            if (call.method == 'convertInternalRunLogToOobFunction') {
+            if (call.method == 'convertInternalRunLogToFunction') {
               return <String, dynamic>{
                 'success': true,
                 'created_function_id': 'fn_from_runlog',
@@ -587,7 +587,7 @@ void main() {
       await tester.pumpAndSettle();
 
       final convertCall = methodCalls.singleWhere(
-        (call) => call.method == 'convertInternalRunLogToOobFunction',
+        (call) => call.method == 'convertInternalRunLogToFunction',
       );
       final convertArgs = Map<String, dynamic>.from(
         convertCall.arguments as Map,
@@ -596,7 +596,7 @@ void main() {
       expect(convertArgs['register'], isTrue);
 
       final runCall = methodCalls.singleWhere(
-        (call) => call.method == 'runOobReusableFunction',
+        (call) => call.method == 'runFunction',
       );
       final runArgs = Map<String, dynamic>.from(runCall.arguments as Map);
       expect(runArgs['function_id'], 'fn_from_runlog');
@@ -618,7 +618,7 @@ void main() {
             if (call.method == 'getInternalRunLogTimeline') {
               return _runLogTimelinePayload(runId: 'run-vlm');
             }
-            if (call.method == 'convertInternalRunLogToOobFunction') {
+            if (call.method == 'convertInternalRunLogToFunction') {
               return <String, dynamic>{
                 'success': true,
                 'registered': true,
@@ -679,7 +679,7 @@ void main() {
       );
 
       final convertCalls = methodCalls
-          .where((call) => call.method == 'convertInternalRunLogToOobFunction')
+          .where((call) => call.method == 'convertInternalRunLogToFunction')
           .toList(growable: false);
       expect(convertCalls, hasLength(1));
       final convertArgs = Map<String, dynamic>.from(
@@ -761,14 +761,14 @@ void main() {
           if (call.method == 'getInternalRunLogTimeline') {
             return _runLogTimelinePayload(runId: 'run-vlm');
           }
-          if (call.method == 'convertInternalRunLogToOobFunction') {
+          if (call.method == 'convertInternalRunLogToFunction') {
             return <String, dynamic>{
               'success': true,
               'registered': true,
               'already_exists': true,
               'created_function_id': 'fn_from_runlog',
               'function_id': 'fn_from_runlog',
-              'function_spec': _runLogReusableFunctionSpec(
+              'function_spec': _runLogFunctionSpec(
                 name: '已有 Settings 指令',
                 description: '已经保存过的 Android 设置轨迹',
               ),
@@ -794,7 +794,7 @@ void main() {
     );
 
     final convertCalls = methodCalls
-        .where((call) => call.method == 'convertInternalRunLogToOobFunction')
+        .where((call) => call.method == 'convertInternalRunLogToFunction')
         .toList(growable: false);
     expect(convertCalls, hasLength(1));
     final convertArgs = Map<String, dynamic>.from(
@@ -803,7 +803,7 @@ void main() {
     expect(convertArgs['run_id'], 'run-vlm');
     expect(convertArgs['register'], isTrue);
     expect(
-      methodCalls.where((call) => call.method == 'getOobReusableFunction'),
+      methodCalls.where((call) => call.method == 'getFunction'),
       isEmpty,
     );
 
@@ -836,7 +836,7 @@ void main() {
             if (call.method == 'getInternalRunLogTimeline') {
               return _runLogTimelinePayload(runId: 'run-vlm');
             }
-            if (call.method == 'convertInternalRunLogToOobFunction') {
+            if (call.method == 'convertInternalRunLogToFunction') {
               final args = Map<String, dynamic>.from(call.arguments as Map);
               final agentVisible = args['agent_visible'] == true;
               return <String, dynamic>{
@@ -848,7 +848,7 @@ void main() {
                 'visibility': agentVisible
                     ? 'agent_reusable'
                     : 'manual_function',
-                'function_spec': _runLogReusableFunctionSpec(
+                'function_spec': _runLogFunctionSpec(
                   name: '打开 Settings',
                   description: '打开 Android 设置',
                   metadata: <String, dynamic>{
@@ -897,12 +897,12 @@ void main() {
       );
 
       expect(
-        methodCalls.where((call) => call.method == 'updateOobFunction'),
+        methodCalls.where((call) => call.method == 'updateFunction'),
         isEmpty,
       );
       expect(
         methodCalls.where(
-          (call) => call.method == 'registerOobReusableFunction',
+          (call) => call.method == 'registerFunction',
         ),
         isEmpty,
       );
@@ -919,22 +919,22 @@ void main() {
           if (call.method == 'getInternalRunLogTimeline') {
             return _runLogTimelinePayload(runId: 'run-vlm');
           }
-          if (call.method == 'getOobReusableFunction') {
+          if (call.method == 'getFunction') {
             return null;
           }
-          if (call.method == 'convertInternalRunLogToOobFunction') {
+          if (call.method == 'convertInternalRunLogToFunction') {
             return <String, dynamic>{
               'success': true,
               'registered': true,
               'created_function_id': 'fn_from_runlog',
               'function_id': 'fn_from_runlog',
-              'function_spec': _runLogReusableFunctionSpec(
+              'function_spec': _runLogFunctionSpec(
                 name: '打开 Settings',
                 description: '打开 Android 设置',
               ),
             };
           }
-          if (call.method == 'updateOobFunction') {
+          if (call.method == 'updateFunction') {
             final args = Map<String, dynamic>.from(call.arguments as Map);
             expect(args['function_id'], 'fn_from_runlog');
             expect(args['run_id'], 'run-vlm');
@@ -950,21 +950,21 @@ void main() {
               'saved': true,
               'function_kind': 'oob_reusable_function',
               'asset_state': 'native_local',
-              'updated_function': _runLogReusableFunctionSpec(
+              'updated_function': _runLogFunctionSpec(
                 name: '打开系统设置',
                 description: '打开 Android 系统设置页，适合需要进入设置入口时复用。',
                 stepTitle: '打开设置应用',
               ),
             };
           }
-          if (call.method == 'registerOobReusableFunction') {
+          if (call.method == 'registerFunction') {
             final args = Map<String, dynamic>.from(call.arguments as Map);
             final spec = Map<String, dynamic>.from(
               args['function_spec'] as Map,
             );
             expect(spec['agent_visible'], isTrue);
             expect(spec['visibility'], 'agent_reusable');
-            return _registerOobFunctionResult(spec);
+            return _registerFunctionResult(spec);
           }
           return null;
         });
@@ -1009,11 +1009,11 @@ void main() {
     expect(find.text('打开设置应用', skipOffstage: false), findsWidgets);
     expect(methodCalls.where((call) => call.method == 'postLLMChat'), isEmpty);
     expect(
-      methodCalls.where((call) => call.method == 'updateOobFunction'),
+      methodCalls.where((call) => call.method == 'updateFunction'),
       hasLength(1),
     );
     expect(
-      methodCalls.where((call) => call.method == 'registerOobReusableFunction'),
+      methodCalls.where((call) => call.method == 'registerFunction'),
       hasLength(1),
     );
     expect(find.text('已增强并保存', skipOffstage: false), findsOneWidget);
@@ -1029,27 +1029,27 @@ void main() {
           if (call.method == 'getInternalRunLogTimeline') {
             return _runLogTimelinePayload(runId: 'run-vlm');
           }
-          if (call.method == 'getOobReusableFunction') {
+          if (call.method == 'getFunction') {
             return null;
           }
-          if (call.method == 'convertInternalRunLogToOobFunction') {
+          if (call.method == 'convertInternalRunLogToFunction') {
             return <String, dynamic>{
               'success': true,
               'registered': true,
               'created_function_id': 'fn_from_runlog',
               'function_id': 'fn_from_runlog',
-              'function_spec': _runLogReusableFunctionSpec(
+              'function_spec': _runLogFunctionSpec(
                 name: '打开 Settings',
                 description: '打开 Android 设置',
               ),
             };
           }
-          if (call.method == 'updateOobFunction') {
+          if (call.method == 'updateFunction') {
             return updateCompleter.future;
           }
-          if (call.method == 'registerOobReusableFunction') {
+          if (call.method == 'registerFunction') {
             final args = Map<String, dynamic>.from(call.arguments as Map);
-            return _registerOobFunctionResult(
+            return _registerFunctionResult(
               Map<String, dynamic>.from(args['function_spec'] as Map),
             );
           }
@@ -1090,7 +1090,7 @@ void main() {
       'saved': true,
       'function_kind': 'oob_reusable_function',
       'asset_state': 'native_local',
-      'updated_function': _runLogReusableFunctionSpec(
+      'updated_function': _runLogFunctionSpec(
         name: '打开系统设置',
         description: '打开 Android 系统设置页，适合需要进入设置入口时复用。',
         stepTitle: '打开设置应用',
@@ -1113,10 +1113,10 @@ void main() {
             if (call.method == 'getInternalRunLogTimeline') {
               return _runLogTimelinePayload(runId: 'run-vlm');
             }
-            if (call.method == 'getOobReusableFunction') {
+            if (call.method == 'getFunction') {
               return null;
             }
-            if (call.method == 'convertInternalRunLogToOobFunction') {
+            if (call.method == 'convertInternalRunLogToFunction') {
               final args = Map<String, dynamic>.from(call.arguments as Map);
               final agentVisible = args['agent_visible'] == true;
               return <String, dynamic>{
@@ -1128,7 +1128,7 @@ void main() {
                 'visibility': agentVisible
                     ? 'agent_reusable'
                     : 'manual_function',
-                'function_spec': _runLogReusableFunctionSpec(
+                'function_spec': _runLogFunctionSpec(
                   name: '打开 Settings',
                   description: '打开 Android 设置',
                   metadata: <String, dynamic>{
@@ -1141,15 +1141,15 @@ void main() {
                 ),
               };
             }
-            if (call.method == 'updateOobFunction') {
+            if (call.method == 'updateFunction') {
               return updateCompleter.future;
             }
             if (call.method == 'createAgentTask') {
               return 'SUCCESS';
             }
-            if (call.method == 'registerOobReusableFunction') {
+            if (call.method == 'registerFunction') {
               final args = Map<String, dynamic>.from(call.arguments as Map);
-              return _registerOobFunctionResult(
+              return _registerFunctionResult(
                 Map<String, dynamic>.from(args['function_spec'] as Map),
               );
             }
@@ -1198,7 +1198,7 @@ void main() {
       await tester.pump();
 
       final saveCalls = methodCalls
-          .where((call) => call.method == 'convertInternalRunLogToOobFunction')
+          .where((call) => call.method == 'convertInternalRunLogToFunction')
           .toList(growable: false);
       expect(saveCalls, hasLength(2));
       final saveArgs = Map<String, dynamic>.from(
@@ -1206,7 +1206,7 @@ void main() {
       );
       expect(saveArgs['name'], '打开设置修改版');
       expect(
-        methodCalls.where((call) => call.method == 'updateOobFunction'),
+        methodCalls.where((call) => call.method == 'updateFunction'),
         hasLength(1),
       );
 
@@ -1216,7 +1216,7 @@ void main() {
       await tester.pump();
 
       expect(
-        methodCalls.where((call) => call.method == 'updateOobFunction'),
+        methodCalls.where((call) => call.method == 'updateFunction'),
         hasLength(1),
       );
       expect(
@@ -1224,7 +1224,7 @@ void main() {
         isEmpty,
       );
       final functionRunCall = methodCalls.singleWhere(
-        (call) => call.method == 'runOobReusableFunction',
+        (call) => call.method == 'runFunction',
       );
       final functionRunArgs = Map<String, dynamic>.from(
         functionRunCall.arguments as Map,
@@ -1236,7 +1236,7 @@ void main() {
       await tester.pump();
 
       final convertCalls = methodCalls
-          .where((call) => call.method == 'convertInternalRunLogToOobFunction')
+          .where((call) => call.method == 'convertInternalRunLogToFunction')
           .toList(growable: false);
       expect(convertCalls, hasLength(3));
       final registerArgs = Map<String, dynamic>.from(
@@ -1244,7 +1244,7 @@ void main() {
       );
       expect(registerArgs['agent_visible'], isTrue);
       expect(
-        methodCalls.where((call) => call.method == 'updateOobFunction'),
+        methodCalls.where((call) => call.method == 'updateFunction'),
         hasLength(1),
       );
 
@@ -1255,7 +1255,7 @@ void main() {
         'saved': false,
         'function_kind': 'oob_reusable_function',
         'asset_state': 'native_local',
-        'updated_function': _runLogReusableFunctionSpec(
+        'updated_function': _runLogFunctionSpec(
           name: '打开 Settings',
           description: '打开 Android 设置',
         ),
@@ -1275,22 +1275,22 @@ void main() {
           if (call.method == 'getInternalRunLogTimeline') {
             return _runLogTimelinePayload(runId: 'run-vlm');
           }
-          if (call.method == 'getOobReusableFunction') {
+          if (call.method == 'getFunction') {
             return null;
           }
-          if (call.method == 'convertInternalRunLogToOobFunction') {
+          if (call.method == 'convertInternalRunLogToFunction') {
             return <String, dynamic>{
               'success': true,
               'registered': true,
               'created_function_id': 'fn_from_runlog',
               'function_id': 'fn_from_runlog',
-              'function_spec': _runLogReusableFunctionSpec(
+              'function_spec': _runLogFunctionSpec(
                 name: '打开 Settings',
                 description: '打开 Android 设置',
               ),
             };
           }
-          if (call.method == 'updateOobFunction') {
+          if (call.method == 'updateFunction') {
             final args = Map<String, dynamic>.from(call.arguments as Map);
             expect(args['function_id'], 'fn_from_runlog');
             expect(args['mode'], 'enhance');
@@ -1305,19 +1305,19 @@ void main() {
               'saved': false,
               'function_kind': 'oob_reusable_function',
               'asset_state': 'native_local',
-              'updated_function': _runLogReusableFunctionSpec(
+              'updated_function': _runLogFunctionSpec(
                 name: '打开 Settings',
                 description: '打开 Android 设置',
               ),
             };
           }
-          if (call.method == 'registerOobReusableFunction') {
+          if (call.method == 'registerFunction') {
             final args = Map<String, dynamic>.from(call.arguments as Map);
             final spec = Map<String, dynamic>.from(
               args['function_spec'] as Map,
             );
             expect(spec['agent_visible'], isTrue);
-            return _registerOobFunctionResult(spec);
+            return _registerFunctionResult(spec);
           }
           return null;
         });
@@ -1363,22 +1363,22 @@ void main() {
           if (call.method == 'getInternalRunLogTimeline') {
             return _runLogTimelinePayload(runId: 'run-vlm');
           }
-          if (call.method == 'getOobReusableFunction') {
+          if (call.method == 'getFunction') {
             return null;
           }
-          if (call.method == 'convertInternalRunLogToOobFunction') {
+          if (call.method == 'convertInternalRunLogToFunction') {
             return <String, dynamic>{
               'success': true,
               'registered': true,
               'created_function_id': 'fn_from_runlog',
               'function_id': 'fn_from_runlog',
-              'function_spec': _runLogReusableFunctionSpec(
+              'function_spec': _runLogFunctionSpec(
                 name: '打开 Settings',
                 description: '打开 Android 设置',
               ),
             };
           }
-          if (call.method == 'updateOobFunction') {
+          if (call.method == 'updateFunction') {
             return <String, dynamic>{
               'success': false,
               'error_code': 'AGENT_ANALYSIS_EMPTY_RESPONSE',
@@ -1418,7 +1418,7 @@ void main() {
     await _pumpUntilFound(tester, find.text('处理失败', skipOffstage: false));
     expect(find.text('已检查，无需修改', skipOffstage: false), findsNothing);
     expect(
-      methodCalls.where((call) => call.method == 'updateOobFunction'),
+      methodCalls.where((call) => call.method == 'updateFunction'),
       hasLength(1),
     );
     expect(methodCalls.where((call) => call.method == 'postLLMChat'), isEmpty);
@@ -1434,22 +1434,22 @@ void main() {
           if (call.method == 'getInternalRunLogTimeline') {
             return _runLogTimelinePayload(runId: 'run-vlm');
           }
-          if (call.method == 'getOobReusableFunction') {
+          if (call.method == 'getFunction') {
             return null;
           }
-          if (call.method == 'convertInternalRunLogToOobFunction') {
+          if (call.method == 'convertInternalRunLogToFunction') {
             return <String, dynamic>{
               'success': true,
               'registered': true,
               'created_function_id': 'fn_from_runlog',
               'function_id': 'fn_from_runlog',
-              'function_spec': _runLogReusableFunctionSpec(
+              'function_spec': _runLogFunctionSpec(
                 name: '打开 Settings',
                 description: '打开 Android 设置',
               ),
             };
           }
-          if (call.method == 'updateOobFunction') {
+          if (call.method == 'updateFunction') {
             return <String, dynamic>{
               'success': false,
               'error_code': 'AGENT_ANALYSIS_UNPARSEABLE',
@@ -1490,7 +1490,7 @@ void main() {
     expect(find.text('已检查，无需修改', skipOffstage: false), findsNothing);
     expect(find.text('已增强并保存', skipOffstage: false), findsNothing);
     expect(
-      methodCalls.where((call) => call.method == 'updateOobFunction'),
+      methodCalls.where((call) => call.method == 'updateFunction'),
       hasLength(1),
     );
     expect(methodCalls.where((call) => call.method == 'postLLMChat'), isEmpty);
@@ -1506,22 +1506,22 @@ void main() {
           if (call.method == 'getInternalRunLogTimeline') {
             return _runLogTimelinePayload(runId: 'run-vlm');
           }
-          if (call.method == 'getOobReusableFunction') {
+          if (call.method == 'getFunction') {
             return null;
           }
-          if (call.method == 'convertInternalRunLogToOobFunction') {
+          if (call.method == 'convertInternalRunLogToFunction') {
             return <String, dynamic>{
               'success': true,
               'registered': true,
               'created_function_id': 'fn_from_runlog',
               'function_id': 'fn_from_runlog',
-              'function_spec': _runLogReusableFunctionSpec(
+              'function_spec': _runLogFunctionSpec(
                 name: '打开 Settings',
                 description: '打开 Android 设置',
               ),
             };
           }
-          if (call.method == 'updateOobFunction') {
+          if (call.method == 'updateFunction') {
             final args = Map<String, dynamic>.from(call.arguments as Map);
             expect(args['function_id'], 'fn_from_runlog');
             expect(args['mode'], 'enhance');
@@ -1536,20 +1536,20 @@ void main() {
               'saved': true,
               'function_kind': 'oob_reusable_function',
               'asset_state': 'native_local',
-              'updated_function': _runLogReusableFunctionSpec(
+              'updated_function': _runLogFunctionSpec(
                 name: '打开系统设置',
                 description: '打开 Android 系统设置页，适合需要进入设置入口时复用。',
                 stepTitle: '打开设置应用',
               ),
             };
           }
-          if (call.method == 'registerOobReusableFunction') {
+          if (call.method == 'registerFunction') {
             final args = Map<String, dynamic>.from(call.arguments as Map);
             final spec = Map<String, dynamic>.from(
               args['function_spec'] as Map,
             );
             expect(spec['agent_visible'], isTrue);
-            return _registerOobFunctionResult(spec);
+            return _registerFunctionResult(spec);
           }
           return null;
         });
@@ -1583,11 +1583,11 @@ void main() {
 
     expect(methodCalls.where((call) => call.method == 'postLLMChat'), isEmpty);
     expect(
-      methodCalls.where((call) => call.method == 'updateOobFunction'),
+      methodCalls.where((call) => call.method == 'updateFunction'),
       hasLength(1),
     );
     expect(
-      methodCalls.where((call) => call.method == 'registerOobReusableFunction'),
+      methodCalls.where((call) => call.method == 'registerFunction'),
       hasLength(1),
     );
     expect(find.text('已增强并保存', skipOffstage: false), findsOneWidget);
@@ -1684,7 +1684,7 @@ Map<String, dynamic> _nestedVlmRunLogTimelinePayload() {
   };
 }
 
-Map<String, dynamic> _runLogReusableFunctionSpec({
+Map<String, dynamic> _runLogFunctionSpec({
   required String name,
   required String description,
   String? stepTitle,
@@ -1719,7 +1719,7 @@ Map<String, dynamic> _runLogReusableFunctionSpec({
   };
 }
 
-Map<String, dynamic> _registerOobFunctionResult(Map<String, dynamic> spec) {
+Map<String, dynamic> _registerFunctionResult(Map<String, dynamic> spec) {
   final functionId = (spec['function_id'] ?? 'fn_from_runlog').toString();
   return <String, dynamic>{
     'success': true,

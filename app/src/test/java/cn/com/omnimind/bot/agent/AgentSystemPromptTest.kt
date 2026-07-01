@@ -82,7 +82,7 @@ class AgentSystemPromptTest {
     }
 
     @Test
-    fun buildOmitsEmptyOmniFlowCandidatePlaceholderFromDefaultPrompt() {
+    fun buildOmitsEmptyFunctionCandidatePlaceholderFromDefaultPrompt() {
         val prompt = AgentSystemPrompt.build(
             workspace = AgentWorkspaceDescriptor(
                 id = "conversation-1",
@@ -102,12 +102,12 @@ class AgentSystemPromptTest {
             locale = PromptLocale.EN_US
         )
 
-        assertFalse(prompt.contains("No OmniFlow Function candidates matched this turn"))
-        assertFalse(prompt.contains("本轮没有命中的 OmniFlow Function 候选"))
+        assertFalse(prompt.contains("No Function candidates matched this turn"))
+        assertFalse(prompt.contains("本轮没有命中的 Function 候选"))
     }
 
     @Test
-    fun buildIncludesOmniFlowCandidateContextWhenProvided() {
+    fun buildIncludesFunctionCandidateContextWhenProvided() {
         val prompt = AgentSystemPrompt.build(
             workspace = AgentWorkspaceDescriptor(
                 id = "conversation-1",
@@ -124,15 +124,15 @@ class AgentSystemPromptTest {
             skillsRootAndroidPath = "/data/user/0/cn.com.omnimind.bot/workspace/.omnibot/skills",
             resolvedSkills = emptyList(),
             memoryContext = null,
-            oobFunctionCandidateContext = "OmniFlow runtime recall is available through vlm_task.",
+            functionCandidateContext = "Function recall is available through vlm_task.",
             locale = PromptLocale.EN_US
         )
 
-        assertTrue(prompt.contains("OmniFlow runtime recall is available through vlm_task."))
+        assertTrue(prompt.contains("Function recall is available through vlm_task."))
     }
 
     @Test
-    fun installedSkillIndexShowsOmniFlowAsSingleRuntimeEntry() {
+    fun installedSkillIndexShowsFunctionAsSingleRuntimeEntry() {
         val prompt = AgentSystemPrompt.build(
             workspace = AgentWorkspaceDescriptor(
                 id = "conversation-1",
@@ -173,13 +173,13 @@ class AgentSystemPromptTest {
     }
 
     @Test
-    fun defaultAgentExecutorOnlyPrefetchesOmniFlowCandidatesForLightweightProfile() {
+    fun defaultAgentExecutorOnlyPrefetchesFunctionCandidatesForLightweightProfile() {
         val source = File(
             "src/main/java/cn/com/omnimind/bot/agent/runtime/OmniAgentExecutor.kt"
         ).readText()
 
         assertTrue(source.contains("if (isLightweightToolProfile)"))
-        assertTrue(source.contains("OmniFlowFunctionApi.promptCandidateContext"))
+        assertTrue(source.contains("FunctionApi.promptCandidateContext"))
         assertTrue(source.contains("currentPackageName = currentPackageName"))
         assertTrue(source.contains("} else {\n                null\n            }"))
     }

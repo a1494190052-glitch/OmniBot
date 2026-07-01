@@ -15,7 +15,7 @@ class McpRoutesLegacyVlmTaskTest {
                 packageName = "com.android.settings",
                 needSummary = false,
                 skipGoHome = true,
-                disableOmniFlowRecall = true,
+                disableFunctionRecall = true,
             )
         )
 
@@ -26,6 +26,6 @@ class McpRoutesLegacyVlmTaskTest {
         assertEquals("com.android.settings", args["packageName"])
         assertEquals(false, args["needSummary"])
         assertEquals(true, args["skipGoHome"])
-        assertEquals(true, args["disableOmniFlowRecall"])
+        assertEquals(true, args["disableFunctionRecall"])
     }
 }

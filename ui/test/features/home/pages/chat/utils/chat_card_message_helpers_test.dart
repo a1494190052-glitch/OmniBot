@@ -15,7 +15,7 @@ void main() {
 
   test('upserts function run progress as a shared summary card', () {
     final messages = <ChatMessageModel>[];
-    final started = OobFunctionRunProgressEvent.fromMap(<String, dynamic>{
+    final started = FunctionRunProgressEvent.fromMap(<String, dynamic>{
       'task_id': 'task-1',
       'run_id': 'run-1',
       'run_log_id': 'run-1',
@@ -25,16 +25,16 @@ void main() {
     });
 
     expect(
-      ChatCardMessageHelpers.upsertOobFunctionRunProgress(messages, started),
+      ChatCardMessageHelpers.upsertFunctionRunProgress(messages, started),
       isTrue,
     );
 
     expect(messages, hasLength(1));
     expect(messages.single.cardData?['type'], kAgentToolSummaryCardType);
-    expect(messages.single.cardData?['toolType'], 'oob_function');
+    expect(messages.single.cardData?['toolType'], 'reusable_function');
     expect(messages.single.cardData?['runLogId'], 'run-1');
 
-    final completed = OobFunctionRunProgressEvent.fromMap(<String, dynamic>{
+    final completed = FunctionRunProgressEvent.fromMap(<String, dynamic>{
       'task_id': 'task-1',
       'run_id': 'run-1',
       'run_log_id': 'run-1',
@@ -43,7 +43,7 @@ void main() {
       'message': '任务已完成',
     });
     expect(
-      ChatCardMessageHelpers.upsertOobFunctionRunProgress(messages, completed),
+      ChatCardMessageHelpers.upsertFunctionRunProgress(messages, completed),
       isTrue,
     );
 
@@ -55,7 +55,7 @@ void main() {
   test('shows manually stopped function run as stopped instead of interrupted', () {
     AppTextLocalizer.setResolvedLocale(const Locale('zh'));
     final messages = <ChatMessageModel>[];
-    final stopped = OobFunctionRunProgressEvent.fromMap(<String, dynamic>{
+    final stopped = FunctionRunProgressEvent.fromMap(<String, dynamic>{
       'task_id': 'task-stop',
       'run_id': 'run-stop',
       'function_id': 'open_settings',
@@ -64,7 +64,7 @@ void main() {
     });
 
     expect(
-      ChatCardMessageHelpers.upsertOobFunctionRunProgress(messages, stopped),
+      ChatCardMessageHelpers.upsertFunctionRunProgress(messages, stopped),
       isTrue,
     );
 

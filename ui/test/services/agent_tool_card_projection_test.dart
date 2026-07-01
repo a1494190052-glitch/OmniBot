@@ -225,7 +225,7 @@ void main() {
           'toolCallId': 'parent-step-1-call-tool',
           'toolName': 'call_tool',
           'displayName': '复用指令',
-          'toolType': 'oob_function',
+          'toolType': 'reusable_function',
           'toolTitle': '复用指令：open_settings',
           'argsJson': argsJson,
           'status': 'running',
@@ -243,7 +243,7 @@ void main() {
           'toolCallId': 'parent-step-1-call-tool',
           'toolName': 'call_tool',
           'displayName': '复用指令',
-          'toolType': 'oob_function',
+          'toolType': 'reusable_function',
           'toolTitle': '复用指令：open_settings',
           'summary': '复用指令执行完成：open_settings',
           'resultPreviewJson': '{"function_id":"open_settings","success":true}',
@@ -256,7 +256,7 @@ void main() {
     expect(messages, hasLength(1));
     final card = messages.single.cardData!;
     expect(card['toolName'], 'call_tool');
-    expect(card['toolType'], 'oob_function');
+    expect(card['toolType'], 'reusable_function');
     expect(card['toolTitle'], '复用指令：open_settings');
     expect(card['argsJson'], argsJson);
     expect(card['status'], 'success');

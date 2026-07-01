@@ -36,7 +36,7 @@ class VlmToolHandler(
         val maxSteps: Int?,
         val waitTimeoutMs: Long?,
         val model: String?,
-        val disableOmniFlowRecall: Boolean,
+        val disableFunctionRecall: Boolean,
         val parseOnly: Boolean = false,
     )
 
@@ -91,8 +91,10 @@ class VlmToolHandler(
             val maxSteps = firstInt(args, "maxSteps", "max_steps")
             val waitTimeoutMs = firstWaitTimeoutMs(args)
             val model = firstString(args, "model", "modelId", "model_id")
-            val disableOmniFlowRecall = firstBoolean(
+            val disableFunctionRecall = firstBoolean(
                 args,
+                "disableFunctionRecall",
+                "disable_function_recall",
                 "disableOmniFlowRecall",
                 "disable_omniflow_recall",
                 "disableRecall",
@@ -107,7 +109,7 @@ class VlmToolHandler(
                 maxSteps = maxSteps,
                 waitTimeoutMs = waitTimeoutMs,
                 model = model?.takeIf { it.isNotBlank() },
-                disableOmniFlowRecall = disableOmniFlowRecall,
+                disableFunctionRecall = disableFunctionRecall,
                 parseOnly = parseOnly,
             )
             val appNameToPackage = runtimeContextRepository.getAppNameToPackageMap()
@@ -157,7 +159,7 @@ class VlmToolHandler(
                         needSummary = safeArgs.needSummary,
                         skipGoHome = safeArgs.startFromCurrent,
                         stepSkillGuidance = stepSkillGuidance,
-                        disableOmniFlowRecall = safeArgs.disableOmniFlowRecall,
+                        disableFunctionRecall = safeArgs.disableFunctionRecall,
                     ),
                     scope = scope,
                 )
@@ -183,7 +185,7 @@ class VlmToolHandler(
                     needSummary = safeArgs.needSummary,
                     skipGoHome = safeArgs.startFromCurrent,
                     stepSkillGuidance = stepSkillGuidance,
-                    disableOmniFlowRecall = safeArgs.disableOmniFlowRecall,
+                    disableFunctionRecall = safeArgs.disableFunctionRecall,
                 ),
                 scope = scope,
                 taskIdOverride = vlmTaskId,

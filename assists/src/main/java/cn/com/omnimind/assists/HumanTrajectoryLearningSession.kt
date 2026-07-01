@@ -69,7 +69,7 @@ data class HumanTrajectoryLearningStatus(
 /**
  * Records a full human-operated trajectory and stores it as an Internal RunLog.
  *
- * The app layer owns conversion from this RunLog into an OOB reusable function;
+ * The app layer owns conversion from this RunLog into a saved Function;
  * this assists-level session only records, completes, and exposes the result so
  * UIKit can finish the session from the floating UI without depending on app.
  */

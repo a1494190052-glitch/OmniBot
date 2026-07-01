@@ -27,9 +27,9 @@ import cn.com.omnimind.bot.agent.NoOpAgentRunControl
 import cn.com.omnimind.bot.agent.SubagentDispatcher
 import cn.com.omnimind.bot.agent.ToolExecutionResult
 import cn.com.omnimind.bot.agent.WorkspaceMemoryService
-import cn.com.omnimind.bot.omniflow.function.OmniFlowFunctionRun
-import cn.com.omnimind.bot.omniflow.function.OmniFlowFunctionApi
-import cn.com.omnimind.bot.omniflow.function.OmniFlowFunctionService
+import cn.com.omnimind.bot.function.FunctionRun
+import cn.com.omnimind.bot.function.FunctionApi
+import cn.com.omnimind.bot.function.FunctionService
 import cn.com.omnimind.bot.runlog.RunLogPagePackageInference
 import cn.com.omnimind.bot.util.AssistsUtil
 import com.google.gson.GsonBuilder
@@ -113,7 +113,7 @@ class DebugAgentFunctionManagementReceiver : BroadcastReceiver() {
             context = context,
             discoveredServers = emptyList(),
             conversationMode = AgentConversationModePolicy.NORMAL_MODE,
-            visibleToolNames = OmniFlowFunctionApi.toolNames,
+            visibleToolNames = FunctionApi.toolNames,
             isLightweightToolProfile = true,
         )
         lateinit var router: AgentToolRouter
@@ -130,7 +130,7 @@ class DebugAgentFunctionManagementReceiver : BroadcastReceiver() {
                     onReasoningUpdate: (suspend (String) -> Unit)?,
                     onContentUpdate: (suspend (String) -> Unit)?,
                 ): ChatCompletionTurn {
-                    error("Subagent dispatch is not part of debug OmniFlow validation")
+                    error("Subagent dispatch is not part of debug Function validation")
                 }
             },
             toolExecutorProvider = { router },
@@ -159,7 +159,7 @@ class DebugAgentFunctionManagementReceiver : BroadcastReceiver() {
         )
 
         val exposedTools = registry.toolsForModel.map { it.function.name }.sorted()
-        val expectedTools = OmniFlowFunctionApi.toolNames.sorted()
+        val expectedTools = FunctionApi.toolNames.sorted()
         val missingTools = expectedTools.filterNot { it in exposedTools }
         val unexpectedTools = exposedTools.filterNot { it in expectedTools }
         val records = mutableListOf<Map<String, Any?>>()
@@ -223,7 +223,7 @@ class DebugAgentFunctionManagementReceiver : BroadcastReceiver() {
         )
         if (shouldRun) {
             val runStartedAt = System.currentTimeMillis()
-            val runPayload = OmniFlowFunctionRun(context).runFunction(
+            val runPayload = FunctionRun(context).runFunction(
                 mapOf(
                     "function_id" to functionId,
                     "goal" to "Validate debug Function execution through runtime replay.",
@@ -264,14 +264,14 @@ class DebugAgentFunctionManagementReceiver : BroadcastReceiver() {
         return linkedMapOf<String, Any?>(
             "success" to success,
             "source" to "debug_agent_tool_registry_router_omniflow",
-            "agent_path" to "AgentToolRegistry -> AgentToolRouter -> OmniFlowFunctionRun",
+            "agent_path" to "AgentToolRegistry -> AgentToolRouter -> FunctionRun",
             "function_id" to functionId,
             "target_package" to targetPackage,
             "run_requested" to shouldRun,
             "current_package_before" to currentBefore,
             "current_package_after" to currentAfter,
             "foreground_package_matched" to foregroundMatched,
-            "tool_profile" to OmniFlowFunctionApi.PROFILE,
+            "tool_profile" to FunctionApi.PROFILE,
             "exposed_tools" to exposedTools,
             "missing_tools" to missingTools,
             "unexpected_tools" to unexpectedTools,

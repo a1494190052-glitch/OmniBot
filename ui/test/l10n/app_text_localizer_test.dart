@@ -31,8 +31,8 @@ void main() {
 
   test('localized reusable Function surfaces avoid raw function wording', () {
     final checkedKeys = const [
-      'settingsOobFunctionAsToolTitle',
-      'settingsOobFunctionAsToolSubtitle',
+      'settingsFunctionRecallTitle',
+      'settingsFunctionRecallSubtitle',
       'memoryCommandsTitle',
       'omniflowPanelDesc',
       'omniflowFunctionList',

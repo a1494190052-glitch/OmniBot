@@ -942,7 +942,7 @@ class UtgManualRunResult {
   }
 }
 
-class OobFunctionRunProgressEvent {
+class FunctionRunProgressEvent {
   final String status;
   final String runId;
   final String taskId;
@@ -956,7 +956,7 @@ class OobFunctionRunProgressEvent {
   final int timestampMs;
   final Map<String, dynamic> rawJson;
 
-  const OobFunctionRunProgressEvent({
+  const FunctionRunProgressEvent({
     required this.status,
     required this.runId,
     required this.taskId,
@@ -971,11 +971,11 @@ class OobFunctionRunProgressEvent {
     required this.rawJson,
   });
 
-  factory OobFunctionRunProgressEvent.fromMap(Map<dynamic, dynamic>? map) {
+  factory FunctionRunProgressEvent.fromMap(Map<dynamic, dynamic>? map) {
     final raw = (map ?? const <dynamic, dynamic>{}).map(
       (key, value) => MapEntry(key.toString(), value),
     );
-    return OobFunctionRunProgressEvent(
+    return FunctionRunProgressEvent(
       status: (raw['status'] ?? '').toString().trim(),
       runId: _firstNonBlank([
         raw['run_log_id'],
@@ -1429,7 +1429,7 @@ class UtgRunLogsSnapshot {
   }
 }
 
-class OobReusableFunctionLastRunLog {
+class FunctionLastRunLog {
   final bool success;
   final String functionId;
   final String runId;
@@ -1438,7 +1438,7 @@ class OobReusableFunctionLastRunLog {
   final String errorMessage;
   final Map<String, dynamic> rawJson;
 
-  const OobReusableFunctionLastRunLog({
+  const FunctionLastRunLog({
     required this.success,
     required this.functionId,
     required this.runId,
@@ -1448,7 +1448,7 @@ class OobReusableFunctionLastRunLog {
     required this.rawJson,
   });
 
-  factory OobReusableFunctionLastRunLog.fromFunctionSpec({
+  factory FunctionLastRunLog.fromFunctionSpec({
     required String functionId,
     Map<String, dynamic>? spec,
   }) {
@@ -1511,7 +1511,7 @@ class OobReusableFunctionLastRunLog {
       raw['error_message'],
       raw['errorMessage'],
     ]);
-    return OobReusableFunctionLastRunLog(
+    return FunctionLastRunLog(
       success: runId.isNotEmpty,
       functionId: functionId.trim(),
       runId: runId,
@@ -2024,11 +2024,11 @@ class AssistsMessageService {
   static final StreamController<Map<String, dynamic>>
   _agentRunStateChangedController =
       StreamController<Map<String, dynamic>>.broadcast();
-  static final StreamController<OobFunctionRunProgressEvent>
-  _oobFunctionRunProgressController =
-      StreamController<OobFunctionRunProgressEvent>.broadcast();
-  static final ValueNotifier<OobFunctionRunProgressEvent?>
-  oobFunctionRunProgressNotifier = ValueNotifier<OobFunctionRunProgressEvent?>(
+  static final StreamController<FunctionRunProgressEvent>
+  _functionRunProgressController =
+      StreamController<FunctionRunProgressEvent>.broadcast();
+  static final ValueNotifier<FunctionRunProgressEvent?>
+  functionRunProgressNotifier = ValueNotifier<FunctionRunProgressEvent?>(
     null,
   );
   // IM/WeChat/Telegram 等外部入口直推的用户消息：
@@ -2058,23 +2058,23 @@ class AssistsMessageService {
       _workbenchProjectUpdatedController.stream;
   static Stream<Map<String, dynamic>> get agentRunStateChangedStream =>
       _agentRunStateChangedController.stream;
-  static Stream<OobFunctionRunProgressEvent> get oobFunctionRunProgressStream =>
-      _oobFunctionRunProgressController.stream;
+  static Stream<FunctionRunProgressEvent> get functionRunProgressStream =>
+      _functionRunProgressController.stream;
 
   @visibleForTesting
-  static void debugDispatchOobFunctionRunProgressForTest(
+  static void debugDispatchFunctionRunProgressForTest(
     Map<String, dynamic> payload,
   ) {
-    dispatchOobFunctionRunProgressEvent(
-      OobFunctionRunProgressEvent.fromMap(payload),
+    dispatchFunctionRunProgressEvent(
+      FunctionRunProgressEvent.fromMap(payload),
     );
   }
 
-  static void dispatchOobFunctionRunProgressEvent(
-    OobFunctionRunProgressEvent event,
+  static void dispatchFunctionRunProgressEvent(
+    FunctionRunProgressEvent event,
   ) {
-    _oobFunctionRunProgressController.add(event);
-    oobFunctionRunProgressNotifier.value = event.shouldShowShortcut
+    _functionRunProgressController.add(event);
+    functionRunProgressNotifier.value = event.shouldShowShortcut
         ? event
         : null;
   }
@@ -2162,9 +2162,9 @@ class AssistsMessageService {
             ),
           );
           break;
-        case 'onOobFunctionRunProgress':
-          dispatchOobFunctionRunProgressEvent(
-            OobFunctionRunProgressEvent.fromMap(call.arguments as Map?),
+        case 'onFunctionRunProgress':
+          dispatchFunctionRunProgressEvent(
+            FunctionRunProgressEvent.fromMap(call.arguments as Map?),
           );
           break;
         case 'onChatMessage':
@@ -2888,7 +2888,7 @@ class AssistsMessageService {
   }) async {
     throw UnsupportedError(
       'RunLog 只作为证据和 Function 生成来源；禁止直接重放 run_id。'
-      '请先调用 convertInternalRunLogToOobFunction，再执行生成的 Function。',
+      '请先调用 convertInternalRunLogToFunction，再执行生成的 Function。',
     );
   }
 
@@ -3145,23 +3145,23 @@ class AssistsMessageService {
     return UtgManualRunResult.fromMap(decoded);
   }
 
-  static Future<UtgFunctionMutationResult> registerOobReusableFunction({
+  static Future<UtgFunctionMutationResult> registerFunction({
     required Map<String, dynamic> functionSpec,
   }) async {
     final spec = _jsonSafeMap(functionSpec);
     final functionId = (spec['function_id'] ?? '').toString().trim();
     if (functionId.isEmpty) {
-      throw Exception('function_id 为空，无法注册为 OOB API');
+      throw Exception('function_id 为空，无法注册 Function');
     }
 
     final result = await assistCore.invokeMethod(
-      'registerOobReusableFunction',
+      'registerFunction',
       {'function_spec': spec},
     );
     return UtgFunctionMutationResult.fromMap(_jsonSafeDynamicMap(result));
   }
 
-  static Future<Map<String, dynamic>> updateOobFunction({
+  static Future<Map<String, dynamic>> updateFunction({
     required String functionId,
     String? runId,
     String mode = 'enhance',
@@ -3184,12 +3184,12 @@ class AssistsMessageService {
         'analysis': _jsonSafeMap(analysis),
       if (patch != null && patch.isNotEmpty) 'patch': _jsonSafeMap(patch),
     };
-    final result = await assistCore.invokeMethod('updateOobFunction', args);
+    final result = await assistCore.invokeMethod('updateFunction', args);
     final payload = _jsonSafeDynamicMap(result);
     return payload;
   }
 
-  static Future<Map<String, dynamic>> convertInternalRunLogToOobFunction({
+  static Future<Map<String, dynamic>> convertInternalRunLogToFunction({
     required String runId,
     bool register = true,
     bool agentVisible = false,
@@ -3202,7 +3202,7 @@ class AssistsMessageService {
       throw Exception('runId 为空，无法转换 RunLog');
     }
     final result = await assistCore
-        .invokeMethod('convertInternalRunLogToOobFunction', {
+        .invokeMethod('convertInternalRunLogToFunction', {
           'run_id': normalizedRunId,
           'register': register,
           'agent_visible': agentVisible,
@@ -3268,12 +3268,12 @@ class AssistsMessageService {
     return _jsonSafeDynamicMap(result);
   }
 
-  static Future<Map<String, dynamic>> listOobReusableFunctions({
+  static Future<Map<String, dynamic>> listFunctions({
     int limit = 100,
     int offset = 0,
     bool includeHidden = false,
   }) async {
-    final result = await assistCore.invokeMethod('listOobReusableFunctions', {
+    final result = await assistCore.invokeMethod('listFunctions', {
       'limit': limit,
       'offset': offset,
       'includeHidden': includeHidden,
@@ -3282,27 +3282,27 @@ class AssistsMessageService {
     return _jsonSafeDynamicMap(result);
   }
 
-  static Future<Map<String, dynamic>> deleteOobReusableFunction(
+  static Future<Map<String, dynamic>> deleteFunction(
     String functionId,
   ) async {
     final normalized = functionId.trim();
     if (normalized.isEmpty) {
       return {'success': false, 'error': 'functionId is empty'};
     }
-    final result = await assistCore.invokeMethod('deleteOobReusableFunction', {
+    final result = await assistCore.invokeMethod('deleteFunction', {
       'function_id': normalized,
     });
     return _jsonSafeDynamicMap(result);
   }
 
-  static Future<Map<String, dynamic>?> getOobReusableFunction(
+  static Future<Map<String, dynamic>?> getFunction(
     String functionId,
   ) async {
     final normalized = functionId.trim();
     if (normalized.isEmpty) {
       return null;
     }
-    final result = await assistCore.invokeMethod('getOobReusableFunction', {
+    final result = await assistCore.invokeMethod('getFunction', {
       'function_id': normalized,
     });
     if (result is! Map) {
@@ -3311,12 +3311,12 @@ class AssistsMessageService {
     return _jsonSafeDynamicMap(result);
   }
 
-  static Future<OobReusableFunctionLastRunLog> getOobReusableFunctionLastRunLog(
+  static Future<FunctionLastRunLog> getFunctionLastRunLog(
     String functionId,
   ) async {
     final normalized = functionId.trim();
     if (normalized.isEmpty) {
-      return const OobReusableFunctionLastRunLog(
+      return const FunctionLastRunLog(
         success: false,
         functionId: '',
         runId: '',
@@ -3326,9 +3326,9 @@ class AssistsMessageService {
         rawJson: <String, dynamic>{},
       );
     }
-    final spec = await getOobReusableFunction(normalized);
+    final spec = await getFunction(normalized);
     if (spec == null || spec.isEmpty) {
-      return OobReusableFunctionLastRunLog(
+      return FunctionLastRunLog(
         success: false,
         functionId: normalized,
         runId: '',
@@ -3338,7 +3338,7 @@ class AssistsMessageService {
         rawJson: const <String, dynamic>{},
       );
     }
-    return OobReusableFunctionLastRunLog.fromFunctionSpec(
+    return FunctionLastRunLog.fromFunctionSpec(
       functionId: normalized,
       spec: spec,
     );
@@ -3350,16 +3350,16 @@ class AssistsMessageService {
   }
 
   static Future<Map<String, dynamic>> setAgentToolFeatures({
-    bool? oobFunctionAsToolEnabled,
+    bool? functionRecallEnabled,
   }) async {
     final result = await assistCore.invokeMethod<Map>('setAgentToolFeatures', {
-      if (oobFunctionAsToolEnabled != null)
-        'oobFunctionAsToolEnabled': oobFunctionAsToolEnabled,
+      if (functionRecallEnabled != null)
+        'functionRecallEnabled': functionRecallEnabled,
     });
     return _jsonSafeDynamicMap(result);
   }
 
-  static Future<UtgManualRunResult> runOobReusableFunction({
+  static Future<UtgManualRunResult> runFunction({
     required String functionId,
     Map<String, dynamic> arguments = const {},
     int? conversationId,
@@ -3387,7 +3387,7 @@ class AssistsMessageService {
     if (frontendRunId != null && frontendRunId.trim().isNotEmpty) {
       args['frontendRunId'] = frontendRunId.trim();
     }
-    final result = await assistCore.invokeMethod('runOobReusableFunction', {
+    final result = await assistCore.invokeMethod('runFunction', {
       ...args,
     });
     return UtgManualRunResult.fromMap(_jsonSafeDynamicMap(result));

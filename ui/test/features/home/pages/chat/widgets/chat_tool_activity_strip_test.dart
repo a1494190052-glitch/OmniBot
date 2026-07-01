@@ -734,7 +734,7 @@ void main() {
       ChatMessageModel.cardMessage({
         'type': 'agent_tool_summary',
         'status': 'running',
-        'toolType': 'oob_function',
+        'toolType': 'reusable_function',
         'toolName': 'run_function',
         'toolTitle': 'OmniFlow',
         'summary': 'Preparing tool call...',

@@ -48,7 +48,7 @@ sealed class TaskParams {
         val skipGoHome: Boolean = false,  // 是否跳过回到主页，从当前页面开始执行
         val stepSkillGuidance: String = "",
         val taskId: String? = null,
-        val disableOmniFlowRecall: Boolean = false,
+        val disableFunctionRecall: Boolean = false,
         val functionRunExecutor: FunctionRunExecutor? = null
     ): TaskParams();
 

@@ -7,7 +7,7 @@ import 'package:ui/features/home/pages/command_overlay/widgets/cards/agent_tool_
 import 'package:ui/features/task/pages/execution_history/function_run_result_sheet.dart';
 import 'package:ui/features/task/pages/execution_history/run_log_timeline_page.dart';
 import 'package:ui/features/task/pages/execution_history/widgets/reusable_function_card.dart';
-import 'package:ui/features/task/run_log/omniflow_function_spec.dart';
+import 'package:ui/features/task/run_log/function_spec.dart';
 import 'package:ui/l10n/app_text_localizer.dart';
 import 'package:ui/services/assists_core_service.dart';
 import 'package:ui/theme/app_colors.dart';
@@ -41,15 +41,15 @@ class _FunctionLibraryPageState extends State<FunctionLibraryPage> {
   final Set<String> _deletingIds = {};
   final Set<String> _runningIds = {};
   final Set<String> _openingRunLogIds = {};
-  final Map<String, OobFunctionRunProgressEvent> _runProgressBySignature = {};
-  StreamSubscription<OobFunctionRunProgressEvent>? _runProgressSubscription;
+  final Map<String, FunctionRunProgressEvent> _runProgressBySignature = {};
+  StreamSubscription<FunctionRunProgressEvent>? _runProgressSubscription;
   bool _isLearning = false;
 
   @override
   void initState() {
     super.initState();
     _runProgressSubscription = AssistsMessageService
-        .oobFunctionRunProgressStream
+        .functionRunProgressStream
         .listen(_handleRunProgressEvent);
     _load();
   }
@@ -66,7 +66,7 @@ class _FunctionLibraryPageState extends State<FunctionLibraryPage> {
       _error = null;
     });
     try {
-      final result = await AssistsMessageService.listOobReusableFunctions(
+      final result = await AssistsMessageService.listFunctions(
         limit: _pageSize,
         offset: 0,
         includeHidden: true,
@@ -97,7 +97,7 @@ class _FunctionLibraryPageState extends State<FunctionLibraryPage> {
     if (_isLoading || _isLoadingMore || !_hasMore) return;
     setState(() => _isLoadingMore = true);
     try {
-      final result = await AssistsMessageService.listOobReusableFunctions(
+      final result = await AssistsMessageService.listFunctions(
         limit: _pageSize,
         offset: _nextOffset,
         includeHidden: true,
@@ -162,7 +162,7 @@ class _FunctionLibraryPageState extends State<FunctionLibraryPage> {
       var deletedCount = 0;
       var allDeleted = true;
       for (final item in group.items) {
-        final result = await AssistsMessageService.deleteOobReusableFunction(
+        final result = await AssistsMessageService.deleteFunction(
           item.functionId,
         );
         final deleted = result['success'] == true || result['deleted'] == true;
@@ -223,13 +223,13 @@ class _FunctionLibraryPageState extends State<FunctionLibraryPage> {
       _runProgressBySignature.remove(group.signature);
     });
     try {
-      final spec = await AssistsMessageService.getOobReusableFunction(
+      final spec = await AssistsMessageService.getFunction(
         group.primary.functionId,
       );
       if (!mounted) return;
       final arguments = await _resolveRunArguments(context, spec);
       if (!mounted || arguments == null) return;
-      final result = await AssistsMessageService.runOobReusableFunction(
+      final result = await AssistsMessageService.runFunction(
         functionId: group.primary.functionId,
         arguments: arguments,
         taskId: 'oob-function-run-${DateTime.now().millisecondsSinceEpoch}',
@@ -286,14 +286,14 @@ class _FunctionLibraryPageState extends State<FunctionLibraryPage> {
     );
   }
 
-  OobFunctionRunProgressEvent? get _runningFunctionProgressEvent =>
+  FunctionRunProgressEvent? get _runningFunctionProgressEvent =>
       _runningProgressEventFor(
         groups: _functions,
         runningIds: _runningIds,
         progressBySignature: _runProgressBySignature,
       );
 
-  void _handleRunProgressEvent(OobFunctionRunProgressEvent event) {
+  void _handleRunProgressEvent(FunctionRunProgressEvent event) {
     if (!mounted || event.functionId.isEmpty) return;
     final signature = _signatureForFunctionId(event.functionId);
     if (signature == null) return;
@@ -427,7 +427,7 @@ class _FunctionLibraryPageState extends State<FunctionLibraryPage> {
 class _FunctionLibraryProgressSlot extends StatelessWidget {
   const _FunctionLibraryProgressSlot({required this.event});
 
-  final OobFunctionRunProgressEvent event;
+  final FunctionRunProgressEvent event;
 
   @override
   Widget build(BuildContext context) {
@@ -466,10 +466,10 @@ class _FunctionLibraryProgressSlot extends StatelessWidget {
   }
 }
 
-OobFunctionRunProgressEvent? _runningProgressEventFor({
+FunctionRunProgressEvent? _runningProgressEventFor({
   required List<_FunctionGroup> groups,
   required Set<String> runningIds,
-  required Map<String, OobFunctionRunProgressEvent> progressBySignature,
+  required Map<String, FunctionRunProgressEvent> progressBySignature,
 }) {
   if (runningIds.isEmpty) return null;
   for (final group in groups) {
@@ -480,7 +480,7 @@ OobFunctionRunProgressEvent? _runningProgressEventFor({
   return null;
 }
 
-OobFunctionRunProgressEvent _fallbackRunningProgressEvent(
+FunctionRunProgressEvent _fallbackRunningProgressEvent(
   _FunctionGroup group,
 ) {
   final function = group.primary;
@@ -503,7 +503,7 @@ OobFunctionRunProgressEvent _fallbackRunningProgressEvent(
     if (stepCount > 0) 'step_count': stepCount,
     if (stepCount > 0) 'stepCount': stepCount,
   };
-  return OobFunctionRunProgressEvent(
+  return FunctionRunProgressEvent(
     status: 'started',
     runId: '',
     taskId: '',
@@ -653,7 +653,7 @@ Future<void> _showFunctionSpecDetails(
   required Future<void> Function() onClosed,
 }) async {
   try {
-    final rawSpec = await AssistsMessageService.getOobReusableFunction(
+    final rawSpec = await AssistsMessageService.getFunction(
       group.primary.functionId,
     );
     if (!context.mounted) return;
@@ -666,9 +666,9 @@ Future<void> _showFunctionSpecDetails(
       return;
     }
     final metadata = _FunctionSummary._asMap(specJson['metadata']);
-    final spec = OmniFlowFunctionSpec(
+    final spec = FunctionSpec(
       json: specJson,
-      agentPrompt: omniFlowFunctionAgentPrompt(specJson),
+      agentPrompt: functionAgentPrompt(specJson),
       aiEnhanced:
           _asBool(specJson['ai_enhanced']) ||
           _asBool(specJson['aiEnhanced']) ||
@@ -736,7 +736,7 @@ Future<List<_FunctionRunLogEntry>> _loadFunctionRunLogEntries(
   final ids = group.runLogIds.toList(growable: true);
   if (ids.isEmpty && group.hasLastRun) {
     final lastRun =
-        await AssistsMessageService.getOobReusableFunctionLastRunLog(
+        await AssistsMessageService.getFunctionLastRunLog(
           group.lastRunFunctionId,
         );
     final lastRunId = lastRun.runId.trim();
@@ -1112,7 +1112,7 @@ UtgRunLogImportResult _functionSpecSheetImportResult(
     'function_id': functionId,
     'created_function_id': functionId,
     'functions_created': 0,
-    'asset_kind': 'oob_reusable_function',
+    'asset_kind': 'reusable_function',
     'asset_state': 'native_local',
     'hit_function_ids': <String>[if (functionId.isNotEmpty) functionId],
     'source_run_ids': sourceRunIds,

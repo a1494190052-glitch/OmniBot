@@ -2,7 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:ui/features/task/run_log/omniflow_function_spec.dart';
+import 'package:ui/features/task/run_log/function_spec.dart';
 import 'package:ui/services/assists_core_service.dart';
 
 enum RunLogFunctionEnhancementJobPhase {
@@ -49,7 +49,7 @@ class RunLogFunctionEnhancementJob {
   final String functionId;
   final Map<String, dynamic> inputFunctionJson;
   final RunLogFunctionEnhancementJobPhase phase;
-  final OmniFlowFunctionEnhancementStatus enhancementStatus;
+  final FunctionEnhancementStatus enhancementStatus;
   final String message;
   final bool useEnglish;
   final DateTime createdAt;
@@ -76,14 +76,14 @@ class RunLogFunctionEnhancementJob {
           registrationResult?['changed'] == false ||
           registrationResult?['already_exists'] == true);
 
-  OmniFlowFunctionSpec? get savedSpec {
+  FunctionSpec? get savedSpec {
     final json = enhancedFunctionJson;
     if (json == null || !isSaved) {
       return null;
     }
-    return OmniFlowFunctionSpec(
+    return FunctionSpec(
       json: json,
-      agentPrompt: agentPrompt ?? omniFlowFunctionAgentPrompt(json),
+      agentPrompt: agentPrompt ?? functionAgentPrompt(json),
       aiEnhanced: enhancementStatus.isApplied,
       rawAiText: rawAiText,
       warning: warning,
@@ -95,7 +95,7 @@ class RunLogFunctionEnhancementJob {
 
   RunLogFunctionEnhancementJob copyWith({
     RunLogFunctionEnhancementJobPhase? phase,
-    OmniFlowFunctionEnhancementStatus? enhancementStatus,
+    FunctionEnhancementStatus? enhancementStatus,
     String? message,
     DateTime? updatedAt,
     Map<String, dynamic>? enhancedFunctionJson,
@@ -234,7 +234,7 @@ class RunLogFunctionEnhancementJobService {
       functionId: functionId,
       inputFunctionJson: normalizedFunctionJson,
       phase: RunLogFunctionEnhancementJobPhase.queued,
-      enhancementStatus: OmniFlowFunctionEnhancementStatus.enhancing,
+      enhancementStatus: FunctionEnhancementStatus.enhancing,
       message: useEnglish
           ? 'Agent queued background enhancement for this reusable command.'
           : 'Agent 已将这个复用指令加入后台增强队列。',
@@ -284,7 +284,7 @@ class RunLogFunctionEnhancementJobService {
           job.copyWith(
             phase: RunLogFunctionEnhancementJobPhase.enhancing,
             enhancementStatus:
-                OmniFlowFunctionEnhancementStatus.enhancing,
+                FunctionEnhancementStatus.enhancing,
             message: job.useEnglish
                 ? 'Agent is enhancing description and parameters in the background.'
                 : 'Agent 正在后台增强描述和参数。',
@@ -301,7 +301,7 @@ class RunLogFunctionEnhancementJobService {
       // Previously this step ran enhanceLabels in Flutter (4+ LLM calls),
       // which failed whenever the model returned non-parseable JSON for any
       // section.
-      var saveJson = await AssistsMessageService.updateOobFunction(
+      var saveJson = await AssistsMessageService.updateFunction(
         functionId: job.functionId,
         runId: job.runId,
         mode: 'enhance',
@@ -318,7 +318,7 @@ class RunLogFunctionEnhancementJobService {
           job.inputFunctionJson,
         );
         final bootstrapResult =
-            await AssistsMessageService.registerOobReusableFunction(
+            await AssistsMessageService.registerFunction(
               functionSpec: bootstrapFunction,
             );
         if (_canceledJobIds.contains(jobId)) return;
@@ -326,7 +326,7 @@ class RunLogFunctionEnhancementJobService {
           await _transition(
             job.copyWith(
               phase: RunLogFunctionEnhancementJobPhase.failed,
-              enhancementStatus: OmniFlowFunctionEnhancementStatus.failed,
+              enhancementStatus: FunctionEnhancementStatus.failed,
               message: job.useEnglish
                   ? 'This reusable command was not saved yet, and automatic save before enhancement failed.'
                   : '这个复用指令还未保存，增强前自动保存失败。',
@@ -343,7 +343,7 @@ class RunLogFunctionEnhancementJobService {
           );
           return;
         }
-        saveJson = await AssistsMessageService.updateOobFunction(
+        saveJson = await AssistsMessageService.updateFunction(
           functionId: job.functionId,
           runId: job.runId,
           mode: 'enhance',
@@ -364,7 +364,7 @@ class RunLogFunctionEnhancementJobService {
         await _transition(
           job.copyWith(
             phase: RunLogFunctionEnhancementJobPhase.failed,
-            enhancementStatus: OmniFlowFunctionEnhancementStatus.failed,
+            enhancementStatus: FunctionEnhancementStatus.failed,
             message: job.useEnglish
                 ? 'Agent generated an enhancement, but saving the reusable command failed. The current reusable command is unchanged.'
                 : 'Agent 已生成增强结果，但保存复用指令失败；当前复用指令保持原样。',
@@ -386,7 +386,7 @@ class RunLogFunctionEnhancementJobService {
         await _transition(
           job.copyWith(
             phase: RunLogFunctionEnhancementJobPhase.failed,
-            enhancementStatus: OmniFlowFunctionEnhancementStatus.failed,
+            enhancementStatus: FunctionEnhancementStatus.failed,
             message: job.useEnglish
                 ? 'update_function did not return updated_function. The current reusable command is unchanged.'
                 : 'update_function 未返回 updated_function；当前复用指令保持原样。',
@@ -400,7 +400,7 @@ class RunLogFunctionEnhancementJobService {
       }
       final registeredFunction = _agentVisibleFunctionJson(updatedFunction);
       final registerResult =
-          await AssistsMessageService.registerOobReusableFunction(
+          await AssistsMessageService.registerFunction(
             functionSpec: registeredFunction,
           );
       if (_canceledJobIds.contains(jobId)) return;
@@ -419,7 +419,7 @@ class RunLogFunctionEnhancementJobService {
         await _transition(
           job.copyWith(
             phase: RunLogFunctionEnhancementJobPhase.failed,
-            enhancementStatus: OmniFlowFunctionEnhancementStatus.failed,
+            enhancementStatus: FunctionEnhancementStatus.failed,
             message: job.useEnglish
                 ? 'Agent enhanced and saved this reusable command, but automatic registration failed.'
                 : 'Agent 已增强并保存复用指令，但自动注册失败。',
@@ -433,8 +433,8 @@ class RunLogFunctionEnhancementJobService {
         return;
       }
       final finalStatus = noSafeChange
-          ? OmniFlowFunctionEnhancementStatus.unchanged
-          : OmniFlowFunctionEnhancementStatus.enhanced;
+          ? FunctionEnhancementStatus.unchanged
+          : FunctionEnhancementStatus.enhanced;
       await _transition(
         job.copyWith(
           phase: RunLogFunctionEnhancementJobPhase.completed,
@@ -459,7 +459,7 @@ class RunLogFunctionEnhancementJobService {
       await _transition(
         current.copyWith(
           phase: RunLogFunctionEnhancementJobPhase.failed,
-          enhancementStatus: OmniFlowFunctionEnhancementStatus.failed,
+          enhancementStatus: FunctionEnhancementStatus.failed,
           message: current.useEnglish
               ? 'Agent enhancement failed. Keeping the current reusable command.'
               : 'Agent 增强失败，当前复用指令保持原样。',
@@ -532,27 +532,27 @@ class RunLogFunctionEnhancementJobService {
   }
 
   static String _statusMessage(
-    OmniFlowFunctionEnhancementStatus status,
+    FunctionEnhancementStatus status,
     bool useEnglish,
   ) {
     switch (status) {
-      case OmniFlowFunctionEnhancementStatus.enhanced:
+      case FunctionEnhancementStatus.enhanced:
         return useEnglish
             ? 'Agent enhancement applied, saved, and registered.'
             : 'Agent 增强已应用、保存并注册。';
-      case OmniFlowFunctionEnhancementStatus.partial:
+      case FunctionEnhancementStatus.partial:
         return useEnglish
             ? 'Agent enhancement partially applied, saved, and registered.'
             : 'Agent 增强已部分应用、保存并注册。';
-      case OmniFlowFunctionEnhancementStatus.unchanged:
+      case FunctionEnhancementStatus.unchanged:
         return useEnglish
             ? 'Agent checked this reusable command, found no safe change, and registered it.'
             : 'Agent 已检查，没有安全可应用的变化，并已注册。';
-      case OmniFlowFunctionEnhancementStatus.failed:
+      case FunctionEnhancementStatus.failed:
         return useEnglish ? 'Agent enhancement failed.' : 'Agent 增强失败。';
-      case OmniFlowFunctionEnhancementStatus.enhancing:
+      case FunctionEnhancementStatus.enhancing:
         return useEnglish ? 'Agent enhancement is running.' : 'Agent 正在后台增强。';
-      case OmniFlowFunctionEnhancementStatus.none:
+      case FunctionEnhancementStatus.none:
         return '';
     }
   }
@@ -568,16 +568,16 @@ RunLogFunctionEnhancementJobPhase _phaseFromWire(dynamic value) {
   return RunLogFunctionEnhancementJobPhase.queued;
 }
 
-OmniFlowFunctionEnhancementStatus _enhancementStatusFromWire(
+FunctionEnhancementStatus _enhancementStatusFromWire(
   dynamic value,
 ) {
   final name = value?.toString().trim().toLowerCase() ?? '';
-  for (final status in OmniFlowFunctionEnhancementStatus.values) {
+  for (final status in FunctionEnhancementStatus.values) {
     if (status.name == name) {
       return status;
     }
   }
-  return OmniFlowFunctionEnhancementStatus.none;
+  return FunctionEnhancementStatus.none;
 }
 
 Map<String, dynamic> _stringKeyMap(dynamic value) {

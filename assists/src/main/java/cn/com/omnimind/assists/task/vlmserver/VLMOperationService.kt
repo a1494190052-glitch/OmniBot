@@ -84,7 +84,7 @@ class VLMOperationService(
     private var lastReasoningOverlay = ""
     private var lastReasoningOverlayAt = 0L
     private var lastUsableXml: String? = null
-    private var disableOmniFlowRecallForCurrentTask = false
+    private var disableFunctionRecallForCurrentTask = false
 
     // Priority event management
     private var priorityEvent: Triple<String, String, Boolean>? = null  // (message, type, suggestCompletion)
@@ -223,7 +223,7 @@ class VLMOperationService(
         summary: Boolean = false,
         currentStepGoal: String = goal,
         stepSkillGuidance: String = "",
-        disableOmniFlowRecall: Boolean = false
+        disableFunctionRecall: Boolean = false
     ): TaskExecutionReport {
 
         val normalizedMaxSteps = maxSteps?.takeIf { it > 0 }
@@ -233,7 +233,7 @@ class VLMOperationService(
         // 重置 Compactor 触发记录
         compactorTriggerSteps.clear()
         resetConversationState()
-        disableOmniFlowRecallForCurrentTask = disableOmniFlowRecall
+        disableFunctionRecallForCurrentTask = disableFunctionRecall
         ensureTaskActive("execute_task_start")
 
         // 任务开始执行时，先回到手机首页Home（除非 skipGoHome = true）
@@ -391,7 +391,7 @@ class VLMOperationService(
 
                 if (result.step?.action?.isRecoverableDeviceAction() == true) {
                     if (result.step?.action is FunctionRunAction) {
-                        disableOmniFlowRecallForCurrentTask = true
+                        disableFunctionRecallForCurrentTask = true
                     }
                     stepIndex++
                     continue
@@ -632,7 +632,7 @@ class VLMOperationService(
                     screenshotBase64 = screenshot,
                     stepIndex = stepIndex,
                     snapshot = pageSnapshot,
-                    disableOmniFlowRecall = disableOmniFlowRecallForCurrentTask,
+                    disableFunctionRecall = disableFunctionRecallForCurrentTask,
                 )
                 val indexedEvidenceStartedAt = System.currentTimeMillis()
                 _context = VLMIndexedPageContext.enrich(

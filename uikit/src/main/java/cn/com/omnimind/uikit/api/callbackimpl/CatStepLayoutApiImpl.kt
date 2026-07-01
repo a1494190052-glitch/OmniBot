@@ -3,7 +3,7 @@ package cn.com.omnimind.uikit.api.callbackimpl
 import cn.com.omnimind.assists.AgentVlmUiSession
 import cn.com.omnimind.assists.AssistsCore
 import cn.com.omnimind.assists.HumanTrajectoryLearningSession
-import cn.com.omnimind.assists.OmniFlowUiSession
+import cn.com.omnimind.assists.FunctionUiSession
 import cn.com.omnimind.assists.api.eventapi.ExecutingTaskType
 import cn.com.omnimind.baselib.util.VibrationUtil
 import cn.com.omnimind.uikit.UIKit
@@ -40,7 +40,7 @@ class CatStepLayoutApiImpl : CatStepLayoutApi {
         if (stopActiveVlmUiSession()) {
             return
         }
-        if (stopActiveOmniFlowUiSession()) {
+        if (stopActiveFunctionUiSession()) {
             return
         }
         DraggableBallInstance.finishDoingTask("任务已取消")
@@ -83,7 +83,7 @@ class CatStepLayoutApiImpl : CatStepLayoutApi {
             UIKit.executionTaskEventApi?.vlmTask?.requestPause()
             return
         }
-        if (OmniFlowUiSession.requestStopActiveSession()) {
+        if (FunctionUiSession.requestStopActiveSession()) {
             DraggableBallInstance.finishDoingTask("用户已接管任务")
             if (!CompanionOverlaySettings.isEnabled()) {
                 CompanionOverlaySettings.dismissFloatingUi()
@@ -91,8 +91,8 @@ class CatStepLayoutApiImpl : CatStepLayoutApi {
         }
     }
 
-    private fun stopActiveOmniFlowUiSession(): Boolean {
-        if (!OmniFlowUiSession.requestStopActiveSession()) {
+    private fun stopActiveFunctionUiSession(): Boolean {
+        if (!FunctionUiSession.requestStopActiveSession()) {
             return false
         }
         DraggableBallInstance.finishDoingTask("任务已取消")

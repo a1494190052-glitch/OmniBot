@@ -481,7 +481,7 @@ class ActionExecutor(
 
     private fun throwIfStopRequested(check: ActCheckConfig?) {
         if (check?.stopRequested?.invoke() == true) {
-            throw ActionStoppedException("OmniFlow execution stopped manually")
+            throw ActionStoppedException("Function execution stopped manually")
         }
     }
 

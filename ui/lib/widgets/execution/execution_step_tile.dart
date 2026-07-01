@@ -279,8 +279,6 @@ class ExecutionStepTile extends StatelessWidget {
         return l10n.executionActionOpenApp;
       case 'click':
         return l10n.executionActionClick;
-      case 'click_node':
-        return l10n.executionActionClickNode;
       case 'long_press':
         return l10n.executionActionLongPress;
       case 'input_text':

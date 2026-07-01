@@ -478,21 +478,21 @@ class ManualRecordingPolicyTest {
         assertTrue(manualStopBranch.contains("ManualRecordingControlOverlay.cancelRecording"))
         assertFalse(manualStopBranch.contains("HumanTrajectoryLearningSession.completeActive()"))
         val frontendSource = readSource(
-            "app/src/main/java/cn/com/omnimind/bot/omniflow/function/OmniFlowFunctionFrontendSessionController.kt"
+            "app/src/main/java/cn/com/omnimind/bot/function/FunctionFrontendSessionController.kt"
         )
         assertTrue(frontendSource.contains("forceOnTop = true"))
         assertTrue(frontendSource.contains("isTouchable = true"))
         assertTrue(frontendSource.contains("val progressText = progress.trim().ifBlank { label }.take(48)"))
         assertTrue(frontendSource.contains("subMessage = helper.localized(progressText)"))
         assertTrue(frontendSource.contains("message = helper.localized(message.ifBlank { \"任务已完成\" })"))
-        assertTrue(frontendSource.contains("OmniFlowUiSession.registerRun("))
+        assertTrue(frontendSource.contains("FunctionUiSession.registerRun("))
         assertTrue(frontendSource.contains("onStopRequested = { requestStopNow() }"))
         assertTrue(frontendSource.contains("toolHandle?.bindStopAction"))
         assertTrue(frontendSource.contains("if (closeAfterMs > 0L)"))
         assertTrue(frontendSource.contains("DraggableBallInstance.finishDoingTask("))
         assertFalse(frontendSource.contains("subMessage = helper.localized(\"执行中\")"))
         val functionHandlerSource = readSource(
-            "app/src/main/java/cn/com/omnimind/bot/omniflow/function/OmniFlowFunctionRun.kt"
+            "app/src/main/java/cn/com/omnimind/bot/function/FunctionRun.kt"
         )
         val assistsCoreManagerSource = readSource(
             "app/src/main/java/cn/com/omnimind/bot/manager/AssistsCoreManager.kt"

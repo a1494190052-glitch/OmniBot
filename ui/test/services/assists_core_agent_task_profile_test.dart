@@ -37,7 +37,7 @@ void main() {
       final arguments = Map<String, dynamic>.from(
         calls.single.arguments as Map,
       );
-      expect(arguments['toolProfile'], 'omniflow');
+      expect(arguments['toolProfile'], 'function');
       expect(arguments['allowedTools'], [
         'oob_run_log_list',
         'oob_run_log_convert',

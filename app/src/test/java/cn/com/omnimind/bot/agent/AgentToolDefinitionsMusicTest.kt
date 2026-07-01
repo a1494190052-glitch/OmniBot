@@ -73,7 +73,7 @@ class AgentToolDefinitionsMusicTest {
         assertTrue(description.contains("must not directly call hidden Function replay or guard tools"))
         assertFalse(description.contains("使用视觉语言模型"))
         assertFalse(description.contains("function_id"))
-        assertFalse(properties.containsKey("disableOmniFlowRecall"))
+        assertFalse(properties.containsKey("disableFunctionRecall"))
         assertFalse(properties.containsKey("parseOnly"))
     }
 
@@ -89,8 +89,8 @@ class AgentToolDefinitionsMusicTest {
             File("src/main/java/cn/com/omnimind/bot/agent/tool/handlers/VlmToolHandler.kt"),
         ).first { it.exists() }.readText()
 
-        assertFalse(properties.containsKey("disableOmniFlowRecall"))
-        assertFalse(handlerSource.contains("hasOmniFlowSkillContext"))
+        assertFalse(properties.containsKey("disableFunctionRecall"))
+        assertFalse(handlerSource.contains("hasFunctionSkillContext"))
     }
 
     @Test
