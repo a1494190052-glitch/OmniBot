@@ -29,6 +29,8 @@ Allowed changes:
 - For every executable step, state what the action does and why it exists.
 - Add `cleanup_annotation.action_purpose` for durable step purpose labels.
 - Add runtime parameter metadata from existing non-coordinate leaf args only.
+  Every public runtime parameter must include explicit JSONPath bindings to
+  existing step args through `x_oob_bindings` or `bindings`.
 - Add `agent_reuse` metadata: `reuse_when`, `avoid_when`, `success_signal`, and
   `key_actions`.
 - Mark deterministic noise, merge candidates, drop candidates, and optional
@@ -68,6 +70,9 @@ Forbidden in `enhance` mode:
   callable tool definitions.
 - Do not bind parameters to coordinates, bounds, width, height, screenshots,
   XML nodes, or invented JSON paths.
+- Do not rely on parameter names such as `query` or `input_text_1` to imply a
+  binding. If the binding path is not explicit and present in the Function JSON,
+  omit the parameter.
 
 ## Correction Scope
 
@@ -109,9 +114,9 @@ parseable JSON, or the save operation cannot preserve the existing Function.
 - Model-backed enhancement must be an explicit offline/background job with
   `auto_analyze_with_model=true`; online calls should only collect analysis
   context.
-- A Function is an executable action stack. At runtime, Flow expands it into
-  primitive actions and runs every action through
-  `observe -> checker -> action_transfer -> execute`.
+- A Function is an executable action stack. At runtime, each UI action goes
+  through `ActionExecutor.act`, where replay checkers and action transfer may run
+  before the physical device action.
 - Do not describe a Function as a one-shot fixed replay. Each action must be
   grounded against a fresh live observation before it is accepted.
 - Header enhancement must write a compact but detailed reusable description

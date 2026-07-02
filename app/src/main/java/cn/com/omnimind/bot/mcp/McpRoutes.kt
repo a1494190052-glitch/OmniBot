@@ -3,7 +3,6 @@ package cn.com.omnimind.bot.mcp
 import android.content.Context
 import cn.com.omnimind.bot.agent.AgentToolNames
 import cn.com.omnimind.bot.function.FunctionRun
-import cn.com.omnimind.bot.function.FunctionSchemaExport
 import cn.com.omnimind.bot.function.FunctionApi
 import cn.com.omnimind.bot.function.FunctionService
 import cn.com.omnimind.bot.util.AssistsUtil
@@ -143,14 +142,14 @@ object McpRoutes {
             "resources/read" -> {
                 val params = request["params"] as? Map<String, Any?>
                 val uri = params?.get("uri")?.toString()?.trim().orEmpty()
-                if (uri == FunctionSchemaExport.RESOURCE_URI) {
+                if (uri == FunctionApi.SCHEMA_RESOURCE_URI) {
                     mapOf(
                         "jsonrpc" to "2.0",
                         "id" to id,
                         "result" to mapOf(
                             "contents" to listOf(
                                 mapOf(
-                                    "uri" to FunctionSchemaExport.RESOURCE_URI,
+                                    "uri" to FunctionApi.SCHEMA_RESOURCE_URI,
                                     "mimeType" to "application/json",
                                     "text" to McpServerManager.gson.toJson(McpToolDefinitions.schemaExportBundle),
                                 )

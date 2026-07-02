@@ -15,7 +15,7 @@ class FunctionRunLogRecorderTest {
     fun `records function step results as a finished internal run log`() {
         val context = TempFilesContext()
         try {
-            val runId = "omniflow_run_recorder_${System.nanoTime()}"
+            val runId = "function_run_recorder_${System.nanoTime()}"
             val startedAtMs = 1_700_000_000_000L
             val finishedAtMs = startedAtMs + 1_200L
 
@@ -93,7 +93,7 @@ class FunctionRunLogRecorderTest {
     fun `keeps replay evidence fields on function runlog cards`() {
         val context = TempFilesContext()
         try {
-            val runId = "omniflow_run_evidence_${System.nanoTime()}"
+            val runId = "function_run_evidence_${System.nanoTime()}"
             val screenshotPath = "/data/user/0/cn.com.omnimind.bot.debug/files/oob_runlog_artifacts/run/screenshots/0001_before.jpg"
 
             FunctionRunLogRecorder.record(

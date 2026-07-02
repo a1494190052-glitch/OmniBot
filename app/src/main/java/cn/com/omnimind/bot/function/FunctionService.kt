@@ -87,10 +87,10 @@ class FunctionService(
             if (!isAgentVisible(spec)) return@mapNotNull null
             recallCandidateMap(spec = spec, hit = hit, currentPackage = currentPackage)
         }
-        val decision = if (candidates.isNotEmpty()) "recall" else "miss"
+        val retrievalState = if (candidates.isNotEmpty()) "has_candidates" else "miss"
         return linkedMapOf<String, Any?>(
             "success" to true,
-            "decision" to decision,
+            "retrieval_state" to retrievalState,
             "candidates" to candidates,
             "count" to candidates.size,
             "reason" to when {
@@ -103,7 +103,7 @@ class FunctionService(
             "payload_mode" to if (includeDebug) "debug_full" else "agent_compact",
             "timing" to linkedMapOf(
                 "source" to "function_recall",
-                "decision" to decision,
+                "retrieval_state" to retrievalState,
                 "duration_ms" to (System.currentTimeMillis() - startedAt).coerceAtLeast(0L),
                 "counts" to linkedMapOf(
                     "index_hits" to hits.size,
@@ -781,15 +781,17 @@ class FunctionService(
             "description" to firstNonBlank(callable["description"], callable["name"], functionId),
             "name" to callable["name"],
             "parameters" to callable["parameters"],
+            "argument_names" to callable["argument_names"],
             "inputSchema" to callable["parameters"],
             "input_schema" to callable["parameters"],
-            "score" to hit.score,
-            "score_order" to "local_token_overlap_descending",
-            "reason" to "local_token_overlap",
-            "recall_scope" to "function_index",
-            "current_package_match" to (
-                currentPackage.isNotBlank() && packageNames.contains(currentPackage)
-                ),
+            "retrieval" to linkedMapOf(
+                "score" to hit.score,
+                "source" to "local_function_index",
+                "rank_order" to "local_text_overlap",
+                "current_package_match" to (
+                    currentPackage.isNotBlank() && packageNames.contains(currentPackage)
+                    ),
+            ),
             "package_names" to packageNames.takeIf { it.isNotEmpty() },
             "requires_arguments" to !isNoArgumentFunction(spec),
             "resolve_policy" to argumentResolvePolicy(spec),
@@ -1078,7 +1080,7 @@ class FunctionService(
             """.trimIndent()
         }.orEmpty()
         return """
-            Analyze this Function with the provided RunLog evidence, then return exactly one JSON object with top-level keys "analysis" and "patch".
+            Turn this saved Function and RunLog evidence into a clearer callable Function contract for future agent/VLM use. Return exactly one JSON object with top-level keys "analysis" and "patch".
 
             ${guidanceBlock}Context JSON:
             ```json
@@ -1087,9 +1089,11 @@ class FunctionService(
 
             Patch contract:
             - Return {"analysis": {...}, "patch": {...}}.
-            - The patch may update name, description, parameters, per-step labels, metadata, agent_reuse, and checker_rules.
+            - Optimize name, description, parameters, per-step labels, metadata, agent_reuse, and checker_rules only when the evidence supports the change.
+            - Parameters are public callable arguments. Every public parameter must include explicit JSONPath bindings to existing step args, using x_oob_bindings or bindings.
             - Do not change function_id.
             - Do not invent coordinates, XML paths, resource ids, or source_context.
+            - Do not infer bindings from parameter names. If you cannot identify a safe binding path from the Function JSON, omit that parameter.
             - If unsure, return an empty patch.
         """.trimIndent()
     }
@@ -1786,7 +1790,7 @@ class FunctionService(
         val steps = materializedSteps(spec).take(12)
         val bindings = promptBindingsByStepArg(spec)
         return buildString {
-            appendLine("Saved Function: $name")
+            appendLine("Function: $name")
             appendLine("function_id: $functionId")
             if (description.isNotBlank()) {
                 appendLine("description: $description")

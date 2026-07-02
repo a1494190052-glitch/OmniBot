@@ -2,7 +2,6 @@ package cn.com.omnimind.bot.mcp
 
 import cn.com.omnimind.baselib.i18n.AppLocaleManager
 import cn.com.omnimind.bot.agent.AgentToolNames
-import cn.com.omnimind.bot.function.FunctionSchemaExport
 import cn.com.omnimind.bot.function.FunctionApi
 
 /**
@@ -388,14 +387,14 @@ BEHAVIOR:
 
     val schemaExportResource: Map<String, Any?>
         get() = mapOf(
-            "uri" to FunctionSchemaExport.RESOURCE_URI,
+            "uri" to FunctionApi.SCHEMA_RESOURCE_URI,
             "name" to "Function Management Schemas",
             "description" to "Exported JSON schema bundle for Function, update_function, enhancement reports, function schemas and MCP tool inputs.",
             "mimeType" to "application/json",
         )
 
     val schemaExportBundle: Map<String, Any?>
-        get() = FunctionSchemaExport.bundle(fixedTools)
+        get() = FunctionApi.schemaBundle(fixedTools)
 
     val allTools
         get() = fixedTools

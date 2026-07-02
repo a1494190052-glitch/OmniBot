@@ -21,6 +21,95 @@ import java.util.concurrent.atomic.AtomicBoolean
 class FunctionFrontendSessionController(
     private val helper: SharedHelper,
 ) {
+    fun cardId(parentToolCallId: String?, toolName: String, stepId: String): String {
+        val base = safeCardIdPart(firstNonBlank(parentToolCallId, toolName, "function"))
+        val step = safeCardIdPart(stepId.ifBlank { "step" })
+        return "${base}_${step}_call_tool"
+    }
+
+    fun runningSummary(functionId: String): String {
+        return if (functionId.isNotBlank()) {
+            "${helper.localized("正在执行复用指令")}：$functionId"
+        } else {
+            helper.localized("正在执行复用指令")
+        }
+    }
+
+    fun finishedSummary(functionId: String, success: Boolean): String {
+        val base = helper.localized(if (success) "复用指令执行完成" else "复用指令执行失败")
+        return if (functionId.isNotBlank()) "$base：$functionId" else base
+    }
+
+    fun callToolCardPayload(
+        cardId: String,
+        toolName: String,
+        stepTitle: String,
+        functionId: String,
+        callableTool: String,
+        functionArguments: Map<String, Any?>,
+        status: String,
+        success: Boolean?,
+        summary: String,
+        progress: String,
+        startedAtMs: Long,
+        finishedAtMs: Long?,
+        result: Map<String, Any?>?,
+    ): Map<String, Any?> {
+        val argsPayload = linkedMapOf<String, Any?>(
+            "function_id" to functionId.takeIf { it.isNotBlank() },
+            "arguments" to functionArguments.takeIf { it.isNotEmpty() },
+        ).filterValues { it != null }
+        val resultPayload = result?.let {
+            linkedMapOf<String, Any?>(
+                "function_id" to functionId.takeIf { id -> id.isNotBlank() },
+                "source" to FunctionRun.FUNCTION_RUN_SOURCE,
+                "run_source" to FunctionRun.FUNCTION_RUN_SOURCE,
+                "runner" to it["runner"],
+                "called_function_run_id" to it["called_function_run_id"],
+                "called_function_step_count" to it["called_function_step_count"],
+                "called_function_success_step_count" to it["called_function_success_step_count"],
+                "success" to (it["success"] != false),
+                "summary" to it["summary"],
+                "error_code" to it["error_code"],
+            ).filterValues { value -> value != null }
+        }
+        val argsJson = helper.encodeLocalizedPayload(argsPayload)
+        return linkedMapOf<String, Any?>(
+            "cardId" to cardId,
+            "toolCallId" to cardId,
+            "callId" to cardId,
+            "toolName" to toolName,
+            "displayName" to helper.localized("复用指令"),
+            "toolType" to "oob_function",
+            "source" to FunctionRun.FUNCTION_RUN_SOURCE,
+            "runSource" to FunctionRun.FUNCTION_RUN_SOURCE,
+            "run_source" to FunctionRun.FUNCTION_RUN_SOURCE,
+            "runner" to (result?.get("runner") ?: FunctionRun.FUNCTION_DIRECT_RUNNER),
+            "toolTitle" to if (functionId.isNotBlank()) {
+                "${helper.localized("复用指令")}：$functionId"
+            } else {
+                stepTitle
+            },
+            "summary" to summary,
+            "progress" to progress,
+            "status" to status,
+            "success" to success,
+            "args" to argsJson,
+            "argsJson" to argsJson,
+            "sourceTool" to callableTool,
+            "functionId" to functionId,
+            "function_id" to functionId,
+            "startedAtMs" to startedAtMs,
+            "started_at_ms" to startedAtMs,
+            "finishedAtMs" to finishedAtMs,
+            "finished_at_ms" to finishedAtMs,
+            "durationMs" to finishedAtMs?.let { (it - startedAtMs).coerceAtLeast(0) },
+            "duration_ms" to finishedAtMs?.let { (it - startedAtMs).coerceAtLeast(0) },
+            "resultPreviewJson" to resultPayload?.let { helper.encodeLocalizedPayload(it) }.orEmpty(),
+            "rawResultJson" to result?.let { helper.encodeLocalizedPayload(it) }.orEmpty(),
+        ).filterValues { it != null }
+    }
+
     suspend fun start(
         functionId: String,
         spec: Map<String, Any?>,
@@ -122,6 +211,11 @@ class FunctionFrontendSessionController(
             functionId,
         )
         return name.replace(Regex("\\s+"), " ").take(32).ifBlank { "复用指令" }
+    }
+
+    private fun safeCardIdPart(raw: String): String {
+        val normalized = raw.trim().replace(Regex("[^A-Za-z0-9_.:-]"), "_")
+        return normalized.take(96).ifBlank { "function" }
     }
 
     class Session internal constructor(

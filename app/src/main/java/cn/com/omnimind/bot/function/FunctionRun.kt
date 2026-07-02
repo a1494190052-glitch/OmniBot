@@ -43,8 +43,6 @@ class FunctionRun(
     private val actionExecutor: ActionExecutor = ActionExecutor(deviceOperator, UIContextManager()),
     private val frontendSessionController: FunctionFrontendSessionController =
         FunctionFrontendSessionController(helper),
-    private val functionCallCardPresenter: FunctionCallCardPresenter =
-        FunctionCallCardPresenter(helper),
     private val runResultBuilder: FunctionRunResultBuilder =
         FunctionRunResultBuilder(),
 ) {
@@ -70,7 +68,7 @@ class FunctionRun(
             stepResult["model_free"] == true
 
     suspend fun runFunction(args: Map<String, Any?>?): Map<String, Any?> {
-        val callTiming = FunctionCallTiming()
+        val callTiming = CallTiming()
         val request = args ?: emptyMap()
         val functionId = firstNonBlank(request["function_id"], request["functionId"])
         val executionMode = firstNonBlank(request["execution_mode"])
@@ -282,14 +280,14 @@ class FunctionRun(
                     (callStack + normalizedFunctionId).joinToString(" -> ")
             )
         }
-        if (callStack.size >= MAX_OMNIFLOW_CALL_DEPTH) {
+        if (callStack.size >= MAX_FUNCTION_CALL_DEPTH) {
             return@measureSuspend runResultBuilder.failedRun(
                 functionId = functionId,
                 spec = spec,
                 auditRunId = auditRunId,
                 startedAtMs = runStartedAtMs,
                 errorCode = "OOB_FUNCTION_MAX_DEPTH",
-                errorMessage = "OOB function call depth exceeds $MAX_OMNIFLOW_CALL_DEPTH"
+                errorMessage = "Function call depth exceeds $MAX_FUNCTION_CALL_DEPTH"
             )
         }
         val activeCallStack = if (normalizedFunctionId.isNotEmpty()) {
@@ -474,7 +472,7 @@ class FunctionRun(
                         if (!result.success) {
                             throw ReplayHelper.ExecutionException(
                                 errorCode = result.diagnostics["local_action_error_code"]?.takeIf { it.isNotBlank() }
-                                    ?: "OOB_OMNIFLOW_ACTION_FAILED",
+                                    ?: "OOB_FUNCTION_ACTION_FAILED",
                                 message = result.message,
                                 diagnostics = result.diagnostics,
                             )
@@ -494,13 +492,13 @@ class FunctionRun(
                         throw e
                     } catch (e: Exception) {
                         val executionError = e as? ReplayHelper.ExecutionException
-                        val failReason = e.message ?: "omniflow step failed"
+                        val failReason = e.message ?: "Function step failed"
                         runResultBuilder.failureStep(
                             stepId = stepId,
                             tool = action,
                             executor = FunctionSchema.EXECUTOR_FUNCTION,
                             summary = failReason,
-                            errorCode = executionError?.errorCode ?: "OOB_OMNIFLOW_STEP_FAILED",
+                            errorCode = executionError?.errorCode ?: "OOB_FUNCTION_STEP_FAILED",
                             extras = linkedMapOf<String, Any?>().apply {
                                 putAll(evidence)
                                 put("diagnostics", executionError?.diagnostics?.takeIf { it.isNotEmpty() })
@@ -811,26 +809,26 @@ class FunctionRun(
         val functionId = firstNonBlank(args["function_id"], step["function_id"])
         val functionArguments = mapArg(args["arguments"])
         val cardToolName = OobActionSchema.TOOL_CALL_TOOL
-        val cardId = functionCallCardPresenter.cardId(parentToolCallId, toolName, stepId)
+        val cardId = frontendSessionController.cardId(parentToolCallId, toolName, stepId)
         val cardStartedAtMs = System.currentTimeMillis()
 
         suspend fun emitStarted() {
-            callback?.onToolCardEvent("tool_started", functionCallCardPresenter.payload(
+            callback?.onToolCardEvent("tool_started", frontendSessionController.callToolCardPayload(
                 cardId = cardId, toolName = cardToolName, stepTitle = stepTitle,
                 functionId = functionId, callableTool = callableTool,
                 functionArguments = functionArguments, status = "running", success = null,
-                summary = functionCallCardPresenter.runningSummary(functionId),
+                summary = frontendSessionController.runningSummary(functionId),
                 progress = stepTitle, startedAtMs = cardStartedAtMs, finishedAtMs = null, result = null,
             ))
         }
         suspend fun completeWithCard(result: Map<String, Any?>): Map<String, Any?> {
             val success = result["success"] != false
-            callback?.onToolCardEvent("tool_completed", functionCallCardPresenter.payload(
+            callback?.onToolCardEvent("tool_completed", frontendSessionController.callToolCardPayload(
                 cardId = cardId, toolName = cardToolName, stepTitle = stepTitle,
                 functionId = functionId, callableTool = callableTool,
                 functionArguments = functionArguments, status = if (success) "success" else "error",
                 success = success, summary = result["summary"]?.toString()?.takeIf { it.isNotBlank() }
-                    ?: functionCallCardPresenter.finishedSummary(functionId, success),
+                    ?: frontendSessionController.finishedSummary(functionId, success),
                 progress = "", startedAtMs = cardStartedAtMs, finishedAtMs = System.currentTimeMillis(), result = result,
             ))
             return result
@@ -1172,7 +1170,7 @@ class FunctionRun(
         private const val CHECKER_RULES_FILE = ".omnibot/omniflow/checkers/checker_rules.json"
         private const val CHECKER_RULES_ASSET = "omniflow/checkers/checker_rules.json"
         private const val TAG = "FunctionRun"
-        private const val MAX_OMNIFLOW_CALL_DEPTH = 8
+        private const val MAX_FUNCTION_CALL_DEPTH = 8
         private const val REPLAY_UI_STEP_SETTLE_DELAY_MS = 1_000L
         private const val FRONTEND_SUCCESS_POPUP_VISIBLE_MS = 900L
         private const val FRONTEND_TERMINAL_POPUP_VISIBLE_MS = 2500L
@@ -1180,5 +1178,67 @@ class FunctionRun(
     }
 
     private fun nextRunId(startedAtMs: Long): String =
-        "omniflow_run_${startedAtMs}_${RUN_SEQUENCE.incrementAndGet()}"
+        "function_run_${startedAtMs}_${RUN_SEQUENCE.incrementAndGet()}"
+}
+
+private class CallTiming {
+    private val startedAtNanos = System.nanoTime()
+    val startedAtMs: Long = System.currentTimeMillis()
+    private val phases = linkedMapOf<String, Long>()
+
+    fun <T> measure(phaseName: String, block: () -> T): T {
+        val phaseStartedAtNanos = System.nanoTime()
+        return try {
+            block()
+        } finally {
+            phases[phaseName] = elapsedMs(phaseStartedAtNanos)
+        }
+    }
+
+    suspend fun <T> measureSuspend(phaseName: String, block: suspend () -> T): T {
+        val phaseStartedAtNanos = System.nanoTime()
+        return try {
+            block()
+        } finally {
+            phases[phaseName] = elapsedMs(phaseStartedAtNanos)
+        }
+    }
+
+    fun attachTo(payload: Map<String, Any?>): Map<String, Any?> {
+        val callTiming = finish()
+        val mergedTiming = linkedMapOf<String, Any?>().apply {
+            putAll(mapArg(payload["timing"]))
+            put("call_started_at_ms", callTiming["started_at_ms"])
+            put("call_finished_at_ms", callTiming["finished_at_ms"])
+            put("call_duration_ms", callTiming["duration_ms"])
+            put("call_phase_ms", callTiming["phase_ms"])
+        }
+        return linkedMapOf<String, Any?>().apply {
+            putAll(payload)
+            put("timing", mergedTiming)
+        }
+    }
+
+    private fun finish(): Map<String, Any?> {
+        val finishedAtMs = System.currentTimeMillis()
+        val completedPhases = linkedMapOf<String, Long>()
+        listOf(
+            "execute_function_ms",
+        ).forEach { phaseName ->
+            completedPhases[phaseName] = phases[phaseName] ?: 0L
+        }
+        phases.forEach { (phaseName, durationMs) ->
+            completedPhases.putIfAbsent(phaseName, durationMs)
+        }
+        return linkedMapOf(
+            "source" to "oob_function_call",
+            "started_at_ms" to startedAtMs,
+            "finished_at_ms" to finishedAtMs,
+            "duration_ms" to elapsedMs(startedAtNanos),
+            "phase_ms" to completedPhases,
+        )
+    }
+
+    private fun elapsedMs(startedAtNanos: Long): Long =
+        ((System.nanoTime() - startedAtNanos) / 1_000_000L).coerceAtLeast(0L)
 }

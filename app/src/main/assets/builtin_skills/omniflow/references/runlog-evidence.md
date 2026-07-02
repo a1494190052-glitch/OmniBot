@@ -15,30 +15,40 @@ especially after replay failure or after a successful run shows a better path.
 6. Call `update_function` again with `function_id`, `run_id`, `analysis`, and
    optional `patch`.
 
-## Required Analysis Shape
+## Required Output Shape
 
-The Kotlin prompt contract owner is
-`FunctionRunLogAnalysisContract`; keep field names, evidence roles, and
-failure codes aligned with it.
+Return one JSON object with `analysis` and `patch`. `analysis` explains the
+evidence in free-form structured text; `patch` is the smallest safe update that
+makes the saved Function easier for a future agent/VLM to understand and call.
 
 ```json
 {
-  "summary": "这次 RunLog 说明 Function 为什么成功/失败",
-  "step_findings": [
-    {
-      "function_step_index": 1,
-      "runlog_card_index": 3,
-      "label": "点击外卖入口",
-      "role": "required_action | optional_checker | noise | duplicate | failed_action | success_evidence",
-      "reason": "为什么这样判断"
-    }
-  ],
-  "failure_reason": {
-    "code": "wrong_target | target_missing | ad_interruption | repeated_input | unstable_coordinate | unknown",
-    "message": "具体原因"
+  "analysis": {
+    "summary": "这次 RunLog 说明 Function 为什么成功/失败",
+    "evidence": [
+      {
+        "function_step_index": 1,
+        "runlog_card_index": 3,
+        "label": "点击外卖入口",
+        "reason": "为什么这个证据支持或反对修改"
+      }
+    ]
   },
-  "recommended_patch": {
-    "ops": []
+  "patch": {
+    "name": "更清楚的 Function 名称",
+    "description": "何时调用、会做什么、需要什么输入、成功标志",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "query": {
+          "type": "string",
+          "description": "用户要搜索的内容",
+          "x_oob_bindings": ["$.execution.steps[2].args.text"]
+        }
+      },
+      "required": ["query"],
+      "additionalProperties": false
+    }
   }
 }
 ```
@@ -46,19 +56,10 @@ failure codes aligned with it.
 ## Evidence Rules
 
 - If unsure, do not change the main path.
-- Ads, skip buttons, close popups, coupons, permission nudges, and transient
-  interruptions are `optional_checker` evidence, not mandatory replay steps.
-- `wait`, pure perception wrappers, failed cards, and repeated input are noise
-  unless they explain a concrete failure.
-- Successful RunLogs may improve descriptions, step titles, summaries, selector
-  hints, success signals, and evidence metadata.
-- Failed RunLogs may change a step only when the evidence is explicit.
-
-## Failure Codes
-
-- `wrong_target`: the Function selected the wrong visible target.
-- `target_missing`: the expected target was not present.
-- `ad_interruption`: an ad, popup, or overlay blocked the happy path.
-- `repeated_input`: repeated text or duplicate input caused the issue.
-- `unstable_coordinate`: coordinates or bounds no longer match the target.
-- `unknown`: evidence is insufficient.
+- Successful RunLogs may improve descriptions, step titles, summaries, success
+  signals, and evidence metadata.
+- Failed RunLogs may improve descriptions, checker hints, and success/avoid
+  guidance when the evidence is explicit.
+- Public parameters must include explicit JSONPath bindings to existing step
+  args. Do not infer bindings from parameter names.
+- Do not change coordinates, XML paths, resource ids, or source_context.

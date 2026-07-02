@@ -30,11 +30,8 @@ Read this file first, then edit only the fields you need.
   "recall_enabled": true,
   "recall_max_candidates": 3,
   "recall_max_tools_per_step": 3,
-  "recall_decision_mode": "context_only",
   "recall_tool_name_prefix": "run_recalled_workflow",
   "recall_description_chars": 220,
-  "recall_step_summary_count": 2,
-  "recall_step_summary_chars": 180,
   "recall_tool_description_chars": 520,
   "distill_min_trace_steps": 2,
   "distill_max_skill_chars": 400,
@@ -59,11 +56,8 @@ Read this file first, then edit only the fields you need.
 | `recall_enabled` | 是否开启 recall 临时工具注入 | `true` / `false` |
 | `recall_max_candidates` | 每步最多召回多少个 Function 候选 | 1–10 |
 | `recall_max_tools_per_step` | 每步最多注入多少个 `run_recalled_workflow_N` 临时工具 | 0–10 |
-| `recall_decision_mode` | recall 决策模式标记，写入诊断与工具 metadata | 非空字符串，默认 `context_only` |
 | `recall_tool_name_prefix` | 临时工具名前缀 | 小写字母开头，运行时会清洗为合法 tool name |
 | `recall_description_chars` | Function 描述摘要字符上限 | 40–1000 |
-| `recall_step_summary_count` | 临时工具描述里最多包含几条历史步骤摘要 | 0–5 |
-| `recall_step_summary_chars` | 单条步骤摘要字符上限 | 40–1000 |
 | `recall_tool_description_chars` | 临时工具完整 description 字符上限 | 120–2000 |
 | `distill_min_trace_steps` | 至少执行几步才触发经验蒸馏 | 1–10 |
 | `distill_max_skill_chars` | guidance skill 单条上限字符数 | 100–1200 |

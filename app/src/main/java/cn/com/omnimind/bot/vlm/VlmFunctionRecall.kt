@@ -40,7 +40,7 @@ class VlmFunctionRecall(context: Context) : VLMRecallContextProvider {
             return request.context.copy(
                 pageDiagnostics = request.context.pageDiagnostics + mapOf(
                     "recall_context_lookup_ms" to "0",
-                    "recall_context_decision" to "disabled_by_max_tools",
+                    "recall_context_state" to "disabled_by_max_tools",
                     "recall_context_tool_count" to "0",
                 )
             )
@@ -52,7 +52,6 @@ class VlmFunctionRecall(context: Context) : VLMRecallContextProvider {
                     "current_package" to request.currentPackageName,
                     "current_xml" to request.currentXml,
                     "k" to fetchK,
-                    "decision_mode" to config.recallDecisionMode,
                 )
             )
         }.onFailure { OmniLog.w(TAG, "recall failed: ${it.message}") }
@@ -60,7 +59,7 @@ class VlmFunctionRecall(context: Context) : VLMRecallContextProvider {
             ?: return request.context.copy(
                 pageDiagnostics = request.context.pageDiagnostics + mapOf(
                     "recall_context_lookup_ms" to elapsed(startedAt),
-                    "recall_context_decision" to "error",
+                    "recall_context_state" to "error",
                     "recall_context_tool_count" to "0",
                 )
             )
@@ -78,7 +77,7 @@ class VlmFunctionRecall(context: Context) : VLMRecallContextProvider {
             dynamicToolDefinitions = request.context.dynamicToolDefinitions + tools,
             pageDiagnostics = request.context.pageDiagnostics + mapOf(
                 "recall_context_lookup_ms" to elapsed(startedAt),
-                "recall_context_decision" to firstNonBlank(recallResult["decision"]).ifBlank { "miss" },
+                "recall_context_state" to firstNonBlank(recallResult["retrieval_state"]).ifBlank { "miss" },
                 "recall_context_tool_count" to tools.size.toString(),
                 "recall_context_tool_names" to ids.joinToString(",").take(4000),
             )
@@ -112,17 +111,16 @@ class VlmFunctionRecall(context: Context) : VLMRecallContextProvider {
         candidate: Map<String, Any?>,
         currentGoal: String,
     ): JsonObject? {
-        val callable = callableSummary(candidate)
-        val functionId = firstNonBlank(callable["function_id"], candidate["function_id"]).takeIf { it.isNotEmpty() } ?: return null
+        val functionId = firstNonBlank(candidate["function_id"]).takeIf { it.isNotEmpty() } ?: return null
         val toolName = "${config.recallToolNamePrefix}_${index + 1}"
-        val inputSchema = mapArg(callable["parameters"]).ifEmpty {
+        val inputSchema = mapArg(candidate["parameters"]).ifEmpty {
             mapArg(candidate["inputSchema"]).ifEmpty {
                 mapArg(candidate["input_schema"])
             }
         }
         val description = buildDescription(
-            callable = callable,
             candidate = candidate,
+            inputSchema = inputSchema,
             functionId = functionId,
             currentGoal = currentGoal
         )
@@ -138,55 +136,53 @@ class VlmFunctionRecall(context: Context) : VLMRecallContextProvider {
         }
     }
 
-    private fun callableSummary(candidate: Map<String, Any?>): Map<String, Any?> {
-        return linkedMapOf<String, Any?>(
-            "function_id" to firstNonBlank(candidate["function_id"]),
-            "name" to firstNonBlank(candidate["name"]),
-            "description" to firstNonBlank(candidate["description"], candidate["name"], candidate["function_id"]),
-            "parameters" to mapArg(candidate["inputSchema"]).ifEmpty { mapArg(candidate["input_schema"]) },
-        )
-    }
-
     private fun buildDescription(
-        callable: Map<String, Any?>,
         candidate: Map<String, Any?>,
+        inputSchema: Map<String, Any?>,
         functionId: String,
         currentGoal: String,
     ): String {
         val profile = mapArg(candidate["function_profile"])
         val purpose = firstNonBlank(profile["purpose"], profile["use_when"])
-        val functionName = firstNonBlank(callable["name"], candidate["name"], functionId)
-        val description = firstNonBlank(callable["description"], candidate["description"], functionName, purpose, functionId)
+        val useWhen = firstNonBlank(profile["use_when"], profile["reuse_when"], purpose)
+        val functionName = firstNonBlank(candidate["name"], functionId)
+        val description = firstNonBlank(candidate["description"], purpose, functionName, functionId)
         val goal = currentGoal.replace(Regex("\\s+"), " ").trim().take(160)
-        val argumentNames = listArg(callable["argument_names"]).ifEmpty {
-            mapArg(mapArg(callable["parameters"])["properties"]).keys.toList()
-        }
-            .mapNotNull { it?.toString()?.trim()?.takeIf(String::isNotEmpty) }
-            .take(6)
-            .joinToString(", ")
-        val steps = listArg(candidate["step_summaries"])
-            .take(config.recallStepSummaryCount)
-            .joinToString("; ") { it.toString() }
+        val argumentDetails = argumentDetails(inputSchema)
         return buildString {
-            append("Saved Function: ")
+            append("Function: ")
             append(functionName.ifBlank { functionId }.take(80))
-            append(". Call it only when it clearly matches the current goal; otherwise continue with ordinary UI actions. ")
+            append(". ")
+            if (useWhen.isNotBlank()) {
+                append("Use when: ")
+                append(useWhen.take(config.recallDescriptionChars))
+                append(". ")
+            }
+            append("Call only when it clearly matches the current goal; otherwise continue with ordinary UI actions. ")
             if (goal.isNotBlank()) {
                 append("Current user goal: ")
                 append(goal)
                 append(". Fill arguments from the current user goal; pass only the argument value, not the whole sentence. ")
             }
-            if (argumentNames.isNotBlank()) {
+            if (argumentDetails.isNotBlank()) {
                 append("Arguments: ")
-                append(argumentNames)
+                append(argumentDetails)
                 append(". ")
+            } else {
+                append("Arguments: none. ")
             }
             append(description.ifBlank { "Saved mobile workflow" }.take(config.recallDescriptionChars))
-            if (steps.isNotBlank()) {
-                append(" Steps: ")
-                append(steps.take(config.recallStepSummaryChars))
-            }
         }.take(config.recallToolDescriptionChars)
+    }
+
+    private fun argumentDetails(inputSchema: Map<String, Any?>): String {
+        val properties = mapArg(inputSchema["properties"])
+        if (properties.isEmpty()) return ""
+        return properties.entries.take(6).joinToString("; ") { (name, rawProperty) ->
+            val property = mapArg(rawProperty)
+            val description = firstNonBlank(property["description"], property["title"])
+            if (description.isBlank()) name else "$name: ${description.take(80)}"
+        }
     }
 
     private fun sanitizeInputSchema(inputSchema: Map<String, Any?>): JsonObject {

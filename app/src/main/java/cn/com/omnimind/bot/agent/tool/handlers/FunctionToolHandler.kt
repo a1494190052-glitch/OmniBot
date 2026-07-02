@@ -38,7 +38,7 @@ class FunctionToolHandler(
                 result["summary"],
                 result["message"],
                 result["error_message"],
-                result["decision"],
+                result["retrieval_state"],
                 toolName,
             ).map { it?.toString()?.trim().orEmpty() }
                 .firstOrNull { it.isNotEmpty() }

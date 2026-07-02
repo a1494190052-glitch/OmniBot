@@ -7,7 +7,7 @@ import org.junit.Test
 
 class FunctionParameterBindingNormalizerTest {
     @Test
-    fun `normalizes input text step parameter into binding table and materializes`() {
+    fun `does not infer input text binding from parameter name`() {
         val normalized = FunctionParameterBindingNormalizer.normalize(
             mapOf(
                 "function_id" to "xiaohongshu_search",
@@ -39,23 +39,10 @@ class FunctionParameterBindingNormalizerTest {
             )
         )
 
-        val schema = normalized["parameters"] as Map<*, *>
-        val properties = schema["properties"] as Map<*, *>
-        val input = properties["input_text_3"] as Map<*, *>
-        val expectedBindings = listOf(
-            "$.execution.steps[2].args.text",
-        )
-        assertEquals(
-            expectedBindings,
-            input["x_oob_bindings"],
-        )
-
-        val metadata = normalized["metadata"] as Map<*, *>
-        val table = metadata["oob_parameter_bindings"] as List<*>
-        assertEquals(
-            expectedBindings,
-            (table.single() as Map<*, *>)["bindings"],
-        )
+        val publicSchema = FunctionSchema.inputSchema(normalized)
+        val publicProperties = publicSchema["properties"] as Map<*, *>
+        assertFalse(publicProperties.containsKey("input_text_3"))
+        assertFalse(normalized.containsKey("x_oob_parameter_bindings"))
 
         val materialized = FunctionSchema.materialize(
             normalized,
@@ -64,12 +51,12 @@ class FunctionParameterBindingNormalizerTest {
         val steps = ((materialized["execution"] as Map<*, *>)["steps"] as List<*>)
             .map { it as Map<*, *> }
         val args = steps[2]["args"] as Map<*, *>
-        assertEquals("猫猫", args["text"])
+        assertEquals("彩票", args["text"])
         assertFalse(args.containsKey("content"))
         assertFalse(args.containsKey("value"))
-        val runtime = materialized["runtime"] as Map<*, *>
-        assertEquals(emptyList<Any?>(), runtime["unbound_arguments"])
-        assertTrue((runtime["supplied_binding_applied_count"] as Number).toInt() > 0)
+        val validation = FunctionArgumentBindingValidator.validate(materialized)
+        assertFalse(validation.success)
+        assertTrue(validation.errorMessage.contains("input_text_3"))
     }
 
     @Test
@@ -147,7 +134,7 @@ class FunctionParameterBindingNormalizerTest {
     }
 
     @Test
-    fun `normalizes semantic parameter into function call argument binding`() {
+    fun `does not infer function call argument binding from semantic parameter name`() {
         val normalized = FunctionParameterBindingNormalizer.normalize(
             mapOf(
                 "function_id" to "parent_search",
@@ -176,18 +163,10 @@ class FunctionParameterBindingNormalizerTest {
             )
         )
 
-        val schema = normalized["parameters"] as Map<*, *>
-        val properties = schema["properties"] as Map<*, *>
-        val searchQuery = properties["search_query"] as Map<*, *>
-        assertEquals(
-            listOf("$.execution.steps[0].args.arguments.query"),
-            searchQuery["x_oob_bindings"],
-        )
-        val topLevelTable = normalized["x_oob_parameter_bindings"] as List<*>
-        assertEquals(
-            listOf("$.execution.steps[0].args.arguments.query"),
-            (topLevelTable.single() as Map<*, *>)["bindings"],
-        )
+        val publicSchema = FunctionSchema.inputSchema(normalized)
+        val publicProperties = publicSchema["properties"] as Map<*, *>
+        assertFalse(publicProperties.containsKey("search_query"))
+        assertFalse(normalized.containsKey("x_oob_parameter_bindings"))
 
         val materialized = FunctionSchema.materialize(
             normalized,
@@ -197,8 +176,10 @@ class FunctionParameterBindingNormalizerTest {
             .map { it as Map<*, *> }
         val args = steps[0]["args"] as Map<*, *>
         val functionArguments = args["arguments"] as Map<*, *>
-        assertEquals("猫猫", functionArguments["query"])
-        assertTrue(FunctionArgumentBindingValidator.validate(materialized).success)
+        assertEquals("彩票", functionArguments["query"])
+        val validation = FunctionArgumentBindingValidator.validate(materialized)
+        assertFalse(validation.success)
+        assertTrue(validation.errorMessage.contains("search_query"))
     }
 
     @Test

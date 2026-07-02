@@ -42,11 +42,8 @@ class VlmWorkspaceConfig private constructor(private val appContext: Context) {
               "recall_enabled": true,
               "recall_max_candidates": 3,
               "recall_max_tools_per_step": 3,
-              "recall_decision_mode": "context_only",
               "recall_tool_name_prefix": "run_recalled_workflow",
               "recall_description_chars": 220,
-              "recall_step_summary_count": 2,
-              "recall_step_summary_chars": 180,
               "recall_tool_description_chars": 520,
               "distill_min_trace_steps": 2,
               "distill_max_skill_chars": 400,
@@ -83,11 +80,8 @@ class VlmWorkspaceConfig private constructor(private val appContext: Context) {
             recallEnabled = true,
             recallMaxCandidates = 3,
             recallMaxToolsPerStep = 3,
-            recallDecisionMode = "context_only",
             recallToolNamePrefix = "run_recalled_workflow",
             recallDescriptionChars = 220,
-            recallStepSummaryCount = 2,
-            recallStepSummaryChars = 180,
             recallToolDescriptionChars = 520,
             distillMinTraceSteps = 2,
             distillMaxSkillChars = 400,
@@ -113,11 +107,8 @@ class VlmWorkspaceConfig private constructor(private val appContext: Context) {
         val recall_enabled: Boolean = true,
         val recall_max_candidates: Int = 3,
         val recall_max_tools_per_step: Int = 3,
-        val recall_decision_mode: String = "context_only",
         val recall_tool_name_prefix: String = "run_recalled_workflow",
         val recall_description_chars: Int = 220,
-        val recall_step_summary_count: Int = 2,
-        val recall_step_summary_chars: Int = 180,
         val recall_tool_description_chars: Int = 520,
         val distill_min_trace_steps: Int = 2,
         val distill_max_skill_chars: Int = 400,
@@ -141,11 +132,8 @@ class VlmWorkspaceConfig private constructor(private val appContext: Context) {
         val recallEnabled: Boolean,
         val recallMaxCandidates: Int,
         val recallMaxToolsPerStep: Int,
-        val recallDecisionMode: String,
         val recallToolNamePrefix: String,
         val recallDescriptionChars: Int,
-        val recallStepSummaryCount: Int,
-        val recallStepSummaryChars: Int,
         val recallToolDescriptionChars: Int,
         val distillMinTraceSteps: Int,
         val distillMaxSkillChars: Int,
@@ -205,11 +193,8 @@ class VlmWorkspaceConfig private constructor(private val appContext: Context) {
         val dryRunPromptPreviewChars = raw.vlm_dry_run_prompt_preview_chars.coerceIn(500, 30_000)
         val maxCandidates = raw.recall_max_candidates.coerceIn(1, 10)
         val maxRecallTools = raw.recall_max_tools_per_step.coerceIn(0, 10)
-        val recallDecisionMode = raw.recall_decision_mode.trim().ifBlank { "context_only" }
         val recallToolNamePrefix = sanitizeToolNamePrefix(raw.recall_tool_name_prefix)
         val recallDescriptionChars = raw.recall_description_chars.coerceIn(40, 1000)
-        val recallStepSummaryCount = raw.recall_step_summary_count.coerceIn(0, 5)
-        val recallStepSummaryChars = raw.recall_step_summary_chars.coerceIn(40, 1000)
         val recallToolDescriptionChars = raw.recall_tool_description_chars.coerceIn(120, 2000)
         val minSteps = raw.distill_min_trace_steps.coerceIn(1, 10)
         val maxChars = raw.distill_max_skill_chars.coerceIn(100, 1200)
@@ -241,11 +226,8 @@ class VlmWorkspaceConfig private constructor(private val appContext: Context) {
             recallEnabled = raw.recall_enabled,
             recallMaxCandidates = maxCandidates,
             recallMaxToolsPerStep = maxRecallTools,
-            recallDecisionMode = recallDecisionMode,
             recallToolNamePrefix = recallToolNamePrefix,
             recallDescriptionChars = recallDescriptionChars,
-            recallStepSummaryCount = recallStepSummaryCount,
-            recallStepSummaryChars = recallStepSummaryChars,
             recallToolDescriptionChars = recallToolDescriptionChars,
             distillMinTraceSteps = minSteps,
             distillMaxSkillChars = maxChars,
