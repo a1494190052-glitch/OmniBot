@@ -127,7 +127,7 @@ class McpToolDefinitionsTest {
     }
 
     @Test
-    fun updateFunctionToolExposesRunLogAnalysisInputs() {
+    fun updateFunctionToolExposesFunctionSpecSaveInputs() {
         val tool = McpToolDefinitions.fixedTools.single {
             it["name"] == FunctionApi.FUNCTION_UPDATE
         }
@@ -135,9 +135,10 @@ class McpToolDefinitionsTest {
         val properties = schema["properties"] as Map<*, *>
         val description = tool["description"]?.toString().orEmpty()
 
-        assertTrue(description.contains("run_id"))
-        assertTrue(description.contains("analysis_context"))
+        assertTrue(description.contains("function_spec"))
+        assertTrue(description.contains("Function metadata"))
         assertTrue(properties.containsKey("function_id"))
+        assertTrue(properties.containsKey("function_spec"))
         assertTrue(properties.containsKey("run_id"))
         assertTrue(properties.containsKey("offline_job"))
         assertTrue(properties.containsKey("auto_analyze_with_model"))

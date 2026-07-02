@@ -45,11 +45,6 @@ mixin _ChatPageLifecycleMixin on _ChatPageStateBase {
     AppUpdateService.statusNotifier.addListener(_handleAppUpdateStatusChanged);
     _appUpdateStatus = AppUpdateService.statusNotifier.value;
     unawaited(AppUpdateService.initialize());
-    AssistsMessageService.functionRunProgressNotifier.addListener(
-      _handleFunctionRunProgressStatusChanged,
-    );
-    _functionRunProgressStatus =
-        AssistsMessageService.functionRunProgressNotifier.value;
     _conversationListChangedSubscription = AssistsMessageService
         .conversationListChangedStream
         .listen((_) {
@@ -63,9 +58,6 @@ mixin _ChatPageLifecycleMixin on _ChatPageStateBase {
     _browserSessionSnapshotChangedSubscription = AssistsMessageService
         .browserSessionSnapshotChangedStream
         .listen(_handleBrowserSessionSnapshotChanged);
-    _functionRunProgressSubscription = AssistsMessageService
-        .functionRunProgressStream
-        .listen(_handleFunctionRunProgressEvent);
     _codexEventSubscription = CodexAppServerService.events.listen(
       _handleCodexAppServerEvent,
     );
@@ -154,10 +146,7 @@ mixin _ChatPageLifecycleMixin on _ChatPageStateBase {
     if (normalizedPreferredMode == null) {
       final lastVisible =
           await ConversationHistoryService.getLastVisibleThreadTarget();
-      final normalizedLastVisible = _normalizeVisibleThreadTarget(
-        lastVisible,
-        freshCodexOnImplicitRestore: true,
-      );
+      final normalizedLastVisible = _normalizeVisibleThreadTarget(lastVisible);
       if (normalizedLastVisible != null) {
         return normalizedLastVisible;
       }
@@ -185,17 +174,13 @@ mixin _ChatPageLifecycleMixin on _ChatPageStateBase {
   }
 
   ConversationThreadTarget? _normalizeVisibleThreadTarget(
-    ConversationThreadTarget? target, {
-    bool freshCodexOnImplicitRestore = false,
-  }) {
+    ConversationThreadTarget? target,
+  ) {
     if (target == null) {
       return null;
     }
     if (target.mode == ConversationMode.openclaw) {
       return null;
-    }
-    if (freshCodexOnImplicitRestore && target.mode == ConversationMode.codex) {
-      return _newCodexThreadTarget();
     }
     return target;
   }
@@ -276,6 +261,7 @@ mixin _ChatPageLifecycleMixin on _ChatPageStateBase {
       _isSurfacePageScrolling = false;
     });
     _resetLocalConversationState(targetMode);
+    _restoreLocalCodexThreadIdFromTarget(effectiveTarget);
     _vlmAnswerController.clear();
     _applyDraftForConversationMode(targetMode);
     if (effectiveTarget.isRemoteCodexSessionTarget) {
@@ -296,6 +282,18 @@ mixin _ChatPageLifecycleMixin on _ChatPageStateBase {
     if (syncPage) {
       _jumpToCurrentModePage(animate: false);
     }
+  }
+
+  void _restoreLocalCodexThreadIdFromTarget(ConversationThreadTarget target) {
+    if (target.mode != ConversationMode.codex ||
+        target.isRemoteCodexSessionTarget) {
+      return;
+    }
+    final threadId = target.codexThreadId?.trim();
+    if (threadId == null || threadId.isEmpty) {
+      return;
+    }
+    _activeCodexThreadId = threadId;
   }
 
   @override
@@ -608,7 +606,6 @@ mixin _ChatPageLifecycleMixin on _ChatPageStateBase {
     _conversationListChangedSubscription?.cancel();
     _conversationMessagesChangedSubscription?.cancel();
     _browserSessionSnapshotChangedSubscription?.cancel();
-    _functionRunProgressSubscription?.cancel();
     if (_subscribedRoute != null) {
       GoRouterManager.routeObserver.unsubscribe(this);
       _subscribedRoute = null;
@@ -619,9 +616,6 @@ mixin _ChatPageLifecycleMixin on _ChatPageStateBase {
     );
     AppUpdateService.statusNotifier.removeListener(
       _handleAppUpdateStatusChanged,
-    );
-    AssistsMessageService.functionRunProgressNotifier.removeListener(
-      _handleFunctionRunProgressStatusChanged,
     );
     _messageController.removeListener(_handleSlashCommandInput);
     _messageController.dispose();
@@ -762,15 +756,6 @@ mixin _ChatPageLifecycleMixin on _ChatPageStateBase {
   }
 
   @override
-  void _handleFunctionRunProgressStatusChanged() {
-    if (!mounted) return;
-    setState(() {
-      _functionRunProgressStatus =
-          AssistsMessageService.functionRunProgressNotifier.value;
-    });
-  }
-
-  @override
   double _popupMenuBottomOffset() {
     final renderObject = _inputAreaKey.currentContext?.findRenderObject();
     if (renderObject is! RenderBox || !renderObject.hasSize) {
@@ -791,7 +776,6 @@ mixin _ChatPageLifecycleMixin on _ChatPageStateBase {
   int _pageIndexForSurface(ChatSurfaceMode mode) => switch (mode) {
     ChatSurfaceMode.normal => 0,
     ChatSurfaceMode.workspace => 1,
-    ChatSurfaceMode.project => 1,
     ChatSurfaceMode.openclaw => 0,
   };
 

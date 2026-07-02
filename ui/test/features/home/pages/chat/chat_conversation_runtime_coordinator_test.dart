@@ -626,14 +626,14 @@ void main() {
 
       await emitStream(<String, dynamic>{
         'event': 'thinking_started',
-        'entryId': '$taskId-thinking-1',
+        'entryId': '$taskId-thinking',
         'roundIndex': 1,
         'thinking': '',
         'stage': 1,
       });
       await emitStream(<String, dynamic>{
         'event': 'thinking_snapshot',
-        'entryId': '$taskId-thinking-1',
+        'entryId': '$taskId-thinking',
         'roundIndex': 1,
         'thinking': '先分析上下文。',
         'stage': 1,
@@ -663,7 +663,7 @@ void main() {
       expect(textMessage.streamMeta?['isFinal'], isTrue);
 
       final thinkingMessage = runtime.messages.firstWhere(
-        (message) => message.id == '$taskId-thinking-1',
+        (message) => message.id == '$taskId-thinking',
       );
       expect(thinkingMessage.cardData?['thinkingContent'], '先分析上下文。');
       expect(thinkingMessage.cardData?['isLoading'], isFalse);
@@ -674,7 +674,7 @@ void main() {
       expect(entries, hasLength(1));
       final group = entries.single.group!;
       expect(group.visibleMessagesNewestFirst.single.id, '$taskId-text-1');
-      expect(group.processMessagesNewestFirst.single.id, '$taskId-thinking-1');
+      expect(group.processMessagesNewestFirst.single.id, '$taskId-thinking');
     },
   );
 

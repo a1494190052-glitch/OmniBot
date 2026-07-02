@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -802,10 +803,7 @@ void main() {
     );
     expect(convertArgs['run_id'], 'run-vlm');
     expect(convertArgs['register'], isTrue);
-    expect(
-      methodCalls.where((call) => call.method == 'getFunction'),
-      isEmpty,
-    );
+    expect(methodCalls.where((call) => call.method == 'getFunction'), isEmpty);
 
     await _pumpUntilFound(
       tester,
@@ -901,9 +899,7 @@ void main() {
         isEmpty,
       );
       expect(
-        methodCalls.where(
-          (call) => call.method == 'registerFunction',
-        ),
+        methodCalls.where((call) => call.method == 'registerFunction'),
         isEmpty,
       );
     },
@@ -913,9 +909,21 @@ void main() {
     tester,
   ) async {
     final methodCalls = <MethodCall>[];
+    final enhancedSpec = _runLogFunctionSpec(
+      name: '打开系统设置',
+      description: '打开 Android 系统设置页，适合需要进入设置入口时复用。',
+      stepTitle: '打开设置应用',
+    );
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(assistCoreChannel, (call) async {
           methodCalls.add(call);
+          final agentResponse = _functionEnhancementAgentResponse(
+            call,
+            enhancedSpec,
+          );
+          if (agentResponse != null) {
+            return agentResponse;
+          }
           if (call.method == 'getInternalRunLogTimeline') {
             return _runLogTimelinePayload(runId: 'run-vlm');
           }
@@ -936,12 +944,13 @@ void main() {
           }
           if (call.method == 'updateFunction') {
             final args = Map<String, dynamic>.from(call.arguments as Map);
-            expect(args['function_id'], 'fn_from_runlog');
+            expect(args.containsKey('function_id'), isFalse);
+            expect(args['function_spec'], isA<Map>());
             expect(args['run_id'], 'run-vlm');
             expect(args['mode'], 'enhance');
             expect(args['offline_job'], isTrue);
             expect(args['background_enhancement'], isTrue);
-            expect(args['auto_analyze_with_model'], isTrue);
+            expect(args['auto_analyze_with_model'], isFalse);
             expect(args['patch'], isNull);
             return <String, dynamic>{
               'success': true,
@@ -950,21 +959,8 @@ void main() {
               'saved': true,
               'function_kind': 'oob_reusable_function',
               'asset_state': 'native_local',
-              'updated_function': _runLogFunctionSpec(
-                name: '打开系统设置',
-                description: '打开 Android 系统设置页，适合需要进入设置入口时复用。',
-                stepTitle: '打开设置应用',
-              ),
+              'updated_function': enhancedSpec,
             };
-          }
-          if (call.method == 'registerFunction') {
-            final args = Map<String, dynamic>.from(call.arguments as Map);
-            final spec = Map<String, dynamic>.from(
-              args['function_spec'] as Map,
-            );
-            expect(spec['agent_visible'], isTrue);
-            expect(spec['visibility'], 'agent_reusable');
-            return _registerFunctionResult(spec);
           }
           return null;
         });
@@ -1013,8 +1009,12 @@ void main() {
       hasLength(1),
     );
     expect(
-      methodCalls.where((call) => call.method == 'registerFunction'),
+      methodCalls.where((call) => call.method == 'createAgentTask'),
       hasLength(1),
+    );
+    expect(
+      methodCalls.where((call) => call.method == 'registerFunction'),
+      isEmpty,
     );
     expect(find.text('已增强并保存', skipOffstage: false), findsOneWidget);
     expect(find.text('已修改，保存后生效', skipOffstage: false), findsNothing);
@@ -1024,8 +1024,20 @@ void main() {
     tester,
   ) async {
     final updateCompleter = Completer<Map<String, dynamic>>();
+    final enhancedSpec = _runLogFunctionSpec(
+      name: '打开系统设置',
+      description: '打开 Android 系统设置页，适合需要进入设置入口时复用。',
+      stepTitle: '打开设置应用',
+    );
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(assistCoreChannel, (call) async {
+          final agentResponse = _functionEnhancementAgentResponse(
+            call,
+            enhancedSpec,
+          );
+          if (agentResponse != null) {
+            return agentResponse;
+          }
           if (call.method == 'getInternalRunLogTimeline') {
             return _runLogTimelinePayload(runId: 'run-vlm');
           }
@@ -1046,12 +1058,6 @@ void main() {
           }
           if (call.method == 'updateFunction') {
             return updateCompleter.future;
-          }
-          if (call.method == 'registerFunction') {
-            final args = Map<String, dynamic>.from(call.arguments as Map);
-            return _registerFunctionResult(
-              Map<String, dynamic>.from(args['function_spec'] as Map),
-            );
           }
           return null;
         });
@@ -1090,11 +1096,7 @@ void main() {
       'saved': true,
       'function_kind': 'oob_reusable_function',
       'asset_state': 'native_local',
-      'updated_function': _runLogFunctionSpec(
-        name: '打开系统设置',
-        description: '打开 Android 系统设置页，适合需要进入设置入口时复用。',
-        stepTitle: '打开设置应用',
-      ),
+      'updated_function': enhancedSpec,
     });
     await tester.runAsync(
       () => Future<void>.delayed(const Duration(milliseconds: 500)),
@@ -1107,9 +1109,20 @@ void main() {
     (tester) async {
       final methodCalls = <MethodCall>[];
       final updateCompleter = Completer<Map<String, dynamic>>();
+      final unchangedSpec = _runLogFunctionSpec(
+        name: '打开 Settings',
+        description: '打开 Android 设置',
+      );
       TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
           .setMockMethodCallHandler(assistCoreChannel, (call) async {
             methodCalls.add(call);
+            final agentResponse = _functionEnhancementAgentResponse(
+              call,
+              unchangedSpec,
+            );
+            if (agentResponse != null) {
+              return agentResponse;
+            }
             if (call.method == 'getInternalRunLogTimeline') {
               return _runLogTimelinePayload(runId: 'run-vlm');
             }
@@ -1143,15 +1156,6 @@ void main() {
             }
             if (call.method == 'updateFunction') {
               return updateCompleter.future;
-            }
-            if (call.method == 'createAgentTask') {
-              return 'SUCCESS';
-            }
-            if (call.method == 'registerFunction') {
-              final args = Map<String, dynamic>.from(call.arguments as Map);
-              return _registerFunctionResult(
-                Map<String, dynamic>.from(args['function_spec'] as Map),
-              );
             }
             return null;
           });
@@ -1221,7 +1225,7 @@ void main() {
       );
       expect(
         methodCalls.where((call) => call.method == 'createAgentTask'),
-        isEmpty,
+        hasLength(1),
       );
       final functionRunCall = methodCalls.singleWhere(
         (call) => call.method == 'runFunction',
@@ -1255,10 +1259,7 @@ void main() {
         'saved': false,
         'function_kind': 'oob_reusable_function',
         'asset_state': 'native_local',
-        'updated_function': _runLogFunctionSpec(
-          name: '打开 Settings',
-          description: '打开 Android 设置',
-        ),
+        'updated_function': unchangedSpec,
       });
       await tester.runAsync(
         () => Future<void>.delayed(const Duration(milliseconds: 500)),
@@ -1270,8 +1271,19 @@ void main() {
   testWidgets('RunLog Agent enhancement marks unchanged explicitly', (
     tester,
   ) async {
+    final unchangedSpec = _runLogFunctionSpec(
+      name: '打开 Settings',
+      description: '打开 Android 设置',
+    );
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(assistCoreChannel, (call) async {
+          final agentResponse = _functionEnhancementAgentResponse(
+            call,
+            unchangedSpec,
+          );
+          if (agentResponse != null) {
+            return agentResponse;
+          }
           if (call.method == 'getInternalRunLogTimeline') {
             return _runLogTimelinePayload(runId: 'run-vlm');
           }
@@ -1292,11 +1304,12 @@ void main() {
           }
           if (call.method == 'updateFunction') {
             final args = Map<String, dynamic>.from(call.arguments as Map);
-            expect(args['function_id'], 'fn_from_runlog');
+            expect(args.containsKey('function_id'), isFalse);
+            expect(args['function_spec'], isA<Map>());
             expect(args['mode'], 'enhance');
             expect(args['offline_job'], isTrue);
             expect(args['background_enhancement'], isTrue);
-            expect(args['auto_analyze_with_model'], isTrue);
+            expect(args['auto_analyze_with_model'], isFalse);
             expect(args['patch'], isNull);
             return <String, dynamic>{
               'success': true,
@@ -1305,19 +1318,8 @@ void main() {
               'saved': false,
               'function_kind': 'oob_reusable_function',
               'asset_state': 'native_local',
-              'updated_function': _runLogFunctionSpec(
-                name: '打开 Settings',
-                description: '打开 Android 设置',
-              ),
+              'updated_function': unchangedSpec,
             };
-          }
-          if (call.method == 'registerFunction') {
-            final args = Map<String, dynamic>.from(call.arguments as Map);
-            final spec = Map<String, dynamic>.from(
-              args['function_spec'] as Map,
-            );
-            expect(spec['agent_visible'], isTrue);
-            return _registerFunctionResult(spec);
           }
           return null;
         });
@@ -1353,13 +1355,34 @@ void main() {
     expect(find.text('已增强并保存', skipOffstage: false), findsNothing);
   });
 
-  testWidgets('RunLog Agent enhancement surfaces native update failure', (
+  testWidgets('RunLog Agent enhancement surfaces invalid Agent JSON', (
     tester,
   ) async {
     final methodCalls = <MethodCall>[];
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(assistCoreChannel, (call) async {
           methodCalls.add(call);
+          if (call.method == 'createConversation') {
+            _conversationSequence += 1;
+            return _conversationSequence;
+          }
+          if (call.method == 'createAgentTask') {
+            return 'SUCCESS';
+          }
+          if (call.method == 'getConversationMessages') {
+            return <Map<String, dynamic>>[
+              <String, dynamic>{
+                'id': 'assistant-invalid-json',
+                'type': 1,
+                'user': 2,
+                'content': <String, dynamic>{
+                  'text': '无法安全增强。',
+                  'id': 'assistant-invalid-json',
+                },
+                'createAt': DateTime.now().toIso8601String(),
+              },
+            ];
+          }
           if (call.method == 'getInternalRunLogTimeline') {
             return _runLogTimelinePayload(runId: 'run-vlm');
           }
@@ -1376,14 +1399,6 @@ void main() {
                 name: '打开 Settings',
                 description: '打开 Android 设置',
               ),
-            };
-          }
-          if (call.method == 'updateFunction') {
-            return <String, dynamic>{
-              'success': false,
-              'error_code': 'AGENT_ANALYSIS_EMPTY_RESPONSE',
-              'error_message':
-                  'Agent model returned an empty response for update_function',
             };
           }
           return null;
@@ -1419,18 +1434,32 @@ void main() {
     expect(find.text('已检查，无需修改', skipOffstage: false), findsNothing);
     expect(
       methodCalls.where((call) => call.method == 'updateFunction'),
+      isEmpty,
+    );
+    expect(
+      methodCalls.where((call) => call.method == 'createAgentTask'),
       hasLength(1),
     );
-    expect(methodCalls.where((call) => call.method == 'postLLMChat'), isEmpty);
   });
 
-  testWidgets('RunLog Agent enhancement records native diagnostics', (
+  testWidgets('RunLog Agent enhancement records update_function diagnostics', (
     tester,
   ) async {
     final methodCalls = <MethodCall>[];
+    final enhancedSpec = _runLogFunctionSpec(
+      name: '打开系统设置',
+      description: '打开 Android 系统设置页，适合需要进入设置入口时复用。',
+    );
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(assistCoreChannel, (call) async {
           methodCalls.add(call);
+          final agentResponse = _functionEnhancementAgentResponse(
+            call,
+            enhancedSpec,
+          );
+          if (agentResponse != null) {
+            return agentResponse;
+          }
           if (call.method == 'getInternalRunLogTimeline') {
             return _runLogTimelinePayload(runId: 'run-vlm');
           }
@@ -1452,9 +1481,8 @@ void main() {
           if (call.method == 'updateFunction') {
             return <String, dynamic>{
               'success': false,
-              'error_code': 'AGENT_ANALYSIS_UNPARSEABLE',
-              'error_message':
-                  'Agent model did not return parseable update_function analysis JSON',
+              'error_code': 'FUNCTION_STEPS_EMPTY',
+              'error_message': 'function_spec.execution.steps is required',
             };
           }
           return null;
@@ -1493,16 +1521,31 @@ void main() {
       methodCalls.where((call) => call.method == 'updateFunction'),
       hasLength(1),
     );
-    expect(methodCalls.where((call) => call.method == 'postLLMChat'), isEmpty);
+    expect(
+      methodCalls.where((call) => call.method == 'createAgentTask'),
+      hasLength(1),
+    );
   });
 
   testWidgets('RunLog Agent enhancement applies native Agent result', (
     tester,
   ) async {
     final methodCalls = <MethodCall>[];
+    final enhancedSpec = _runLogFunctionSpec(
+      name: '打开系统设置',
+      description: '打开 Android 系统设置页，适合需要进入设置入口时复用。',
+      stepTitle: '打开设置应用',
+    );
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(assistCoreChannel, (call) async {
           methodCalls.add(call);
+          final agentResponse = _functionEnhancementAgentResponse(
+            call,
+            enhancedSpec,
+          );
+          if (agentResponse != null) {
+            return agentResponse;
+          }
           if (call.method == 'getInternalRunLogTimeline') {
             return _runLogTimelinePayload(runId: 'run-vlm');
           }
@@ -1523,11 +1566,12 @@ void main() {
           }
           if (call.method == 'updateFunction') {
             final args = Map<String, dynamic>.from(call.arguments as Map);
-            expect(args['function_id'], 'fn_from_runlog');
+            expect(args.containsKey('function_id'), isFalse);
+            expect(args['function_spec'], isA<Map>());
             expect(args['mode'], 'enhance');
             expect(args['offline_job'], isTrue);
             expect(args['background_enhancement'], isTrue);
-            expect(args['auto_analyze_with_model'], isTrue);
+            expect(args['auto_analyze_with_model'], isFalse);
             expect(args['patch'], isNull);
             return <String, dynamic>{
               'success': true,
@@ -1536,20 +1580,8 @@ void main() {
               'saved': true,
               'function_kind': 'oob_reusable_function',
               'asset_state': 'native_local',
-              'updated_function': _runLogFunctionSpec(
-                name: '打开系统设置',
-                description: '打开 Android 系统设置页，适合需要进入设置入口时复用。',
-                stepTitle: '打开设置应用',
-              ),
+              'updated_function': enhancedSpec,
             };
-          }
-          if (call.method == 'registerFunction') {
-            final args = Map<String, dynamic>.from(call.arguments as Map);
-            final spec = Map<String, dynamic>.from(
-              args['function_spec'] as Map,
-            );
-            expect(spec['agent_visible'], isTrue);
-            return _registerFunctionResult(spec);
           }
           return null;
         });
@@ -1587,8 +1619,12 @@ void main() {
       hasLength(1),
     );
     expect(
-      methodCalls.where((call) => call.method == 'registerFunction'),
+      methodCalls.where((call) => call.method == 'createAgentTask'),
       hasLength(1),
+    );
+    expect(
+      methodCalls.where((call) => call.method == 'registerFunction'),
+      isEmpty,
     );
     expect(find.text('已增强并保存', skipOffstage: false), findsOneWidget);
     expect(find.textContaining('没有返回可解析 JSON'), findsNothing);
@@ -1733,6 +1769,41 @@ Map<String, dynamic> _registerFunctionResult(Map<String, dynamic> spec) {
     'agent_visible': spec['agent_visible'] == true,
     'visibility': spec['visibility'],
   };
+}
+
+int _conversationSequence = 9000;
+
+Map<String, dynamic>? _agentConversationMessageResult(
+  Map<String, dynamic> functionSpec,
+) {
+  return <String, dynamic>{
+    'id': 'assistant-function-json',
+    'type': 1,
+    'user': 2,
+    'content': <String, dynamic>{
+      'text': jsonEncode(functionSpec),
+      'id': 'assistant-function-json',
+    },
+    'createAt': DateTime.now().toIso8601String(),
+  };
+}
+
+dynamic _functionEnhancementAgentResponse(
+  MethodCall call,
+  Map<String, dynamic> functionSpec,
+) {
+  switch (call.method) {
+    case 'createConversation':
+      _conversationSequence += 1;
+      return _conversationSequence;
+    case 'createAgentTask':
+      return 'SUCCESS';
+    case 'getConversationMessages':
+      return <Map<String, dynamic>>[
+        _agentConversationMessageResult(functionSpec)!,
+      ];
+  }
+  return null;
 }
 
 Map<String, dynamic> _runLogTimelinePayload({

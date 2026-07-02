@@ -52,12 +52,13 @@ object FunctionSchema {
         OobActionSchema.normalizeToolName(toolName) in capturedNoiseTools
 
     fun inputSchema(spec: Map<String, Any?>): Map<String, Any?> {
+        val templateBindings = templateParameterBindings(spec)
         val explicit = mapArg(spec["inputSchema"]).ifEmpty { mapArg(spec["input_schema"]) }
-        if (explicit.isNotEmpty()) return publicInputSchema(explicit)
+        if (explicit.isNotEmpty()) return publicInputSchema(explicit, templateBindings)
 
         val canonical = mapArg(spec["parameters"])
         if (canonical.isNotEmpty() && firstNonBlank(canonical["type"]).equals("object", ignoreCase = true)) {
-            return publicInputSchema(canonical)
+            return publicInputSchema(canonical, templateBindings)
         }
 
         val properties = linkedMapOf<String, Any?>()
@@ -69,8 +70,9 @@ object FunctionSchema {
             if (!isPublicParameterName(name)) return@forEach
 
             val type = parameter["type"]?.toString()?.trim()?.ifEmpty { "string" } ?: "string"
-            val bindings = listArg(parameter["bindings"])
+            val bindings = (listArg(parameter["bindings"]) + templateBindings[name].orEmpty())
                 .mapNotNull { it?.toString()?.trim()?.takeIf(String::isNotEmpty) }
+                .distinct()
             if (bindings.isEmpty()) return@forEach
             val property = linkedMapOf<String, Any?>("type" to jsonSchemaType(type))
             parameter["description"]?.toString()?.takeIf { it.isNotBlank() }?.let { property["description"] = it }
@@ -99,6 +101,10 @@ object FunctionSchema {
         if (canonical.isNotEmpty()) {
             return mapArg(inputSchema(spec)["properties"]).keys.map { it.trim() }.filter { it.isNotEmpty() }
         }
+        val schemaNames = mapArg(inputSchema(spec)["properties"]).keys
+            .map { it.trim() }
+            .filter { it.isNotEmpty() }
+        if (schemaNames.isNotEmpty()) return schemaNames
         return listArg(spec["parameters"]).mapNotNull { raw ->
             val parameter = mapArg(raw)
             val name = parameter["name"]?.toString()?.trim()?.takeIf { it.isNotEmpty() }
@@ -325,13 +331,16 @@ object FunctionSchema {
         }
     }
 
-    private fun publicInputSchema(schema: Map<String, Any?>): Map<String, Any?> {
+    private fun publicInputSchema(
+        schema: Map<String, Any?>,
+        templateBindings: Map<String, List<String>> = emptyMap(),
+    ): Map<String, Any?> {
         val properties = mapArg(schema["properties"])
         val publicProperties = linkedMapOf<String, Any?>()
         properties.forEach { (name, rawProperty) ->
             if (!isPublicParameterName(name)) return@forEach
             val property = mapArg(rawProperty)
-            val bindings = parameterBindings(property)
+            val bindings = (parameterBindings(property) + templateBindings[name].orEmpty()).distinct()
             if (bindings.isEmpty()) return@forEach
             publicProperties[name] = linkedMapOf<String, Any?>().apply {
                 putAll(property); put("x_oob_bindings", bindings)
@@ -378,7 +387,45 @@ object FunctionSchema {
                 ?.takeIf(::isCanonicalBindingPath)
                 ?.let(output::add)
         }
+        templateParameterBindings(spec)[name].orEmpty().forEach(output::add)
         return output.toList()
+    }
+
+    private fun templateParameterBindings(spec: Map<String, Any?>): Map<String, List<String>> {
+        val output = linkedMapOf<String, LinkedHashSet<String>>()
+        materializedSteps(spec).forEachIndexed { index, step ->
+            collectTemplateParameterBindings(
+                value = mapArg(step["args"]),
+                path = "$.execution.steps[$index].args",
+                output = output,
+            )
+        }
+        return output.mapValues { it.value.toList() }
+    }
+
+    private fun collectTemplateParameterBindings(
+        value: Any?,
+        path: String,
+        output: MutableMap<String, LinkedHashSet<String>>,
+    ) {
+        when (value) {
+            is String -> {
+                val name = exactParameterTokenName(value) ?: return
+                if (!isPublicParameterName(name) || !isCanonicalBindingPath(path)) return
+                output.getOrPut(name) { linkedSetOf() }.add(path)
+            }
+            is Map<*, *> -> value.forEach { (key, item) ->
+                val childKey = key?.toString()?.trim()?.takeIf { it.matches(Regex("""[A-Za-z0-9_]+""")) }
+                    ?: return@forEach
+                collectTemplateParameterBindings(item, "$path.$childKey", output)
+            }
+            is List<*> -> value.forEachIndexed { index, item ->
+                collectTemplateParameterBindings(item, "$path[$index]", output)
+            }
+            is Array<*> -> value.forEachIndexed { index, item ->
+                collectTemplateParameterBindings(item, "$path[$index]", output)
+            }
+        }
     }
 
     private fun isPublicParameterName(name: String): Boolean =
@@ -488,16 +535,23 @@ object FunctionSchema {
         text: String,
         arguments: Map<String, Any?>,
     ): Any? {
-        val exact = PARAMETER_TOKEN_REGEX.matchEntire(text.trim())
-        if (exact != null) {
-            val name = exact.groupValues[1]
-            if (arguments.containsKey(name)) return arguments[name]
+        val exactName = exactParameterTokenName(text)
+        if (exactName != null) {
+            if (arguments.containsKey(exactName)) return arguments[exactName]
         }
         return PARAMETER_TOKEN_REGEX.replace(text) { match ->
-            val name = match.groupValues[1]
+            val name = parameterTokenName(match)
             arguments[name]?.toString() ?: match.value
         }
     }
+
+    private fun exactParameterTokenName(text: String): String? =
+        PARAMETER_TOKEN_REGEX.matchEntire(text.trim())
+            ?.let(::parameterTokenName)
+            ?.takeIf(String::isNotEmpty)
+
+    private fun parameterTokenName(match: MatchResult): String =
+        match.groupValues.drop(1).firstOrNull { it.isNotEmpty() }.orEmpty()
 
     @Suppress("UNCHECKED_CAST")
     private fun setJsonPathValue(
@@ -704,6 +758,6 @@ object FunctionSchema {
         "x","y","x1","y1","x2","y2","bounds","clear","duration_ms")
     private const val RUNNER = "oob_agent_reusable_function"
     private val PARAMETER_TOKEN_REGEX by lazy(LazyThreadSafetyMode.PUBLICATION) {
-        Regex("""\$\{([A-Za-z_][A-Za-z0-9_]*)\}""")
+        Regex("""\$\{([A-Za-z_][A-Za-z0-9_]*)}|\{\{\s*([A-Za-z_][A-Za-z0-9_]*)\s*}}""")
     }
 }

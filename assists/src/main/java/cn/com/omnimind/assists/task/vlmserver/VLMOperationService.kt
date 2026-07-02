@@ -776,6 +776,7 @@ class VLMOperationService(
                         modelOrScene = model,
                         dynamicFunctionToolNames = requestEnvelope.dynamicFunctionToolNames,
                         dynamicFunctionToolMappings = requestEnvelope.dynamicFunctionToolMappings,
+                        dynamicFunctionRequiredArguments = requestEnvelope.dynamicFunctionRequiredArguments,
                     )
                     markPhase("parse_response_ms", parseStartedAt)
                     _context = _context.copy(pageDiagnostics = _context.pageDiagnostics + phaseDiagnostics())

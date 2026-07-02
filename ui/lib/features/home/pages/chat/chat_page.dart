@@ -4,17 +4,15 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:math' as math;
-import 'dart:ui' show FlutterView;
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher_string.dart';
-import 'package:ui/l10n/legacy_text_localizer.dart';
 import '../../../../models/conversation_model.dart';
 import '../../../../models/conversation_thread_target.dart';
-import '../../../../models/chat_startup_behavior.dart';
+import '../../../../models/chat_link_preview.dart';
 import '../../../../models/chat_message_model.dart';
 import '../../../../services/agent_stream_meta.dart';
 import '../../../../services/assists_core_service.dart';
@@ -24,9 +22,7 @@ import '../command_overlay/services/manual_recording_flow_controller.dart';
 import '../command_overlay/widgets/chat_input_area.dart';
 import '../command_overlay/services/tool_card_detail_gesture_gate.dart';
 import '../common/openclaw_connection_checker.dart';
-import '../omnibot_workspace/omnibot_workspace_page.dart';
 import '../omnibot_workspace/widgets/omnibot_workspace_browser.dart';
-import '../omnibot_workspace/widgets/omnibot_workspace_project_frontends.dart';
 import 'services/chat_conversation_lifecycle_guard.dart';
 import 'services/chat_conversation_runtime_coordinator.dart';
 import 'package:ui/constants/openclaw/openclaw_keys.dart';
@@ -59,10 +55,11 @@ import 'package:ui/theme/theme_context.dart';
 import 'package:ui/services/special_permission.dart';
 import 'package:ui/services/storage_service.dart';
 import 'package:ui/utils/ui.dart';
-import 'package:ui/l10n/app_text_localizer.dart';
-import 'package:ui/features/home/pages/chat/utils/agent_runtime_attachment_payload.dart';
+import 'package:ui/l10n/legacy_text_localizer.dart';
+import 'package:ui/models/chat_startup_behavior.dart';
 import 'package:ui/features/home/pages/chat/utils/agent_run_timeline.dart';
-import 'package:ui/features/home/pages/chat/utils/chat_card_message_helpers.dart';
+import 'package:ui/features/home/pages/chat/utils/agent_runtime_attachment_payload.dart';
+import 'package:ui/features/home/pages/chat/utils/agent_thinking_card_locator.dart';
 import 'package:ui/features/home/pages/chat/utils/codex_slash_commands.dart';
 import 'package:ui/features/home/pages/chat/utils/deep_thinking_persistence.dart';
 import 'package:ui/features/home/pages/chat/utils/composer_lift_intent_tracker.dart';
@@ -86,7 +83,6 @@ import 'tool_activity_utils.dart';
 import 'widgets/chat_widgets.dart';
 import 'widgets/chat_browser_overlay.dart';
 import 'widgets/chat_tool_activity_strip.dart';
-import 'widgets/user_dialog_registry.dart';
 import 'package:ui/widgets/app_update_dialog.dart';
 import 'package:ui/widgets/app_background_widgets.dart';
 import 'package:ui/widgets/glass_popup.dart';
@@ -108,9 +104,8 @@ enum _SlashCommandPanelRoute { root, effort, codexModel }
 
 class ChatPage extends StatefulWidget {
   final ConversationThreadTarget? threadTarget;
-  final String? initialSurfaceMode;
 
-  const ChatPage({super.key, this.threadTarget, this.initialSurfaceMode});
+  const ChatPage({super.key, this.threadTarget});
 
   @override
   State<ChatPage> createState() => _ChatPageState();
@@ -164,8 +159,6 @@ abstract class _ChatPageStateBase extends State<ChatPage>
       ChatConversationRuntimeCoordinator.instance;
   final ChatConversationLifecycleGuard _conversationLifecycleGuard =
       ChatConversationLifecycleGuard();
-  final KeyboardInsetMotionTracker _emptyGreetingKeyboardLiftTracker =
-      KeyboardInsetMotionTracker();
   ConversationThreadTarget? _resolvedThreadTarget;
   SharedOpenDraftPayload? _stagedSharedOpenDraft;
   int? _stagedSharedOpenDraftExpiresAt;
@@ -212,6 +205,8 @@ abstract class _ChatPageStateBase extends State<ChatPage>
     ChatPageMode.openclaw: '',
     ChatPageMode.codex: '',
   };
+  final KeyboardInsetMotionTracker _emptyGreetingKeyboardLiftTracker =
+      KeyboardInsetMotionTracker();
   final ComposerLiftIntentTracker _composerLiftIntentTracker =
       ComposerLiftIntentTracker();
   final ComposerKeyboardMetricsTracker _composerKeyboardMetricsTracker =
@@ -386,19 +381,12 @@ abstract class _ChatPageStateBase extends State<ChatPage>
       'chat_hd_pad_left_pane_width';
   static const String _hdPadRightPaneWidthStorageKey =
       'chat_hd_pad_right_pane_width';
-  static const String _workspaceCachedDirectoryKey =
-      'omnibot_workspace_cached_directory_v1';
-  final GlobalKey<OmnibotWorkspaceBrowserState> _workspaceBrowserKey =
-      GlobalKey<OmnibotWorkspaceBrowserState>();
   bool _workspaceBrowserCanGoUp = false;
-  bool _workspaceProjectModeEnabled = false;
   Future<OmnibotWorkspacePaths>? _workspacePathsLoadFuture;
-  bool _hasAppliedInitialSurfaceMode = false;
   bool _hasInitializedHalfScreen = false;
   bool _isCompanionModeEnabled = false;
   bool _isCompanionToggleLoading = false;
   AppUpdateStatus? _appUpdateStatus;
-  FunctionRunProgressEvent? _functionRunProgressStatus;
   ModalRoute<dynamic>? _subscribedRoute;
   StreamSubscription<Map<String, dynamic>>?
   _conversationListChangedSubscription;
@@ -406,8 +394,6 @@ abstract class _ChatPageStateBase extends State<ChatPage>
   _conversationMessagesChangedSubscription;
   StreamSubscription<Map<String, dynamic>>?
   _browserSessionSnapshotChangedSubscription;
-  StreamSubscription<FunctionRunProgressEvent>?
-  _functionRunProgressSubscription;
   StreamSubscription<Map<String, dynamic>>? _codexEventSubscription;
   Timer? _remoteCodexSessionSyncTimer;
   bool _remoteCodexSessionSyncInFlight = false;
@@ -499,36 +485,6 @@ abstract class _ChatPageStateBase extends State<ChatPage>
       mode == ConversationMode.openclaw
       ? ChatSurfaceMode.openclaw
       : ChatSurfaceMode.normal;
-  String? _cachedWorkspaceDirectory(String rootPath) {
-    final cached = StorageService.getString(
-      _workspaceCachedDirectoryKey,
-    )?.trim();
-    if (cached == null || cached.isEmpty) return null;
-    final normalizedRoot = _normalizeWorkspacePath(rootPath);
-    final normalizedCached = _normalizeWorkspacePath(cached);
-    final insideRoot =
-        normalizedCached == normalizedRoot ||
-        normalizedCached.startsWith('$normalizedRoot/');
-    if (!insideRoot) return null;
-    return Directory(normalizedCached).existsSync() ? normalizedCached : null;
-  }
-
-  void _persistWorkspaceDirectory(String path) {
-    final normalized = _normalizeWorkspacePath(path);
-    if (normalized.isEmpty) return;
-    unawaited(
-      StorageService.setString(_workspaceCachedDirectoryKey, normalized),
-    );
-  }
-
-  String _normalizeWorkspacePath(String path) {
-    final trimmed = path.trim();
-    if (trimmed.length > 1 && trimmed.endsWith('/')) {
-      return trimmed.substring(0, trimmed.length - 1);
-    }
-    return trimmed;
-  }
-
   String _modeKey(ChatPageMode mode) => switch (mode) {
     ChatPageMode.normal => kChatRuntimeModeNormal,
     ChatPageMode.openclaw => kChatRuntimeModeOpenClaw,
@@ -585,8 +541,7 @@ abstract class _ChatPageStateBase extends State<ChatPage>
 
   bool get _isOpenClawSurface => _activeSurfaceMode == ChatSurfaceMode.openclaw;
   bool get _isWorkspaceSurface =>
-      _activeSurfaceMode == ChatSurfaceMode.workspace ||
-      _activeSurfaceMode == ChatSurfaceMode.project;
+      _activeSurfaceMode == ChatSurfaceMode.workspace;
 
   String _runtimeChromeSignature(ChatConversationRuntimeState? runtime) {
     if (runtime == null) {
@@ -620,79 +575,11 @@ abstract class _ChatPageStateBase extends State<ChatPage>
     if (!_modePageController.hasClients) {
       return fallback;
     }
-    final page = _safeModePageControllerPage;
+    final page = _modePageController.page;
     if (page == null || !page.isFinite) {
       return fallback;
     }
     return page.clamp(0.0, 1.0).toDouble();
-  }
-
-  double? get _safeModePageControllerPage {
-    final positions = _modePageController.positions.toList(growable: false);
-    if (positions.isEmpty) return null;
-    final scrollingPositions = positions.where(
-      (position) => position.isScrollingNotifier.value,
-    );
-    for (final position in [...scrollingPositions, ...positions]) {
-      final page = _pageForModeScrollPosition(position);
-      if (page != null) return page;
-    }
-    return null;
-  }
-
-  double? _pageForModeScrollPosition(ScrollPosition position) {
-    if (!position.hasPixels || !position.hasViewportDimension) {
-      return null;
-    }
-    final viewportDimension = position.viewportDimension;
-    if (!viewportDimension.isFinite || viewportDimension <= 0) {
-      return null;
-    }
-    final page = position.pixels / viewportDimension;
-    return page.isFinite ? page : null;
-  }
-
-  bool _modeScrollPositionCanMove(ScrollPosition position) {
-    return position.hasPixels &&
-        position.hasViewportDimension &&
-        position.hasContentDimensions &&
-        position.viewportDimension.isFinite &&
-        position.viewportDimension > 0;
-  }
-
-  double _targetPixelsForModePage(ScrollPosition position, int page) {
-    final targetPixels = position.viewportDimension * page;
-    return targetPixels
-        .clamp(position.minScrollExtent, position.maxScrollExtent)
-        .toDouble();
-  }
-
-  bool _driveModePagePositions(int page, {required bool animate}) {
-    final positions = _modePageController.positions.toList(growable: false);
-    final movablePositions = positions
-        .where(_modeScrollPositionCanMove)
-        .toList(growable: false);
-    if (movablePositions.isEmpty) {
-      return false;
-    }
-    if (animate) {
-      unawaited(
-        Future.wait(
-          movablePositions.map((position) {
-            return position.animateTo(
-              _targetPixelsForModePage(position, page),
-              duration: const Duration(milliseconds: 240),
-              curve: Curves.easeOutCubic,
-            );
-          }),
-        ),
-      );
-    } else {
-      for (final position in movablePositions) {
-        position.jumpTo(_targetPixelsForModePage(position, page));
-      }
-    }
-    return true;
   }
 
   double get _normalSurfaceVisibility =>
@@ -764,6 +651,20 @@ abstract class _ChatPageStateBase extends State<ChatPage>
   ConversationThreadTarget get _threadTargetForMode {
     final conversationMode = _conversationModeForPageMode(_activeMode);
     final conversationId = _currentConversationIdByMode[_activeMode];
+    if (_activeMode == ChatPageMode.codex &&
+        _isRemoteCodexRuntimeActiveForMode(ChatPageMode.codex)) {
+      final threadId = _activeCodexThreadId?.trim() ?? '';
+      if (threadId.isNotEmpty) {
+        return ConversationThreadTarget.codexSession(
+          threadId: threadId,
+          runtime: 'remote',
+        );
+      }
+      return ConversationThreadTarget.newConversation(
+        mode: ConversationMode.codex,
+        codexRuntime: 'remote',
+      );
+    }
     if (conversationId == null) {
       final resolvedTarget = _resolvedThreadTarget;
       if (resolvedTarget != null &&
@@ -773,9 +674,18 @@ abstract class _ChatPageStateBase extends State<ChatPage>
       }
       return _newThreadTargetForConversationMode(conversationMode);
     }
+    final localCodexThreadId = _activeMode == ChatPageMode.codex
+        ? _activeCodexThreadId?.trim()
+        : null;
     return ConversationThreadTarget.existing(
       conversationId: conversationId,
       mode: conversationMode,
+      codexThreadId: localCodexThreadId == null || localCodexThreadId.isEmpty
+          ? null
+          : localCodexThreadId,
+      codexRuntime: localCodexThreadId == null || localCodexThreadId.isEmpty
+          ? null
+          : 'local',
     );
   }
 
@@ -802,7 +712,7 @@ abstract class _ChatPageStateBase extends State<ChatPage>
 
   void _showLocalModelPureChatLockToast() {
     showToast(
-      AppTextLocalizer.text('当前已选择本地模型，请开启新对话后再切换到其他模式'),
+      LegacyTextLocalizer.localize('当前已选择本地模型，请开启新对话后再切换到其他模式'),
       type: ToastType.warning,
     );
   }
@@ -1421,23 +1331,16 @@ abstract class _ChatPageStateBase extends State<ChatPage>
   }
 
   @override
-  Future<void> persistAgentConversation() => saveConversation();
-
-  void _handleFunctionRunProgressEvent(FunctionRunProgressEvent event) {
-    if (!mounted || _activeMode != ChatPageMode.normal) return;
-    var didUpsert = false;
-    setState(() {
-      didUpsert = ChatCardMessageHelpers.upsertFunctionRunProgress(
-        _messages,
-        event,
-      );
-    });
-    if (!didUpsert) return;
-    _syncRuntimeSnapshotForMode(_activeMode);
-    if (event.isTerminal) {
-      unawaited(saveConversation());
-    }
+  bool isEphemeralConversation(int conversationId, ConversationMode mode) {
+    final pageMode = _pageModeForConversationMode(mode);
+    return _runtimeCoordinator.isEphemeralRuntime(
+      conversationId: conversationId,
+      mode: _modeKey(pageMode),
+    );
   }
+
+  @override
+  Future<void> persistAgentConversation() => saveConversation();
 
   @override
   void onConversationReset(ConversationMode mode) {
@@ -1567,8 +1470,8 @@ abstract class _ChatPageStateBase extends State<ChatPage>
   );
 
   @override
-  void clearAgentStreamSessionState({String? taskId}) {
-    super.clearAgentStreamSessionState(taskId: taskId);
+  void clearAgentStreamSessionState() {
+    super.clearAgentStreamSessionState();
     final conversationId = _currentConversationId;
     if (conversationId == null) return;
     _runtimeCoordinator.clearConversationRuntimeSession(
@@ -1619,7 +1522,7 @@ abstract class _ChatPageStateBase extends State<ChatPage>
     final waitingCardId = _openClawWaitingCardId(taskId);
     final cardData = {
       'type': 'stage_hint',
-      'hint': AppTextLocalizer.text(_openClawWaitingHint),
+      'hint': LegacyTextLocalizer.localize(_openClawWaitingHint),
       'statusKey': _openClawWaitingStatusKey,
       'taskID': taskId,
       'startTime': DateTime.now().millisecondsSinceEpoch,
@@ -1665,11 +1568,9 @@ abstract class _ChatPageStateBase extends State<ChatPage>
     _runtimeChromeSignatureByMode[mode] = nextChromeSignature;
     _runtimeMessageMutationRevisionByMode[mode] = nextMutationRevision;
 
-    // Trigger setState on any message mutation, not just "chrome-affecting" ones.
-    // Per-message notifiers exist but widgets don't subscribe to them, so
-    // in-place content updates (streaming text, thinking tokens) need setState
-    // to become visible. The 5-chunk batch threshold keeps rebuild frequency low.
-    if (hasChromeChange || hasMessageMutation) {
+    if (hasChromeChange ||
+        (hasMessageMutation &&
+            runtime.messages.lastMutationAffectsPageChrome)) {
       setState(() {});
     }
   }
@@ -1837,8 +1738,6 @@ abstract class _ChatPageStateBase extends State<ChatPage>
   void _onFocusChange();
 
   void _handleAppUpdateStatusChanged();
-
-  void _handleFunctionRunProgressStatusChanged();
 
   double _popupMenuBottomOffset();
 

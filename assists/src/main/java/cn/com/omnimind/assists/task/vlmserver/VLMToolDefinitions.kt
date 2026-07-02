@@ -30,6 +30,7 @@ object VLMToolDefinitions {
     }
     private val HIDDEN_BASE_TOOL_NAMES = setOf(
         OobActionSchema.TOOL_GET_STATE,
+        OobActionSchema.TOOL_CALL_TOOL,
     )
 
     private fun currentLocale(): PromptLocale = AppLocaleManager.currentPromptLocale()
@@ -87,6 +88,7 @@ object VLMToolDefinitions {
             if (isHiddenFunctionTool(function)) return@mapNotNull null
             val name = function["name"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty()
             if (name.isBlank()) return@mapNotNull null
+            if (isInternalRuntimeToolName(name)) return@mapNotNull null
             ChatCompletionTool(
                 function = ChatCompletionFunction(
                     name = name,
@@ -104,9 +106,12 @@ object VLMToolDefinitions {
         return definitions.mapNotNull { definition ->
             val function = definition["function"] as? JsonObject ?: return@mapNotNull null
             if (!isHiddenFunctionTool(function)) return@mapNotNull null
-                function["name"]?.jsonPrimitive?.contentOrNull
+            val name = function["name"]?.jsonPrimitive?.contentOrNull
                 ?.trim()
                 ?.takeIf { it.isNotEmpty() }
+                ?: return@mapNotNull null
+            if (isInternalRuntimeToolName(name)) return@mapNotNull null
+            name
         }.toSet()
     }
 
@@ -116,6 +121,7 @@ object VLMToolDefinitions {
             if (isHiddenFunctionTool(function)) return@mapNotNull null
             val name = function["name"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty()
             if (name.isEmpty()) return@mapNotNull null
+            if (isInternalRuntimeToolName(name)) return@mapNotNull null
             val functionId = firstNonBlank(
                 definition["function_id"],
                 definition["functionId"],
@@ -127,11 +133,39 @@ object VLMToolDefinitions {
         }.toMap()
     }
 
+    fun dynamicFunctionRequiredArgumentsFromDefinitions(definitions: List<JsonObject>): Map<String, Set<String>> {
+        return definitions.mapNotNull { definition ->
+            val function = definition["function"] as? JsonObject ?: return@mapNotNull null
+            if (isHiddenFunctionTool(function)) return@mapNotNull null
+            val name = function["name"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty()
+            if (name.isEmpty()) return@mapNotNull null
+            if (isInternalRuntimeToolName(name)) return@mapNotNull null
+            val parameters = sanitizeVlmDynamicFunctionParameters(
+                (function["parameters"] as? JsonObject) ?: JsonObject(emptyMap())
+            )
+            val required = (parameters["required"] as? JsonArray)
+                .orEmpty()
+                .mapNotNull { it.jsonPrimitive.contentOrNull?.trim()?.takeIf(String::isNotEmpty) }
+                .filterNot { it == TOOL_TITLE_FIELD }
+                .toSet()
+            name to required
+        }.toMap()
+    }
+
     private fun isHiddenFunctionTool(function: JsonObject): Boolean {
         val toolType = function["toolType"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty()
         val modelVisible = function["model_visible"]?.jsonPrimitive?.booleanOrNull
         if (modelVisible == false) return true
         return toolType.equals("oob_function", ignoreCase = true)
+    }
+
+    private fun isInternalRuntimeToolName(name: String): Boolean {
+        val normalized = name.trim()
+            .removePrefix("functions.")
+            .removePrefix("function.")
+            .trim()
+            .lowercase()
+        return normalized == OobActionSchema.TOOL_CALL_TOOL
     }
 
     private fun firstNonBlank(vararg values: JsonElement?): String {

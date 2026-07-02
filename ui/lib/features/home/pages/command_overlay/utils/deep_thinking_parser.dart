@@ -1,4 +1,3 @@
-import 'package:flutter/foundation.dart';
 /// deep_thinking 增量解析结果
 class DeepThinkingResult {
   final String? taskDescription;
@@ -258,7 +257,7 @@ class DeepThinkingParser {
         hasTaskDescription = true;
       }
     } catch (e) {
-      debugPrint('task_description 解析出错：$e');
+      print('task_description 解析出错：$e');
     }
 
     // 2. preparation: "xxx" 支持未闭合字符串的增量提取
@@ -268,7 +267,7 @@ class DeepThinkingParser {
         hasPreparation = true;
       }
     } catch (e) {
-      debugPrint('preparation 解析出错：$e');
+      print('preparation 解析出错：$e');
     }
 
     // 3. sub_tasks 增量解析，支持未闭合数组和未闭合字符串
@@ -278,7 +277,7 @@ class DeepThinkingParser {
         hasSubTasks = true;
       }
     } catch (e) {
-      debugPrint('sub_tasks 解析出错：$e');
+      print('sub_tasks 解析出错：$e');
     }
 
     // 4. 检测 deep_thinking 是否已完整返回

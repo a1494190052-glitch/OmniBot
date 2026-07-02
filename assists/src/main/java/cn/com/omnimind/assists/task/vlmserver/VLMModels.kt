@@ -378,6 +378,7 @@ data class VLMRequestEnvelope(
     val currentUserText: String,
     val dynamicFunctionToolNames: Set<String> = emptySet(),
     val dynamicFunctionToolMappings: Map<String, String> = emptyMap(),
+    val dynamicFunctionRequiredArguments: Map<String, Set<String>> = emptyMap(),
     val toolNames: List<String> = emptyList(),
     val defaultToolCount: Int = 0,
     val selectedBaseToolNames: Set<String> = emptySet(),

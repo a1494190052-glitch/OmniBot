@@ -1537,6 +1537,56 @@ diff --git a/lib/main.dart b/lib/main.dart
     },
   );
 
+  test('merge finalizes stale local thinking cards for the active codex turn', () {
+    final now = DateTime.fromMillisecondsSinceEpoch(1700000000000);
+    final merged = mergeRemoteCodexSnapshotMessagesForTesting(
+      snapshotMessages: [
+        ChatMessageModel.cardMessage({
+          'type': 'deep_thinking',
+          'taskID': 'turn-1',
+          'cardId': 'reason-2-codex-thinking',
+          'isLoading': true,
+          'isCollapsible': false,
+          'stage': ThinkingStage.thinking.value,
+          'thinkingContent': 'latest',
+          'startTime': now
+              .add(const Duration(seconds: 2))
+              .millisecondsSinceEpoch,
+        }, id: 'reason-2-codex-thinking').copyWith(
+          createAt: now.add(const Duration(seconds: 2)),
+        ),
+      ],
+      existingMessages: [
+        ChatMessageModel.cardMessage({
+          'type': 'deep_thinking',
+          'taskID': 'turn-1',
+          'cardId': 'reason-1-codex-thinking',
+          'isLoading': true,
+          'isCollapsible': false,
+          'stage': ThinkingStage.thinking.value,
+          'thinkingContent': 'older',
+          'startTime': now.millisecondsSinceEpoch,
+        }, id: 'reason-1-codex-thinking').copyWith(createAt: now),
+      ],
+      activeTaskId: 'turn-1',
+      isAiResponding: true,
+    );
+
+    final thinkingCards = merged
+        .where((message) => message.cardData?['type'] == 'deep_thinking')
+        .toList();
+    expect(thinkingCards, hasLength(2));
+    final latest = thinkingCards.firstWhere(
+      (message) => message.id == 'reason-2-codex-thinking',
+    );
+    final older = thinkingCards.firstWhere(
+      (message) => message.id == 'reason-1-codex-thinking',
+    );
+    expect(latest.cardData!['isLoading'], isTrue);
+    expect(older.cardData!['isLoading'], isFalse);
+    expect(older.cardData!['stage'], ThinkingStage.complete.value);
+  });
+
   test('finalizes assistant item without duplicating completed text', () {
     reducer.reduce(
       runtime: runtime,
@@ -1873,6 +1923,71 @@ diff --git a/lib/main.dart b/lib/main.dart
     },
   );
 
+  test('new reasoning item finalizes previous loading thinking card', () {
+    reducer.reduce(
+      runtime: runtime,
+      event: {
+        'message': {
+          'method': 'turn/started',
+          'params': {'threadId': 'thread-1', 'turnId': 'turn-1'},
+        },
+      },
+    );
+    reducer.reduce(
+      runtime: runtime,
+      event: {
+        'message': {
+          'method': 'item/reasoning/textDelta',
+          'params': {
+            'threadId': 'thread-1',
+            'turnId': 'turn-1',
+            'itemId': 'reason-1',
+            'delta': 'first thought',
+          },
+        },
+      },
+    );
+    reducer.reduce(
+      runtime: runtime,
+      event: {
+        'message': {
+          'method': 'item/completed',
+          'params': {
+            'threadId': 'thread-1',
+            'turnId': 'turn-1',
+            'itemId': 'reason-1',
+            'item': {'id': 'reason-1', 'type': 'reasoning'},
+          },
+        },
+      },
+    );
+    reducer.reduce(
+      runtime: runtime,
+      event: {
+        'message': {
+          'method': 'item/reasoning/textDelta',
+          'params': {
+            'threadId': 'thread-1',
+            'turnId': 'turn-1',
+            'itemId': 'reason-2',
+            'delta': 'second thought',
+          },
+        },
+      },
+    );
+
+    final first = runtime.messages.firstWhere(
+      (message) => message.id == 'reason-1-codex-thinking',
+    );
+    final second = runtime.messages.firstWhere(
+      (message) => message.id == 'reason-2-codex-thinking',
+    );
+    expect(first.cardData!['isLoading'], isFalse);
+    expect(first.cardData!['stage'], ThinkingStage.complete.value);
+    expect(second.cardData!['isLoading'], isTrue);
+    expect(second.cardData!['thinkingContent'], 'second thought');
+  });
+
   test('turn/completed finalizes the thinking card after reasoning ends', () {
     reducer.reduce(
       runtime: runtime,
@@ -2052,6 +2167,50 @@ diff --git a/lib/main.dart b/lib/main.dart
       expect(cardData['stage'], ThinkingStage.thinking.value);
     },
   );
+
+  test('snapshot keeps only the latest reasoning card loading for active turn', () {
+    final messages = codexMessagesFromThreadResponseForTesting(
+      {
+        'thread': {
+          'id': 'thread-1',
+          'status': {'type': 'active'},
+          'turns': [
+            {
+              'id': 'turn-1',
+              'status': 'inProgress',
+              'items': [
+                {
+                  'id': 'reason-1',
+                  'type': 'reasoning',
+                  'status': 'completed',
+                  'summary': ['older reasoning'],
+                },
+                {
+                  'id': 'reason-2',
+                  'type': 'reasoning',
+                  'status': 'completed',
+                  'summary': ['latest reasoning'],
+                },
+              ],
+            },
+          ],
+        },
+      },
+      active: true,
+      activeTurnId: 'turn-1',
+    );
+
+    final first = messages.firstWhere(
+      (message) => message.id == 'reason-1-codex-thinking',
+    );
+    final second = messages.firstWhere(
+      (message) => message.id == 'reason-2-codex-thinking',
+    );
+    expect(first.cardData!['isLoading'], isFalse);
+    expect(first.cardData!['stage'], ThinkingStage.complete.value);
+    expect(second.cardData!['isLoading'], isTrue);
+    expect(second.cardData!['stage'], ThinkingStage.thinking.value);
+  });
 
   test(
     'codex protocol exec_command_begin with parsed_cmd read renders as workspace card',

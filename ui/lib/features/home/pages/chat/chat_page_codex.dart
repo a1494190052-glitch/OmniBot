@@ -583,10 +583,9 @@ mixin _ChatPageCodexMixin on _ChatPageStateBase {
         _messageController.clear();
         _hideSlashCommandPanel();
         _showSnackBar(
-          AppTextLocalizer.choose(
-            en: 'Unsupported Codex command',
-            zh: '不支持的 Codex 命令',
-          ),
+          LegacyTextLocalizer.isEnglish
+              ? 'Unsupported Codex command'
+              : '不支持的 Codex 命令',
         );
         return true;
     }
@@ -677,6 +676,9 @@ mixin _ChatPageCodexMixin on _ChatPageStateBase {
       _activeCodexThreadId = resolvedThreadId ?? _activeCodexThreadId;
       _activeCodexTurnId =
           _asCodexString(response['turnId']) ?? _activeCodexTurnId;
+      if (!remoteCodex) {
+        await _persistVisibleThreadTargetIfNeeded();
+      }
       await _writeCodexCommandPreferencesForCurrentConversation();
     } catch (error) {
       if (!mounted) return;
@@ -960,6 +962,9 @@ mixin _ChatPageCodexMixin on _ChatPageStateBase {
             'instead of mismatched native conversation $localConversationId',
           );
         }
+      }
+      if (!remoteCodex) {
+        await _persistVisibleThreadTargetIfNeeded();
       }
       await _writeCodexCommandPreferencesForCurrentConversation();
     } catch (error) {
@@ -1515,22 +1520,17 @@ mixin _ChatPageCodexMixin on _ChatPageStateBase {
         return;
       }
       if (!mounted) return;
-      final locale = Localizations.localeOf(context);
       ScaffoldMessenger.maybeOf(context)?.showSnackBar(
         SnackBar(
           content: Text(
-            AppTextLocalizer.choose(
-              zh: '需要登录 Codex',
-              en: 'Codex login required',
-              locale: locale,
-            ),
+            Localizations.localeOf(context).languageCode == 'en'
+                ? 'Codex login required'
+                : '需要登录 Codex',
           ),
           action: SnackBarAction(
-            label: AppTextLocalizer.choose(
-              zh: '登录',
-              en: 'Login',
-              locale: locale,
-            ),
+            label: Localizations.localeOf(context).languageCode == 'en'
+                ? 'Login'
+                : '登录',
             onPressed: () {
               unawaited(_startCodexLogin());
             },
@@ -2724,7 +2724,89 @@ List<ChatMessageModel> _mergeRemoteCodexSnapshotMessages({
   }
   final merged = mergedById.values.toList(growable: false)
     ..sort((a, b) => b.createAt.compareTo(a.createAt));
-  return merged;
+  return _normalizeCodexLoadingThinkingCards(
+    merged,
+    activeTaskId: activeTaskId,
+    isAiResponding: isAiResponding,
+  );
+}
+
+List<ChatMessageModel> _normalizeCodexLoadingThinkingCards(
+  List<ChatMessageModel> messages, {
+  required String? activeTaskId,
+  required bool isAiResponding,
+}) {
+  final activeTask = activeTaskId?.trim() ?? '';
+  final keptLoadingTaskIds = <String>{};
+  final normalized = <ChatMessageModel>[];
+  for (final message in messages) {
+    final cardData = message.cardData;
+    if (cardData?['type'] != 'deep_thinking') {
+      normalized.add(message);
+      continue;
+    }
+    final taskId = _messageTaskId(message);
+    final normalizedTaskId = taskId?.trim() ?? '';
+    final isLoading = cardData?['isLoading'] == true;
+    final keepLoading =
+        isLoading &&
+        isAiResponding &&
+        activeTask.isNotEmpty &&
+        normalizedTaskId == activeTask &&
+        !keptLoadingTaskIds.contains(normalizedTaskId);
+    if (keepLoading) {
+      keptLoadingTaskIds.add(normalizedTaskId);
+      normalized.add(message);
+      continue;
+    }
+    final shouldFinalize =
+        isLoading ||
+        cardData?['stage'] == ThinkingStage.thinking.value ||
+        cardData?['isCollapsible'] == false;
+    normalized.add(
+      shouldFinalize
+          ? _completeCodexThinkingSnapshotMessage(message, taskId: taskId)
+          : message,
+    );
+  }
+  return normalized;
+}
+
+ChatMessageModel _completeCodexThinkingSnapshotMessage(
+  ChatMessageModel message, {
+  required String? taskId,
+}) {
+  final cardData = Map<String, dynamic>.from(
+    message.cardData ?? const <String, dynamic>{},
+  );
+  final resolvedTaskId =
+      taskId ??
+      _asCodexString(cardData['taskID']) ??
+      _asCodexString(message.streamMeta?['parentTaskId']);
+  final startTime =
+      _asCodexInt(cardData['startTime']) ??
+      message.createAt.millisecondsSinceEpoch;
+  cardData['isLoading'] = false;
+  cardData['stage'] = ThinkingStage.complete.value;
+  if (resolvedTaskId != null) {
+    cardData['taskID'] = resolvedTaskId;
+  }
+  cardData['cardId'] = _asCodexString(cardData['cardId']) ?? message.id;
+  cardData['startTime'] = startTime;
+  cardData['endTime'] ??= DateTime.now().millisecondsSinceEpoch;
+  cardData['isCollapsible'] = true;
+  cardData['thinkingContent'] = (cardData['thinkingContent'] ?? '')
+      .toString();
+  return message.copyWith(
+    content: {'cardData': cardData, 'id': message.id},
+    streamMeta: ensureAgentStreamMessageMeta(
+      message.streamMeta,
+      kind: 'thinking_snapshot',
+      parentTaskId: resolvedTaskId,
+      entryId: message.id,
+      isFinal: true,
+    ),
+  );
 }
 
 bool _shouldPreferExistingRemoteMessage({
@@ -3263,7 +3345,12 @@ List<ChatMessageModel> _codexMessagesFromThreadResponse(
       }
     }
   }
-  return chronological.reversed.toList(growable: false);
+  final messages = chronological.reversed.toList(growable: false);
+  return _normalizeCodexLoadingThinkingCards(
+    messages,
+    activeTaskId: effectiveActiveTurnId,
+    isAiResponding: active,
+  );
 }
 
 @visibleForTesting

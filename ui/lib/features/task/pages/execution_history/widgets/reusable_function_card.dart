@@ -86,7 +86,7 @@ class ReusableFunctionCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final palette = context.omniPalette;
     final displayTitle = title.trim().isEmpty
-        ? _text(context, '复用指令', 'Reusable command')
+        ? _text(context, '复用指令', 'Function')
         : title.trim();
     final summaryText = description.trim();
     final previewText = _buildStepPreview(context, steps);

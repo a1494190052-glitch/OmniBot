@@ -45,24 +45,24 @@ String functionRunResultToastMessage(
     return _text(
       context,
       '复用指令自动执行完成',
-      'Reusable command completed automatically',
+      'Function completed automatically',
     );
   }
   if (result.completedLocal) {
-    return _text(context, '复用指令直接执行完成', 'Reusable command ran directly');
+    return _text(context, '复用指令直接执行完成', 'Function ran directly');
   }
   if (result.success) {
-    return _text(context, '复用指令执行已开始', 'Reusable command run started');
+    return _text(context, '复用指令执行已开始', 'Function run started');
   }
   final message = result.errorMessage?.trim();
   if (message != null && message.isNotEmpty) {
     return _text(
       context,
       '复用指令执行失败：$message',
-      'Reusable command failed: $message',
+      'Function failed: $message',
     );
   }
-  return _text(context, '复用指令执行失败', 'Reusable command failed');
+  return _text(context, '复用指令执行失败', 'Function failed');
 }
 
 class FunctionRunResultInlinePanel extends StatelessWidget {
@@ -220,7 +220,7 @@ class _FunctionRunResultSheetState extends State<_FunctionRunResultSheet> {
                                   : _text(
                                       context,
                                       '复用指令执行结果',
-                                      'Reusable command result',
+                                      'Function result',
                                     ),
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,

@@ -4,11 +4,11 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:ui/features/home/pages/chat/chat_page_models.dart';
 import 'package:ui/features/home/pages/authorize/authorize_page_args.dart';
-import 'package:ui/features/home/pages/chat/utils/chat_card_message_helpers.dart';
 import 'package:ui/features/home/pages/chat/utils/stream_text_merge.dart';
 import 'package:ui/features/home/pages/command_overlay/constants/messages.dart';
 import 'package:ui/features/home/pages/chat/mixins/agent_stream_handler.dart';
 import 'package:ui/models/agent_stream_event.dart';
+import 'package:ui/models/chat_link_preview.dart';
 import 'package:ui/features/home/pages/chat/utils/deep_thinking_persistence.dart';
 import 'package:ui/l10n/legacy_text_localizer.dart';
 import 'package:ui/models/chat_message_model.dart';
@@ -685,11 +685,6 @@ class ChatConversationRuntimeCoordinator extends ChangeNotifier {
     final existingCardData = Map<String, dynamic>.from(
       runtime.messages[index].cardData ?? const {},
     );
-    if ((existingCardData['status'] ?? '').toString() != 'running') {
-      runtime.activeToolCardId = null;
-      notifyListeners();
-      return;
-    }
     existingCardData['status'] = 'interrupted';
     existingCardData['success'] = false;
     if (summary != null && summary.trim().isNotEmpty) {
@@ -1487,7 +1482,6 @@ class ChatConversationRuntimeCoordinator extends ChangeNotifier {
               isError: false,
               renderMarkdown: true,
               markdownRenderedLength: batch?.lastFlushedText.length,
-              emitVoiceUpdate: true,
             );
           }
         }
@@ -1557,30 +1551,9 @@ class ChatConversationRuntimeCoordinator extends ChangeNotifier {
     );
     final thinkingCardId = _resolveThinkingCardId(runtime, taskId);
     if (thinkingCardId != null) {
-      final hasThinkingContent =
-          (runtime.currentThinkingMessages[taskId] ?? '').trim().isNotEmpty ||
-          runtime.deepThinkingContent.trim().isNotEmpty ||
-          runtime.messages.any((message) {
-            if (message.type != 2 || message.id != thinkingCardId) {
-              return false;
-            }
-            return (message.cardData?['thinkingContent'] ?? '')
-                .toString()
-                .trim()
-                .isNotEmpty;
-          });
-      if (!hasThinkingContent) {
-        runtime.messages.removeWhere((message) {
-          final cardData = message.cardData;
-          return message.type == 2 &&
-              cardData?['type'] == 'deep_thinking' &&
-              (cardData?['taskID'] ?? '').toString() == taskId;
-        });
-      } else {
-        _finalizeThinkingCardsForTask(runtime, taskId);
-      }
       runtime.currentThinkingStage = ThinkingStage.complete.value;
       runtime.isDeepThinking = false;
+      _finalizeThinkingCardsForTask(runtime, taskId);
       runtime.currentThinkingMessages.remove(taskId);
       runtime.deepThinkingContent = '';
       runtime.lastAgentTaskId = null;
@@ -1684,14 +1657,6 @@ class ChatConversationRuntimeCoordinator extends ChangeNotifier {
       case AgentStreamEventKind.toolProgress:
       case AgentStreamEventKind.toolCompleted:
         _applyAgentToolStreamEvent(
-          runtime,
-          binding,
-          event,
-          completedThinkingCardId: thinkingCardToFinalize,
-        );
-        return;
-      case AgentStreamEventKind.uiCard:
-        _applyAgentUiCardStreamEvent(
           runtime,
           binding,
           event,
@@ -2084,72 +2049,6 @@ class ChatConversationRuntimeCoordinator extends ChangeNotifier {
     schedulePersistRuntimeConversation(
       conversationId: binding.conversationId,
       mode: binding.mode,
-    );
-  }
-
-  void _applyAgentUiCardStreamEvent(
-    ChatConversationRuntimeState runtime,
-    _TaskBinding binding,
-    AgentStreamEvent event, {
-    String? completedThinkingCardId,
-  }) {
-    final cards = extractAgentStreamUiCards(event);
-    if (cards.isEmpty) {
-      return;
-    }
-
-    runtime.isAiResponding = true;
-    _finalizeThinkingCard(
-      runtime,
-      event.taskId,
-      cardId: completedThinkingCardId,
-    );
-    for (final card in cards) {
-      _upsertAgentUiCard(runtime: runtime, event: event, card: card);
-    }
-    notifyListeners();
-    schedulePersistRuntimeConversation(
-      conversationId: binding.conversationId,
-      mode: binding.mode,
-    );
-  }
-
-  void _upsertAgentUiCard({
-    required ChatConversationRuntimeState runtime,
-    required AgentStreamEvent event,
-    required AgentStreamUiCard card,
-  }) {
-    final streamMeta = ensureAgentStreamMessageMeta(
-      _streamMetaFromEvent(event),
-      entryId: card.id,
-    );
-    final index = runtime.messages.indexWhere(
-      (message) =>
-          message.id == card.id ||
-          (message.cardData?['cardId'] ?? '').toString().trim() == card.id,
-    );
-    if (index == -1) {
-      runtime.messages.insert(
-        0,
-        ChatMessageModel.cardMessage(
-          card.cardData,
-          id: card.id,
-          streamMeta: streamMeta,
-        ).copyWith(
-          createAt: DateTime.fromMillisecondsSinceEpoch(event.createdAtMs),
-        ),
-      );
-      return;
-    }
-    final existingCardData = Map<String, dynamic>.from(
-      runtime.messages[index].cardData ?? const <String, dynamic>{},
-    );
-    runtime.messages[index] = runtime.messages[index].copyWith(
-      content: {
-        'cardData': <String, dynamic>{...existingCardData, ...card.cardData},
-        'id': card.id,
-      },
-      streamMeta: streamMeta,
     );
   }
 
@@ -2553,24 +2452,12 @@ class ChatConversationRuntimeCoordinator extends ChangeNotifier {
       initialLatestText: previous.isNotEmpty ? previous : visibleThinking,
       initialFlushedText: visibleThinking,
     );
-    _applyThinkingUpdate(
-      runtime,
-      binding,
-      taskId,
-      merged,
-      notifyAfterUpdate: false,
-      schedulePersistence: false,
-    );
     if (shouldFlush) {
-      final batch = _streamingTextBatchFor(
+      _flushThinkingBatch(
         runtime,
         taskId,
         _StreamingTextStreamKind.pureChatThinking,
-      );
-      batch?.markFlushed();
-      schedulePersistRuntimeConversation(
-        conversationId: binding.conversationId,
-        mode: binding.mode,
+        schedulePersistence: true,
       );
     }
   }
@@ -2958,16 +2845,32 @@ class ChatConversationRuntimeCoordinator extends ChangeNotifier {
       return;
     }
 
-    final previewUpdate = ChatLinkPreviewMessageHelpers.reconcile(message);
-    if (previewUpdate.didUpdate) {
-      runtime.messages[index] = previewUpdate.message;
+    final content = Map<String, dynamic>.from(message.content ?? const {});
+    final nextPreviews = LinkPreviewService.instance.reconcilePreviewMaps(
+      text: message.text ?? '',
+      existing: content['linkPreviews'],
+    );
+    final currentPreviews = content['linkPreviews'];
+    var didUpdate = false;
+    if (!_previewMapListsEqual(currentPreviews, nextPreviews)) {
+      if (nextPreviews.isEmpty) {
+        content.remove('linkPreviews');
+      } else {
+        content['linkPreviews'] = nextPreviews;
+      }
+      runtime.messages[index] = message.copyWith(content: content);
+      didUpdate = true;
     }
-    if (previewUpdate.didUpdate &&
+    if (didUpdate &&
         !isEphemeralRuntime(
           conversationId: runtime.conversationId,
           mode: runtime.mode,
         ) &&
-        previewUpdate.hasResolvedPreview) {
+        nextPreviews.any(
+          (item) =>
+              ChatLinkPreview.fromJson(item).status !=
+              ChatLinkPreview.statusLoading,
+        )) {
       unawaited(
         ConversationHistoryService.saveConversationMessages(
           runtime.conversationId,
@@ -2981,13 +2884,18 @@ class ChatConversationRuntimeCoordinator extends ChangeNotifier {
     }
 
     // 先写 loading 占位，真实网页信息抓取完成后再局部回填。
-    for (final url in previewUpdate.loadingUrls) {
+    for (final previewMap in nextPreviews) {
+      final preview = ChatLinkPreview.fromJson(previewMap);
+      if (preview.status != ChatLinkPreview.statusLoading ||
+          preview.url.isEmpty) {
+        continue;
+      }
       unawaited(
         _resolveMessageLinkPreview(
           conversationId: runtime.conversationId,
           mode: runtime.mode,
           taskId: taskId,
-          url: url,
+          url: preview.url,
         ),
       );
     }
@@ -3009,17 +2917,34 @@ class ChatConversationRuntimeCoordinator extends ChangeNotifier {
       return;
     }
 
-    // 只替换仍处于 loading 的同一 URL，避免覆盖历史 ready/failed 结果。
-    final updatedMessage = ChatLinkPreviewMessageHelpers.replaceLoadingPreview(
-      runtime.messages[index],
-      url: url,
-      resolved: resolved,
-    );
-    if (updatedMessage == null) {
+    final message = runtime.messages[index];
+    final content = Map<String, dynamic>.from(message.content ?? const {});
+    final rawPreviews = content['linkPreviews'];
+    if (rawPreviews is! List) {
       return;
     }
 
-    runtime.messages[index] = updatedMessage;
+    // 只替换仍处于 loading 的同一 URL，避免覆盖历史 ready/failed 结果。
+    var changed = false;
+    final updatedPreviews = rawPreviews
+        .whereType<Map>()
+        .map((item) => Map<String, dynamic>.from(item.cast<String, dynamic>()))
+        .map((previewMap) {
+          final preview = ChatLinkPreview.fromJson(previewMap);
+          if (preview.url != url ||
+              preview.status != ChatLinkPreview.statusLoading) {
+            return previewMap;
+          }
+          changed = true;
+          return resolved.toJson();
+        })
+        .toList();
+    if (!changed) {
+      return;
+    }
+
+    content['linkPreviews'] = updatedPreviews;
+    runtime.messages[index] = message.copyWith(content: content);
     notifyListeners();
     schedulePersistRuntimeConversation(
       conversationId: conversationId,
@@ -3036,6 +2961,38 @@ class ChatConversationRuntimeCoordinator extends ChangeNotifier {
         conversation: runtime.conversation,
       ),
     );
+  }
+
+  bool _previewMapListsEqual(dynamic left, List<Map<String, dynamic>> right) {
+    if (left is! List) {
+      return right.isEmpty;
+    }
+    final normalizedLeft = left
+        .whereType<Map>()
+        .map((item) => Map<String, dynamic>.from(item.cast<String, dynamic>()))
+        .toList();
+    if (normalizedLeft.length != right.length) {
+      return false;
+    }
+    for (var index = 0; index < normalizedLeft.length; index += 1) {
+      if (!_previewMapEquals(normalizedLeft[index], right[index])) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  bool _previewMapEquals(
+    Map<String, dynamic> left,
+    Map<String, dynamic> right,
+  ) {
+    return left['url'] == right['url'] &&
+        left['domain'] == right['domain'] &&
+        left['siteName'] == right['siteName'] &&
+        left['title'] == right['title'] &&
+        left['description'] == right['description'] &&
+        left['imageUrl'] == right['imageUrl'] &&
+        left['status'] == right['status'];
   }
 
   List<Map<String, dynamic>> _parseAttachments(dynamic raw) {
@@ -3094,21 +3051,34 @@ class ChatConversationRuntimeCoordinator extends ChangeNotifier {
       runtime.messages.removeAt(loadingIndex);
     }
 
-    final message = ChatThinkingCardMessages.create(
-      taskId: taskId,
-      cardId: cardId,
-      defaultCardIdSuffix: '',
-      thinkingContent: thinkingContent,
-      isLoading: isLoading,
-      stage: stage,
-      streamMeta: streamMeta,
-      includeCollapsible: false,
-      isDeepThinking: runtime.isDeepThinking,
-      currentThinkingStage: runtime.currentThinkingStage,
-    );
+    final startTime = DateTime.now().millisecondsSinceEpoch;
+    final thinkingCardId = cardId ?? '$taskId-thinking';
+    final cardData = {
+      'type': 'deep_thinking',
+      'isLoading': isLoading ?? runtime.isDeepThinking,
+      'thinkingContent': thinkingContent ?? '',
+      'stage': stage ?? runtime.currentThinkingStage,
+      'taskID': taskId,
+      'cardId': thinkingCardId,
+      'startTime': startTime,
+      'endTime': null,
+    };
 
-    runtime.messages.removeWhere((msg) => msg.id == message.id);
-    runtime.messages.insert(0, message);
+    runtime.messages.removeWhere((msg) => msg.id == thinkingCardId);
+    runtime.messages.insert(
+      0,
+      ChatMessageModel(
+        id: thinkingCardId,
+        type: 2,
+        user: 3,
+        content: {'cardData': cardData, 'id': thinkingCardId},
+        createAt: DateTime.fromMillisecondsSinceEpoch(startTime),
+        streamMeta: ensureAgentStreamMessageMeta(
+          streamMeta,
+          entryId: thinkingCardId,
+        ),
+      ),
+    );
   }
 
   String _buildContextCompactionMarkerId({
@@ -3230,30 +3200,42 @@ class ChatConversationRuntimeCoordinator extends ChangeNotifier {
     Map<String, dynamic>? streamMeta,
     bool lockCompleted = true,
   }) {
-    final thinkingCardId = ChatThinkingCardMessages.cardIdForTask(
-      taskId,
-      cardId: cardId,
-      defaultCardIdSuffix: '',
-    );
+    final thinkingCardId = cardId ?? '$taskId-thinking';
     final index = runtime.messages.indexWhere(
       (msg) => msg.id == thinkingCardId,
     );
     if (index == -1) return;
 
-    runtime.messages[index] = ChatThinkingCardMessages.update(
-      existing: runtime.messages[index],
-      taskId: taskId,
-      cardId: thinkingCardId,
-      thinkingContent: thinkingContent,
-      isLoading: isLoading,
-      stage: stage,
-      streamMeta: streamMeta,
-      lockCompleted: lockCompleted,
-      clearEndTimeWhenActive: false,
-      includeCollapsible: false,
-      deepThinkingContent: runtime.deepThinkingContent,
-      isDeepThinking: runtime.isDeepThinking,
-      currentThinkingStage: runtime.currentThinkingStage,
+    final existing = runtime.messages[index];
+    final content = Map<String, dynamic>.from(existing.content ?? {});
+    final cardData = Map<String, dynamic>.from(content['cardData'] ?? {});
+
+    final currentStage = cardData['stage'] as int? ?? 1;
+    final targetStage = stage ?? runtime.currentThinkingStage;
+    final newStage = (lockCompleted && currentStage == 4) ? 4 : targetStage;
+
+    final startTime = cardData['startTime'] as int?;
+    int? endTime = cardData['endTime'] as int?;
+    if (newStage == 4 && endTime == null) {
+      endTime = DateTime.now().millisecondsSinceEpoch;
+    }
+
+    cardData['thinkingContent'] =
+        thinkingContent ?? runtime.deepThinkingContent;
+    cardData['isLoading'] = isLoading ?? runtime.isDeepThinking;
+    cardData['stage'] = newStage;
+    cardData['taskID'] = taskId;
+    cardData['cardId'] = thinkingCardId;
+    cardData['startTime'] = startTime;
+    cardData['endTime'] = endTime;
+
+    content['cardData'] = cardData;
+    runtime.messages[index] = existing.copyWith(
+      content: content,
+      streamMeta: ensureAgentStreamMessageMeta(
+        streamMeta ?? existing.streamMeta,
+        entryId: thinkingCardId,
+      ),
     );
   }
 
@@ -3272,7 +3254,6 @@ class ChatConversationRuntimeCoordinator extends ChangeNotifier {
       case AgentStreamEventKind.toolStarted:
       case AgentStreamEventKind.toolProgress:
       case AgentStreamEventKind.toolCompleted:
-      case AgentStreamEventKind.uiCard:
       case AgentStreamEventKind.completed:
       case AgentStreamEventKind.error:
       case AgentStreamEventKind.permissionRequired:
@@ -3325,19 +3306,28 @@ class ChatConversationRuntimeCoordinator extends ChangeNotifier {
     required String mode,
     required ChatMessageModel message,
   }) {
-    persistDeepThinkingUiCardIfNeeded(
-      conversationId: conversationId,
-      message: message,
-      isEphemeral: isEphemeralRuntime(
-        conversationId: conversationId,
-        mode: mode,
-      ),
-      mode: _conversationModeFromRuntimeMode(
-        mode,
-        conversation: runtimeFor(
-          conversationId: conversationId,
-          mode: mode,
-        )?.conversation,
+    if (isEphemeralRuntime(conversationId: conversationId, mode: mode)) {
+      return;
+    }
+    final cardData = message.cardData;
+    if (message.type != 2 || cardData?['type'] != 'deep_thinking') {
+      return;
+    }
+    unawaited(
+      ConversationHistoryService.upsertConversationUiCard(
+        conversationId,
+        entryId: message.id,
+        cardData: buildPersistentDeepThinkingCardData(
+          Map<String, dynamic>.from(cardData!),
+        ),
+        createdAtMillis: message.createAt.millisecondsSinceEpoch,
+        mode: _conversationModeFromRuntimeMode(
+          mode,
+          conversation: runtimeFor(
+            conversationId: conversationId,
+            mode: mode,
+          )?.conversation,
+        ),
       ),
     );
   }

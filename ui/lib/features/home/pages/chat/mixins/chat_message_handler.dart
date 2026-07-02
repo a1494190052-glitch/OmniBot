@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:ui/features/home/pages/chat/utils/stream_text_merge.dart';
-import 'package:ui/l10n/app_text_localizer.dart';
 import 'package:ui/models/chat_message_model.dart';
 import 'package:ui/services/assists_core_service.dart';
 import 'package:ui/utils/data_parser.dart';
@@ -204,18 +203,15 @@ mixin ChatMessageHandler<T extends StatefulWidget> on State<T> {
   Future<void> onSubmitVlmInfo() async {
     if (isSubmittingVlmReply || vlmInfoQuestion == null) return;
     final reply = vlmAnswerController.text.trim().isEmpty
-        ? AppTextLocalizer.choose(
-            zh: '已完成操作，继续执行',
-            en: 'Completed action, continue execution',
-            locale: Localizations.localeOf(context),
-          )
+        ? (Localizations.localeOf(context).languageCode == 'en'
+              ? 'Completed action, continue execution'
+              : '已完成操作，继续执行')
         : vlmAnswerController.text.trim();
     setState(() {
       isSubmittingVlmReply = true;
     });
-    final success = await AssistsMessageService.continueVLMTaskPrompt(
-      question: vlmInfoQuestion,
-      userInput: reply,
+    final success = await AssistsMessageService.provideUserInputToVLMTask(
+      reply,
     );
     if (!mounted) return;
     setState(() {

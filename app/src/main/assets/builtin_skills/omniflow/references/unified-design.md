@@ -70,14 +70,13 @@ evidence.
 
 `update_function` is the only saved Function mutation path.
 
-- `update_function({function_id, run_id})` packages Function + RunLog evidence
-  and returns `needs_agent_analysis=true`, `analysis_context`, and
-  `agent_prompt`.
-- `update_function({function_id, run_id, analysis, patch})` saves agent analysis
-  metadata and applies safe patches.
+- `update_function({function_spec, run_id?})` saves one complete Agent-revised
+  Function JSON after validating identity and replay steps.
+- `update_function({function_id, analysis, patch})` remains a compatibility
+  path for explicit structured patches.
 
-The Kotlin side packages evidence and applies patches. The analysis skill owns
-failure/success reasoning.
+The Agent conversation owns reasoning. Kotlin only validates and persists the
+result.
 
 Use the same path for offline enhancement and user corrections such as
 `应该点「外卖」而不是点「美食」`. Translate natural language into structured

@@ -2,25 +2,21 @@ import 'dart:convert';
 import 'dart:async';
 
 import 'package:flutter/material.dart';
-import 'package:flutter_localizations/flutter_localizations.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:ui/features/home/pages/chat/tool_activity_utils.dart';
 import 'package:ui/features/home/pages/chat/widgets/chat_tool_activity_strip.dart';
 import 'package:ui/features/home/pages/command_overlay/services/tool_card_detail_gesture_gate.dart';
 import 'package:ui/features/home/pages/command_overlay/widgets/cards/agent_tool_transcript.dart';
-import 'package:ui/l10n/app_text_localizer.dart';
-import 'package:ui/models/agent_stream_event.dart';
+import 'package:ui/l10n/legacy_text_localizer.dart';
 import 'package:ui/models/chat_message_model.dart';
-import 'package:ui/services/agent_stream_meta.dart';
 
 void main() {
   setUp(() {
-    AppTextLocalizer.setResolvedLocale(const Locale('zh'));
+    LegacyTextLocalizer.setResolvedLocale(const Locale('zh'));
   });
 
   tearDown(() {
-    AppTextLocalizer.clearResolvedLocale();
+    LegacyTextLocalizer.clearResolvedLocale();
   });
 
   testWidgets('command strip renders all commands without expand toggle', (
@@ -49,13 +45,6 @@ void main() {
 
     await tester.pumpWidget(
       MaterialApp(
-        locale: const Locale('zh'),
-        supportedLocales: const [Locale('zh'), Locale('en')],
-        localizationsDelegates: const [
-          GlobalMaterialLocalizations.delegate,
-          GlobalCupertinoLocalizations.delegate,
-          GlobalWidgetsLocalizations.delegate,
-        ],
         home: Scaffold(
           body: ChatCommandActivityStrip(
             commands: commands,
@@ -117,57 +106,6 @@ void main() {
       ]);
     },
   );
-
-  test('filters stale interrupted preview placeholders by active task ids', () {
-    final messages = [
-      _staleBrowserPreviewPlaceholder(
-        id: 'task-active-tool-preview',
-        taskId: 'task-active',
-        seq: 1,
-      ),
-      ChatMessageModel.cardMessage(
-        {
-          'type': 'agent_tool_summary',
-          'taskId': 'task-active',
-          'status': 'success',
-          'toolType': 'browser',
-          'toolName': 'browser_use',
-          'toolTitle': 'Browser action',
-          'argsJson': '{"action":"click"}',
-          'resultPreviewJson': '{"ok":true}',
-        },
-        id: 'task-active-tool-success',
-        streamMeta: const {
-          'parentTaskId': 'task-active',
-          'kind': 'tool_completed',
-          'seq': 2,
-        },
-      ),
-      ChatMessageModel.cardMessage(
-        {
-          'type': 'agent_tool_summary',
-          'taskId': 'task-active',
-          'status': 'running',
-          'toolTitle': '运行中工具',
-        },
-        id: 'task-active-tool-running',
-        streamMeta: const {
-          'parentTaskId': 'task-active',
-          'kind': 'tool_started',
-          'seq': 3,
-        },
-      ),
-    ];
-
-    final filtered = filterAgentToolMessagesByTaskIds(messages, const {
-      'task-active',
-    });
-
-    expect(filtered.map((message) => message.id), [
-      'task-active-tool-success',
-      'task-active-tool-running',
-    ]);
-  });
 
   test('completed run keeps latest tool history pinned after folding', () {
     final messages = [
@@ -486,137 +424,6 @@ void main() {
     expect(shouldShowAgentToolActivitySnapshot(snapshot), isTrue);
   });
 
-  test('dedupes tool summary cards by stable tool call identity', () {
-    final messages = [
-      ChatMessageModel.cardMessage({
-        'type': 'agent_tool_summary',
-        'taskId': 'task-1',
-        'cardId': 'entry-start',
-        'toolCallId': 'call-1',
-        'status': 'running',
-      }, id: 'entry-start'),
-      ChatMessageModel.cardMessage({
-        'type': 'agent_tool_summary',
-        'taskId': 'task-1',
-        'cardId': 'entry-complete',
-        'toolCallId': 'call-1',
-        'status': 'success',
-      }, id: 'entry-complete'),
-    ];
-
-    final cards = extractAgentToolCards(messages);
-
-    expect(cards, hasLength(1));
-    expect(cards.single['toolCallId'], 'call-1');
-  });
-
-  test(
-    'extractAgentToolCards ignores stale interrupted preview placeholders',
-    () {
-      final messages = [
-        _staleBrowserPreviewPlaceholder(
-          id: 'task-1-tool-preview',
-          taskId: 'task-1',
-          seq: 1,
-        ),
-        ChatMessageModel.cardMessage(
-          {
-            'type': 'agent_tool_summary',
-            'taskId': 'task-1',
-            'cardId': 'task-1-tool-success',
-            'toolCallId': 'call-1',
-            'toolType': 'browser',
-            'toolName': 'browser_use',
-            'status': 'success',
-            'argsJson': '{"action":"navigate"}',
-            'resultPreviewJson': '{"ok":true}',
-          },
-          id: 'task-1-tool-success',
-          streamMeta: const {
-            'parentTaskId': 'task-1',
-            'kind': 'tool_completed',
-            'seq': 2,
-          },
-        ),
-      ];
-
-      final cards = extractAgentToolCards(messages);
-
-      expect(cards, hasLength(1));
-      expect(cards.single['cardId'], 'task-1-tool-success');
-    },
-  );
-
-  test('completed run snapshot ignores stale preview placeholders', () {
-    final messages = [
-      ChatMessageModel(
-        id: 'task-browser-text',
-        type: 1,
-        user: 2,
-        content: const {'text': '完成', 'id': 'task-browser-text'},
-        streamMeta: const {
-          'parentTaskId': 'task-browser',
-          'kind': 'completed',
-          'isFinal': true,
-          'seq': 4,
-        },
-      ),
-      ChatMessageModel.cardMessage(
-        {
-          'type': 'agent_tool_summary',
-          'taskId': 'task-browser',
-          'cardId': 'task-browser-tool-success',
-          'toolCallId': 'call-success',
-          'toolType': 'browser',
-          'toolName': 'browser_use',
-          'status': 'success',
-          'argsJson': '{"action":"get_text"}',
-          'resultPreviewJson': '{"text":"done"}',
-        },
-        id: 'task-browser-tool-success',
-        streamMeta: const {
-          'parentTaskId': 'task-browser',
-          'kind': 'tool_completed',
-          'seq': 3,
-        },
-      ),
-      _staleBrowserPreviewPlaceholder(
-        id: 'task-browser-tool-preview',
-        taskId: 'task-browser',
-        seq: 2,
-      ),
-      ChatMessageModel.userMessage('用户问题', id: 'user-browser'),
-    ];
-
-    final snapshot = resolveAgentToolActivitySnapshot(messages);
-
-    expect(snapshot.taskId, 'task-browser');
-    expect(snapshot.messages.map((message) => message.id), [
-      'task-browser-tool-success',
-    ]);
-    expect(extractAgentToolCards(snapshot.messages), hasLength(1));
-  });
-
-  test('extracts workbench project card from stream event envelope', () {
-    final event = AgentStreamEvent.fromMap({
-      'taskId': 'task-1',
-      'seq': 7,
-      'kind': 'workbench_project_card',
-      'createdAt': 1000,
-      'entryId': 'task-1-tool-1-project',
-      'type': 'workbench_project',
-      'projectId': 'daily-crm',
-      'name': 'Daily CRM',
-    });
-
-    final cards = extractAgentStreamUiCards(event);
-
-    expect(cards, hasLength(1));
-    expect(cards.single.id, 'task-1-tool-1-project');
-    expect(cards.single.cardData['type'], 'workbench_project');
-    expect(cards.single.cardData['projectId'], 'daily-crm');
-  });
-
   testWidgets(
     'renders current tool title and expands history without duplicating current item',
     (tester) async {
@@ -640,13 +447,6 @@ void main() {
 
       await tester.pumpWidget(
         MaterialApp(
-          locale: const Locale('zh'),
-          supportedLocales: const [Locale('zh'), Locale('en')],
-          localizationsDelegates: const [
-            GlobalMaterialLocalizations.delegate,
-            GlobalCupertinoLocalizations.delegate,
-            GlobalWidgetsLocalizations.delegate,
-          ],
           home: Scaffold(body: ChatToolActivityStrip(messages: messages)),
         ),
       );
@@ -670,97 +470,17 @@ void main() {
       final historyRowHeight = tester
           .getSize(find.byType(ToolActivityRow).last)
           .height;
+      final terminalTypeRight = tester.getTopRight(find.text('终端')).dx;
+      final workspaceTypeRight = tester.getTopRight(find.text('工作区')).dx;
       final runningTagRight = tester.getTopRight(find.text('运行中')).dx;
-      final successTagRight = tester.getTopRight(find.text('已完成')).dx;
+      final successTagRight = tester.getTopRight(find.text('成功')).dx;
 
-      expect(rowHeight, closeTo(38, 0.1));
+      expect(rowHeight, closeTo(32, 0.1));
       expect(historyRowHeight, closeTo(rowHeight, 0.1));
-      expect(find.text('终端'), findsNothing);
-      expect(find.text('工作区'), findsNothing);
+      expect(terminalTypeRight, closeTo(workspaceTypeRight, 1));
       expect(runningTagRight, closeTo(successTagRight, 1));
     },
   );
-
-  testWidgets('VLM activity row keeps RunLog affordance out of default UI', (
-    tester,
-  ) async {
-    final messages = [
-      ChatMessageModel.cardMessage(
-        {
-          'type': 'agent_tool_summary',
-          'taskId': 'vlm-run-ui',
-          'runLogId': 'vlm-run-ui',
-          'status': 'running',
-          'toolType': 'vlm',
-          'toolName': 'click',
-          'cardId': 'vlm-run-ui-vlm-1',
-          'compile_kind': 'vlm_step',
-          'argsJson': jsonEncode({'target_description': 'Settings'}),
-        },
-        id: 'vlm-run-ui-vlm-1',
-        streamMeta: const {
-          'parentTaskId': 'agent-run-ui',
-          'runLogId': 'vlm-run-ui',
-          'entryId': 'vlm-run-ui-vlm-1',
-          'kind': 'tool_progress',
-          'seq': 1,
-        },
-      ),
-    ];
-
-    await tester.pumpWidget(
-      MaterialApp(
-        locale: const Locale('zh'),
-        supportedLocales: const [Locale('zh'), Locale('en')],
-        localizationsDelegates: const [
-          GlobalMaterialLocalizations.delegate,
-          GlobalCupertinoLocalizations.delegate,
-          GlobalWidgetsLocalizations.delegate,
-        ],
-        home: Scaffold(body: ChatToolActivityStrip(messages: messages)),
-      ),
-    );
-    await tester.pumpAndSettle();
-
-    expect(find.text('Settings'), findsOneWidget);
-    expect(find.byIcon(Icons.description_outlined), findsNothing);
-    expect(find.byTooltip('查看完整执行记录'), findsNothing);
-  });
-
-  testWidgets('OmniFlow activity row uses reusable command wording', (
-    tester,
-  ) async {
-    final messages = [
-      ChatMessageModel.cardMessage({
-        'type': 'agent_tool_summary',
-        'status': 'running',
-        'toolType': 'reusable_function',
-        'toolName': 'run_function',
-        'toolTitle': 'OmniFlow',
-        'summary': 'Preparing tool call...',
-      }),
-    ];
-
-    await tester.pumpWidget(
-      MaterialApp(
-        locale: const Locale('zh'),
-        supportedLocales: const [Locale('zh'), Locale('en')],
-        localizationsDelegates: const [
-          GlobalMaterialLocalizations.delegate,
-          GlobalCupertinoLocalizations.delegate,
-          GlobalWidgetsLocalizations.delegate,
-        ],
-        home: Scaffold(body: ChatToolActivityStrip(messages: messages)),
-      ),
-    );
-    await tester.pumpAndSettle();
-
-    expect(find.text('复用指令'), findsOneWidget);
-    expect(find.text('OmniFlow'), findsNothing);
-    expect(find.text('工作流'), findsNothing);
-    expect(find.text('工作流操作'), findsNothing);
-    expect(find.text('OmniFlow activity'), findsNothing);
-  });
 
   testWidgets('running-only strip hides completed tool cards entirely', (
     tester,
@@ -784,13 +504,6 @@ void main() {
 
     await tester.pumpWidget(
       MaterialApp(
-        locale: const Locale('zh'),
-        supportedLocales: const [Locale('zh'), Locale('en')],
-        localizationsDelegates: const [
-          GlobalMaterialLocalizations.delegate,
-          GlobalCupertinoLocalizations.delegate,
-          GlobalWidgetsLocalizations.delegate,
-        ],
         home: Scaffold(
           body: ChatToolActivityStrip(messages: messages, runningOnly: true),
         ),
@@ -839,13 +552,6 @@ void main() {
 
       await tester.pumpWidget(
         MaterialApp(
-          locale: const Locale('zh'),
-          supportedLocales: const [Locale('zh'), Locale('en')],
-          localizationsDelegates: const [
-            GlobalMaterialLocalizations.delegate,
-            GlobalCupertinoLocalizations.delegate,
-            GlobalWidgetsLocalizations.delegate,
-          ],
           home: Scaffold(body: ChatToolActivityStrip(messages: messages)),
         ),
       );
@@ -896,13 +602,6 @@ void main() {
 
       await tester.pumpWidget(
         MaterialApp(
-          locale: const Locale('zh'),
-          supportedLocales: const [Locale('zh'), Locale('en')],
-          localizationsDelegates: const [
-            GlobalMaterialLocalizations.delegate,
-            GlobalCupertinoLocalizations.delegate,
-            GlobalWidgetsLocalizations.delegate,
-          ],
           home: Scaffold(body: ChatToolActivityStrip(messages: messages)),
         ),
       );
@@ -946,13 +645,6 @@ void main() {
 
     await tester.pumpWidget(
       MaterialApp(
-        locale: const Locale('zh'),
-        supportedLocales: const [Locale('zh'), Locale('en')],
-        localizationsDelegates: const [
-          GlobalMaterialLocalizations.delegate,
-          GlobalCupertinoLocalizations.delegate,
-          GlobalWidgetsLocalizations.delegate,
-        ],
         home: Scaffold(body: ChatToolActivityStrip(messages: messages)),
       ),
     );
@@ -980,7 +672,7 @@ void main() {
         of: sheet,
         matching: find.textContaining('tail -n 2 app.log', findRichText: true),
       ),
-      findsAtLeastNWidgets(1),
+      findsOneWidget,
     );
     expect(
       find.descendant(
@@ -1003,11 +695,11 @@ void main() {
       findsOneWidget,
     );
     expect(
-      find.descendant(of: sheet, matching: find.text('已完成')),
+      find.descendant(of: sheet, matching: find.text('成功')),
       findsOneWidget,
     );
     expect(
-      find.descendant(of: sheet, matching: find.textContaining('终端操作 · 已完成')),
+      find.descendant(of: sheet, matching: find.textContaining('终端 · 成功')),
       findsNothing,
     );
   });
@@ -1042,13 +734,6 @@ void main() {
 
       await tester.pumpWidget(
         MaterialApp(
-          locale: const Locale('zh'),
-          supportedLocales: const [Locale('zh'), Locale('en')],
-          localizationsDelegates: const [
-            GlobalMaterialLocalizations.delegate,
-            GlobalCupertinoLocalizations.delegate,
-            GlobalWidgetsLocalizations.delegate,
-          ],
           home: Scaffold(
             body: ChatToolActivityStrip(
               messages: messages,
@@ -1079,7 +764,7 @@ void main() {
             findRichText: true,
           ),
         ),
-        findsAtLeastNWidgets(1),
+        findsOneWidget,
       );
       expect(
         find.descendant(
@@ -1090,125 +775,6 @@ void main() {
       );
     },
   );
-
-  testWidgets('active tool row opens detail even when history can expand', (
-    tester,
-  ) async {
-    final messages = [
-      ChatMessageModel.cardMessage({
-        'type': 'agent_tool_summary',
-        'status': 'running',
-        'toolType': 'browser',
-        'toolName': 'browser_use',
-        'toolTitle': '打开控制台',
-        'summary': '正在浏览',
-        'argsJson': jsonEncode({'url': 'https://example.com'}),
-      }),
-      ChatMessageModel.cardMessage({
-        'type': 'agent_tool_summary',
-        'status': 'success',
-        'toolType': 'terminal',
-        'toolName': 'terminal_execute',
-        'toolTitle': '查看日志',
-        'summary': '终端执行完成',
-        'argsJson': jsonEncode({'command': 'tail app.log'}),
-        'terminalOutput': 'line 1',
-      }),
-    ];
-
-    await tester.pumpWidget(
-      MaterialApp(
-        locale: const Locale('zh'),
-        supportedLocales: const [Locale('zh'), Locale('en')],
-        localizationsDelegates: const [
-          GlobalMaterialLocalizations.delegate,
-          GlobalCupertinoLocalizations.delegate,
-          GlobalWidgetsLocalizations.delegate,
-        ],
-        home: Scaffold(
-          body: ChatToolActivityStrip(
-            messages: messages,
-            openActiveCardOnTap: true,
-          ),
-        ),
-      ),
-    );
-    await tester.pumpAndSettle();
-
-    expect(find.byKey(kChatToolActivityToggleKey), findsOneWidget);
-
-    await tester.tap(find.text('打开控制台'));
-    await tester.pumpAndSettle();
-
-    final sheet = find.byKey(kAgentToolDetailSheetKey);
-    expect(
-      find.descendant(of: sheet, matching: find.text('打开控制台')),
-      findsOneWidget,
-    );
-    expect(
-      find.descendant(of: sheet, matching: find.text('查看日志')),
-      findsNothing,
-    );
-  });
-
-  testWidgets('tool detail sheet exposes copy action for prompt and output', (
-    tester,
-  ) async {
-    String? clipboardText;
-    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
-        .setMockMethodCallHandler(SystemChannels.platform, (call) async {
-          if (call.method == 'Clipboard.setData') {
-            final data = Map<dynamic, dynamic>.from(call.arguments as Map);
-            clipboardText = data['text'] as String?;
-          }
-          return null;
-        });
-    addTearDown(() {
-      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
-          .setMockMethodCallHandler(SystemChannels.platform, null);
-    });
-
-    await tester.pumpWidget(
-      MaterialApp(
-        locale: const Locale('zh'),
-        supportedLocales: const [Locale('zh'), Locale('en')],
-        localizationsDelegates: const [
-          GlobalMaterialLocalizations.delegate,
-          GlobalCupertinoLocalizations.delegate,
-          GlobalWidgetsLocalizations.delegate,
-        ],
-        home: Builder(
-          builder: (context) {
-            return Scaffold(
-              body: TextButton(
-                onPressed: () => showAgentToolDetailSheet(
-                  context,
-                  cardData: {
-                    'type': 'agent_tool_summary',
-                    'status': 'success',
-                    'toolType': 'terminal',
-                    'toolName': 'terminal_execute',
-                    'toolTitle': '查看日志',
-                    'argsJson': jsonEncode({'command': 'tail app.log'}),
-                    'terminalOutput': 'line 1\nline 2',
-                  },
-                ),
-                child: const Text('open'),
-              ),
-            );
-          },
-        ),
-      ),
-    );
-
-    await tester.tap(find.text('open'));
-    await tester.pumpAndSettle();
-    await tester.tap(find.byIcon(Icons.content_copy_rounded));
-    await tester.pump();
-
-    expect(clipboardText, contains(r'$ tail app.log'));
-    expect(clipboardText, contains('line 2'));
-  });
 
   testWidgets('running active tool shows stop button and taps stop only', (
     tester,
@@ -1240,13 +806,6 @@ void main() {
 
     await tester.pumpWidget(
       MaterialApp(
-        locale: const Locale('zh'),
-        supportedLocales: const [Locale('zh'), Locale('en')],
-        localizationsDelegates: const [
-          GlobalMaterialLocalizations.delegate,
-          GlobalCupertinoLocalizations.delegate,
-          GlobalWidgetsLocalizations.delegate,
-        ],
         home: StatefulBuilder(
           builder: (context, setState) {
             return Scaffold(
@@ -1302,13 +861,6 @@ void main() {
 
     await tester.pumpWidget(
       MaterialApp(
-        locale: const Locale('zh'),
-        supportedLocales: const [Locale('zh'), Locale('en')],
-        localizationsDelegates: const [
-          GlobalMaterialLocalizations.delegate,
-          GlobalCupertinoLocalizations.delegate,
-          GlobalWidgetsLocalizations.delegate,
-        ],
         home: Scaffold(
           body: ChatToolActivityStrip(
             messages: messages,
@@ -1368,13 +920,6 @@ void main() {
 
     await tester.pumpWidget(
       MaterialApp(
-        locale: const Locale('zh'),
-        supportedLocales: const [Locale('zh'), Locale('en')],
-        localizationsDelegates: const [
-          GlobalMaterialLocalizations.delegate,
-          GlobalCupertinoLocalizations.delegate,
-          GlobalWidgetsLocalizations.delegate,
-        ],
         home: Scaffold(body: ChatToolActivityStrip(messages: messages)),
       ),
     );
@@ -1433,7 +978,7 @@ void main() {
       findsOneWidget,
     );
     expect(
-      find.descendant(of: sheet, matching: find.text('已完成')),
+      find.descendant(of: sheet, matching: find.text('成功')),
       findsOneWidget,
     );
   });
@@ -1459,13 +1004,6 @@ void main() {
 
     await tester.pumpWidget(
       MaterialApp(
-        locale: const Locale('zh'),
-        supportedLocales: const [Locale('zh'), Locale('en')],
-        localizationsDelegates: const [
-          GlobalMaterialLocalizations.delegate,
-          GlobalCupertinoLocalizations.delegate,
-          GlobalWidgetsLocalizations.delegate,
-        ],
         home: Scaffold(body: ChatToolActivityStrip(messages: messages)),
       ),
     );
@@ -1493,7 +1031,7 @@ void main() {
         of: sheet,
         matching: find.textContaining('sleep 10', findRichText: true),
       ),
-      findsAtLeastNWidgets(1),
+      findsOneWidget,
     );
     expect(
       find.descendant(
@@ -1528,13 +1066,6 @@ void main() {
 
     await tester.pumpWidget(
       MaterialApp(
-        locale: const Locale('zh'),
-        supportedLocales: const [Locale('zh'), Locale('en')],
-        localizationsDelegates: const [
-          GlobalMaterialLocalizations.delegate,
-          GlobalCupertinoLocalizations.delegate,
-          GlobalWidgetsLocalizations.delegate,
-        ],
         home: Scaffold(
           body: ChatToolActivityStrip(
             messages: messages,
@@ -1577,13 +1108,6 @@ void main() {
 
       await tester.pumpWidget(
         MaterialApp(
-          locale: const Locale('zh'),
-          supportedLocales: const [Locale('zh'), Locale('en')],
-          localizationsDelegates: const [
-            GlobalMaterialLocalizations.delegate,
-            GlobalCupertinoLocalizations.delegate,
-            GlobalWidgetsLocalizations.delegate,
-          ],
           home: Scaffold(
             body: Stack(
               children: [
@@ -1609,50 +1133,19 @@ void main() {
       final previewTopRight = tester.getTopRight(
         find.byKey(kChatToolActivityPreviewKey),
       );
-      final previewSurface = tester.widget<PhysicalModel>(
-        find
-            .descendant(
-              of: find.byKey(kChatToolActivityPreviewKey),
-              matching: find.byType(PhysicalModel),
-            )
-            .first,
-      );
       final barTopLeft = tester.getTopLeft(find.byKey(kChatToolActivityBarKey));
       final titleTopLeft = tester.getTopLeft(find.text('检查 git 状态'));
       final barSize = tester.getSize(find.byKey(kChatToolActivityBarKey));
-      final barGlassDecoration = tester.widget<DecoratedBox>(
-        find
-            .descendant(
-              of: find.byKey(kChatToolActivityBarKey),
-              matching: find.byWidgetPredicate((widget) {
-                final decoration = widget is DecoratedBox
-                    ? widget.decoration
-                    : null;
-                return decoration is BoxDecoration &&
-                    decoration.gradient is LinearGradient &&
-                    decoration.border is Border;
-              }),
-            )
-            .first,
+      final barShape = tester.widget<PhysicalShape>(
+        find.byKey(kChatToolActivityBarKey),
       );
-      final barGradient =
-          (barGlassDecoration.decoration as BoxDecoration).gradient;
 
       expect(previewTopLeft.dx, 52);
       expect(previewTopLeft.dy, lessThan(barTopLeft.dy));
       expect(barTopLeft.dx, closeTo(72, 0.1));
       expect(barSize.width, closeTo(240, 0.1));
       expect(titleTopLeft.dx, greaterThan(previewTopRight.dx - 12));
-      expect(previewSurface.color, isNot(const Color(0xFF06080C)));
-      expect(
-        find.descendant(
-          of: find.byKey(kChatToolActivityBarKey),
-          matching: find.byType(BackdropFilter),
-        ),
-        findsOneWidget,
-      );
-      expect(barGradient, isA<LinearGradient>());
-      expect(find.text('输入'), findsOneWidget);
+      expect(barShape.color, const Color(0xFFF9FCFF));
       expect(find.text('运行中'), findsOneWidget);
       expect(find.text('1/2'), findsNothing);
     },
@@ -1681,13 +1174,6 @@ void main() {
 
     await tester.pumpWidget(
       MaterialApp(
-        locale: const Locale('zh'),
-        supportedLocales: const [Locale('zh'), Locale('en')],
-        localizationsDelegates: const [
-          GlobalMaterialLocalizations.delegate,
-          GlobalCupertinoLocalizations.delegate,
-          GlobalWidgetsLocalizations.delegate,
-        ],
         home: StatefulBuilder(
           builder: (context, setState) {
             return Scaffold(
@@ -1750,13 +1236,6 @@ void main() {
 
     await tester.pumpWidget(
       MaterialApp(
-        locale: const Locale('zh'),
-        supportedLocales: const [Locale('zh'), Locale('en')],
-        localizationsDelegates: const [
-          GlobalMaterialLocalizations.delegate,
-          GlobalCupertinoLocalizations.delegate,
-          GlobalWidgetsLocalizations.delegate,
-        ],
         home: Scaffold(
           body: Stack(
             children: [
@@ -1791,32 +1270,4 @@ void main() {
 
     expect(ToolCardDetailGestureGate.hasActivePointers, isFalse);
   });
-}
-
-ChatMessageModel _staleBrowserPreviewPlaceholder({
-  required String id,
-  required String taskId,
-  required int seq,
-}) {
-  return ChatMessageModel.cardMessage(
-    {
-      'type': 'agent_tool_summary',
-      'taskId': taskId,
-      'cardId': id,
-      'toolCallId': '$id-call',
-      'toolType': 'browser',
-      'toolName': 'browser_use',
-      'status': 'interrupted',
-      'summary': 'Preparing tool call...',
-      'progress': 'Preparing tool call...',
-      'argsJson': '{}',
-    },
-    id: id,
-    streamMeta: {
-      'parentTaskId': taskId,
-      'entryId': id,
-      'kind': 'tool_started',
-      'seq': seq,
-    },
-  );
 }

@@ -332,7 +332,7 @@ object FunctionApi {
 
     private val updateFunctionMcpTool = mapOf(
         "name" to FUNCTION_UPDATE,
-        "description" to "Update one saved Function from a structured patch, user correction, or RunLog evidence. Passing run_id without analysis/patch returns analysis_context and agent_prompt; saving RunLog evidence uses analysis plus an optional patch.",
+        "description" to "Update one saved Function from a complete function_spec replacement, structured patch, user correction, or RunLog evidence. Agent-generated Function metadata should be passed as function_spec; update_function validates identity and saves deterministically.",
         "inputSchema" to updateFunctionInputSchema(includeCamelCaseAliases = false)
     )
 
@@ -584,18 +584,17 @@ object FunctionApi {
     private fun updateFunctionInputSchema(includeCamelCaseAliases: Boolean): Map<String, Any?> =
         obj(
             properties = updateFunctionInputProperties(includeCamelCaseAliases = includeCamelCaseAliases),
-        ).toMutableMap().apply {
-            put("required", listOf("function_id"))
-        }
+        )
 
     private fun updateFunctionInputProperties(includeCamelCaseAliases: Boolean): Map<String, Any?> {
         val properties = linkedMapOf<String, Any?>(
-            "function_id" to string("Existing Function id to update in place."),
+            "function_id" to string("Existing Function id to update in place. Optional when function_spec.function_id is provided."),
+            "function_spec" to obj("Complete replacement Function JSON. update_function validates function_id identity and execution.steps, then saves it."),
             "run_id" to string("Optional local RunLog id used as evidence for agent analysis."),
             "instruction" to string("Optional user correction or enhancement instruction."),
             "mode" to enumString("Update mode.", listOf("enhance", "repair", "annotate", "fix", "correction")),
             "offline_job" to boolean("Set true when this enhancement is running as an explicit offline/background maintenance job."),
-            "auto_analyze_with_model" to boolean("Set true only for offline/background jobs that should invoke the model to produce analysis and patch. Online calls return analysis_context instead."),
+            "auto_analyze_with_model" to boolean("Legacy flag accepted for compatibility. update_function no longer invokes a model; callers should pass function_spec, analysis, or patch."),
             "analysis" to updateFunctionAnalysisSchema,
             "patch" to updateFunctionPatchSchema,
             "usage" to obj(description = "Optional token usage from the API call that produced this enhancement analysis."),
@@ -603,6 +602,7 @@ object FunctionApi {
             "dry_run" to boolean("Preview changes without saving."),
         )
         if (includeCamelCaseAliases) {
+            properties["functionSpec"] = obj("Alias of function_spec.")
             properties["offlineJob"] = boolean("Alias of offline_job.")
             properties["autoAnalyzeWithModel"] = boolean("Alias of auto_analyze_with_model.")
             properties["dryRun"] = boolean("Alias of dry_run.")

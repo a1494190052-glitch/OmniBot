@@ -1,175 +1,20 @@
 import 'package:ui/models/agent_stream_event.dart';
-import 'package:ui/services/agent_tool_card_policy.dart';
-
-class AgentStreamUiCard {
-  const AgentStreamUiCard({required this.id, required this.cardData});
-
-  final String id;
-  final Map<String, dynamic> cardData;
-}
-
-String resolveAgentToolCardId(
-  AgentStreamEvent event, {
-  Map<dynamic, dynamic>? raw,
-}) {
-  return AgentToolCardPolicy.cardIdForEvent(event, raw: raw);
-}
-
-List<AgentStreamUiCard> extractAgentStreamUiCards(AgentStreamEvent event) {
-  final candidates = <Map<String, dynamic>>[];
-  final rawCards = event.raw['cards'] ?? event.raw['uiCards'];
-  if (rawCards is Iterable) {
-    for (final item in rawCards) {
-      final card = _asStringMap(item);
-      if (card != null) {
-        candidates.add(card);
-      }
-    }
-  }
-
-  final embeddedCardData =
-      _asStringMap(event.raw['cardData']) ?? _asStringMap(event.raw['card']);
-  if (embeddedCardData != null) {
-    candidates.add(embeddedCardData);
-  }
-
-  final envelopeCard = _cardDataFromEventEnvelope(event.raw);
-  if (envelopeCard != null) {
-    candidates.add(envelopeCard);
-  }
-
-  final cards = <AgentStreamUiCard>[];
-  for (var index = 0; index < candidates.length; index++) {
-    final cardData = Map<String, dynamic>.from(candidates[index]);
-    final type = (cardData['type'] ?? '').toString().trim();
-    if (type.isEmpty) {
-      continue;
-    }
-    final explicitId = _firstNonEmpty([
-      cardData['cardId'],
-      cardData['card_id'],
-      cardData['id'],
-    ]);
-    final fallbackId = candidates.length == 1
-        ? (event.entryId ?? '')
-        : '${event.entryId ?? event.taskId}-card-${index + 1}';
-    final cardId = _firstNonEmpty([explicitId, fallbackId]);
-    if (cardId.isEmpty) {
-      continue;
-    }
-    cardData['cardId'] = _firstNonEmpty([cardData['cardId'], cardId]);
-    cardData.putIfAbsent('taskId', () => event.taskId);
-    cards.add(AgentStreamUiCard(id: cardId, cardData: cardData));
-  }
-  return cards;
-}
-
-Map<String, dynamic>? _cardDataFromEventEnvelope(Map<String, dynamic> raw) {
-  final type = (raw['type'] ?? '').toString().trim();
-  if (type.isEmpty) {
-    return null;
-  }
-  final cardData = Map<String, dynamic>.from(raw);
-  for (final key in const <String>{
-    'conversationId',
-    'conversationMode',
-    'schema_version',
-    'trace_id',
-    'run_id',
-    'span_id',
-    'parent_span_id',
-    'channel',
-    'event',
-    'timestamp_ms',
-    'status',
-    'seq',
-    'kind',
-    'createdAt',
-    'entryId',
-    'roundIndex',
-    'isFinal',
-    'streamMeta',
-    'text',
-    'message',
-    'thinking',
-    'stage',
-    'prefillTokensPerSecond',
-    'decodeTokensPerSecond',
-    'outputKind',
-    'hasUserVisibleOutput',
-    'latestPromptTokens',
-    'promptTokenThreshold',
-    'error',
-    'question',
-    'missingFields',
-    'missing',
-    'dialog',
-  }) {
-    cardData.remove(key);
-  }
-  return cardData;
-}
-
-Map<String, dynamic>? _asStringMap(dynamic value) {
-  if (value is Map<String, dynamic>) {
-    return value;
-  }
-  if (value is Map) {
-    return value.map((key, item) => MapEntry(key.toString(), item));
-  }
-  return null;
-}
 
 Map<String, dynamic> buildAgentStreamMetaFromEvent(AgentStreamEvent event) {
-  final rawStreamMeta = event.raw['streamMeta'] ?? event.raw['stream_meta'];
+  final rawStreamMeta = event.raw['streamMeta'];
   final existing = rawStreamMeta is Map
       ? rawStreamMeta.map((key, value) => MapEntry(key.toString(), value))
       : null;
-  final normalizedExisting = existing == null
-      ? null
-      : _normalizeAgentStreamMeta(existing);
   return ensureAgentStreamMessageMeta(
-        normalizedExisting,
-        seq: normalizedExisting?.containsKey('seq') == true
-            ? null
-            : (_asInt(event.raw['seq']) ??
-                  _asInt(event.raw['sequence']) ??
-                  event.seq),
-        roundIndex: normalizedExisting?.containsKey('roundIndex') == true
-            ? null
-            : (_asInt(event.raw['roundIndex']) ??
-                  _asInt(event.raw['round_index']) ??
-                  event.roundIndex),
-        kind: normalizedExisting?.containsKey('kind') == true
-            ? null
-            : event.kind.value,
-        parentTaskId: normalizedExisting?.containsKey('parentTaskId') == true
-            ? null
-            : event.taskId,
-        entryId: normalizedExisting?.containsKey('entryId') == true
-            ? null
-            : event.entryId,
+        existing,
+        seq: _asInt(event.raw['seq']) ?? event.seq,
+        roundIndex: _asInt(event.raw['roundIndex']) ?? event.roundIndex,
+        kind: event.kind.value,
+        parentTaskId: event.taskId,
+        entryId: event.entryId,
         isFinal: event.isFinal,
       ) ??
       <String, dynamic>{};
-}
-
-Map<String, dynamic> _normalizeAgentStreamMeta(Map<String, dynamic> value) {
-  final normalized = Map<String, dynamic>.from(value);
-  void copyAlias(String from, String to) {
-    if (normalized.containsKey(to) || !normalized.containsKey(from)) {
-      return;
-    }
-    normalized[to] = normalized[from];
-  }
-
-  copyAlias('round_index', 'roundIndex');
-  copyAlias('parent_task_id', 'parentTaskId');
-  copyAlias('entry_id', 'entryId');
-  copyAlias('is_final', 'isFinal');
-  copyAlias('run_id', 'runId');
-  copyAlias('run_log_id', 'runLogId');
-  return normalized;
 }
 
 Map<String, dynamic>? ensureAgentStreamMessageMeta(
@@ -215,16 +60,6 @@ Map<String, dynamic>? ensureAgentStreamMessageMeta(
 
   normalized['isFinal'] = isFinal || normalized['isFinal'] == true;
   return normalized;
-}
-
-String _firstNonEmpty(Iterable<dynamic> values) {
-  for (final value in values) {
-    final normalized = value?.toString().trim() ?? '';
-    if (normalized.isNotEmpty) {
-      return normalized;
-    }
-  }
-  return '';
 }
 
 int? _asInt(dynamic raw) {

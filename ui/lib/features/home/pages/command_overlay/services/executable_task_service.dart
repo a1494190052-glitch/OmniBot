@@ -25,7 +25,7 @@ class ExecutableTaskService {
   /// 从接口返回的 suggestion 构建 taskJson
   ///
   /// [suggestion] 接口返回的 suggestion 数据
-  /// [filledParams] 填充的参数（用于覆盖 arguments）
+  /// [filledParams] 填充的参数（用于覆盖 slots）
   static Map<String, dynamic>? buildTaskJsonFromSuggestion({
     required Map<String, dynamic>? suggestion,
     Map<String, dynamic>? filledParams,
@@ -43,27 +43,27 @@ class ExecutableTaskService {
         return null;
       }
 
-      // 为每个 task 添加 arguments
+      // 为每个 task 添加 slotValues
       final processedTasks = tasks.map((task) {
         if (task is Map<String, dynamic>) {
           // 将 filledParams 转换为 Map<String, String>
-          final arguments = <String, String>{};
+          final slotValues = <String, String>{};
           if (filledParams != null) {
             filledParams.forEach((key, value) {
-              arguments[key] = value.toString();
+              slotValues[key] = value.toString();
             });
           }
-          // 同时从 task 原有的 arguments 中获取数据
-          final taskArguments = task['arguments'] as Map<String, dynamic>?;
-          if (taskArguments != null) {
-            taskArguments.forEach((key, value) {
-              if (!arguments.containsKey(key)) {
-                arguments[key] = value.toString();
+          // 同时从 task 原有的 slots 中获取数据
+          final taskSlots = task['slots'] as Map<String, dynamic>?;
+          if (taskSlots != null) {
+            taskSlots.forEach((key, value) {
+              if (!slotValues.containsKey(key)) {
+                slotValues[key] = value.toString();
               }
             });
           }
 
-          return {'functionId': task['functionId'], 'arguments': arguments};
+          return {'pathId': task['pathId'], 'slotValues': slotValues};
         }
         return task;
       }).toList();

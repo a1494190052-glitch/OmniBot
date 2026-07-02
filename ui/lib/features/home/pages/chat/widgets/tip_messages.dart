@@ -51,12 +51,10 @@ class TipsMessages extends StatelessWidget {
                 vertical: 8.0,
               ),
               decoration: BoxDecoration(
-                color: theme.colorScheme.surfaceContainerHighest.withValues(
-                  alpha: 0.7,
-                ),
+                color: theme.colorScheme.surfaceVariant.withOpacity(0.7),
                 borderRadius: BorderRadius.circular(20.0),
                 border: Border.all(
-                  color: theme.colorScheme.surfaceContainerHighest,
+                  color: theme.colorScheme.surfaceVariant,
                   width: 1,
                 ),
               ),
@@ -65,7 +63,7 @@ class TipsMessages extends StatelessWidget {
                   // The displayed text is the truncated version.
                   _truncateMessage(message),
                   style: TextStyle(
-                    color: theme.colorScheme.onSurface.withValues(alpha: 0.8),
+                    color: theme.colorScheme.onSurface.withOpacity(0.8),
                     fontWeight: FontWeight.w500,
                   ),
                   overflow: TextOverflow.ellipsis,

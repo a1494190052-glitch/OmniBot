@@ -4,7 +4,6 @@ import 'package:ui/features/home/pages/chat/mixins/agent_stream_handler.dart';
 import 'package:ui/features/home/pages/chat/services/chat_conversation_runtime_coordinator.dart';
 import 'package:ui/models/chat_message_model.dart';
 import 'package:ui/services/agent_stream_meta.dart';
-import 'package:ui/services/agent_tool_card_policy.dart';
 import 'package:ui/services/codex_diff_parser.dart';
 import 'package:ui/services/codex_tool_call_parser.dart';
 
@@ -1315,7 +1314,9 @@ class CodexEventReducer {
         ? ''
         : (runtime.messages[index].cardData?['thinkingContent'] ?? '')
               .toString();
-    final cachedThinking = runtime.currentThinkingMessages[parentTaskId];
+    final cachedThinking = runtime.activeThinkingCardId == cardId
+        ? runtime.currentThinkingMessages[parentTaskId]
+        : null;
     final baseContent = cachedThinking ?? existingContent;
     final effectiveDelta = _deduplicateReplayDelta(
       runtime,
@@ -1330,6 +1331,7 @@ class CodexEventReducer {
     _touchActiveTurn(runtime, parentTaskId);
     runtime.isDeepThinking = true;
     runtime.currentThinkingStage = ThinkingStage.thinking.value;
+    runtime.activeThinkingCardId = cardId;
     final nextContent = baseContent + effectiveDelta;
     runtime.codexReplayDeltaOffsets.remove(cardId);
     runtime.currentThinkingMessages[parentTaskId] = nextContent;
@@ -1360,6 +1362,14 @@ class CodexEventReducer {
     required int stage,
     required Map<String, dynamic> streamMeta,
   }) {
+    if (isLoading) {
+      _finalizeOtherLoadingThinkingCardsForTask(
+        runtime,
+        parentTaskId: taskId,
+        activeCardId: cardId,
+      );
+      runtime.activeThinkingCardId = cardId;
+    }
     final index = runtime.messages.indexWhere(
       (message) => message.id == cardId,
     );
@@ -1421,11 +1431,7 @@ class CodexEventReducer {
         : runtime.messages[index].cardData ?? const <String, dynamic>{};
     final existingOutput = (existingCardData['terminalOutput'] ?? '')
         .toString();
-    final output = AgentToolTerminalOutputPolicy.merge(
-      existing: existingOutput,
-      full: '',
-      delta: outputDelta,
-    );
+    final output = _trimTerminalOutput(existingOutput + outputDelta);
     _upsertToolCard(
       runtime,
       cardId: cardId,
@@ -1523,7 +1529,8 @@ class CodexEventReducer {
               (existingCardData['filePath'] ?? '').toString()
         : '';
     final cardData = <String, dynamic>{
-      'type': kAgentToolSummaryCardType,
+      'type': 'agent_tool_summary',
+      'uiStyle': 'codex_tool',
       'taskId': taskId,
       'toolName': toolInfo.toolName,
       'displayName': toolInfo.displayName,
@@ -1987,6 +1994,7 @@ class CodexEventReducer {
     runtime.currentThinkingMessages.remove(taskId);
     runtime.deepThinkingContent = '';
     runtime.isDeepThinking = false;
+    runtime.activeThinkingCardId = null;
     runtime.currentThinkingStage = ThinkingStage.complete.value;
     _markAssistantMessagesFinalForTask(runtime, taskId);
     _finalizeThinkingCardsForTask(runtime, taskId);
@@ -2175,6 +2183,33 @@ class CodexEventReducer {
     }
   }
 
+  void _finalizeOtherLoadingThinkingCardsForTask(
+    ChatConversationRuntimeState runtime, {
+    required String parentTaskId,
+    required String activeCardId,
+  }) {
+    final cardIds = runtime.messages
+        .where((message) {
+          if (message.id == activeCardId) {
+            return false;
+          }
+          final cardData = message.cardData;
+          if (cardData?['type'] != 'deep_thinking' ||
+              cardData?['isLoading'] != true) {
+            return false;
+          }
+          final cardTaskId =
+              _string(cardData?['taskID']) ??
+              _string(message.streamMeta?['parentTaskId']);
+          return cardTaskId == parentTaskId;
+        })
+        .map((message) => message.id)
+        .toList(growable: false);
+    for (final cardId in cardIds) {
+      _finalizeThinkingCard(runtime, parentTaskId, cardId);
+    }
+  }
+
   void _markToolCardsCompleteForTask(
     ChatConversationRuntimeState runtime,
     String parentTaskId,
@@ -2182,16 +2217,12 @@ class CodexEventReducer {
     final cardIds = runtime.messages
         .where((message) {
           final cardData = message.cardData;
-          if (cardData?['type'] != kAgentToolSummaryCardType) {
+          if (cardData?['type'] != 'agent_tool_summary') {
             return false;
           }
-          final embeddedStreamMeta = AgentToolCardPolicy.asStringMap(
-            cardData?['streamMeta'],
-          );
           final cardTaskId =
-              _string(message.streamMeta?['parentTaskId']) ??
-              _string(embeddedStreamMeta['parentTaskId']) ??
-              _string(cardData?['taskId']);
+              _string(cardData?['taskId']) ??
+              _string(message.streamMeta?['parentTaskId']);
           if (cardTaskId != parentTaskId) {
             return false;
           }

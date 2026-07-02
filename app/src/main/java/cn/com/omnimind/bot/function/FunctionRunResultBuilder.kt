@@ -55,7 +55,7 @@ class FunctionRunResultBuilder {
             "error_code" to errorCode,
             "error_message" to errorMessage,
             "timing" to linkedMapOf(
-                "source" to "call_tool_runner",
+                "source" to "function_runner",
                 "started_at_ms" to startedAtMs,
                 "finished_at_ms" to finishedAtMs,
                 "duration_ms" to (finishedAtMs - startedAtMs).coerceAtLeast(0),
@@ -175,7 +175,7 @@ class FunctionRunResultBuilder {
             }
             val durationMs = (finishedAtMs - startedAtMs).coerceAtLeast(0)
             return linkedMapOf(
-                "source" to "call_tool_runner",
+                "source" to "function_runner",
                 "started_at_ms" to startedAtMs,
                 "finished_at_ms" to finishedAtMs,
                 "duration_ms" to durationMs,

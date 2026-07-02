@@ -2,8 +2,6 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
-import 'package:ui/features/home/pages/chat/utils/function_run_tool_card_data.dart';
-import 'package:ui/features/home/pages/command_overlay/widgets/cards/agent_tool_summary_card.dart';
 import 'package:ui/features/task/pages/execution_history/function_run_result_sheet.dart';
 import 'package:ui/features/task/pages/execution_history/run_log_timeline_page.dart';
 import 'package:ui/features/task/pages/execution_history/widgets/reusable_function_card.dart';
@@ -48,8 +46,7 @@ class _FunctionLibraryPageState extends State<FunctionLibraryPage> {
   @override
   void initState() {
     super.initState();
-    _runProgressSubscription = AssistsMessageService
-        .functionRunProgressStream
+    _runProgressSubscription = AssistsMessageService.functionRunProgressStream
         .listen(_handleRunProgressEvent);
     _load();
   }
@@ -128,7 +125,7 @@ class _FunctionLibraryPageState extends State<FunctionLibraryPage> {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: Text(_text(context, '删除复用指令', 'Delete reusable command')),
+        title: Text(_text(context, '删除复用指令', 'Delete Function')),
         content: Text(
           _text(
             context,
@@ -185,8 +182,8 @@ class _FunctionLibraryPageState extends State<FunctionLibraryPage> {
         });
         showToast(
           group.variantCount > 1
-              ? _text(context, '已删除复用指令组', 'Reusable command group deleted')
-              : _text(context, '已删除复用指令', 'Reusable command deleted'),
+              ? _text(context, '已删除复用指令组', 'Function group deleted')
+              : _text(context, '已删除复用指令', 'Function deleted'),
           type: ToastType.success,
         );
       } else {
@@ -247,7 +244,7 @@ class _FunctionLibraryPageState extends State<FunctionLibraryPage> {
       await showFunctionRunResultSheet(
         context,
         result: result,
-        title: _text(context, '复用指令执行结果', 'Reusable command result'),
+        title: _text(context, '复用指令执行结果', 'Function result'),
         arguments: arguments,
       );
     } catch (e) {
@@ -331,7 +328,7 @@ class _FunctionLibraryPageState extends State<FunctionLibraryPage> {
     return Scaffold(
       backgroundColor: palette.pageBackground,
       appBar: CommonAppBar(
-        title: _text(context, '复用指令库', 'Reusable commands'),
+        title: _text(context, '复用指令库', 'Functions'),
         primary: true,
         actions: [
           Tooltip(
@@ -378,7 +375,7 @@ class _FunctionLibraryPageState extends State<FunctionLibraryPage> {
     if (_functions.isEmpty) {
       return _EmptyState(
         icon: Icons.bolt_outlined,
-        title: _text(context, '暂无复用指令', 'No reusable commands yet'),
+        title: _text(context, '暂无复用指令', 'No Functions yet'),
         subtitle: _text(
           context,
           '可以直接学习一段完整的人类操作，保存后在这里复用。',
@@ -448,8 +445,15 @@ class _FunctionLibraryProgressSlot extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         mainAxisSize: MainAxisSize.min,
         children: [
-          AgentToolSummaryCard(
-            cardData: functionRunToolCardDataForEvent(event),
+          Text(
+            _progressTitle(event),
+            style: TextStyle(
+              color: palette.textPrimary,
+              fontSize: 13,
+              fontWeight: FontWeight.w600,
+            ),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
           ),
           if (message.isNotEmpty) ...[
             const SizedBox(height: 4),
@@ -463,6 +467,27 @@ class _FunctionLibraryProgressSlot extends StatelessWidget {
         ],
       ),
     );
+  }
+
+  static String _progressTitle(FunctionRunProgressEvent event) {
+    final name = event.label.trim().isNotEmpty
+        ? event.label.trim()
+        : event.functionId.trim();
+    final prefix = event.isRunning
+        ? AppTextLocalizer.choose(zh: '正在执行', en: 'Running')
+        : event.status == 'stopped'
+        ? AppTextLocalizer.choose(zh: '已停止', en: 'Stopped')
+        : event.status == 'failed' || event.message.contains('失败')
+        ? AppTextLocalizer.choose(zh: '执行失败', en: 'Failed')
+        : AppTextLocalizer.choose(zh: '执行完成', en: 'Completed');
+    final step = event.displayStepNumber;
+    final stepText = step != null && step > 0
+        ? (event.stepCount > 0 ? ' $step/${event.stepCount}' : ' $step')
+        : '';
+    final target = name.isEmpty
+        ? AppTextLocalizer.choose(zh: '复用指令', en: 'Function')
+        : name;
+    return '$prefix $target$stepText';
   }
 }
 
@@ -480,9 +505,7 @@ FunctionRunProgressEvent? _runningProgressEventFor({
   return null;
 }
 
-FunctionRunProgressEvent _fallbackRunningProgressEvent(
-  _FunctionGroup group,
-) {
+FunctionRunProgressEvent _fallbackRunningProgressEvent(_FunctionGroup group) {
   final function = group.primary;
   final stepCount = function.stepCount > 0
       ? function.stepCount
@@ -492,7 +515,7 @@ FunctionRunProgressEvent _fallbackRunningProgressEvent(
       : function.displayName;
   final message = AppTextLocalizer.choose(
     zh: '准备执行复用指令',
-    en: 'Preparing reusable command',
+    en: 'Preparing Function',
   );
   final raw = <String, dynamic>{
     'status': 'started',
@@ -660,7 +683,7 @@ Future<void> _showFunctionSpecDetails(
     final specJson = _functionSpecJsonFromDetail(rawSpec);
     if (specJson.isEmpty) {
       showToast(
-        _text(context, '复用指令详情为空', 'Reusable command details are empty'),
+        _text(context, '复用指令详情为空', 'Function details are empty'),
         type: ToastType.error,
       );
       return;
@@ -735,10 +758,9 @@ Future<List<_FunctionRunLogEntry>> _loadFunctionRunLogEntries(
 ) async {
   final ids = group.runLogIds.toList(growable: true);
   if (ids.isEmpty && group.hasLastRun) {
-    final lastRun =
-        await AssistsMessageService.getFunctionLastRunLog(
-          group.lastRunFunctionId,
-        );
+    final lastRun = await AssistsMessageService.getFunctionLastRunLog(
+      group.lastRunFunctionId,
+    );
     final lastRunId = lastRun.runId.trim();
     if (lastRunId.isNotEmpty) ids.add(lastRunId);
   }
@@ -1725,14 +1747,14 @@ Future<void> _startHumanTrajectoryLearningFlow({
             ? _text(
                 context,
                 '手动录制完成，轨迹已生成；复用指令生成失败',
-                'Recording completed and trace was created; reusable command conversion failed',
+                'Recording completed and trace was created; Function conversion failed',
               )
             : functionId.isEmpty
-            ? _text(context, '已保存复用指令', 'Reusable command saved')
+            ? _text(context, '已保存复用指令', 'Function saved')
             : _text(
                 context,
                 '已保存复用指令：$functionId',
-                'Reusable command saved: $functionId',
+                'Function saved: $functionId',
               ),
         type: ToastType.success,
         duration: const Duration(seconds: 3),
@@ -1838,7 +1860,7 @@ Future<Map<String, dynamic>?> _showRunArgumentsDialog(
                         _text(
                           ctx,
                           '这个复用指令需要补充参数后才能执行。',
-                          'This reusable command needs arguments before running.',
+                          'This Function needs arguments before running.',
                         ),
                         style: TextStyle(
                           fontSize: 13,

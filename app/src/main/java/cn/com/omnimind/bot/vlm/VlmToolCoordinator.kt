@@ -517,6 +517,7 @@ object VlmToolCoordinator {
                 modelOrScene = model,
                 dynamicFunctionToolNames = requestEnvelope.dynamicFunctionToolNames,
                 dynamicFunctionToolMappings = requestEnvelope.dynamicFunctionToolMappings,
+                dynamicFunctionRequiredArguments = requestEnvelope.dynamicFunctionRequiredArguments,
             )
         }
         val action = parsed.step?.action

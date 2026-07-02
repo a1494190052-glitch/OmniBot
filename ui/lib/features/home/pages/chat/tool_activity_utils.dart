@@ -1,5 +1,4 @@
 import 'dart:convert';
-import 'dart:ui';
 
 import 'package:ui/features/home/pages/chat/utils/agent_run_timeline.dart';
 import 'package:ui/features/home/pages/command_overlay/widgets/cards/terminal_output_utils.dart';
@@ -240,7 +239,7 @@ class _CompletedAgentToolRun {
   final List<ChatMessageModel> messages;
 }
 
-String resolveAgentToolTitle(Map<String, dynamic> cardData, {Locale? locale}) {
+String resolveAgentToolTitle(Map<String, dynamic> cardData) {
   final explicit = (cardData[kAgentToolTitleField] ?? '').toString().trim();
   if (explicit.isNotEmpty) {
     return LegacyTextLocalizer.localize(explicit);
@@ -267,6 +266,31 @@ String resolveAgentToolTitle(Map<String, dynamic> cardData, {Locale? locale}) {
   return LegacyTextLocalizer.localize(
     displayName.isEmpty ? '工具调用' : displayName,
   );
+}
+
+bool isAgentToolVlmTaskCard(Map<String, dynamic> cardData) {
+  final toolName =
+      (cardData['toolName'] ??
+              cardData['tool_name'] ??
+              cardData['name'] ??
+              cardData['displayName'] ??
+              '')
+          .toString()
+          .trim()
+          .toLowerCase();
+  return toolName == 'vlm_task';
+}
+
+String resolveAgentToolRunLogId(Map<String, dynamic> cardData) {
+  final streamMeta = _asStringKeyMap(cardData['streamMeta']);
+  return _firstNonBlank([
+    streamMeta['runLogId'],
+    streamMeta['run_log_id'],
+    streamMeta['runId'],
+    cardData['runLogId'],
+    cardData['run_log_id'],
+    cardData['runId'],
+  ]);
 }
 
 String resolveAgentToolTerminalOutput(Map<String, dynamic> cardData) {
@@ -321,7 +345,7 @@ String resolveAgentToolPreview(Map<String, dynamic> cardData) {
   return resolveAgentToolStatusLabel(cardData);
 }
 
-String resolveAgentToolStatusLabel(Map<String, dynamic> cardData, {Locale? locale}) {
+String resolveAgentToolStatusLabel(Map<String, dynamic> cardData) {
   final explicitStatusLabel = (cardData['statusLabel'] ?? '').toString().trim();
   if (explicitStatusLabel.isNotEmpty) {
     return LegacyTextLocalizer.localize(explicitStatusLabel);
@@ -351,7 +375,7 @@ String resolveAgentToolStatusLabel(Map<String, dynamic> cardData, {Locale? local
   }
 }
 
-String resolveAgentToolTypeLabel(Map<String, dynamic> cardData, {Locale? locale}) {
+String resolveAgentToolTypeLabel(Map<String, dynamic> cardData) {
   final explicitTypeLabel = (cardData['toolTypeLabel'] ?? '').toString().trim();
   if (explicitTypeLabel.isNotEmpty) {
     return LegacyTextLocalizer.localize(explicitTypeLabel);
@@ -495,6 +519,23 @@ String _compactToolTitle(String value) {
     return normalized;
   }
   return '${normalized.substring(0, 48)}...';
+}
+
+Map<String, dynamic> _asStringKeyMap(dynamic value) {
+  if (value is! Map) {
+    return const <String, dynamic>{};
+  }
+  return value.map((key, value) => MapEntry(key.toString(), value));
+}
+
+String _firstNonBlank(List<dynamic> values) {
+  for (final value in values) {
+    final text = value?.toString().trim() ?? '';
+    if (text.isNotEmpty) {
+      return text;
+    }
+  }
+  return '';
 }
 
 int _asNonNegativeInt(dynamic value) {

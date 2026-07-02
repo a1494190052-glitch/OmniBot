@@ -111,9 +111,9 @@ parseable JSON, or the save operation cannot preserve the existing Function.
 - This is the saved Function enhancement pass; RunLog is provenance only.
 - Enhancement is offline editing only; do not execute the Function while
   enhancing it.
-- Model-backed enhancement must be an explicit offline/background job with
-  `auto_analyze_with_model=true`; online calls should only collect analysis
-  context.
+- Model-backed enhancement belongs to the normal Agent conversation. The Agent
+  should return one complete revised Function JSON object; `update_function`
+  only validates identity/schema and saves it.
 - A Function is an executable action stack. At runtime, each UI action goes
   through `ActionExecutor.act`, where replay checkers and action transfer may run
   before the physical device action.

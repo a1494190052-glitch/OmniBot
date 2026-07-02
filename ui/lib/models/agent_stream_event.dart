@@ -11,8 +11,7 @@ enum AgentStreamEventKind {
   completed('completed'),
   error('error'),
   permissionRequired('permission_required'),
-  clarifyRequired('clarify_required'),
-  uiCard('ui_card');
+  clarifyRequired('clarify_required');
 
   const AgentStreamEventKind(this.value);
 
@@ -20,9 +19,6 @@ enum AgentStreamEventKind {
 
   static AgentStreamEventKind? fromValue(String raw) {
     final normalized = raw.trim().toLowerCase();
-    if (normalized == 'workbench_project_card') {
-      return AgentStreamEventKind.uiCard;
-    }
     for (final kind in AgentStreamEventKind.values) {
       if (kind.value == normalized) {
         return kind;
@@ -44,89 +40,12 @@ enum AgentStreamPhase {
   permissionRequired,
 }
 
-class UserDialogChoice {
-  const UserDialogChoice({required this.label, required this.value, this.hint});
-
-  final String label;
-  final String value;
-  final String? hint;
-
-  static UserDialogChoice? tryParse(dynamic raw) {
-    if (raw is! Map) return null;
-    final label = raw['label']?.toString() ?? '';
-    final value = raw['value']?.toString() ?? '';
-    if (label.isEmpty || value.isEmpty) return null;
-    return UserDialogChoice(
-      label: label,
-      value: value,
-      hint: raw['hint']?.toString(),
-    );
-  }
-}
-
-class UserDialog {
-  const UserDialog({
-    required this.type,
-    required this.message,
-    this.title,
-    this.confirmLabel,
-    this.cancelLabel,
-    this.danger = false,
-    this.choices = const [],
-    this.placeholder,
-    this.inputType,
-  });
-
-  final String type; // confirm | choices | input
-  final String message;
-  final String? title;
-  final String? confirmLabel;
-  final String? cancelLabel;
-  final bool danger;
-  final List<UserDialogChoice> choices;
-  final String? placeholder;
-  final String? inputType;
-
-  static UserDialog? tryParse(dynamic raw) {
-    if (raw is! Map) return null;
-    final type = raw['type']?.toString() ?? '';
-    final message = raw['message']?.toString() ?? '';
-    if (type.isEmpty || message.isEmpty) return null;
-    final choicesRaw = raw['choices'];
-    final choices = choicesRaw is List
-        ? choicesRaw
-              .map(UserDialogChoice.tryParse)
-              .whereType<UserDialogChoice>()
-              .toList()
-        : <UserDialogChoice>[];
-    return UserDialog(
-      type: type,
-      message: message,
-      title: raw['title']?.toString(),
-      confirmLabel: raw['confirmLabel']?.toString(),
-      cancelLabel: raw['cancelLabel']?.toString(),
-      danger: raw['danger'] == true,
-      choices: choices,
-      placeholder: raw['placeholder']?.toString(),
-      inputType: raw['inputType']?.toString(),
-    );
-  }
-}
-
 class AgentStreamEvent {
   const AgentStreamEvent({
     required this.taskId,
     required this.seq,
     required this.kind,
     required this.createdAtMs,
-    this.schemaVersion = '',
-    this.traceId = '',
-    this.runId = '',
-    this.spanId = '',
-    this.parentSpanId = '',
-    this.channel = '',
-    this.eventName = '',
-    this.status = '',
     this.entryId,
     this.roundIndex = 0,
     this.isFinal = false,
@@ -153,7 +72,6 @@ class AgentStreamEvent {
     this.question = '',
     this.missingFields = const <String>[],
     this.missingPermissions = const <String>[],
-    this.dialog,
     this.browserSnapshot,
     this.raw = const <String, dynamic>{},
   });
@@ -162,14 +80,6 @@ class AgentStreamEvent {
   final int seq;
   final AgentStreamEventKind kind;
   final int createdAtMs;
-  final String schemaVersion;
-  final String traceId;
-  final String runId;
-  final String spanId;
-  final String parentSpanId;
-  final String channel;
-  final String eventName;
-  final String status;
   final String? entryId;
   final int roundIndex;
   final bool isFinal;
@@ -196,7 +106,6 @@ class AgentStreamEvent {
   final String question;
   final List<String> missingFields;
   final List<String> missingPermissions;
-  final UserDialog? dialog;
   final ChatBrowserSessionSnapshot? browserSnapshot;
   final Map<String, dynamic> raw;
 
@@ -206,60 +115,37 @@ class AgentStreamEvent {
         (key, value) => MapEntry(key.toString(), value),
       ),
     );
-    final eventName = (raw['event'] ?? raw['kind'] ?? '').toString();
-    final kind = AgentStreamEventKind.fromValue(eventName);
+    final kind = AgentStreamEventKind.fromValue((raw['kind'] ?? '').toString());
     if (kind == null) {
-      throw ArgumentError('Unknown agent stream event kind: $eventName');
+      throw ArgumentError('Unknown agent stream event kind: ${raw['kind']}');
     }
-    final taskId = _firstString(raw, const ['taskId', 'task_id', 'taskID']);
+    final taskId = (raw['taskId'] ?? '').toString();
     if (taskId.trim().isEmpty) {
       throw ArgumentError('Agent stream event missing taskId');
     }
-    final workspaceId = _firstString(raw, const [
-      'workspaceId',
-      'workspace_id',
-    ]).trim();
+    final workspaceId = (raw['workspaceId'] ?? '').toString().trim();
     final browserSnapshot =
         kind == AgentStreamEventKind.toolCompleted &&
-            _firstString(raw, const ['toolType', 'tool_type']).trim() ==
-                'browser' &&
+            (raw['toolType'] ?? '').toString().trim() == 'browser' &&
             workspaceId.isNotEmpty
         ? (ChatBrowserSessionSnapshot.tryParseBrowserToolJson(
-                rawJson: _firstString(raw, const [
-                  'rawResultJson',
-                  'raw_result_json',
-                ]),
+                rawJson: (raw['rawResultJson'] ?? '').toString(),
                 workspaceId: workspaceId,
               ) ??
               ChatBrowserSessionSnapshot.tryParseBrowserToolJson(
-                rawJson: _firstString(raw, const [
-                  'resultPreviewJson',
-                  'result_preview_json',
-                ]),
+                rawJson: (raw['resultPreviewJson'] ?? '').toString(),
                 workspaceId: workspaceId,
               ))
         : null;
     return AgentStreamEvent(
       taskId: taskId,
-      seq: _asInt(_firstPresent(raw, const ['seq', 'sequence'])) ?? 0,
+      seq: _asInt(raw['seq']) ?? 0,
       kind: kind,
       createdAtMs:
-          _asInt(raw['timestamp_ms']) ??
-          _asInt(raw['createdAt']) ??
-          _asInt(raw['created_at']) ??
-          DateTime.now().millisecondsSinceEpoch,
-      schemaVersion: (raw['schema_version'] ?? '').toString(),
-      traceId: (raw['trace_id'] ?? '').toString(),
-      runId: _firstString(raw, const ['run_id', 'runId', 'runLogId']),
-      spanId: _firstString(raw, const ['span_id', 'spanId']),
-      parentSpanId: _firstString(raw, const ['parent_span_id', 'parentSpanId']),
-      channel: (raw['channel'] ?? '').toString(),
-      eventName: eventName,
-      status: (raw['status'] ?? '').toString(),
-      entryId: _firstNullableString(raw, const ['entryId', 'entry_id']),
-      roundIndex:
-          _asInt(_firstPresent(raw, const ['roundIndex', 'round_index'])) ?? 0,
-      isFinal: _asBool(_firstPresent(raw, const ['isFinal', 'is_final'])),
+          _asInt(raw['createdAt']) ?? DateTime.now().millisecondsSinceEpoch,
+      entryId: raw['entryId']?.toString(),
+      roundIndex: _asInt(raw['roundIndex']) ?? 0,
+      isFinal: raw['isFinal'] == true,
       text: (raw['text'] ?? raw['message'] ?? '').toString(),
       thinking: (raw['thinking'] ?? raw['reasoning_content'] ?? '').toString(),
       stage: _asInt(raw['stage']) ?? 1,
@@ -285,8 +171,7 @@ class AgentStreamEvent {
       retryReason: (raw['retryReason'] ?? '').toString(),
       question: (raw['question'] ?? '').toString(),
       missingFields:
-          (_firstPresent(raw, const ['missingFields', 'missing_fields'])
-                  as List<dynamic>?)
+          (raw['missingFields'] as List<dynamic>?)
               ?.map((item) => item.toString())
               .toList(growable: false) ??
           const <String>[],
@@ -295,7 +180,6 @@ class AgentStreamEvent {
               ?.map((item) => item.toString())
               .toList(growable: false) ??
           const <String>[],
-      dialog: UserDialog.tryParse(raw['dialog']),
       browserSnapshot: browserSnapshot,
       raw: raw,
     );
@@ -313,37 +197,5 @@ class AgentStreamEvent {
     if (raw is num) return raw.toDouble();
     if (raw is String) return double.tryParse(raw.trim());
     return null;
-  }
-
-  static dynamic _firstPresent(Map<String, dynamic> raw, List<String> keys) {
-    for (final key in keys) {
-      if (raw.containsKey(key) && raw[key] != null) {
-        return raw[key];
-      }
-    }
-    return null;
-  }
-
-  static String _firstString(Map<String, dynamic> raw, List<String> keys) {
-    return _firstNullableString(raw, keys) ?? '';
-  }
-
-  static String? _firstNullableString(
-    Map<String, dynamic> raw,
-    List<String> keys,
-  ) {
-    final value = _firstPresent(raw, keys);
-    final text = value?.toString();
-    return text == null || text.trim().isEmpty ? null : text;
-  }
-
-  static bool _asBool(dynamic raw) {
-    if (raw is bool) return raw;
-    if (raw is num) return raw != 0;
-    if (raw is String) {
-      final normalized = raw.trim().toLowerCase();
-      return normalized == 'true' || normalized == '1' || normalized == 'yes';
-    }
-    return false;
   }
 }

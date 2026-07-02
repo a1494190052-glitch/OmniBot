@@ -10,7 +10,6 @@ import 'package:ui/features/home/pages/command_overlay/widgets/cards/terminal_ou
 import 'package:ui/features/task/pages/execution_history/run_log_timeline_page.dart';
 import 'package:ui/l10n/legacy_text_localizer.dart';
 import 'package:ui/models/chat_message_model.dart';
-import 'package:ui/services/agent_tool_card_policy.dart';
 import 'package:ui/theme/app_colors.dart';
 import 'package:ui/theme/theme_context.dart';
 
@@ -392,13 +391,15 @@ class _ChatToolActivityStripState extends State<ChatToolActivityStrip> {
     BuildContext context, {
     required Map<String, dynamic> cardData,
   }) {
-    final runLogRef = AgentToolCardPolicy.runLogRef(cardData);
-    if (runLogRef.hasRunLog) {
-      return showRunLogTimelineSheet(
-        context,
-        runId: runLogRef.runLogId,
-        title: resolveAgentToolTitle(cardData),
-      );
+    if (isAgentToolVlmTaskCard(cardData)) {
+      final runLogId = resolveAgentToolRunLogId(cardData);
+      if (runLogId.isNotEmpty) {
+        return showRunLogTimelineSheet(
+          context,
+          runId: runLogId,
+          title: resolveAgentToolTitle(cardData),
+        );
+      }
     }
     return showAgentToolDetailSheet(context, cardData: cardData);
   }

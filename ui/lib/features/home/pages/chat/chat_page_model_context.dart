@@ -273,7 +273,7 @@ mixin _ChatPageModelContextMixin on _ChatPageStateBase {
 
     final switchedLabel = displayAsMentionChip ? '@$modelId' : modelId;
     showToast(
-      AppTextLocalizer.text('已切换到 $switchedLabel'),
+      LegacyTextLocalizer.localize('已切换到 $switchedLabel'),
       type: ToastType.success,
     );
   }
@@ -304,7 +304,7 @@ mixin _ChatPageModelContextMixin on _ChatPageStateBase {
       });
     }
     showToast(
-      AppTextLocalizer.text(
+      LegacyTextLocalizer.localize(
         normalizedEffort == 'no' ? '已关闭思考' : '已设置思考强度为 $normalizedEffort',
       ),
       type: ToastType.success,
@@ -336,7 +336,10 @@ mixin _ChatPageModelContextMixin on _ChatPageStateBase {
         overrideSelection: null,
       );
     });
-    showToast(AppTextLocalizer.text('已恢复场景默认模型'), type: ToastType.success);
+    showToast(
+      LegacyTextLocalizer.localize('已恢复场景默认模型'),
+      type: ToastType.success,
+    );
     await _syncActiveNormalConversationPromptTokenThreshold();
   }
 
@@ -531,7 +534,7 @@ mixin _ChatPageModelContextMixin on _ChatPageStateBase {
         activeConversationModeValue != ConversationMode.chatOnly) {
       _dispatchSceneModelSelectionSerial++;
       showToast(
-        AppTextLocalizer.text('本地模型仅支持纯聊天模式，请开启新的纯聊天对话后再使用本地模型'),
+        LegacyTextLocalizer.localize('本地模型仅支持纯聊天模式，请开启新的纯聊天对话后再使用本地模型'),
         type: ToastType.warning,
       );
       return;
@@ -549,13 +552,15 @@ mixin _ChatPageModelContextMixin on _ChatPageStateBase {
       }
       if (!isOmniInferLocalModel) {
         showToast(
-          AppTextLocalizer.text('Agent 模型已切换到 $modelId'),
+          LegacyTextLocalizer.localize('Agent 模型已切换到 $modelId'),
           type: ToastType.success,
         );
         return;
       }
 
-      final loadingToast = AppToast.loading(AppTextLocalizer.text('模型加载中...'));
+      final loadingToast = AppToast.loading(
+        LegacyTextLocalizer.localize('模型加载中...'),
+      );
       try {
         await _waitForLocalModelLoadingStatusFrame();
         if (!mounted || selectionSerial != _dispatchSceneModelSelectionSerial) {
@@ -572,11 +577,16 @@ mixin _ChatPageModelContextMixin on _ChatPageStateBase {
         }
         if (result['cancelled'] == true) return;
         if (result['success'] == true) {
-          showToast(AppTextLocalizer.text('模型加载完成'), type: ToastType.success);
+          showToast(
+            LegacyTextLocalizer.localize('模型加载完成'),
+            type: ToastType.success,
+          );
         } else {
           final error = (result['error'] ?? '').toString().trim();
           showToast(
-            AppTextLocalizer.text(error.isEmpty ? '模型加载失败' : '模型加载失败：$error'),
+            LegacyTextLocalizer.localize(
+              error.isEmpty ? '模型加载失败' : '模型加载失败：$error',
+            ),
             type: ToastType.error,
           );
         }
@@ -584,7 +594,10 @@ mixin _ChatPageModelContextMixin on _ChatPageStateBase {
         if (!mounted || selectionSerial != _dispatchSceneModelSelectionSerial) {
           return;
         }
-        showToast(AppTextLocalizer.text('模型加载失败：$e'), type: ToastType.error);
+        showToast(
+          LegacyTextLocalizer.localize('模型加载失败：$e'),
+          type: ToastType.error,
+        );
       } finally {
         loadingToast.dismiss();
       }
@@ -593,7 +606,7 @@ mixin _ChatPageModelContextMixin on _ChatPageStateBase {
         return;
       }
       showToast(
-        AppTextLocalizer.text('更新 Agent 模型失败：$e'),
+        LegacyTextLocalizer.localize('更新 Agent 模型失败：$e'),
         type: ToastType.error,
       );
     }
@@ -1034,7 +1047,7 @@ class _ChatModelMentionPanelState extends State<_ChatModelMentionPanel> {
                   Padding(
                     padding: EdgeInsets.fromLTRB(12, 4, 12, 8),
                     child: Text(
-                      AppTextLocalizer.text('没有匹配的模型'),
+                      LegacyTextLocalizer.localize('没有匹配的模型'),
                       style: TextStyle(
                         fontSize: 12,
                         color: context.isDarkTheme
@@ -1353,7 +1366,7 @@ class _ConversationModelSelectorContentState
                   isDense: true,
                   filled: false,
                   fillColor: Colors.transparent,
-                  hintText: AppTextLocalizer.text('搜索模型 ID'),
+                  hintText: LegacyTextLocalizer.localize('搜索模型 ID'),
                   hintStyle: TextStyle(
                     fontSize: 13,
                     color: isDark
@@ -1625,7 +1638,7 @@ class _ConversationModelSelectorContentState
       return Padding(
         padding: const EdgeInsets.fromLTRB(12, 4, 12, 8),
         child: Text(
-          AppTextLocalizer.text('该 Provider 暂无可选模型'),
+          LegacyTextLocalizer.localize('该 Provider 暂无可选模型'),
           style: TextStyle(
             fontSize: 12,
             color: context.isDarkTheme
@@ -1758,11 +1771,11 @@ class _ConversationModelSelectorContentState
                       ),
                     ),
                   ),
-          ],
+              ],
+            ),
+          ),
         ),
       ),
-    ),
-  ),
     );
   }
 }

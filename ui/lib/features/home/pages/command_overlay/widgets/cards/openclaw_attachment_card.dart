@@ -274,9 +274,10 @@ class _OpenClawAttachmentCardState extends State<OpenClawAttachmentCard> {
       });
     } finally {
       if (tempPath != null) {
-        File(tempPath).delete().catchError((_) => File(tempPath!));
+        File(tempPath).delete().catchError((_) {});
       }
-      if (mounted) setState(() => _downloading = false);
+      if (!mounted) return;
+      setState(() => _downloading = false);
     }
   }
 
@@ -310,5 +311,17 @@ class _OpenClawAttachmentCardState extends State<OpenClawAttachmentCard> {
       return trimmed;
     }
     return 'http://$trimmed';
+  }
+
+  void _showSnackBar(BuildContext context, String message) {
+    final messenger = ScaffoldMessenger.maybeOf(context);
+    messenger?.hideCurrentSnackBar();
+    messenger?.showSnackBar(
+      SnackBar(
+        content: Text(message),
+        duration: const Duration(milliseconds: 1400),
+        behavior: SnackBarBehavior.floating,
+      ),
+    );
   }
 }

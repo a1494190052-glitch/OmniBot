@@ -12,6 +12,7 @@ import cn.com.omnimind.baselib.util.OmniLog
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.add
@@ -51,6 +52,8 @@ class VLMClient(
             .dynamicFunctionToolNamesFromDefinitions(context.dynamicToolDefinitions)
         val dynamicFunctionToolMappings = VLMToolDefinitions
             .dynamicFunctionToolMappingsFromDefinitions(context.dynamicToolDefinitions)
+        val dynamicFunctionRequiredArguments = VLMToolDefinitions
+            .dynamicFunctionRequiredArgumentsFromDefinitions(context.dynamicToolDefinitions)
         val dynamicFunctionToolNames = hiddenDynamicFunctionToolNames + dynamicFunctionToolMappings.keys
         val selectedBaseToolNames = VLMAllowedToolSelector.select(context)
         val selectedPromptToolNames = selectedBaseToolNames + dynamicFunctionToolMappings.keys
@@ -102,6 +105,7 @@ class VLMClient(
             currentUserText = currentUserText,
             dynamicFunctionToolNames = dynamicFunctionToolNames,
             dynamicFunctionToolMappings = dynamicFunctionToolMappings,
+            dynamicFunctionRequiredArguments = dynamicFunctionRequiredArguments,
             toolNames = tools.map { it.function.name },
             defaultToolCount = defaultToolCount,
             selectedBaseToolNames = selectedBaseToolNames,
@@ -126,10 +130,16 @@ class VLMClient(
         modelOrScene: String,
         dynamicFunctionToolNames: Set<String> = emptySet(),
         dynamicFunctionToolMappings: Map<String, String> = emptyMap(),
+        dynamicFunctionRequiredArguments: Map<String, Set<String>> = emptyMap(),
     ): VLMResult {
         return when (response.parser) {
             ModelSceneRegistry.ResponseParser.OPENAI_TOOL_ACTIONS ->
-                parseToolActionResponse(response, dynamicFunctionToolNames, dynamicFunctionToolMappings)
+                parseToolActionResponse(
+                    response = response,
+                    dynamicFunctionToolNames = dynamicFunctionToolNames,
+                    dynamicFunctionToolMappings = dynamicFunctionToolMappings,
+                    dynamicFunctionRequiredArguments = dynamicFunctionRequiredArguments,
+                )
             ModelSceneRegistry.ResponseParser.JSON_CONTENT ->
                 VLMResult(false, null, "主 VLM parser 不支持 JSON_CONTENT: $modelOrScene")
             ModelSceneRegistry.ResponseParser.TEXT_CONTENT ->
@@ -283,6 +293,7 @@ class VLMClient(
         response: SceneChatCompletionTurn,
         dynamicFunctionToolNames: Set<String>,
         dynamicFunctionToolMappings: Map<String, String>,
+        dynamicFunctionRequiredArguments: Map<String, Set<String>>,
     ): VLMResult {
         val content = response.turn.message.contentText()
         val metadata = parseStepMetadata(content, response.turn.reasoning)
@@ -316,6 +327,7 @@ class VLMClient(
             reasoning = response.turn.reasoning,
             dynamicFunctionToolNames = dynamicFunctionToolNames,
             dynamicFunctionToolMappings = dynamicFunctionToolMappings,
+            dynamicFunctionRequiredArguments = dynamicFunctionRequiredArguments,
         )
     }
 
@@ -326,12 +338,14 @@ class VLMClient(
         reasoning: String,
         dynamicFunctionToolNames: Set<String>,
         dynamicFunctionToolMappings: Map<String, String>,
+        dynamicFunctionRequiredArguments: Map<String, Set<String>>,
     ): VLMResult {
         return try {
             val action = parseActionFromToolCall(
                 toolCall = toolCall,
                 dynamicFunctionToolNames = dynamicFunctionToolNames,
                 dynamicFunctionToolMappings = dynamicFunctionToolMappings,
+                dynamicFunctionRequiredArguments = dynamicFunctionRequiredArguments,
             )
             val thought = metadataThoughtFallback(
                 metadata = metadata,
@@ -506,8 +520,13 @@ class VLMClient(
         toolCall: AssistantToolCall,
         dynamicFunctionToolNames: Set<String>,
         dynamicFunctionToolMappings: Map<String, String>,
+        dynamicFunctionRequiredArguments: Map<String, Set<String>>,
     ): UIAction {
-        val dynamicAction = functionActionFromDynamicToolCall(toolCall, dynamicFunctionToolMappings)
+        val dynamicAction = functionActionFromDynamicToolCall(
+            toolCall = toolCall,
+            dynamicFunctionToolMappings = dynamicFunctionToolMappings,
+            dynamicFunctionRequiredArguments = dynamicFunctionRequiredArguments,
+        )
         if (dynamicAction != null) return dynamicAction
         return parseToolCall(toolCall, dynamicFunctionToolNames)
     }
@@ -607,10 +626,16 @@ class VLMClient(
     private fun functionActionFromDynamicToolCall(
         toolCall: AssistantToolCall,
         dynamicFunctionToolMappings: Map<String, String>,
+        dynamicFunctionRequiredArguments: Map<String, Set<String>>,
     ): FunctionRunAction? {
         val rawToolName = toolCall.function.name.trim()
         val functionId = dynamicFunctionToolMappings[rawToolName] ?: return null
         val arguments = parseDynamicFunctionArguments(rawToolName, toolCall.function.arguments)
+        dynamicFunctionRequiredArguments[rawToolName].orEmpty().forEach { field ->
+            if (arguments[field] == null || arguments[field] is JsonNull) {
+                throw IllegalArgumentException("Recalled workflow $rawToolName missing required argument: $field")
+            }
+        }
         return FunctionRunAction(
             functionId = functionId,
             toolName = rawToolName,

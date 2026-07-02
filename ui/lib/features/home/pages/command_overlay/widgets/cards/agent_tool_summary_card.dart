@@ -9,7 +9,6 @@ import 'package:ui/features/home/pages/command_overlay/widgets/cards/agent_tool_
 import 'package:ui/features/home/pages/command_overlay/widgets/cards/codex_diff_viewer.dart';
 import 'package:ui/features/task/pages/execution_history/run_log_timeline_page.dart';
 import 'package:ui/l10n/legacy_text_localizer.dart';
-import 'package:ui/services/agent_tool_card_policy.dart';
 import 'package:ui/services/app_background_service.dart';
 import 'package:ui/services/codex_diff_parser.dart';
 import 'package:ui/services/codex_tool_call_parser.dart';
@@ -1622,54 +1621,15 @@ Future<void> _openAgentToolCard(
   BuildContext context, {
   required Map<String, dynamic> cardData,
 }) {
-  final runLogRef = AgentToolCardPolicy.runLogRef(cardData);
-  if (_shouldOpenRunLogAsTimeline(cardData) && runLogRef.hasRunLog) {
-    return showRunLogTimelineSheet(
-      context,
-      runId: runLogRef.runLogId,
-      title: resolveAgentToolTitle(cardData),
-    );
-  }
-  final isVlmTaskWrapper =
-      AgentToolCardPolicy.activityKindFor(cardData) ==
-          AgentToolActivityKind.vlm &&
-      (cardData['toolName'] ?? '').toString().trim() == 'vlm_task';
-  if (isVlmTaskWrapper && runLogRef.hasRunLog) {
-    return showRunLogTimelineSheet(
-      context,
-      runId: runLogRef.runLogId,
-      title: resolveAgentToolTitle(cardData),
-    );
-  }
-  if (runLogRef.hasStep) {
-    return showRunLogStepDetailSheet(
-      context,
-      runId: runLogRef.runLogId,
-      cardId: runLogRef.cardId,
-      title: resolveAgentToolTitle(cardData),
-    );
-  }
-  if (runLogRef.hasRunLog) {
-    return showRunLogTimelineSheet(
-      context,
-      runId: runLogRef.runLogId,
-      title: resolveAgentToolTitle(cardData),
-    );
+  if (isAgentToolVlmTaskCard(cardData)) {
+    final runLogId = resolveAgentToolRunLogId(cardData);
+    if (runLogId.isNotEmpty) {
+      return showRunLogTimelineSheet(
+        context,
+        runId: runLogId,
+        title: resolveAgentToolTitle(cardData),
+      );
+    }
   }
   return showAgentToolDetailSheet(context, cardData: cardData);
-}
-
-bool _shouldOpenRunLogAsTimeline(Map<String, dynamic> cardData) {
-  for (final key in const [
-    'openRunLogAsTimeline',
-    'open_run_log_as_timeline',
-    'forceRunLogTimeline',
-    'force_run_log_timeline',
-  ]) {
-    final value = cardData[key];
-    if (value is bool) return value;
-    final text = value?.toString().trim().toLowerCase() ?? '';
-    if (text == 'true' || text == '1' || text == 'yes') return true;
-  }
-  return false;
 }

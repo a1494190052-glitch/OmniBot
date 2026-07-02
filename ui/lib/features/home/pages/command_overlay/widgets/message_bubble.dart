@@ -3,9 +3,7 @@ import 'dart:io';
 import 'dart:async';
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
-import 'package:ui/features/home/pages/chat/utils/agent_internal_tool_payload.dart';
 import 'package:ui/features/home/pages/omnibot_workspace/omnibot_artifact_preview_page.dart';
-import 'package:ui/l10n/app_text_localizer.dart';
 import 'package:ui/l10n/l10n.dart';
 import 'package:ui/l10n/legacy_text_localizer.dart';
 import 'package:ui/models/chat_link_preview.dart';
@@ -219,10 +217,7 @@ class MessageBubble extends StatelessWidget {
 
   /// 构建文本消息
   Widget _buildTextMessage(BuildContext context, bool isUserMessage) {
-    final rawText = message.text ?? '';
-    final text = isUserMessage
-        ? rawText
-        : stripInternalToolPayloadText(rawText);
+    final text = message.text ?? '';
     final attachments = _extractAttachments();
     final linkPreviews = message.linkPreviews;
 
@@ -283,10 +278,6 @@ class MessageBubble extends StatelessWidget {
           );
         },
       );
-    }
-
-    if (text.isEmpty && attachments.isEmpty && linkPreviews.isEmpty) {
-      return const SizedBox.shrink();
     }
 
     if (attachments.isEmpty && linkPreviews.isEmpty) {
@@ -575,6 +566,8 @@ class MessageBubble extends StatelessWidget {
         isUserMessage: isUserMessage,
       );
     }
+    final isEnglish =
+        Localizations.maybeLocaleOf(context)?.languageCode == 'en';
     final title = preview.title.trim();
     final description = preview.description.trim();
     final siteName = preview.displaySiteName.trim();
@@ -588,16 +581,9 @@ class MessageBubble extends StatelessWidget {
         ? _resolvedUserPrimaryTextColor(context).withValues(alpha: 0.82)
         : _resolvedAiSecondaryTextColor(context);
     final statusLabel = switch (preview.status) {
-      ChatLinkPreview.statusLoading => AppTextLocalizer.choose(
-        zh: '加载预览中',
-        en: 'Loading preview',
-        locale: Localizations.localeOf(context),
-      ),
-      ChatLinkPreview.statusFailed => AppTextLocalizer.choose(
-        zh: '预览暂不可用',
-        en: 'Preview unavailable',
-        locale: Localizations.localeOf(context),
-      ),
+      ChatLinkPreview.statusLoading => isEnglish ? 'Loading preview' : '加载预览中',
+      ChatLinkPreview.statusFailed =>
+        isEnglish ? 'Preview unavailable' : '预览暂不可用',
       _ => '',
     };
 
@@ -712,6 +698,8 @@ class MessageBubble extends StatelessWidget {
     int index, {
     required bool isUserMessage,
   }) {
+    final isEnglish =
+        Localizations.maybeLocaleOf(context)?.languageCode == 'en';
     final title = preview.title.trim();
     final description = preview.description.trim();
     final siteName = preview.displaySiteName.trim();
@@ -728,16 +716,9 @@ class MessageBubble extends StatelessWidget {
     final metaColor = secondaryBaseColor.withValues(alpha: 0.82);
     final secondaryColor = secondaryBaseColor.withValues(alpha: 0.94);
     final statusLabel = switch (preview.status) {
-      ChatLinkPreview.statusLoading => AppTextLocalizer.choose(
-        zh: '加载预览中',
-        en: 'Loading preview',
-        locale: Localizations.localeOf(context),
-      ),
-      ChatLinkPreview.statusFailed => AppTextLocalizer.choose(
-        zh: '预览暂不可用',
-        en: 'Preview unavailable',
-        locale: Localizations.localeOf(context),
-      ),
+      ChatLinkPreview.statusLoading => isEnglish ? 'Loading preview' : '加载预览中',
+      ChatLinkPreview.statusFailed =>
+        isEnglish ? 'Preview unavailable' : '预览暂不可用',
       _ => '',
     };
 
@@ -1019,7 +1000,7 @@ class MessageBubble extends StatelessWidget {
                 focusedErrorBorder: InputBorder.none,
                 isDense: true,
                 contentPadding: EdgeInsets.zero,
-                hintText: context.trText('编辑你的消息'),
+                hintText: context.trLegacy('编辑你的消息'),
                 hintStyle: TextStyle(
                   color: _resolvedUserPrimaryTextColor(
                     context,
@@ -1040,14 +1021,14 @@ class MessageBubble extends StatelessWidget {
               children: [
                 TextButton(
                   onPressed: onCancelUserEdit,
-                  child: Text(context.trText('取消'), softWrap: false),
+                  child: Text(context.trLegacy('取消'), softWrap: false),
                 ),
                 FilledButton(
                   onPressed: canSave ? onSaveUserEdit : null,
                   style: FilledButton.styleFrom(
                     visualDensity: VisualDensity.compact,
                   ),
-                  child: Text(context.trText('保存并发送'), softWrap: false),
+                  child: Text(context.trLegacy('保存并发送'), softWrap: false),
                 ),
               ],
             ),

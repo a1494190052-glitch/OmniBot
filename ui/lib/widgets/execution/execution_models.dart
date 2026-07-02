@@ -150,7 +150,7 @@ class ExecutionStep {
       case 'finished':
         return 'Finished';
       case 'call_tool':
-        return 'Reusable command';
+        return 'Function';
       default:
         return actionType.trim().isEmpty ? 'Action' : actionType.trim();
     }

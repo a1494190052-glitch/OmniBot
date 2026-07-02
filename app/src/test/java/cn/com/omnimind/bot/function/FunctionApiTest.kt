@@ -127,4 +127,57 @@ class FunctionApiTest {
         assertFalse(properties.containsKey("x"))
         assertEquals(listOf("query"), parameters["required"])
     }
+
+    @Test
+    fun `template referenced parameter is exposed as callable argument`() {
+        val spec = mapOf(
+            "function_id" to "xhs_search_template",
+            "name" to "小红书搜索关键词",
+            "description" to "在小红书应用中执行关键词搜索",
+            "parameters" to mapOf(
+                "type" to "object",
+                "properties" to mapOf(
+                    "search_query" to mapOf(
+                        "type" to "string",
+                        "description" to "要搜索的关键词",
+                    ),
+                ),
+                "required" to listOf("search_query"),
+                "additionalProperties" to false,
+            ),
+            "execution" to mapOf(
+                "steps" to listOf(
+                    mapOf(
+                        "tool" to "input_text",
+                        "args" to mapOf(
+                            "target_description" to "搜索输入框",
+                            "text" to "{{search_query}}",
+                        ),
+                    ),
+                ),
+            ),
+        )
+
+        val summary = FunctionSchema.callableSummary(spec)
+        val parameters = summary["parameters"] as Map<*, *>
+        val properties = parameters["properties"] as Map<*, *>
+        val searchQuery = properties["search_query"] as Map<*, *>
+
+        assertEquals(listOf("search_query"), summary["argument_names"])
+        assertEquals(listOf("search_query"), parameters["required"])
+        assertEquals(
+            listOf("$.execution.steps[0].args.text"),
+            searchQuery["x_oob_bindings"],
+        )
+
+        val materialized = FunctionSchema.materialize(
+            spec,
+            mapOf("search_query" to "狗狗"),
+        )
+        val steps = ((materialized["execution"] as Map<*, *>)["steps"] as List<*>)
+            .map { it as Map<*, *> }
+        val args = steps.single()["args"] as Map<*, *>
+        assertEquals("狗狗", args["text"])
+        assertTrue(FunctionArgumentBindingValidator.validate(materialized).success)
+    }
 }

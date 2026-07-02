@@ -1,16 +1,15 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:ui/features/home/pages/authorize/authorize_page_args.dart';
-import 'package:ui/l10n/app_text_localizer.dart';
 import 'package:ui/l10n/legacy_text_localizer.dart';
 import 'package:ui/models/agent_stream_event.dart';
 import 'package:ui/models/chat_message_model.dart';
-import 'package:ui/services/agent_tool_card_projection.dart';
 import 'package:ui/services/agent_stream_reducer.dart';
 import 'package:ui/services/agent_stream_meta.dart';
-import 'package:ui/services/agent_tool_card_policy.dart';
 import 'package:ui/services/assists_core_service.dart';
+import 'package:ui/services/codex_diff_parser.dart';
 import 'package:ui/services/voice_playback_coordinator.dart';
 
 enum ThinkingStage {
@@ -32,10 +31,7 @@ enum ThinkingStage {
 
 mixin AgentStreamHandler<T extends StatefulWidget> on State<T> {
   static const int _maxTerminalOutputChars = 64 * 1024;
-  static const int _maxToolSummaryChars = 240;
-  static const int _maxToolProgressChars = 240;
-  static const int _maxToolPreviewJsonChars = 8 * 1024;
-  static const int _maxToolRawResultJsonChars = 24 * 1024;
+  static const int _maxTerminalOutputLines = 600;
   static const Map<String, String> _executionPermissionNameToId =
       <String, String>{
         '无障碍权限': kAccessibilityPermissionId,
@@ -55,14 +51,7 @@ mixin AgentStreamHandler<T extends StatefulWidget> on State<T> {
   String? _activeThinkingCardId;
   String? _pendingAgentTextTaskId;
   final AgentStreamReducer _agentStreamReducer = const AgentStreamReducer();
-  final Map<String, AgentStreamTaskState> _agentStreamStates =
-      <String, AgentStreamTaskState>{};
-  static const Duration _agentConversationPersistDelay = Duration(
-    milliseconds: 350,
-  );
-  Timer? _agentConversationPersistTimer;
-  bool _agentConversationPersistInFlight = false;
-  bool _agentConversationPersistAgain = false;
+  AgentStreamTaskState? _agentStreamState;
 
   String? get currentDispatchTaskId;
 
@@ -118,13 +107,6 @@ mixin AgentStreamHandler<T extends StatefulWidget> on State<T> {
   // Agent 文本消息更新后交给具体页面决定是否补充额外结构化内容。
   void onAgentTextMessageUpdated(String messageId, {bool isFinal = true}) {}
 
-  @override
-  void dispose() {
-    _agentConversationPersistTimer?.cancel();
-    _agentConversationPersistTimer = null;
-    super.dispose();
-  }
-
   @protected
   Set<String> activeAgentStreamTaskIds() {
     final ids = <String>{};
@@ -144,10 +126,7 @@ mixin AgentStreamHandler<T extends StatefulWidget> on State<T> {
   }
 
   void handleAgentStreamEvent(AgentStreamEvent event) {
-    final reduceResult = _agentStreamReducer.reduce(
-      _agentStreamStates[event.taskId],
-      event,
-    );
+    final reduceResult = _agentStreamReducer.reduce(_agentStreamState, event);
     if (!reduceResult.accepted) {
       return;
     }
@@ -155,15 +134,9 @@ mixin AgentStreamHandler<T extends StatefulWidget> on State<T> {
       reduceResult,
       event,
     );
-    _agentStreamStates[event.taskId] = reduceResult.nextState;
+    _agentStreamState = reduceResult.nextState;
     _lastAgentTaskId = event.taskId;
     _activeThinkingCardId = reduceResult.nextState.activeThinkingEntryId;
-    final activeToolIds = reduceResult.nextState.activeToolEntryIds;
-    if (activeToolIds.isNotEmpty) {
-      _activeToolCardId = activeToolIds.last;
-    } else if (event.kind == AgentStreamEventKind.toolCompleted) {
-      _activeToolCardId = null;
-    }
     currentThinkingStage = reduceResult.nextState.thinkingStage;
     isDeepThinking = reduceResult.nextState.isDeepThinking;
     _pendingAgentTextTaskId =
@@ -199,12 +172,6 @@ mixin AgentStreamHandler<T extends StatefulWidget> on State<T> {
           completedThinkingCardId: thinkingCardToFinalize,
         );
         return;
-      case AgentStreamEventKind.uiCard:
-        _applyAgentUiCardStreamEvent(
-          event,
-          completedThinkingCardId: thinkingCardToFinalize,
-        );
-        return;
       case AgentStreamEventKind.clarifyRequired:
         _applyAgentClarifyStreamEvent(
           event,
@@ -213,7 +180,6 @@ mixin AgentStreamHandler<T extends StatefulWidget> on State<T> {
         return;
       case AgentStreamEventKind.completed:
         _applyAgentCompletedStreamEvent(
-          event,
           completedThinkingCardId: thinkingCardToFinalize,
         );
         return;
@@ -238,8 +204,7 @@ mixin AgentStreamHandler<T extends StatefulWidget> on State<T> {
   }) {
     final cardId = (event.entryId ?? '').trim();
     if (cardId.isEmpty) return;
-    final hasThinkingContent = event.thinking.trim().isNotEmpty;
-    if (hasThinkingContent) {
+    if (event.thinking.isNotEmpty) {
       deepThinkingContent = event.thinking;
     }
     setState(() {
@@ -249,13 +214,13 @@ mixin AgentStreamHandler<T extends StatefulWidget> on State<T> {
         updateThinkingCardForAgent(
           event.taskId,
           cardId: cardId,
-          thinkingContent: hasThinkingContent ? event.thinking : null,
+          thinkingContent: event.thinking.isNotEmpty ? event.thinking : null,
           isLoading: true,
           stage: event.stage <= 0 ? ThinkingStage.thinking.value : event.stage,
           streamMeta: _streamMetaFromEvent(event),
           lockCompleted: false,
         );
-      } else if (hasThinkingContent) {
+      } else {
         createThinkingCardForAgent(
           event.taskId,
           cardId: cardId,
@@ -288,7 +253,6 @@ mixin AgentStreamHandler<T extends StatefulWidget> on State<T> {
 
     setState(() {
       _finalizeThinkingCardInMessages(event.taskId, completedThinkingCardId);
-      _finalizeRunningToolCardsForTask(event.taskId);
       final index = messages.indexWhere((msg) => msg.id == messageId);
       if (index == -1) {
         final content = <String, dynamic>{
@@ -338,7 +302,7 @@ mixin AgentStreamHandler<T extends StatefulWidget> on State<T> {
         isFinal: event.isFinal,
       ),
     );
-    _persistAgentConversationSafely(immediate: event.isFinal);
+    _persistAgentConversationSafely();
   }
 
   void _applyAgentRetryingStreamEvent(
@@ -410,28 +374,34 @@ mixin AgentStreamHandler<T extends StatefulWidget> on State<T> {
     String? completedThinkingCardId,
   }) {
     final taskId = event.taskId;
-    final toolEvent = AgentToolEventData.fromMap(event.raw);
-    final cardId = resolveAgentToolCardId(event, raw: event.raw);
+    final cardId = (event.entryId ?? '').trim();
     if (cardId.isEmpty) return;
 
+    final toolEvent = AgentToolEventData.fromMap(event.raw);
+    _activeToolCardId = event.kind == AgentStreamEventKind.toolCompleted
+        ? null
+        : cardId;
     setState(() {
       isAiResponding = true;
       _finalizeThinkingCardInMessages(taskId, completedThinkingCardId);
       _upsertToolCard(
-        streamEvent: event,
-        defaultRunningSummary: AppTextLocalizer.choose(
-          en: 'Calling tool',
-          zh: '正在调用工具',
-        ),
-        streamMeta: ensureAgentStreamMessageMeta(
-          _streamMetaFromEvent(event),
-          entryId: cardId,
-        ),
+        taskId: taskId,
+        cardId: cardId,
+        event: toolEvent,
+        status: event.kind == AgentStreamEventKind.toolCompleted
+            ? _resolveToolStatus(toolEvent)
+            : 'running',
+        summary: toolEvent.summary.isNotEmpty
+            ? toolEvent.summary
+            : (LegacyTextLocalizer.isEnglish ? 'Calling tool' : '正在调用工具'),
+        progress: toolEvent.progress,
+        resultPreviewJson: toolEvent.resultPreviewJson,
+        rawResultJson: toolEvent.rawResultJson,
+        reasoningContent: event.thinking,
+        streamMeta: _streamMetaFromEvent(event),
       );
     });
-    _persistAgentConversationSafely(
-      immediate: event.kind == AgentStreamEventKind.toolCompleted,
-    );
+    _persistAgentConversationSafely();
   }
 
   void _applyAgentClarifyStreamEvent(
@@ -454,14 +424,6 @@ mixin AgentStreamHandler<T extends StatefulWidget> on State<T> {
       currentThinkingStage = ThinkingStage.complete.value;
       isDeepThinking = false;
       _finalizeThinkingCardInMessages(event.taskId, completedThinkingCardId);
-      _finalizeRunningToolCardsForTask(
-        event.taskId,
-        status: 'interrupted',
-        summary: AppTextLocalizer.choose(
-          en: 'Waiting for more detail',
-          zh: '等待补充信息',
-        ),
-      );
       if (messageId.isNotEmpty && text.isNotEmpty) {
         final index = messages.indexWhere((msg) => msg.id == messageId);
         if (index == -1) {
@@ -487,25 +449,24 @@ mixin AgentStreamHandler<T extends StatefulWidget> on State<T> {
       }
       isAiResponding = false;
     });
-    clearAgentStreamSessionState(taskId: event.taskId);
+    clearAgentStreamSessionState();
     resetDispatchState();
-    _persistAgentConversationSafely(immediate: true);
+    _persistAgentConversationSafely();
   }
 
-  void _applyAgentCompletedStreamEvent(
-    AgentStreamEvent event, {
-    String? completedThinkingCardId,
-  }) {
+  void _applyAgentCompletedStreamEvent({String? completedThinkingCardId}) {
     setState(() {
       currentThinkingStage = ThinkingStage.complete.value;
       isDeepThinking = false;
-      _finalizeThinkingCardInMessages(event.taskId, completedThinkingCardId);
-      _finalizeRunningToolCardsForTask(event.taskId);
+      _finalizeThinkingCardInMessages(
+        _lastAgentTaskId ?? '',
+        completedThinkingCardId,
+      );
       isAiResponding = false;
     });
-    clearAgentStreamSessionState(taskId: event.taskId);
+    clearAgentStreamSessionState();
     resetDispatchState();
-    _persistAgentConversationSafely(immediate: true);
+    _persistAgentConversationSafely();
   }
 
   void _applyAgentErrorStreamEvent(
@@ -521,14 +482,7 @@ mixin AgentStreamHandler<T extends StatefulWidget> on State<T> {
       currentThinkingStage = ThinkingStage.complete.value;
       isDeepThinking = false;
       _finalizeThinkingCardInMessages(event.taskId, completedThinkingCardId);
-      _finalizeRunningToolCardsForTask(
-        event.taskId,
-        status: 'error',
-        summary: event.errorMessage.trim().isEmpty
-            ? AppTextLocalizer.choose(en: 'Tool step failed', zh: '工具步骤失败')
-            : event.errorMessage.trim(),
-      );
-      if (shouldMarkError && entryId.isNotEmpty) {
+      if (entryId.isNotEmpty) {
         final index = messages.indexWhere((msg) => msg.id == entryId);
         if (index != -1) {
           final existing = messages[index];
@@ -548,9 +502,9 @@ mixin AgentStreamHandler<T extends StatefulWidget> on State<T> {
       }
       isAiResponding = false;
     });
-    clearAgentStreamSessionState(taskId: event.taskId);
+    clearAgentStreamSessionState();
     resetDispatchState();
-    _persistAgentConversationSafely(immediate: true);
+    _persistAgentConversationSafely();
   }
 
   void _applyAgentPermissionStreamEvent(
@@ -582,14 +536,6 @@ mixin AgentStreamHandler<T extends StatefulWidget> on State<T> {
       currentThinkingStage = ThinkingStage.complete.value;
       isDeepThinking = false;
       _finalizeThinkingCardInMessages(taskId, completedThinkingCardId);
-      _finalizeRunningToolCardsForTask(
-        taskId,
-        status: 'interrupted',
-        summary: AppTextLocalizer.choose(
-          en: 'Waiting for permission',
-          zh: '等待权限确认',
-        ),
-      );
       if (messageId.isNotEmpty && text.isNotEmpty) {
         final index = messages.indexWhere((msg) => msg.id == messageId);
         if (index == -1) {
@@ -647,9 +593,9 @@ mixin AgentStreamHandler<T extends StatefulWidget> on State<T> {
       }
       isAiResponding = false;
     });
-    clearAgentStreamSessionState(taskId: event.taskId);
+    clearAgentStreamSessionState();
     resetDispatchState();
-    _persistAgentConversationSafely(immediate: true);
+    _persistAgentConversationSafely();
   }
 
   Map<String, dynamic> _streamMetaFromEvent(AgentStreamEvent event) {
@@ -749,14 +695,12 @@ mixin AgentStreamHandler<T extends StatefulWidget> on State<T> {
         : (messages[index].content?['text'] as String? ?? '');
     final preservedText = existingText.trim();
     final fallbackMessage = error.trim().isEmpty
-        ? (AppTextLocalizer.choose(
-            en: "I can't generate a reply right now. Please try again.",
-            zh: '暂时无法生成回复，请重试。',
-          ))
-        : (AppTextLocalizer.choose(
-            en: "I can't generate a reply right now. Please try again. ${error.trim()}",
-            zh: '暂时无法生成回复，请重试。${error.trim()}',
-          ));
+        ? (LegacyTextLocalizer.isEnglish
+              ? "I can't generate a reply right now. Please try again."
+              : '暂时无法生成回复，请重试。')
+        : (LegacyTextLocalizer.isEnglish
+              ? "I can't generate a reply right now. Please try again. ${error.trim()}"
+              : '暂时无法生成回复，请重试。${error.trim()}');
     setState(() {
       if (index == -1) {
         messages.insert(
@@ -796,9 +740,9 @@ mixin AgentStreamHandler<T extends StatefulWidget> on State<T> {
       );
     }
 
-    clearAgentStreamSessionState(taskId: taskId);
+    clearAgentStreamSessionState();
     resetDispatchState();
-    _persistAgentConversationSafely(immediate: true);
+    _persistAgentConversationSafely();
   }
 
   List<String> _resolveExecutionPermissionIds(List<String> missing) {
@@ -828,7 +772,6 @@ mixin AgentStreamHandler<T extends StatefulWidget> on State<T> {
       case AgentStreamEventKind.toolStarted:
       case AgentStreamEventKind.toolProgress:
       case AgentStreamEventKind.toolCompleted:
-      case AgentStreamEventKind.uiCard:
       case AgentStreamEventKind.completed:
       case AgentStreamEventKind.error:
       case AgentStreamEventKind.permissionRequired:
@@ -922,28 +865,12 @@ mixin AgentStreamHandler<T extends StatefulWidget> on State<T> {
     return int.tryParse(messageId.substring(baseId.length + 1)) ?? 0;
   }
 
-  void clearAgentStreamSessionState({String? taskId}) {
-    final normalizedTaskId = taskId?.trim() ?? '';
-    if (normalizedTaskId.isEmpty) {
-      _lastAgentTaskId = null;
-      _pendingAgentTextTaskId = null;
-      _activeToolCardId = null;
-      _agentStreamStates.clear();
-      _activeThinkingCardId = null;
-    } else {
-      if (_lastAgentTaskId == normalizedTaskId) {
-        _lastAgentTaskId = null;
-      }
-      if (_pendingAgentTextTaskId == normalizedTaskId) {
-        _pendingAgentTextTaskId = null;
-      }
-      _agentStreamStates.remove(normalizedTaskId);
-      final activeThinkingState = _agentStreamStates.values.firstWhere(
-        (state) => state.activeThinkingEntryId != null,
-        orElse: () => AgentStreamTaskState(taskId: normalizedTaskId),
-      );
-      _activeThinkingCardId = activeThinkingState.activeThinkingEntryId;
-    }
+  void clearAgentStreamSessionState() {
+    _lastAgentTaskId = null;
+    _pendingAgentTextTaskId = null;
+    _activeToolCardId = null;
+    _agentStreamState = null;
+    _activeThinkingCardId = null;
   }
 
   void interruptActiveToolCard({String? summary}) {
@@ -959,10 +886,6 @@ mixin AgentStreamHandler<T extends StatefulWidget> on State<T> {
       final existingCardData = Map<String, dynamic>.from(
         messages[index].cardData ?? const {},
       );
-      if ((existingCardData['status'] ?? '').toString() != 'running') {
-        _activeToolCardId = null;
-        return;
-      }
       existingCardData['status'] = 'interrupted';
       existingCardData['success'] = false;
       if (summary != null && summary.trim().isNotEmpty) {
@@ -977,232 +900,424 @@ mixin AgentStreamHandler<T extends StatefulWidget> on State<T> {
     _activeToolCardId = null;
   }
 
-  void _finalizeRunningToolCardsForTask(
-    String taskId, {
-    String status = 'success',
-    String? summary,
-  }) {
-    final normalizedTaskId = taskId.trim();
-    if (normalizedTaskId.isEmpty) return;
-
-    final finalizedCardIds = <String>{};
-    final isSuccess = status == 'success';
-    for (var index = 0; index < messages.length; index++) {
-      final message = messages[index];
-      final rawCardData = message.cardData;
-      if (rawCardData == null || !AgentToolCardPolicy.isToolCard(rawCardData)) {
-        continue;
+  void _persistAgentConversationSafely() {
+    Future<void>.microtask(() async {
+      try {
+        await persistAgentConversation();
+      } catch (e) {
+        debugPrint('persistAgentConversation failed: $e');
       }
-      final embeddedStreamMeta = AgentToolCardPolicy.asStringMap(
-        rawCardData['streamMeta'],
-      );
-      final cardTaskId = _firstNonEmpty([
-        message.streamMeta?['parentTaskId'],
-        embeddedStreamMeta['parentTaskId'],
-        rawCardData['taskId'],
-      ]);
-      if (cardTaskId != normalizedTaskId) {
-        continue;
-      }
-      final normalizedStatus = AgentToolCardPolicy.normalizeStatus(
-        rawCardData['status'],
-        fallback: '',
-      );
-      if (normalizedStatus != 'running' &&
-          normalizedStatus != 'pending' &&
-          normalizedStatus != 'progress') {
-        continue;
-      }
-      // Terminal and browser tools manage their own streaming lifecycle;
-      // skip them here so their stream state is not prematurely closed.
-      final toolType = (rawCardData['toolType'] ?? '').toString();
-      if (toolType == 'terminal' || toolType == 'browser') {
-        continue;
-      }
-
-      final cardData = Map<String, dynamic>.from(rawCardData);
-      cardData['status'] = status;
-      cardData['success'] = isSuccess;
-      final normalizedSummary = summary?.trim() ?? '';
-      if (normalizedSummary.isNotEmpty &&
-          (cardData['summary'] ?? '').toString().trim().isEmpty) {
-        cardData['summary'] = normalizedSummary;
-      }
-      final cardId = _firstNonEmpty([cardData['cardId'], message.id]);
-      if (cardId.isNotEmpty) {
-        finalizedCardIds.add(cardId);
-      }
-      messages[index] = message.copyWith(
-        content: {'cardData': cardData, 'id': message.id},
-      );
-    }
-
-    if (finalizedCardIds.isNotEmpty) {
-      final state = _agentStreamStates[normalizedTaskId];
-      if (state != null) {
-        final activeToolEntryIds = Set<String>.from(state.activeToolEntryIds)
-          ..removeWhere(finalizedCardIds.contains);
-        if (activeToolEntryIds.length != state.activeToolEntryIds.length) {
-          _agentStreamStates[normalizedTaskId] = state.copyWith(
-            activeToolEntryIds: activeToolEntryIds,
-            activeToolFallbackEntryIds: state.activeToolFallbackEntryIds
-                .where(activeToolEntryIds.contains)
-                .toSet(),
-          );
-        }
-        _activeToolCardId = activeToolEntryIds.isEmpty
-            ? null
-            : activeToolEntryIds.last;
-      }
-      if (finalizedCardIds.contains(_activeToolCardId)) {
-        _activeToolCardId = null;
-      }
-    }
-  }
-
-  String _firstNonEmpty(Iterable<Object?> values) {
-    for (final value in values) {
-      final text = value?.toString().trim() ?? '';
-      if (text.isNotEmpty) return text;
-    }
-    return '';
-  }
-
-  void _persistAgentConversationSafely({bool immediate = false}) {
-    if (immediate) {
-      _agentConversationPersistTimer?.cancel();
-      _agentConversationPersistTimer = null;
-      unawaited(_runAgentConversationPersist());
-      return;
-    }
-    _agentConversationPersistTimer?.cancel();
-    _agentConversationPersistTimer = Timer(_agentConversationPersistDelay, () {
-      _agentConversationPersistTimer = null;
-      unawaited(_runAgentConversationPersist());
     });
   }
 
-  Future<void> _runAgentConversationPersist() async {
-    if (!mounted) return;
-    if (_agentConversationPersistInFlight) {
-      _agentConversationPersistAgain = true;
-      return;
-    }
-    _agentConversationPersistInFlight = true;
-    try {
-      await persistAgentConversation();
-    } catch (e) {
-      debugPrint('persistAgentConversation failed: $e');
-    } finally {
-      _agentConversationPersistInFlight = false;
-      if (_agentConversationPersistAgain && mounted) {
-        _agentConversationPersistAgain = false;
-        _persistAgentConversationSafely();
-      }
-    }
-  }
-
   void _upsertToolCard({
-    required AgentStreamEvent streamEvent,
-    required String defaultRunningSummary,
+    required String taskId,
+    required String cardId,
+    required AgentToolEventData event,
+    required String status,
+    required String summary,
+    required String progress,
+    required String resultPreviewJson,
+    required String rawResultJson,
+    String? reasoningContent,
     Map<String, dynamic>? streamMeta,
   }) {
     setState(() {
-      final projection = AgentToolCardProjection.projectStreamEvent(
-        event: streamEvent,
-        messages: messages,
-        defaultRunningSummary: defaultRunningSummary,
-        streamMeta: streamMeta,
-        maxTerminalOutputChars: _maxTerminalOutputChars,
-        maxSummaryChars: _maxToolSummaryChars,
-        maxProgressChars: _maxToolProgressChars,
-        maxPreviewJsonChars: _maxToolPreviewJsonChars,
-        maxRawResultJsonChars: _maxToolRawResultJsonChars,
+      final index = messages.indexWhere((msg) => msg.id == cardId);
+      final existingCardData = index == -1
+          ? const <String, dynamic>{}
+          : Map<String, dynamic>.from(messages[index].cardData ?? const {});
+      final existingTerminalOutput = (existingCardData['terminalOutput'] ?? '')
+          .toString();
+      final isFileChangeTool = _isCodexFileChangeTool(event, existingCardData);
+      final effectiveToolType = isFileChangeTool ? 'file' : event.toolType;
+      final terminalOutput = effectiveToolType == 'terminal'
+          ? _resolveTerminalOutput(
+              existing: existingTerminalOutput,
+              event: event,
+            )
+          : '';
+      final diffSource = _agentToolDiffSource(
+        event,
+        resultPreviewJson: resultPreviewJson,
+        rawResultJson: rawResultJson,
+        summary: summary,
+        progress: progress,
       );
-      if (projection == null) {
-        return;
+      final diffText = isFileChangeTool
+          ? _resolveAgentFileDiffText(
+              existingCardData: existingCardData,
+              source: diffSource,
+              outputText: terminalOutput,
+              progress: progress,
+              summary: summary,
+            )
+          : '';
+      final diffSummary = diffText.isEmpty
+          ? null
+          : parseCodexDiffText(diffText);
+      final diffPreview = diffSummary == null
+          ? ''
+          : summarizeCodexDiff(diffSummary);
+      final effectiveSummary = isFileChangeTool && diffPreview.isNotEmpty
+          ? diffPreview
+          : summary.isNotEmpty
+          ? summary
+          : (existingCardData['summary'] ?? '').toString();
+      final effectiveProgress = isFileChangeTool && diffPreview.isNotEmpty
+          ? diffPreview
+          : progress.isNotEmpty
+          ? progress
+          : (existingCardData['progress'] ?? '').toString();
+      final filePath = isFileChangeTool
+          ? extractCodexDiffPath(diffSource) ??
+                (diffSummary?.primaryPath.trim().isNotEmpty == true
+                    ? diffSummary!.primaryPath
+                    : null) ??
+                (existingCardData['filePath'] ?? '').toString()
+          : '';
+      final cardData = <String, dynamic>{
+        'type': 'agent_tool_summary',
+        'uiStyle': event.uiStyle.isNotEmpty
+            ? event.uiStyle
+            : (existingCardData['uiStyle'] ?? '').toString(),
+        'taskId': taskId,
+        'cardId': cardId,
+        'toolName': event.toolName,
+        'displayName': event.displayName,
+        'toolTitle': event.toolTitle.isNotEmpty
+            ? event.toolTitle
+            : (existingCardData['toolTitle'] ?? '').toString(),
+        'toolType': effectiveToolType,
+        'serverName': event.serverName,
+        'status': status,
+        'reasoning_content':
+            _normalizeReasoningContent(reasoningContent) ??
+            (existingCardData['reasoning_content'] ?? '').toString(),
+        'summary': effectiveSummary,
+        'progress': effectiveProgress,
+        'subagentStatusText': event.subagentStatusText.isNotEmpty
+            ? event.subagentStatusText
+            : (existingCardData['subagentStatusText'] ?? '').toString(),
+        'subagentEvents': _mergeSubagentEvents(
+          existingCardData['subagentEvents'],
+          event.subagentEvents,
+        ),
+        'argsJson': event.argsJson.isNotEmpty
+            ? event.argsJson
+            : (existingCardData['argsJson'] ?? '').toString(),
+        'resultPreviewJson': resultPreviewJson.isNotEmpty
+            ? resultPreviewJson
+            : (existingCardData['resultPreviewJson'] ?? '').toString(),
+        'rawResultJson': rawResultJson.isNotEmpty
+            ? rawResultJson
+            : (existingCardData['rawResultJson'] ?? '').toString(),
+        'terminalOutput': terminalOutput,
+        'terminalOutputDelta': event.terminalOutputDelta,
+        'terminalSessionId':
+            event.terminalSessionId ?? existingCardData['terminalSessionId'],
+        'terminalStreamState': event.terminalStreamState.isNotEmpty
+            ? event.terminalStreamState
+            : (existingCardData['terminalStreamState'] ?? '').toString(),
+        'workspaceId': event.workspaceId ?? existingCardData['workspaceId'],
+        'artifacts': event.artifacts.isNotEmpty
+            ? event.artifacts
+            : (existingCardData['artifacts'] ?? const []),
+        'actions': event.actions.isNotEmpty
+            ? event.actions
+            : (existingCardData['actions'] ?? const []),
+        'success': event.success,
+        'showTerminalOutput': effectiveToolType == 'terminal',
+        'showScheduleAction': effectiveToolType == 'schedule',
+        'showAlarmAction': effectiveToolType == 'alarm',
+      };
+      if (isFileChangeTool) {
+        cardData.addAll(<String, dynamic>{
+          'diffText': diffText,
+          'showDiff': diffText.isNotEmpty,
+          'filePath': filePath,
+          'changedFiles': diffSummary?.changedFileCount ?? 0,
+          'additions': diffSummary?.additions ?? 0,
+          'deletions': diffSummary?.deletions ?? 0,
+        });
       }
 
-      if (projection.isInsert) {
+      if (index == -1) {
         messages.insert(
           0,
           ChatMessageModel.cardMessage(
-            projection.cardData,
-            id: projection.cardId,
-            streamMeta: projection.streamMeta,
-          ).copyWith(
-            createAt: DateTime.fromMillisecondsSinceEpoch(
-              streamEvent.createdAtMs,
+            cardData,
+            id: cardId,
+            streamMeta: ensureAgentStreamMessageMeta(
+              streamMeta,
+              entryId: cardId,
             ),
           ),
         );
       } else {
-        messages[projection.existingIndex] = messages[projection.existingIndex]
-            .copyWith(
-              id: projection.cardId,
-              content: {
-                'cardData': projection.cardData,
-                'id': projection.cardId,
-              },
-              streamMeta: projection.streamMeta,
-            );
+        messages[index] = messages[index].copyWith(
+          content: {'cardData': cardData, 'id': cardId},
+          streamMeta: ensureAgentStreamMessageMeta(
+            streamMeta ?? messages[index].streamMeta,
+            entryId: cardId,
+          ),
+        );
       }
     });
   }
 
-  void _applyAgentUiCardStreamEvent(
-    AgentStreamEvent event, {
-    String? completedThinkingCardId,
-  }) {
-    final cards = extractAgentStreamUiCards(event);
-    if (cards.isEmpty) return;
+  List<Map<String, dynamic>> _mergeSubagentEvents(
+    dynamic existingRaw,
+    List<Map<String, dynamic>> incomingEvents,
+  ) {
+    final merged = <Map<String, dynamic>>[];
+    final seen = <String>{};
 
-    setState(() {
-      isAiResponding = true;
-      _finalizeThinkingCardInMessages(event.taskId, completedThinkingCardId);
-      for (final card in cards) {
-        _upsertAgentUiCard(event: event, card: card);
-      }
-    });
-    _persistAgentConversationSafely();
-  }
-
-  void _upsertAgentUiCard({
-    required AgentStreamEvent event,
-    required AgentStreamUiCard card,
-  }) {
-    final streamMeta = ensureAgentStreamMessageMeta(
-      _streamMetaFromEvent(event),
-      entryId: card.id,
-    );
-    final index = messages.indexWhere(
-      (message) =>
-          message.id == card.id ||
-          (message.cardData?['cardId'] ?? '').toString().trim() == card.id,
-    );
-    if (index == -1) {
-      messages.insert(
-        0,
-        ChatMessageModel.cardMessage(
-          card.cardData,
-          id: card.id,
-          streamMeta: streamMeta,
-        ).copyWith(
-          createAt: DateTime.fromMillisecondsSinceEpoch(event.createdAtMs),
-        ),
+    void addEvent(Map<dynamic, dynamic> rawEvent) {
+      final event = rawEvent.map<String, dynamic>(
+        (key, value) => MapEntry(key.toString(), value),
       );
-      return;
+      final key = _subagentEventIdentity(event);
+      if (!seen.add(key)) {
+        return;
+      }
+      merged.add(event);
     }
-    final existingCardData = Map<String, dynamic>.from(
-      messages[index].cardData ?? const <String, dynamic>{},
+
+    if (existingRaw is List) {
+      for (final item in existingRaw.whereType<Map>()) {
+        addEvent(item);
+      }
+    }
+    for (final event in incomingEvents) {
+      addEvent(event);
+    }
+    // 折叠流式累积事件: 同一个 subagent (按 subagentId 或 taskIndex 分组)
+    // 的同种流式 kind (thinking / message) 只保留 seq 最大的一条。
+    // Kotlin 端为了实现"实时滚动"效果会每 ~32 字符 emit 一次 thinking 事件,
+    // 每条 seq 都不同,id-based 去重保留不了它们。展开后会显示"每行字数递增"。
+    final folded = _foldStreamingSubagentEvents(merged);
+    folded.sort((left, right) {
+      final leftSeq = _asInt(left['seq']);
+      final rightSeq = _asInt(right['seq']);
+      if (leftSeq != null && rightSeq != null && leftSeq != rightSeq) {
+        return leftSeq.compareTo(rightSeq);
+      }
+      final leftCreatedAt = _asInt(left['createdAt']) ?? 0;
+      final rightCreatedAt = _asInt(right['createdAt']) ?? 0;
+      if (leftCreatedAt != rightCreatedAt) {
+        return leftCreatedAt.compareTo(rightCreatedAt);
+      }
+      return _subagentEventIdentity(
+        left,
+      ).compareTo(_subagentEventIdentity(right));
+    });
+    return folded;
+  }
+
+  static const Set<String> _streamingSubagentKinds = <String>{
+    'thinking',
+    'message',
+  };
+
+  List<Map<String, dynamic>> _foldStreamingSubagentEvents(
+    List<Map<String, dynamic>> events,
+  ) {
+    final latestByGroup = <String, Map<String, dynamic>>{};
+    final result = <Map<String, dynamic>>[];
+    for (final event in events) {
+      final kind = (event['kind'] ?? '').toString();
+      if (!_streamingSubagentKinds.contains(kind)) {
+        result.add(event);
+        continue;
+      }
+      final groupKey = _subagentStreamingGroupKey(event, kind);
+      final existing = latestByGroup[groupKey];
+      if (existing == null) {
+        latestByGroup[groupKey] = event;
+        continue;
+      }
+      final existingSeq = _asInt(existing['seq']) ?? -1;
+      final newSeq = _asInt(event['seq']) ?? -1;
+      if (newSeq >= existingSeq) {
+        latestByGroup[groupKey] = event;
+      }
+    }
+    result.addAll(latestByGroup.values);
+    return result;
+  }
+
+  String _subagentStreamingGroupKey(Map<String, dynamic> event, String kind) {
+    final subagentId = (event['subagentId'] ?? '').toString().trim();
+    if (subagentId.isNotEmpty) {
+      return 'sub:$subagentId|$kind';
+    }
+    final taskIndex = event['taskIndex'];
+    if (taskIndex != null) {
+      return 'task:$taskIndex|$kind';
+    }
+    return 'global|$kind';
+  }
+
+  String _subagentEventIdentity(Map<String, dynamic> event) {
+    final id = (event['id'] ?? '').toString().trim();
+    if (id.isNotEmpty) {
+      return id;
+    }
+    return [
+      event['seq'],
+      event['kind'],
+      event['taskIndex'],
+      event['summary'],
+      event['toolName'],
+    ].map((item) => item?.toString() ?? '').join('|');
+  }
+
+  int? _asInt(dynamic value) {
+    if (value is int) return value;
+    if (value is num) return value.toInt();
+    return int.tryParse((value ?? '').toString());
+  }
+
+  String _resolveTerminalOutput({
+    required String existing,
+    required AgentToolEventData event,
+  }) {
+    if (event.terminalOutput.isNotEmpty) {
+      return _trimTerminalOutput(event.terminalOutput);
+    }
+    if (event.terminalOutputDelta.isNotEmpty) {
+      return _trimTerminalOutput(existing + event.terminalOutputDelta);
+    }
+    return existing;
+  }
+
+  bool _isCodexFileChangeTool(
+    AgentToolEventData event,
+    Map<String, dynamic> existingCardData,
+  ) {
+    final toolType = event.toolType.trim();
+    if (toolType == 'file' ||
+        (existingCardData['toolType'] ?? '').toString().trim() == 'file') {
+      return true;
+    }
+    final toolName = event.toolName.trim();
+    if (toolName == 'codex.file') {
+      return true;
+    }
+    if (_valueHasFileChangeType(event.raw)) {
+      return true;
+    }
+    return _jsonHasFileChangeType(event.argsJson) ||
+        _jsonHasFileChangeType(event.rawResultJson) ||
+        _jsonHasFileChangeType(event.resultPreviewJson);
+  }
+
+  bool _jsonHasFileChangeType(String raw) {
+    final trimmed = raw.trim();
+    if (trimmed.isEmpty) {
+      return false;
+    }
+    try {
+      final decoded = jsonDecode(trimmed);
+      return _valueHasFileChangeType(decoded);
+    } catch (_) {
+      return false;
+    }
+  }
+
+  bool _valueHasFileChangeType(dynamic value) {
+    if (value is Map) {
+      final map = value.map((key, nested) => MapEntry(key.toString(), nested));
+      final type = (map['type'] ?? '').toString();
+      if (type == 'fileChange') {
+        return true;
+      }
+      return map.values.any(_valueHasFileChangeType);
+    }
+    if (value is Iterable) {
+      return value.any(_valueHasFileChangeType);
+    }
+    return false;
+  }
+
+  Map<String, dynamic> _agentToolDiffSource(
+    AgentToolEventData event, {
+    required String resultPreviewJson,
+    required String rawResultJson,
+    required String summary,
+    required String progress,
+  }) {
+    return <String, dynamic>{
+      ...event.raw,
+      'toolName': event.toolName,
+      'toolType': event.toolType,
+      'argsJson': event.argsJson,
+      'resultPreviewJson': resultPreviewJson,
+      'rawResultJson': rawResultJson,
+      'summary': summary,
+      'progress': progress,
+    };
+  }
+
+  String _resolveAgentFileDiffText({
+    required Map<String, dynamic> existingCardData,
+    required Map<String, dynamic> source,
+    required String outputText,
+    required String progress,
+    required String summary,
+  }) {
+    final current = extractCodexDiffText(
+      source,
+      outputText: outputText,
+      progress: progress,
+      summary: summary,
     );
-    messages[index] = messages[index].copyWith(
-      content: {
-        'cardData': <String, dynamic>{...existingCardData, ...card.cardData},
-        'id': card.id,
-      },
-      streamMeta: streamMeta,
-    );
+    if (current != null && current.trim().isNotEmpty) {
+      return current;
+    }
+    final existing = (existingCardData['diffText'] ?? '').toString().trim();
+    return existing;
+  }
+
+  String _resolveToolStatus(AgentToolEventData event) {
+    final normalized = event.status.trim().toLowerCase();
+    if (normalized.isNotEmpty) {
+      return normalized;
+    }
+    return event.success ? 'success' : 'error';
+  }
+
+  String _trimTerminalOutput(String value) {
+    if (value.isEmpty) return value;
+
+    var candidate = value;
+    if (candidate.length > _maxTerminalOutputChars) {
+      candidate = candidate.substring(
+        candidate.length - _maxTerminalOutputChars,
+      );
+    }
+
+    final lines = candidate.split('\n');
+    if (lines.length > _maxTerminalOutputLines) {
+      candidate = lines
+          .sublist(lines.length - _maxTerminalOutputLines)
+          .join('\n');
+    }
+
+    final wasTrimmed =
+        candidate.length < value.length ||
+        lines.length > _maxTerminalOutputLines;
+    if (!wasTrimmed) {
+      return candidate;
+    }
+
+    const notice = '[更早输出已省略]\n';
+    final body = candidate.startsWith(notice)
+        ? candidate.substring(notice.length)
+        : candidate;
+    final remaining = _maxTerminalOutputChars - notice.length;
+    return '$notice${body.substring(body.length > remaining ? body.length - remaining : 0)}';
   }
 
   String? _normalizeReasoningContent(String? value) {

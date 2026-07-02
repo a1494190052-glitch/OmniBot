@@ -783,11 +783,11 @@ class FunctionRun(
         if (FunctionSchema.isFunctionCallTool(targetTool)) return runResultBuilder.failureStep(
             stepId = stepId, tool = callableTool.ifEmpty { OobActionSchema.TOOL_CALL_TOOL },
             executor = FunctionSchema.EXECUTOR_TOOL,
-            summary = "$stepTitle recursive call_tool is not allowed", errorCode = "OOB_CALL_TOOL_RECURSION",
+            summary = "$stepTitle recursive Function call is not allowed", errorCode = "OOB_CALL_TOOL_RECURSION",
         )
         return runResultBuilder.failureStep(
             stepId = stepId, tool = targetTool, executor = FunctionSchema.EXECUTOR_TOOL,
-            summary = "Replay call_tool only supports Function ids: $targetTool",
+            summary = "Replay Function call only supports Function ids: $targetTool",
             errorCode = "OOB_CALL_TOOL_TARGET_UNSUPPORTED",
         )
     }

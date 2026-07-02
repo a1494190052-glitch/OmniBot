@@ -148,42 +148,87 @@ class VlmFunctionRecall(context: Context) : VLMRecallContextProvider {
         val functionName = firstNonBlank(candidate["name"], functionId)
         val description = firstNonBlank(candidate["description"], purpose, functionName, functionId)
         val goal = currentGoal.replace(Regex("\\s+"), " ").trim().take(160)
+        val requiredArguments = requiredArgumentNames(inputSchema)
         val argumentDetails = argumentDetails(inputSchema)
+        val stepDetails = stepDetails(candidate)
+        val limit = config.recallToolDescriptionChars.coerceAtLeast(MIN_TOOL_DESCRIPTION_CHARS)
         return buildString {
-            append("Function: ")
+            append("Saved workflow id: ")
+            append(functionId.take(96))
+            append(". Name: ")
             append(functionName.ifBlank { functionId }.take(80))
             append(". ")
+            if (description.isNotBlank()) {
+                append("Description: ")
+                append(description.take(config.recallDescriptionChars))
+                append(". ")
+            }
             if (useWhen.isNotBlank()) {
                 append("Use when: ")
                 append(useWhen.take(config.recallDescriptionChars))
                 append(". ")
             }
-            append("Call only when it clearly matches the current goal; otherwise continue with ordinary UI actions. ")
             if (goal.isNotBlank()) {
                 append("Current user goal: ")
                 append(goal)
                 append(". Fill arguments from the current user goal; pass only the argument value, not the whole sentence. ")
             }
+            if (requiredArguments.isNotEmpty()) {
+                append("Required arguments: ")
+                append(requiredArguments.joinToString(", "))
+                append(". ")
+            }
             if (argumentDetails.isNotBlank()) {
-                append("Arguments: ")
+                append("Argument details: ")
                 append(argumentDetails)
                 append(". ")
             } else {
                 append("Arguments: none. ")
             }
-            append(description.ifBlank { "Saved mobile workflow" }.take(config.recallDescriptionChars))
-        }.take(config.recallToolDescriptionChars)
+            if (stepDetails.isNotBlank()) {
+                append("Recorded steps: ")
+                append(stepDetails)
+                append(". ")
+            }
+            append("Call only when it clearly matches the current goal; otherwise continue with ordinary UI actions.")
+        }.take(limit)
     }
 
     private fun argumentDetails(inputSchema: Map<String, Any?>): String {
         val properties = mapArg(inputSchema["properties"])
         if (properties.isEmpty()) return ""
+        val required = requiredArgumentNames(inputSchema).toSet()
         return properties.entries.take(6).joinToString("; ") { (name, rawProperty) ->
             val property = mapArg(rawProperty)
             val description = firstNonBlank(property["description"], property["title"])
-            if (description.isBlank()) name else "$name: ${description.take(80)}"
+            val type = firstNonBlank(property["type"]).ifBlank { "string" }.take(40)
+            val marker = if (name in required) "required " else ""
+            val prefix = "$name (${marker}$type)"
+            if (description.isBlank()) prefix else "$prefix: ${description.take(96)}"
         }
     }
+
+    private fun requiredArgumentNames(inputSchema: Map<String, Any?>): List<String> =
+        listArg(inputSchema["required"])
+            .mapNotNull { it?.toString()?.trim()?.takeIf(String::isNotEmpty) }
+            .filter { it != TOOL_TITLE_FIELD }
+            .distinct()
+
+    private fun stepDetails(candidate: Map<String, Any?>): String =
+        listArg(candidate["step_summaries"])
+            .mapIndexedNotNull { index, raw ->
+                val step = mapArg(raw)
+                val tool = firstNonBlank(step["tool"]).take(40)
+                val title = firstNonBlank(step["title"], step["summary"]).take(80)
+                when {
+                    tool.isBlank() && title.isBlank() -> null
+                    title.isBlank() || title == tool -> "${index + 1}. $tool"
+                    tool.isBlank() -> "${index + 1}. $title"
+                    else -> "${index + 1}. $tool: $title"
+                }
+            }
+            .take(8)
+            .joinToString("; ")
 
     private fun sanitizeInputSchema(inputSchema: Map<String, Any?>): JsonObject {
         val raw = toJsonObject(inputSchema)
@@ -244,5 +289,6 @@ class VlmFunctionRecall(context: Context) : VLMRecallContextProvider {
     private companion object {
         private const val TAG = "VlmFunctionRecall"
         private const val TOOL_TITLE_FIELD = "tool_title"
+        private const val MIN_TOOL_DESCRIPTION_CHARS = 900
     }
 }

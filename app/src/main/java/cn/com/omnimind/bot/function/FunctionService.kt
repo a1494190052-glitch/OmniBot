@@ -1,13 +1,11 @@
 package cn.com.omnimind.bot.function
 
 import android.content.Context
-import cn.com.omnimind.assists.controller.http.HttpController
 import cn.com.omnimind.assists.task.vlmserver.AndroidDeviceOperator
 import cn.com.omnimind.assists.task.vlmserver.DeviceOperator
 import cn.com.omnimind.baselib.runlog.InternalRunLogRecord
 import cn.com.omnimind.baselib.runlog.InternalRunLogStore
 import cn.com.omnimind.baselib.util.OmniLog
-import cn.com.omnimind.bot.agent.AgentToolJson
 import cn.com.omnimind.bot.agent.AgentWorkspaceManager
 import cn.com.omnimind.bot.runlog.OobUdegNodeStore
 import cn.com.omnimind.bot.runlog.ReplayCheckerRule
@@ -18,10 +16,6 @@ import cn.com.omnimind.bot.runlog.intArg
 import cn.com.omnimind.bot.runlog.listArg
 import cn.com.omnimind.bot.runlog.longArg
 import cn.com.omnimind.bot.runlog.mapArg
-import kotlinx.coroutines.CancellationException
-import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.JsonObject
-import org.json.JSONObject
 
 /**
  * OOB-native implementation of Function management tools.
@@ -36,17 +30,7 @@ class FunctionService(
     private val workspaceFunctionStore: FunctionStore = FunctionStore(
         AgentWorkspaceManager.rootDirectory(context)
     ),
-    private val updateAgentRequester: suspend (prompt: String, responseJsonObject: Boolean) -> String? =
-        { prompt, responseJsonObject ->
-            requestAgentAnalysis(prompt, responseJsonObject)
-        },
 ) {
-    private val updateAgentResponseJson = Json {
-        ignoreUnknownKeys = true
-        isLenient = true
-        encodeDefaults = true
-    }
-
     suspend fun executeTool(name: String?, args: Map<String, Any?>?): Map<String, Any?> {
         return when (name) {
             FunctionApi.FUNCTION_RECALL,
@@ -881,6 +865,9 @@ class FunctionService(
     private fun applyFunctionUpdateRequest(args: Map<String, Any?>?): Map<String, Any?> {
         val updateStartedAtMs = System.currentTimeMillis()
         val request = args ?: emptyMap()
+        val replacementSpec = mapArg(request["function_spec"])
+            .ifEmpty { mapArg(request["functionSpec"]) }
+            .ifEmpty { mapArg(request["updated_function"]) }
         val runId = firstNonBlank(request["run_id"])
         val runLogTimeline = if (runId.isNotEmpty()) {
             val timeline = InternalRunLogStore.timelinePayload(context, runId)
@@ -893,6 +880,7 @@ class FunctionService(
         }
         val functionId = firstNonBlank(
             request["function_id"], request["functionId"],
+            replacementSpec["function_id"], replacementSpec["functionId"],
             runLogTimeline["registered_function_id"],
             mapArg(runLogTimeline["registered_function_spec"])["function_id"],
         )
@@ -921,30 +909,15 @@ class FunctionService(
             mode = mode,
         )
 
-        if (runId.isNotEmpty() && analysis.isEmpty() && patch.isEmpty()) {
-            val analysisContext = buildRunLogAnalysisContext(
+        if (replacementSpec.isNotEmpty()) {
+            return applyFullFunctionSpecUpdate(
+                original = original,
                 functionId = functionId,
-                functionSpec = original,
-                runLogTimeline = runLogTimeline,
+                replacementSpec = replacementSpec,
+                mode = mode,
                 instruction = instruction,
-            )
-            return linkedMapOf(
-                "success" to true,
-                "function_id" to functionId,
-                "run_id" to runId,
-                "mode" to mode,
-                "changed" to false,
-                "saved" to false,
-                "dry_run" to dryRun,
-                "requires_confirmation" to false,
-                "function" to original,
-                "updated_function" to original,
-                "needs_agent_analysis" to true,
-                "analysis_context" to analysisContext,
-                "agent_prompt" to buildFunctionReviewPrompt(analysisContext),
-                "message" to "已读取 Function 和 RunLog，等待 agent 分析后再保存。",
-                "cost" to updateCost,
-                "source" to "function_service"
+                dryRun = dryRun,
+                updateCost = updateCost,
             )
         }
 
@@ -1033,77 +1006,122 @@ class FunctionService(
         )
     }
 
-    private fun buildRunLogAnalysisContext(
+    private fun applyFullFunctionSpecUpdate(
+        original: Map<String, Any?>,
         functionId: String,
-        functionSpec: Map<String, Any?>,
-        runLogTimeline: Map<String, Any?>,
+        replacementSpec: Map<String, Any?>,
+        mode: String,
         instruction: String,
+        dryRun: Boolean,
+        updateCost: Map<String, Any?>,
     ): Map<String, Any?> {
-        val steps = FunctionSchema.materializedSteps(functionSpec)
+        val replacementId = firstNonBlank(replacementSpec["function_id"], replacementSpec["functionId"])
+        if (replacementId.isEmpty()) {
+            return errorPayload(code = "FUNCTION_ID_EMPTY", message = "function_spec.function_id is required")
+        }
+        val normalizedReplacementId = normalizeFunctionId(replacementId)
+        if (normalizedReplacementId != functionId) {
+            return errorPayload(
+                code = "FUNCTION_ID_MISMATCH",
+                message = "update_function must preserve function_id: $functionId",
+                functionId = functionId,
+            )
+        }
+        val updated = FunctionJson.mutableJsonMap(replacementSpec)
+        updated["function_id"] = functionId
+        if (FunctionSchema.materializedSteps(updated).isEmpty()) {
+            return errorPayload(
+                code = "FUNCTION_STEPS_EMPTY",
+                message = "function_spec.execution.steps is required",
+                functionId = functionId,
+            )
+        }
+        val changed = FunctionJson.sanitizeMap(original) != FunctionJson.sanitizeMap(updated)
+        val changes = if (changed) {
+            listOf(changeMap("function", "function_spec", "previous", "replacement"))
+        } else {
+            emptyList()
+        }
+        if (changed) {
+            appendUpdateAudit(
+                spec = updated,
+                mode = mode,
+                instruction = instruction,
+                changed = true,
+                dryRun = dryRun,
+                changes = changes,
+                updateCost = updateCost,
+            )
+        }
+        if (!changed) {
+            return linkedMapOf(
+                "success" to true,
+                "function_id" to functionId,
+                "updated_function_id" to functionId,
+                "mode" to mode,
+                "changed" to false,
+                "saved" to false,
+                "dry_run" to dryRun,
+                "requires_confirmation" to false,
+                "message" to "Function 未变化。",
+                "function" to original,
+                "updated_function" to original,
+                "changes" to changes,
+                "cost" to updateCost,
+                "source" to "function_service"
+            )
+        }
+        if (dryRun) {
+            return linkedMapOf(
+                "success" to true,
+                "function_id" to functionId,
+                "updated_function_id" to functionId,
+                "mode" to mode,
+                "changed" to true,
+                "saved" to false,
+                "dry_run" to true,
+                "requires_confirmation" to false,
+                "message" to "已生成 Function 更新预览，未保存。",
+                "function" to original,
+                "updated_function" to updated,
+                "changes" to changes,
+                "cost" to updateCost,
+                "source" to "function_service"
+            )
+        }
+        val save = saveFunctionSpec(updated)
+        val savedFunctionId = firstNonBlank(save["function_id"], functionId)
+        val identityPreserved = savedFunctionId == functionId
+        val saved = save["success"] == true && identityPreserved
+        val savedUpdated = if (saved) {
+            getFunctionSpec(savedFunctionId) ?: updated
+        } else {
+            updated
+        }
         return linkedMapOf(
-            "schema_version" to "oob.function_runlog_analysis_context.v1",
-            "function_id" to functionId,
-            "user_instruction" to instruction.takeIf { it.isNotBlank() },
-            "function" to linkedMapOf(
-                "function_id" to firstNonBlank(functionSpec["function_id"], functionId),
-                "name" to firstNonBlank(functionSpec["name"]),
-                "description" to firstNonBlank(functionSpec["description"]),
-                "parameters" to listArg(functionSpec["parameters"]),
-                "steps" to steps,
-                "metadata" to mapArg(functionSpec["metadata"]),
-            ),
-            "runlog" to linkedMapOf(
-                "run_id" to firstNonBlank(runLogTimeline["run_id"]),
-                "goal" to firstNonBlank(runLogTimeline["goal"]),
-                "run_success" to (runLogTimeline["run_success"] == true),
-                "run_status" to firstNonBlank(runLogTimeline["run_status"]),
-                "done_reason" to firstNonBlank(runLogTimeline["done_reason"]),
-                "error_message" to firstNonBlank(runLogTimeline["error_message"]),
-                "step_count" to runLogTimeline["step_count"],
-                "duration_ms" to runLogTimeline["duration_ms"],
-                "diagnostics" to mapArg(runLogTimeline["diagnostics"]).takeIf { it.isNotEmpty() },
-                "cards" to listArg(runLogTimeline["cards"]),
-            ).filterValues { it != null },
-        ).filterValues { it != null }
+            "success" to saved,
+            "function_id" to savedFunctionId,
+            "updated_function_id" to functionId,
+            "mode" to mode,
+            "changed" to true,
+            "saved" to saved,
+            "dry_run" to false,
+            "requires_confirmation" to false,
+            "changes" to changes,
+            "save" to save,
+            "function" to original,
+            "updated_function" to savedUpdated,
+            "message" to if (saved) {
+                "Function 已更新并保存。"
+            } else if (!identityPreserved) {
+                "Function 更新必须保持同一个 function_id。"
+            } else {
+                save["error_message"]?.toString() ?: "Function 更新保存失败。"
+            },
+            "cost" to updateCost,
+            "source" to "function_service"
+        )
     }
-
-    private fun buildFunctionReviewPrompt(context: Map<String, Any?>): String {
-        val contextJson = JSONObject(FunctionJson.sanitizeMap(context)).toString(2)
-        val guidance = functionEnhancementGuidance().trim()
-        val guidanceBlock = guidance.takeIf { it.isNotEmpty() }?.let {
-            """
-            Enhancement guidance:
-            ```markdown
-            $it
-            ```
-
-            """.trimIndent()
-        }.orEmpty()
-        return """
-            Turn this saved Function and RunLog evidence into a clearer callable Function contract for future agent/VLM use. Return exactly one JSON object with top-level keys "analysis" and "patch".
-
-            ${guidanceBlock}Context JSON:
-            ```json
-            $contextJson
-            ```
-
-            Patch contract:
-            - Return {"analysis": {...}, "patch": {...}}.
-            - Optimize name, description, parameters, per-step labels, metadata, agent_reuse, and checker_rules only when the evidence supports the change.
-            - Parameters are public callable arguments. Every public parameter must include explicit JSONPath bindings to existing step args, using x_oob_bindings or bindings.
-            - Do not change function_id.
-            - Do not invent coordinates, XML paths, resource ids, or source_context.
-            - Do not infer bindings from parameter names. If you cannot identify a safe binding path from the Function JSON, omit that parameter.
-            - If unsure, return an empty patch.
-        """.trimIndent()
-    }
-
-    private fun functionEnhancementGuidance(): String =
-        runCatching {
-            context.assets.open("builtin_skills/omniflow/references/function-enhancement.md")
-                .bufferedReader()
-                .use { it.readText() }
-        }.getOrDefault("")
 
     private fun applyFunctionPatch(
         spec: MutableMap<String, Any?>,
@@ -1460,99 +1478,7 @@ class FunctionService(
             .filterValues { it != null }
 
     suspend fun updateFunction(args: Map<String, Any?>?): Map<String, Any?> {
-        val request = args ?: emptyMap()
-        val initial = applyFunctionUpdateRequest(request)
-        if (initial["needs_agent_analysis"] != true || requestHasAnalysisOrPatch(request)) {
-            return withFunctionPromptPayload(initial)
-        }
-        if (!shouldAutoAnalyze(request)) {
-            return withFunctionPromptPayload(linkedMapOf<String, Any?>().apply {
-                putAll(initial)
-                put("agent_model_invoked", false)
-                put("analysis_policy", "offline_only")
-                put(
-                    "message",
-                    "update_function enhancement analysis is queued for an explicit offline/background step."
-                )
-            })
-        }
-
-        val prompt = firstNonBlank(initial["agent_prompt"])
-        if (prompt.isBlank()) {
-            return agentFailure(
-                initial = initial,
-                code = "AGENT_PROMPT_EMPTY",
-                message = "update_function returned needs_agent_analysis without agent_prompt",
-                agentInvoked = false,
-            )
-        }
-
-        val raw = try {
-            val jsonResponse = updateAgentRequester(prompt, true).orEmpty()
-            if (jsonResponse.trim().isNotEmpty()) {
-                jsonResponse
-            } else {
-                updateAgentRequester(prompt, false).orEmpty()
-            }
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            return agentFailure(
-                initial = initial,
-                code = "AGENT_ANALYSIS_REQUEST_FAILED",
-                message = e.message?.takeIf { it.isNotBlank() } ?: "Agent model request failed",
-                agentInvoked = true,
-            )
-        }
-
-        if (raw.trim().isEmpty()) {
-            return agentFailure(
-                initial = initial,
-                code = "AGENT_ANALYSIS_EMPTY_RESPONSE",
-                message = "Agent model returned an empty response for update_function",
-                agentInvoked = true,
-            )
-        }
-
-        val agentJson = extractJsonObject(raw)
-            ?: return agentFailure(
-                initial = initial,
-                code = "AGENT_ANALYSIS_UNPARSEABLE",
-                message = "Agent model did not return parseable update_function analysis JSON",
-                agentInvoked = true,
-                rawResponse = raw,
-            )
-        val analysis = analysisFromAgentUpdateJson(agentJson)
-        val patch = patchFromAgentUpdateJson(agentJson, analysis)
-        if (analysis.isEmpty() && patch.isEmpty()) {
-            return agentFailure(
-                initial = initial,
-                code = "AGENT_ANALYSIS_EMPTY",
-                message = "Agent model returned no analysis or patch for update_function",
-                agentInvoked = true,
-                agentResponse = agentJson,
-            )
-        }
-
-        val nextArgs = linkedMapOf<String, Any?>().apply {
-            putAll(request)
-            if (analysis.isNotEmpty()) put("analysis", analysis)
-            if (patch.isNotEmpty()) put("patch", patch)
-            put("source", "oob_function_management")
-            put("agent_model_invoked", true)
-        }
-        val updated = applyFunctionUpdateRequest(nextArgs)
-        return withFunctionPromptPayload(linkedMapOf<String, Any?>().apply {
-            putAll(updated)
-            if (!containsKey("function")) put("function", initial["function"])
-            if (!containsKey("updated_function")) {
-                put("updated_function", initial["updated_function"] ?: initial["function"])
-            }
-            put("needs_agent_analysis", false)
-            put("agent_model_invoked", true)
-            put("agent_analysis_initial", initial)
-            put("agent_response", agentJson)
-        })
+        return withFunctionPromptPayload(applyFunctionUpdateRequest(args ?: emptyMap()))
     }
 
     fun listRunLogs(args: Map<String, Any?>?): Map<String, Any?> {
@@ -1911,140 +1837,6 @@ class FunctionService(
         return FunctionSchema.materializedSteps(spec)
     }
 
-    private fun requestHasAnalysisOrPatch(request: Map<String, Any?>): Boolean =
-        firstNonEmptyMap(
-            request,
-            listOf("analysis", "evidence_analysis", "runlog_analysis"),
-        ).isNotEmpty() ||
-            firstNonEmptyMap(
-                request,
-                listOf("patch", "function_patch", "updates", "recommended_patch"),
-            ).isNotEmpty()
-
-    private fun shouldAutoAnalyze(request: Map<String, Any?>): Boolean {
-        val explicit = firstNonBlank(
-            request["auto_analyze_with_model"],
-            request["autoAnalyzeWithModel"],
-        )
-        val explicitModelAnalysis = explicit.equals("true", ignoreCase = true)
-        val offlineJob = boolArg(request["offline_job"]) ||
-            boolArg(request["offlineJob"])
-        return offlineJob && explicitModelAnalysis
-    }
-
-    private fun extractJsonObject(raw: String): Map<String, Any?>? {
-        val trimmed = raw.trim()
-        if (trimmed.isEmpty()) return null
-        val candidates = listOf(
-            trimmed,
-            stripJsonFence(trimmed),
-            substringJsonObject(trimmed),
-        )
-        for (candidate in candidates) {
-            val map = parseJsonObject(candidate)
-            if (!map.isNullOrEmpty()) return map
-        }
-        return null
-    }
-
-    private fun stripJsonFence(raw: String): String {
-        val match = JSON_FENCE_REGEX.find(raw.trim())
-        return match?.groupValues?.getOrNull(1)?.trim() ?: raw
-    }
-
-    private fun substringJsonObject(raw: String): String {
-        val start = raw.indexOf('{')
-        val end = raw.lastIndexOf('}')
-        if (start < 0 || end <= start) return ""
-        return raw.substring(start, end + 1)
-    }
-
-    private fun parseJsonObject(raw: String): Map<String, Any?>? {
-        val text = raw.trim()
-        if (text.isEmpty()) return null
-        return runCatching {
-            val jsonObject = updateAgentResponseJson.parseToJsonElement(text) as? JsonObject
-                ?: return null
-            AgentToolJson.jsonObjectToMap(jsonObject)
-        }.getOrNull()
-    }
-
-    private fun analysisFromAgentUpdateJson(json: Map<String, Any?>): Map<String, Any?> {
-        val direct = firstNonEmptyMap(json, listOf("analysis", "evidence_analysis", "runlog_analysis"))
-        if (direct.isNotEmpty()) return direct
-        val toolArgs = firstNonEmptyMap(json, listOf("arguments", "args", "tool_args", "toolArgs"))
-        if (toolArgs.isNotEmpty()) {
-            val nested = analysisFromAgentUpdateJson(toolArgs)
-            if (nested.isNotEmpty()) return nested
-        }
-        val hasAnalysisShape = listOf(
-            "summary",
-            "failure_reason",
-            "recommended_patch",
-            "evidence",
-            "confidence",
-        ).any(json::containsKey)
-        return if (hasAnalysisShape) cn.com.omnimind.bot.function.FunctionJson.sanitizeMap(json) else emptyMap()
-    }
-
-    private fun patchFromAgentUpdateJson(
-        json: Map<String, Any?>,
-        analysis: Map<String, Any?>,
-    ): Map<String, Any?> {
-        val direct = firstNonEmptyMap(json, listOf("patch", "function_patch", "updates", "recommended_patch"))
-        if (direct.isNotEmpty()) return direct
-        val directShape = directPatchShape(json)
-        if (directShape.isNotEmpty()) return directShape
-        val analysisPatch = firstNonEmptyMap(analysis, listOf("recommended_patch", "patch", "function_patch"))
-        if (analysisPatch.isNotEmpty()) return analysisPatch
-        val toolArgs = firstNonEmptyMap(json, listOf("arguments", "args", "tool_args", "toolArgs"))
-        return if (toolArgs.isNotEmpty()) patchFromAgentUpdateJson(toolArgs, analysis) else emptyMap()
-    }
-
-    private fun directPatchShape(source: Map<String, Any?>): Map<String, Any?> {
-        val patch = linkedMapOf<String, Any?>()
-        DIRECT_PATCH_KEYS.forEach { key ->
-            if (source.containsKey(key)) patch[key] = source[key]
-        }
-        return cn.com.omnimind.bot.function.FunctionJson.sanitizeMap(patch)
-    }
-
-    private fun firstNonEmptyMap(source: Map<String, Any?>, keys: List<String>): Map<String, Any?> {
-        for (key in keys) {
-            val value = mapFromAny(source[key])
-            if (value.isNotEmpty()) return value
-        }
-        return emptyMap()
-    }
-
-    private fun mapFromAny(value: Any?): Map<String, Any?> =
-        when (value) {
-            is Map<*, *> -> cn.com.omnimind.bot.function.FunctionJson.sanitizeMap(value)
-            is String -> parseJsonObject(value) ?: emptyMap()
-            else -> emptyMap()
-        }
-
-    private fun agentFailure(
-        initial: Map<String, Any?>,
-        code: String,
-        message: String,
-        agentInvoked: Boolean,
-        rawResponse: String? = null,
-        agentResponse: Map<String, Any?>? = null,
-    ): Map<String, Any?> =
-        linkedMapOf<String, Any?>().apply {
-            putAll(initial)
-            put("success", false)
-            put("changed", false)
-            put("saved", false)
-            put("needs_agent_analysis", false)
-            put("error_code", code)
-            put("error_message", message)
-            put("agent_model_invoked", agentInvoked)
-            rawResponse?.let { put("agent_raw_response", it) }
-            agentResponse?.let { put("agent_response", it) }
-        }
-
     private fun errorPayload(
         code: String,
         message: String,
@@ -2063,14 +1855,10 @@ class FunctionService(
 
     private companion object {
         const val TAG = "FunctionService"
-        private const val AGENT_MODEL = "scene.dispatch.model"
         private const val DEFAULT_RECALL_LIMIT = 50
         private const val MAX_RECALLED_FUNCTIONS = 50
         private const val MAX_FUNCTION_ID_LENGTH = 64
         private val FUNCTION_ID_REGEX = Regex("^[A-Za-z0-9_-]{1,$MAX_FUNCTION_ID_LENGTH}$")
-
-        private suspend fun requestAgentAnalysis(prompt: String, responseJsonObject: Boolean): String? =
-            HttpController.postLLMRequest(AGENT_MODEL, prompt, responseJsonObject).message
 
         fun functionIdFromSpec(spec: Map<String, Any?>): String =
             FunctionSchema.functionIdFromSpec(spec)
@@ -2129,23 +1917,6 @@ class FunctionService(
 
         fun assetState(spec: Map<String, Any?>): String =
             if (isAgentVisible(spec)) "native_local" else "manual_function"
-
-        private val JSON_FENCE_REGEX = Regex(
-            "^```(?:json)?\\s*([\\s\\S]*?)\\s*```$",
-            setOf(RegexOption.IGNORE_CASE),
-        )
-
-        private val DIRECT_PATCH_KEYS = listOf(
-            "name",
-            "description",
-            "steps",
-            "parameters",
-            "agent_reuse",
-            "agentReuse",
-            "metadata",
-            "checker_rules",
-            "checkerRules",
-        )
 
         private val STEP_ARG_BINDING_REGEX =
             Regex("""^\$\.execution\.steps\[(\d+)]\.args\.([A-Za-z0-9_]+)(?:\..*)?$""")

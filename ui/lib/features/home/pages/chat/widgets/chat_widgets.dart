@@ -4,10 +4,8 @@ import 'dart:ui' as ui;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:ui/l10n/app_text_localizer.dart';
 import 'package:ui/l10n/legacy_text_localizer.dart';
 import 'package:flutter_svg/flutter_svg.dart';
-import 'package:ui/services/assists_core_service.dart';
 import 'package:ui/services/home_greeting_settings_service.dart';
 import 'package:ui/theme/theme_context.dart';
 import 'package:ui/widgets/glass_popup.dart';
@@ -45,7 +43,7 @@ const double _kChatAppBarAccessoryGap = 12;
 const double _kChatAppBarIslandMaxWidth = 176;
 const double _kChatAppBarRightActionSlotWidth = 50;
 
-enum ChatSurfaceMode { workspace, project, normal, openclaw }
+enum ChatSurfaceMode { workspace, normal, openclaw }
 
 const List<ChatSurfaceMode> kVisibleChatSurfaceModes = <ChatSurfaceMode>[
   ChatSurfaceMode.normal,
@@ -281,21 +279,27 @@ class ChatAppBar extends StatelessWidget {
                       mainAxisSize: MainAxisSize.min,
                       children: [
                         if (showUpdateShortcutButton)
-                          _ChatAppBarIconButton(
+                          GestureDetector(
                             key: const ValueKey('chat-app-update-button'),
-                            tooltip:
-                                appUpdateTooltip ??
-                                (LegacyTextLocalizer.isEnglish
-                                    ? 'Check for updates'
-                                    : '检查更新'),
-                            onTap: onAppUpdateTap!,
-                            child: SvgPicture.asset(
-                              _kChatAppBarUpdateSparklesAsset,
-                              width: 18,
-                              height: 18,
-                              colorFilter: const ColorFilter.mode(
-                                updateTint,
-                                BlendMode.srcIn,
+                            onTap: onAppUpdateTap,
+                            child: Tooltip(
+                              message:
+                                  appUpdateTooltip ??
+                                  (LegacyTextLocalizer.isEnglish
+                                      ? 'Check for updates'
+                                      : '检查更新'),
+                              child: Container(
+                                color: Colors.transparent,
+                                padding: const EdgeInsets.all(15),
+                                child: SvgPicture.asset(
+                                  _kChatAppBarUpdateSparklesAsset,
+                                  width: 18,
+                                  height: 18,
+                                  colorFilter: const ColorFilter.mode(
+                                    updateTint,
+                                    BlendMode.srcIn,
+                                  ),
+                                ),
                               ),
                             ),
                           ),
@@ -344,41 +348,6 @@ class ChatAppBar extends StatelessWidget {
 }
 
 enum _ChatAppBarModeShortcutAction { agent, codex, pureChat }
-
-class _ChatAppBarIconButton extends StatelessWidget {
-  const _ChatAppBarIconButton({
-    super.key,
-    required this.tooltip,
-    required this.onTap,
-    required this.child,
-  });
-
-  final String tooltip;
-  final VoidCallback onTap;
-  final Widget child;
-
-  @override
-  Widget build(BuildContext context) {
-    return SizedBox(
-      width: _kChatAppBarRightActionSlotWidth,
-      height: _kChatAppBarRightActionSlotWidth,
-      child: Center(
-        child: GestureDetector(
-          onTap: onTap,
-          behavior: HitTestBehavior.opaque,
-          child: Tooltip(
-            message: tooltip,
-            child: Container(
-              color: Colors.transparent,
-              padding: const EdgeInsets.all(15),
-              child: child,
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
 
 class _ChatAppBarCompanionButton extends StatelessWidget {
   const _ChatAppBarCompanionButton({
@@ -819,9 +788,6 @@ class _ChatAppBarModeShortcutMenuRow extends StatelessWidget {
     return Tooltip(
       message: item.tooltip,
       child: InkWell(
-        key: ValueKey(
-          'chat-app-bar-mode-menu-${_modeShortcutActionKey(item.action)}',
-        ),
         onTap: item.enabled
             ? () => Navigator.of(context).pop(item.action)
             : null,
@@ -839,14 +805,6 @@ class _ChatAppBarModeShortcutMenuRow extends StatelessWidget {
         ),
       ),
     );
-  }
-
-  String _modeShortcutActionKey(_ChatAppBarModeShortcutAction action) {
-    return switch (action) {
-      _ChatAppBarModeShortcutAction.agent => 'agent',
-      _ChatAppBarModeShortcutAction.codex => 'codex',
-      _ChatAppBarModeShortcutAction.pureChat => 'pure-chat',
-    };
   }
 }
 
@@ -1533,8 +1491,6 @@ class _ChatMessageListState extends State<ChatMessageList> {
   bool _outerScrollWasUserDriven = false;
   bool _isAutoLoadingHistory = false;
   final Set<String> _localExpandedAgentRunTaskIds = <String>{};
-  final AgentRunCompletionExpansionTracker _agentRunExpansionTracker =
-      AgentRunCompletionExpansionTracker();
   static const double _latestEdgeTolerance = 48.0;
   static const double _manualLatestAttachTolerance = 2.0;
   static const double _historyLoadTriggerExtent = 180.0;
@@ -1543,11 +1499,8 @@ class _ChatMessageListState extends State<ChatMessageList> {
   GlobalKey? _editingUserMessageRevealKey;
   String? _editingUserMessageRevealKeyId;
 
-  Set<String> get _manualExpandedAgentRunTaskIds =>
+  Set<String> get _expandedAgentRunTaskIds =>
       widget.expandedAgentRunTaskIds ?? _localExpandedAgentRunTaskIds;
-
-  Set<String> get _expandedAgentRunTaskIds => _agentRunExpansionTracker
-      .effectiveExpandedTaskIds(_manualExpandedAgentRunTaskIds);
 
   bool get _isAutoStickTemporarilySuppressed {
     final suppressedUntil = _autoStickSuppressedUntil;
@@ -1565,7 +1518,6 @@ class _ChatMessageListState extends State<ChatMessageList> {
   void initState() {
     super.initState();
     _bindObservableMessages(widget.messages);
-    _syncAgentRunExpansion();
     _scheduleStickToBottom();
   }
 
@@ -1573,7 +1525,6 @@ class _ChatMessageListState extends State<ChatMessageList> {
   void didUpdateWidget(covariant ChatMessageList oldWidget) {
     super.didUpdateWidget(oldWidget);
     _bindObservableMessages(widget.messages);
-    _syncAgentRunExpansion();
     final scrollControllerChanged =
         oldWidget.scrollController != widget.scrollController;
     if (scrollControllerChanged) {
@@ -1779,16 +1730,6 @@ class _ChatMessageListState extends State<ChatMessageList> {
     _outerScrollWasUserDriven = false;
   }
 
-  void _syncAgentRunExpansion() {
-    final changed = _agentRunExpansionTracker.sync(
-      messages: widget.messages,
-      activeTaskIds: widget.activeAgentTaskIds,
-    );
-    if (changed) {
-      _scheduleStickToLatest();
-    }
-  }
-
   void _suspendAutoStickForAgentRunToggle() {
     _autoStickToLatest = false;
     _outerScrollWasUserDriven = false;
@@ -1803,15 +1744,8 @@ class _ChatMessageListState extends State<ChatMessageList> {
       return;
     }
     _suspendAutoStickForAgentRunToggle();
-    final wasExpanded = _agentRunExpansionTracker.isTaskExpanded(
-      normalizedTaskId,
-      _manualExpandedAgentRunTaskIds,
-    );
-    _agentRunExpansionTracker.consumeAutoExpandedTask(normalizedTaskId);
-    final nextExpandedTaskIds = Set<String>.from(
-      _manualExpandedAgentRunTaskIds,
-    );
-    if (wasExpanded) {
+    final nextExpandedTaskIds = Set<String>.from(_expandedAgentRunTaskIds);
+    if (nextExpandedTaskIds.contains(normalizedTaskId)) {
       nextExpandedTaskIds.remove(normalizedTaskId);
     } else {
       nextExpandedTaskIds.add(normalizedTaskId);
@@ -2028,7 +1962,6 @@ class _ChatMessageListState extends State<ChatMessageList> {
       taskId: group.taskId,
       visibleMessagesNewestFirst: refresh(group.visibleMessagesNewestFirst),
       processMessagesNewestFirst: refresh(group.processMessagesNewestFirst),
-      isActiveRun: group.isActiveRun,
     );
   }
 
@@ -2204,9 +2137,13 @@ class _ChatMessageListState extends State<ChatMessageList> {
       ),
     );
 
-    final paddedContent = AnimatedPadding(
-      duration: const Duration(milliseconds: 180),
-      curve: Curves.easeOutCubic,
+    // Plain Padding (no implicit tween): reservedBottomInset is already
+    // driven per-frame by the live keyboard inset via the parent's
+    // ComposerKeyboardMetricsTracker, and the composer above this list rides
+    // the keyboard with a plain Padding. Wrapping this in AnimatedPadding
+    // makes the chat content tween toward a target that's already moving,
+    // so the content visibly trails the composer by ~half the tween length.
+    final paddedContent = Padding(
       padding: EdgeInsets.only(bottom: reservedBottomInset),
       child: content,
     );
@@ -2357,9 +2294,6 @@ class VlmInfoPrompt extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final isTakeover = AssistsMessageService.isVlmManualTakeoverPrompt(
-      question,
-    );
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
       padding: const EdgeInsets.all(12),
@@ -2372,17 +2306,9 @@ class VlmInfoPrompt extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            isTakeover
-                ? AppTextLocalizer.choose(
-                    zh: '人工接管中',
-                    en: 'Manual takeover',
-                    locale: Localizations.localeOf(context),
-                  )
-                : AppTextLocalizer.choose(
-                    zh: '需要你的确认',
-                    en: 'Need your confirmation',
-                    locale: Localizations.localeOf(context),
-                  ),
+            Localizations.localeOf(context).languageCode == 'en'
+                ? 'Need your confirmation'
+                : '需要你的确认',
             style: const TextStyle(
               fontSize: 14,
               fontWeight: FontWeight.w600,
@@ -2394,59 +2320,47 @@ class VlmInfoPrompt extends StatelessWidget {
             question,
             style: const TextStyle(fontSize: 13, color: Color(0xFF1D3E7B)),
           ),
-          if (!isTakeover) ...[
-            const SizedBox(height: 10),
-            TextField(
-              controller: controller,
-              maxLines: 2,
-              decoration: InputDecoration(
-                hintText: AppTextLocalizer.choose(
-                  zh: '可选：补充你的操作说明，默认发送"已完成操作，继续执行"',
-                  en: 'Optional: add details. Default sends: Completed action, continue execution',
-                  locale: Localizations.localeOf(context),
-                ),
-                isDense: true,
-                contentPadding: const EdgeInsets.symmetric(
-                  horizontal: 12,
-                  vertical: 8,
-                ),
-                border: const OutlineInputBorder(),
+          const SizedBox(height: 10),
+          TextField(
+            controller: controller,
+            maxLines: 2,
+            decoration: InputDecoration(
+              hintText: Localizations.localeOf(context).languageCode == 'en'
+                  ? 'Optional: add details. Default sends: Completed action, continue execution'
+                  : '可选：补充你的操作说明，默认发送"已完成操作，继续执行"',
+              isDense: true,
+              contentPadding: const EdgeInsets.symmetric(
+                horizontal: 12,
+                vertical: 8,
               ),
+              border: const OutlineInputBorder(),
             ),
-          ],
+          ),
           const SizedBox(height: 10),
           Row(
             children: [
-              if (!isTakeover) ...[
-                Expanded(
-                  child: OutlinedButton(
-                    onPressed: isSubmitting ? null : onDismiss,
-                    child: Text(
-                      AppTextLocalizer.choose(
-                        zh: '稍后再说',
-                        en: 'Later',
-                        locale: Localizations.localeOf(context),
-                      ),
-                    ),
+              Expanded(
+                child: OutlinedButton(
+                  onPressed: isSubmitting ? null : onDismiss,
+                  child: Text(
+                    Localizations.localeOf(context).languageCode == 'en'
+                        ? 'Later'
+                        : '稍后再说',
                   ),
                 ),
-                const SizedBox(width: 12),
-              ],
+              ),
+              const SizedBox(width: 12),
               Expanded(
                 child: ElevatedButton(
                   onPressed: isSubmitting ? null : onSubmit,
                   child: Text(
                     isSubmitting
-                        ? AppTextLocalizer.choose(
-                            zh: isTakeover ? '恢复中...' : '发送中...',
-                            en: isTakeover ? 'Resuming...' : 'Sending...',
-                            locale: Localizations.localeOf(context),
-                          )
-                        : AppTextLocalizer.choose(
-                            zh: '继续执行',
-                            en: 'Continue',
-                            locale: Localizations.localeOf(context),
-                          ),
+                        ? (Localizations.localeOf(context).languageCode == 'en'
+                              ? 'Sending...'
+                              : '发送中...')
+                        : (Localizations.localeOf(context).languageCode == 'en'
+                              ? 'Continue'
+                              : '继续执行'),
                   ),
                 ),
               ),
@@ -2479,8 +2393,9 @@ class ChatInputWrapper extends StatelessWidget {
   final ValueChanged<String>? onRemoveAttachment;
   final FutureOr<void> Function()? onViewTrajectoriesTap;
   final FutureOr<void> Function()? onViewCurrentTrajectoryTap;
+  final FutureOr<void> Function(bool recordDebugScreenshots)?
+  onManualRecordingTap;
   final VoidCallback? onTriggerSlashCommand;
-  final VoidCallback? onTriggerManualRecording;
   final Widget? topBanner;
   final String? selectedModelOverrideId;
   final VoidCallback? onClearSelectedModelOverride;
@@ -2518,8 +2433,8 @@ class ChatInputWrapper extends StatelessWidget {
     this.onRemoveAttachment,
     this.onViewTrajectoriesTap,
     this.onViewCurrentTrajectoryTap,
+    this.onManualRecordingTap,
     this.onTriggerSlashCommand,
-    this.onTriggerManualRecording,
     this.topBanner,
     this.selectedModelOverrideId,
     this.onClearSelectedModelOverride,
@@ -2567,10 +2482,8 @@ class ChatInputWrapper extends StatelessWidget {
             onRemoveAttachment: onRemoveAttachment,
             onViewTrajectoriesTap: onViewTrajectoriesTap,
             onViewCurrentTrajectoryTap: onViewCurrentTrajectoryTap,
+            onManualRecordingTap: onManualRecordingTap,
             onTriggerSlashCommand: onTriggerSlashCommand,
-            onManualRecordingTap: onTriggerManualRecording != null
-                ? (_) => onTriggerManualRecording!()
-                : null,
             selectedModelOverrideId: selectedModelOverrideId,
             onClearSelectedModelOverride: onClearSelectedModelOverride,
             contextUsageRatio: contextUsageRatio,

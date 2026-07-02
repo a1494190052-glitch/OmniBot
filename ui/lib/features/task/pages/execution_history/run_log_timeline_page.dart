@@ -12,7 +12,6 @@ import 'package:ui/features/task/run_log/function_spec.dart';
 import 'package:ui/features/task/pages/scheduled_tasks/widgets/schedule_task_sheet.dart';
 import 'package:ui/l10n/app_text_localizer.dart';
 import 'package:ui/l10n/l10n.dart';
-import 'package:ui/services/agent_tool_card_policy.dart';
 import 'package:ui/services/scheduled_task_scheduler_service.dart';
 import 'package:ui/services/scheduled_task_storage_service.dart';
 import 'package:ui/services/assists_core_service.dart';
@@ -122,14 +121,12 @@ class _StepDetailLoaderState extends State<_StepDetailLoader> {
       );
       if (!mounted) return;
       final cards = _extractTimelineCards(payload);
-      // Match through the same identity policy as live tool cards so runlog
-      // detail links survive adapter differences such as callId vs toolCallId.
       final targetId = widget.cardId.trim().toLowerCase();
       Map<String, dynamic>? matched;
       int matchedIndex = 0;
       for (int i = 0; i < cards.length; i++) {
         final c = cards[i];
-        if (AgentToolCardPolicy.cardMatchesId(c, targetId)) {
+        if (_timelineCardMatchesId(c, targetId)) {
           matched = c;
           matchedIndex = i;
           break;
@@ -273,7 +270,7 @@ class _RunLogTimelinePageState extends State<RunLogTimelinePage> {
           _functionPanelMessage = _text(
             context,
             '已保存为复用指令',
-            'Reusable command saved',
+            'Function saved',
           );
           _functionPanelError = null;
         } else if (_functionPanelStatus == _RunLogFunctionPanelStatus.saved) {
@@ -352,7 +349,7 @@ class _RunLogTimelinePageState extends State<RunLogTimelinePage> {
     final isEnhancingRunLogFunction = _runLogEnhancementJob?.isRunning == true;
     final List<Widget> actions = <Widget>[
       Tooltip(
-        message: _text(context, '执行复用指令', 'Run reusable command'),
+        message: _text(context, '执行复用指令', 'Run Function'),
         child: IconButton(
           key: const ValueKey('run-log-action-replay'),
           icon: _isReplayingRunLog
@@ -374,9 +371,9 @@ class _RunLogTimelinePageState extends State<RunLogTimelinePage> {
       ),
       Tooltip(
         message: savedSpec != null
-            ? _text(context, '查看复用指令', 'View reusable command')
+            ? _text(context, '查看复用指令', 'View Function')
             : convertEligibility.canConvert
-            ? _text(context, '保存为复用指令', 'Save reusable command')
+            ? _text(context, '保存为复用指令', 'Save Function')
             : convertEligibility.message,
         child: IconButton(
           key: const ValueKey('run-log-action-save-function'),
@@ -566,7 +563,7 @@ class _RunLogTimelinePageState extends State<RunLogTimelinePage> {
       _functionPanelMessage = _text(
         context,
         '正在保存复用指令',
-        'Saving reusable command',
+        'Saving Function',
       );
       _functionPanelError = null;
     });
@@ -625,7 +622,7 @@ class _RunLogTimelinePageState extends State<RunLogTimelinePage> {
         _functionPanelMessage = _text(
           context,
           '已保存为复用指令',
-          'Reusable command saved',
+          'Function saved',
         );
         _functionPanelError = null;
       });
@@ -649,18 +646,18 @@ class _RunLogTimelinePageState extends State<RunLogTimelinePage> {
       _isReplayingRunLog = true;
     });
     showToast(
-      _text(context, '正在执行复用指令', 'Running reusable command'),
+      _text(context, '正在执行复用指令', 'Running Function'),
       type: ToastType.info,
     );
     final executionFailedText = _text(
       context,
       '复用指令执行失败',
-      'Reusable command failed',
+      'Function failed',
     );
     final conversionFailedText = _text(
       context,
       '复用指令生成失败',
-      'Reusable command generation failed',
+      'Function generation failed',
     );
 
     try {
@@ -704,7 +701,7 @@ class _RunLogTimelinePageState extends State<RunLogTimelinePage> {
       await showFunctionRunResultSheet(
         context,
         result: result,
-        title: _text(context, '复用指令执行结果', 'Reusable command result'),
+        title: _text(context, '复用指令执行结果', 'Function result'),
         arguments: arguments,
       );
     } catch (e) {
@@ -774,7 +771,7 @@ class _RunLogTimelinePageState extends State<RunLogTimelinePage> {
       _functionPanelMessage = _text(
         context,
         'Agent 已将这个复用指令加入后台增强队列。',
-        'Agent queued this reusable command for background enhancement.',
+        'Agent queued this Function for background enhancement.',
       );
       _functionPanelError = null;
     });
@@ -796,7 +793,7 @@ class _RunLogTimelinePageState extends State<RunLogTimelinePage> {
         _functionPanelMessage = _text(
           context,
           '后台增强启动失败，当前复用指令保持原样。',
-          'Failed to start background enhancement. The current reusable command is unchanged.',
+          'Failed to start background enhancement. The current Function is unchanged.',
         );
         _functionPanelError = e.toString();
       });
@@ -1227,9 +1224,9 @@ class _RunLogFunctionStatusStrip extends StatelessWidget {
   String _title(BuildContext context) {
     switch (status) {
       case _RunLogFunctionPanelStatus.saving:
-        return _text(context, '正在保存复用指令', 'Saving reusable command');
+        return _text(context, '正在保存复用指令', 'Saving Function');
       case _RunLogFunctionPanelStatus.saved:
-        return _text(context, '已保存为复用指令', 'Reusable command saved');
+        return _text(context, '已保存为复用指令', 'Function saved');
       case _RunLogFunctionPanelStatus.enhancing:
         return _text(context, '后台增强中', 'Enhancing in background');
       case _RunLogFunctionPanelStatus.enhanced:
@@ -3065,18 +3062,18 @@ class _ReusableFunctionSpecSheetState
                                       ? _text(
                                           context,
                                           'Agent 增强结果',
-                                          'Agent enhanced reusable command',
+                                          'Agent enhanced Function',
                                         )
                                       : hasRegisteredFunction
                                       ? _text(
                                           context,
                                           '轨迹保存结果',
-                                          'Saved trace command',
+                                          'Saved trace Function',
                                         )
                                       : _text(
                                           context,
                                           '本地生成结果',
-                                          'Locally prepared reusable command',
+                                          'Locally prepared Function',
                                         ),
                                   style: TextStyle(
                                     fontSize: 12,
@@ -3430,7 +3427,7 @@ class _ReusableFunctionSpecSheetState
                                     text: _text(
                                       context,
                                       '复用指令 JSON',
-                                      'Reusable command JSON',
+                                      'Function JSON',
                                     ),
                                   ),
                                   const SizedBox(height: 8),
@@ -3588,7 +3585,7 @@ class _ReusableFunctionSpecSheetState
       _enhancementMessage = _text(
         context,
         'Agent 已将这个复用指令加入后台增强队列。',
-        'Agent queued this reusable command for background enhancement.',
+        'Agent queued this Function for background enhancement.',
       );
       _apiError = null;
     });
@@ -3631,7 +3628,7 @@ class _ReusableFunctionSpecSheetState
         _enhancementMessage = _text(
           context,
           '后台增强启动失败，当前复用指令保持原样。',
-          'Failed to start background enhancement. The current reusable command is unchanged.',
+          'Failed to start background enhancement. The current Function is unchanged.',
         );
         _apiError = e.toString();
       });
@@ -3777,7 +3774,7 @@ class _ReusableFunctionSpecSheetState
         });
         showToast(
           successMessage ??
-              _text(context, '已保存为复用指令', 'Reusable command saved'),
+              _text(context, '已保存为复用指令', 'Function saved'),
           type: ToastType.success,
         );
         return true;
@@ -3798,7 +3795,7 @@ class _ReusableFunctionSpecSheetState
         final message = _text(
           context,
           '注册返回缺少复用指令 ID',
-          'Registration returned no reusable command ID',
+          'Registration returned no Function ID',
         );
         setState(() {
           _isImporting = false;
@@ -3830,7 +3827,7 @@ class _ReusableFunctionSpecSheetState
       if (result.success) {
         showToast(
           successMessage ??
-              _text(context, '已保存为复用指令', 'Reusable command saved'),
+              _text(context, '已保存为复用指令', 'Function saved'),
           type: ToastType.success,
         );
         return true;
@@ -3867,7 +3864,7 @@ class _ReusableFunctionSpecSheetState
     }
     if (functionId.isEmpty) {
       showToast(
-        _text(context, '没有可执行的复用指令', 'Missing runnable command'),
+        _text(context, '没有可执行的复用指令', 'Missing runnable Function'),
         type: ToastType.warning,
       );
       return;
@@ -3897,7 +3894,7 @@ class _ReusableFunctionSpecSheetState
       await showFunctionRunResultSheet(
         context,
         result: result,
-        title: _text(context, '复用指令执行结果', 'Reusable command result'),
+        title: _text(context, '复用指令执行结果', 'Function result'),
         arguments: _defaultArguments,
       );
     } catch (e) {
@@ -3912,7 +3909,7 @@ class _ReusableFunctionSpecSheetState
 
   Future<void> _publishFunctionForAgent() async {
     await _registerFunction(
-      successMessage: _text(context, '已注册为复用指令', 'Reusable command registered'),
+      successMessage: _text(context, '已注册为复用指令', 'Function registered'),
       agentVisible: true,
     );
   }
@@ -3940,7 +3937,7 @@ class _ReusableFunctionSpecSheetState
           _text(
             context,
             '复用指令保存失败，无法转定时任务',
-            'Reusable command registration failed',
+            'Function registration failed',
           ),
           type: ToastType.error,
         );
@@ -5650,7 +5647,7 @@ class _EnhancementStatusBox extends StatelessWidget {
         return _text(
           context,
           '已产生可用增强并写回复用指令库。',
-          'Useful enhancement was produced and written back to the reusable command library.',
+          'Useful enhancement was produced and written back to the Function library.',
         );
       case FunctionEnhancementStatus.partial:
         return _text(
@@ -5662,13 +5659,13 @@ class _EnhancementStatusBox extends StatelessWidget {
         return _text(
           context,
           'Agent 已检查当前复用指令，没有安全可应用的变化。',
-          'Agent checked the reusable command and found no safe applicable change.',
+          'Agent checked the Function and found no safe applicable change.',
         );
       case FunctionEnhancementStatus.failed:
         return _text(
           context,
           '没有写入增强结果，当前复用指令保持原样。',
-          'No enhancement was written. The current reusable command is unchanged.',
+          'No enhancement was written. The current Function is unchanged.',
         );
       case FunctionEnhancementStatus.none:
         return '';
@@ -5698,7 +5695,7 @@ class _FunctionApiStatusBox extends StatelessWidget {
         : _errorColor(context);
     final lines = <String>[
       if (functionId.isNotEmpty)
-        _text(context, '复用指令：$functionId', 'Reusable command: $functionId'),
+        _text(context, '复用指令：$functionId', 'Function: $functionId'),
       if (importResult != null) _importStatusText(context, importResult!),
       if (runResult != null) _runStatusText(context, runResult),
     ];
@@ -5770,7 +5767,7 @@ class _FunctionApiStatusBox extends StatelessWidget {
     return _text(
       context,
       count > 0 ? '保存：已保存 $count 条复用指令' : '保存：已保存',
-      count > 0 ? 'Save: $count reusable commands saved' : 'Save: saved',
+      count > 0 ? 'Save: $count Functions saved' : 'Save: saved',
     );
   }
 
@@ -7554,7 +7551,7 @@ _RunLogStepSource _runLogStepSource(_RunLogStepSnapshot snapshot) {
   if (_containsAny(evidence, const [
     'omniflow_replay',
     'oob_omniflow_replay',
-    'call_tool_runner',
+    'function_runner',
     'completed_local',
   ])) {
     return _RunLogStepSource.omniflowReplay;
@@ -7669,7 +7666,7 @@ String _runLogStepSourceLabel(BuildContext context, _RunLogStepSource source) {
     case _RunLogStepSource.human:
       return _text(context, '人类', 'Human');
     case _RunLogStepSource.omniflowReplay:
-      return _text(context, '复用指令', 'Reusable command');
+      return _text(context, '复用指令', 'Function');
     case _RunLogStepSource.route:
       return _text(context, '工具调用', 'Tool call');
   }
@@ -7682,7 +7679,7 @@ String _runLogStepDetailTitle(BuildContext context, _RunLogStepSource source) {
     case _RunLogStepSource.human:
       return _text(context, '人类接管记录', 'Human takeover');
     case _RunLogStepSource.omniflowReplay:
-      return _text(context, '复用指令执行记录', 'Reusable command run');
+      return _text(context, '复用指令执行记录', 'Function run');
     case _RunLogStepSource.route:
       return _text(context, '工具调用', 'Tool call');
   }
@@ -7698,7 +7695,7 @@ String _runLogStepActionPanelTitle(
     case _RunLogStepSource.human:
       return _text(context, '人类操作', 'Human action');
     case _RunLogStepSource.omniflowReplay:
-      return _text(context, '复用指令动作', 'Reusable command action');
+      return _text(context, '复用指令动作', 'Function action');
     case _RunLogStepSource.route:
       return _text(context, '工具调用', 'Tool call');
   }
@@ -7791,7 +7788,7 @@ String _vlmActionLabel(BuildContext context, String raw) {
     case 'press_key':
       return _text(context, '按键', 'Press key');
     case 'call_tool':
-      return _text(context, '复用指令', 'Reusable command');
+      return _text(context, '复用指令', 'Function');
     case 'wait':
       return _text(context, '等待', 'Wait');
     case 'record':
@@ -8495,7 +8492,42 @@ dynamic _firstPresent(List<dynamic> values) {
 }
 
 String _firstNonBlank(List<dynamic> values) {
-  return AgentToolCardPolicy.firstNonBlank(values);
+  for (final value in values) {
+    final text = value?.toString().trim() ?? '';
+    if (text.isNotEmpty) {
+      return text;
+    }
+  }
+  return '';
+}
+
+bool _timelineCardMatchesId(Map<String, dynamic> card, String targetId) {
+  final normalizedTarget = targetId.trim().toLowerCase();
+  if (normalizedTarget.isEmpty) {
+    return false;
+  }
+  final toolCall = _asStringKeyMap(card['toolCall']);
+  final candidates = <dynamic>[
+    card['cardId'],
+    card['card_id'],
+    card['id'],
+    card['toolCallId'],
+    card['tool_call_id'],
+    card['callId'],
+    card['call_id'],
+    card['operationId'],
+    card['operation_id'],
+    toolCall['id'],
+    toolCall['toolCallId'],
+    toolCall['tool_call_id'],
+  ];
+  for (final candidate in candidates) {
+    if ((candidate?.toString().trim().toLowerCase() ?? '') ==
+        normalizedTarget) {
+      return true;
+    }
+  }
+  return false;
 }
 
 String _stateScreenshotPath(Map<String, dynamic> state) {
@@ -8639,7 +8671,7 @@ String _userVisibleJsonKey(String key) => _userVisibleString(key);
 String _userVisibleString(String value) {
   return value
       .replaceAll(RegExp(r'RunLog', caseSensitive: false), 'execution_record')
-      .replaceAll(RegExp(r'OmniFlow', caseSensitive: false), 'reusable_command')
+      .replaceAll(RegExp(r'OmniFlow', caseSensitive: false), 'function')
       .replaceAll(RegExp(r'\bVLM\b', caseSensitive: false), 'automatic')
       .replaceAll(RegExp('compile', caseSensitive: false), 'execution')
       .replaceAll('编译', '执行')
@@ -8647,10 +8679,8 @@ String _userVisibleString(String value) {
       .replaceAll(RegExp(r'参考\s*function', caseSensitive: false), '参考复用指令')
       .replaceAll(
         RegExp(r'reusable[_\s-]*function', caseSensitive: false),
-        'reusable_command',
+        'function',
       )
-      .replaceAll(RegExp(r'Function'), 'Command')
-      .replaceAll(RegExp(r'function'), 'command')
       .replaceAll('函数', '复用指令');
 }
 

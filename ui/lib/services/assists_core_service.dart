@@ -19,10 +19,8 @@ typedef TaskFinishCallback = void Function();
 typedef ChatTaskMessageCallBack =
     void Function(String taskID, String content, String? type);
 //消息回执结束
-typedef ChatTaskMessageEndCallBack = void Function(
-  String taskID, {
-  Map<String, dynamic>? turnUsage,
-});
+typedef ChatTaskMessageEndCallBack =
+    void Function(String taskID, {Map<String, dynamic>? turnUsage});
 //VLM任务结束
 typedef VLMTaskFinishEndCallBack = void Function(String? taskId);
 //普通任务结束
@@ -805,16 +803,17 @@ class UtgManualRunResult {
           .trim();
 
   String get executionStatus {
-    final status = (terminalState['execution_status'] ??
-            terminalState['executionStatus'] ??
-            rawJson['execution_status'] ??
-            rawJson['executionStatus'] ??
-            context['execution_status'] ??
-            context['executionStatus'] ??
-            terminalState['status'] ??
-            '')
-        .toString()
-        .trim();
+    final status =
+        (terminalState['execution_status'] ??
+                terminalState['executionStatus'] ??
+                rawJson['execution_status'] ??
+                rawJson['executionStatus'] ??
+                context['execution_status'] ??
+                context['executionStatus'] ??
+                terminalState['status'] ??
+                '')
+            .toString()
+            .trim();
     return status;
   }
 
@@ -1900,38 +1899,72 @@ class AgentToolEventData {
           )
         : null;
     return AgentToolEventData(
-      taskId: (raw['taskId'] ?? '').toString(),
-      cardId: (raw['cardId'] ?? '').toString(),
+      taskId: _firstString(raw, const ['taskId', 'task_id']),
+      cardId: _firstString(raw, const ['cardId', 'card_id']),
       toolCallId: (raw['toolCallId'] ?? raw['tool_call_id'] ?? '').toString(),
-      toolName: normalized?.toolName ?? (raw['toolName'] ?? '').toString(),
+      toolName:
+          normalized?.toolName ??
+          _firstString(raw, const ['toolName', 'tool_name']),
       displayName:
           normalized?.displayName ??
-          (raw['displayName'] ?? raw['toolName'] ?? '').toString(),
-      toolTitle: normalized?.toolTitle ?? (raw['toolTitle'] ?? '').toString(),
+          _firstString(raw, const [
+            'displayName',
+            'display_name',
+            'toolName',
+            'tool_name',
+          ]),
+      toolTitle:
+          normalized?.toolTitle ??
+          _firstString(raw, const ['toolTitle', 'tool_title']),
       toolType:
-          normalized?.toolType ?? (raw['toolType'] ?? 'builtin').toString(),
-      serverName: normalized?.serverName ?? raw['serverName']?.toString(),
+          normalized?.toolType ??
+          _firstString(raw, const [
+            'toolType',
+            'tool_type',
+          ], fallback: 'builtin'),
+      serverName:
+          normalized?.serverName ??
+          _firstNullableString(raw, const ['serverName', 'server_name']),
       status: normalized?.status ?? (raw['status'] ?? '').toString(),
       argsJson:
           normalized?.argsJson ??
-          (raw['argsJson'] ?? raw['args'] ?? '').toString(),
+          _firstString(raw, const ['argsJson', 'args_json', 'args']),
       progress: normalized?.progress ?? (raw['progress'] ?? '').toString(),
       summary: normalized?.summary ?? (raw['summary'] ?? '').toString(),
       resultPreviewJson:
           normalized?.resultPreviewJson ??
-          (raw['resultPreviewJson'] ?? '').toString(),
+          _firstString(raw, const ['resultPreviewJson', 'result_preview_json']),
       rawResultJson:
-          normalized?.rawResultJson ?? (raw['rawResultJson'] ?? '').toString(),
+          normalized?.rawResultJson ??
+          _firstString(raw, const ['rawResultJson', 'raw_result_json']),
       terminalOutput:
           normalized?.terminalOutput ??
-          (raw['terminalOutput'] ?? '').toString(),
-      terminalOutputDelta: (raw['terminalOutputDelta'] ?? '').toString(),
-      terminalSessionId: raw['terminalSessionId']?.toString(),
-      terminalStreamState: (raw['terminalStreamState'] ?? '').toString(),
+          _firstString(raw, const ['terminalOutput', 'terminal_output']),
+      terminalOutputDelta: _firstString(raw, const [
+        'terminalOutputDelta',
+        'terminal_output_delta',
+      ]),
+      terminalSessionId: _firstNullableString(raw, const [
+        'terminalSessionId',
+        'terminal_session_id',
+      ]),
+      terminalStreamState: _firstString(raw, const [
+        'terminalStreamState',
+        'terminal_stream_state',
+      ]),
       raw: raw,
-      workspaceId: raw['workspaceId']?.toString(),
-      interruptedBy: raw['interruptedBy']?.toString(),
-      interruptionReason: raw['interruptionReason']?.toString(),
+      workspaceId: _firstNullableString(raw, const [
+        'workspaceId',
+        'workspace_id',
+      ]),
+      interruptedBy: _firstNullableString(raw, const [
+        'interruptedBy',
+        'interrupted_by',
+      ]),
+      interruptionReason: _firstNullableString(raw, const [
+        'interruptionReason',
+        'interruption_reason',
+      ]),
       artifacts: ((raw['artifacts'] as List?) ?? const [])
           .whereType<Map>()
           .map((item) => item.map((k, v) => MapEntry(k.toString(), v)))
@@ -1951,6 +1984,31 @@ class AgentToolEventData {
   static String? _asNonEmptyString(dynamic value) {
     final text = value?.toString().trim() ?? '';
     return text.isEmpty ? null : text;
+  }
+
+  static String _firstString(
+    Map<String, dynamic> raw,
+    List<String> keys, {
+    String fallback = '',
+  }) {
+    return _firstNullableString(raw, keys) ?? fallback;
+  }
+
+  static String? _firstNullableString(
+    Map<String, dynamic> raw,
+    List<String> keys,
+  ) {
+    for (final key in keys) {
+      final value = raw[key];
+      if (value == null) {
+        continue;
+      }
+      final text = value.toString();
+      if (text.trim().isNotEmpty) {
+        return text;
+      }
+    }
+    return null;
   }
 
   static List<Map<String, dynamic>> _readSubagentEvents(dynamic value) {
@@ -2028,9 +2086,7 @@ class AssistsMessageService {
   _functionRunProgressController =
       StreamController<FunctionRunProgressEvent>.broadcast();
   static final ValueNotifier<FunctionRunProgressEvent?>
-  functionRunProgressNotifier = ValueNotifier<FunctionRunProgressEvent?>(
-    null,
-  );
+  functionRunProgressNotifier = ValueNotifier<FunctionRunProgressEvent?>(null);
   // IM/WeChat/Telegram 等外部入口直推的用户消息：
   // 原生侧在写库后立刻 invokeMethod 发过来，runtime 直接插入气泡，
   // 不依赖 messagesChanged + DB reload 的事件链。
@@ -2065,18 +2121,12 @@ class AssistsMessageService {
   static void debugDispatchFunctionRunProgressForTest(
     Map<String, dynamic> payload,
   ) {
-    dispatchFunctionRunProgressEvent(
-      FunctionRunProgressEvent.fromMap(payload),
-    );
+    dispatchFunctionRunProgressEvent(FunctionRunProgressEvent.fromMap(payload));
   }
 
-  static void dispatchFunctionRunProgressEvent(
-    FunctionRunProgressEvent event,
-  ) {
+  static void dispatchFunctionRunProgressEvent(FunctionRunProgressEvent event) {
     _functionRunProgressController.add(event);
-    functionRunProgressNotifier.value = event.shouldShowShortcut
-        ? event
-        : null;
+    functionRunProgressNotifier.value = event.shouldShowShortcut ? event : null;
   }
 
   static void initialize() {
@@ -3154,15 +3204,15 @@ class AssistsMessageService {
       throw Exception('function_id 为空，无法注册 Function');
     }
 
-    final result = await assistCore.invokeMethod(
-      'registerFunction',
-      {'function_spec': spec},
-    );
+    final result = await assistCore.invokeMethod('registerFunction', {
+      'function_spec': spec,
+    });
     return UtgFunctionMutationResult.fromMap(_jsonSafeDynamicMap(result));
   }
 
   static Future<Map<String, dynamic>> updateFunction({
-    required String functionId,
+    String? functionId,
+    Map<String, dynamic>? functionSpec,
     String? runId,
     String mode = 'enhance',
     Map<String, dynamic>? analysis,
@@ -3170,13 +3220,18 @@ class AssistsMessageService {
     Map<String, dynamic> extraArgs = const <String, dynamic>{},
     bool autoAnalyzeWithModel = false,
   }) async {
-    final normalizedFunctionId = functionId.trim();
-    if (normalizedFunctionId.isEmpty) {
-      throw Exception('function_id 为空，无法更新 Function');
+    final normalizedFunctionId = functionId?.trim() ?? '';
+    final normalizedFunctionSpec = functionSpec == null
+        ? const <String, dynamic>{}
+        : _jsonSafeMap(functionSpec);
+    if (normalizedFunctionId.isEmpty && normalizedFunctionSpec.isEmpty) {
+      throw Exception('function_id 或 function_spec 为空，无法更新 Function');
     }
     final args = <String, dynamic>{
       ..._jsonSafeMap(extraArgs),
-      'function_id': normalizedFunctionId,
+      if (normalizedFunctionId.isNotEmpty) 'function_id': normalizedFunctionId,
+      if (normalizedFunctionSpec.isNotEmpty)
+        'function_spec': normalizedFunctionSpec,
       'mode': mode.trim().isEmpty ? 'enhance' : mode.trim(),
       'auto_analyze_with_model': autoAnalyzeWithModel,
       if (runId != null && runId.trim().isNotEmpty) 'run_id': runId.trim(),
@@ -3282,9 +3337,7 @@ class AssistsMessageService {
     return _jsonSafeDynamicMap(result);
   }
 
-  static Future<Map<String, dynamic>> deleteFunction(
-    String functionId,
-  ) async {
+  static Future<Map<String, dynamic>> deleteFunction(String functionId) async {
     final normalized = functionId.trim();
     if (normalized.isEmpty) {
       return {'success': false, 'error': 'functionId is empty'};
@@ -3295,9 +3348,7 @@ class AssistsMessageService {
     return _jsonSafeDynamicMap(result);
   }
 
-  static Future<Map<String, dynamic>?> getFunction(
-    String functionId,
-  ) async {
+  static Future<Map<String, dynamic>?> getFunction(String functionId) async {
     final normalized = functionId.trim();
     if (normalized.isEmpty) {
       return null;
@@ -3387,9 +3438,7 @@ class AssistsMessageService {
     if (frontendRunId != null && frontendRunId.trim().isNotEmpty) {
       args['frontendRunId'] = frontendRunId.trim();
     }
-    final result = await assistCore.invokeMethod('runFunction', {
-      ...args,
-    });
+    final result = await assistCore.invokeMethod('runFunction', {...args});
     return UtgManualRunResult.fromMap(_jsonSafeDynamicMap(result));
   }
 

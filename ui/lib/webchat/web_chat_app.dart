@@ -14,12 +14,7 @@ import 'package:ui/models/agent_stream_event.dart';
 import 'package:ui/models/chat_message_model.dart';
 import 'package:ui/models/conversation_model.dart';
 import 'package:ui/l10n/l10n.dart';
-import 'package:ui/l10n/app_text_localizer.dart';
-import 'package:ui/features/home/pages/chat/utils/agent_run_timeline.dart';
-import 'package:ui/services/agent_tool_card_projection.dart';
-import 'package:ui/services/agent_stream_run_projection.dart';
-import 'package:ui/services/agent_stream_meta.dart';
-import 'package:ui/services/agent_tool_card_policy.dart' as tool_policy;
+import 'package:ui/l10n/legacy_text_localizer.dart';
 import 'package:ui/webchat/web_backends.dart';
 import 'package:ui/webchat/web_chat_cards.dart';
 import 'package:ui/webchat/web_chat_fonts.dart';
@@ -85,7 +80,7 @@ class WebChatApp extends StatelessWidget {
         final resolvedLocale = languageCode == 'en'
             ? const Locale('en')
             : const Locale('zh');
-        AppTextLocalizer.setResolvedLocale(resolvedLocale);
+        LegacyTextLocalizer.setResolvedLocale(resolvedLocale);
         return resolvedLocale;
       },
       theme: ThemeData(
@@ -181,10 +176,6 @@ class _WebChatHomeState extends State<_WebChatHome> {
   ConversationModel? _selectedConversation;
   List<ChatMessageModel> _messages = <ChatMessageModel>[];
   final List<_PendingAttachment> _pendingAttachments = <_PendingAttachment>[];
-  final Set<String> _expandedAgentRunTaskIds = <String>{};
-  final Set<String> _activeAgentRunTaskIds = <String>{};
-  final AgentRunCompletionExpansionTracker _agentRunExpansionTracker =
-      AgentRunCompletionExpansionTracker();
   List<Map<String, dynamic>> _workspaceItems = <Map<String, dynamic>>[];
   Map<String, dynamic>? _workspaceInfo;
   Map<String, dynamic>? _browserSnapshot;
@@ -372,9 +363,6 @@ class _WebChatHomeState extends State<_WebChatHome> {
     } else {
       setState(() {
         _messages = <ChatMessageModel>[];
-        _expandedAgentRunTaskIds.clear();
-        _activeAgentRunTaskIds.clear();
-        _agentRunExpansionTracker.clear();
       });
     }
   }
@@ -386,15 +374,6 @@ class _WebChatHomeState extends State<_WebChatHome> {
     );
     if (!mounted) return;
     setState(() {
-      final isSwitchingConversation =
-          _selectedConversation == null ||
-          _selectedConversation!.id != conversation.id ||
-          _selectedConversation!.mode != conversation.mode;
-      if (isSwitchingConversation) {
-        _expandedAgentRunTaskIds.clear();
-        _activeAgentRunTaskIds.clear();
-        _agentRunExpansionTracker.clear();
-      }
       _selectedConversation = conversation;
       _messages = messages;
     });
@@ -404,7 +383,7 @@ class _WebChatHomeState extends State<_WebChatHome> {
 
   Future<void> _createConversation() async {
     final conversation = await _client.createConversation(
-      title: AppTextLocalizer.choose(en: 'New conversation', zh: '新对话'),
+      title: LegacyTextLocalizer.isEnglish ? 'New conversation' : '新对话',
       mode: ConversationMode.normal,
     );
     setState(() {
@@ -432,7 +411,7 @@ class _WebChatHomeState extends State<_WebChatHome> {
       if (conversation == null) {
         conversation = await _client.createConversation(
           title: text.isEmpty
-              ? (AppTextLocalizer.choose(en: 'New conversation', zh: '新对话'))
+              ? (LegacyTextLocalizer.isEnglish ? 'New conversation' : '新对话')
               : text,
           mode: ConversationMode.normal,
         );
@@ -747,7 +726,7 @@ class _WebChatHomeState extends State<_WebChatHome> {
       if (cardData == null) {
         continue;
       }
-      if (!tool_policy.AgentToolCardPolicy.isToolCard(cardData)) {
+      if ((cardData['type'] ?? '').toString() != 'agent_tool_summary') {
         continue;
       }
       if ((cardData['toolType'] ?? '').toString() == 'browser') {
@@ -854,11 +833,6 @@ class _WebChatHomeState extends State<_WebChatHome> {
       return;
     }
 
-    final didApplyStreamUpdate = _applyAgentStreamEventToMessages(event);
-    _updateActiveAgentRunTask(event);
-    if (didApplyStreamUpdate) {
-      _scrollChatToBottom();
-    }
     switch (event.kind) {
       case AgentStreamEventKind.toolCompleted:
         if ((event.raw['toolType'] ?? '').toString().trim() == 'browser') {
@@ -885,346 +859,8 @@ class _WebChatHomeState extends State<_WebChatHome> {
       case AgentStreamEventKind.toolStarted:
       case AgentStreamEventKind.toolProgress:
       case AgentStreamEventKind.permissionRequired:
-      case AgentStreamEventKind.uiCard:
         break;
     }
-  }
-
-  bool _applyAgentStreamEventToMessages(AgentStreamEvent event) {
-    if (!_isAgentStreamEventForSelectedConversation(event)) {
-      return false;
-    }
-
-    var didChange = false;
-    setState(() {
-      switch (event.kind) {
-        case AgentStreamEventKind.thinkingStarted:
-        case AgentStreamEventKind.thinkingSnapshot:
-        case AgentStreamEventKind.retrying:
-          _upsertWebThinkingCard(event);
-          didChange = true;
-          break;
-        case AgentStreamEventKind.textSnapshot:
-          didChange = _upsertWebAssistantMessage(
-            event,
-            text: event.text,
-            isFinal: event.isFinal,
-          );
-          break;
-        case AgentStreamEventKind.toolStarted:
-        case AgentStreamEventKind.toolProgress:
-        case AgentStreamEventKind.toolCompleted:
-          _upsertWebToolCard(event);
-          didChange = true;
-          break;
-        case AgentStreamEventKind.uiCard:
-          didChange = _upsertWebUiCards(event);
-          break;
-        case AgentStreamEventKind.clarifyRequired:
-          didChange = _upsertWebAssistantMessage(
-            event,
-            text: event.question.trim().isNotEmpty
-                ? event.question
-                : event.text,
-            isFinal: true,
-          );
-          break;
-        case AgentStreamEventKind.permissionRequired:
-          didChange = _upsertWebAssistantMessage(
-            event,
-            text: event.text,
-            isFinal: true,
-          );
-          break;
-        case AgentStreamEventKind.error:
-          didChange = _upsertWebErrorMessage(event);
-          break;
-        case AgentStreamEventKind.completed:
-          _finalizeWebThinkingCards(event.taskId);
-          didChange = true;
-          break;
-      }
-    });
-    return didChange;
-  }
-
-  bool _isAgentStreamEventForSelectedConversation(AgentStreamEvent event) {
-    final conversation = _selectedConversation;
-    if (conversation == null) {
-      return false;
-    }
-    final eventConversationKey = _conversationKeyFromPayload(event.raw);
-    return eventConversationKey == null ||
-        eventConversationKey == _conversationKey(conversation);
-  }
-
-  void _upsertWebThinkingCard(AgentStreamEvent event) {
-    final cardId = (event.entryId ?? '').trim().isNotEmpty
-        ? event.entryId!.trim()
-        : '${event.taskId}-thinking';
-    _messages.removeWhere((message) {
-      return AgentStreamRunProjection.shouldDropEmptyBaseThinkingPlaceholder(
-        message,
-        taskId: event.taskId,
-        nextThinkingEntryId: cardId,
-      );
-    });
-    final index = _messages.indexWhere((message) => message.id == cardId);
-    final existing = index == -1 ? null : _messages[index];
-    final existingCardData = Map<String, dynamic>.from(
-      existing?.cardData ?? const <String, dynamic>{},
-    );
-    final nextThinking = event.thinking.trim().isNotEmpty
-        ? event.thinking
-        : (existingCardData['thinkingContent'] ?? '').toString();
-    if (nextThinking.trim().isEmpty &&
-        existing == null &&
-        !AgentStreamRunProjection.shouldCreateThinkingPlaceholder(event)) {
-      return;
-    }
-    final startTime =
-        _asInt(existingCardData['startTime']) ?? event.createdAtMs;
-    final cardData = <String, dynamic>{
-      ...existingCardData,
-      'type': 'deep_thinking',
-      'isLoading': true,
-      'thinkingContent': nextThinking,
-      'stage': event.stage <= 0 ? 1 : event.stage,
-      'taskID': event.taskId,
-      'cardId': cardId,
-      'startTime': startTime,
-      'endTime': null,
-      'isCollapsible': true,
-    };
-    final message = ChatMessageModel.cardMessage(
-      cardData,
-      id: cardId,
-      streamMeta: buildAgentStreamMetaFromEvent(event),
-    ).copyWith(createAt: _eventCreatedAt(event));
-    if (index == -1) {
-      _messages.add(message);
-    } else {
-      _messages[index] = existing!.copyWith(
-        content: {'cardData': cardData, 'id': cardId},
-        streamMeta: buildAgentStreamMetaFromEvent(event),
-      );
-    }
-  }
-
-  bool _upsertWebAssistantMessage(
-    AgentStreamEvent event, {
-    required String text,
-    required bool isFinal,
-    bool isError = false,
-    String? messageIdOverride,
-  }) {
-    final overrideId = messageIdOverride?.trim() ?? '';
-    final messageId = overrideId.isNotEmpty
-        ? overrideId
-        : AgentStreamRunProjection.resolveAssistantMessageId(_messages, event);
-    final normalizedText = text.trim();
-    if (messageId.isEmpty || normalizedText.isEmpty) {
-      return false;
-    }
-    _finalizeWebThinkingCards(event.taskId);
-    final streamMeta = ensureAgentStreamMessageMeta(
-      buildAgentStreamMetaFromEvent(event),
-      entryId: messageId,
-      isFinal: isFinal,
-    );
-    final index = _messages.indexWhere((message) => message.id == messageId);
-    final content = <String, dynamic>{
-      'text': normalizedText,
-      'id': messageId,
-      'renderMarkdown': true,
-      if (isFinal && event.prefillTokensPerSecond != null)
-        'prefillTokensPerSecond': event.prefillTokensPerSecond,
-      if (isFinal && event.decodeTokensPerSecond != null)
-        'decodeTokensPerSecond': event.decodeTokensPerSecond,
-    };
-    if (index == -1) {
-      _messages.add(
-        ChatMessageModel(
-          id: messageId,
-          type: 1,
-          user: 2,
-          content: content,
-          isError: isError,
-          streamMeta: streamMeta,
-          createAt: _eventCreatedAt(event),
-        ),
-      );
-      return true;
-    }
-    _messages[index] = _messages[index].copyWith(
-      content: content,
-      isError: isError,
-      streamMeta: streamMeta,
-    );
-    return true;
-  }
-
-  bool _upsertWebErrorMessage(AgentStreamEvent event) {
-    final projection = AgentStreamRunProjection.resolveError(event, _messages);
-    return _upsertWebAssistantMessage(
-      event,
-      text: projection.text,
-      isFinal: true,
-      isError: projection.isError,
-      messageIdOverride: projection.messageId,
-    );
-  }
-
-  void _upsertWebToolCard(AgentStreamEvent event) {
-    _finalizeWebThinkingCards(event.taskId);
-    final projection = AgentToolCardProjection.projectStreamEvent(
-      event: event,
-      messages: _messages,
-      defaultRunningSummary: AppTextLocalizer.choose(
-        en: 'Calling tool',
-        zh: '正在调用工具',
-      ),
-      streamMeta: buildAgentStreamMetaFromEvent(event),
-    );
-    if (projection == null) {
-      return;
-    }
-    if (projection.isInsert) {
-      _messages.add(
-        ChatMessageModel.cardMessage(
-          projection.cardData,
-          id: projection.cardId,
-          streamMeta: projection.streamMeta,
-        ).copyWith(createAt: _eventCreatedAt(event)),
-      );
-    } else {
-      _messages[projection.existingIndex] = _messages[projection.existingIndex]
-          .copyWith(
-            id: projection.cardId,
-            content: {'cardData': projection.cardData, 'id': projection.cardId},
-            streamMeta: projection.streamMeta,
-          );
-    }
-  }
-
-  bool _upsertWebUiCards(AgentStreamEvent event) {
-    final cards = extractAgentStreamUiCards(event);
-    if (cards.isEmpty) {
-      return false;
-    }
-    _finalizeWebThinkingCards(event.taskId);
-    for (final card in cards) {
-      _upsertWebUiCard(event: event, card: card);
-    }
-    return true;
-  }
-
-  void _upsertWebUiCard({
-    required AgentStreamEvent event,
-    required AgentStreamUiCard card,
-  }) {
-    final streamMeta = ensureAgentStreamMessageMeta(
-      buildAgentStreamMetaFromEvent(event),
-      entryId: card.id,
-    );
-    final index = _messages.indexWhere(
-      (message) =>
-          message.id == card.id ||
-          (message.cardData?['cardId'] ?? '').toString().trim() == card.id,
-    );
-    if (index == -1) {
-      _messages.add(
-        ChatMessageModel.cardMessage(
-          card.cardData,
-          id: card.id,
-          streamMeta: streamMeta,
-        ).copyWith(createAt: _eventCreatedAt(event)),
-      );
-      return;
-    }
-    final existingCardData = Map<String, dynamic>.from(
-      _messages[index].cardData ?? const <String, dynamic>{},
-    );
-    _messages[index] = _messages[index].copyWith(
-      content: {
-        'cardData': <String, dynamic>{...existingCardData, ...card.cardData},
-        'id': card.id,
-      },
-      streamMeta: streamMeta,
-    );
-  }
-
-  void _finalizeWebThinkingCards(String taskId) {
-    final now = DateTime.now().millisecondsSinceEpoch;
-    for (var index = 0; index < _messages.length; index++) {
-      final message = _messages[index];
-      if (!_isWebThinkingCardForTask(message, taskId)) {
-        continue;
-      }
-      final cardData = Map<String, dynamic>.from(message.cardData ?? const {});
-      cardData['isLoading'] = false;
-      cardData['stage'] = 4;
-      cardData['endTime'] ??= now;
-      _messages[index] = message.copyWith(
-        content: {'cardData': cardData, 'id': message.id},
-      );
-    }
-  }
-
-  bool _isWebThinkingCardForTask(ChatMessageModel message, String taskId) {
-    final cardData = message.cardData;
-    if (message.type != 2 ||
-        (cardData?['type'] ?? '').toString() != 'deep_thinking') {
-      return false;
-    }
-    final fromCard = (cardData?['taskID'] ?? '').toString().trim();
-    if (fromCard == taskId) {
-      return true;
-    }
-    return (message.streamMeta?['parentTaskId'] ?? '').toString().trim() ==
-        taskId;
-  }
-
-  DateTime _eventCreatedAt(AgentStreamEvent event) {
-    return DateTime.fromMillisecondsSinceEpoch(event.createdAtMs);
-  }
-
-  int? _asInt(dynamic value) {
-    if (value is int) return value;
-    if (value is num) return value.toInt();
-    if (value is String) return int.tryParse(value.trim());
-    return null;
-  }
-
-  void _updateActiveAgentRunTask(AgentStreamEvent event) {
-    final taskId = event.taskId.trim();
-    if (taskId.isEmpty) {
-      return;
-    }
-    final conversation = _selectedConversation;
-    final eventConversationKey = _conversationKeyFromPayload(event.raw);
-    if (conversation != null &&
-        eventConversationKey != null &&
-        eventConversationKey != _conversationKey(conversation)) {
-      return;
-    }
-    final shouldTrack = AgentStreamRunProjection.shouldTrackActiveRun(
-      event.kind,
-    );
-    if (!mounted) {
-      return;
-    }
-    setState(() {
-      if (shouldTrack) {
-        _activeAgentRunTaskIds.add(taskId);
-      } else {
-        _activeAgentRunTaskIds.remove(taskId);
-      }
-      _agentRunExpansionTracker.sync(
-        messages: _displayMessages,
-        activeTaskIds: _activeAgentRunTaskIds,
-      );
-    });
   }
 
   String? _conversationKeyFromPayload(Map<String, dynamic> payload) {
@@ -1265,241 +901,8 @@ class _WebChatHomeState extends State<_WebChatHome> {
       return _messages.reversed.toList();
     }
     final merged = <ChatMessageModel>[..._messages];
-    merged.sort(AgentStreamRunProjection.compareMessagesOldestFirst);
+    merged.sort((a, b) => a.createAt.compareTo(b.createAt));
     return merged;
-  }
-
-  List<AgentRunTimelineEntry> _displayTimelineEntries() {
-    final newestFirstMessages = _displayMessages.reversed.toList(
-      growable: false,
-    );
-    final newestFirstEntries = buildAgentRunTimelineEntries(
-      newestFirstMessages,
-      activeTaskIds: _activeAgentRunTaskIds,
-    );
-    return newestFirstEntries.reversed.toList(growable: false);
-  }
-
-  void _toggleAgentRunGroup(String taskId) {
-    final normalizedTaskId = taskId.trim();
-    if (normalizedTaskId.isEmpty) {
-      return;
-    }
-    setState(() {
-      final wasExpanded = _agentRunExpansionTracker.isTaskExpanded(
-        normalizedTaskId,
-        _expandedAgentRunTaskIds,
-      );
-      _agentRunExpansionTracker.consumeAutoExpandedTask(normalizedTaskId);
-      if (wasExpanded) {
-        _expandedAgentRunTaskIds.remove(normalizedTaskId);
-      } else {
-        _expandedAgentRunTaskIds.add(normalizedTaskId);
-      }
-    });
-  }
-
-  Widget _buildTimelineList(BuildContext context) {
-    final entries = _displayTimelineEntries();
-    return ListView.builder(
-      controller: _chatScrollController,
-      padding: const EdgeInsets.fromLTRB(16, 0, 16, 0),
-      itemCount: entries.length,
-      itemBuilder: (context, index) {
-        final entry = entries[index];
-        final isOldestEntry = index == 0;
-        final needTopPadding = isOldestEntry && !entry.isUserMessage;
-        return Padding(
-          padding: EdgeInsets.only(
-            top: needTopPadding ? 24 : 0,
-            bottom: index == entries.length - 1 ? 10 : 0,
-          ),
-          child: entry.group == null
-              ? _buildMessageBubble(context, entry.message!)
-              : _buildAgentRunGroup(context, entry.group!),
-        );
-      },
-    );
-  }
-
-  Widget _buildAgentRunGroup(
-    BuildContext context,
-    AgentRunTimelineGroup group,
-  ) {
-    final expanded = _agentRunExpansionTracker.isGroupExpanded(
-      group,
-      _expandedAgentRunTaskIds,
-    );
-    final summary = _agentRunGroupSummary(group);
-    final processMessages = group.processMessagesOldestFirst;
-    final visibleMessages = group.visibleMessagesOldestFirst;
-    final hasProcessMessages = processMessages.isNotEmpty;
-    final isRunLogOnly = !group.isActiveRun && !hasProcessMessages;
-    final label = AppTextLocalizer.choose(
-      en: isRunLogOnly ? 'Execution record' : 'Process',
-      zh: isRunLogOnly ? '执行记录' : '执行过程',
-    );
-    final statusLabel = isRunLogOnly
-        ? AppTextLocalizer.choose(en: 'Logged', zh: '已记录')
-        : group.isActiveRun
-        ? AppTextLocalizer.choose(en: 'Running', zh: '进行中')
-        : AppTextLocalizer.choose(en: 'Done', zh: '已完成');
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Material(
-          color: Colors.transparent,
-          child: InkWell(
-            onTap: hasProcessMessages
-                ? () => _toggleAgentRunGroup(group.taskId)
-                : null,
-            borderRadius: BorderRadius.circular(8),
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(2, 8, 2, 6),
-              child: Row(
-                children: [
-                  Icon(
-                    group.isActiveRun
-                        ? Icons.bolt_rounded
-                        : Icons.psychology_alt_outlined,
-                    size: 16,
-                    color: group.isActiveRun ? _kAccentBlue : _kSubtleText,
-                  ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: LayoutBuilder(
-                      builder: (context, constraints) {
-                        final showSummary =
-                            summary.isNotEmpty && constraints.maxWidth >= 150;
-                        final showDivider = constraints.maxWidth >= 196;
-                        return Row(
-                          children: [
-                            Flexible(
-                              child: Text(
-                                label,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: const TextStyle(
-                                  color: _kSecondaryText,
-                                  fontSize: 12,
-                                  fontWeight: FontWeight.w700,
-                                ),
-                              ),
-                            ),
-                            const SizedBox(width: 8),
-                            Container(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 7,
-                                vertical: 3,
-                              ),
-                              decoration: BoxDecoration(
-                                color:
-                                    (group.isActiveRun
-                                            ? _kAccentBlue
-                                            : _kSubtleText)
-                                        .withValues(alpha: 0.09),
-                                borderRadius: BorderRadius.circular(999),
-                              ),
-                              child: Text(
-                                statusLabel,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: TextStyle(
-                                  color: group.isActiveRun
-                                      ? _kAccentBlue
-                                      : _kSubtleText,
-                                  fontSize: 10,
-                                  fontWeight: FontWeight.w700,
-                                  height: 1,
-                                ),
-                              ),
-                            ),
-                            if (showSummary) ...[
-                              const SizedBox(width: 8),
-                              Flexible(
-                                child: Text(
-                                  summary,
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: const TextStyle(
-                                    color: _kSubtleText,
-                                    fontSize: 12,
-                                  ),
-                                ),
-                              ),
-                            ],
-                            if (showDivider) ...[
-                              const SizedBox(width: 8),
-                              const SizedBox(
-                                width: 42,
-                                child: Divider(height: 1, color: _kPanelBorder),
-                              ),
-                            ],
-                          ],
-                        );
-                      },
-                    ),
-                  ),
-                  if (hasProcessMessages) ...[
-                    const SizedBox(width: 4),
-                    AnimatedRotation(
-                      turns: expanded ? 0 : -0.25,
-                      duration: const Duration(milliseconds: 180),
-                      curve: Curves.easeOutCubic,
-                      child: const Icon(
-                        Icons.keyboard_arrow_down_rounded,
-                        size: 18,
-                        color: _kSubtleText,
-                      ),
-                    ),
-                  ],
-                ],
-              ),
-            ),
-          ),
-        ),
-        if (expanded)
-          ...processMessages.map(
-            (message) => _buildMessageBubble(context, message),
-          ),
-        ...visibleMessages.map(
-          (message) => _buildMessageBubble(context, message),
-        ),
-      ],
-    );
-  }
-
-  String _agentRunGroupSummary(AgentRunTimelineGroup group) {
-    final parts = <String>[];
-    if (group.thinkingCount > 0) {
-      parts.add(
-        AppTextLocalizer.choose(
-          en: '${group.thinkingCount} ${group.thinkingCount == 1 ? 'thought' : 'thoughts'}',
-          zh: '${group.thinkingCount} 段思考',
-        ),
-      );
-    }
-    if (group.toolCount > 0) {
-      parts.add(
-        AppTextLocalizer.choose(
-          en: '${group.toolCount} ${group.toolCount == 1 ? 'tool' : 'tools'}',
-          zh: '${group.toolCount} 个工具',
-        ),
-      );
-    }
-    if (group.outputSegmentCount > 0) {
-      parts.add(
-        AppTextLocalizer.choose(
-          en: '${group.outputSegmentCount} output ${group.outputSegmentCount == 1 ? 'segment' : 'segments'}',
-          zh: '${group.outputSegmentCount} 段输出',
-        ),
-      );
-    }
-    if (group.visibleMessagesNewestFirst.isEmpty) {
-      parts.add(AppTextLocalizer.choose(en: 'waiting for reply', zh: '等待回复'));
-    }
-    return parts.join(' · ');
   }
 
   @override
@@ -1544,10 +947,9 @@ class _WebChatHomeState extends State<_WebChatHome> {
                   ),
                   const SizedBox(height: 12),
                   Text(
-                    AppTextLocalizer.choose(
-                      zh: '输入本机 MCP Server Token 以换取 Web Chat 会话 Cookie。',
-                      en: 'Enter local MCP Server Token to exchange for a Web Chat session cookie.',
-                    ),
+                    Localizations.localeOf(context).languageCode == 'en'
+                        ? 'Enter local MCP Server Token to exchange for a Web Chat session cookie.'
+                        : '输入本机 MCP Server Token 以换取 Web Chat 会话 Cookie。',
                     style: Theme.of(context).textTheme.bodyMedium,
                   ),
                   const SizedBox(height: 20),
@@ -1562,7 +964,9 @@ class _WebChatHomeState extends State<_WebChatHome> {
                   FilledButton(
                     onPressed: () => _bootstrap(_tokenController.text.trim()),
                     child: Text(
-                      AppTextLocalizer.choose(zh: '连接', en: 'Connect'),
+                      Localizations.localeOf(context).languageCode == 'en'
+                          ? 'Connect'
+                          : '连接',
                     ),
                   ),
                   if (_error != null) ...[
@@ -1729,15 +1133,21 @@ class _WebChatHomeState extends State<_WebChatHome> {
         destinations: [
           NavigationDestination(
             icon: const Icon(Icons.chat_bubble_outline),
-            label: AppTextLocalizer.choose(zh: '聊天', en: 'Chat'),
+            label: Localizations.localeOf(context).languageCode == 'en'
+                ? 'Chat'
+                : '聊天',
           ),
           NavigationDestination(
             icon: const Icon(Icons.folder_outlined),
-            label: AppTextLocalizer.choose(zh: '工作区', en: 'Workspace'),
+            label: Localizations.localeOf(context).languageCode == 'en'
+                ? 'Workspace'
+                : '工作区',
           ),
           NavigationDestination(
             icon: const Icon(Icons.language_outlined),
-            label: AppTextLocalizer.choose(zh: '浏览器', en: 'Browser'),
+            label: Localizations.localeOf(context).languageCode == 'en'
+                ? 'Browser'
+                : '浏览器',
           ),
         ],
       ),
@@ -1756,7 +1166,9 @@ class _WebChatHomeState extends State<_WebChatHome> {
                 children: [
                   Expanded(
                     child: Text(
-                      AppTextLocalizer.choose(zh: '聊天记录', en: 'Conversations'),
+                      Localizations.localeOf(context).languageCode == 'en'
+                          ? 'Conversations'
+                          : '聊天记录',
                       style: const TextStyle(
                         fontSize: 20,
                         fontWeight: FontWeight.w700,
@@ -1767,7 +1179,11 @@ class _WebChatHomeState extends State<_WebChatHome> {
                   FilledButton.icon(
                     onPressed: _createConversation,
                     icon: const Icon(Icons.add, size: 18),
-                    label: Text(AppTextLocalizer.choose(zh: '新建', en: 'New')),
+                    label: Text(
+                      Localizations.localeOf(context).languageCode == 'en'
+                          ? 'New'
+                          : '新建',
+                    ),
                     style: FilledButton.styleFrom(
                       backgroundColor: _kAccentBlue,
                       foregroundColor: Colors.white,
@@ -1787,13 +1203,17 @@ class _WebChatHomeState extends State<_WebChatHome> {
                   ButtonSegment<bool>(
                     value: false,
                     label: Text(
-                      AppTextLocalizer.choose(zh: '活跃', en: 'Active'),
+                      Localizations.localeOf(context).languageCode == 'en'
+                          ? 'Active'
+                          : '活跃',
                     ),
                   ),
                   ButtonSegment<bool>(
                     value: true,
                     label: Text(
-                      AppTextLocalizer.choose(zh: '归档', en: 'Archived'),
+                      Localizations.localeOf(context).languageCode == 'en'
+                          ? 'Archived'
+                          : '归档',
                     ),
                   ),
                 ],
@@ -1944,23 +1364,29 @@ class _WebChatHomeState extends State<_WebChatHome> {
                                         : 'archive',
                                     child: Text(
                                       conversation.isArchived
-                                          ? AppTextLocalizer.choose(
-                                              zh: '取消归档',
-                                              en: 'Unarchive',
-                                            )
-                                          : AppTextLocalizer.choose(
-                                              zh: '归档',
-                                              en: 'Archive',
-                                            ),
+                                          ? (Localizations.localeOf(
+                                                      context,
+                                                    ).languageCode ==
+                                                    'en'
+                                                ? 'Unarchive'
+                                                : '取消归档')
+                                          : (Localizations.localeOf(
+                                                      context,
+                                                    ).languageCode ==
+                                                    'en'
+                                                ? 'Archive'
+                                                : '归档'),
                                     ),
                                   ),
                                   PopupMenuItem<String>(
                                     value: 'delete',
                                     child: Text(
-                                      AppTextLocalizer.choose(
-                                        zh: '删除',
-                                        en: 'Delete',
-                                      ),
+                                      Localizations.localeOf(
+                                                context,
+                                              ).languageCode ==
+                                              'en'
+                                          ? 'Delete'
+                                          : '删除',
                                     ),
                                   ),
                                 ],
@@ -2002,10 +1428,9 @@ class _WebChatHomeState extends State<_WebChatHome> {
                   children: [
                     Text(
                       _selectedConversation?.title ??
-                          AppTextLocalizer.choose(
-                            zh: '选择一个对话开始聊天',
-                            en: 'Select a conversation to start chatting',
-                          ),
+                          (Localizations.localeOf(context).languageCode == 'en'
+                              ? 'Select a conversation to start chatting'
+                              : '选择一个对话开始聊天'),
                       style: const TextStyle(
                         fontSize: 18,
                         fontWeight: FontWeight.w700,
@@ -2016,10 +1441,10 @@ class _WebChatHomeState extends State<_WebChatHome> {
                     const SizedBox(height: 4),
                     Text(
                       _selectedConversation == null
-                          ? AppTextLocalizer.choose(
-                              zh: '支持完整聊天、工具调用、工作区与浏览器镜像',
-                              en: 'Full chat, tool calls, workspace and browser mirror support',
-                            )
+                          ? (Localizations.localeOf(context).languageCode ==
+                                    'en'
+                                ? 'Full chat, tool calls, workspace and browser mirror support'
+                                : '支持完整聊天、工具调用、工作区与浏览器镜像')
                           : _selectedConversation!.mode.displayLabel,
                       style: const TextStyle(
                         fontSize: 12,
@@ -2032,8 +1457,12 @@ class _WebChatHomeState extends State<_WebChatHome> {
               if (_selectedConversation != null) ...[
                 IconButton(
                   tooltip: _selectedConversation!.isArchived
-                      ? AppTextLocalizer.choose(zh: '取消归档', en: 'Unarchive')
-                      : AppTextLocalizer.choose(zh: '归档', en: 'Archive'),
+                      ? (Localizations.localeOf(context).languageCode == 'en'
+                            ? 'Unarchive'
+                            : '取消归档')
+                      : (Localizations.localeOf(context).languageCode == 'en'
+                            ? 'Archive'
+                            : '归档'),
                   onPressed: () =>
                       _updateArchiveState(!_selectedConversation!.isArchived),
                   icon: Icon(
@@ -2044,7 +1473,9 @@ class _WebChatHomeState extends State<_WebChatHome> {
                   ),
                 ),
                 IconButton(
-                  tooltip: AppTextLocalizer.choose(zh: '删除', en: 'Delete'),
+                  tooltip: Localizations.localeOf(context).languageCode == 'en'
+                      ? 'Delete'
+                      : '删除',
                   onPressed: _deleteSelectedConversation,
                   icon: const Icon(
                     Icons.delete_outline,
@@ -2069,17 +1500,32 @@ class _WebChatHomeState extends State<_WebChatHome> {
           child: _displayMessages.isEmpty
               ? Center(
                   child: Text(
-                    AppTextLocalizer.choose(
-                      zh: '有什么可以帮助你的？',
-                      en: 'How can I help you?',
-                    ),
+                    Localizations.localeOf(context).languageCode == 'en'
+                        ? 'How can I help you?'
+                        : '有什么可以帮助你的？',
                     style: const TextStyle(
                       color: _kSecondaryText,
                       fontSize: 14,
                     ),
                   ),
                 )
-              : _buildTimelineList(context),
+              : ListView.builder(
+                  controller: _chatScrollController,
+                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 0),
+                  itemCount: _displayMessages.length,
+                  itemBuilder: (context, index) {
+                    final message = _displayMessages[index];
+                    final isOldestMessage = index == 0;
+                    final needTopPadding = isOldestMessage && message.user != 1;
+                    return Padding(
+                      padding: EdgeInsets.only(
+                        top: needTopPadding ? 24 : 0,
+                        bottom: index == _displayMessages.length - 1 ? 10 : 0,
+                      ),
+                      child: _buildMessageBubble(context, message),
+                    );
+                  },
+                ),
         ),
         if (_activeClarifyTaskId != null)
           Container(
@@ -2098,10 +1544,9 @@ class _WebChatHomeState extends State<_WebChatHome> {
                   const SizedBox(width: 8),
                   Expanded(
                     child: Text(
-                      AppTextLocalizer.choose(
-                        zh: '当前 Agent 需要你的澄清回复，发送输入内容后会继续执行。',
-                        en: 'The current Agent needs your clarification. It will continue after you send input.',
-                      ),
+                      Localizations.localeOf(context).languageCode == 'en'
+                          ? 'The current Agent needs your clarification. It will continue after you send input.'
+                          : '当前 Agent 需要你的澄清回复，发送输入内容后会继续执行。',
                       style: const TextStyle(
                         fontSize: 12,
                         color: _kPrimaryText,
@@ -2164,10 +1609,9 @@ class _WebChatHomeState extends State<_WebChatHome> {
                 height: 1.5,
               ),
               decoration: InputDecoration(
-                hintText: AppTextLocalizer.choose(
-                  en: 'Chat with the agent...',
-                  zh: '直接和 Agent 对话...',
-                ),
+                hintText: LegacyTextLocalizer.isEnglish
+                    ? 'Chat with the agent...'
+                    : '直接和 Agent 对话...',
                 hintStyle: TextStyle(color: _kSubtleText),
                 border: InputBorder.none,
                 isCollapsed: true,
@@ -2185,10 +1629,9 @@ class _WebChatHomeState extends State<_WebChatHome> {
               IconButton(
                 onPressed: _pickAttachments,
                 icon: const Icon(Icons.add_rounded, color: _kSecondaryText),
-                tooltip: AppTextLocalizer.choose(
-                  en: 'Add attachment',
-                  zh: '添加附件',
-                ),
+                tooltip: LegacyTextLocalizer.isEnglish
+                    ? 'Add attachment'
+                    : '添加附件',
               ),
               const Spacer(),
               AnimatedOpacity(
@@ -2350,12 +1793,8 @@ class _WebChatHomeState extends State<_WebChatHome> {
             color: Colors.white,
             child: TabBar(
               tabs: [
-                Tab(
-                  text: AppTextLocalizer.choose(en: 'Workspace', zh: '工作区'),
-                ),
-                Tab(
-                  text: AppTextLocalizer.choose(en: 'Browser', zh: '浏览器'),
-                ),
+                Tab(text: LegacyTextLocalizer.isEnglish ? 'Workspace' : '工作区'),
+                Tab(text: LegacyTextLocalizer.isEnglish ? 'Browser' : '浏览器'),
               ],
             ),
           ),
@@ -2390,7 +1829,7 @@ class _WebChatHomeState extends State<_WebChatHome> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      AppTextLocalizer.choose(en: 'Workspace', zh: '工作区'),
+                      LegacyTextLocalizer.isEnglish ? 'Workspace' : '工作区',
                       style: const TextStyle(
                         fontSize: 13,
                         fontWeight: FontWeight.w700,
@@ -2400,10 +1839,9 @@ class _WebChatHomeState extends State<_WebChatHome> {
                     const SizedBox(height: 6),
                     breadcrumbs.isEmpty
                         ? Text(
-                            AppTextLocalizer.choose(
-                              en: 'Loading workspace...',
-                              zh: '加载工作区中...',
-                            ),
+                            LegacyTextLocalizer.isEnglish
+                                ? 'Loading workspace...'
+                                : '加载工作区中...',
                             style: TextStyle(color: _kSecondaryText),
                           )
                         : Wrap(
@@ -2441,14 +1879,14 @@ class _WebChatHomeState extends State<_WebChatHome> {
                     ? null
                     : () => _reloadWorkspace(),
                 icon: const Icon(Icons.refresh),
-                tooltip: AppTextLocalizer.choose(en: 'Refresh now', zh: '立即刷新'),
+                tooltip: LegacyTextLocalizer.isEnglish ? 'Refresh now' : '立即刷新',
               ),
               if (_workspaceSelectedFilePath != null)
                 FilledButton(
                   onPressed: _workspaceBusy || !_workspaceDirty
                       ? null
                       : _saveWorkspaceFile,
-                  child: Text(AppTextLocalizer.choose(en: 'Save', zh: '保存')),
+                  child: Text(LegacyTextLocalizer.isEnglish ? 'Save' : '保存'),
                 ),
             ],
           ),
@@ -2489,10 +1927,9 @@ class _WebChatHomeState extends State<_WebChatHome> {
                 child: _workspaceSelectedFilePath == null
                     ? Center(
                         child: Text(
-                          AppTextLocalizer.choose(
-                            en: 'Select a file to view or edit',
-                            zh: '选择一个文件开始查看或编辑',
-                          ),
+                          LegacyTextLocalizer.isEnglish
+                              ? 'Select a file to view or edit'
+                              : '选择一个文件开始查看或编辑',
                         ),
                       )
                     : Padding(
@@ -2555,10 +1992,9 @@ class _WebChatHomeState extends State<_WebChatHome> {
               TextField(
                 controller: _browserUrlController,
                 decoration: InputDecoration(
-                  hintText: AppTextLocalizer.choose(
-                    en: 'Enter URL to navigate remotely',
-                    zh: '输入网址并远程导航',
-                  ),
+                  hintText: LegacyTextLocalizer.isEnglish
+                      ? 'Enter URL to navigate remotely'
+                      : '输入网址并远程导航',
                   border: OutlineInputBorder(),
                 ),
                 onSubmitted: (_) => _navigateBrowser(),
@@ -2568,7 +2004,7 @@ class _WebChatHomeState extends State<_WebChatHome> {
                 children: [
                   FilledButton(
                     onPressed: _browserBusy ? null : _navigateBrowser,
-                    child: Text(AppTextLocalizer.choose(en: 'Open', zh: '打开')),
+                    child: Text(LegacyTextLocalizer.isEnglish ? 'Open' : '打开'),
                   ),
                   const SizedBox(width: 8),
                   OutlinedButton(
@@ -2581,7 +2017,7 @@ class _WebChatHomeState extends State<_WebChatHome> {
                             'tool_title': 'Web Chat Scroll Up',
                           }),
                     child: Text(
-                      AppTextLocalizer.choose(en: 'Swipe up', zh: '上滑'),
+                      LegacyTextLocalizer.isEnglish ? 'Swipe up' : '上滑',
                     ),
                   ),
                   const SizedBox(width: 8),
@@ -2595,7 +2031,7 @@ class _WebChatHomeState extends State<_WebChatHome> {
                             'tool_title': 'Web Chat Scroll Down',
                           }),
                     child: Text(
-                      AppTextLocalizer.choose(en: 'Swipe down', zh: '下滑'),
+                      LegacyTextLocalizer.isEnglish ? 'Swipe down' : '下滑',
                     ),
                   ),
                 ],
@@ -2609,13 +2045,13 @@ class _WebChatHomeState extends State<_WebChatHome> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                AppTextLocalizer.choose(en: 'Current page', zh: '当前页面'),
+                LegacyTextLocalizer.isEnglish ? 'Current page' : '当前页面',
                 style: Theme.of(context).textTheme.titleSmall,
               ),
               const SizedBox(height: 6),
               Text(
                 (snapshot['title'] ??
-                        (AppTextLocalizer.choose(en: 'No session', zh: '暂无会话')))
+                        (LegacyTextLocalizer.isEnglish ? 'No session' : '暂无会话'))
                     .toString(),
                 maxLines: 2,
                 overflow: TextOverflow.ellipsis,
@@ -2642,20 +2078,18 @@ class _WebChatHomeState extends State<_WebChatHome> {
                         fit: BoxFit.contain,
                         errorBuilder: (_, __, ___) => Center(
                           child: Text(
-                            AppTextLocalizer.choose(
-                              en: 'Browser view unavailable',
-                              zh: '浏览器画面暂不可用',
-                            ),
+                            LegacyTextLocalizer.isEnglish
+                                ? 'Browser view unavailable'
+                                : '浏览器画面暂不可用',
                           ),
                         ),
                       ),
                     ),
                   )
                 : Text(
-                    AppTextLocalizer.choose(
-                      en: 'No browser session available for mirroring',
-                      zh: '当前没有可镜像的浏览器会话',
-                    ),
+                    LegacyTextLocalizer.isEnglish
+                        ? 'No browser session available for mirroring'
+                        : '当前没有可镜像的浏览器会话',
                   ),
           ),
         ),
@@ -2781,7 +2215,7 @@ class _WebChatHomeState extends State<_WebChatHome> {
       items: [
         PopupMenuItem<String>(
           value: 'retry',
-          child: Text(AppTextLocalizer.choose(en: 'Retry message', zh: '重试消息')),
+          child: Text(LegacyTextLocalizer.isEnglish ? 'Retry message' : '重试消息'),
         ),
       ],
     );
@@ -2797,7 +2231,7 @@ class _WebChatHomeState extends State<_WebChatHome> {
             name:
                 (item['fileName'] ??
                         item['name'] ??
-                        (AppTextLocalizer.choose(en: 'Attachment', zh: '附件')))
+                        (LegacyTextLocalizer.isEnglish ? 'Attachment' : '附件'))
                     .toString(),
             mimeType: (item['mimeType'] ?? 'application/octet-stream')
                 .toString(),
@@ -2822,7 +2256,7 @@ class _WebChatHomeState extends State<_WebChatHome> {
           const Icon(Icons.auto_awesome_rounded, size: 16, color: _kAccentBlue),
           const SizedBox(width: 6),
           Text(
-            AppTextLocalizer.choose(en: 'Summarizing...', zh: '总结中'),
+            LegacyTextLocalizer.isEnglish ? 'Summarizing...' : '总结中',
             style: const TextStyle(
               fontSize: 14,
               color: _kAccentBlue,
@@ -2857,7 +2291,7 @@ class _WebChatHomeState extends State<_WebChatHome> {
               ),
               const SizedBox(width: 6),
               Text(
-                AppTextLocalizer.choose(en: 'Summary:', zh: '总结如下'),
+                LegacyTextLocalizer.isEnglish ? 'Summary:' : '总结如下',
                 style: const TextStyle(
                   fontSize: 14,
                   color: _kAccentGreen,
@@ -2947,7 +2381,7 @@ class _WebChatHomeState extends State<_WebChatHome> {
         (item['fileName'] ??
                 item['name'] ??
                 item['path'] ??
-                (AppTextLocalizer.choose(en: 'Attachment', zh: '附件')))
+                (LegacyTextLocalizer.isEnglish ? 'Attachment' : '附件'))
             .toString();
     final mimeType = (item['mimeType'] ?? '').toString();
     if (dataUrl.startsWith('data:image/')) {

@@ -193,9 +193,52 @@ class VLMClientRequestTest {
             ),
             envelope.dynamicFunctionToolNames
         )
+        assertEquals(
+            mapOf(
+                "run_recalled_workflow_1" to setOf("keyword"),
+                "run_recalled_workflow_2" to setOf("keyword"),
+                "run_recalled_workflow_3" to setOf("keyword"),
+            ),
+            envelope.dynamicFunctionRequiredArguments
+        )
         assertTrue(envelope.currentUserText.contains("run_recalled_workflow_1"))
         assertTrue(envelope.currentUserText.contains("run_recalled_workflow_2"))
         assertTrue(envelope.currentUserText.contains("run_recalled_workflow_3"))
+    }
+
+    @Test
+    fun `operation request filters internal call tool from dynamic definitions`() {
+        val client = VLMClient(
+            systemPromptBuilder = { "system prompt" },
+            turnPromptBuilder = { context, _ ->
+                PromptTemplate.buildTurnUserPrompt(context, "scene.vlm.operation.primary")
+            }
+        )
+
+        val envelope = client.buildUIOperationRequest(
+            context = UIContext(
+                overallTask = "小红书搜索狗狗",
+                dynamicToolDefinitions = listOf(
+                    recalledWorkflowToolDefinition(index = 1, parameterName = "query"),
+                    dynamicRuntimeCallToolDefinition(),
+                )
+            ),
+            screenshot = null,
+            conversationState = VLMConversationState()
+        )
+
+        val toolNames = envelope.request.tools.orEmpty().map { it.function.name }
+        assertTrue(toolNames.contains("run_recalled_workflow_1"))
+        assertFalse(toolNames.contains("call_tool"))
+        assertEquals(
+            mapOf("run_recalled_workflow_1" to "oob_fn_vlm_task_41329798_1"),
+            envelope.dynamicFunctionToolMappings
+        )
+        assertEquals(setOf("run_recalled_workflow_1"), envelope.dynamicFunctionToolNames)
+        assertEquals(
+            mapOf("run_recalled_workflow_1" to setOf("query")),
+            envelope.dynamicFunctionRequiredArguments
+        )
     }
 
     @Test
@@ -860,6 +903,76 @@ class VLMClientRequestTest {
     }
 
     @Test
+    fun `openai tool action parser rejects recalled workflow missing required argument before execution`() {
+        val client = VLMClient()
+        val result = client.parseVLMResponse(
+            SceneChatCompletionTurn(
+                parser = ModelSceneRegistry.ResponseParser.OPENAI_TOOL_ACTIONS,
+                route = "scene.vlm.operation.primary",
+                resolvedModel = "vlm-test-model",
+                turn = ChatCompletionTurn(
+                    message = ChatCompletionMessage(
+                        role = "assistant",
+                        toolCalls = listOf(
+                            AssistantToolCall(
+                                id = "call_1",
+                                function = AssistantToolCallFunction(
+                                    name = "run_recalled_workflow_1",
+                                    arguments = "{}"
+                                )
+                            )
+                        )
+                    )
+                )
+            ),
+            modelOrScene = "scene.vlm.operation.primary",
+            dynamicFunctionToolNames = setOf("run_recalled_workflow_1"),
+            dynamicFunctionToolMappings = mapOf("run_recalled_workflow_1" to "xhs_search"),
+            dynamicFunctionRequiredArguments = mapOf("run_recalled_workflow_1" to setOf("query"))
+        )
+
+        assertFalse(result.success)
+        assertTrue(result.step == null)
+        assertTrue(result.shouldRetryForToolCall)
+        assertTrue(result.error.orEmpty().contains("missing required argument: query"))
+    }
+
+    @Test
+    fun `openai tool action parser allows no-argument recalled workflow`() {
+        val client = VLMClient()
+        val result = client.parseVLMResponse(
+            SceneChatCompletionTurn(
+                parser = ModelSceneRegistry.ResponseParser.OPENAI_TOOL_ACTIONS,
+                route = "scene.vlm.operation.primary",
+                resolvedModel = "vlm-test-model",
+                turn = ChatCompletionTurn(
+                    message = ChatCompletionMessage(
+                        role = "assistant",
+                        toolCalls = listOf(
+                            AssistantToolCall(
+                                id = "call_1",
+                                function = AssistantToolCallFunction(
+                                    name = "run_recalled_workflow_1",
+                                    arguments = "{}"
+                                )
+                            )
+                        )
+                    )
+                )
+            ),
+            modelOrScene = "scene.vlm.operation.primary",
+            dynamicFunctionToolNames = setOf("run_recalled_workflow_1"),
+            dynamicFunctionToolMappings = mapOf("run_recalled_workflow_1" to "open_settings"),
+            dynamicFunctionRequiredArguments = mapOf("run_recalled_workflow_1" to emptySet())
+        )
+
+        assertTrue(result.success)
+        val action = result.step?.action as FunctionRunAction
+        assertEquals("open_settings", action.functionId)
+        assertTrue(action.arguments.isEmpty())
+    }
+
+    @Test
     fun `openai tool action parser rejects unmapped recalled workflow tool call`() {
         val client = VLMClient()
         val result = client.parseVLMResponse(
@@ -1119,6 +1232,30 @@ class VLMClientRequestTest {
                     put("required", buildJsonArray {
                         add("tool_title")
                         add(parameterName)
+                    })
+                })
+            })
+        }
+
+        private fun dynamicRuntimeCallToolDefinition() = buildJsonObject {
+            put("type", "function")
+            put("function_id", "legacy_call_tool")
+            put("function", buildJsonObject {
+                put("name", "call_tool")
+                put("toolType", "oob_recalled_function")
+                put("description", "Legacy internal runtime tool")
+                put("parameters", buildJsonObject {
+                    put("type", "object")
+                    put("properties", buildJsonObject {
+                        put("function_id", buildJsonObject {
+                            put("type", "string")
+                        })
+                        put("arguments", buildJsonObject {
+                            put("type", "object")
+                        })
+                    })
+                    put("required", buildJsonArray {
+                        add("function_id")
                     })
                 })
             })

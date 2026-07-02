@@ -5,17 +5,15 @@ import 'dart:math' as math;
 import 'dart:ui';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:flutter/material.dart';
-import 'package:ui/features/home/pages/command_overlay/services/manual_recording_permission_guard.dart';
 import 'package:ui/l10n/app_text_localizer.dart';
-import 'package:ui/l10n/l10n.dart';
 import 'package:ui/services/model_vendor_catalog.dart';
 import 'package:ui/services/special_permission.dart';
 import 'package:ui/services/storage_service.dart';
 import 'package:ui/theme/theme_context.dart';
+import 'package:ui/widgets/provider_vendor_icon.dart';
 import 'package:ui/widgets/glass_popup.dart';
 import 'package:ui/widgets/image_preview_overlay.dart';
 import 'package:ui/widgets/omni_glass.dart';
-import 'package:ui/widgets/provider_vendor_icon.dart';
 import 'package:ui/widgets/text_input_context_menu.dart';
 
 part 'chat_input_area_composer.dart';
@@ -139,9 +137,6 @@ class ChatInputArea extends StatefulWidget {
   final List<ChatInputAttachment> attachments;
   final ValueChanged<String>? onRemoveAttachment;
   final VoidCallback? onTriggerSlashCommand;
-  final VoidCallback? onTriggerManualRecording;
-  final bool annotationEnabled;
-  final VoidCallback? onToggleAnnotation;
   final String? selectedModelOverrideId;
   final VoidCallback? onClearSelectedModelOverride;
   final double? contextUsageRatio;
@@ -179,9 +174,6 @@ class ChatInputArea extends StatefulWidget {
     this.attachments = const [],
     this.onRemoveAttachment,
     this.onTriggerSlashCommand,
-    this.onTriggerManualRecording,
-    this.annotationEnabled = false,
-    this.onToggleAnnotation,
     this.selectedModelOverrideId,
     this.onClearSelectedModelOverride,
     this.contextUsageRatio,
@@ -324,7 +316,7 @@ class _ContextUsageRingButtonState extends State<_ContextUsageRingButton> {
 
   @override
   Widget build(BuildContext context) {
-    final child = SizedBox(
+    final ring = SizedBox(
       width: 22,
       height: 22,
       child: Center(child: _ContextUsageRing(ratio: widget.ratio)),
@@ -332,7 +324,7 @@ class _ContextUsageRingButtonState extends State<_ContextUsageRingButton> {
     final tooltip = widget.tooltipMessage?.trim() ?? '';
     final hasTooltip = tooltip.isEmpty == false;
     if (!hasTooltip && widget.onLongPress == null) {
-      return child;
+      return ring;
     }
     return Builder(
       builder: (anchorContext) {
@@ -340,7 +332,7 @@ class _ContextUsageRingButtonState extends State<_ContextUsageRingButton> {
           behavior: HitTestBehavior.opaque,
           onTap: hasTooltip ? () => _showTooltip(anchorContext, tooltip) : null,
           onLongPress: widget.onLongPress,
-          child: child,
+          child: ring,
         );
       },
     );
@@ -483,38 +475,20 @@ abstract class _ChatInputAreaStateBase extends State<ChatInputArea>
 
   late ValueNotifier<_ComposerInteractionState> _composerStateNotifier;
   bool _isPopupVisible = false;
-  bool _recordDebugScreenshots = true;
   double _lastKeyboardInset = 0;
-  ManualRecordingPermissionCheck? _manualRecordingPermissionCheck;
-  bool _isCheckingManualRecordingPermissions = false;
-  int _manualRecordingPermissionCheckGeneration = 0;
 
   final ScrollController _textFieldScrollController = ScrollController();
 
   bool get isPopupVisible => _isPopupVisible;
-  bool get _hasManualRecordingAction => widget.onManualRecordingTap != null;
-  bool get _showDebugScreenshotToggle =>
-      _debugScreenshotToggleAvailable && _hasManualRecordingAction;
-  bool get _debugScreenshotToggleAvailable {
-    var available = false;
-    assert(() {
-      available = true;
-      return true;
-    }());
-    return available;
-  }
-
-  bool get _isManualRecordingPermissionBlocked {
-    final permissionCheck = _manualRecordingPermissionCheck;
-    return _hasManualRecordingAction &&
-        permissionCheck != null &&
-        !permissionCheck.isAuthorized;
-  }
-
+  bool get _hasTrajectoryActions =>
+      widget.onViewTrajectoriesTap != null ||
+      widget.onViewCurrentTrajectoryTap != null ||
+      widget.onManualRecordingTap != null;
   double _lastReportedInputHeight = 44;
   bool _inputHeightReportScheduled = false;
   bool _isComposerHovered = false;
   late AnimationController _composerFlowController;
+  late AnimationController _modelPickerSpinController;
 
   late Widget _terminalSvg;
   late Widget _sendSvg;
@@ -549,6 +523,10 @@ abstract class _ChatInputAreaStateBase extends State<ChatInputArea>
       vsync: this,
       duration: const Duration(milliseconds: 8000),
     )..repeat();
+    _modelPickerSpinController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 520),
+    );
     _reportInputHeightAfterBuild();
   }
 
@@ -702,56 +680,12 @@ abstract class _ChatInputAreaStateBase extends State<ChatInputArea>
     _syncKeyboardPhaseFromView();
   }
 
-  @override
-  void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.resumed && _isPopupVisible) {
-      unawaited(_refreshManualRecordingPermissions());
-    }
-  }
-
-  Future<void> _refreshManualRecordingPermissions() async {
-    if (!_hasManualRecordingAction || !mounted) return;
-    final generation = ++_manualRecordingPermissionCheckGeneration;
-    setState(() {
-      _isCheckingManualRecordingPermissions = true;
-    });
-    try {
-      final permissionCheck = await ManualRecordingPermissionGuard.check(
-        context,
-      );
-      if (!mounted || generation != _manualRecordingPermissionCheckGeneration) {
-        return;
-      }
-      setState(() {
-        _manualRecordingPermissionCheck = permissionCheck;
-        _isCheckingManualRecordingPermissions = false;
-      });
-    } catch (_) {
-      if (!mounted || generation != _manualRecordingPermissionCheckGeneration) {
-        return;
-      }
-      setState(() {
-        _manualRecordingPermissionCheck = null;
-        _isCheckingManualRecordingPermissions = false;
-      });
-    }
-  }
-
   void _syncKeyboardPhaseFromView() {
     if (!mounted) return;
-    final view = _safeViewForMetrics();
-    if (view == null) return;
+    final view = View.of(context);
     final bottomInset = view.viewInsets.bottom / view.devicePixelRatio;
     final keyboardPhase = _resolveKeyboardPhase(bottomInset);
     _updateComposerState(keyboardPhase: keyboardPhase);
-  }
-
-  FlutterView? _safeViewForMetrics() {
-    try {
-      return View.maybeOf(context);
-    } catch (_) {
-      return null;
-    }
   }
 
   _ComposerKeyboardPhase _resolveKeyboardPhase(double bottomInset) {
@@ -804,23 +738,19 @@ abstract class _ChatInputAreaStateBase extends State<ChatInputArea>
     if (oldWidget.attachments != widget.attachments ||
         oldWidget.useLargeComposerStyle != widget.useLargeComposerStyle ||
         oldWidget.useFrostedGlass != widget.useFrostedGlass ||
-        oldWidget.selectedModelOverrideId != widget.selectedModelOverrideId) {
+        oldWidget.selectedModelOverrideId != widget.selectedModelOverrideId ||
+        oldWidget.modelPickerSettings != widget.modelPickerSettings) {
       _reportInputHeightAfterBuild();
-    }
-    if (oldWidget.onManualRecordingTap != widget.onManualRecordingTap &&
-        widget.onManualRecordingTap == null) {
-      _manualRecordingPermissionCheck = null;
-      _isCheckingManualRecordingPermissions = false;
     }
   }
 
   @override
   void dispose() {
-    _manualRecordingPermissionCheckGeneration++;
     WidgetsBinding.instance.removeObserver(this);
     _textFieldScrollController.dispose();
     _composerStateNotifier.dispose();
     _composerFlowController.dispose();
+    _modelPickerSpinController.dispose();
     widget.controller.removeListener(_onTextChanged);
     widget.focusNode.removeListener(_onFocusChanged);
     super.dispose();
