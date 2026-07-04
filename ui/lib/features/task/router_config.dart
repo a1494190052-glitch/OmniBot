@@ -4,6 +4,7 @@ import 'pages/task_edit/task_edit_page.dart';
 import 'pages/task_history/task_execution_history_page.dart';
 import 'pages/execution_history/trajectory_page.dart';
 import 'pages/execution_history/task_execution_detail_page.dart';
+import 'pages/execution_history/function_runlog_page.dart';
 import 'pages/scheduled_tasks/scheduled_task_list_page.dart';
 import 'pages/task_modify/task_modify_page.dart';
 
@@ -30,6 +31,14 @@ List<GoRoute> taskRoutes = [
     path: '/task/execution_history',
     name: 'task/execution_history',
     builder: (context, state) => TrajectoryPage(),
+  ),
+  GoRoute(
+    path: '/task/function_runlog',
+    name: 'task/function_runlog',
+    builder: (context, state) {
+      final tab = int.tryParse(state.uri.queryParameters['tab'] ?? '') ?? 0;
+      return FunctionRunLogPage(initialTab: tab);
+    },
   ),
   // 定时任务列表页
   GoRoute(

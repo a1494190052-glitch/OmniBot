@@ -14,10 +14,8 @@ typedef TaskFinishCallback = void Function();
 typedef ChatTaskMessageCallBack =
     void Function(String taskID, String content, String? type);
 //消息回执结束
-typedef ChatTaskMessageEndCallBack = void Function(
-  String taskID, {
-  Map<String, dynamic>? turnUsage,
-});
+typedef ChatTaskMessageEndCallBack =
+    void Function(String taskID, {Map<String, dynamic>? turnUsage});
 //VLM任务结束
 typedef VLMTaskFinishEndCallBack = void Function(String? taskId);
 //普通任务结束
@@ -1610,6 +1608,93 @@ class AssistsMessageService {
       print('Failed to show task completion notification: ${e.message}');
       return false;
     }
+  }
+
+  static Future<Map<String, dynamic>> getInternalRunLogs({
+    int limit = 50,
+    int offset = 0,
+  }) async {
+    final result = await assistCore.invokeMethod('getInternalRunLogs', {
+      'limit': limit,
+      'offset': offset,
+    });
+    return _channelMap(result);
+  }
+
+  static Future<Map<String, dynamic>> getInternalRunLogTimeline({
+    required String runId,
+  }) async {
+    final result = await assistCore.invokeMethod('getInternalRunLogTimeline', {
+      'run_id': runId.trim(),
+    });
+    return _channelMap(result);
+  }
+
+  static Future<Map<String, dynamic>> convertInternalRunLogToFunction({
+    required String runId,
+    bool register = true,
+    bool agentVisible = false,
+  }) async {
+    final result = await assistCore.invokeMethod(
+      'convertInternalRunLogToFunction',
+      {
+        'run_id': runId.trim(),
+        'register': register,
+        'agent_visible': agentVisible,
+      },
+    );
+    return _channelMap(result);
+  }
+
+  static Future<Map<String, dynamic>> listFunctions({
+    int limit = 100,
+    int offset = 0,
+    bool includeHidden = false,
+  }) async {
+    final result = await assistCore.invokeMethod('listFunctions', {
+      'limit': limit,
+      'offset': offset,
+      'includeHidden': includeHidden,
+      'include_hidden': includeHidden,
+    });
+    return _channelMap(result);
+  }
+
+  static Future<Map<String, dynamic>?> getFunction(String functionId) async {
+    final normalized = functionId.trim();
+    if (normalized.isEmpty) return null;
+    final result = await assistCore.invokeMethod('getFunction', {
+      'function_id': normalized,
+    });
+    if (result is! Map) return null;
+    return _channelMap(result);
+  }
+
+  static Future<Map<String, dynamic>> deleteFunction(String functionId) async {
+    final result = await assistCore.invokeMethod('deleteFunction', {
+      'function_id': functionId.trim(),
+    });
+    return _channelMap(result);
+  }
+
+  static Future<Map<String, dynamic>> runFunction({
+    required String functionId,
+    Map<String, dynamic> arguments = const {},
+    String? taskId,
+  }) async {
+    final result = await assistCore.invokeMethod('runFunction', {
+      'function_id': functionId.trim(),
+      'arguments': arguments,
+      if (taskId != null && taskId.trim().isNotEmpty) 'taskId': taskId.trim(),
+    });
+    return _channelMap(result);
+  }
+
+  static Map<String, dynamic> _channelMap(Object? value) {
+    if (value is Map) {
+      return value.map((key, item) => MapEntry(key.toString(), item));
+    }
+    return <String, dynamic>{};
   }
 
   /// 跳转到主引擎路由

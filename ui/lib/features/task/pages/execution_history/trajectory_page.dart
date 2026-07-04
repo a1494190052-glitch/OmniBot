@@ -33,15 +33,11 @@ class TrajectoryPage extends StatefulWidget {
   const TrajectoryPage({super.key});
 
   @override
-  State<TrajectoryPage> createState() =>
-      _TrajectoryPageState();
+  State<TrajectoryPage> createState() => _TrajectoryPageState();
 }
 
-class _TrajectoryPageState
-    extends State<TrajectoryPage>
-    with
-        WidgetsBindingObserver,
-        PageLifecycleMixin<TrajectoryPage> {
+class _TrajectoryPageState extends State<TrajectoryPage>
+    with WidgetsBindingObserver, PageLifecycleMixin<TrajectoryPage> {
   List<AppTag> executionTags = [];
 
   List<TaskExecutionInfo> taskExecutionInfos = [];
@@ -415,7 +411,10 @@ class _TrajectoryPageState
   ) async {
     final goal = (suggestionData['goal'] as String?)?.trim() ?? '';
     if (goal.isEmpty) {
-      showToast('Current record does not support execution', type: ToastType.error);
+      showToast(
+        'Current record does not support execution',
+        type: ToastType.error,
+      );
       return;
     }
 
@@ -433,7 +432,10 @@ class _TrajectoryPageState
 
   Future<void> _onSchedulePressed(ExecutionRecordListItemData record) async {
     if (record.suggestionData == null) {
-      showToast('Current record does not support scheduling', type: ToastType.error);
+      showToast(
+        'Current record does not support scheduling',
+        type: ToastType.error,
+      );
       return;
     }
 
@@ -617,8 +619,10 @@ class _TrajectoryPageState
     final result = await showModalBottomSheet<bool>(
       context: context,
       backgroundColor: Colors.transparent,
-      builder: (context) =>
-          BatchDeleteConfirmSheet(count: count, unit: ' ${context.l10n.trajectoryTaskRecords}'),
+      builder: (context) => BatchDeleteConfirmSheet(
+        count: count,
+        unit: ' ${context.l10n.trajectoryTaskRecords}',
+      ),
     );
 
     if (result == true) {
@@ -644,7 +648,6 @@ class _TrajectoryPageState
 
       // 重新加载标签统计
       await _loadExecutionTags();
-
 
       // 显示删除结果
       if (successCount > 0) {
@@ -713,7 +716,6 @@ class _TrajectoryPageState
 
       // 重新加载标签统计
       await _loadExecutionTags();
-
     } catch (e) {
       print('Error deleting card: $e');
       showToast(context.l10n.skillDeleteFailed, type: ToastType.error);
@@ -738,7 +740,19 @@ class _TrajectoryPageState
           : AppColors.background,
       appBar: _isSelectionMode
           ? _buildSelectionAppBar(filterRecords)
-          : CommonAppBar(title: context.l10n.trajectoryTitle, showAiBadge: false, primary: true),
+          : CommonAppBar(
+              title: context.l10n.trajectoryTitle,
+              showAiBadge: false,
+              primary: true,
+              actions: [
+                IconButton(
+                  tooltip: '复用',
+                  onPressed: () =>
+                      GoRouterManager.push('/task/function_runlog'),
+                  icon: const Icon(Icons.bolt_rounded),
+                ),
+              ],
+            ),
       body: SafeArea(
         top: false,
         child: Column(
@@ -855,7 +869,9 @@ class _TrajectoryPageState
           child: TextButton(
             onPressed: () => _toggleSelectAll(filterRecords),
             child: Text(
-              isAllSelected ? context.l10n.memoryDeselectAll : context.trLegacy('全选'),
+              isAllSelected
+                  ? context.l10n.memoryDeselectAll
+                  : context.trLegacy('全选'),
               style: TextStyle(
                 color: palette.accentPrimary,
                 fontSize: 14,
@@ -886,7 +902,7 @@ class _TrajectoryPageState
             ),
           ),
           const SizedBox(height: 12),
-          
+
           Text(
             context.l10n.trajectoryNoRecordsDesc,
             textAlign: TextAlign.center,
