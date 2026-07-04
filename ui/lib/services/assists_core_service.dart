@@ -1634,14 +1634,85 @@ class AssistsMessageService {
     required String runId,
     bool register = true,
     bool agentVisible = false,
+    String? functionId,
+    String? name,
+    String? description,
   }) async {
+    final result = await assistCore
+        .invokeMethod('convertInternalRunLogToFunction', {
+          'run_id': runId.trim(),
+          'register': register,
+          'agent_visible': agentVisible,
+          if (functionId != null && functionId.trim().isNotEmpty)
+            'function_id': functionId.trim(),
+          if (name != null && name.trim().isNotEmpty) 'name': name.trim(),
+          if (description != null && description.trim().isNotEmpty)
+            'description': description.trim(),
+        });
+    return _channelMap(result);
+  }
+
+  static Future<Map<String, dynamic>> updateFunction({
+    String? functionId,
+    Map<String, dynamic>? functionSpec,
+    String? runId,
+    String mode = 'enhance',
+    Map<String, dynamic>? analysis,
+    Map<String, dynamic>? patch,
+    Map<String, dynamic> extraArgs = const {},
+    bool autoAnalyzeWithModel = false,
+  }) async {
+    final normalizedFunctionId = functionId?.trim() ?? '';
+    if (normalizedFunctionId.isEmpty &&
+        (functionSpec == null || functionSpec.isEmpty)) {
+      throw Exception('function_id or function_spec is required');
+    }
+    final result = await assistCore.invokeMethod('updateFunction', {
+      ...extraArgs,
+      if (normalizedFunctionId.isNotEmpty) 'function_id': normalizedFunctionId,
+      if (functionSpec != null && functionSpec.isNotEmpty)
+        'function_spec': functionSpec,
+      if (runId != null && runId.trim().isNotEmpty) 'run_id': runId.trim(),
+      'mode': mode.trim().isEmpty ? 'enhance' : mode.trim(),
+      'auto_analyze_with_model': autoAnalyzeWithModel,
+      if (analysis != null && analysis.isNotEmpty) 'analysis': analysis,
+      if (patch != null && patch.isNotEmpty) 'patch': patch,
+    });
+    return _channelMap(result);
+  }
+
+  static Future<Map<String, dynamic>> startHumanTrajectoryLearning({
+    String? name,
+    String? description,
+    bool enableDebugScreenshots = false,
+  }) async {
+    final result = await assistCore
+        .invokeMethod('startHumanTrajectoryLearning', {
+          if (name != null && name.trim().isNotEmpty) 'name': name.trim(),
+          if (description != null && description.trim().isNotEmpty)
+            'description': description.trim(),
+          'enableDebugScreenshots': enableDebugScreenshots,
+        });
+    return _channelMap(result);
+  }
+
+  static Future<Map<String, dynamic>> pauseHumanTrajectoryLearning() async {
     final result = await assistCore.invokeMethod(
-      'convertInternalRunLogToFunction',
-      {
-        'run_id': runId.trim(),
-        'register': register,
-        'agent_visible': agentVisible,
-      },
+      'pauseHumanTrajectoryLearning',
+    );
+    return _channelMap(result);
+  }
+
+  static Future<Map<String, dynamic>> resumeHumanTrajectoryLearning() async {
+    final result = await assistCore.invokeMethod(
+      'resumeHumanTrajectoryLearning',
+    );
+    return _channelMap(result);
+  }
+
+  static Future<Map<String, dynamic>> getHumanTrajectoryLearningStatus() async {
+    final result = await assistCore.invokeMethod(
+      'getHumanTrajectoryLearningStatus',
     );
     return _channelMap(result);
   }

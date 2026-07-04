@@ -12,6 +12,7 @@ import android.os.Handler
 import android.os.Looper
 import cn.com.omnimind.accessibility.api.Constant
 import cn.com.omnimind.assists.AssistsCore
+import cn.com.omnimind.assists.HumanTrajectoryLearningSession
 import cn.com.omnimind.assists.api.bean.TaskParams
 import cn.com.omnimind.assists.api.interfaces.OnMessagePushListener
 import cn.com.omnimind.assists.controller.accessibility.AccessibilityController
@@ -52,10 +53,12 @@ import cn.com.omnimind.baselib.util.APPPackageUtil
 import cn.com.omnimind.baselib.util.OmniLog
 import cn.com.omnimind.baselib.util.RuntimeLogStore
 import cn.com.omnimind.baselib.util.exception.PermissionException
+import cn.com.omnimind.bot.BuildConfig
 import cn.com.omnimind.bot.R
 import cn.com.omnimind.bot.activity.MainActivity
 import cn.com.omnimind.bot.function.FunctionApi
 import cn.com.omnimind.bot.function.FunctionChannelPayload
+import cn.com.omnimind.bot.function.FunctionJson
 import cn.com.omnimind.bot.function.FunctionRun
 import cn.com.omnimind.bot.function.FunctionService
 import cn.com.omnimind.bot.ui.scheduled.ScheduledTaskReminderLoader
@@ -100,7 +103,9 @@ import cn.com.omnimind.bot.webchat.RealtimeHub
 import cn.com.omnimind.bot.workspace.PublicStorageAccess
 import cn.com.omnimind.bot.workspace.WorkspaceStorageAccess
 import cn.com.omnimind.uikit.UIKit
+import cn.com.omnimind.uikit.loader.ManualRecordingControlOverlay
 import cn.com.omnimind.uikit.loader.ScreenMaskLoader
+import cn.com.omnimind.uikit.loader.cat.DraggableBallInstance
 import com.google.gson.Gson
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
@@ -554,6 +559,7 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
     companion object {
         private const val SUMMARY_TASK_PREFIX_TASK = "task-summary-"
         private const val MEMORY_GREETING_TOOL = "submit_memory_greeting"
+        private const val FUNCTION_ENHANCEMENT_TOOL = "submit_function_enhancement"
         private const val DEFAULT_MEMORY_GREETING = "愿你今天也有温暖收获"
         private const val SUBAGENT_MODE = "subagent"
         private val TERMINAL_ENV_KEY_PATTERN = Regex("^[A-Za-z_][A-Za-z0-9_]*$")
@@ -7029,14 +7035,287 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
 
     fun updateFunction(call: MethodCall, result: MethodChannel.Result) {
         mainJob.launch {
+            val args = normalizeMethodCallMap(call.arguments)
+            val effectiveArgs = if (shouldAutoEnhanceFunction(args)) {
+                buildFunctionEnhancementUpdateArgs(args)
+            } else {
+                args
+            }
             val payload = executeFunctionToolForChannel(
                 toolName = FunctionApi.FUNCTION_UPDATE,
-                args = normalizeMethodCallMap(call.arguments),
+                args = effectiveArgs,
                 errorCode = "FUNCTION_UPDATE_FAILED",
             )
             withContext(Dispatchers.Main) {
                 result.success(payload)
             }
+        }
+    }
+
+    private suspend fun buildFunctionEnhancementUpdateArgs(args: Map<String, Any?>): Map<String, Any?> {
+        val functionId = firstNonBlankString(
+            args["function_id"],
+            args["functionId"],
+            normalizeMethodCallMap(args["function_spec"])["function_id"],
+            normalizeMethodCallMap(args["functionSpec"])["function_id"],
+        )
+        if (functionId.isEmpty()) return args
+        val getPayload = executeFunctionToolForChannel(
+            toolName = FunctionApi.FUNCTION_GET,
+            args = linkedMapOf("function_id" to functionId),
+            errorCode = "FUNCTION_GET_FAILED",
+        )
+        if (getPayload["success"] == false) return args
+        val spec = normalizeMethodCallMap(getPayload["function"]).ifEmpty { getPayload }
+        val runId = firstNonBlankString(args["run_id"], args["runId"], spec["source_run_id"])
+        val runLog = if (runId.isNotEmpty()) {
+            withContext(Dispatchers.IO) {
+                runCatching { InternalRunLogStore.timelinePayload(context, runId) }
+                    .getOrDefault(emptyMap())
+            }
+        } else {
+            emptyMap()
+        }
+        val inferred = inferFunctionEnhancementPatch(
+            functionSpec = spec,
+            runLog = runLog,
+            instruction = firstNonBlankString(args["instruction"], args["request"], args["user_instruction"]),
+        )
+        if (inferred.isEmpty()) return args
+        val analysis = normalizeMethodCallMap(inferred["analysis"])
+        val patch = normalizeMethodCallMap(inferred["patch"])
+        if (analysis.isEmpty() && patch.isEmpty()) return args
+        return linkedMapOf<String, Any?>().apply {
+            putAll(args)
+            remove("function_spec")
+            remove("functionSpec")
+            put("function_id", functionId)
+            if (runId.isNotEmpty()) put("run_id", runId)
+            if (analysis.isNotEmpty()) put("analysis", analysis)
+            if (patch.isNotEmpty()) put("patch", patch)
+            put("source", "assists_core_channel_model_enhancement")
+        }.filterValues { it != null }
+    }
+
+    private fun shouldAutoEnhanceFunction(args: Map<String, Any?>): Boolean {
+        val hasReplacementSpec = normalizeMethodCallMap(args["function_spec"]).isNotEmpty() ||
+            normalizeMethodCallMap(args["functionSpec"]).isNotEmpty() ||
+            normalizeMethodCallMap(args["updated_function"]).isNotEmpty()
+        val hasPatch = normalizeMethodCallMap(args["patch"]).isNotEmpty() ||
+            normalizeMethodCallMap(args["function_patch"]).isNotEmpty() ||
+            normalizeMethodCallMap(args["updates"]).isNotEmpty()
+        val hasAnalysis = normalizeMethodCallMap(args["analysis"]).isNotEmpty() ||
+            normalizeMethodCallMap(args["evidence_analysis"]).isNotEmpty()
+        val wantsModel = booleanMethodCallValue(args["auto_analyze_with_model"]) ||
+            booleanMethodCallValue(args["autoAnalyzeWithModel"]) ||
+            booleanMethodCallValue(args["offline_job"]) ||
+            booleanMethodCallValue(args["offlineJob"])
+        return wantsModel && !hasReplacementSpec && !hasPatch && !hasAnalysis
+    }
+
+    private suspend fun inferFunctionEnhancementPatch(
+        functionSpec: Map<String, Any?>,
+        runLog: Map<String, Any?>,
+        instruction: String,
+    ): Map<String, Any?> {
+        val request = buildFunctionEnhancementToolRequest(
+            functionSpec = functionSpec,
+            runLog = runLog,
+            instruction = instruction,
+        )
+        val response = runCatching { HttpController.postSceneChatCompletion(request) }
+            .onFailure { OmniLog.w(TAG, "function enhancement tool-call failed: ${it.message}") }
+            .getOrNull() ?: return emptyMap()
+        if (!response.success) {
+            OmniLog.w(TAG, "function enhancement model failed: ${response.message}")
+            return emptyMap()
+        }
+        return parseFunctionEnhancementToolResult(response.toolCalls)
+            ?: parseFunctionEnhancementContent(response.content)
+            ?: emptyMap()
+    }
+
+    private fun buildFunctionEnhancementToolRequest(
+        functionSpec: Map<String, Any?>,
+        runLog: Map<String, Any?>,
+        instruction: String,
+    ): ChatCompletionRequest {
+        val specJson = Gson().toJson(compactForPrompt(functionSpec, maxChars = 9000))
+        val runLogJson = Gson().toJson(compactForPrompt(runLog, maxChars = 7000))
+        val parameters = FunctionJson.mapToJsonElement(functionEnhancementResultSchema()) as JsonObject
+        return ChatCompletionRequest(
+            model = "scene.compactor.context.chat",
+            messages = listOf(
+                ChatCompletionMessage(
+                    role = "system",
+                    content = JsonPrimitive(
+                        """
+                        你是 Function 复用指令增强器。只基于给定 Function JSON 和 RunLog 证据改写可复用信息。
+                        必须调用 $FUNCTION_ENHANCEMENT_TOOL，禁止普通文本。
+                        目标：
+                        1. 写清楚 name/description，让 agent 能判断什么时候调用。
+                        2. 如果录制值明显是用户变量，把它抽成参数，并给出 bindings；例如“搜索猫猫”应成为 query 参数。
+                        3. 只输出安全的展示/参数/步骤标签/复用提示补丁；不要改坐标、包名、XML、截图、执行动作结构。
+                        4. 不确定就少改，不能编造 App 行为。
+                        """.trimIndent()
+                    )
+                ),
+                ChatCompletionMessage(
+                    role = "user",
+                    content = JsonPrimitive(
+                        """
+                        用户补充要求：
+                        ${instruction.ifBlank { "无" }}
+
+                        当前 Function JSON：
+                        $specJson
+
+                        关联 RunLog：
+                        ${if (runLog.isEmpty()) "无" else runLogJson}
+                        """.trimIndent()
+                    )
+                )
+            ),
+            maxCompletionTokens = 1800,
+            temperature = 0.2,
+            tools = listOf(
+                ChatCompletionTool(
+                    function = ChatCompletionFunction(
+                        name = FUNCTION_ENHANCEMENT_TOOL,
+                        description = "提交 Function 增强分析和安全补丁。",
+                        parameters = parameters,
+                        strict = true,
+                    )
+                )
+            ),
+            parallelToolCalls = false,
+            toolChoice = buildJsonObject {
+                put("type", JsonPrimitive("function"))
+                put(
+                    "function",
+                    buildJsonObject { put("name", JsonPrimitive(FUNCTION_ENHANCEMENT_TOOL)) }
+                )
+            },
+        )
+    }
+
+    private fun functionEnhancementResultSchema(): Map<String, Any?> =
+        linkedMapOf(
+            "type" to "object",
+            "additionalProperties" to false,
+            "properties" to linkedMapOf(
+                "analysis" to linkedMapOf(
+                    "type" to "object",
+                    "additionalProperties" to false,
+                    "properties" to linkedMapOf(
+                        "summary" to linkedMapOf("type" to "string"),
+                        "confidence" to linkedMapOf("type" to "number"),
+                    ),
+                    "required" to listOf("summary", "confidence"),
+                ),
+                "patch" to linkedMapOf(
+                    "type" to "object",
+                    "additionalProperties" to false,
+                    "properties" to linkedMapOf(
+                        "name" to linkedMapOf("type" to "string"),
+                        "description" to linkedMapOf("type" to "string"),
+                        "parameters" to linkedMapOf(
+                            "type" to "array",
+                            "items" to linkedMapOf(
+                                "type" to "object",
+                                "additionalProperties" to false,
+                                "properties" to linkedMapOf(
+                                    "name" to linkedMapOf("type" to "string"),
+                                    "type" to linkedMapOf("type" to "string"),
+                                    "description" to linkedMapOf("type" to "string"),
+                                    "required" to linkedMapOf("type" to "boolean"),
+                                    "bindings" to linkedMapOf(
+                                        "type" to "array",
+                                        "items" to linkedMapOf("type" to "string"),
+                                    ),
+                                ),
+                                "required" to listOf("name", "type", "description", "required", "bindings"),
+                            ),
+                        ),
+                        "steps" to linkedMapOf(
+                            "type" to "array",
+                            "items" to linkedMapOf(
+                                "type" to "object",
+                                "additionalProperties" to false,
+                                "properties" to linkedMapOf(
+                                    "index" to linkedMapOf("type" to "integer"),
+                                    "title" to linkedMapOf("type" to "string"),
+                                    "summary" to linkedMapOf("type" to "string"),
+                                    "description" to linkedMapOf("type" to "string"),
+                                ),
+                                "required" to listOf("index", "title", "summary", "description"),
+                            ),
+                        ),
+                        "agent_reuse" to linkedMapOf(
+                            "type" to "object",
+                            "additionalProperties" to false,
+                            "properties" to linkedMapOf(
+                                "reuse_when" to linkedMapOf(
+                                    "type" to "array",
+                                    "items" to linkedMapOf("type" to "string"),
+                                ),
+                                "avoid_when" to linkedMapOf(
+                                    "type" to "array",
+                                    "items" to linkedMapOf("type" to "string"),
+                                ),
+                                "success_signal" to linkedMapOf("type" to "string"),
+                            ),
+                            "required" to listOf("reuse_when", "avoid_when", "success_signal"),
+                        ),
+                    ),
+                    "required" to listOf("name", "description", "parameters", "steps", "agent_reuse"),
+                ),
+            ),
+            "required" to listOf("analysis", "patch"),
+        )
+
+    private fun parseFunctionEnhancementToolResult(toolCalls: List<AssistantToolCall>): Map<String, Any?>? {
+        val selected = toolCalls.firstOrNull {
+            it.function.name.trim().equals(FUNCTION_ENHANCEMENT_TOOL, ignoreCase = true)
+        } ?: toolCalls.firstOrNull() ?: return null
+        return parseFunctionEnhancementContent(selected.function.arguments)
+    }
+
+    private fun parseFunctionEnhancementContent(raw: String): Map<String, Any?>? {
+        val jsonText = extractFirstJsonObject(raw) ?: raw.trim()
+        if (jsonText.isBlank()) return null
+        return runCatching {
+            jsonObjectToMap(JSONObject(jsonText))
+        }.onFailure {
+            OmniLog.w(TAG, "parse function enhancement payload failed: ${it.message}")
+        }.getOrNull()
+    }
+
+    private fun jsonObjectToMap(json: JSONObject): Map<String, Any?> =
+        linkedMapOf<String, Any?>().apply {
+            json.keys().forEach { key -> put(key, jsonValueToAny(json.opt(key))) }
+        }
+
+    private fun jsonArrayToList(json: JSONArray): List<Any?> =
+        (0 until json.length()).map { index -> jsonValueToAny(json.opt(index)) }
+
+    private fun jsonValueToAny(value: Any?): Any? =
+        when (value) {
+            JSONObject.NULL -> null
+            is JSONObject -> jsonObjectToMap(value)
+            is JSONArray -> jsonArrayToList(value)
+            else -> value
+        }
+
+    private fun compactForPrompt(value: Any?, maxChars: Int): Any? {
+        val text = Gson().toJson(value)
+        return if (text.length <= maxChars) {
+            value
+        } else {
+            linkedMapOf(
+                "truncated" to true,
+                "json_prefix" to text.take(maxChars),
+            )
         }
     }
 
@@ -7059,6 +7338,157 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
                 result.success(payload)
             }
         }
+    }
+
+    fun startHumanTrajectoryLearning(call: MethodCall, result: MethodChannel.Result) {
+        mainJob.launch {
+            val args = normalizeMethodCallMap(call.arguments)
+            val name = firstNonBlankString(args["name"], args["title"]).ifBlank { "人工学习轨迹" }
+            val description = firstNonBlankString(args["description"], args["goal"]).ifBlank { name }
+            val enableDebugScreenshots = BuildConfig.DEBUG && (
+                booleanMethodCallValue(args["enableDebugScreenshots"]) ||
+                    booleanMethodCallValue(args["debugScreenshots"]) ||
+                    booleanMethodCallValue(args["recordDebugScreenshots"])
+                )
+            val session = runCatching {
+                withContext(Dispatchers.Default) {
+                    val started = HumanTrajectoryLearningSession.start(
+                        context = context,
+                        name = name,
+                        description = description,
+                        enableDebugScreenshots = enableDebugScreenshots,
+                    )
+                    if (!HumanTrajectoryLearningSession.pauseActive()) {
+                        HumanTrajectoryLearningSession.cancelActive("手动录制初始化失败")
+                        throw IllegalStateException("手动录制初始化失败")
+                    }
+                    started
+                }
+            }.getOrElse { error ->
+                withContext(Dispatchers.Main) {
+                    result.success(manualRecordingErrorPayload("HUMAN_TRAJECTORY_LEARNING_FAILED", error.fullCauseMessage()))
+                }
+                return@launch
+            }
+
+            val controlShown = withContext(Dispatchers.Main) {
+                ManualRecordingControlOverlay.show(context, ManualRecordingControlOverlay.State.READY).also { shown ->
+                    if (shown) ManualRecordingControlOverlay.markReady()
+                }
+            }
+            if (!controlShown) {
+                withContext(Dispatchers.Default) {
+                    HumanTrajectoryLearningSession.cancelActive("录制控制浮窗显示失败，请检查悬浮窗权限")
+                }
+                withContext(Dispatchers.Main) {
+                    result.success(
+                        manualRecordingErrorPayload(
+                            code = "HUMAN_TRAJECTORY_OVERLAY_FAILED",
+                            message = "录制控制浮窗显示失败，请检查悬浮窗权限",
+                        )
+                    )
+                }
+                return@launch
+            }
+
+            val learningResult = session.await()
+            withContext(Dispatchers.Main) {
+                ManualRecordingControlOverlay.dismiss()
+            }
+            val payload = if (!learningResult.success) {
+                manualRecordingErrorPayload(
+                    code = if (learningResult.errorMessage.contains("取消")) {
+                        "HUMAN_TRAJECTORY_CANCELLED"
+                    } else {
+                        "HUMAN_TRAJECTORY_EMPTY"
+                    },
+                    message = learningResult.errorMessage.ifBlank { "未记录到可复用的人类操作" },
+                    runId = learningResult.runId,
+                    actionCount = learningResult.actionCount,
+                    summary = learningResult.summary,
+                    diagnostics = learningResult.diagnostics,
+                )
+            } else {
+                withContext(Dispatchers.Main) {
+                    DraggableBallInstance.setDoing(
+                        message = "正在整理录制结果",
+                        isShowTakeOver = false,
+                    )
+                }
+                val conversion = executeFunctionToolForChannel(
+                    toolName = FunctionApi.RUN_LOG_CONVERT,
+                    args = linkedMapOf(
+                        "run_id" to learningResult.runId,
+                        "register" to true,
+                        "agent_visible" to false,
+                        "name" to learningResult.name,
+                        "description" to learningResult.description,
+                    ),
+                    errorCode = "HUMAN_TRAJECTORY_CONVERT_FAILED",
+                )
+                withContext(Dispatchers.Main) {
+                    DraggableBallInstance.finishDoingTask(
+                        if (conversion["success"] == true) "学习完成" else "录制完成",
+                    )
+                }
+                val timeline = withContext(Dispatchers.IO) {
+                    runCatching { InternalRunLogStore.timelinePayload(context, learningResult.runId) }
+                        .getOrDefault(emptyMap())
+                }
+                linkedMapOf<String, Any?>(
+                    "success" to true,
+                    "recording_success" to true,
+                    "conversion_success" to (conversion["success"] == true),
+                    "function_registered" to (conversion["registered"] == true),
+                    "run_id" to learningResult.runId,
+                    "name" to learningResult.name,
+                    "description" to learningResult.description,
+                    "action_count" to learningResult.actionCount,
+                    "summary" to learningResult.summary,
+                    "diagnostics" to learningResult.diagnostics.takeIf { it.isNotEmpty() },
+                    "run_log" to timeline.takeIf { it.isNotEmpty() },
+                    "function_id" to conversion["function_id"],
+                    "created_function_id" to conversion["created_function_id"],
+                    "function_spec" to conversion["function_spec"],
+                    "conversion" to conversion,
+                    "function_kind" to "reusable_function",
+                    "asset_state" to "native_local",
+                ).filterValues { it != null }
+            }
+            withContext(Dispatchers.Main) {
+                result.success(payload)
+            }
+        }
+    }
+
+    fun pauseHumanTrajectoryLearning(call: MethodCall, result: MethodChannel.Result) {
+        mainJob.launch {
+            val paused = withContext(Dispatchers.Default) { HumanTrajectoryLearningSession.pauseActive() }
+            withContext(Dispatchers.Main) {
+                if (paused) ManualRecordingControlOverlay.markPaused()
+                result.success(manualRecordingStatusPayload(paused, "NO_ACTIVE_RECORDING"))
+            }
+        }
+    }
+
+    fun resumeHumanTrajectoryLearning(call: MethodCall, result: MethodChannel.Result) {
+        mainJob.launch {
+            val resumed = withContext(Dispatchers.Default) { HumanTrajectoryLearningSession.resumeActive() }
+            withContext(Dispatchers.Main) {
+                if (resumed) ManualRecordingControlOverlay.markRecording()
+                result.success(manualRecordingStatusPayload(resumed, "NO_ACTIVE_RECORDING"))
+            }
+        }
+    }
+
+    fun getHumanTrajectoryLearningStatus(call: MethodCall, result: MethodChannel.Result) {
+        result.success(
+            linkedMapOf(
+                "success" to true,
+                "status" to HumanTrajectoryLearningSession.status().asMap(),
+                "source" to "human_trajectory_learning",
+            )
+        )
     }
 
     fun getFunction(call: MethodCall, result: MethodChannel.Result) {
@@ -7192,6 +7622,40 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
             )
         }
     }
+
+    private fun manualRecordingStatusPayload(success: Boolean, errorCode: String): Map<String, Any?> {
+        val status = HumanTrajectoryLearningSession.status().asMap()
+        return linkedMapOf(
+            "success" to success,
+            "recording_active" to status["recording_active"],
+            "recording_paused" to status["recording_paused"],
+            "action_count" to status["action_count"],
+            "latest_action_summary" to status["latest_action_summary"],
+            "status" to status,
+            "error_code" to if (success) null else errorCode,
+            "error_message" to if (success) null else "No active human recording session",
+            "source" to "human_trajectory_learning",
+        ).filterValues { it != null }
+    }
+
+    private fun manualRecordingErrorPayload(
+        code: String,
+        message: String,
+        runId: String? = null,
+        actionCount: Int = 0,
+        summary: String = "",
+        diagnostics: Map<String, Any?> = emptyMap(),
+    ): Map<String, Any?> = linkedMapOf<String, Any?>(
+        "success" to false,
+        "error_code" to code,
+        "error_message" to message,
+        "run_id" to runId,
+        "action_count" to actionCount,
+        "summary" to summary,
+        "diagnostics" to diagnostics.takeIf { it.isNotEmpty() },
+        "function_kind" to "reusable_function",
+        "asset_state" to "native_local",
+    ).filterValues { it != null }
 
     private fun normalizeMethodCallMap(value: Any?): Map<String, Any?> {
         val raw = value as? Map<*, *> ?: return emptyMap()

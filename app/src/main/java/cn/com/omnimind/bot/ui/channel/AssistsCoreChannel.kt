@@ -151,6 +151,18 @@ class AssistsCoreChannel {
                 "convertInternalRunLogToFunction" -> {
                     assistsCoreManager!!.convertInternalRunLogToFunction(call, result)
                 }
+                "startHumanTrajectoryLearning" -> {
+                    assistsCoreManager!!.startHumanTrajectoryLearning(call, result)
+                }
+                "pauseHumanTrajectoryLearning" -> {
+                    assistsCoreManager!!.pauseHumanTrajectoryLearning(call, result)
+                }
+                "resumeHumanTrajectoryLearning" -> {
+                    assistsCoreManager!!.resumeHumanTrajectoryLearning(call, result)
+                }
+                "getHumanTrajectoryLearningStatus" -> {
+                    assistsCoreManager!!.getHumanTrajectoryLearningStatus(call, result)
+                }
                 "getFunction" -> {
                     assistsCoreManager!!.getFunction(call, result)
                 }

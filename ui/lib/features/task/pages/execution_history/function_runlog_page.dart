@@ -183,6 +183,43 @@ class _FunctionListState extends State<_FunctionList> {
     }
   }
 
+  Future<void> _enhance(Map<String, dynamic> item) async {
+    final functionId = _text(item['function_id']);
+    if (functionId.isEmpty || _busy.contains(functionId)) return;
+    setState(() => _busy.add(functionId));
+    try {
+      final spec = await AssistsMessageService.getFunction(functionId) ?? item;
+      final result = await AssistsMessageService.updateFunction(
+        functionId: functionId,
+        runId: _text(spec['source_run_id']).isEmpty
+            ? null
+            : _text(spec['source_run_id']),
+        mode: 'enhance',
+        autoAnalyzeWithModel: true,
+        extraArgs: const {'offline_job': true},
+      );
+      if (!mounted) return;
+      showToast(
+        result['success'] == false
+            ? _first([
+                result['error_message'],
+                result['message'],
+                _t('增强失败', 'Enhance failed'),
+              ])
+            : _t('增强已保存', 'Enhancement saved'),
+        type: result['success'] == false ? ToastType.error : ToastType.success,
+      );
+      await _load();
+      if (mounted) {
+        await _showJson(context, _t('增强结果', 'Enhance result'), result);
+      }
+    } catch (error) {
+      if (mounted) showToast(error.toString(), type: ToastType.error);
+    } finally {
+      if (mounted) setState(() => _busy.remove(functionId));
+    }
+  }
+
   Future<void> _details(Map<String, dynamic> item) async {
     final functionId = _text(item['function_id']);
     final spec = functionId.isEmpty
@@ -226,11 +263,13 @@ class _FunctionListState extends State<_FunctionList> {
             enabled: !busy,
             onSelected: (value) {
               if (value == 'run') _run(item);
+              if (value == 'enhance') _enhance(item);
               if (value == 'details') _details(item);
               if (value == 'delete') _delete(item);
             },
             itemBuilder: (context) => [
               PopupMenuItem(value: 'run', child: Text(_t('执行', 'Run'))),
+              PopupMenuItem(value: 'enhance', child: Text(_t('增强', 'Enhance'))),
               PopupMenuItem(value: 'details', child: Text(_t('详情', 'Details'))),
               PopupMenuItem(value: 'delete', child: Text(_t('删除', 'Delete'))),
             ],
@@ -250,6 +289,7 @@ class _RunLogList extends StatefulWidget {
 
 class _RunLogListState extends State<_RunLogList> {
   bool _loading = true;
+  bool _recording = false;
   String? _error;
   List<Map<String, dynamic>> _items = const [];
   final Set<String> _busy = {};
@@ -278,6 +318,48 @@ class _RunLogListState extends State<_RunLogList> {
         _error = error.toString();
         _loading = false;
       });
+    }
+  }
+
+  Future<void> _startManualRecording() async {
+    if (_recording) return;
+    final name = await _askText(
+      context,
+      title: _t('手动录制', 'Manual recording'),
+      label: _t('指令名称', 'Function name'),
+      initialValue: _t('人工学习轨迹', 'Manual trajectory'),
+      confirmText: _t('开始', 'Start'),
+    );
+    if (name == null || !mounted) return;
+    setState(() => _recording = true);
+    try {
+      final result = await AssistsMessageService.startHumanTrajectoryLearning(
+        name: name,
+        description: name,
+      );
+      if (!mounted) return;
+      showToast(
+        result['success'] == false
+            ? _first([
+                result['error_message'],
+                result['message'],
+                _t('录制失败', 'Recording failed'),
+              ])
+            : _t('录制已保存', 'Recording saved'),
+        type: result['success'] == false ? ToastType.error : ToastType.success,
+      );
+      await _load();
+      if (mounted) {
+        await _showRunLogTimeline(
+          context,
+          _first([result['name'], result['run_id'], _t('录制结果', 'Recording')]),
+          _map(result['run_log']).isEmpty ? result : _map(result['run_log']),
+        );
+      }
+    } catch (error) {
+      if (mounted) showToast(error.toString(), type: ToastType.error);
+    } finally {
+      if (mounted) setState(() => _recording = false);
     }
   }
 
@@ -319,7 +401,7 @@ class _RunLogListState extends State<_RunLogList> {
       final result = await AssistsMessageService.getInternalRunLogTimeline(
         runId: runId,
       );
-      if (mounted) await _showJson(context, _runTitle(item), result);
+      if (mounted) await _showRunLogTimeline(context, _runTitle(item), result);
     } catch (error) {
       if (mounted) showToast(error.toString(), type: ToastType.error);
     } finally {
@@ -329,55 +411,88 @@ class _RunLogListState extends State<_RunLogList> {
 
   @override
   Widget build(BuildContext context) {
-    return _SimpleAsyncList(
-      loading: _loading,
-      error: _error,
-      emptyText: _t('暂无执行记录', 'No RunLogs yet'),
-      onRefresh: _load,
-      itemCount: _items.length,
-      itemBuilder: (context, index) {
-        final item = _items[index];
-        final runId = _text(item['run_id']);
-        final busy = _busy.contains(runId);
-        return ListTile(
-          leading: busy
-              ? const SizedBox(
-                  width: 24,
-                  height: 24,
-                  child: CircularProgressIndicator(strokeWidth: 2),
-                )
-              : Icon(
-                  item['success'] == true
-                      ? Icons.check_circle_outline
-                      : Icons.route_outlined,
+    return Column(
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 10, 16, 6),
+          child: Row(
+            children: [
+              Expanded(
+                child: Text(
+                  _t('执行记录', 'RunLogs'),
+                  style: Theme.of(context).textTheme.titleMedium,
                 ),
-          title: Text(
-            _runTitle(item),
-            maxLines: 2,
-            overflow: TextOverflow.ellipsis,
-          ),
-          subtitle: Text(
-            _runSubtitle(item),
-            maxLines: 2,
-            overflow: TextOverflow.ellipsis,
-          ),
-          onTap: busy ? null : () => _details(item),
-          trailing: PopupMenuButton<String>(
-            enabled: !busy,
-            onSelected: (value) {
-              if (value == 'save') _convert(item);
-              if (value == 'details') _details(item);
-            },
-            itemBuilder: (context) => [
-              PopupMenuItem(
-                value: 'save',
-                child: Text(_t('保存为复用', 'Save Function')),
               ),
-              PopupMenuItem(value: 'details', child: Text(_t('详情', 'Details'))),
+              FilledButton.icon(
+                onPressed: _recording ? null : _startManualRecording,
+                icon: _recording
+                    ? const SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.fiber_manual_record_rounded),
+                label: Text(_t('手动录制', 'Record')),
+              ),
             ],
           ),
-        );
-      },
+        ),
+        Expanded(
+          child: _SimpleAsyncList(
+            loading: _loading,
+            error: _error,
+            emptyText: _t('暂无执行记录', 'No RunLogs yet'),
+            onRefresh: _load,
+            itemCount: _items.length,
+            itemBuilder: (context, index) {
+              final item = _items[index];
+              final runId = _text(item['run_id']);
+              final busy = _busy.contains(runId);
+              return ListTile(
+                leading: busy
+                    ? const SizedBox(
+                        width: 24,
+                        height: 24,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : Icon(
+                        item['success'] == true
+                            ? Icons.check_circle_outline
+                            : Icons.route_outlined,
+                      ),
+                title: Text(
+                  _runTitle(item),
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                subtitle: Text(
+                  _runSubtitle(item),
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                onTap: busy ? null : () => _details(item),
+                trailing: PopupMenuButton<String>(
+                  enabled: !busy,
+                  onSelected: (value) {
+                    if (value == 'save') _convert(item);
+                    if (value == 'details') _details(item);
+                  },
+                  itemBuilder: (context) => [
+                    PopupMenuItem(
+                      value: 'save',
+                      child: Text(_t('保存为复用', 'Save Function')),
+                    ),
+                    PopupMenuItem(
+                      value: 'details',
+                      child: Text(_t('详情', 'Details')),
+                    ),
+                  ],
+                ),
+              );
+            },
+          ),
+        ),
+      ],
     );
   }
 }
@@ -527,6 +642,109 @@ Future<void> _showJson(BuildContext context, String title, Object? value) {
   );
 }
 
+Future<void> _showRunLogTimeline(
+  BuildContext context,
+  String title,
+  Map<String, dynamic> payload,
+) {
+  final primaryCards = _list(payload['cards']);
+  final cards = primaryCards.isEmpty ? _list(payload['steps']) : primaryCards;
+  if (cards.isEmpty) return _showJson(context, title, payload);
+  return showDialog<void>(
+    context: context,
+    builder: (context) => AlertDialog(
+      title: Text(title, maxLines: 1, overflow: TextOverflow.ellipsis),
+      content: SizedBox(
+        width: double.maxFinite,
+        child: ListView.separated(
+          shrinkWrap: true,
+          itemCount: cards.length,
+          separatorBuilder: (_, __) => const Divider(height: 1),
+          itemBuilder: (context, index) {
+            final card = cards[index];
+            return ListTile(
+              dense: true,
+              contentPadding: EdgeInsets.zero,
+              leading: CircleAvatar(
+                radius: 14,
+                child: Text(
+                  '${index + 1}',
+                  style: const TextStyle(fontSize: 12),
+                ),
+              ),
+              title: Text(
+                _timelineTitle(card),
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+              ),
+              subtitle: Text(
+                _timelineSubtitle(card),
+                maxLines: 3,
+                overflow: TextOverflow.ellipsis,
+              ),
+              onTap: () => _showJson(
+                context,
+                _timelineTitle(card).isEmpty
+                    ? '${_t('步骤', 'Step')} ${index + 1}'
+                    : _timelineTitle(card),
+                card,
+              ),
+            );
+          },
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => _showJson(context, title, payload),
+          child: Text(_t('查看 JSON', 'View JSON')),
+        ),
+        FilledButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: Text(_t('关闭', 'Close')),
+        ),
+      ],
+    ),
+  );
+}
+
+Future<String?> _askText(
+  BuildContext context, {
+  required String title,
+  required String label,
+  String initialValue = '',
+  String confirmText = '',
+}) async {
+  final controller = TextEditingController(text: initialValue);
+  try {
+    return showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(title),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          decoration: InputDecoration(
+            labelText: label,
+            border: const OutlineInputBorder(),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(null),
+            child: Text(_t('取消', 'Cancel')),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(controller.text.trim()),
+            child: Text(confirmText.isEmpty ? _t('确定', 'OK') : confirmText),
+          ),
+        ],
+      ),
+    );
+  } finally {
+    controller.dispose();
+  }
+}
+
 String _functionTitle(Map<String, dynamic> item) {
   return _first([
     item['name'],
@@ -561,6 +779,34 @@ String _runSubtitle(Map<String, dynamic> item) {
     if (_text(item['run_status']).isNotEmpty) _text(item['run_status']),
     if (_text(item['registered_function_id']).isNotEmpty) _t('已保存', 'Saved'),
   ].join(' · ');
+}
+
+String _timelineTitle(Map<String, dynamic> item) {
+  final header = _map(item['header']);
+  return _first([
+    item['title'],
+    header['title'],
+    item['summary'],
+    item['tool'],
+    item['action'],
+    item['kind'],
+  ]);
+}
+
+String _timelineSubtitle(Map<String, dynamic> item) {
+  final args = _map(item['args']);
+  final parts = <String>[
+    if (_text(item['tool']).isNotEmpty) _text(item['tool']),
+    if (_text(item['executor']).isNotEmpty) _text(item['executor']),
+    if (_text(item['status']).isNotEmpty) _text(item['status']),
+    if (args.isNotEmpty) _compactJson(args),
+  ];
+  return parts.join(' · ');
+}
+
+String _compactJson(Object? value) {
+  final text = jsonEncode(value);
+  return text.length <= 180 ? text : '${text.substring(0, 180)}...';
 }
 
 List<String> _argumentNames(Map<String, dynamic> item) {
