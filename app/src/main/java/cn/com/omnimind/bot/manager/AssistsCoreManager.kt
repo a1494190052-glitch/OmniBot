@@ -47,12 +47,17 @@ import cn.com.omnimind.baselib.llm.SceneOperationConfig
 import cn.com.omnimind.baselib.llm.SceneOperationConfigStore
 import cn.com.omnimind.baselib.llm.SceneVoiceConfig
 import cn.com.omnimind.baselib.llm.SceneVoiceConfigStore
+import cn.com.omnimind.baselib.runlog.InternalRunLogStore
 import cn.com.omnimind.baselib.util.APPPackageUtil
 import cn.com.omnimind.baselib.util.OmniLog
 import cn.com.omnimind.baselib.util.RuntimeLogStore
 import cn.com.omnimind.baselib.util.exception.PermissionException
 import cn.com.omnimind.bot.R
 import cn.com.omnimind.bot.activity.MainActivity
+import cn.com.omnimind.bot.function.FunctionApi
+import cn.com.omnimind.bot.function.FunctionChannelPayload
+import cn.com.omnimind.bot.function.FunctionRun
+import cn.com.omnimind.bot.function.FunctionService
 import cn.com.omnimind.bot.ui.scheduled.ScheduledTaskReminderLoader
 import cn.com.omnimind.bot.util.AssistsUtil
 import cn.com.omnimind.assists.controller.http.HttpController
@@ -580,6 +585,27 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
             return synchronized(this) {
                 sharedInstance ?: AssistsCoreManager(context.applicationContext).also {
                     sharedInstance = it
+                }
+            }
+        }
+
+        fun dispatchFunctionRunProgress(payload: Map<String, Any?>) {
+            val eventPayload = LinkedHashMap<String, Any?>().apply {
+                putAll(payload)
+            }
+            mainHandler.post {
+                val manager = sharedInstance
+                if (manager != null) {
+                    manager.invokeFlutterEventSafely("onFunctionRunProgress", eventPayload)
+                    return@post
+                }
+                runCatching {
+                    mainEngineChannel?.invokeMethod("onFunctionRunProgress", eventPayload)
+                }.onFailure {
+                    OmniLog.w(
+                        "[AssistsCoreManager]",
+                        "dispatch onFunctionRunProgress failed: ${it.message}"
+                    )
                 }
             }
         }
@@ -6954,6 +6980,320 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
             OmniLog.e(TAG, "show task completion notification failed: ${e.message}")
             result.error("SHOW_TASK_NOTIFICATION_FAILED", e.message, null)
         }
+    }
+
+    fun getInternalRunLogs(call: MethodCall, result: MethodChannel.Result) {
+        mainJob.launch {
+            val limit = call.argument<Number>("limit")?.toInt() ?: 50
+            val offset = call.argument<Number>("offset")?.toInt() ?: 0
+            val payload = withContext(Dispatchers.IO) {
+                InternalRunLogStore.listRuns(context, limit, offset)
+            }
+            withContext(Dispatchers.Main) {
+                result.success(payload)
+            }
+        }
+    }
+
+    fun getInternalRunLogTimeline(call: MethodCall, result: MethodChannel.Result) {
+        mainJob.launch {
+            val runId = call.argument<String>("run_id")?.trim().orEmpty()
+            val payload = withContext(Dispatchers.IO) {
+                InternalRunLogStore.timelinePayload(context, runId)
+            }
+            withContext(Dispatchers.Main) {
+                result.success(payload)
+            }
+        }
+    }
+
+    fun registerFunction(call: MethodCall, result: MethodChannel.Result) {
+        mainJob.launch {
+            val args = normalizeMethodCallMap(call.arguments)
+            val directSpec = normalizeMethodCallMap(args["function_spec"])
+            val functionSpec = when {
+                directSpec.isNotEmpty() -> directSpec
+                args.containsKey("function_id") -> args
+                else -> emptyMap()
+            }
+            val payload = executeFunctionToolForChannel(
+                toolName = FunctionApi.FUNCTION_REGISTER,
+                args = linkedMapOf("function_spec" to functionSpec),
+                errorCode = "FUNCTION_REGISTER_FAILED",
+            )
+            withContext(Dispatchers.Main) {
+                result.success(payload)
+            }
+        }
+    }
+
+    fun updateFunction(call: MethodCall, result: MethodChannel.Result) {
+        mainJob.launch {
+            val payload = executeFunctionToolForChannel(
+                toolName = FunctionApi.FUNCTION_UPDATE,
+                args = normalizeMethodCallMap(call.arguments),
+                errorCode = "FUNCTION_UPDATE_FAILED",
+            )
+            withContext(Dispatchers.Main) {
+                result.success(payload)
+            }
+        }
+    }
+
+    fun convertInternalRunLogToFunction(call: MethodCall, result: MethodChannel.Result) {
+        mainJob.launch {
+            val args = normalizeMethodCallMap(call.arguments)
+            val payload = executeFunctionToolForChannel(
+                toolName = FunctionApi.RUN_LOG_CONVERT,
+                args = linkedMapOf<String, Any?>(
+                    "run_id" to args["run_id"]?.toString()?.trim().orEmpty(),
+                    "register" to booleanMethodCallValue(args["register"]),
+                    "agent_visible" to booleanMethodCallValue(args["agent_visible"]),
+                    "function_id" to args["function_id"]?.toString(),
+                    "name" to args["name"]?.toString(),
+                    "description" to args["description"]?.toString(),
+                ).filterValues { it != null },
+                errorCode = "RUN_LOG_CONVERT_FAILED",
+            )
+            withContext(Dispatchers.Main) {
+                result.success(payload)
+            }
+        }
+    }
+
+    fun getFunction(call: MethodCall, result: MethodChannel.Result) {
+        mainJob.launch {
+            val args = normalizeMethodCallMap(call.arguments)
+            val payload = executeFunctionToolForChannel(
+                toolName = FunctionApi.FUNCTION_GET,
+                args = linkedMapOf("function_id" to args["function_id"]?.toString()?.trim().orEmpty()),
+                errorCode = "FUNCTION_GET_FAILED",
+            ).let { response ->
+                if (response["success"] == false && response["error_code"] == "FUNCTION_NOT_FOUND") {
+                    null
+                } else {
+                    response["function"] as? Map<*, *> ?: response
+                }
+            }
+            withContext(Dispatchers.Main) {
+                result.success(payload)
+            }
+        }
+    }
+
+    fun listFunctions(call: MethodCall, result: MethodChannel.Result) {
+        mainJob.launch {
+            val includeHidden =
+                call.argument<Boolean>("includeHidden")
+                    ?: call.argument<Boolean>("include_hidden")
+                    ?: false
+            val payload = executeFunctionToolForChannel(
+                toolName = FunctionApi.FUNCTION_LIST,
+                args = linkedMapOf(
+                    "limit" to (call.argument<Number>("limit")?.toInt() ?: 100),
+                    "offset" to (call.argument<Number>("offset")?.toInt() ?: 0),
+                    "include_hidden" to includeHidden,
+                ),
+                errorCode = "FUNCTION_LIST_FAILED",
+            )
+            withContext(Dispatchers.Main) {
+                result.success(payload)
+            }
+        }
+    }
+
+    fun deleteFunction(call: MethodCall, result: MethodChannel.Result) {
+        mainJob.launch {
+            val args = normalizeMethodCallMap(call.arguments)
+            val payload = executeFunctionToolForChannel(
+                toolName = FunctionApi.FUNCTION_DELETE,
+                args = linkedMapOf("function_id" to args["function_id"]?.toString()?.trim().orEmpty()),
+                errorCode = "FUNCTION_DELETE_FAILED",
+            )
+            withContext(Dispatchers.Main) {
+                result.success(payload)
+            }
+        }
+    }
+
+    fun runFunction(call: MethodCall, result: MethodChannel.Result) {
+        mainJob.launch {
+            val args = normalizeMethodCallMap(call.arguments)
+            val functionId = args["function_id"]?.toString()?.trim().orEmpty()
+            val callArguments = normalizeCallArgumentMap(args["arguments"])
+            val providedLocalResult = normalizeProvidedLocalReplayResult(
+                args["localReplayResult"] ?: args["local_replay_result"]
+            )
+            val runPayload = providedLocalResult ?: runCatching {
+                val functionRunPayload = withContext(Dispatchers.IO) {
+                    FunctionRun(context).runFunction(
+                        linkedMapOf<String, Any?>(
+                            "function_id" to functionId,
+                            "arguments" to callArguments,
+                            "frontend_run_id" to firstNonBlankString(
+                                args["frontend_run_id"],
+                                args["frontendRunId"]
+                            ).takeIf { it.isNotEmpty() },
+                            "frontend_task_id" to firstNonBlankString(
+                                args["frontend_task_id"],
+                                args["frontendTaskId"],
+                                args["taskId"],
+                                args["task_id"]
+                            ).takeIf { it.isNotEmpty() },
+                            "frontend_parent" to "function_direct_run",
+                        ).filterValues { it != null }
+                    )
+                }
+                normalizeFunctionRunPayload(functionRunPayload)
+            }.getOrElse { error ->
+                linkedMapOf<String, Any?>(
+                    "success" to false,
+                    "function_id" to functionId,
+                    "runner" to "function_runner",
+                    "step_count" to 0,
+                    "success_step_count" to 0,
+                    "model_used" to false,
+                    "error_code" to "FUNCTION_RUN_FAILED",
+                    "error_message" to error.fullCauseMessage(),
+                    "step_results" to emptyList<Map<String, Any?>>()
+                )
+            }
+
+            val stepResults = (runPayload["step_results"] as? List<*>)
+                ?.filterIsInstance<Map<*, *>>() ?: emptyList()
+            val payload = FunctionChannelPayload.buildLocalPayload(
+                functionId = functionId,
+                localSuccess = runPayload["success"] != false,
+                runPayload = runPayload,
+                stepResults = stepResults,
+                argumentCount = callArguments.size
+            )
+            withContext(Dispatchers.Main) {
+                result.success(payload)
+            }
+        }
+    }
+
+    private suspend fun executeFunctionToolForChannel(
+        toolName: String,
+        args: Map<String, Any?>,
+        errorCode: String,
+    ): Map<String, Any?> = withContext(Dispatchers.IO) {
+        runCatching {
+            FunctionService(context).executeTool(toolName, args)
+        }.getOrElse { error ->
+            linkedMapOf(
+                "success" to false,
+                "error_code" to errorCode,
+                "error_message" to error.fullCauseMessage(),
+                "error_type" to error.javaClass.name,
+                "error_cause_chain" to error.causeChainPayload(),
+                "source" to "assists_core_channel"
+            )
+        }
+    }
+
+    private fun normalizeMethodCallMap(value: Any?): Map<String, Any?> {
+        val raw = value as? Map<*, *> ?: return emptyMap()
+        return raw.entries.associate { (key, item) ->
+            key.toString() to normalizeMethodCallValue(item)
+        }
+    }
+
+    private fun normalizeMethodCallValue(value: Any?): Any? {
+        return when (value) {
+            is Map<*, *> -> normalizeMethodCallMap(value)
+            is List<*> -> value.map(::normalizeMethodCallValue)
+            else -> value
+        }
+    }
+
+    private fun normalizeCallArgumentMap(value: Any?): Map<String, Any?> =
+        normalizeMethodCallMap(value)
+
+    private fun normalizeProvidedLocalReplayResult(value: Any?): Map<String, Any?>? {
+        val raw = normalizeMethodCallMap(value)
+        if (raw.isEmpty()) return null
+        val contextPayload = normalizeMethodCallMap(raw["context"])
+        val stepResults = normalizeStepResultList(contextPayload["step_results"] ?: raw["step_results"])
+        return LinkedHashMap<String, Any?>().apply {
+            putAll(raw)
+            if (stepResults.isNotEmpty()) {
+                put("step_results", stepResults)
+            }
+            putIfAbsent("function_id", raw["function_id"])
+            putIfAbsent("runner", raw["runner"] ?: contextPayload["runner"] ?: "function_runner")
+            putIfAbsent("model_used", raw["model_used"] ?: contextPayload["model_used"] ?: false)
+            putIfAbsent("model_required", raw["model_required"] ?: contextPayload["model_required"])
+            putIfAbsent("timing", raw["timing"] ?: contextPayload["timing"])
+            putIfAbsent("step_count", raw["step_count"] ?: contextPayload["step_count"] ?: stepResults.size)
+            putIfAbsent(
+                "success_step_count",
+                raw["success_step_count"] ?: contextPayload["success_step_count"]
+                    ?: stepResults.count { it["success"] != false }
+            )
+            putIfAbsent(
+                "error_message",
+                raw["error_message"] ?: raw["errorMessage"] ?: contextPayload["error_message"]
+            )
+            putIfAbsent("error_code", raw["error_code"] ?: contextPayload["error_code"])
+        }
+    }
+
+    private fun normalizeFunctionRunPayload(payload: Map<String, Any?>): Map<String, Any?> =
+        FunctionChannelPayload.normalizeRunPayload(payload)
+
+    private fun normalizeStepResultList(value: Any?): List<Map<String, Any?>> {
+        val rawList = value as? List<*> ?: return emptyList()
+        return rawList.mapNotNull { item ->
+            normalizeMethodCallMap(item).takeIf { it.isNotEmpty() }
+        }
+    }
+
+    private fun booleanMethodCallValue(value: Any?): Boolean {
+        return when (value) {
+            is Boolean -> value
+            is Number -> value.toInt() != 0
+            is String -> value.trim().lowercase().let { normalized ->
+                normalized == "true" || normalized == "1" || normalized == "yes"
+            }
+            else -> false
+        }
+    }
+
+    private fun firstNonBlankString(vararg values: Any?): String {
+        for (value in values) {
+            val text = value?.toString()?.trim().orEmpty()
+            if (text.isNotEmpty()) return text
+        }
+        return ""
+    }
+
+    private fun Throwable.fullCauseMessage(): String {
+        val parts = mutableListOf<String>()
+        var current: Throwable? = this
+        val seen = mutableSetOf<Throwable>()
+        while (current != null && seen.add(current)) {
+            parts += current.message?.takeIf(String::isNotBlank)
+                ?.let { "${current.javaClass.name}: $it" }
+                ?: current.javaClass.name
+            current = current.cause
+        }
+        return parts.joinToString(" <- ")
+    }
+
+    private fun Throwable.causeChainPayload(): List<Map<String, String>> {
+        val output = mutableListOf<Map<String, String>>()
+        var current: Throwable? = this
+        val seen = mutableSetOf<Throwable>()
+        while (current != null && seen.add(current)) {
+            output += linkedMapOf(
+                "type" to current.javaClass.name,
+                "message" to current.message.orEmpty()
+            )
+            current = current.cause
+        }
+        return output
     }
 
     fun setVisibleChatConversation(

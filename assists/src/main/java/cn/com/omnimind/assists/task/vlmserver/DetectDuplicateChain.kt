@@ -15,8 +15,7 @@ object DetectDuplicateChain {
             val step = steps[i]
             if (step.action is WaitAction) {
                 val waitAction = step.action as WaitAction
-                // 使用durationMs或duration，优先使用durationMs
-                val duration = waitAction.durationMs ?: waitAction.duration ?: 0
+                val duration = waitAction.durationMs ?: 0
                 totalDuration += duration
             } else {
                 // 遇到非WaitAction节点则停止
@@ -39,16 +38,16 @@ object DetectDuplicateChain {
     ): Pair<Boolean, List<UIStep>?> {
         if (steps.size < 2 || minRepeatCount < 2) return Pair(false, null)
 
-        // 找到最后一个PressBackAction的位置
+        // 找到最后一个 press_key(back) 的位置
         val lastSpecialIndex = findLastSpecialActionIndex(steps)
         if (lastSpecialIndex < 0) return Pair(false, null)
 
-        // 如果最后一个步骤不是PressBackAction，则不构成有效链路
-        if (steps.last().action !is PressBackAction) {
+        // 如果最后一个步骤不是 press_key(back)，则不构成有效链路
+        if (!steps.last().action.isBackKeyAction()) {
             return Pair(false, null)
         }
 
-        // 获取最后一个完整段落（从倒数第二个PressBackAction到末尾）
+        // 获取最后一个完整段落（从倒数第二个 press_key(back) 到末尾）
         val secondLastSpecialIndex = findLastSpecialActionIndexBefore(steps, lastSpecialIndex)
         if (secondLastSpecialIndex < 0) return Pair(false, null)
 
@@ -77,10 +76,10 @@ object DetectDuplicateChain {
 
         // 从前往后查找匹配的段落
         for (i in 0..beforeIndex - pattern.size) {
-            // 确保比较的段落也是以PressBackAction开始和结束
-            if (steps[i].action is PressBackAction &&
+            // 确保比较的段落也是以 press_key(back) 开始和结束
+            if (steps[i].action.isBackKeyAction() &&
                 i + pattern.size <= steps.size &&
-                steps[i + pattern.size - 1].action is PressBackAction
+                steps[i + pattern.size - 1].action.isBackKeyAction()
             ) {
 
                 val candidate = steps.subList(i, i + pattern.size)
@@ -105,10 +104,10 @@ object DetectDuplicateChain {
 
         // 从前往后查找匹配的段落
         for (i in 0..beforeIndex - pattern.size) {
-            // 确保比较的段落也是以PressBackAction开始和结束
-            if (steps[i].action is PressBackAction &&
+            // 确保比较的段落也是以 press_key(back) 开始和结束
+            if (steps[i].action.isBackKeyAction() &&
                 i + pattern.size <= steps.size &&
-                steps[i + pattern.size - 1].action is PressBackAction
+                steps[i + pattern.size - 1].action.isBackKeyAction()
             ) {
 
                 val candidate = steps.subList(i, i + pattern.size)
@@ -133,19 +132,21 @@ object DetectDuplicateChain {
 
             // 比较动作类型
             when {
-                action1 is PressBackAction && action2 is PressBackAction -> continue
+                action1 is PressKeyAction && action2 is PressKeyAction -> {
+                    if (action1.key.lowercase() != action2.key.lowercase()) return false
+                    continue
+                }
                 action1 is ClickAction && action2 is ClickAction -> continue
-                action1 is TypeAction && action2 is TypeAction -> {
-                    if (action1.content != action2.content) return false
+                action1 is InputTextAction && action2 is InputTextAction -> {
+                    if (action1.text != action2.text) return false
                 }
 
-                action1 is ScrollAction && action2 is ScrollAction -> continue
+                action1 is SwipeAction && action2 is SwipeAction -> continue
                 action1 is LongPressAction && action2 is LongPressAction -> continue
                 action1 is OpenAppAction && action2 is OpenAppAction -> {
                     if (action1.packageName != action2.packageName) return false
                 }
 
-                action1 is PressHomeAction && action2 is PressHomeAction -> continue
                 action1 is WaitAction && action2 is WaitAction -> continue
                 action1 is RecordAction && action2 is RecordAction -> {
                     if (action1.content != action2.content) return false
@@ -153,10 +154,6 @@ object DetectDuplicateChain {
 
                 action1 is FinishedAction && action2 is FinishedAction -> {
                     if (action1.content != action2.content) return false
-                }
-
-                action1 is HotKeyAction && action2 is HotKeyAction -> {
-                    if (action1.key != action2.key) return false
                 }
 
                 else -> return false
@@ -167,11 +164,11 @@ object DetectDuplicateChain {
     }
 
     /**
-     * 查找最后一个特殊动作(PressBackAction)的索引
+     * 查找最后一个特殊动作 press_key(back) 的索引
      */
     private fun findLastSpecialActionIndex(steps: List<UIStep>): Int {
         for (i in steps.indices.reversed()) {
-            if (steps[i].action is PressBackAction) {
+            if (steps[i].action.isBackKeyAction()) {
                 return i
             }
         }
@@ -183,11 +180,14 @@ object DetectDuplicateChain {
      */
     private fun findLastSpecialActionIndexBefore(steps: List<UIStep>, beforeIndex: Int): Int {
         for (i in beforeIndex - 1 downTo 0) {
-            if (steps[i].action is PressBackAction) {
+            if (steps[i].action.isBackKeyAction()) {
                 return i
             }
         }
         return -1
     }
+
+    private fun UIAction.isBackKeyAction(): Boolean =
+        this is PressKeyAction && key.equals("back", ignoreCase = true)
 
 }

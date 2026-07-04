@@ -18,10 +18,14 @@ import cn.com.omnimind.assists.api.bean.TaskParams
 import cn.com.omnimind.assists.api.interfaces.OnMessagePushListener
 import cn.com.omnimind.assists.task.scheduled.worker.ScheduledParams
 import cn.com.omnimind.assists.task.scheduled.worker.ScheduledStates
+import cn.com.omnimind.assists.task.vlmserver.FunctionRunExecutor
+import cn.com.omnimind.assists.task.vlmserver.OperationResult
 import cn.com.omnimind.baselib.util.APPPackageUtil
 import cn.com.omnimind.baselib.util.MobileManufacturerUtil
 import cn.com.omnimind.baselib.util.exception.PermissionException
 import cn.com.omnimind.bot.App
+import cn.com.omnimind.bot.function.FunctionJson
+import cn.com.omnimind.bot.function.FunctionRun
 import cn.com.omnimind.bot.manager.OmniForegroundService
 import cn.com.omnimind.bot.util.AssistsUtil.Core.createCompanionTask
 import cn.com.omnimind.uikit.UIKit
@@ -186,7 +190,9 @@ class AssistsUtil {
             packageName: String?,
             onMessagePushListener: OnMessagePushListener,
             skipGoHome: Boolean = false,  // 是否跳过回到主页，从当前页面开始执行
-            stepSkillGuidance: String = ""
+            stepSkillGuidance: String = "",
+            taskId: String? = null,
+            disableFunctionRecall: Boolean = false
         ) {
 
             if (!AssistsCore.isAccessibilityServiceEnabled()) {
@@ -215,10 +221,46 @@ class AssistsUtil {
                     },
                     onMessagePushListener,
                     skipGoHome,
-                    stepSkillGuidance
+                    stepSkillGuidance,
+                    taskId,
+                    disableFunctionRecall,
+                    functionRunExecutor(context.applicationContext)
                 )
             )
         }
+
+        private fun functionRunExecutor(context: Context): FunctionRunExecutor =
+            FunctionRunExecutor { action, runContext ->
+                val arguments = FunctionJson.jsonObjectToMap(action.arguments)
+                val callArgs = buildMap<String, Any?> {
+                    put("function_id", action.functionId)
+                    put("arguments", arguments)
+                    if (runContext.taskId.isNotBlank()) put("frontend_task_id", runContext.taskId)
+                    if (runContext.runId.isNotBlank()) put("frontend_run_id", runContext.runId)
+                    put("frontend_parent", "vlm_task")
+                }
+                val result = FunctionRun(context).runFunction(callArgs)
+                val success = result["success"] == true
+                val stepCount = result["step_count"]?.toString()?.toIntOrNull()
+                val failedStep = result["failed_step_index"]?.toString()?.toIntOrNull()
+                val message = if (success) {
+                    buildString {
+                        append("Function ${action.functionId} completed")
+                        if (stepCount != null && stepCount > 0) append(" ($stepCount steps)")
+                    }
+                } else {
+                    val stepNumber = failedStep?.plus(1)?.toString() ?: "?"
+                    val detail = result["error_message"]?.toString()?.takeIf { it.isNotBlank() }
+                        ?: result["error_code"]?.toString()?.takeIf { it.isNotBlank() }
+                        ?: "unknown error"
+                    "Function ${action.functionId} failed at step $stepNumber: $detail"
+                }
+                OperationResult(
+                    success = success,
+                    message = message,
+                    data = FunctionJson.mapToJsonElement(result),
+                )
+            }
 
         /**
          * 提供用户输入给正在运行的VLM任务
@@ -279,7 +321,8 @@ class AssistsUtil {
                     maxSteps,
                     packageName,
                     "",
-                    onMessagePushListener = onMessagePushListener
+                    onMessagePushListener = onMessagePushListener,
+                    functionRunExecutor = functionRunExecutor(context.applicationContext)
                 )
             AssistsCore.startTask(
                 TaskParams.ScheduledTaskParams(taskParams, times, TimeUnit.SECONDS) {

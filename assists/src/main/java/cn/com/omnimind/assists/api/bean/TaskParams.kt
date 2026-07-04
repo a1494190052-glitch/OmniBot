@@ -1,6 +1,7 @@
 package cn.com.omnimind.assists.api.bean
 
 import cn.com.omnimind.assists.api.interfaces.OnMessagePushListener
+import cn.com.omnimind.assists.task.vlmserver.FunctionRunExecutor
 import java.util.concurrent.TimeUnit
 
 
@@ -44,7 +45,10 @@ sealed class TaskParams {
         val onTaskFinishListener: () -> Unit,
         val onMessagePushListener: OnMessagePushListener? = null,
         val skipGoHome: Boolean = false,  // 是否跳过回到主页，从当前页面开始执行
-        val stepSkillGuidance: String = ""
+        val stepSkillGuidance: String = "",
+        val taskId: String? = null,
+        val disableFunctionRecall: Boolean = false,
+        val functionRunExecutor: FunctionRunExecutor? = null
     ): TaskParams();
 
     data class ScheduledTaskParams(
@@ -62,6 +66,7 @@ sealed class TaskParams {
         val maxSteps: Int?,
         val packageName: String?,
         val scheduledTaskID:String,
-        val onMessagePushListener: OnMessagePushListener? = null
+        val onMessagePushListener: OnMessagePushListener? = null,
+        val functionRunExecutor: FunctionRunExecutor? = null
     ): TaskParams();
 }

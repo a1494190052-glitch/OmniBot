@@ -1,15 +1,22 @@
 package cn.com.omnimind.assists.controller.accessibility
 
 import BaseApplication
+import android.app.Activity
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
+import android.content.Intent
+import android.content.pm.PackageManager
 import android.graphics.Bitmap
+import android.graphics.Rect
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.view.accessibility.AccessibilityEvent
+import android.view.accessibility.AccessibilityNodeInfo
+import cn.com.omnimind.accessibility.action.AccessibilityNodeScrollDirection
 import cn.com.omnimind.accessibility.action.AccessibilityScrollDirection
+import cn.com.omnimind.accessibility.action.AccessibilityNode
 import cn.com.omnimind.accessibility.action.OmniAction
 import cn.com.omnimind.accessibility.action.OmniCaptureAction
 import cn.com.omnimind.accessibility.action.OmniScreenshotAction
@@ -25,6 +32,7 @@ import cn.com.omnimind.baselib.util.ImageQuality
 import cn.com.omnimind.baselib.util.ImageUtils
 import cn.com.omnimind.baselib.util.OmniLog
 import cn.com.omnimind.baselib.util.exception.PermissionException
+import cn.com.omnimind.baselib.util.exception.PrivacyBlockedException
 import cn.com.omnimind.omniintelligence.models.HostResponse
 import cn.com.omnimind.omniintelligence.models.ScrollDirection
 import kotlinx.coroutines.CancellationException
@@ -33,6 +41,9 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.future.await
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
+import kotlin.math.abs
+import kotlin.math.max
+import kotlin.math.min
 
 /**
  * 控制器辅助类
@@ -47,42 +58,53 @@ class AccessibilityController() {
 
 
         private var screenshotAction: OmniScreenshotAction? = null
+        private var accessibilityEventListenerRegistered = false
 
         /**
          * 初始化控制器
          * 需注意初始化时机,保证AssistsService以运行后初始化
          */
         fun initController(): Boolean {
-            if (service != null || AssistsService.instance == null) {
+            val currentService = AssistsService.instance ?: run {
+                destroy()
                 return false
             }
-            this.service = AssistsService.instance!!;
-            actionController = OmniAction(service!!)
-            captureAction = OmniCaptureAction(service!!)
-            screenshotAction = OmniScreenshotAction(service!!)
-            AssistsService.addListener(object : AssistsServiceListener {
-                override fun onAccessibilityEvent(event: AccessibilityEvent) {
-                    captureAction!!.onAccessibilityEvent(event)
+            if (service === currentService &&
+                actionController != null &&
+                captureAction != null &&
+                screenshotAction != null
+            ) {
+                return true
+            }
+            this.service = currentService
+            actionController = OmniAction(currentService)
+            captureAction = OmniCaptureAction(currentService)
+            screenshotAction = OmniScreenshotAction(currentService)
+            if (!accessibilityEventListenerRegistered) {
+                AssistsService.addListener(object : AssistsServiceListener {
+                    override fun onAccessibilityEvent(event: AccessibilityEvent) {
+                        captureAction?.onAccessibilityEvent(event)
 
-                    // 将事件传递给系统通知状态管理器处理
-                    SystemNotificationStateManager.handleAccessibilityEvent(event)
+                        // 将事件传递给系统通知状态管理器处理
+                        SystemNotificationStateManager.handleAccessibilityEvent(event)
 
-                }
-            })
+                    }
+
+                    override fun onUnbind() {
+                        destroy()
+                    }
+                })
+                accessibilityEventListenerRegistered = true
+            }
 
             return true
         }
 
-        // 暂时停用 VLM 任务执行期间强制隐藏软键盘的机制，后续如需恢复改回 true 即可
-        private const val KEYBOARD_AUTO_HIDE_ENABLED = false
-
         fun hideKeyboard() {
-            if (!KEYBOARD_AUTO_HIDE_ENABLED) return
             service?.hideKeyboard()
         }
 
         fun restoreKeyboard() {
-            // 保持 restore 可用：即使停用隐藏机制，也能把历史遗留的 SHOW_MODE_HIDDEN 恢复为 AUTO
             service?.restoreKeyboard()
         }
 
@@ -90,13 +112,16 @@ class AccessibilityController() {
             if (!AssistsCore.isAccessibilityServiceEnabled()) {
                 throw PermissionException("无障碍服务未启用或权限未授予!")
             }
+            if (!initController() || actionController == null) {
+                throw IllegalStateException("Accessibility action controller is not ready")
+            }
         }
 
         //
         suspend fun inputText(
             nodeId: String, text: String
         ) {
-            val node = captureAction?.getNodeMap()?.get(nodeId)?.info
+            val node = findNodeById(nodeId)?.info
                 ?: throw IllegalArgumentException("Node with ID '$nodeId' not found.")
             actionController?.inputText(node, text)
         }
@@ -106,6 +131,80 @@ class AccessibilityController() {
                 captureAction?.getNodeMap()?.values?.firstOrNull { it.info.isFocused }?.info
                     ?: throw NoFocusedNodeException()
             actionController?.inputText(focusedNode, text)
+        }
+
+        suspend fun inputTextToBestNode(
+            text: String,
+            targetDescription: String = "",
+            x: Float? = null,
+            y: Float? = null,
+            nodeResourceId: String = "",
+        ) {
+            checkAccessibilityPermissions()
+            val failures = mutableListOf<String>()
+            if (x != null && y != null) {
+                findInputTextNodeAtCoordinate(x, y)?.let { node ->
+                    if (tryInputTextIntoNode(
+                            node = node,
+                            text = text,
+                            focusBeforeInput = true,
+                            source = "mapped coordinate x=${x.toInt()} y=${y.toInt()}",
+                            failures = failures
+                        )
+                    ) {
+                        return
+                    }
+                } ?: OmniLog.d(
+                    TAG,
+                    "input text mapped coordinate missed, fallback to focused/candidate lookup: x=${x.toInt()} y=${y.toInt()}"
+                )
+            }
+            waitForFocusedInputTextCandidate()?.let { focusedNode ->
+                if (tryInputTextIntoNode(
+                        node = focusedNode,
+                        text = text,
+                        focusBeforeInput = true,
+                        source = "focused input node",
+                        failures = failures
+                    )
+                ) {
+                    return
+                }
+            }
+            val lookupTargetDescription = listOf(targetDescription, nodeResourceId)
+                .filter { it.isNotBlank() }
+                .joinToString(" ")
+            if (x != null && y != null || lookupTargetDescription.isNotBlank()) {
+                waitForEditableInputCandidate(
+                    targetDescription = lookupTargetDescription,
+                    x = x,
+                    y = y,
+                )?.let { candidateNode ->
+                    if (tryInputTextIntoNode(
+                            node = candidateNode,
+                            text = text,
+                            focusBeforeInput = true,
+                            source = if (x != null && y != null) {
+                                "nearest mapped editable input candidate"
+                            } else {
+                                "semantic editable input candidate"
+                            },
+                            failures = failures
+                        )
+                    ) {
+                        return
+                    }
+                }
+            }
+            val failureSuffix = failures
+                .takeIf { it.isNotEmpty() }
+                ?.joinToString(prefix = "; attempts=", separator = " | ")
+                .orEmpty()
+            throw NoFocusedNodeException(
+                "No input text target found: " +
+                    inputTargetLookupDescription(targetDescription, nodeResourceId, x, y) +
+                    failureSuffix
+            )
         }
 
         suspend fun pressHotKey(key: String) {
@@ -122,6 +221,32 @@ class AccessibilityController() {
                 "HOME" -> goHome()
                 else -> throw IllegalArgumentException("Unsupported hot key: $key")
             }
+        }
+
+        suspend fun pressImeEnterToBestNode(
+            targetDescription: String = "",
+            x: Float? = null,
+            y: Float? = null,
+            nodeResourceId: String = "",
+        ) {
+            checkAccessibilityPermissions()
+            val node = waitForEditableInputCandidate(
+                targetDescription = targetDescription,
+                x = x,
+                y = y,
+            ) ?: throw NoFocusedNodeException(
+                "No editable input target found for IME enter: " +
+                    targetDescription.ifBlank { nodeResourceId.ifBlank { "x=$x y=$y" } }
+            )
+            if (!node.isFocused) {
+                runCatching {
+                    node.performAction(AccessibilityNodeInfo.ACTION_FOCUS)
+                }.onFailure { error ->
+                    OmniLog.d(TAG, "focus editable node before IME enter failed: ${error.message}")
+                }
+            }
+            actionController?.performImeEnter(node)
+                ?: throw IllegalStateException("Accessibility action controller is not ready")
         }
 
         // 剪贴板回调
@@ -177,12 +302,52 @@ class AccessibilityController() {
 
 
         suspend fun clickCoordinate(
-            x: Float, y: Float
+            x: Float,
+            y: Float,
+            timeoutMs: Long = 900L
+        ) {
+            checkAccessibilityPermissions()
+            withTimeout(timeoutMs + 100L) {
+                val controller = actionController
+                    ?: throw IllegalStateException("Accessibility action controller is not ready")
+                controller.clickCoordinate(x, y).await()
+            }
+        }
+
+        suspend fun clickNodeById(
+            nodeId: String,
+            targetDescription: String = ""
         ) {
             checkAccessibilityPermissions()
             withTimeout(2000) {
-                actionController?.clickCoordinate(x, y)?.await()
+                val node = findNodeById(nodeId, targetDescription)
+                    ?: throw IllegalArgumentException("Node with ID '$nodeId' not found.")
+                val clickableNode = findActionableAncestor(
+                    node = node.info,
+                    supportsAction = { it.isEnabled && it.isClickable }
+                ) ?: throw IllegalStateException(
+                    "Node '$nodeId' is not clickable: ${targetDescription.ifBlank { nodeSemanticLabel(node.info) }}"
+                )
+                val controller = actionController
+                    ?: throw IllegalStateException("Accessibility action controller is not ready")
+                controller.clickNode(clickableNode)
+            }
+        }
 
+        suspend fun clickNodeAtCoordinate(
+            x: Float,
+            y: Float,
+            targetDescription: String = ""
+        ) {
+            checkAccessibilityPermissions()
+            withTimeout(1200) {
+                val clickableNode = findClickableNodeAtCoordinate(x, y)
+                    ?: throw IllegalArgumentException(
+                        "No clickable node at coordinate ${x.toInt()},${y.toInt()}: $targetDescription"
+                    )
+                val controller = actionController
+                    ?: throw IllegalStateException("Accessibility action controller is not ready")
+                controller.clickNode(clickableNode)
             }
         }
 
@@ -190,15 +355,58 @@ class AccessibilityController() {
             x: Float, y: Float, duration: Long = 1000L
         ) {
             checkAccessibilityPermissions()
-            withTimeout(2000 + duration) {
-                actionController?.longClickCoordinate(x, y, duration)?.await()
+            withTimeout(duration + 800L) {
+                val controller = actionController
+                    ?: throw IllegalStateException("Accessibility action controller is not ready")
+                controller.longClickCoordinate(x, y, duration).await()
+            }
+        }
+
+        suspend fun longClickNodeById(
+            nodeId: String,
+            targetDescription: String = ""
+        ) {
+            checkAccessibilityPermissions()
+            withTimeout(3000) {
+                val node = findNodeById(nodeId, targetDescription)
+                    ?: throw IllegalArgumentException("Node with ID '$nodeId' not found.")
+                val longClickableNode = findActionableAncestor(
+                    node = node.info,
+                    supportsAction = { it.isEnabled && it.isLongClickable }
+                ) ?: throw IllegalStateException(
+                    "Node '$nodeId' is not long-clickable: ${targetDescription.ifBlank { nodeSemanticLabel(node.info) }}"
+                )
+                val controller = actionController
+                    ?: throw IllegalStateException("Accessibility action controller is not ready")
+                controller.longClickNode(longClickableNode)
+            }
+        }
+
+        suspend fun inputTextToNodeById(
+            nodeId: String,
+            text: String,
+            targetDescription: String = ""
+        ) {
+            checkAccessibilityPermissions()
+            withTimeout(3000) {
+                val node = findNodeById(nodeId, targetDescription)
+                    ?: throw IllegalArgumentException("Node with ID '$nodeId' not found.")
+                val editableNode = findActionableAncestor(
+                    node = node.info,
+                    supportsAction = { it.isEnabled && it.isTextInputLike() }
+                ) ?: throw IllegalStateException(
+                    "Node '$nodeId' is not an input text target: ${targetDescription.ifBlank { nodeSemanticLabel(node.info) }}"
+                )
+                actionController?.inputText(editableNode, text)
+                    ?: throw IllegalStateException("Accessibility action controller is not ready")
             }
         }
 
         suspend fun scrollCoordinate(
             x: Float, y: Float, direction: ScrollDirection, distance: Float, duration: Long = 500L
         ) {
-            var mDirection = when (direction) {
+            checkAccessibilityPermissions()
+            val mDirection = when (direction) {
                 ScrollDirection.UP -> {
                     AccessibilityScrollDirection.UP
                 }
@@ -215,24 +423,671 @@ class AccessibilityController() {
                     AccessibilityScrollDirection.RIGHT
                 }
             }
-            actionController?.scrollCoordinate(x, y, mDirection, distance, duration)?.await()
+            withTimeout(duration + 800L) {
+                val controller = actionController
+                    ?: throw IllegalStateException("Accessibility action controller is not ready")
+                controller.scrollCoordinate(x, y, mDirection, distance, duration).await()
+            }
         }
+
+        suspend fun swipeCoordinate(
+            startX: Float,
+            startY: Float,
+            endX: Float,
+            endY: Float,
+            duration: Long = 500L
+        ) {
+            checkAccessibilityPermissions()
+            withTimeout(duration + 800L) {
+                val controller = actionController
+                    ?: throw IllegalStateException("Accessibility action controller is not ready")
+                controller.swipeCoordinate(startX, startY, endX, endY, duration).await()
+            }
+        }
+
+        suspend fun setSliderProgressFromGesture(
+            x1: Float,
+            y1: Float,
+            x2: Float,
+            y2: Float,
+            targetDescription: String = ""
+        ): Boolean {
+            checkAccessibilityPermissions()
+            if (!isHorizontalEndpointGesture(x1, y1, x2, y2)) {
+                return false
+            }
+            val nodes = captureAction?.getNodeMap()?.values.orEmpty()
+            val candidate = findSliderProgressCandidate(
+                nodes = nodes,
+                x1 = x1,
+                y1 = y1,
+                x2 = x2,
+                y2 = y2,
+                targetDescription = targetDescription
+            ) ?: return false
+            return runCatching {
+                val range = candidate.info.rangeInfo
+                if (range != null) {
+                    val progress = if (x2 >= x1) {
+                        max(range.min, range.max)
+                    } else {
+                        min(range.min, range.max)
+                    }
+                    withTimeout(2000) {
+                        actionController?.setProgress(candidate.info, progress)
+                            ?: throw IllegalStateException("Accessibility action controller is not ready")
+                    }
+                } else {
+                    val direction = if (x2 >= x1) {
+                        AccessibilityScrollDirection.RIGHT
+                    } else {
+                        AccessibilityScrollDirection.LEFT
+                    }
+                    val bounds = candidate.bounds
+                    val startX = if (x2 >= x1) {
+                        bounds.left + bounds.width() * SLIDER_GESTURE_EDGE_FRACTION
+                    } else {
+                        bounds.right - bounds.width() * SLIDER_GESTURE_EDGE_FRACTION
+                    }
+                    val distance = (bounds.width() * SLIDER_GESTURE_DISTANCE_FRACTION)
+                        .coerceAtLeast(MIN_SLIDER_WIDTH_PX.toFloat())
+                    withTimeout(2000) {
+                        actionController?.scrollCoordinate(
+                            startX,
+                            bounds.exactCenterY(),
+                            direction,
+                            distance,
+                            duration = 700L
+                        )?.await() ?: throw IllegalStateException("Accessibility action controller is not ready")
+                    }
+                }
+                OmniLog.i(
+                    TAG,
+                    "setSliderProgressFromGesture semantic success target=$targetDescription " +
+                        "range=${range != null} bounds=${candidate.bounds} " +
+                        "label=${nodeSemanticLabel(candidate.info).take(80)}"
+                )
+                true
+            }.getOrElse { error ->
+                OmniLog.w(
+                    TAG,
+                    "setSliderProgressFromGesture semantic failed: ${error.message}; fallback to gesture"
+                )
+                false
+            }
+        }
+
+        suspend fun scrollScrollableNodeFromGesture(
+            x1: Float,
+            y1: Float,
+            x2: Float,
+            y2: Float,
+            targetDescription: String = ""
+        ): Boolean {
+            checkAccessibilityPermissions()
+            if (!isVerticalScrollGesture(x1, y1, x2, y2)) {
+                return false
+            }
+            val nodes = captureAction?.getNodeMap()?.values.orEmpty()
+            val candidate = findScrollableNodeCandidate(
+                nodes = nodes,
+                x = (x1 + x2) / 2f,
+                y = (y1 + y2) / 2f,
+                targetDescription = targetDescription
+            ) ?: return false
+            val direction = if (y2 < y1) {
+                AccessibilityNodeScrollDirection.FORWARD
+            } else {
+                AccessibilityNodeScrollDirection.BACKWARD
+            }
+            return runCatching {
+                withTimeout(2000) {
+                    actionController?.scrollNode(candidate.info, direction)
+                        ?: throw IllegalStateException("Accessibility action controller is not ready")
+                }
+                OmniLog.i(
+                    TAG,
+                    "scrollScrollableNodeFromGesture semantic success direction=$direction " +
+                        "target=$targetDescription bounds=${candidate.bounds} " +
+                        "label=${nodeSemanticLabel(candidate.info).take(80)}"
+                )
+                true
+            }.getOrElse { error ->
+                OmniLog.w(
+                    TAG,
+                    "scrollScrollableNodeFromGesture semantic failed: ${error.message}; fallback to gesture"
+                )
+                false
+            }
+        }
+
+        private fun isHorizontalEndpointGesture(
+            x1: Float,
+            y1: Float,
+            x2: Float,
+            y2: Float
+        ): Boolean {
+            val dx = abs(x2 - x1)
+            val dy = abs(y2 - y1)
+            return dx >= 32f && dx >= dy * 1.4f
+        }
+
+        private fun isVerticalScrollGesture(
+            x1: Float,
+            y1: Float,
+            x2: Float,
+            y2: Float
+        ): Boolean {
+            val dx = abs(x2 - x1)
+            val dy = abs(y2 - y1)
+            return dy >= 48f && dy >= dx * 1.2f
+        }
+
+        private fun findSliderProgressCandidate(
+            nodes: Collection<AccessibilityNode>,
+            x1: Float,
+            y1: Float,
+            x2: Float,
+            y2: Float,
+            targetDescription: String
+        ): AccessibilityNode? {
+            val gestureY = (y1 + y2) / 2f
+            val gestureLeft = min(x1, x2)
+            val gestureRight = max(x1, x2)
+            val targetTerms = semanticTerms(targetDescription)
+
+            return nodes.asSequence()
+                .filter { node ->
+                    node.show &&
+                        node.bounds.width() >= MIN_SLIDER_WIDTH_PX &&
+                        node.bounds.height() > 0 &&
+                        node.info.isEnabled &&
+                        hasSliderSignal(node.info, targetTerms)
+                }
+                .mapNotNull { node ->
+                    val bounds = node.bounds
+                    val yDistance = abs(bounds.exactCenterY() - gestureY)
+                    val yLimit = max(MIN_SLIDER_Y_TOLERANCE_PX, bounds.height() * 3f)
+                    val label = nodeSemanticLabel(node.info)
+                    val labelTerms = semanticTerms(label)
+                    val targetOverlap = if (targetTerms.isNotEmpty() && labelTerms.isNotEmpty()) {
+                        targetTerms.intersect(labelTerms.toSet()).size
+                    } else {
+                        0
+                    }
+                    val matchesTarget = targetOverlap > 0
+                    if (yDistance > yLimit && !matchesTarget) {
+                        return@mapNotNull null
+                    }
+                    val xOverlap = max(0f, min(bounds.right.toFloat(), gestureRight) - max(bounds.left.toFloat(), gestureLeft))
+                    val classOrId = listOf(
+                        node.info.className?.toString(),
+                        node.info.viewIdResourceName
+                    ).joinToString(" ").lowercase()
+                    val score =
+                        1000f -
+                            yDistance -
+                            abs(bounds.exactCenterX() - ((gestureLeft + gestureRight) / 2f)) * 0.05f +
+                            (xOverlap / max(1f, bounds.width().toFloat())) * 120f +
+                            (if (classOrId.contains("seekbar") || classOrId.contains("slider")) 160f else 0f) +
+                            (if (label.lowercase().contains("brightness") || label.lowercase().contains("volume")) 80f else 0f) +
+                            targetOverlap * 90f
+                    SliderCandidate(node = node, score = score)
+                }
+                .maxByOrNull { it.score }
+                ?.node
+        }
+
+        private fun findScrollableNodeCandidate(
+            nodes: Collection<AccessibilityNode>,
+            x: Float,
+            y: Float,
+            targetDescription: String
+        ): AccessibilityNode? {
+            val targetTerms = semanticTerms(targetDescription)
+            return nodes.asSequence()
+                .filter { node ->
+                    node.show &&
+                        node.info.isEnabled &&
+                        node.info.isScrollable &&
+                        node.bounds.width() >= MIN_SCROLLABLE_WIDTH_PX &&
+                        node.bounds.height() >= MIN_SCROLLABLE_HEIGHT_PX
+                }
+                .map { node ->
+                    val bounds = node.bounds
+                    val contains = bounds.contains(x.toInt(), y.toInt())
+                    val label = nodeSemanticLabel(node.info)
+                    val labelTerms = semanticTerms(label)
+                    val targetOverlap = if (targetTerms.isNotEmpty() && labelTerms.isNotEmpty()) {
+                        targetTerms.intersect(labelTerms).size
+                    } else {
+                        0
+                    }
+                    val distance = if (contains) {
+                        0f
+                    } else {
+                        abs(bounds.exactCenterY() - y) + abs(bounds.exactCenterX() - x) * 0.2f
+                    }
+                    val score =
+                        (if (contains) 500f else 0f) -
+                            distance * 0.05f +
+                            (bounds.width() * bounds.height()).toFloat() / 10000f +
+                            targetOverlap * 40f
+                    SliderCandidate(node = node, score = score)
+                }
+                .maxByOrNull { it.score }
+                ?.node
+        }
+
+        private fun findNodeById(
+            nodeId: String,
+            targetDescription: String = ""
+        ): AccessibilityNode? {
+            val normalizedId = nodeId.trim()
+            if (normalizedId.isBlank()) return null
+            val nodeMap = captureAction?.getNodeMap() ?: return null
+
+            val targetTerms = semanticTerms(targetDescription)
+            if (targetTerms.isEmpty()) {
+                nodeMap[normalizedId]?.let { return it }
+            }
+            return nodeMap.values
+                .asSequence()
+                .filter { node ->
+                    node.info.safeViewIdResourceName() == normalizedId
+                }
+                .map { node ->
+                    val info = node.info
+                    val clickableNode = findActionableAncestor(
+                        node = info,
+                        supportsAction = { it.isEnabled && it.isClickable }
+                    )
+                    val textNode = findActionableAncestor(
+                        node = info,
+                        supportsAction = { it.isEnabled && it.isTextInputLike() }
+                    )
+                    val labelTerms = semanticTerms(nodeSemanticLabel(info))
+                    val targetOverlap = if (targetTerms.isNotEmpty() && labelTerms.isNotEmpty()) {
+                        targetTerms.intersect(labelTerms).size
+                    } else {
+                        0
+                    }
+                    val bounds = info.boundsInScreenOrNull() ?: node.bounds
+                    val area = bounds.width().coerceAtLeast(1) * bounds.height().coerceAtLeast(1)
+                    val score =
+                        (if (node.show) 500f else 0f) +
+                            (if (info.isEnabled) 300f else 0f) +
+                            (if (clickableNode != null) 180f else 0f) +
+                            (if (textNode != null) 180f else 0f) +
+                            (if (info.isFocused) 80f else 0f) +
+                            targetOverlap * 60f -
+                            area.toFloat() / 100000f
+                    SliderCandidate(node = node, score = score)
+                }
+                .maxByOrNull { it.score }
+                ?.node
+        }
+
+        private fun findClickableNodeAtCoordinate(x: Float, y: Float): AccessibilityNodeInfo? {
+            val px = x.toInt()
+            val py = y.toInt()
+            return captureAction?.getNodeMap()?.values.orEmpty()
+                .asSequence()
+                .mapNotNull { node ->
+                    if (!node.show || !node.info.isEnabled) return@mapNotNull null
+                    val clickableNode = findActionableAncestor(
+                        node = node.info,
+                        supportsAction = { it.isEnabled && it.isClickable }
+                    ) ?: return@mapNotNull null
+                    val bounds = clickableNode.boundsInScreenOrNull() ?: node.bounds
+                    if (bounds.isEmpty || !bounds.contains(px, py)) return@mapNotNull null
+                    if (!isSafeCoordinateNodeClickTarget(clickableNode, bounds)) return@mapNotNull null
+                    CoordinateClickCandidate(
+                        node = clickableNode,
+                        area = bounds.width().coerceAtLeast(1) * bounds.height().coerceAtLeast(1)
+                    )
+                }
+                .minByOrNull { it.area }
+                ?.node
+        }
+
+        private fun findInputTextNodeAtCoordinate(x: Float, y: Float): AccessibilityNodeInfo? {
+            val px = x.toInt()
+            val py = y.toInt()
+            val nodes = captureAction?.getNodeMap()?.values.orEmpty()
+            val inputNode = nodes
+                .asSequence()
+                .mapNotNull { node ->
+                    if (!node.show || !node.info.isEnabled) return@mapNotNull null
+                    val textNode = findActionableAncestor(
+                        node = node.info,
+                        supportsAction = { it.isEnabled && it.isTextInputLike() }
+                    ) ?: return@mapNotNull null
+                    val bounds = textNode.boundsInScreenOrNull() ?: node.bounds
+                    if (bounds.isEmpty || !bounds.contains(px, py)) return@mapNotNull null
+                    CoordinateInputCandidate(
+                        node = textNode,
+                        area = bounds.width().coerceAtLeast(1) * bounds.height().coerceAtLeast(1)
+                    )
+                }
+                .minByOrNull { it.area }
+                ?.node
+            if (inputNode != null) return inputNode
+
+            return nodes
+                .asSequence()
+                .mapNotNull { node ->
+                    if (!node.show || !node.info.isEnabled) return@mapNotNull null
+                    val bounds = node.info.boundsInScreenOrNull() ?: node.bounds
+                    if (bounds.isEmpty || !bounds.contains(px, py)) return@mapNotNull null
+                    CoordinateInputCandidate(
+                        node = node.info,
+                        area = bounds.width().coerceAtLeast(1) * bounds.height().coerceAtLeast(1)
+                    )
+                }
+                .minByOrNull { it.area }
+                ?.node
+        }
+
+        private suspend fun inputTextIntoNode(
+            node: AccessibilityNodeInfo,
+            text: String,
+            focusBeforeInput: Boolean = false,
+        ) {
+            if (focusBeforeInput && !node.isFocused) {
+                runCatching {
+                    node.performAction(AccessibilityNodeInfo.ACTION_FOCUS)
+                }.onFailure { error ->
+                    OmniLog.d(TAG, "focus input node before input failed: ${error.message}")
+                }
+                delay(INPUT_FOCUS_SETTLE_DELAY_MS)
+            }
+            actionController?.inputText(node, text)
+                ?: throw IllegalStateException("Accessibility action controller is not ready")
+        }
+
+        private suspend fun tryInputTextIntoNode(
+            node: AccessibilityNodeInfo,
+            text: String,
+            focusBeforeInput: Boolean,
+            source: String,
+            failures: MutableList<String>,
+        ): Boolean =
+            runCatching {
+                inputTextIntoNode(node, text, focusBeforeInput)
+            }.fold(
+                onSuccess = { true },
+                onFailure = { error ->
+                    val message = error.message ?: error::class.java.simpleName
+                    failures += "$source: $message"
+                    OmniLog.d(TAG, "input text to $source failed, fallback to next candidate: $message")
+                    false
+                }
+            )
+
+        private suspend fun waitForFocusedInputTextCandidate(): AccessibilityNodeInfo? {
+            val startedAtMs = System.currentTimeMillis()
+            while (System.currentTimeMillis() - startedAtMs <= INPUT_FOCUSED_TARGET_LOOKUP_MS) {
+                findFocusedInputTextCandidate()?.let { return it }
+                delay(INPUT_TARGET_RETRY_INTERVAL_MS)
+            }
+            return findFocusedInputTextCandidate()
+        }
+
+        private suspend fun waitForEditableInputCandidate(
+            targetDescription: String,
+            x: Float?,
+            y: Float?
+        ): AccessibilityNodeInfo? {
+            val startedAtMs = System.currentTimeMillis()
+            while (System.currentTimeMillis() - startedAtMs <= INPUT_TARGET_LOOKUP_TIMEOUT_MS) {
+                findEditableInputCandidate(
+                    targetDescription = targetDescription,
+                    x = x,
+                    y = y,
+                )?.let { return it }
+                delay(INPUT_TARGET_RETRY_INTERVAL_MS)
+            }
+            return findEditableInputCandidate(
+                targetDescription = targetDescription,
+                x = x,
+                y = y,
+            )
+        }
+
+        private fun findEditableInputCandidate(
+            targetDescription: String,
+            x: Float?,
+            y: Float?
+        ): AccessibilityNodeInfo? {
+            val terms = semanticTerms(targetDescription)
+            return captureAction?.getNodeMap()?.values.orEmpty()
+                .mapNotNull { node ->
+                    val editableNode = findActionableAncestor(
+                        node = node.info,
+                        supportsAction = { it.isEnabled && it.isTextInputLike() }
+                    ) ?: return@mapNotNull null
+                    val bounds = editableNode.boundsInScreenOrNull() ?: node.bounds
+                    if (bounds.isEmpty) return@mapNotNull null
+                    val label = nodeSemanticLabel(editableNode)
+                    val labelLower = label.lowercase()
+                    val containsPoint = x != null && y != null &&
+                        bounds.contains(x.toInt(), y.toInt())
+                    val distance = if (x != null && y != null) {
+                        abs(bounds.exactCenterX() - x) + abs(bounds.exactCenterY() - y)
+                    } else {
+                        0f
+                    }
+                    val termScore = terms.sumOf { term ->
+                        when {
+                            term.isBlank() -> 0
+                            labelLower == term -> 80
+                            labelLower.contains(term) -> 40
+                            else -> 0
+                        }
+                    }
+                    val coordinateScore = when {
+                        containsPoint -> 600f
+                        x != null && y != null -> (240f - distance * 0.08f).coerceAtLeast(0f)
+                        else -> 0f
+                    }
+                    val inputScore = inputTextLikelihoodScore(editableNode)
+                    val focusScore = if (editableNode.isFocused) 120f else 0f
+                    val areaPenalty = (bounds.width() * bounds.height()).toFloat() / 100000f
+                    EditableInputCandidate(
+                        node = editableNode,
+                        score = coordinateScore + termScore + inputScore + focusScore - areaPenalty
+                    )
+                }
+                .maxByOrNull { it.score }
+                ?.node
+        }
+
+        private fun AccessibilityNodeInfo.boundsInScreenOrNull(): Rect? {
+            val rect = Rect()
+            getBoundsInScreen(rect)
+            return rect.takeUnless { it.isEmpty }
+        }
+
+        private fun AccessibilityNodeInfo.safeViewIdResourceName(): String =
+            runCatching { viewIdResourceName }
+                .getOrNull()
+                ?.trim()
+                .orEmpty()
+
+        private fun findActionableAncestor(
+            node: AccessibilityNodeInfo,
+            supportsAction: (AccessibilityNodeInfo) -> Boolean
+        ): AccessibilityNodeInfo? {
+            var current: AccessibilityNodeInfo? = node
+            repeat(MAX_NODE_ACTION_ANCESTOR_DEPTH) {
+                val candidate = current ?: return null
+                if (supportsAction(candidate)) return candidate
+                current = runCatching { candidate.parent }.getOrNull()
+            }
+            return null
+        }
+
+        private fun isSafeCoordinateNodeClickTarget(
+            node: AccessibilityNodeInfo,
+            bounds: Rect
+        ): Boolean {
+            val className = node.className?.toString().orEmpty().lowercase()
+            if (UNSAFE_COORDINATE_NODE_CLICK_CLASSES.any { className.contains(it) }) {
+                return false
+            }
+            val area = bounds.width().coerceAtLeast(1) * bounds.height().coerceAtLeast(1)
+            return area <= MAX_SAFE_COORDINATE_NODE_CLICK_AREA_PX
+        }
+
+        private fun hasSliderSignal(
+            node: AccessibilityNodeInfo,
+            targetTerms: Set<String>
+        ): Boolean {
+            val label = nodeSemanticLabel(node).lowercase()
+            val classOrId = listOf(
+                node.className?.toString(),
+                node.viewIdResourceName
+            ).joinToString(" ").lowercase()
+            if (classOrId.contains("seekbar") ||
+                classOrId.contains("slider") ||
+                classOrId.contains("range") ||
+                label.contains("slider") ||
+                label.contains("seekbar") ||
+                label.contains("brightness") ||
+                label.contains("volume") ||
+                label.contains("亮度") ||
+                label.contains("音量") ||
+                label.contains("滑块") ||
+                label.contains("进度条")
+            ) {
+                return true
+            }
+            return targetTerms.any { it in SLIDER_TARGET_TERMS }
+        }
+
+        private fun nodeSemanticLabel(node: AccessibilityNodeInfo): String =
+            listOf(
+                node.text?.toString(),
+                node.contentDescription?.toString(),
+                node.hintText?.toString(),
+                node.safeViewIdResourceName(),
+                node.className?.toString()?.substringAfterLast('.')
+            )
+                .filter { !it.isNullOrBlank() }
+                .joinToString(" ")
+
+        private fun inputTargetLookupDescription(
+            targetDescription: String,
+            nodeResourceId: String,
+            x: Float?,
+            y: Float?,
+        ): String =
+            listOf(
+                "x=$x y=$y".takeIf { x != null && y != null },
+                "target=$targetDescription".takeIf { targetDescription.isNotBlank() },
+                "resource=$nodeResourceId".takeIf { nodeResourceId.isNotBlank() },
+            )
+                .filterNotNull()
+                .joinToString()
+                .ifBlank { "no target metadata" }
+
+        private fun findFocusedInputTextCandidate(): AccessibilityNodeInfo? =
+            captureAction?.getNodeMap()?.values.orEmpty()
+                .asSequence()
+                .map { it.info }
+                .filter { it.isFocused && it.isEnabled && it.isTextInputLike() }
+                .sortedWith(
+                    compareByDescending<AccessibilityNodeInfo> { it.supportsSetTextAction() }
+                        .thenByDescending { it.isEditable }
+                        .thenByDescending { runCatching { it.inputType }.getOrDefault(0) != 0 }
+                )
+                .firstOrNull()
+                ?: findSystemFocusedInputTextCandidate()
+
+        private fun findSystemFocusedInputTextCandidate(): AccessibilityNodeInfo? {
+            val windowRoots = service?.windows
+                ?.mapNotNull { window -> runCatching { window.root }.getOrNull() }
+                .orEmpty()
+            val roots = (listOfNotNull(service?.rootInActiveWindow) + windowRoots)
+                .distinctBy { System.identityHashCode(it) }
+            return roots
+                .asSequence()
+                .mapNotNull { root ->
+                    runCatching { root.refresh() }
+                    runCatching { root.findFocus(AccessibilityNodeInfo.FOCUS_INPUT) }.getOrNull()
+                }
+                .filter { node ->
+                    val packageName = node.packageName?.toString().orEmpty()
+                    packageName.isNotBlank() &&
+                        !packageName.startsWith("com.google.android.inputmethod") &&
+                        !packageName.startsWith("com.android.inputmethod") &&
+                        node.isEnabled &&
+                        node.isTextInputLike()
+                }
+                .sortedWith(
+                    compareByDescending<AccessibilityNodeInfo> { it.supportsSetTextAction() }
+                        .thenByDescending { it.isEditable }
+                        .thenByDescending { it.isFocused }
+                )
+                .firstOrNull()
+        }
+
+        private fun AccessibilityNodeInfo.isTextInputLike(): Boolean {
+            if (!isEnabled) return false
+            if (isEditable || supportsSetTextAction()) return true
+            val className = this.className?.toString().orEmpty().lowercase()
+            if (INPUT_TEXT_CLASS_TERMS.any { className.contains(it) }) return true
+            return runCatching { inputType }.getOrDefault(0) != 0
+        }
+
+        private fun inputTextLikelihoodScore(node: AccessibilityNodeInfo): Float {
+            var score = 0f
+            if (node.isEditable) score += 700f
+            if (node.supportsSetTextAction()) score += 900f
+            val className = node.className?.toString().orEmpty().lowercase()
+            if (INPUT_TEXT_CLASS_TERMS.any { className.contains(it) }) score += 360f
+            if (runCatching { node.inputType }.getOrDefault(0) != 0) score += 220f
+            if (node.isFocusable) score += 80f
+            return score
+        }
+
+        private fun AccessibilityNodeInfo.supportsSetTextAction(): Boolean {
+            val actionListHasSetText = runCatching {
+                actionList.any { it.id == AccessibilityNodeInfo.ACTION_SET_TEXT }
+            }.getOrDefault(false)
+            if (actionListHasSetText) return true
+            @Suppress("DEPRECATION")
+            return (actions and AccessibilityNodeInfo.ACTION_SET_TEXT) != 0
+        }
+
+        private data class EditableInputCandidate(
+            val node: AccessibilityNodeInfo,
+            val score: Float
+        )
+
+        private data class CoordinateInputCandidate(
+            val node: AccessibilityNodeInfo,
+            val area: Int
+        )
+
+        private fun semanticTerms(value: String): Set<String> =
+            TERM_REGEX.findAll(value.lowercase())
+                .map { it.value.trim('_', '-') }
+                .filter { it.isNotBlank() }
+                .toSet()
 
         //
         suspend fun goHome() {
-            if (actionController == null) {
-                OmniLog.w(TAG, "goHome: actionController is null, skip")
-                return
-            }
-            try {
-                actionController?.goHome()
-            } catch (e: Exception) {
-                OmniLog.e(TAG, "goHome failed: ${e.message}", e)
-            }
+            val controller = actionController
+                ?: throw IllegalStateException("Accessibility action controller is not ready")
+            controller.goHome()
         }
 
         suspend fun goBack() {
-            actionController?.goBack()
+            val controller = actionController
+                ?: throw IllegalStateException("Accessibility action controller is not ready")
+            controller.goBack()
         }
 
         fun getPackageName(): String? {
@@ -251,18 +1106,113 @@ class AccessibilityController() {
             packageName: String, doClickInvoke: suspend (x: Float, y: Float) -> Unit
         ) {
             checkAccessibilityPermissions()
-            actionController?.launchApplication(packageName)
-            OmniLog.d("[Omni] Running", "before awaitStability")
-            PageStabilityDetector.awaitStability()
-            OmniLog.d("[Omni] Running", "after awaitStability")
+            val controller = actionController
+                ?: throw IllegalStateException("Accessibility action controller is not ready")
+
+            controller.launchApplication(packageName)
+            OmniLog.d("[Omni] Running", "before awaitTargetPackage")
+            awaitTargetPackage(packageName)
+            OmniLog.d("[Omni] Running", "after awaitTargetPackage")
 
             if (getPackageName() == packageName) {
                 return
             }
+
             OmniLog.w(
                 TAG,
-                "launchApplication did not reach target package after stability wait: $packageName"
+                "launchApplication did not reach target package through accessibility action, trying launcher intent: $packageName"
             )
+            if (launchApplicationByIntent(packageName)) {
+                awaitTargetPackage(packageName)
+                if (getPackageName() == packageName) {
+                    return
+                }
+            }
+
+            val currentPackage = getPackageName().orEmpty()
+            val currentActivity = getCurrentActivity().orEmpty()
+            val message =
+                "launchApplication did not reach target package after stability wait: " +
+                    "target=$packageName current=$currentPackage activity=$currentActivity"
+            OmniLog.w(
+                TAG,
+                message
+            )
+            throw IllegalStateException(message)
+        }
+
+        suspend fun launchApplicationBestEffort(
+            packageName: String,
+            doClickInvoke: suspend (x: Float, y: Float) -> Unit
+        ) {
+            checkAccessibilityPermissions()
+            val controller = actionController
+                ?: throw IllegalStateException("Accessibility action controller is not ready")
+            val accessibilityLaunch = runCatching {
+                controller.launchApplication(packageName)
+            }.onFailure { error ->
+                if (error is PrivacyBlockedException) throw error
+                OmniLog.w(TAG, "best-effort accessibility launch failed: target=$packageName error=${error.message}")
+            }.isSuccess
+            awaitAnyLaunchObservation(packageName)
+            val intentLaunch = launchApplicationByIntent(packageName)
+            if (intentLaunch) {
+                awaitAnyLaunchObservation(packageName)
+            }
+            if (!accessibilityLaunch && !intentLaunch) {
+                throw IllegalStateException("launchApplication could not start target package: $packageName")
+            }
+        }
+
+        private suspend fun launchApplicationByIntent(packageName: String): Boolean =
+            withContext(Dispatchers.Main) {
+                val appContext = BaseApplication.instance
+                val startContext = BaseApplication.foregroundActivity ?: appContext
+                val launchIntent = appContext.packageManager.getLaunchIntentForPackage(packageName)
+                    ?: return@withContext false
+                return@withContext try {
+                    launchIntent.addFlags(
+                        Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED or
+                            Intent.FLAG_ACTIVITY_REORDER_TO_FRONT or
+                            Intent.FLAG_ACTIVITY_SINGLE_TOP
+                    )
+                    if (startContext !is Activity) {
+                        launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    }
+                    OmniLog.d(
+                        TAG,
+                        "launchApplicationByIntent startContext=${startContext.javaClass.simpleName} target=$packageName"
+                    )
+                    startContext.startActivity(launchIntent)
+                    true
+                } catch (e: Exception) {
+                    OmniLog.e(TAG, "launchApplicationByIntent failed: ${e.message}", e)
+                    false
+                }
+            }
+
+        private suspend fun awaitTargetPackage(packageName: String, timeoutMs: Long = 3000L) {
+            val startedAt = System.currentTimeMillis()
+            while (System.currentTimeMillis() - startedAt < timeoutMs) {
+                if (getPackageName() == packageName) {
+                    return
+                }
+                delay(150)
+            }
+            PageStabilityDetector.awaitStability()
+        }
+
+        private suspend fun awaitAnyLaunchObservation(packageName: String, timeoutMs: Long = 1500L) {
+            val startedAt = System.currentTimeMillis()
+            while (System.currentTimeMillis() - startedAt < timeoutMs) {
+                val observedPackage = runCatching { getPackageName() }.getOrNull()
+                val observedXml = runCatching { getCaptureScreenShotXml(true) }.getOrNull()
+                if (observedPackage == packageName || !observedXml.isNullOrBlank()) {
+                    return
+                }
+                delay(150)
+            }
+            PageStabilityDetector.awaitStability()
         }
 
         suspend fun captureScreenshotImage(
@@ -275,7 +1225,12 @@ class AccessibilityController() {
             isCheckSideRegionMostlySingleColor: Boolean = false,
             compressQuality: ImageQuality? = null    // null = 不压缩
         ): CaptureData {
-            val image = if (isFilterOverlay) {
+            if (service == null || screenshotAction == null) {
+                initController()
+            }
+            var image: Bitmap? = null
+            try {
+            image = if (isFilterOverlay) {
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
                     screenshotAction?.captureExcludingOverlaysV14()
 
@@ -291,7 +1246,6 @@ class AccessibilityController() {
                             AssistsCore.screenshotImageEventApi?.onScreenShotHideOverlay()
 
                         }
-                        delay(100)
                         val bitmap = ScreenCaptureManager.getInstance().captureOnce()
                         withContext(Dispatchers.Main) {
                             AssistsCore.screenshotImageEventApi?.onScreenShotShowOverlay()
@@ -303,6 +1257,50 @@ class AccessibilityController() {
             } else {
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
                     screenshotAction?.captureDefaultScreenshot()
+                } else {
+                    ScreenCaptureManager.getInstance().captureOnce()
+                }
+            }
+            if (image == null && !ScreenCaptureManager.getInstance().hasPermission()) {
+                val hasProjectionPermission = try {
+                    ScreenCaptureManager.getInstance().requestScreenCapturePermission()
+                } catch (e: Exception) {
+                    OmniLog.w("Assists", "Request MediaProjection permission failed: ${e.message}")
+                    false
+                }
+                if (hasProjectionPermission) {
+                    image = if (isFilterOverlay) {
+                        withContext(Dispatchers.Main) {
+                            AssistsCore.screenshotImageEventApi?.onScreenShotHideOverlay()
+                        }
+                        try {
+                            ScreenCaptureManager.getInstance().captureOnce()
+                        } finally {
+                            withContext(Dispatchers.Main) {
+                                AssistsCore.screenshotImageEventApi?.onScreenShotShowOverlay()
+                            }
+                        }
+                    } else {
+                        ScreenCaptureManager.getInstance().captureOnce()
+                    }
+                }
+            }
+            if (image == null && ScreenCaptureManager.getInstance().hasPermission()) {
+                OmniLog.w(
+                    "Assists",
+                    "Accessibility screenshot returned null, fallback to MediaProjection capture"
+                )
+                image = if (isFilterOverlay) {
+                    withContext(Dispatchers.Main) {
+                        AssistsCore.screenshotImageEventApi?.onScreenShotHideOverlay()
+                    }
+                    try {
+                        ScreenCaptureManager.getInstance().captureOnce()
+                    } finally {
+                        withContext(Dispatchers.Main) {
+                            AssistsCore.screenshotImageEventApi?.onScreenShotShowOverlay()
+                        }
+                    }
                 } else {
                     ScreenCaptureManager.getInstance().captureOnce()
                 }
@@ -406,19 +1404,63 @@ class AccessibilityController() {
                 compressedHeight = compressedHeight,
                 appliedScale = appliedScale
             )
+            } catch (error: OutOfMemoryError) {
+                if (image != null && !image.isRecycled) {
+                    image.recycle()
+                }
+                OmniLog.e(TAG, "captureScreenshotImage OOM; screenshot skipped", error)
+                return CaptureData(
+                    isSuccess = false,
+                    isFilterOverlay = isFilterOverlay,
+                    isLotOfSingleColor = false,
+                    isMostlyLightBackground = false,
+                    imageFilePath = null,
+                    imageBase64 = null,
+                    imageBitmap = null
+                )
+            } catch (error: Throwable) {
+                if (error is CancellationException) throw error
+                if (image != null && !image.isRecycled) {
+                    image.recycle()
+                }
+                OmniLog.e(TAG, "captureScreenshotImage failed; screenshot skipped", error)
+                return CaptureData(
+                    isSuccess = false,
+                    isFilterOverlay = isFilterOverlay,
+                    isLotOfSingleColor = false,
+                    isMostlyLightBackground = false,
+                    imageFilePath = null,
+                    imageBase64 = null,
+                    imageBitmap = null
+                )
+            }
         }
 
         //
         suspend fun listInstalledApplications(): HostResponse.Payload.ListInstalledApplicationsPayload {
-            val (packageNames, applicationNames) = actionController!!.listInstalledApplications()
+            val (packageNames, applicationNames) = actionController
+                ?.listInstalledApplications()
+                ?: listInstalledApplicationsFromPackageManager()
             return HostResponse.Payload.ListInstalledApplicationsPayload(
                 packageNames, applicationNames
             )
         }
 
         suspend fun mapInstalledApplications(): Map<String, String> {
-            val (packageNames, applicationNames) = actionController!!.listInstalledApplications()
+            val (packageNames, applicationNames) = actionController
+                ?.listInstalledApplications()
+                ?: listInstalledApplicationsFromPackageManager()
             return packageNames.zip(applicationNames).toMap()
+        }
+
+        private fun listInstalledApplicationsFromPackageManager(): Pair<List<String>, List<String>> {
+            val packageManager = BaseApplication.instance.packageManager
+            val filteredApps = packageManager
+                .getInstalledApplications(PackageManager.GET_META_DATA)
+                .filter { packageManager.getLaunchIntentForPackage(it.packageName) != null }
+                .sortedBy { it.loadLabel(packageManager).toString() }
+            return filteredApps.map { it.packageName } to
+                filteredApps.map { it.loadLabel(packageManager).toString() }
         }
 
         fun destroy() {
@@ -427,5 +1469,57 @@ class AccessibilityController() {
             captureAction = null
             screenshotAction = null
         }
+
+        private data class SliderCandidate(
+            val node: AccessibilityNode,
+            val score: Float
+        )
+
+        private data class CoordinateClickCandidate(
+            val node: AccessibilityNodeInfo,
+            val area: Int
+        )
+
+        private val TERM_REGEX = Regex("""[\p{L}\p{N}]+""")
+        private val SLIDER_TARGET_TERMS = setOf(
+            "slider",
+            "seekbar",
+            "brightness",
+            "volume",
+            "sound",
+            "display",
+            "亮度",
+            "音量",
+            "滑块",
+            "进度条"
+        )
+        private const val MIN_SLIDER_WIDTH_PX = 40
+        private const val MIN_SLIDER_Y_TOLERANCE_PX = 96f
+        private const val SLIDER_GESTURE_EDGE_FRACTION = 0.08f
+        private const val SLIDER_GESTURE_DISTANCE_FRACTION = 0.84f
+        private const val MIN_SCROLLABLE_WIDTH_PX = 120
+        private const val MIN_SCROLLABLE_HEIGHT_PX = 160
+        private const val MAX_NODE_ACTION_ANCESTOR_DEPTH = 6
+        private const val MAX_SAFE_COORDINATE_NODE_CLICK_AREA_PX = 300_000
+        private const val MIN_INPUT_TARGET_SCORE = 80f
+        private const val INPUT_TARGET_LOOKUP_TIMEOUT_MS = 3000L
+        private const val INPUT_FOCUSED_TARGET_LOOKUP_MS = 1200L
+        private const val INPUT_TARGET_RETRY_INTERVAL_MS = 80L
+        private const val INPUT_FOCUS_SETTLE_DELAY_MS = 80L
+        private val INPUT_TEXT_CLASS_TERMS = setOf(
+            "edittext",
+            "textfield",
+            "textinput",
+            "autocomplete",
+            "searchview"
+        )
+        private val UNSAFE_COORDINATE_NODE_CLICK_CLASSES = setOf(
+            "webview",
+            "recyclerview",
+            "listview",
+            "gridview",
+            "scrollview",
+            "viewpager"
+        )
     }
 }

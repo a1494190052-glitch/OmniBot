@@ -7,7 +7,13 @@ import cn.com.omnimind.baselib.llm.ModelSceneRegistry
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 import okhttp3.sse.EventSource
+
+const val ACTION_FAILURE_PREFIX = "执行失败"
 
 // ==================== UI操作动作 ====================
 
@@ -23,27 +29,39 @@ data class ClickAction(
     @SerialName("target_description")
     val targetDescription: String,
     var x: Float,
-    var y: Float
+    var y: Float,
+    @SerialName("node_id")
+    val nodeId: String? = null
 ) : UIAction()
 
 @Serializable
-@SerialName("type")
-data class TypeAction(
-    override val name: String = "type",
-    val content: String
+@SerialName("input_text")
+data class InputTextAction(
+    override val name: String = "input_text",
+    @SerialName("target_description")
+    val targetDescription: String,
+    val text: String,
+    var x: Float,
+    var y: Float,
+    @SerialName("node_id")
+    val nodeId: String? = null
 ) : UIAction()
 
 @Serializable
-@SerialName("scroll")
-data class ScrollAction(
-    override val name: String = "scroll",
+@SerialName("swipe")
+data class SwipeAction(
+    override val name: String = "swipe",
     @SerialName("target_description")
     val targetDescription: String,
     var x1: Float,  // 起始点x
     var y1: Float,  // 起始点y
     var x2: Float,  // 结束点x
     var y2: Float,  // 结束点y
-    val duration: Float = 1.5f  // 持续时间（秒），默认1.5秒
+    @SerialName("duration_ms")
+    val durationMs: Long = 1500L,
+    @SerialName("scrollable_index")
+    val scrollableIndex: Int? = null,
+    val direction: String? = null
 ) : UIAction()
 
 @Serializable
@@ -53,7 +71,9 @@ data class LongPressAction(
     @SerialName("target_description")
     val targetDescription: String,
     var x: Float,
-    var y: Float
+    var y: Float,
+    @SerialName("node_id")
+    val nodeId: String? = null
 ) : UIAction()
 
 @Serializable
@@ -65,25 +85,38 @@ data class OpenAppAction(
 ) : UIAction()
 
 @Serializable
-@SerialName("press_home")
-data class PressHomeAction(
-    override val name: String = "press_home"
-) : UIAction()
-
-@Serializable
-@SerialName("press_back")
-data class PressBackAction(
-    override val name: String = "press_back"
+@SerialName("press_key")
+data class PressKeyAction(
+    override val name: String = "press_key",
+    val key: String
 ) : UIAction()
 
 @Serializable
 @SerialName("wait")
 data class WaitAction(
     override val name: String = "wait",
+    @SerialName("time_s")
+    val timeS: Double? = null,
     @SerialName("duration_ms")
-    val durationMs: Long? = null,
-    // 某些模型可能返回秒为单位的duration字段，保留以兼容
-    val duration: Long? = null
+    val durationMs: Long? = null
+) : UIAction()
+
+@Serializable
+@SerialName("get_state")
+data class GetStateAction(
+    override val name: String = "get_state",
+    val reason: String = ""
+) : UIAction()
+
+@Serializable
+@SerialName("call_tool")
+data class FunctionRunAction(
+    override val name: String = "call_tool",
+    @SerialName("function_id")
+    val functionId: String,
+    @SerialName("tool_name")
+    val toolName: String? = null,
+    val arguments: JsonObject = buildJsonObject {}
 ) : UIAction()
 
 @Serializable
@@ -101,31 +134,9 @@ data class FinishedAction(
 ) : UIAction()
 
 @Serializable
-@SerialName("require_user_choice")
-data class RequireUserChoiceAction(
-    override val name: String = "require_user_choice",
-    val options: List<String>,
-    val prompt: String
-) : UIAction()
-
-@Serializable
-@SerialName("require_user_confirmation")
-data class RequireUserConfirmationAction(
-    override val name: String = "require_user_confirmation",
-    val prompt: String
-) : UIAction()
-
-@Serializable
 @SerialName("info")
 data class InfoAction(
     override val name: String = "info",
-    val value: String
-) : UIAction()
-
-@Serializable
-@SerialName("feedback")
-data class FeedbackAction(
-    override val name: String = "feedback",
     val value: String
 ) : UIAction()
 
@@ -136,14 +147,6 @@ data class AbortAction(
     val value: String = ""
 ) : UIAction()
 
-@Serializable
-@SerialName("hot_key")
-data class HotKeyAction(
-    override val name: String = "hot_key",
-    val key: String  // "ENTER", "BACK", "HOME"
-) : UIAction()
-
-
 // ==================== 步骤和上下文 ====================
 
 @Serializable
@@ -152,15 +155,58 @@ data class UIStep(
     val thought: String,
     val action: UIAction,
     val result: String? = null,
-    val summary: String = ""  // 添加summary字段用于历史总结
+    val summary: String = "",  // 添加summary字段用于历史总结
+    @SerialName("observation_xml")
+    val observationXml: String? = null,
+    @SerialName("after_observation_xml")
+    val afterObservationXml: String? = null,
+    @SerialName("package_name")
+    val packageName: String? = null,
+    @SerialName("after_package_name")
+    val afterPackageName: String? = null,
+    @SerialName("action_result_data")
+    val actionResultData: JsonElement? = null,
+    @SerialName("started_at_ms")
+    val startedAtMs: Long? = null,
+    @SerialName("finished_at_ms")
+    val finishedAtMs: Long? = null,
+    @SerialName("token_usage")
+    val tokenUsage: VLMTokenUsage? = null,
+    @SerialName("token_usage_attempts")
+    val tokenUsageAttempts: List<VLMTokenUsage> = emptyList(),
+    @SerialName("page_diagnostics")
+    val pageDiagnostics: Map<String, String> = emptyMap()
 )
 
 @Serializable
-data class VLMStep(
-    val observation: String,
-    val thought: String,
-    val action: UIAction,
-    val summary: String = "",  // 添加summary字段，与UIStep保持一致
+data class VLMTokenUsage(
+    @SerialName("prompt_tokens")
+    val promptTokens: Int? = null,
+    @SerialName("completion_tokens")
+    val completionTokens: Int? = null,
+    @SerialName("total_tokens")
+    val totalTokens: Int? = null,
+    @SerialName("reasoning_tokens")
+    val reasoningTokens: Int? = null,
+    @SerialName("text_tokens")
+    val textTokens: Int? = null,
+    @SerialName("cached_tokens")
+    val cachedTokens: Int? = null,
+    @SerialName("prefill_tokens_per_second")
+    val prefillTokensPerSecond: Double? = null,
+    @SerialName("decode_tokens_per_second")
+    val decodeTokensPerSecond: Double? = null,
+    @SerialName("resolved_model")
+    val resolvedModel: String? = null,
+    val route: String? = null,
+    @SerialName("attempt_index")
+    val attemptIndex: Int? = null,
+    @SerialName("stability_attempt")
+    val stabilityAttempt: Int? = null,
+    @SerialName("tool_retry_index")
+    val toolRetryIndex: Int? = null,
+    @SerialName("attempt_count")
+    val attemptCount: Int? = null
 )
 
 @Serializable
@@ -173,6 +219,22 @@ data class UIContext(
     val stepSkillGuidance: String = "",
     @SerialName("installed_applications")
     val installedApplications: Map<String, String> = emptyMap(),
+    @SerialName("target_package_name")
+    val targetPackageName: String = "",
+    @SerialName("current_package_name")
+    val currentPackageName: String = "",
+    @SerialName("display_width")
+    val displayWidth: Int = 0,
+    @SerialName("display_height")
+    val displayHeight: Int = 0,
+    @SerialName("current_page_summary")
+    val currentPageSummary: String = "",
+    @SerialName("first_step_guidance")
+    val firstStepGuidance: String = "",
+    @SerialName("page_diagnostics")
+    val pageDiagnostics: Map<String, String> = emptyMap(),
+    @SerialName("dynamic_tool_definitions")
+    val dynamicToolDefinitions: List<JsonObject> = emptyList(),
     val trace: List<UIStep> = emptyList(),
     @SerialName("key_memory")
     val keyMemory: List<String> = emptyList(),
@@ -183,23 +245,21 @@ data class UIContext(
     @SerialName("steps_remaining")
     val stepsRemaining: Int? = null,
     @SerialName("running_summary")
-    val runningSummary: String = "", // GELabZero-style rolling state summary
+    val runningSummary: String = "", // 当前任务的运行总结（由Compactor生成）
     @SerialName("current_state")
-    val currentState: String = "",
+    val currentState: String = "",   // 当前屏幕状态描述（由Compactor生成）
     @SerialName("next_step_hint")
-    val nextStepHint: String = "",
+    val nextStepHint: String = "",   // 建议的下一步操作（由Compactor生成）
     @SerialName("completed_milestones")
-    val completedMilestones: List<String> = emptyList(),
-    @SerialName("compressed_state")
-    val compressedState: String = "",
-    @SerialName("compressed_upto_step")
-    val compressedUptoStep: Int = 0,
+    val completedMilestones: List<String> = emptyList(), // 已完成的里程碑（由Compactor生成）
     @SerialName("priority_event")
     val priorityEvent: String? = null,  // High-priority event message (e.g., file received)
     @SerialName("priority_event_type")
     val priorityEventType: String? = null,  // Event type (e.g., "file_received")
     @SerialName("suggest_completion")
-    val suggestCompletion: Boolean = false  // Hint that task should complete
+    val suggestCompletion: Boolean = false,  // Hint that task should complete
+    @SerialName("allowed_vlm_tool_names")
+    val allowedVlmToolNames: List<String> = emptyList()
     // 注意：screenshot不在这里，会单独传递（对应Python中的exclude=True）
 ) {
     fun activeGoal(): String = currentStepGoal.ifBlank { overallTask }
@@ -229,7 +289,11 @@ data class SceneChatCompletionTurn(
     val parser: ModelSceneRegistry.ResponseParser,
     val route: String? = null,
     val resolvedModel: String,
-    val turn: ChatCompletionTurn
+    val turn: ChatCompletionTurn,
+    val requestVariant: String? = null,
+    val requestHadTools: Boolean? = null,
+    val requestToolChoice: String? = null,
+    val requestParallelToolCalls: Boolean? = null
 )
 
 @Serializable
@@ -262,7 +326,7 @@ data class VLMConversationRound(
 )
 
 class VLMConversationState(
-    private val maxCompletedRounds: Int = 4
+    private val maxCompletedRounds: Int = VLMRuntimeConfigRegistry.get().maxHistoryRounds
 ) {
     private val completedRounds = ArrayDeque<VLMConversationRound>()
     var streamingReasoning: String = ""
@@ -284,6 +348,17 @@ class VLMConversationState(
         }
     }
 
+    fun updateLastRoundResult(toolResult: String) {
+        val last = completedRounds.removeLastOrNull() ?: return
+        val newPayload = buildJsonObject {
+            put("success", JsonPrimitive(true))
+            put("result", JsonPrimitive(toolResult))
+        }.toString()
+        completedRounds.addLast(
+            last.copy(toolMessage = last.toolMessage.copy(content = JsonPrimitive(newPayload)))
+        )
+    }
+
     fun historyMessages(): List<ChatCompletionMessage> {
         if (completedRounds.isEmpty()) return emptyList()
         val messages = mutableListOf<ChatCompletionMessage>()
@@ -300,21 +375,42 @@ class VLMConversationState(
 
 data class VLMRequestEnvelope(
     val request: cn.com.omnimind.baselib.llm.ChatCompletionRequest,
-    val currentUserText: String
+    val currentUserText: String,
+    val dynamicFunctionToolNames: Set<String> = emptySet(),
+    val dynamicFunctionToolMappings: Map<String, String> = emptyMap(),
+    val dynamicFunctionRequiredArguments: Map<String, Set<String>> = emptyMap(),
+    val toolNames: List<String> = emptyList(),
+    val defaultToolCount: Int = 0,
+    val selectedBaseToolNames: Set<String> = emptySet(),
+    val systemPromptChars: Int = 0,
+    val currentUserTextChars: Int = currentUserText.length,
 )
 
 @Serializable
 data class OperationResult(
     val success: Boolean,
     val message: String,
-    val data: JsonElement? = null
+    val data: JsonElement? = null,
+    val providerRunLogJson: String? = null,
+    val providerRunLogPath: String? = null,
+    val canonicalRunLogPath: String? = null,
+    val diagnostics: Map<String, String> = emptyMap(),
 )
 
 @Serializable
 data class VLMResult(
     val success: Boolean,
-    val step: VLMStep? = null,
+    val step: UIStep? = null,
     val error: String? = null,
     val thinking: VLMThinkingContext? = null,
     val shouldRetryForToolCall: Boolean = false
+)
+
+fun UIContext.budgetDiagnostics(): Map<String, String> = linkedMapOf(
+    "vlm_context_current_page_summary_chars" to currentPageSummary.length.toString(),
+    "vlm_context_step_skill_guidance_chars" to stepSkillGuidance.length.toString(),
+    "vlm_context_running_summary_chars" to runningSummary.length.toString(),
+    "vlm_context_key_memory_count" to keyMemory.size.toString(),
+    "vlm_context_installed_app_count" to installedApplications.size.toString(),
+    "vlm_context_dynamic_tool_definition_count" to dynamicToolDefinitions.size.toString(),
 )

@@ -11,6 +11,7 @@ class UIContextManager {
     fun initializeContext(
         overallTask: String,
         installedApplications: Map<String, String> = emptyMap(),
+        targetPackageName: String = "",
         maxSteps: Int? = null,
         currentStepGoal: String = overallTask,
         stepSkillGuidance: String = ""
@@ -20,6 +21,7 @@ class UIContextManager {
             currentStepGoal = currentStepGoal,
             stepSkillGuidance = stepSkillGuidance,
             installedApplications = installedApplications,
+            targetPackageName = targetPackageName,
             trace = emptyList(),
             keyMemory = emptyList(),
             maxSteps = maxSteps,
@@ -35,7 +37,7 @@ class UIContextManager {
     fun updateContext(context: UIContext, step: UIStep): UIContext {
         val newTrace = context.trace + step
         val cleanedTrace = removeRepeatedOperations(newTrace)
-        val stepsUsed = context.compressedUptoStep + cleanedTrace.size
+        val stepsUsed = cleanedTrace.size
         val stepsRemaining = context.maxSteps?.let { maxSteps ->
             val remaining = maxSteps - stepsUsed
             if (remaining < 0) 0 else remaining

@@ -27,6 +27,15 @@ interface VLMStreamClient {
     ): SceneChatCompletionTurn
 }
 
+internal class VLMStreamRequestException(
+    val statusCode: Int?,
+    val reason: String,
+    val responseBody: String?,
+    val requestVariant: String?
+) : RuntimeException(
+    "scene stream request failed${statusCode?.let { "($it)" }.orEmpty()}: $reason"
+)
+
 class HttpVLMStreamClient(
     private val scope: CoroutineScope,
     private val requestOp: suspend (ChatCompletionRequest, EventSourceListener) -> SceneChatCompletionStreamHandle =
@@ -50,20 +59,12 @@ class HttpVLMStreamClient(
         val request: ChatCompletionRequest
     )
 
-    private class StreamRequestFailure(
-        val statusCode: Int?,
-        val reason: String,
-        val responseBody: String?
-    ) : RuntimeException(
-        "scene stream request failed${statusCode?.let { "($it)" }.orEmpty()}: $reason"
-    )
-
     override suspend fun streamTurn(
         request: ChatCompletionRequest,
         onReasoningUpdate: (suspend (String) -> Unit)?
     ): SceneChatCompletionTurn {
         val variants = buildRequestVariants(request)
-        var lastFailure: StreamRequestFailure? = null
+        var lastFailure: VLMStreamRequestException? = null
 
         for ((index, variant) in variants.withIndex()) {
             try {
@@ -71,10 +72,11 @@ class HttpVLMStreamClient(
                     OmniLog.w(tag, "retry scene stream variant=${variant.name} model=${request.model}")
                 }
                 return streamTurnOnce(
+                    variantName = variant.name,
                     request = variant.request,
                     onReasoningUpdate = onReasoningUpdate
                 )
-            } catch (error: StreamRequestFailure) {
+            } catch (error: VLMStreamRequestException) {
                 lastFailure = error
                 val canRetryVariant = error.statusCode == 400 && index < variants.lastIndex
                 if (canRetryVariant) {
@@ -89,6 +91,7 @@ class HttpVLMStreamClient(
     }
 
     private suspend fun streamTurnOnce(
+        variantName: String,
         request: ChatCompletionRequest,
         onReasoningUpdate: (suspend (String) -> Unit)?
     ): SceneChatCompletionTurn {
@@ -176,7 +179,11 @@ class HttpVLMStreamClient(
                     parser = resolvedHandle.parser,
                     route = resolvedHandle.route,
                     resolvedModel = resolvedHandle.resolvedModel,
-                    turn = accumulator.buildTurn()
+                    turn = accumulator.buildTurn(),
+                    requestVariant = variantName,
+                    requestHadTools = request.tools.isNotEmpty(),
+                    requestToolChoice = request.toolChoice?.toString(),
+                    requestParallelToolCalls = request.parallelToolCalls
                 )
             }.onSuccess { turn ->
                 streamDone.complete(turn)
@@ -220,10 +227,11 @@ class HttpVLMStreamClient(
                     ?: sanitizeReason(t?.message)
                     ?: "unknown stream failure"
                 streamDone.completeExceptionally(
-                    StreamRequestFailure(
+                    VLMStreamRequestException(
                         statusCode = response?.code,
                         reason = reason,
-                        responseBody = responseBody
+                        responseBody = responseBody,
+                        requestVariant = variantName
                     )
                 )
             }
@@ -242,6 +250,8 @@ class HttpVLMStreamClient(
     private fun buildRequestVariants(request: ChatCompletionRequest): List<StreamRequestVariant> {
         val variants = mutableListOf<StreamRequestVariant>()
         val seenPayloads = LinkedHashSet<String>()
+        val requiresNativeToolCall = request.tools.isNotEmpty() &&
+            request.toolChoice?.toString()?.trim('"')?.equals("required", ignoreCase = true) == true
 
         fun add(name: String, candidate: ChatCompletionRequest) {
             val normalized = candidate.copy(stream = true)
@@ -253,9 +263,38 @@ class HttpVLMStreamClient(
 
         add("default", request)
         add(
+            "no_thinking_controls",
+            request.copy(
+                enableThinking = null,
+                reasoningEffort = null,
+                thinking = null
+            )
+        )
+        add(
             "no_parallel_tool_calls",
             request.copy(parallelToolCalls = null)
         )
+        add(
+            "no_stream_options",
+            request.copy(streamOptions = null)
+        )
+
+        if (requiresNativeToolCall) {
+            val normalizedMaxCompletionTokens = request.maxCompletionTokens ?: request.maxTokens
+            add(
+                "minimal_strict_tools",
+                request.copy(
+                    streamOptions = null,
+                    parallelToolCalls = null,
+                    temperature = null,
+                    topP = null,
+                    maxCompletionTokens = normalizedMaxCompletionTokens,
+                    maxTokens = null
+                )
+            )
+            return variants
+        }
+
         add(
             "no_tool_choice",
             request.copy(

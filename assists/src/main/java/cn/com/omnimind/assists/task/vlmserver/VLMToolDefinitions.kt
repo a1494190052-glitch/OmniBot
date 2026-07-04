@@ -1,9 +1,11 @@
 package cn.com.omnimind.assists.task.vlmserver
 
 import cn.com.omnimind.baselib.i18n.AppLocaleManager
+import cn.com.omnimind.baselib.runlog.OobActionSchema
 import cn.com.omnimind.baselib.llm.ChatCompletionFunction
 import cn.com.omnimind.baselib.llm.ChatCompletionTool
 import cn.com.omnimind.baselib.i18n.PromptLocale
+import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonArray
@@ -15,16 +17,20 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.doubleOrNull
 import kotlinx.serialization.json.intOrNull
-import kotlinx.serialization.json.longOrNull
 import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.longOrNull
 import kotlinx.serialization.json.put
 
 object VLMToolDefinitions {
-    data class ToolSpec(
-        val name: String,
-        val description: String,
-        val parameters: JsonObject,
-        val promptGuide: String
+    private const val TOOL_TITLE_FIELD = "tool_title"
+    private val argumentJson = Json {
+        ignoreUnknownKeys = false
+        isLenient = false
+        explicitNulls = false
+    }
+    private val HIDDEN_BASE_TOOL_NAMES = setOf(
+        OobActionSchema.TOOL_GET_STATE,
+        OobActionSchema.TOOL_CALL_TOOL,
     )
 
     private fun currentLocale(): PromptLocale = AppLocaleManager.currentPromptLocale()
@@ -36,315 +42,352 @@ object VLMToolDefinitions {
         }
     }
 
-    private fun buildToolSpecs(locale: PromptLocale): List<ToolSpec> = listOf(
-        ToolSpec(
-            name = "click",
-            description = t(locale, "点击一个可见目标。", "Tap a visible target."),
-            parameters = objectSchema(
-                properties = linkedMapOf(
-                    "target_description" to stringSchema(
-                        t(locale, "要点击的目标描述。", "Description of the target to tap.")
-                    ),
-                    "x" to coordinateNumberSchema(
-                        t(locale, "点击位置的 X 坐标。", "X coordinate of the tap target.")
-                    ),
-                    "y" to coordinateNumberSchema(
-                        t(locale, "点击位置的 Y 坐标。", "Y coordinate of the tap target.")
-                    )
-                ),
-                required = listOf("target_description", "x", "y")
-            ),
-            promptGuide = t(
-                locale,
-                "- click(target_description, x, y): 点击一个可见目标。",
-                "- click(target_description, x, y): Tap a visible target."
-            )
-        ),
-        ToolSpec(
-            name = "type",
-            description = t(locale, "在当前输入焦点中输入文本。", "Type text into the current focused input."),
-            parameters = objectSchema(
-                properties = linkedMapOf(
-                    "content" to stringSchema(
-                        t(locale, "要输入的文本内容。", "Text content to type.")
-                    )
-                ),
-                required = listOf("content")
-            ),
-            promptGuide = t(
-                locale,
-                "- type(content): 在当前输入框输入文本。",
-                "- type(content): Type text into the current input box."
-            )
-        ),
-        ToolSpec(
-            name = "scroll",
-            description = t(locale, "从起点滑动到终点。", "Swipe from the start point to the end point."),
-            parameters = objectSchema(
-                properties = linkedMapOf(
-                    "target_description" to stringSchema(
-                        t(locale, "本次滚动想浏览或定位的目标描述。", "Description of what this scroll action is trying to browse or locate.")
-                    ),
-                    "x1" to coordinateNumberSchema(t(locale, "起点 X 坐标。", "Start X coordinate.")),
-                    "y1" to coordinateNumberSchema(t(locale, "起点 Y 坐标。", "Start Y coordinate.")),
-                    "x2" to coordinateNumberSchema(t(locale, "终点 X 坐标。", "End X coordinate.")),
-                    "y2" to coordinateNumberSchema(t(locale, "终点 Y 坐标。", "End Y coordinate.")),
-                    "duration" to numberSchema(t(locale, "滑动时长，单位秒。", "Swipe duration in seconds."))
-                ),
-                required = listOf("target_description", "x1", "y1", "x2", "y2")
-            ),
-            promptGuide = t(
-                locale,
-                "- scroll(target_description, x1, y1, x2, y2, duration?): 在屏幕上滑动。",
-                "- scroll(target_description, x1, y1, x2, y2, duration?): Swipe on the screen."
-            )
-        ),
-        ToolSpec(
-            name = "long_press",
-            description = t(locale, "长按一个目标。", "Long-press a target."),
-            parameters = objectSchema(
-                properties = linkedMapOf(
-                    "target_description" to stringSchema(
-                        t(locale, "要长按的目标描述。", "Description of the target to long-press.")
-                    ),
-                    "x" to coordinateNumberSchema(t(locale, "长按位置的 X 坐标。", "X coordinate of the long press.")),
-                    "y" to coordinateNumberSchema(t(locale, "长按位置的 Y 坐标。", "Y coordinate of the long press."))
-                ),
-                required = listOf("target_description", "x", "y")
-            ),
-            promptGuide = t(
-                locale,
-                "- long_press(target_description, x, y): 长按一个目标。",
-                "- long_press(target_description, x, y): Long-press a target."
-            )
-        ),
-        ToolSpec(
-            name = "open_app",
-            description = t(locale, "打开指定应用。", "Open a specific app."),
-            parameters = objectSchema(
-                properties = linkedMapOf(
-                    "package_name" to stringSchema(
-                        t(locale, "目标应用的 Android package name。", "Android package name of the target app.")
-                    )
-                ),
-                required = listOf("package_name")
-            ),
-            promptGuide = t(
-                locale,
-                "- open_app(package_name): 打开指定应用。",
-                "- open_app(package_name): Open a specific app."
-            )
-        ),
-        ToolSpec(
-            name = "press_home",
-            description = t(locale, "回到桌面。", "Go to the home screen."),
-            parameters = objectSchema(),
-            promptGuide = t(locale, "- press_home(): 回到桌面。", "- press_home(): Go to the home screen.")
-        ),
-        ToolSpec(
-            name = "press_back",
-            description = t(locale, "返回上一级。", "Go back one level."),
-            parameters = objectSchema(),
-            promptGuide = t(locale, "- press_back(): 返回上一级。", "- press_back(): Go back one level.")
-        ),
-        ToolSpec(
-            name = "wait",
-            description = t(locale, "等待界面稳定。", "Wait for the UI to stabilize."),
-            parameters = objectSchema(
-                properties = linkedMapOf(
-                    "duration_ms" to integerSchema(
-                        t(locale, "等待时长，单位毫秒。", "Wait duration in milliseconds.")
-                    ),
-                    "duration" to numberSchema(
-                        t(locale, "兼容字段：等待时长，单位秒。", "Compatibility field: wait duration in seconds.")
-                    )
-                ),
-                required = listOf("duration_ms")
-            ),
-            promptGuide = t(
-                locale,
-                "- wait(duration_ms): 等待指定毫秒数。若服务商兼容性较差，也可额外提供 duration(秒)。",
-                "- wait(duration_ms): Wait for the specified number of milliseconds. If provider compatibility is weak, you may also include duration in seconds."
-            )
-        ),
-        ToolSpec(
-            name = "hot_key",
-            description = t(locale, "发送一个受支持的快捷键。", "Send a supported hot key."),
-            parameters = objectSchema(
-                properties = linkedMapOf(
-                    "key" to enumSchema(
-                        description = t(locale, "当前受支持的快捷键。", "Supported hot keys."),
-                        values = listOf("ENTER", "BACK", "HOME")
-                    )
-                ),
-                required = listOf("key")
-            ),
-            promptGuide = t(
-                locale,
-                "- hot_key(key): 兼容 ENTER / BACK / HOME，但系统导航优先使用 press_back 或 press_home。",
-                "- hot_key(key): Supports ENTER / BACK / HOME, but prefer press_back or press_home for system navigation."
-            )
-        ),
-        ToolSpec(
-            name = "finished",
-            description = t(locale, "任务真正完成时结束。", "End the task only when it is truly complete."),
-            parameters = objectSchema(
-                properties = linkedMapOf(
-                    "content" to stringSchema(
-                        t(locale, "给用户的最终完成说明，可为空。", "Final completion note for the user. May be empty.")
-                    )
-                )
-            ),
-            promptGuide = t(
-                locale,
-                "- finished(content?): 仅在任务真正完成时调用。",
-                "- finished(content?): Call only when the task is truly complete."
-            )
-        ),
-        ToolSpec(
-            name = "info",
-            description = t(locale, "向用户询问或请求手动协助。", "Ask the user a question or request manual help."),
-            parameters = objectSchema(
-                properties = linkedMapOf(
-                    "value" to stringSchema(
-                        t(locale, "你要问用户的问题或需要用户执行的说明。", "Question to ask the user or instructions for the user to perform.")
-                    )
-                ),
-                required = listOf("value")
-            ),
-            promptGuide = t(
-                locale,
-                "- info(value): 询问用户或请求用户协助。",
-                "- info(value): Ask the user for information or manual assistance."
-            )
-        ),
-        ToolSpec(
-            name = "feedback",
-            description = t(locale, "反馈当前上下文与目标不匹配。", "Report that the current context does not match the goal."),
-            parameters = objectSchema(
-                properties = linkedMapOf(
-                    "value" to stringSchema(t(locale, "反馈原因。", "Reason for the feedback."))
-                ),
-                required = listOf("value")
-            ),
-            promptGuide = t(
-                locale,
-                "- feedback(value): 请求上层重新规划。",
-                "- feedback(value): Ask the upper layer to re-plan."
-            )
-        ),
-        ToolSpec(
-            name = "abort",
-            description = t(locale, "任务无法继续时终止。", "Abort when the task cannot continue."),
-            parameters = objectSchema(
-                properties = linkedMapOf(
-                    "value" to stringSchema(t(locale, "终止任务的原因。", "Reason for aborting the task."))
-                )
-            ),
-            promptGuide = t(
-                locale,
-                "- abort(value?): 在任务无法继续时终止。",
-                "- abort(value?): Abort when the task cannot continue."
-            )
-        ),
-        ToolSpec(
-            name = "require_user_choice",
-            description = t(locale, "让用户在若干选项中选择一个。", "Ask the user to choose one option from a list."),
-            parameters = objectSchema(
-                properties = linkedMapOf(
-                    "options" to stringArraySchema(
-                        t(locale, "可供用户选择的选项列表。", "List of options the user can choose from.")
-                    ),
-                    "prompt" to stringSchema(
-                        t(locale, "要求用户做选择的提示文案。", "Prompt shown to the user when asking for a choice.")
-                    )
-                ),
-                required = listOf("options", "prompt")
-            ),
-            promptGuide = t(
-                locale,
-                "- require_user_choice(options, prompt): 让用户做互斥选择。",
-                "- require_user_choice(options, prompt): Ask the user to make a mutually exclusive choice."
-            )
-        ),
-        ToolSpec(
-            name = "require_user_confirmation",
-            description = t(locale, "让用户确认当前状态后继续。", "Ask the user to confirm the current state before continuing."),
-            parameters = objectSchema(
-                properties = linkedMapOf(
-                    "prompt" to stringSchema(
-                        t(locale, "要求用户确认的提示文案。", "Prompt asking the user for confirmation.")
-                    )
-                ),
-                required = listOf("prompt")
-            ),
-            promptGuide = t(
-                locale,
-                "- require_user_confirmation(prompt): 让用户确认后继续。",
-                "- require_user_confirmation(prompt): Ask the user to confirm before continuing."
-            )
-        )
-    )
+    private fun OobActionSchema.LocalizedText.text(locale: PromptLocale): String =
+        t(locale, zhCn, enUs)
 
-    private fun toolSpecs(locale: PromptLocale = currentLocale()): List<ToolSpec> {
-        return buildToolSpecs(locale)
+    private fun visibleSchemas(
+        locale: PromptLocale,
+        allowedToolNames: Set<String>? = null
+    ): List<OobActionSchema.ToolSpec> =
+        OobActionSchema.modelVisibleTools
+            .filterNot { it.name in HIDDEN_BASE_TOOL_NAMES }
+            .filter { schema -> allowedToolNames == null || schema.name in allowedToolNames }
+
+    private fun buildParameters(
+        schema: OobActionSchema.ToolSpec,
+        locale: PromptLocale
+    ): JsonObject {
+        val args = vlmOutputArgs(schema)
+        return objectSchema(
+            properties = args.associate { arg -> arg.name to jsonSchemaForArg(arg, locale) },
+            required = args.map { it.name },
+        )
     }
 
-    fun tools(locale: PromptLocale = currentLocale()): List<ChatCompletionTool> {
-        return toolSpecs(locale).map { spec ->
+    private fun vlmOutputArgs(schema: OobActionSchema.ToolSpec): List<OobActionSchema.ArgSpec> =
+        schema.args.filter { it.required }
+
+    fun tools(
+        locale: PromptLocale = currentLocale(),
+        allowedToolNames: Set<String>? = null
+    ): List<ChatCompletionTool> =
+        visibleSchemas(locale, allowedToolNames).map { schema ->
             ChatCompletionTool(
                 function = ChatCompletionFunction(
-                    name = spec.name,
-                    description = spec.description,
-                    parameters = spec.parameters
+                    name = schema.name,
+                    description = schema.description.text(locale),
+                    parameters = buildParameters(schema, locale),
+                    strict = true
+                )
+            )
+        }
+
+    fun dynamicToolsFromDefinitions(definitions: List<JsonObject>): List<ChatCompletionTool> {
+        return definitions.mapNotNull { definition ->
+            val function = definition["function"] as? JsonObject ?: return@mapNotNull null
+            if (isHiddenFunctionTool(function)) return@mapNotNull null
+            val name = function["name"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty()
+            if (name.isBlank()) return@mapNotNull null
+            if (isInternalRuntimeToolName(name)) return@mapNotNull null
+            ChatCompletionTool(
+                function = ChatCompletionFunction(
+                    name = name,
+                    description = function["description"]?.jsonPrimitive?.contentOrNull.orEmpty(),
+                    parameters = sanitizeVlmDynamicFunctionParameters(
+                        (function["parameters"] as? JsonObject) ?: JsonObject(emptyMap())
+                    ),
+                    strict = true
                 )
             )
         }
     }
 
+    fun dynamicFunctionToolNamesFromDefinitions(definitions: List<JsonObject>): Set<String> {
+        return definitions.mapNotNull { definition ->
+            val function = definition["function"] as? JsonObject ?: return@mapNotNull null
+            if (!isHiddenFunctionTool(function)) return@mapNotNull null
+            val name = function["name"]?.jsonPrimitive?.contentOrNull
+                ?.trim()
+                ?.takeIf { it.isNotEmpty() }
+                ?: return@mapNotNull null
+            if (isInternalRuntimeToolName(name)) return@mapNotNull null
+            name
+        }.toSet()
+    }
+
+    fun dynamicFunctionToolMappingsFromDefinitions(definitions: List<JsonObject>): Map<String, String> {
+        return definitions.mapNotNull { definition ->
+            val function = definition["function"] as? JsonObject ?: return@mapNotNull null
+            if (isHiddenFunctionTool(function)) return@mapNotNull null
+            val name = function["name"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty()
+            if (name.isEmpty()) return@mapNotNull null
+            if (isInternalRuntimeToolName(name)) return@mapNotNull null
+            val functionId = firstNonBlank(
+                definition["function_id"],
+                definition["functionId"],
+                function["function_id"],
+                function["functionId"],
+            )
+            if (functionId.isEmpty()) return@mapNotNull null
+            name to functionId
+        }.toMap()
+    }
+
+    fun dynamicFunctionRequiredArgumentsFromDefinitions(definitions: List<JsonObject>): Map<String, Set<String>> {
+        return definitions.mapNotNull { definition ->
+            val function = definition["function"] as? JsonObject ?: return@mapNotNull null
+            if (isHiddenFunctionTool(function)) return@mapNotNull null
+            val name = function["name"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty()
+            if (name.isEmpty()) return@mapNotNull null
+            if (isInternalRuntimeToolName(name)) return@mapNotNull null
+            val parameters = sanitizeVlmDynamicFunctionParameters(
+                (function["parameters"] as? JsonObject) ?: JsonObject(emptyMap())
+            )
+            val required = (parameters["required"] as? JsonArray)
+                .orEmpty()
+                .mapNotNull { it.jsonPrimitive.contentOrNull?.trim()?.takeIf(String::isNotEmpty) }
+                .filterNot { it == TOOL_TITLE_FIELD }
+                .toSet()
+            name to required
+        }.toMap()
+    }
+
+    private fun isHiddenFunctionTool(function: JsonObject): Boolean {
+        val toolType = function["toolType"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty()
+        val modelVisible = function["model_visible"]?.jsonPrimitive?.booleanOrNull
+        if (modelVisible == false) return true
+        return toolType.equals("oob_function", ignoreCase = true)
+    }
+
+    private fun isInternalRuntimeToolName(name: String): Boolean {
+        val normalized = name.trim()
+            .removePrefix("functions.")
+            .removePrefix("function.")
+            .trim()
+            .lowercase()
+        return normalized == OobActionSchema.TOOL_CALL_TOOL
+    }
+
+    private fun firstNonBlank(vararg values: JsonElement?): String {
+        values.forEach { value ->
+            val text = (value as? JsonPrimitive)?.contentOrNull?.trim().orEmpty()
+            if (text.isNotEmpty()) return text
+        }
+        return ""
+    }
+
+    private fun sanitizeVlmDynamicFunctionParameters(parameters: JsonObject): JsonObject {
+        if (parameters.isEmpty()) return parameters
+        return buildJsonObject {
+            parameters.forEach { (key, value) ->
+                when (key) {
+                    "properties" -> {
+                        val properties = value as? JsonObject ?: JsonObject(emptyMap())
+                        put("properties", JsonObject(properties.filterKeys { it != TOOL_TITLE_FIELD }))
+                    }
+                    "required" -> {
+                        val required = value as? JsonArray ?: JsonArray(emptyList())
+                        put("required", buildJsonArray {
+                            required.forEach { item ->
+                                if (item.jsonPrimitive.contentOrNull?.trim() != TOOL_TITLE_FIELD) {
+                                    add(item)
+                                }
+                            }
+                        })
+                    }
+                    else -> put(key, value)
+                }
+            }
+        }
+    }
+
     fun renderPromptGuide(locale: PromptLocale = currentLocale()): String {
-        val guides = toolSpecs(locale).joinToString(separator = "\n") { it.promptGuide }
+        val guides = visibleSchemas(locale).joinToString(separator = "\n") { vlmPromptGuide(it, locale) }
         return buildString {
             appendLine(guides)
+            appendLine(actionChoiceGuide(locale, null))
             append(
                 t(
                     locale,
-                    "注意：所有 function.arguments 必须是严格合法的 JSON object。坐标必须分别写入 x / y / x1 / y1 / x2 / y2 字段，不要写成 \"x\": 827, 76 这类非法格式。",
-                    "Important: every function.arguments value must be a strictly valid JSON object. Coordinates must be written into x / y / x1 / y1 / x2 / y2 as separate scalar fields. Do not emit invalid forms such as \"x\": 827, 76."
+                    "注意：每个 tool call 的 JSON 参数必须是严格合法的 object，并满足所选工具 schema.required。Function replay 由本地 runtime 自动处理；不要输出 call_tool、function_id 或隐藏 Function 工具。若本轮 tools[] 包含 run_recalled_workflow_*，它是本轮已召回工作流工具，明显匹配当前目标时优先调用，否则继续普通 UI action。schema.required 中的坐标字段必须是 0..1000 相对坐标，分别写入 x / y / x1 / y1 / x2 / y2，每个字段都只能是单个数值；不要返回 [x,y]、coordinates、对象，或 \"x\": 827, 76 这类非法格式。系统会在执行前解码为屏幕绝对像素，本地记录始终保存绝对像素。wait 只在页面明确加载、动画或等待外部状态时使用。",
+                    "Important: every tool call JSON argument value must be a strict object and satisfy the selected tool's schema.required. Function replay is handled by the local runtime; do not emit call_tool, function_id, or hidden Function tools. If this turn's tools[] includes run_recalled_workflow_*, it is a recalled workflow tool for this turn; prefer it when it clearly matches the current goal, otherwise choose an ordinary UI action. Coordinate fields in schema.required must be 0..1000 relative coordinates, written into x / y / x1 / y1 / x2 / y2 as separate scalar fields; each field must be a single numeric scalar. Do not emit [x,y], coordinates, objects, or invalid forms such as \"x\": 827, 76. The system decodes coordinates to screen absolute pixels before execution, and local records always store absolute pixels. Use wait only when the page is clearly loading, animating, or waiting for an external state change."
                 )
             )
+        }
+    }
+
+    fun renderCompactActionSchemaGuide(
+        locale: PromptLocale = currentLocale(),
+        allowedToolNames: Set<String>? = null
+    ): String {
+        val selectedSchemas = visibleSchemas(locale, allowedToolNames)
+        val selectedNames = selectedSchemas.mapTo(linkedSetOf()) { it.name }
+        val dynamicAllowedNames = allowedToolNames
+            .orEmpty()
+            .map(String::trim)
+            .filter { it.startsWith("run_recalled_workflow_") && it !in selectedNames }
+        val toolNames = (selectedNames + dynamicAllowedNames).joinToString(separator = ", ")
+        return buildString {
+            appendLine("${t(locale, "本轮允许工具", "Allowed tools this turn")}: $toolNames")
+            appendLine(
+                t(
+                    locale,
+                    "输出约束：只返回 tools[] 中恰好一个原生 tool_call；function.arguments 必须满足所选工具的 JSON schema，schema.required 字段必须全部填写；assistant.content 可为空，若返回只能是约20字 summary；不要输出其他 JSON 字段、Markdown、旧格式 action/swipe/coordinate/coordinate2，或 tools[] 外的工具名。",
+                    "Output constraint: return exactly one native tool_call from tools[]. function.arguments must satisfy the selected tool JSON schema, and every schema.required field must be present. assistant.content may be empty; if present it must be an about-20-word summary only. Do not output other JSON fields, Markdown, legacy action/swipe/coordinate/coordinate2 formats, or tool names outside tools[]."
+                )
+            )
+            appendLine(
+                t(
+                    locale,
+                    "页面索引证据只用于你选择目标；输出参数只能包含所选工具 schema.properties 中列出的字段。",
+                    "Indexed page evidence is only for choosing the target; output arguments may contain only fields listed in the selected tool's schema.properties."
+                )
+            )
+            appendLine(actionChoiceGuide(locale, selectedNames))
+            if (dynamicAllowedNames.isNotEmpty()) {
+                appendLine(
+                    t(
+                        locale,
+                        "已召回工作流：${dynamicAllowedNames.joinToString(", ")} 明显匹配当前子目标时优先调用；否则继续选择普通 UI action。",
+                        "Recalled workflows: prefer ${dynamicAllowedNames.joinToString(", ")} when one clearly matches the current sub-goal; otherwise choose an ordinary UI action."
+                    )
+                )
+            }
+            appendLine(
+                t(
+                    locale,
+                    "完成判断：每轮先判断用户目标是否已经达成；若已达成，必须调用 finished，不要重复点击同一目标。对“点击/聚焦/打开搜索框或输入框”类目标，只要当前页面已进入搜索页、目标输入框已聚焦，或目标控件已处于可输入状态，就视为完成。",
+                    "Completion rule: first decide whether the user's goal is already satisfied this turn. If it is, call finished and do not click the same target again. For goals like click/focus/open a search box or input field, treat the goal as complete once the current page is a search page, the target input is focused, or the target control is ready for typing."
+                )
+            )
+            append(
+                t(
+                    locale,
+                    "黑屏/空白但 indexed evidence 或 visible_texts 有目标控件时，按这些证据继续选择工具；不要输出刷新状态、等待或空操作。",
+                    "If the screenshot is black/blank but indexed evidence or visible_texts contains the target control, continue from that evidence; do not output refresh-state, wait, or no-op actions."
+                )
+            )
+        }.trim()
+    }
+
+    private fun actionChoiceGuide(locale: PromptLocale, allowedToolNames: Set<String>?): String {
+        val visibleNames = allowedToolNames
+            ?: visibleSchemas(locale).mapTo(linkedSetOf()) { it.name }
+        fun has(name: String): Boolean = name in visibleNames
+
+        val zh = buildList {
+            if (has("click")) add("click 用于点击可见按钮、列表项、标签、搜索框或输入框聚焦")
+            if (has("input_text")) add("input_text 用于向可见输入目标输入已知文本")
+            if (has("long_press")) add("long_press 只用于上下文菜单、拖拽起点或页面明确需要长按")
+            if (has("swipe")) add("swipe 用于目标不在当前可见区域、列表翻页或横向切换")
+            if (has("open_app")) add("open_app 用于当前不在目标应用且目标包名明确")
+            if (has("press_key")) add("press_key 用于系统 back/home/enter")
+            if (has("wait")) add("wait 只用于页面明确加载、动画或等待外部状态")
+            if (has("finished")) add("finished 只在目标已完成")
+            val userTools = listOf("info").filter(::has)
+            if (userTools.isNotEmpty()) {
+                add("${userTools.joinToString("/")} 用于必须询问用户")
+            }
+            val fallbackTools = listOf("abort").filter(::has)
+            if (fallbackTools.isNotEmpty()) {
+                add("${fallbackTools.joinToString("/")} 用于当前上下文不匹配或无法继续")
+            }
+        }.joinToString("；")
+
+        val en = buildList {
+            if (has("click")) add("use click for visible buttons, list items, tabs, search boxes, or focusing an input field")
+            if (has("input_text")) add("use input_text when known text must be typed into a visible input target")
+            if (has("long_press")) add("use long_press only for context menus, drag starts, or screens that clearly require a long press")
+            if (has("swipe")) add("use swipe when the target is not currently visible, a list must move, or horizontal switching is needed")
+            if (has("open_app")) add("use open_app when the target app is not current and its package is known")
+            if (has("press_key")) add("use press_key for system back/home/enter")
+            if (has("wait")) add("use wait only for clear loading, animation, or external state")
+            if (has("finished")) add("use finished only after the goal is complete")
+            val userTools = listOf("info").filter(::has)
+            if (userTools.isNotEmpty()) {
+                add("use ${userTools.joinToString("/")} only when user input is required")
+            }
+            val fallbackTools = listOf("abort").filter(::has)
+            if (fallbackTools.isNotEmpty()) {
+                add("use ${fallbackTools.joinToString("/")} when the context mismatches or cannot continue")
+            }
+        }.joinToString("; ")
+
+        return t(locale, "操作选择：$zh。", "Action choice: $en.")
+    }
+
+    private fun vlmPromptGuide(
+        schema: OobActionSchema.ToolSpec,
+        locale: PromptLocale
+    ): String {
+        return when (schema.name) {
+            OobActionSchema.TOOL_CLICK -> t(
+                locale,
+                "- click(target_description, x, y): 点击可见目标；x/y 是 required 的 0..1000 相对坐标。",
+                "- click(target_description, x, y): Tap a visible target; x/y are required 0..1000 relative coordinates."
+            )
+            OobActionSchema.TOOL_LONG_PRESS -> t(
+                locale,
+                "- long_press(target_description, x, y): 长按目标；x/y 是 required 的 0..1000 相对坐标。",
+                "- long_press(target_description, x, y): Long-press a target; x/y are required 0..1000 relative coordinates."
+            )
+            OobActionSchema.TOOL_INPUT_TEXT -> t(
+                locale,
+                "- input_text(target_description, text, x, y): 向输入框输入；x/y 是 required 的 0..1000 相对坐标。",
+                "- input_text(target_description, text, x, y): Type into an input field; x/y are required 0..1000 relative coordinates."
+            )
+            OobActionSchema.TOOL_SWIPE -> t(
+                locale,
+                "- swipe(target_description, direction, x1, y1, x2, y2): 在屏幕或可滚动区域内滑动；direction 和 x1/y1/x2/y2 必须满足 schema.required。",
+                "- swipe(target_description, direction, x1, y1, x2, y2): Swipe on the screen or in a scrollable region; direction and x1/y1/x2/y2 must satisfy schema.required."
+            )
+            OobActionSchema.TOOL_WAIT -> t(
+                locale,
+                "- wait(): 只在页面明确处于加载、动画或等待外部状态变化时使用。",
+                "- wait(): Use only when the page is clearly loading, animating, or waiting for an external state change."
+            )
+            OobActionSchema.TOOL_FINISHED -> t(
+                locale,
+                "- finished(): 仅在当前页面或上一轮工具结果直接证明目标完成时调用；不确定就继续执行下一步。",
+                "- finished(): Call only when the current page or previous tool result directly proves completion; if uncertain, continue with the next action."
+            )
+            OobActionSchema.TOOL_ABORT -> t(
+                locale,
+                "- abort(): 在任务无法继续时终止。",
+                "- abort(): Abort when the task cannot continue."
+            )
+            else -> schema.promptGuide.text(locale)
         }
     }
 
     fun responseContract(locale: PromptLocale = currentLocale()): String {
         return when (locale) {
             PromptLocale.ZH_CN ->
-                """{"observation":"当前界面的关键状态","thought":"为什么要执行这个工具","summary":"执行完本步后新的历史总结"}"""
+                """{"summary":"约20字本步摘要"}"""
             PromptLocale.EN_US ->
-                """{"observation":"key state of the current screen","thought":"why this tool should be executed","summary":"updated running summary after this step"}"""
+                """{"summary":"about 20 words for this step"}"""
         }
     }
 
-    fun toolSpec(name: String, locale: PromptLocale = currentLocale()): ToolSpec? =
-        toolSpecs(locale).firstOrNull { it.name == name }
+    fun toolSpec(name: String): OobActionSchema.ToolSpec? =
+        OobActionSchema.modelVisibleTools
+            .filterNot { it.name in HIDDEN_BASE_TOOL_NAMES }
+            .firstOrNull { it.name == name }
 
     fun propertiesFor(toolName: String, locale: PromptLocale = currentLocale()): Map<String, JsonObject> {
-        val properties = toolSpec(toolName, locale)?.parameters?.get("properties") as? JsonObject ?: return emptyMap()
-        return properties.mapValues { (_, value) -> value as? JsonObject ?: JsonObject(emptyMap()) }
+        val schema = toolSpec(toolName) ?: return emptyMap()
+        return vlmOutputArgs(schema).associate { arg -> arg.name to jsonSchemaForArg(arg, locale) }
     }
 
-    fun requiredFieldsFor(toolName: String, locale: PromptLocale = currentLocale()): List<String> {
-        val required = toolSpec(toolName, locale)?.parameters?.get("required") as? JsonArray ?: return emptyList()
-        return required.mapNotNull { it.jsonPrimitive.contentOrNull?.trim()?.takeIf(String::isNotEmpty) }
+    fun requiredFieldsFor(toolName: String): List<String> {
+        val schema = toolSpec(toolName) ?: return emptyList()
+        return vlmOutputArgs(schema).map { it.name }
     }
 
     fun normalizeArguments(toolName: String, arguments: JsonObject): JsonObject {
         if (arguments.isEmpty()) return arguments
         val normalized = arguments.toMutableMap()
-        when (toolName) {
-            "click", "long_press" -> normalizePointArguments(normalized)
-            "scroll" -> normalizeScrollArguments(normalized)
-        }
+        normalizeEnumArguments(toolName, normalized)
         return JsonObject(normalized)
     }
 
@@ -364,21 +407,54 @@ object VLMToolDefinitions {
         return JsonObject(normalized)
     }
 
+    fun parseArguments(toolName: String, rawArguments: String): JsonObject {
+        val parsed = parseRawArgumentsObject(toolName, rawArguments)
+        val normalizedFromParsed = coerceArguments(
+            toolName,
+            normalizeArguments(toolName, stripVlmMetadataArguments(parsed))
+        )
+        validateArguments(toolName, normalizedFromParsed)
+        return normalizedFromParsed
+    }
+
+    internal fun parseRawArgumentsObject(
+        toolName: String,
+        rawArguments: String,
+        allowEmpty: Boolean = false
+    ): JsonObject {
+        val normalized = rawArguments.trim()
+        if (normalized.isEmpty()) {
+            if (allowEmpty) return JsonObject(emptyMap())
+            throw IllegalArgumentException(
+                "Invalid tool arguments JSON for $toolName: function.arguments must be a JSON object; raw=${previewRawArguments(rawArguments)}"
+            )
+        }
+        val element = runCatching { argumentJson.parseToJsonElement(normalized) }.getOrElse { error ->
+            throw IllegalArgumentException(
+                "Invalid tool arguments JSON for $toolName: ${error.message ?: "unknown parse failure"}; raw=${previewRawArguments(rawArguments)}",
+                error
+            )
+        }
+        return element as? JsonObject
+            ?: throw IllegalArgumentException("Invalid tool arguments JSON for $toolName: function.arguments must be a JSON object")
+    }
+
     fun validateArguments(toolName: String, arguments: JsonObject) {
+        val schema = toolSpec(toolName)
+            ?: throw IllegalArgumentException("Unknown VLM tool: $toolName")
         val properties = propertiesFor(toolName)
         val requiredFields = requiredFieldsFor(toolName)
         requiredFields.forEach { field ->
-            if (toolName == "wait" && field == "duration_ms" && arguments["duration"] != null) {
-                return@forEach
-            }
             if (arguments[field] == null || arguments[field] is JsonNull) {
                 throw IllegalArgumentException("Tool $toolName missing required argument: $field")
             }
         }
 
         arguments.entries.forEach { (field, value) ->
-            val schema = properties[field] ?: return@forEach
-            val expectedType = schema["type"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty()
+            val fieldSchema = properties[field] ?: run {
+                throw IllegalArgumentException("Tool $toolName has unknown argument: $field")
+            }
+            val expectedType = fieldSchema["type"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty()
             if (expectedType.isNotEmpty() && !matchesType(expectedType, value)) {
                 val coordinateHint = if (expectedType == "number" && isCoordinateField(field)) {
                     " Coordinate fields must be a single numeric scalar, not [x,y], objects, or tuples."
@@ -389,7 +465,7 @@ object VLMToolDefinitions {
                     "Tool $toolName argument $field expected $expectedType but got ${describeType(value)}.$coordinateHint"
                 )
             }
-            val enumValues = (schema["enum"] as? JsonArray).orEmpty()
+            val enumValues = (fieldSchema["enum"] as? JsonArray).orEmpty()
             if (enumValues.isNotEmpty()) {
                 val raw = (value as? JsonPrimitive)?.contentOrNull
                 if (raw == null || enumValues.none { it.jsonPrimitive.contentOrNull == raw }) {
@@ -403,213 +479,38 @@ object VLMToolDefinitions {
         }
     }
 
-    private fun normalizePointArguments(arguments: MutableMap<String, JsonElement>) {
-        extractPoint(arguments["x"])?.let { (x, y) ->
-            arguments["x"] = buildNumericPrimitive(x)
-            if (extractScalarNumber(arguments["y"]) == null) {
-                arguments["y"] = buildNumericPrimitive(y)
-            }
+    private fun stripVlmMetadataArguments(arguments: JsonObject): JsonObject {
+        if (arguments.isEmpty()) return arguments
+        val stripped = arguments.filterKeys { key ->
+            !key.equals(TOOL_TITLE_FIELD, ignoreCase = true) &&
+                !key.equals("toolTitle", ignoreCase = true)
         }
-        extractPoint(arguments["y"])?.let { (x, y) ->
-            if (extractScalarNumber(arguments["x"]) == null) {
-                arguments["x"] = buildNumericPrimitive(x)
-            }
-            arguments["y"] = buildNumericPrimitive(y)
-        }
-        if (extractScalarNumber(arguments["x"]) != null && extractScalarNumber(arguments["y"]) != null) {
-            return
-        }
-
-        POINT_ALIAS_FIELDS.firstNotNullOfOrNull { alias ->
-            extractPoint(arguments[alias])
-        }?.let { (x, y) ->
-            if (extractScalarNumber(arguments["x"]) == null) {
-                arguments["x"] = buildNumericPrimitive(x)
-            }
-            if (extractScalarNumber(arguments["y"]) == null) {
-                arguments["y"] = buildNumericPrimitive(y)
-            }
-        }
+        return if (stripped.size == arguments.size) arguments else JsonObject(stripped)
     }
 
-    private fun normalizeScrollArguments(arguments: MutableMap<String, JsonElement>) {
-        extractPoint(arguments["x1"])?.let { (x, y) ->
-            arguments["x1"] = buildNumericPrimitive(x)
-            if (extractScalarNumber(arguments["y1"]) == null) {
-                arguments["y1"] = buildNumericPrimitive(y)
-            }
-        }
-        extractPoint(arguments["x2"])?.let { (x, y) ->
-            arguments["x2"] = buildNumericPrimitive(x)
-            if (extractScalarNumber(arguments["y2"]) == null) {
-                arguments["y2"] = buildNumericPrimitive(y)
-            }
-        }
-
-        if (hasCompleteScrollCoordinates(arguments)) {
-            return
-        }
-
-        RANGE_ALIAS_FIELDS.firstNotNullOfOrNull { alias ->
-            extractRange(arguments[alias])
-        }?.let { (x1, y1, x2, y2) ->
-            if (extractScalarNumber(arguments["x1"]) == null) {
-                arguments["x1"] = buildNumericPrimitive(x1)
-            }
-            if (extractScalarNumber(arguments["y1"]) == null) {
-                arguments["y1"] = buildNumericPrimitive(y1)
-            }
-            if (extractScalarNumber(arguments["x2"]) == null) {
-                arguments["x2"] = buildNumericPrimitive(x2)
-            }
-            if (extractScalarNumber(arguments["y2"]) == null) {
-                arguments["y2"] = buildNumericPrimitive(y2)
-            }
-        }
-
-        if (hasCompleteScrollCoordinates(arguments)) {
-            return
-        }
-
-        val startPoint = RANGE_START_ALIAS_FIELDS.firstNotNullOfOrNull { alias ->
-            extractPoint(arguments[alias])
-        }
-        val endPoint = RANGE_END_ALIAS_FIELDS.firstNotNullOfOrNull { alias ->
-            extractPoint(arguments[alias])
-        }
-        if (startPoint != null && endPoint != null) {
-            if (extractScalarNumber(arguments["x1"]) == null) {
-                arguments["x1"] = buildNumericPrimitive(startPoint.first)
-            }
-            if (extractScalarNumber(arguments["y1"]) == null) {
-                arguments["y1"] = buildNumericPrimitive(startPoint.second)
-            }
-            if (extractScalarNumber(arguments["x2"]) == null) {
-                arguments["x2"] = buildNumericPrimitive(endPoint.first)
-            }
-            if (extractScalarNumber(arguments["y2"]) == null) {
-                arguments["y2"] = buildNumericPrimitive(endPoint.second)
-            }
-        }
+    private fun previewRawArguments(raw: String, maxLen: Int = 240): String {
+        val normalized = raw.replace(Regex("\\s+"), " ").trim()
+        return if (normalized.length <= maxLen) normalized else normalized.take(maxLen) + "..."
     }
 
-    private fun hasCompleteScrollCoordinates(arguments: Map<String, JsonElement>): Boolean {
-        return extractScalarNumber(arguments["x1"]) != null &&
-            extractScalarNumber(arguments["y1"]) != null &&
-            extractScalarNumber(arguments["x2"]) != null &&
-            extractScalarNumber(arguments["y2"]) != null
-    }
-
-    private fun extractPoint(value: JsonElement?): Pair<Double, Double>? {
-        return when (value) {
-            is JsonArray -> {
-                if (value.size < 2) return null
-                val x = extractScalarNumber(value[0]) ?: return null
-                val y = extractScalarNumber(value[1]) ?: return null
-                x to y
+    private fun normalizeEnumArguments(
+        toolName: String,
+        arguments: MutableMap<String, JsonElement>
+    ) {
+        val properties = propertiesFor(toolName)
+        if (properties.isEmpty()) return
+        arguments.entries.toList().forEach { (field, value) ->
+            val raw = (value as? JsonPrimitive)?.contentOrNull?.trim().orEmpty()
+            if (raw.isEmpty()) return@forEach
+            val enumValues = (properties[field]?.get("enum") as? JsonArray).orEmpty()
+            if (enumValues.isEmpty()) return@forEach
+            val resolved = enumValues
+                .mapNotNull { it.jsonPrimitive.contentOrNull?.trim()?.takeIf(String::isNotEmpty) }
+                .firstOrNull { it.equals(raw, ignoreCase = true) }
+                ?: return@forEach
+            if (resolved != raw) {
+                arguments[field] = JsonPrimitive(resolved)
             }
-
-            is JsonObject -> {
-                val x = extractScalarNumber(value["x"]) ?: return null
-                val y = extractScalarNumber(value["y"]) ?: return null
-                x to y
-            }
-
-            is JsonPrimitive -> extractPointFromString(value.contentOrNull)
-            else -> null
-        }
-    }
-
-    private fun extractRange(value: JsonElement?): ScrollCoordinates? {
-        return when (value) {
-            is JsonArray -> {
-                if (value.size >= 4) {
-                    val x1 = extractScalarNumber(value[0]) ?: return null
-                    val y1 = extractScalarNumber(value[1]) ?: return null
-                    val x2 = extractScalarNumber(value[2]) ?: return null
-                    val y2 = extractScalarNumber(value[3]) ?: return null
-                    return ScrollCoordinates(x1, y1, x2, y2)
-                }
-                if (value.size >= 2) {
-                    val start = extractPoint(value[0]) ?: return null
-                    val end = extractPoint(value[1]) ?: return null
-                    return ScrollCoordinates(start.first, start.second, end.first, end.second)
-                }
-                null
-            }
-
-            is JsonObject -> {
-                val direct = buildScrollCoordinates(
-                    x1 = extractScalarNumber(value["x1"]),
-                    y1 = extractScalarNumber(value["y1"]),
-                    x2 = extractScalarNumber(value["x2"]),
-                    y2 = extractScalarNumber(value["y2"])
-                )
-                if (direct != null) return direct
-
-                val start = RANGE_START_ALIAS_FIELDS.firstNotNullOfOrNull { alias ->
-                    extractPoint(value[alias])
-                }
-                val end = RANGE_END_ALIAS_FIELDS.firstNotNullOfOrNull { alias ->
-                    extractPoint(value[alias])
-                }
-                if (start != null && end != null) {
-                    return ScrollCoordinates(start.first, start.second, end.first, end.second)
-                }
-                null
-            }
-
-            is JsonPrimitive -> extractRangeFromString(value.contentOrNull)
-            else -> null
-        }
-    }
-
-    private fun extractPointFromString(raw: String?): Pair<Double, Double>? {
-        val normalized = raw?.trim().orEmpty()
-        if (normalized.isEmpty()) return null
-        if ((normalized.startsWith("[") && normalized.endsWith("]")) ||
-            (normalized.startsWith("{") && normalized.endsWith("}"))
-        ) {
-            val parsed = runCatching {
-                kotlinx.serialization.json.Json.parseToJsonElement(normalized)
-            }.getOrNull()
-            return extractPoint(parsed)
-        }
-        val numbers = NUMBER_REGEX.findAll(normalized).mapNotNull { it.value.toDoubleOrNull() }.toList()
-        if (numbers.size < 2) return null
-        return numbers[0] to numbers[1]
-    }
-
-    private fun extractRangeFromString(raw: String?): ScrollCoordinates? {
-        val normalized = raw?.trim().orEmpty()
-        if (normalized.isEmpty()) return null
-        if ((normalized.startsWith("[") && normalized.endsWith("]")) ||
-            (normalized.startsWith("{") && normalized.endsWith("}"))
-        ) {
-            val parsed = runCatching {
-                kotlinx.serialization.json.Json.parseToJsonElement(normalized)
-            }.getOrNull()
-            return extractRange(parsed)
-        }
-        val numbers = NUMBER_REGEX.findAll(normalized).mapNotNull { it.value.toDoubleOrNull() }.toList()
-        if (numbers.size < 4) return null
-        return ScrollCoordinates(numbers[0], numbers[1], numbers[2], numbers[3])
-    }
-
-    private fun buildScrollCoordinates(
-        x1: Double?,
-        y1: Double?,
-        x2: Double?,
-        y2: Double?
-    ): ScrollCoordinates? {
-        if (x1 == null || y1 == null || x2 == null || y2 == null) return null
-        return ScrollCoordinates(x1, y1, x2, y2)
-    }
-
-    private fun extractScalarNumber(value: JsonElement?): Double? {
-        return when (value) {
-            is JsonPrimitive -> value.contentOrNull?.trim()?.toDoubleOrNull()
-            else -> null
         }
     }
 
@@ -702,11 +603,12 @@ object VLMToolDefinitions {
 
     private fun objectSchema(
         properties: Map<String, JsonObject> = emptyMap(),
-        required: List<String> = emptyList()
+        required: List<String> = emptyList(),
+        additionalProperties: Boolean = false
     ): JsonObject {
         return buildJsonObject {
             put("type", JsonPrimitive("object"))
-            put("additionalProperties", JsonPrimitive(false))
+            put("additionalProperties", JsonPrimitive(additionalProperties))
             put(
                 "properties",
                 JsonObject(properties)
@@ -722,6 +624,35 @@ object VLMToolDefinitions {
         }
     }
 
+    private fun jsonSchemaForArg(
+        arg: OobActionSchema.ArgSpec,
+        locale: PromptLocale,
+    ): JsonObject {
+        return when (arg.type) {
+            OobActionSchema.Type.STRING -> {
+                if (arg.enumValues.isNotEmpty()) {
+                    enumSchema(arg.description.text(locale), arg.enumValues)
+                } else {
+                    stringSchema(arg.description.text(locale))
+                }
+            }
+            OobActionSchema.Type.NUMBER -> numberSchema(
+                description = arg.description.text(locale),
+                minimum = arg.minimum,
+                maximum = arg.maximum,
+            )
+            OobActionSchema.Type.INTEGER -> integerSchema(
+                description = arg.description.text(locale),
+                minimum = arg.minimum,
+            )
+            OobActionSchema.Type.BOOLEAN -> booleanSchema(arg.description.text(locale))
+            OobActionSchema.Type.OBJECT -> objectSchema(
+                additionalProperties = arg.additionalProperties,
+            )
+            OobActionSchema.Type.STRING_ARRAY -> stringArraySchema(arg.description.text(locale))
+        }
+    }
+
     private fun stringSchema(description: String): JsonObject {
         return buildJsonObject {
             put("type", JsonPrimitive("string"))
@@ -729,28 +660,33 @@ object VLMToolDefinitions {
         }
     }
 
-    private fun coordinateNumberSchema(description: String): JsonObject {
-        return buildJsonObject {
-            put("type", JsonPrimitive("number"))
-            put(
-                "description",
-                JsonPrimitive("$description 单个数值，范围 0-1000；不要传数组、对象或坐标对。")
-            )
-            put("minimum", JsonPrimitive(0))
-            put("maximum", JsonPrimitive(1000))
-        }
-    }
-
-    private fun numberSchema(description: String): JsonObject {
+    private fun numberSchema(
+        description: String,
+        minimum: Number? = null,
+        maximum: Number? = null,
+    ): JsonObject {
         return buildJsonObject {
             put("type", JsonPrimitive("number"))
             put("description", JsonPrimitive(description))
+            minimum?.let { put("minimum", JsonPrimitive(it.toDouble())) }
+            maximum?.let { put("maximum", JsonPrimitive(it.toDouble())) }
         }
     }
 
-    private fun integerSchema(description: String): JsonObject {
+    private fun integerSchema(
+        description: String,
+        minimum: Number? = null,
+    ): JsonObject {
         return buildJsonObject {
             put("type", JsonPrimitive("integer"))
+            put("description", JsonPrimitive(description))
+            minimum?.let { put("minimum", JsonPrimitive(it.toInt())) }
+        }
+    }
+
+    private fun booleanSchema(description: String): JsonObject {
+        return buildJsonObject {
+            put("type", JsonPrimitive("boolean"))
             put("description", JsonPrimitive(description))
         }
     }
@@ -779,40 +715,4 @@ object VLMToolDefinitions {
         }
     }
 
-    private data class ScrollCoordinates(
-        val x1: Double,
-        val y1: Double,
-        val x2: Double,
-        val y2: Double
-    )
-
-    private fun buildNumericPrimitive(number: Double): JsonPrimitive {
-        val asLong = number.toLong()
-        return if (number == asLong.toDouble()) JsonPrimitive(asLong) else JsonPrimitive(number)
-    }
-
-    private val POINT_ALIAS_FIELDS = listOf(
-        "position",
-        "point",
-        "coord",
-        "coords",
-        "coordinate",
-        "coordinates",
-        "tap_point",
-        "click_point"
-    )
-
-    private val RANGE_ALIAS_FIELDS = listOf(
-        "path",
-        "points",
-        "coords",
-        "coordinate",
-        "coordinates",
-        "positions",
-        "range"
-    )
-
-    private val RANGE_START_ALIAS_FIELDS = listOf("start", "from", "begin", "start_point")
-    private val RANGE_END_ALIAS_FIELDS = listOf("end", "to", "finish", "end_point")
-    private val NUMBER_REGEX = Regex("""[-+]?\d+(?:\.\d+)?(?:[eE][-+]?\d+)?""")
 }

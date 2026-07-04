@@ -136,6 +136,33 @@ class AssistsCoreChannel {
                 "checkVlmModelAvailability" -> {
                     assistsCoreManager!!.checkVlmModelAvailability(call, result)
                 }
+                "getInternalRunLogs" -> {
+                    assistsCoreManager!!.getInternalRunLogs(call, result)
+                }
+                "getInternalRunLogTimeline" -> {
+                    assistsCoreManager!!.getInternalRunLogTimeline(call, result)
+                }
+                "registerFunction" -> {
+                    assistsCoreManager!!.registerFunction(call, result)
+                }
+                "updateFunction" -> {
+                    assistsCoreManager!!.updateFunction(call, result)
+                }
+                "convertInternalRunLogToFunction" -> {
+                    assistsCoreManager!!.convertInternalRunLogToFunction(call, result)
+                }
+                "getFunction" -> {
+                    assistsCoreManager!!.getFunction(call, result)
+                }
+                "listFunctions" -> {
+                    assistsCoreManager!!.listFunctions(call, result)
+                }
+                "deleteFunction" -> {
+                    assistsCoreManager!!.deleteFunction(call, result)
+                }
+                "runFunction" -> {
+                    assistsCoreManager!!.runFunction(call, result)
+                }
                 "getWorkspaceSoul" -> {
                     assistsCoreManager!!.getWorkspaceSoul(call, result)
                 }

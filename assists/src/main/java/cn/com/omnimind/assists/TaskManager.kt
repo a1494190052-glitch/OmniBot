@@ -166,7 +166,8 @@ class TaskManager(
             assistsEventApi?.getExecutionEventImpl(),
             taskChangeListener,
             params.onMessagePushListener,
-            this
+            this,
+            params.functionRunExecutor
         )
         (runningTask as ScheduledVLMOperationTask).start(
             context, params.goal, params.model, params.maxSteps, params.packageName,
@@ -259,7 +260,8 @@ class TaskManager(
             assistsEventApi?.getExecutionEventImpl(),
             taskChangeListener,
             params.onMessagePushListener,
-            this
+            this,
+            params.functionRunExecutor
         )
         (runningTask as VLMOperationTask).start(
             context,
@@ -269,7 +271,8 @@ class TaskManager(
             params.packageName,
             params.onTaskFinishListener,
             params.skipGoHome,
-            params.stepSkillGuidance
+            params.stepSkillGuidance,
+            params.disableFunctionRecall
         )
     }
 

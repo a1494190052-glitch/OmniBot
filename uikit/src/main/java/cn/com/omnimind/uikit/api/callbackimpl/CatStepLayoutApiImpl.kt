@@ -1,11 +1,11 @@
 package cn.com.omnimind.uikit.api.callbackimpl
 
+import cn.com.omnimind.assists.FunctionUiSession
 import cn.com.omnimind.assists.api.eventapi.ExecutingTaskType
 import cn.com.omnimind.baselib.util.VibrationUtil
 import cn.com.omnimind.uikit.UIKit
 import cn.com.omnimind.uikit.api.callback.CatStepLayoutApi
 import cn.com.omnimind.uikit.loader.cat.DraggableBallInstance
-import cn.com.omnimind.uikit.loader.cat.DraggableBallLoader
 
 class CatStepLayoutApiImpl : CatStepLayoutApi {
     override fun onResumeClick() {
@@ -20,6 +20,10 @@ class CatStepLayoutApiImpl : CatStepLayoutApi {
     }
 
     override fun onStopClick() {
+        if (FunctionUiSession.requestStopActiveSession()) {
+            DraggableBallInstance.finishDoingTask("任务已取消")
+            return
+        }
         // 不论什么情况，执行结束都需要结束任务
         DraggableBallInstance.finishDoingTask("任务已结束!")
         if (UIKit.executionTaskEventApi?.taskType == ExecutingTaskType.VLM) {
@@ -32,6 +36,8 @@ class CatStepLayoutApiImpl : CatStepLayoutApi {
 
         if (UIKit.executionTaskEventApi?.taskType == ExecutingTaskType.VLM) {
             UIKit.executionTaskEventApi?.vlmTask?.requestPause()
+        } else if (FunctionUiSession.requestStopActiveSession()) {
+            DraggableBallInstance.finishDoingTask("用户已接管任务")
         }
     }
 }

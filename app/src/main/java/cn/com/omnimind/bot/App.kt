@@ -138,6 +138,15 @@ class App : BaseApplication() {
             QuickLogWidgetUpdater.updateAll(this)
         }
         runCatching {
+            cn.com.omnimind.assists.task.vlmserver.VLMRecallContextProviderRegistry.register(
+                cn.com.omnimind.bot.vlm.VlmFunctionRecall(this)
+            )
+        }
+        runCatching {
+            val guidanceManager = cn.com.omnimind.bot.vlm.VlmGuidanceManager.getInstance(this)
+            guidanceManager.initialize()
+        }
+        runCatching {
             ShizukuCapabilityManager.get(this)
         }
 

@@ -37,7 +37,7 @@ class GelabZeroParser {
 
             VLMResult(
                 success = true,
-                step = VLMStep(
+                step = UIStep(
                     observation = observation,
                     thought = thought,
                     action = action,
@@ -94,19 +94,22 @@ class GelabZeroParser {
                     y = point.second
                 )
             }
-            "TYPE" -> TypeAction(
-                content = kvMap["value"] ?: throw IllegalArgumentException("Missing value for TYPE")
+            "TYPE" -> InputTextAction(
+                targetDescription = kvMap["explain"].orEmpty(),
+                text = kvMap["value"] ?: throw IllegalArgumentException("Missing value for TYPE"),
+                x = 0f,
+                y = 0f
             )
             "SLIDE" -> {
                 val point1 = parsePoint(kvMap["point1"] ?: throw IllegalArgumentException("Missing point1 for SLIDE"))
                 val point2 = parsePoint(kvMap["point2"] ?: throw IllegalArgumentException("Missing point2 for SLIDE"))
-                ScrollAction(
+                SwipeAction(
                     targetDescription = kvMap["explain"].orEmpty(),
                     x1 = point1.first,
                     y1 = point1.second,
                     x2 = point2.first,
                     y2 = point2.second,
-                    duration = kvMap["duration"]?.toFloatOrNull() ?: 1.5f
+                    durationMs = ((kvMap["duration"]?.toDoubleOrNull() ?: 1.5) * 1000).toLong()
                 )
             }
             "LONGPRESS", "LONG_PRESS", "LONG-PRESS" -> {
@@ -132,14 +135,14 @@ class GelabZeroParser {
             "ABORT" -> AbortAction(
                 value = kvMap["value"].orEmpty()
             )
-            "BACK" -> PressBackAction()
-            "HOME" -> PressHomeAction()
+            "BACK" -> PressKeyAction(key = "BACK")
+            "HOME" -> PressKeyAction(key = "HOME")
             "HOT_KEY" -> {
                 val key = kvMap["key"] ?: throw IllegalArgumentException("Missing key for HOT_KEY")
                 when (key.uppercase()) {
-                    "BACK" -> PressBackAction()
-                    "HOME" -> PressHomeAction()
-                    "ENTER" -> HotKeyAction(key = "ENTER")
+                    "BACK" -> PressKeyAction(key = "BACK")
+                    "HOME" -> PressKeyAction(key = "HOME")
+                    "ENTER" -> PressKeyAction(key = "ENTER")
                     else -> throw IllegalArgumentException("Unsupported hot_key: $key")
                 }
             }
