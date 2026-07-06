@@ -61,6 +61,141 @@ class ActionTransferReplayContextTest {
     }
 
     @Test
+    fun transferFallsBackToClosestElementSimilarityWhenAnchorsDoNotMatch() {
+        val result = ActionTransfer.transfer(
+            ActionTransfer.Request(
+                action = OobActionSchema.TOOL_CLICK,
+                args = mapOf(
+                    "x" to 150f,
+                    "y" to 240f,
+                ),
+                sourceContext = mapOf("page" to sourceNoAnchorPayPageXml()),
+                currentContext = mapOf("page" to targetNoAnchorPayPageXml()),
+            ),
+        )
+
+        assertTrue("expected element similarity fallback to apply, diagnostics=${result.diagnostics}", result.applied)
+        assertEquals("element_similarity_fallback", result.diagnostics["mode"])
+        assertNotEquals("no_anchor_match", result.diagnostics["reason"])
+        assertEquals(675f, result.args["x"] as Float, 0.5f)
+        assertEquals(450f, result.args["y"] as Float, 0.5f)
+    }
+
+    @Test
+    fun transferFallsBackToNearestSourceElementWhenRecordedPointHitsPageBackground() {
+        val result = ActionTransfer.transfer(
+            ActionTransfer.Request(
+                action = OobActionSchema.TOOL_CLICK,
+                args = mapOf(
+                    "x" to 352f,
+                    "y" to 930f,
+                    "target_description" to "屏幕坐标 352,930",
+                ),
+                sourceContext = mapOf("page" to sourceBackgroundOnlyCoordinatePageXml()),
+                currentContext = mapOf("page" to targetBackgroundOnlyCoordinatePageXml()),
+            ),
+        )
+
+        assertTrue("expected source fallback to apply, diagnostics=${result.diagnostics}", result.applied)
+        assertEquals("source_point_unresolved", result.diagnostics["source_fallback_reason"])
+        assertEquals("nearest_source_element", result.diagnostics["source_fallback_mode"])
+        assertNotEquals("missing_source_element", result.diagnostics["reason"])
+        assertEquals(368f, result.args["x"] as Float, 0.5f)
+        assertEquals(1080f, result.args["y"] as Float, 0.5f)
+    }
+
+    @Test
+    fun transferUsesRawCoordinatesWhenSourcePointHasNoUsableElement() {
+        val result = ActionTransfer.transfer(
+            ActionTransfer.Request(
+                action = OobActionSchema.TOOL_CLICK,
+                args = mapOf(
+                    "x" to 350f,
+                    "y" to 930f,
+                    "target_description" to "屏幕坐标 350,930",
+                ),
+                sourceContext = mapOf("page" to sourceContainerOnlyKeyboardPageXml()),
+                currentContext = mapOf("page" to targetBackgroundOnlyCoordinatePageXml()),
+            ),
+        )
+
+        assertTrue("expected raw coordinate fallback, diagnostics=${result.diagnostics}", result.applied)
+        assertEquals("raw_coordinate_fallback", result.diagnostics["mode"])
+        assertEquals("source_point_unresolved", result.diagnostics["source_resolution"])
+        assertEquals(true, result.diagnostics["coordinate_replay_used"])
+        assertEquals(350f, result.args["x"] as Float, 0.5f)
+        assertEquals(930f, result.args["y"] as Float, 0.5f)
+    }
+
+    @Test
+    fun replayHelperUsesRawCoordinatesWhenSourceXmlMissing() {
+        val step = linkedMapOf<String, Any?>(
+            OobActionSchema.ROOT_TOOL to OobActionSchema.TOOL_CLICK,
+            OobActionSchema.ROOT_ARGS to linkedMapOf(
+                "x" to 350f,
+                "y" to 930f,
+                "target_description" to "屏幕坐标 350,930",
+            ),
+            "source_context" to linkedMapOf(
+                "src_ctx" to linkedMapOf(
+                    "package_name" to "com.google.android.inputmethod.latin",
+                ),
+                "action" to linkedMapOf(
+                    "tool" to OobActionSchema.TOOL_CLICK,
+                    "x" to 350f,
+                    "y" to 930f,
+                ),
+            ),
+        )
+
+        val result = ReplayHelper.remapStepArgs(
+            step,
+            deviceOperator = FakeDeviceOperator(
+                xml = targetBackgroundOnlyCoordinatePageXml(),
+                packageName = "com.example.contacts",
+                activityName = "com.example.contacts.MainActivity",
+            ),
+        )
+
+        assertEquals(true, result.meta["applied"])
+        assertEquals("raw_coordinate_fallback", result.meta["mode"])
+        assertEquals("source_xml_unavailable", result.meta["source_resolution"])
+        val args = result.args as Map<*, *>
+        assertEquals(350f, args["x"] as Float, 0.5f)
+        assertEquals(930f, args["y"] as Float, 0.5f)
+    }
+
+    @Test
+    fun replayHelperUsesRawCoordinatesWhenSourceContextMissing() {
+        val step = linkedMapOf<String, Any?>(
+            OobActionSchema.ROOT_TOOL to OobActionSchema.TOOL_CLICK,
+            OobActionSchema.ROOT_ARGS to linkedMapOf(
+                "x" to 350f,
+                "y" to 930f,
+                "target_description" to "屏幕坐标 350,930",
+            ),
+            "omniflow" to true,
+        )
+
+        val result = ReplayHelper.remapStepArgs(
+            step,
+            deviceOperator = FakeDeviceOperator(
+                xml = targetBackgroundOnlyCoordinatePageXml(),
+                packageName = "com.example.contacts",
+                activityName = "com.example.contacts.MainActivity",
+            ),
+        )
+
+        assertEquals(true, result.meta["applied"])
+        assertEquals("raw_coordinate_fallback", result.meta["mode"])
+        assertEquals("missing_source_context", result.meta["source_resolution"])
+        assertEquals(true, result.meta["coordinate_replay_used"])
+        val args = result.args as Map<*, *>
+        assertEquals(350f, args["x"] as Float, 0.5f)
+        assertEquals(930f, args["y"] as Float, 0.5f)
+    }
+
+    @Test
     fun replayHelperUsesStepSourceContextAndCurrentDeviceXmlVersionB() {
         val step = replayClickStep(
             x = 258f,
@@ -113,7 +248,7 @@ class ActionTransferReplayContextTest {
     }
 
     @Test
-    fun replayHelperReportsCurrentOverlayPageInsteadOfPretendingReplayCanRun() {
+    fun replayHelperUsesRawCoordinatesWhenCurrentPageCannotBeMatched() {
         val step = replayClickStep(
             x = 258f,
             y = 186f,
@@ -129,64 +264,42 @@ class ActionTransferReplayContextTest {
             ),
         )
 
-        assertEquals(false, result.meta["applied"])
-        assertTrue(
-            "overlay current XML should not be treated as a valid target page, meta=${result.meta}",
-            result.meta["reason"] in setOf("no_anchor_match", "missing_source_element", "matcher_abstain"),
-        )
+        assertEquals(true, result.meta["applied"])
+        assertEquals("raw_coordinate_fallback", result.meta["mode"])
+        assertEquals("target_match_unresolved", result.meta["source_resolution"])
+        assertEquals(true, result.meta["coordinate_replay_used"])
+        assertEquals("target_match_unresolved", result.meta["reason"])
+        val args = result.args as Map<*, *>
+        assertEquals(258f, args["x"] as Float, 0.5f)
+        assertEquals(186f, args["y"] as Float, 0.5f)
     }
 
     @Test
-    fun actionExecutorPreservesActionTransferDiagnosticsWhenReplayContextFails() = runBlocking {
-        val executor = ActionExecutor(
-            deviceOperator = FakeDeviceOperator(
-                xml = omnibotFunctionResultDialogXml(),
-                packageName = "cn.com.omnimind.bot.debug",
-                activityName = "cn.com.omnimind.bot.MainActivity",
+    fun replayHelperFallsBackToRawCoordinatesWhenActionTransferDoesNotApply() {
+        val result = ReplayHelper.requireActionTransferApplied(
+            attempted = ReplayHelper.StepArgsResult(
+                args = mapOf("x" to 999f, "y" to 999f),
+                meta = mapOf(
+                    "applied" to false,
+                    "reason" to "no_anchor_match",
+                    "source_xml_hash" to "source",
+                    "current_xml_hash" to "overlay",
+                ),
             ),
-            contextManager = UIContextManager(),
-        )
-        val failureMessage =
-            "OOB_FUNCTION_SOURCE_NOT_REACHED: action transfer could not match the recorded source page: no_anchor_match"
-
-        val result = executor.act(
-            action = OobActionSchema.TOOL_INPUT_TEXT,
-            args = mapOf(
+            initialArgs = mapOf(
                 "x" to 258f,
                 "y" to 186f,
-                "text" to "清华大学",
                 "target_description" to "搜索框",
-            ),
-            source = "function_replay",
-            check = ActionExecutor.ActCheckConfig(
-                actionTransfer = { _, args ->
-                    ActionExecutor.ActArgsResult(
-                        args = args,
-                        diagnostics = mapOf(
-                            "applied" to false,
-                            "reason" to "no_anchor_match",
-                            "source_xml_hash" to "source",
-                            "current_xml_hash" to "overlay",
-                            "current_sparse_overlay_page" to true,
-                        ),
-                        blockDispatch = true,
-                        failureMessage = failureMessage,
-                        failureErrorCode = "OOB_FUNCTION_SOURCE_NOT_REACHED",
-                    )
-                },
             ),
         )
 
-        assertEquals(false, result.success)
-        assertEquals("OOB_FUNCTION_SOURCE_NOT_REACHED", result.diagnostics["local_action_error_code"])
-        assertTrue(
-            "expected action_transfer diagnostics to be preserved, diagnostics=${result.diagnostics}",
-            result.diagnostics["action_transfer"]?.contains("no_anchor_match") == true,
-        )
-        assertTrue(
-            "expected current context diagnostics to be preserved, diagnostics=${result.diagnostics}",
-            result.diagnostics["action_transfer"]?.contains("current_xml_hash=overlay") == true,
-        )
+        assertEquals(true, result.meta["applied"])
+        assertEquals("raw_coordinate_fallback", result.meta["mode"])
+        assertEquals(true, result.meta["coordinate_replay_used"])
+        assertEquals(true, result.meta["recorded_action_args_used"])
+        val args = result.args as Map<*, *>
+        assertEquals(258f, args["x"] as Float, 0.5f)
+        assertEquals(186f, args["y"] as Float, 0.5f)
     }
 
     private fun replayClickStep(
@@ -254,6 +367,57 @@ class ActionTransferReplayContextTest {
               <node index="5" class="android.widget.TextView" package="com.zhihu.android" text="热榜" resource-id="com.zhihu.android:id/tab_hot" clickable="true" enabled="true" visible-to-user="true" bounds="[250,280][380,350]"/>
               <node index="6" class="android.widget.Button" package="com.zhihu.android" text="搜索" resource-id="com.zhihu.android:id/search_button" clickable="true" enabled="true" visible-to-user="true" bounds="[890,148][1010,224]"/>
             </node>
+          </node>
+        </hierarchy>
+    """.trimIndent()
+
+    private fun sourceNoAnchorPayPageXml(): String = """
+        <hierarchy rotation="0">
+          <node index="0" class="android.widget.FrameLayout" package="com.example.checkout" bounds="[0,0][1080,2400]" visible-to-user="true" enabled="true">
+            <node index="1" class="android.widget.LinearLayout" package="com.example.checkout" bounds="[0,80][1080,2400]" visible-to-user="true" enabled="true">
+              <node index="2" class="android.widget.Button" package="com.example.checkout" text="pay" clickable="true" enabled="true" visible-to-user="true" bounds="[100,200][300,280]"/>
+            </node>
+          </node>
+        </hierarchy>
+    """.trimIndent()
+
+    private fun targetNoAnchorPayPageXml(): String = """
+        <hierarchy rotation="0">
+          <node index="0" class="android.widget.FrameLayout" package="com.example.checkout" bounds="[0,0][1080,2400]" visible-to-user="true" enabled="true">
+            <node index="1" class="android.widget.LinearLayout" package="com.example.checkout" bounds="[0,80][1080,2400]" visible-to-user="true" enabled="true">
+              <node index="2" class="android.widget.Button" package="com.example.checkout" text="pay now" clickable="true" enabled="true" visible-to-user="true" bounds="[600,400][900,500]"/>
+              <node index="3" class="android.widget.Button" package="com.example.checkout" text="pay later" clickable="true" enabled="true" visible-to-user="true" bounds="[100,1200][400,1300]"/>
+            </node>
+          </node>
+        </hierarchy>
+    """.trimIndent()
+
+    private fun sourceBackgroundOnlyCoordinatePageXml(): String = """
+        <hierarchy rotation="0">
+          <node index="0" class="android.widget.FrameLayout" package="com.example.contacts" bounds="[0,0][720,1280]" visible-to-user="true" enabled="true">
+            <node index="1" class="android.widget.LinearLayout" package="com.example.contacts" bounds="[0,0][720,1280]" visible-to-user="true" enabled="true">
+              <node index="2" class="android.widget.EditText" package="com.example.contacts" text="first name" clickable="true" focusable="true" editable="true" enabled="true" visible-to-user="true" bounds="[104,603][608,716]"/>
+              <node index="3" class="android.widget.EditText" package="com.example.contacts" text="phone" clickable="true" focusable="true" editable="true" enabled="true" visible-to-user="true" bounds="[104,1040][608,1153]"/>
+            </node>
+          </node>
+        </hierarchy>
+    """.trimIndent()
+
+    private fun targetBackgroundOnlyCoordinatePageXml(): String = """
+        <hierarchy rotation="0">
+          <node index="0" class="android.widget.FrameLayout" package="com.example.contacts" bounds="[0,0][720,1280]" visible-to-user="true" enabled="true">
+            <node index="1" class="android.widget.LinearLayout" package="com.example.contacts" bounds="[0,0][720,1280]" visible-to-user="true" enabled="true">
+              <node index="2" class="android.widget.EditText" package="com.example.contacts" text="first name" clickable="true" focusable="true" editable="true" enabled="true" visible-to-user="true" bounds="[84,560][628,673]"/>
+              <node index="3" class="android.widget.EditText" package="com.example.contacts" text="phone" clickable="true" focusable="true" editable="true" enabled="true" visible-to-user="true" bounds="[88,1018][648,1142]"/>
+            </node>
+          </node>
+        </hierarchy>
+    """.trimIndent()
+
+    private fun sourceContainerOnlyKeyboardPageXml(): String = """
+        <hierarchy rotation="0" bounds="[0,0][720,1280]">
+          <node index="0" class="android.widget.FrameLayout" package="com.google.android.inputmethod.latin" bounds="[0,0][720,1280]" visible-to-user="true" enabled="true">
+            <node index="1" class="android.inputmethodservice.KeyboardView" package="com.google.android.inputmethod.latin" bounds="[0,650][720,1280]" visible-to-user="true" enabled="true"/>
           </node>
         </hierarchy>
     """.trimIndent()

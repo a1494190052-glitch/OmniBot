@@ -661,11 +661,22 @@ class ManualVlmTraceRecorder(
             overlayGestureStartedCount += 1
             overlayOperationId(gesture, overlayGestureStartedCount)
         }
-        // captureCurrentXml() is a blocking binder call (service.windows + window.root).
-        // It has no internal timeout and can hang indefinitely during UI transitions.
-        // Run on a separate IO thread so the timeout can free the processing coroutine
-        // even if the underlying binder call is still waiting.
-        val beforeXmlCapture = captureCurrentXmlTimed("${operationId}_before")
+        val probeX = if (gesture.actionName == OobActionSchema.TOOL_SWIPE) {
+            (gesture.startX + gesture.endX) / 2f
+        } else {
+            gesture.startX
+        }
+        val probeY = if (gesture.actionName == OobActionSchema.TOOL_SWIPE) {
+            (gesture.startY + gesture.endY) / 2f
+        } else {
+            gesture.startY
+        }
+        val beforeXmlCapture = captureCurrentXmlForGesture(
+            reason = "${operationId}_before",
+            x = probeX,
+            y = probeY,
+            preferScrollable = gesture.actionName == OobActionSchema.TOOL_SWIPE,
+        )
         val beforeXml = beforeXmlCapture.xml
         val beforeScreenshot = captureCurrentScreenshotRef(
             stage = "${operationId}_before",
@@ -675,16 +686,8 @@ class ManualVlmTraceRecorder(
         }
         val mayOpenIme = gesture.actionName == OobActionSchema.TOOL_CLICK &&
             overlayClickMayOpenIme(beforeXml, gesture.startX, gesture.startY)
-        val touchX = if (gesture.actionName == OobActionSchema.TOOL_SWIPE) {
-            (gesture.startX + gesture.endX) / 2f
-        } else {
-            gesture.startX
-        }
-        val touchY = if (gesture.actionName == OobActionSchema.TOOL_SWIPE) {
-            (gesture.startY + gesture.endY) / 2f
-        } else {
-            gesture.startY
-        }
+        val touchX = probeX
+        val touchY = probeY
         if (coordinateHitsIgnoredTarget(beforeXml, touchX, touchY)) {
             synchronized(recordingLock) {
                 overlayGestureIgnoredControlCount += 1
@@ -758,7 +761,7 @@ class ManualVlmTraceRecorder(
                         beforeScreenshot = beforeScreenshot,
                         operationId = operationId,
                         dispatchOutcome = dispatchOutcome,
-                        beforeXmlCaptureMs = beforeXmlCapture.durationMs
+                        beforeXmlCapture = beforeXmlCapture
                     )
                     OobActionSchema.TOOL_SWIPE -> appendOverlaySwipeGesture(
                         gesture = gesture,
@@ -766,7 +769,7 @@ class ManualVlmTraceRecorder(
                         beforeScreenshot = beforeScreenshot,
                         operationId = operationId,
                         dispatchOutcome = dispatchOutcome,
-                        beforeXmlCaptureMs = beforeXmlCapture.durationMs
+                        beforeXmlCapture = beforeXmlCapture
                     )
                     else -> {
                         overlayGestureFailedCount += 1
@@ -839,12 +842,16 @@ class ManualVlmTraceRecorder(
         operationId: String,
         beforeXml: String?,
         dispatchOutcome: OverlayDispatchOutcome,
-        beforeXmlCaptureMs: Long?
+        beforeXmlCaptureMs: Long?,
+        beforeXmlCaptureAttempts: Int? = null,
+        beforeXmlQuality: String? = null
     ): Map<String, Any?> = linkedMapOf<String, Any?>(
         "operation_id" to operationId,
         "dispatch_status" to dispatchOutcome.status,
         "before_xml_present" to !beforeXml.isNullOrBlank(),
         "before_xml_capture_ms" to beforeXmlCaptureMs,
+        "before_xml_capture_attempts" to beforeXmlCaptureAttempts,
+        "before_xml_quality" to beforeXmlQuality,
         "error_code" to dispatchOutcome.errorCode,
         "error_message" to dispatchOutcome.errorMessage
     ).filterValues { it != null }
@@ -1420,7 +1427,7 @@ class ManualVlmTraceRecorder(
         beforeScreenshot: ManualVlmScreenshotRef?,
         operationId: String,
         dispatchOutcome: OverlayDispatchOutcome,
-        beforeXmlCaptureMs: Long?
+        beforeXmlCapture: TimedXmlCapture
     ) {
         val x = gesture.startX
         val y = gesture.startY
@@ -1459,7 +1466,9 @@ class ManualVlmTraceRecorder(
                         operationId,
                         beforeXml,
                         dispatchOutcome,
-                        beforeXmlCaptureMs
+                        beforeXmlCapture.durationMs,
+                        beforeXmlCaptureAttempts = beforeXmlCapture.attempts,
+                        beforeXmlQuality = beforeXmlCapture.quality
                     )).filterValues { it != null }
         // Package name from XML is null for SurfaceView/WebView apps (no accessible nodes).
         // Fall back to the accessibility service's current window package so that the
@@ -1484,7 +1493,9 @@ class ManualVlmTraceRecorder(
                     operationId,
                     dispatchOutcome,
                     beforeXml,
-                    beforeXmlCaptureMs
+                    beforeXmlCapture.durationMs,
+                    beforeXmlCaptureAttempts = beforeXmlCapture.attempts,
+                    beforeXmlQuality = beforeXmlCapture.quality
                 )
             )
         )
@@ -1496,7 +1507,7 @@ class ManualVlmTraceRecorder(
         beforeScreenshot: ManualVlmScreenshotRef?,
         operationId: String,
         dispatchOutcome: OverlayDispatchOutcome,
-        beforeXmlCaptureMs: Long?
+        beforeXmlCapture: TimedXmlCapture
     ) {
         val midX = (gesture.startX + gesture.endX) / 2f
         val midY = (gesture.startY + gesture.endY) / 2f
@@ -1533,7 +1544,9 @@ class ManualVlmTraceRecorder(
             operationId,
             beforeXml,
             dispatchOutcome,
-            beforeXmlCaptureMs = beforeXmlCaptureMs
+            beforeXmlCaptureMs = beforeXmlCapture.durationMs,
+            beforeXmlCaptureAttempts = beforeXmlCapture.attempts,
+            beforeXmlQuality = beforeXmlCapture.quality
         )).filterValues { it != null }
         val resolvedPackageName = resolvedActionPackageName(target, beforeXml)
         appendRecordedAction(
@@ -1555,7 +1568,9 @@ class ManualVlmTraceRecorder(
                     operationId,
                     dispatchOutcome,
                     beforeXml,
-                    beforeXmlCaptureMs
+                    beforeXmlCapture.durationMs,
+                    beforeXmlCaptureAttempts = beforeXmlCapture.attempts,
+                    beforeXmlQuality = beforeXmlCapture.quality
                 )
             )
         )
@@ -2260,10 +2275,16 @@ class ManualVlmTraceRecorder(
 
     private data class TimedXmlCapture(
         val xml: String?,
-        val durationMs: Long
+        val durationMs: Long,
+        val attempts: Int = 1,
+        val quality: String? = null
     )
 
     private fun captureCurrentXmlTimed(reason: String): TimedXmlCapture {
+        // captureCurrentXml() is a blocking binder call (service.windows + window.root).
+        // It has no internal timeout and can hang indefinitely during UI transitions.
+        // Run on a separate IO thread so the timeout can free the processing coroutine
+        // even if the underlying binder call is still waiting.
         val startedAtMs = SystemClock.uptimeMillis()
         val xml = runBlocking {
             withTimeoutOrNull(BEFORE_XML_CAPTURE_TIMEOUT_MS) {
@@ -2282,6 +2303,83 @@ class ManualVlmTraceRecorder(
         }
         return TimedXmlCapture(xml = xml, durationMs = durationMs)
     }
+
+    private fun captureCurrentXmlForGesture(
+        reason: String,
+        x: Float,
+        y: Float,
+        preferScrollable: Boolean
+    ): TimedXmlCapture {
+        val startedAtMs = SystemClock.uptimeMillis()
+        val first = captureCurrentXmlTimed("${reason}_attempt1")
+        val firstQuality = xmlCoordinateQuality(first.xml, x, y, preferScrollable)
+        if (firstQuality == XML_COORDINATE_QUALITY_ACTIONABLE) {
+            return first.copy(quality = firstQuality)
+        }
+        runBlocking { delay(BEFORE_XML_RETRY_DELAY_MS) }
+        val second = captureCurrentXmlTimed("${reason}_attempt2")
+        val secondQuality = xmlCoordinateQuality(second.xml, x, y, preferScrollable)
+        val selected = selectBetterXmlCapture(
+            first = first,
+            firstQuality = firstQuality,
+            second = second,
+            secondQuality = secondQuality,
+        )
+        val durationMs = (SystemClock.uptimeMillis() - startedAtMs).coerceAtLeast(0L)
+        return selected.capture.copy(
+            durationMs = durationMs,
+            attempts = 2,
+            quality = selected.quality,
+        )
+    }
+
+    private data class SelectedXmlCapture(
+        val capture: TimedXmlCapture,
+        val quality: String
+    )
+
+    private fun selectBetterXmlCapture(
+        first: TimedXmlCapture,
+        firstQuality: String,
+        second: TimedXmlCapture,
+        secondQuality: String,
+    ): SelectedXmlCapture =
+        if (xmlCoordinateQualityRank(secondQuality) > xmlCoordinateQualityRank(firstQuality)) {
+            SelectedXmlCapture(second, secondQuality)
+        } else {
+            SelectedXmlCapture(first, firstQuality)
+        }
+
+    private fun xmlCoordinateQuality(
+        xml: String?,
+        x: Float,
+        y: Float,
+        preferScrollable: Boolean
+    ): String {
+        if (xml.isNullOrBlank()) return XML_COORDINATE_QUALITY_EMPTY
+        val nodes = parseXmlNodeCandidates(xml)
+            .filter { candidate ->
+                candidate.bounds.containsPoint(x, y) &&
+                    !shouldIgnoreTarget(
+                        packageName = candidate.packageName ?: packageNameFromXml(xml),
+                        label = candidate.bestLabel,
+                        resourceId = candidate.resourceId
+                    )
+            }
+        if (nodes.isEmpty()) return XML_COORDINATE_QUALITY_NO_HIT
+        if (nodes.any { it.isActionableForCoordinate(preferScrollable) }) {
+            return XML_COORDINATE_QUALITY_ACTIONABLE
+        }
+        return XML_COORDINATE_QUALITY_CONTAINER
+    }
+
+    private fun xmlCoordinateQualityRank(quality: String): Int =
+        when (quality) {
+            XML_COORDINATE_QUALITY_ACTIONABLE -> 3
+            XML_COORDINATE_QUALITY_CONTAINER -> 2
+            XML_COORDINATE_QUALITY_NO_HIT -> 1
+            else -> 0
+        }
 
     private fun captureCurrentXmlSafe(reason: String = "manual_recording"): String? =
         captureCurrentXmlTimed(reason).xml
@@ -3299,7 +3397,9 @@ class ManualVlmTraceRecorder(
         operationId: String,
         dispatchOutcome: OverlayDispatchOutcome,
         beforeXml: String?,
-        beforeXmlCaptureMs: Long?
+        beforeXmlCaptureMs: Long?,
+        beforeXmlCaptureAttempts: Int? = null,
+        beforeXmlQuality: String? = null
     ): Map<String, Any?> = (linkedMapOf<String, Any?>(
         "event_type" to "OVERLAY_TOUCH_${gesture.actionName.uppercase()}",
         "event_has_source" to false,
@@ -3324,7 +3424,9 @@ class ManualVlmTraceRecorder(
         operationId,
         beforeXml,
         dispatchOutcome,
-        beforeXmlCaptureMs = beforeXmlCaptureMs
+        beforeXmlCaptureMs = beforeXmlCaptureMs,
+        beforeXmlCaptureAttempts = beforeXmlCaptureAttempts,
+        beforeXmlQuality = beforeXmlQuality
     )).filterValues { it != null }
 
     private fun textInputEventContextFor(
@@ -3840,6 +3942,7 @@ class ManualVlmTraceRecorder(
         private const val ACCESSIBILITY_EVENT_DRAIN_POLL_MS = 50L
         private const val ACCESSIBILITY_EVENT_DRAIN_TIMEOUT_MS = 600L
         private const val BEFORE_XML_CAPTURE_TIMEOUT_MS = 300L
+        private const val BEFORE_XML_RETRY_DELAY_MS = 80L
         private const val TEXT_INPUT_ANCHOR_ACTIVE_TTL_MS = 8_000L
         private const val POST_INPUT_CLICK_GRACE_MS = 4_000L
         private const val TEXT_INPUT_KEYBOARD_CLICK_SUPPRESS_WINDOW_MS = 2_500L
@@ -3873,6 +3976,10 @@ class ManualVlmTraceRecorder(
         private val DEBUG_SCREENSHOT_QUALITY = ImageQuality.MEDIUM
         private const val REDACTED_TEXT = "[REDACTED]"
         private const val SYSTEM_UI_PACKAGE = "com.android.systemui"
+        private const val XML_COORDINATE_QUALITY_ACTIONABLE = "actionable_hit"
+        private const val XML_COORDINATE_QUALITY_CONTAINER = "container_hit"
+        private const val XML_COORDINATE_QUALITY_NO_HIT = "no_coordinate_hit"
+        private const val XML_COORDINATE_QUALITY_EMPTY = "empty"
         private val TEXT_FIELD_ACCESSIBILITY_PREFIXES = setOf(
             "搜索",
             "search"

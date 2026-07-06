@@ -118,42 +118,23 @@ object ReplayHelper {
         initialArgs: Map<String, Any?>,
     ): StepArgsResult {
         if (attempted.meta["applied"] != false) return attempted
-        val reason = attempted.meta["reason"]?.toString().orEmpty()
-        if (isHardActionTransferFailure(reason) && !allowsCoordinateOnlySourceReplay(attempted.meta)) {
-            val errorCode = "OOB_FUNCTION_SOURCE_NOT_REACHED"
-            throw ExecutionException(
-                errorCode = errorCode,
-                message = "$errorCode: action transfer could not match the recorded source page: $reason",
-                diagnostics = attempted.meta + mapOf(
-                    "initial_args" to initialArgs,
-                    "recorded_action_args_used" to false,
-                ),
-            )
-        }
-        return attempted
-    }
-
-    private fun allowsCoordinateOnlySourceReplay(meta: Map<String, Any?>): Boolean {
-        if (meta["source_reason"]?.toString() == "missing_source_element" &&
-            meta["source_page_matches_current"] == true
-        ) {
-            return true
-        }
-        return meta["reason"]?.toString() == "no_anchor_match" &&
-            meta["current_sparse_overlay_page"] == true &&
-            meta["current_privacy_notice_overlay"] == true
-    }
-
-    private fun isHardActionTransferFailure(reason: String): Boolean =
-        reason in setOf(
-            "no_anchor_match",
-            "low_confidence_anchor_projection",
-            "matcher_abstain",
-            "invalid_source_page",
-            "invalid_current_page",
-            "missing_source_element",
-            "missing_scroll_source_element",
+        val rawMeta = rawCoordinateReplayMeta(
+            action = actionNameFromMetaOrArgs(attempted.meta, initialArgs),
+            args = initialArgs,
+            sourceResolution = firstNonBlank(
+                attempted.meta["source_resolution"],
+                attempted.meta["source_reason"],
+                attempted.meta["reason"],
+            ).ifBlank { "action_transfer_unapplied" },
         )
+        return StepArgsResult(
+            args = initialArgs,
+            meta = attempted.meta + rawMeta + mapOf(
+                "action_transfer_unapplied" to true,
+                "recorded_action_args_used" to true,
+            ),
+        )
+    }
 
     private fun remapStepArgsInternal(
         step: Map<String, Any?>,
@@ -174,16 +155,16 @@ object ReplayHelper {
         val sourceContext = sourceContextForStep(step)
             .takeIf { it.isNotEmpty() }
             ?: return StepArgsResult(
-            args,
-            meta = mapOf("applied" to false, "reason" to "missing_source_context", "algorithm" to "anchor_projection")
-        )
+                args,
+                meta = rawCoordinateReplayMeta(tool, args, "missing_source_context")
+            )
         val srcCtx = mapArg(sourceContext["src_ctx"])
         val sourceXml = RunLogXmlArtifacts.pageXmlFromContext(srcCtx)
             .ifBlank { RunLogXmlArtifacts.pageXmlFromContext(mapArg(sourceContext)) }
         if (sourceXml.isEmpty()) {
             return StepArgsResult(
                 args,
-                meta = mapOf("applied" to false, "reason" to "missing_source_xml", "algorithm" to "anchor_projection")
+                meta = rawCoordinateReplayMeta(tool, args, "source_xml_unavailable")
             )
         }
         val currentSnapshot = if (currentXmlOverride == null && deviceOperator != null) {
@@ -195,7 +176,7 @@ object ReplayHelper {
         if (currentXml.isEmpty()) {
             return StepArgsResult(
                 args,
-                meta = mapOf("applied" to false, "reason" to "missing_current_xml", "algorithm" to "anchor_projection")
+                meta = rawCoordinateReplayMeta(tool, args, "current_xml_unavailable")
             )
         }
         val result = ActionTransfer.transfer(
@@ -218,6 +199,58 @@ object ReplayHelper {
             "current_activity_name" to currentSnapshot?.activityName?.takeIf { it.isNotBlank() },
         ).filterValues { it != null }
         return StepArgsResult(args = result.args, meta = result.diagnostics + currentContextMeta)
+    }
+
+    private fun rawCoordinateReplayMeta(
+        action: String,
+        args: Map<String, Any?>,
+        sourceResolution: String,
+    ): Map<String, Any?> {
+        val coordinates = when (action) {
+            OobActionSchema.TOOL_SWIPE -> linkedMapOf<String, Any?>(
+                "x1" to args["x1"],
+                "y1" to args["y1"],
+                "x2" to args["x2"],
+                "y2" to args["y2"],
+            ).filterValues { it != null }
+            else -> linkedMapOf<String, Any?>(
+                "x" to args["x"],
+                "y" to args["y"],
+            ).filterValues { it != null }
+        }
+        return mapOf(
+            "applied" to true,
+            "tool" to action,
+            "mode" to "raw_coordinate_fallback",
+            "algorithm" to "raw_coordinate_replay",
+            "source_resolution" to sourceResolution,
+            "coordinate_replay_used" to true,
+            "old" to coordinates,
+            "new" to coordinates,
+            "confidence" to 0f,
+            "anchor_count" to 0,
+        )
+    }
+
+    private fun actionNameFromMetaOrArgs(
+        meta: Map<String, Any?>,
+        args: Map<String, Any?>,
+    ): String {
+        val metaTool = firstNonBlank(meta["tool"], meta["action"]).trim()
+        if (metaTool.isNotBlank()) {
+            return resolveActionName(metaTool)
+                ?: OobActionSchema.normalizeToolName(metaTool).ifBlank { metaTool }
+        }
+        return if (
+            args.containsKey("x1") ||
+            args.containsKey("y1") ||
+            args.containsKey("x2") ||
+            args.containsKey("y2")
+        ) {
+            OobActionSchema.TOOL_SWIPE
+        } else {
+            OobActionSchema.TOOL_CLICK
+        }
     }
 
     private fun replayArgsWithSemanticAliases(

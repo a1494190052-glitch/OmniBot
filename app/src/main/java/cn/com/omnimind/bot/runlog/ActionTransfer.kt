@@ -112,6 +112,7 @@ object ActionTransfer {
     private data class SourceGrounding(
         val node: UiNode,
         val coordinates: List<Coordinate>,
+        val debug: Map<String, Any?> = emptyMap(),
     )
 
     private data class TargetMatch(
@@ -158,19 +159,57 @@ object ActionTransfer {
         }
         val sourceXml = pageXmlFromContext(request.sourceContext)
         val currentXml = pageXmlFromContext(request.currentContext)
-        val sourcePage = parsePageModel(sourceXml) ?: return notApplied(args, "invalid_source_page")
-        val targetPage = parsePageModel(currentXml) ?: return notApplied(args, "invalid_current_page")
+        val sourcePage = parsePageModel(sourceXml)
+            ?: return rawCoordinateFallback(
+                action = action,
+                args = args,
+                sourceResolution = "source_page_unavailable",
+                diagnostics = mapOf(
+                    "source_xml_present" to sourceXml.isNotBlank(),
+                    "current_xml_present" to currentXml.isNotBlank(),
+                ),
+            )
+        val targetPage = parsePageModel(currentXml)
+            ?: return rawCoordinateFallback(
+                action = action,
+                args = args,
+                sourceResolution = "current_page_unavailable",
+                diagnostics = mapOf(
+                    "source_xml_present" to sourceXml.isNotBlank(),
+                    "current_xml_present" to currentXml.isNotBlank(),
+                ),
+            )
         val pageMatchMeta = sourceCurrentPageMatchMeta(sourceXml, currentXml, targetPage)
-        val grounding = sourceGrounding(action, args, sourcePage)
+        val rawGrounding = sourceGrounding(action, args, sourcePage)
+        val missingSourceReason = missingSourceReason(action)
+        val grounding = rawGrounding ?: fallbackSourceGrounding(action, args, sourcePage, missingSourceReason)
         if (grounding == null) {
-            val reason = if (action == OobActionSchema.TOOL_SWIPE) {
-                "missing_scroll_source_element"
-            } else {
-                "missing_source_element"
+            val sourceFailureMeta = sourceFailureMeta(action, args, sourcePage)
+            if (action != OobActionSchema.TOOL_SWIPE) {
+                val semanticFallback = semanticTargetFallback(action, args, targetPage)
+                if (semanticFallback != null) {
+                    return semanticFallback.copy(
+                        diagnostics = semanticFallback.diagnostics +
+                            mapOf("source_fallback_reason" to missingSourceReason) +
+                            pageMatchMeta +
+                            sourceFailureMeta,
+                    )
+                }
             }
-            return rootProjectionFallback(action, args, sourcePage, targetPage, reason, request.options)
-                ?: notApplied(args, reason, pageMatchMeta + sourceFailureMeta(action, args, sourcePage))
+            val rootFallback = rootProjectionFallback(action, args, sourcePage, targetPage, missingSourceReason, request.options)
+            if (rootFallback != null) {
+                return rootFallback.copy(
+                    diagnostics = rootFallback.diagnostics + pageMatchMeta + sourceFailureMeta,
+                )
+            }
+            return rawCoordinateFallback(
+                action = action,
+                args = args,
+                sourceResolution = missingSourceReason,
+                diagnostics = pageMatchMeta + sourceFailureMeta,
+            )
         }
+        val sourceGroundingMeta = sourceGroundingMeta(grounding)
         val targetMatch = matchTargetNodeForAction(action, args, sourcePage, targetPage, grounding.node)
         val mapped = if (targetMatch != null) {
             projectGrounding(action, args, grounding, targetMatch, request.options)
@@ -181,35 +220,28 @@ object ActionTransfer {
         }
         if (mapped != null) {
             return mapped.copy(
-                diagnostics = mapped.diagnostics + pageMatchMeta,
+                diagnostics = mapped.diagnostics + sourceGroundingMeta + pageMatchMeta,
             )
         }
-        return rootProjectionFallback(action, args, sourcePage, targetPage, "no_anchor_match", request.options)
-            ?: notApplied(
-                args,
-                "no_anchor_match",
-                pageMatchMeta + mapOf(
+        val matchDebug = matchTargetNodeAttempt(sourcePage, targetPage, grounding.node).debug
+        val elementFallback = elementSimilarityFallback(action, args, sourcePage, targetPage, grounding, matchDebug)
+        if (elementFallback != null) {
+            return elementFallback.copy(
+                diagnostics = elementFallback.diagnostics + sourceGroundingMeta + pageMatchMeta,
+            )
+        }
+        return rootProjectionFallback(action, args, sourcePage, targetPage, "target_match_unresolved", request.options)
+            ?: rawCoordinateFallback(
+                action = action,
+                args = args,
+                sourceResolution = "target_match_unresolved",
+                diagnostics = pageMatchMeta + sourceGroundingMeta + mapOf(
+                    "reason" to "target_match_unresolved",
                     "source_element" to summarizeNode(grounding.node),
-                    "debug" to matchTargetNodeAttempt(sourcePage, targetPage, grounding.node).debug,
+                    "debug" to matchDebug,
                 ),
             )
     }
-
-    private fun notApplied(
-        args: Map<String, Any?>,
-        reason: String,
-        diagnostics: Map<String, Any?> = emptyMap(),
-    ): Result =
-        Result(
-            args = args,
-            applied = false,
-            reason = reason,
-            diagnostics = mapOf(
-                "applied" to false,
-                "reason" to reason,
-                "algorithm" to "anchor_projection",
-            ) + diagnostics,
-        )
 
     private fun sourceCurrentPageMatchMeta(
         sourceXml: String,
@@ -281,7 +313,7 @@ object ActionTransfer {
             null
         }
         val sourceNode = resourceNode ?: selectPointSourceNode(sourcePage, x, y) ?: return null
-        if (requiresConcreteSourcePoint(action) && isPageBackgroundSourceNode(sourceNode, sourcePage)) {
+        if (requiresConcreteSourcePoint(action) && isUnusableSourcePointNode(sourceNode, sourcePage)) {
             return null
         }
         return SourceGrounding(
@@ -307,6 +339,239 @@ object ActionTransfer {
             ),
         )
     }
+
+    private fun missingSourceReason(action: String): String =
+        if (action == OobActionSchema.TOOL_SWIPE) {
+            "source_scroll_unresolved"
+        } else {
+            "source_point_unresolved"
+        }
+
+    private fun rawCoordinateFallback(
+        action: String,
+        args: Map<String, Any?>,
+        sourceResolution: String,
+        diagnostics: Map<String, Any?> = emptyMap(),
+    ): Result {
+        val coordinates = coordinatesForRawFallback(action, args)
+        return Result(
+            args = args,
+            applied = true,
+            diagnostics = mapOf(
+                "applied" to true,
+                "tool" to action,
+                "mode" to "raw_coordinate_fallback",
+                "algorithm" to "raw_coordinate_replay",
+                "source_resolution" to sourceResolution,
+                "coordinate_replay_used" to true,
+                "old" to coordinates,
+                "new" to coordinates,
+                "confidence" to 0f,
+                "anchor_count" to 0,
+            ) + diagnostics,
+        )
+    }
+
+    private fun coordinatesForRawFallback(
+        action: String,
+        args: Map<String, Any?>,
+    ): Map<String, Float> =
+        when (action) {
+            OobActionSchema.TOOL_SWIPE -> linkedMapOf<String, Float>().apply {
+                optionalFloatArg(args["x1"])?.let { put("x1", it) }
+                optionalFloatArg(args["y1"])?.let { put("y1", it) }
+                optionalFloatArg(args["x2"])?.let { put("x2", it) }
+                optionalFloatArg(args["y2"])?.let { put("y2", it) }
+            }
+            else -> linkedMapOf<String, Float>().apply {
+                optionalFloatArg(args["x"])?.let { put("x", it) }
+                optionalFloatArg(args["y"])?.let { put("y", it) }
+            }
+        }
+
+    private fun fallbackSourceGrounding(
+        action: String,
+        args: Map<String, Any?>,
+        sourcePage: PageModel,
+        reason: String,
+    ): SourceGrounding? {
+        if (action == OobActionSchema.TOOL_SWIPE) return null
+        val x = optionalFloatArg(args["x"]) ?: return null
+        val y = optionalFloatArg(args["y"]) ?: return null
+        val candidates = sourcePage.nodes
+            .filter { isSourceFallbackCandidate(action, it, sourcePage.rootBounds) }
+        if (candidates.isEmpty()) return null
+
+        val targetTexts = semanticHintTexts(args)
+        val rootDiagonal = hypot(sourcePage.rootBounds.width, sourcePage.rootBounds.height).coerceAtLeast(1f)
+        val scored = candidates.map { node ->
+            val distanceRatio = distanceToRectRatio(x, y, node.bounds, rootDiagonal)
+            val semanticScore = semanticHintScore(node, targetTexts)
+            val actionScore = sourceFallbackActionScore(action, node)
+            val pointScore = if (node.bounds.contains(x, y)) 0.25f else 0f
+            val areaPenalty = (node.area / sourcePage.rootBounds.area.coerceAtLeast(1f)).coerceIn(0f, 1f) * 0.08f
+            val score = semanticScore + actionScore + pointScore +
+                0.65f * (1f - distanceRatio).coerceIn(0f, 1f) -
+                areaPenalty
+            SourceFallbackCandidate(
+                node = node,
+                score = score,
+                distanceRatio = distanceRatio,
+                semanticScore = semanticScore,
+                actionScore = actionScore,
+            )
+        }.sortedWith(
+            compareByDescending<SourceFallbackCandidate> { it.score }
+                .thenBy { it.distanceRatio }
+                .thenByDescending { it.node.interactive }
+                .thenBy { it.node.area }
+                .thenBy { it.node.index }
+        )
+
+        val best = scored.firstOrNull() ?: return null
+        val effectiveX = if (best.node.bounds.contains(x, y)) x else best.node.centerX
+        val effectiveY = if (best.node.bounds.contains(x, y)) y else best.node.centerY
+        return SourceGrounding(
+            node = best.node,
+            coordinates = listOf(Coordinate("x", "y", effectiveX, effectiveY)),
+            debug = mapOf(
+                "source_fallback_reason" to reason,
+                "source_fallback_mode" to "nearest_source_element",
+                "recorded" to mapOf("x" to x, "y" to y),
+                "effective" to mapOf("x" to effectiveX, "y" to effectiveY),
+                "selected_source_element" to summarizeNode(best.node),
+                "candidate_count" to candidates.size,
+                "target_texts" to targetTexts.take(6),
+                "score" to best.score,
+                "distance_ratio" to best.distanceRatio,
+                "semantic_score" to best.semanticScore,
+                "action_score" to best.actionScore,
+                "top" to scored.take(5).map {
+                    mapOf(
+                        "score" to it.score,
+                        "distance_ratio" to it.distanceRatio,
+                        "semantic_score" to it.semanticScore,
+                        "action_score" to it.actionScore,
+                        "node" to summarizeNode(it.node),
+                    )
+                },
+            ),
+        )
+    }
+
+    private fun sourceGroundingMeta(grounding: SourceGrounding): Map<String, Any?> {
+        if (grounding.debug.isEmpty()) return emptyMap()
+        return mapOf(
+            "source_fallback_reason" to grounding.debug["source_fallback_reason"],
+            "source_fallback_mode" to grounding.debug["source_fallback_mode"],
+            "source_fallback" to grounding.debug,
+        ).filterValues { it != null }
+    }
+
+    private fun isSourceFallbackCandidate(
+        action: String,
+        node: UiNode,
+        rootBounds: Rect,
+    ): Boolean {
+        if (!isAnchorCandidate(node, rootBounds)) return false
+        val rootArea = rootBounds.area.coerceAtLeast(1f)
+        if (node.area / rootArea >= 0.90f) return false
+        return when (action) {
+            OobActionSchema.TOOL_INPUT_TEXT ->
+                node.editable || node.focusable || node.classSuffix.contains("edittext")
+            OobActionSchema.TOOL_LONG_PRESS ->
+                node.longClickable || node.clickable || node.focusable || nodeVisibleTexts(node).isNotEmpty()
+            OobActionSchema.TOOL_CLICK ->
+                node.clickable || node.focusable || node.editable || nodeVisibleTexts(node).isNotEmpty()
+            else -> false
+        }
+    }
+
+    private fun semanticHintTexts(args: Map<String, Any?>): List<String> =
+        listOf(
+            args["target_description"],
+            args["targetDescription"],
+            args["clickPrompt"],
+            args["label"],
+            args["selector"],
+            args["node_text"],
+            args["node_content_description"],
+            args["node_hint_text"],
+            args["node_resource_id"],
+            args["resource_id"],
+        ).mapNotNull { value ->
+            normalizeText(value?.toString())
+                .takeIf(::isMeaningfulSemanticTargetText)
+                ?.takeUnless(::isCoordinateOnlyTargetText)
+        }.distinct()
+
+    private fun semanticHintScore(node: UiNode, targetTexts: List<String>): Float {
+        if (targetTexts.isEmpty()) return 0f
+        val labels = nodeVisibleTexts(node) + listOf(node.resourceTail).filter(::isMeaningfulSemanticTargetText)
+        if (labels.isEmpty()) return 0f
+        return targetTexts.maxOf { target ->
+            labels.maxOf { label ->
+                when {
+                    label == target -> 1.4f
+                    label.contains(target) || target.contains(label) && label.length >= 2 -> 0.95f
+                    else -> 0f
+                }
+            }
+        }
+    }
+
+    private fun sourceFallbackActionScore(
+        action: String,
+        node: UiNode,
+    ): Float =
+        when (action) {
+            OobActionSchema.TOOL_INPUT_TEXT ->
+                when {
+                    node.editable -> 0.65f
+                    node.focusable || node.classSuffix.contains("edittext") -> 0.45f
+                    else -> -0.35f
+                }
+            OobActionSchema.TOOL_LONG_PRESS ->
+                when {
+                    node.longClickable -> 0.45f
+                    node.clickable || node.focusable -> 0.30f
+                    else -> 0.05f
+                }
+            OobActionSchema.TOOL_CLICK ->
+                when {
+                    node.clickable -> 0.45f
+                    node.focusable || node.editable -> 0.35f
+                    else -> 0.08f
+                }
+            else -> 0f
+        }
+
+    private fun distanceToRectRatio(
+        x: Float,
+        y: Float,
+        rect: Rect,
+        diagonal: Float,
+    ): Float {
+        val dx = when {
+            x < rect.left -> rect.left - x
+            x > rect.right -> x - rect.right
+            else -> 0f
+        }
+        val dy = when {
+            y < rect.top -> rect.top - y
+            y > rect.bottom -> y - rect.bottom
+            else -> 0f
+        }
+        return (hypot(dx, dy) / diagonal.coerceAtLeast(1f)).coerceIn(0f, 1f)
+    }
+
+    private data class SourceFallbackCandidate(
+        val node: UiNode,
+        val score: Float,
+        val distanceRatio: Float,
+        val semanticScore: Float,
+        val actionScore: Float,
+    )
 
     private fun matchTargetNodeForAction(
         action: String,
@@ -414,18 +679,14 @@ object ActionTransfer {
         options: Options,
     ): Result {
         if (targetMatch.mode == "omniflow_bayesian" && targetMatch.confidence < options.minConfidence) {
-            return Result(
+            return rawCoordinateFallback(
+                action = action,
                 args = args,
-                applied = false,
-                reason = "low_confidence_anchor_projection",
+                sourceResolution = "low_confidence_anchor_projection",
                 diagnostics = mapOf(
-                    "applied" to false,
                     "reason" to "low_confidence_anchor_projection",
-                    "algorithm" to "anchor_projection",
                     "confidence" to targetMatch.confidence,
                     "min_confidence" to options.minConfidence,
-                    "anchor_count" to targetMatch.anchorCount,
-                    "old" to oldCoordinateMap(grounding.coordinates),
                     "rejected_new" to projectedCoordinateMap(grounding.coordinates, grounding.node.bounds, targetMatch.node.bounds),
                     "source_element" to summarizeNode(grounding.node),
                     "target_element" to summarizeNode(targetMatch.node),
@@ -551,6 +812,172 @@ object ActionTransfer {
         )
     }
 
+    private fun elementSimilarityFallback(
+        action: String,
+        args: Map<String, Any?>,
+        sourcePage: PageModel,
+        targetPage: PageModel,
+        grounding: SourceGrounding,
+        matchDebug: Map<String, Any?>,
+    ): Result? {
+        val targetMatch = closestElementSimilarityTarget(
+            action = action,
+            sourcePage = sourcePage,
+            targetPage = targetPage,
+            sourceNode = grounding.node,
+            matchDebug = matchDebug,
+        ) ?: return null
+        return projectGrounding(
+            action = action,
+            args = args,
+            grounding = grounding,
+            targetMatch = targetMatch,
+            options = Options(),
+        )
+    }
+
+    private fun closestElementSimilarityTarget(
+        action: String,
+        sourcePage: PageModel,
+        targetPage: PageModel,
+        sourceNode: UiNode,
+        matchDebug: Map<String, Any?>,
+    ): TargetMatch? {
+        if (looksLikeSparseOverlayPage(targetPage) && isLikelyDifferentAppOverlay(sourcePage, targetPage)) return null
+        val candidates = targetPage.nodes
+            .filter { isElementSimilarityFallbackCandidate(action, it, targetPage.rootBounds) }
+        if (candidates.isEmpty()) return null
+        val sourceInfo = sourceNode.toNodeInfo(sourcePage.rootBounds.area.coerceAtLeast(1f))
+        val sourceVector = ActionTransferNodeMatcher.vector(sourceInfo)
+        val targetArea = targetPage.rootBounds.area.coerceAtLeast(1f)
+        val scored = candidates.map { node ->
+            val targetInfo = node.toNodeInfo(targetArea)
+            val components = ActionTransferNodeMatcher.simComponents(sourceInfo, targetInfo)
+            val vectorSimilarity = ActionTransferNodeMatcher
+                .cosine(sourceVector, ActionTransferNodeMatcher.vector(targetInfo))
+                .coerceIn(0f, 1f)
+            val score = elementSimilarityFallbackScore(action, sourceNode, node, components.score, vectorSimilarity)
+            ElementSimilarityCandidate(
+                node = node,
+                score = score,
+                componentScore = components.score,
+                vectorSimilarity = vectorSimilarity,
+                components = components.toDebugMap(),
+            )
+        }.sortedWith(
+            compareByDescending<ElementSimilarityCandidate> { it.score }
+                .thenByDescending { it.componentScore }
+                .thenBy { it.node.area }
+                .thenBy { it.node.index }
+        )
+        val best = scored.firstOrNull() ?: return null
+        return TargetMatch(
+            node = best.node,
+            confidence = best.score,
+            anchorCount = 0,
+            mode = "element_similarity_fallback",
+            debug = mapOf(
+                "fallback_reason" to "target_match_unresolved",
+                "source_element" to summarizeNode(sourceNode),
+                "target_element" to summarizeNode(best.node),
+                "similarity_score" to best.score,
+                "component_score" to best.componentScore,
+                "vector_similarity" to best.vectorSimilarity,
+                "components" to best.components,
+                "candidate_count" to candidates.size,
+                "previous_match_debug" to matchDebug,
+                "top" to scored.take(5).map {
+                    mapOf(
+                        "similarity_score" to it.score,
+                        "component_score" to it.componentScore,
+                        "vector_similarity" to it.vectorSimilarity,
+                        "node" to summarizeNode(it.node),
+                    )
+                },
+            ),
+        )
+    }
+
+    private fun elementSimilarityFallbackScore(
+        action: String,
+        sourceNode: UiNode,
+        targetNode: UiNode,
+        componentScore: Float,
+        vectorSimilarity: Float,
+    ): Float {
+        val actionBonus = when (action) {
+            OobActionSchema.TOOL_INPUT_TEXT ->
+                if (targetNode.editable || targetNode.focusable || targetNode.classSuffix.contains("edittext")) 0.12f else -0.35f
+            OobActionSchema.TOOL_LONG_PRESS ->
+                if (targetNode.longClickable || targetNode.clickable) 0.08f else -0.20f
+            OobActionSchema.TOOL_CLICK ->
+                if (targetNode.clickable || targetNode.focusable || targetNode.editable) 0.08f else -0.20f
+            OobActionSchema.TOOL_SWIPE ->
+                if (targetNode.scrollable || sourceNode.scrollable == targetNode.scrollable) 0.05f else -0.20f
+            else -> 0f
+        }
+        val labelBonus = when {
+            nodeVisibleTexts(sourceNode).isEmpty() -> 0f
+            nodeVisibleTexts(sourceNode).intersect(nodeVisibleTexts(targetNode).toSet()).isNotEmpty() -> 0.10f
+            else -> 0f
+        }
+        return (0.82f * componentScore + 0.18f * vectorSimilarity + actionBonus + labelBonus)
+            .coerceIn(0f, 1f)
+    }
+
+    private fun isElementSimilarityFallbackCandidate(
+        action: String,
+        node: UiNode,
+        rootBounds: Rect,
+    ): Boolean {
+        if (!isAnchorCandidate(node, rootBounds)) return false
+        val rootArea = rootBounds.area.coerceAtLeast(1f)
+        if (node.area / rootArea >= 0.90f) return false
+        return when (action) {
+            OobActionSchema.TOOL_INPUT_TEXT ->
+                node.editable || node.focusable || node.classSuffix.contains("edittext")
+            OobActionSchema.TOOL_LONG_PRESS ->
+                node.longClickable || node.clickable || node.focusable
+            OobActionSchema.TOOL_CLICK ->
+                node.clickable || node.focusable || node.editable
+            OobActionSchema.TOOL_SWIPE ->
+                node.scrollable
+            else -> false
+        }
+    }
+
+    private fun isLikelyDifferentAppOverlay(
+        sourcePage: PageModel,
+        targetPage: PageModel,
+    ): Boolean {
+        val targetPackage = dominantPackageName(targetPage)
+        if (targetPackage.startsWith("cn.com.omnimind.")) return true
+        val sourcePackage = dominantPackageName(sourcePage)
+        return sourcePackage.isNotBlank() &&
+            targetPackage.isNotBlank() &&
+            sourcePackage != targetPackage
+    }
+
+    private fun dominantPackageName(page: PageModel): String {
+        return page.nodes
+            .asSequence()
+            .map { it.packageName.trim().lowercase() }
+            .filter { it.isNotBlank() }
+            .groupingBy { it }
+            .eachCount()
+            .maxWithOrNull(compareBy<Map.Entry<String, Int>> { it.value }.thenBy { it.key })
+            ?.key
+            .orEmpty()
+    }
+
+    private data class ElementSimilarityCandidate(
+        val node: UiNode,
+        val score: Float,
+        val componentScore: Float,
+        val vectorSimilarity: Float,
+        val components: Map<String, Any?>,
+    )
+
     private fun sourceFailureMeta(
         action: String,
         args: Map<String, Any?>,
@@ -563,7 +990,7 @@ object ActionTransfer {
             val y2 = optionalFloatArg(args["y2"])
             return mapOf(
                 "old" to mapOf("x1" to x1, "y1" to y1, "x2" to x2, "y2" to y2),
-                "source_reason" to "missing_scroll_source_element",
+                "source_resolution" to "source_scroll_unresolved",
             )
         }
         val x = optionalFloatArg(args["x"])
@@ -572,7 +999,7 @@ object ActionTransfer {
         return if (sourceNode == null) {
             mapOf(
                 "old" to mapOf("x" to x, "y" to y),
-                "source_reason" to "missing_source_element",
+                "source_resolution" to "source_point_unresolved",
             )
         } else {
             mapOf(
@@ -627,6 +1054,12 @@ object ActionTransfer {
         if (text.isBlank()) return false
         if (text in GENERIC_TARGET_TEXT_TOKENS) return false
         return text.length >= 2
+    }
+
+    private fun isCoordinateOnlyTargetText(text: String): Boolean {
+        val normalized = normalizeText(text)
+        if (normalized == "屏幕坐标" || normalized == "screen coordinate") return true
+        return COORDINATE_ONLY_TARGET_REGEX.matches(normalized)
     }
 
     private fun nodeVisibleTexts(node: UiNode): List<String> =
@@ -1180,7 +1613,23 @@ object ActionTransfer {
             node.area >= rootArea * 0.85f
     }
 
+    private fun isUnusableSourcePointNode(node: UiNode, page: PageModel): Boolean =
+        isPageBackgroundSourceNode(node, page) ||
+            isKeyboardContainerSourceNode(node)
+
+    private fun isKeyboardContainerSourceNode(node: UiNode): Boolean =
+        !node.interactive &&
+            nodeLabelText(node).isBlank() &&
+            (
+                node.className.contains("KeyboardView", ignoreCase = true) ||
+                    node.packageName.contains("inputmethod", ignoreCase = true)
+                )
+
     private val BOUNDS_REGEX = Regex("""\[(-?\d+),(-?\d+)]\[(-?\d+),(-?\d+)]""")
+    private val COORDINATE_ONLY_TARGET_REGEX = Regex(
+        """^(屏幕坐标|screen coordinate|coordinates?|coordinate)\s*[:：]?\s*-?\d+(?:\.\d+)?\s*[,，]\s*-?\d+(?:\.\d+)?$""",
+        RegexOption.IGNORE_CASE,
+    )
     private val GENERIC_TARGET_TEXT_TOKENS = setOf(
         "click", "tap", "press", "button", "view", "viewgroup", "textview",
         "imageview", "android", "widget", "点击", "按钮", "文本", "视图",
