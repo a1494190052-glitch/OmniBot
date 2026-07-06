@@ -12,13 +12,15 @@ object AgentSystemPrompt {
         skillsRootAndroidPath: String,
         resolvedSkills: List<ResolvedSkillContext>,
         memoryContext: WorkspaceMemoryPromptContext?,
-        locale: PromptLocale = AppLocaleManager.currentPromptLocale()
+        functionCandidateContext: String? = null,
+        locale: PromptLocale = AppLocaleManager.currentPromptLocale(),
     ): String {
         val visibleInstalledSkills = installedSkills.filter { skill ->
             skill.installed &&
                 skill.enabled &&
                 SkillCompatibilityChecker.evaluate(skill).available
         }
+        val loadedSkillIds = resolvedSkills.mapTo(mutableSetOf()) { it.skillId }
         val installedSkillSection = if (visibleInstalledSkills.isEmpty()) {
             LocalizedText(
                 zhCN = "当前未安装额外 skills。",
@@ -28,8 +30,8 @@ object AgentSystemPrompt {
             buildString {
                 appendLine(
                     LocalizedText(
-                        zhCN = "已安装 skills 索引：",
-                        enUS = "Installed skills index:"
+                        zhCN = "已安装 skills（发现相关任务时主动调用 `skills_read` 读取完整正文，不要只凭描述推测细节）：",
+                        enUS = "Installed skills (call `skills_read` proactively when a skill seems relevant — do not guess from the description alone):"
                     ).resolve(locale)
                 )
                 visibleInstalledSkills.forEach { skill ->
@@ -51,30 +53,52 @@ object AgentSystemPrompt {
                         if (skill.hasAssets) add("assets")
                         if (skill.hasEvals) add("evals")
                     }.joinToString(", ").ifBlank { "metadata-only" }
-                    appendLine(
-                        "- id=${skill.id} | name=${skill.name} | path=${skill.shellSkillFilePath} | capabilities=$capabilities | description=$description"
+                    val examples = skillExamples(skill, locale).joinToString(
+                        separator = when (locale) {
+                            PromptLocale.ZH_CN -> "；"
+                            PromptLocale.EN_US -> "; "
+                        }
                     )
+                    val readGuidance = skillReadGuidance(skill, locale)
+                    val loadState = if (skill.id in loadedSkillIds) {
+                        LocalizedText(
+                            zhCN = "已自动加载到本轮 system prompt",
+                            enUS = "Auto-loaded into this turn's system prompt"
+                        ).resolve(locale)
+                    } else {
+                        LocalizedText(
+                            zhCN = "未自动加载；相关时调用 skills_read",
+                            enUS = "Not auto-loaded; call skills_read when relevant"
+                        ).resolve(locale)
+                    }
+                    when (locale) {
+                        PromptLocale.ZH_CN -> {
+                            appendLine("- ${skill.name} (`${skill.id}`)")
+                            appendLine("  - id=${skill.id}")
+                            appendLine("  - 讲解: $description")
+                            appendLine("  - 样例: $examples")
+                            appendLine("  - 能力目录: $capabilities")
+                            appendLine("  - 本轮状态: $loadState")
+                            appendLine("  - 何时读正文: $readGuidance")
+                            appendLine("  - SKILL.md: ${skill.shellSkillFilePath}")
+                            appendLine("  - 读取正文: skills_read(skillId=\"${skill.id}\")")
+                        }
+                        PromptLocale.EN_US -> {
+                            appendLine("- ${skill.name} (`${skill.id}`)")
+                            appendLine("  - id=${skill.id}")
+                            appendLine("  - Explanation: $description")
+                            appendLine("  - Examples: $examples")
+                            appendLine("  - Capability dirs: $capabilities")
+                            appendLine("  - This turn: $loadState")
+                            appendLine("  - When to read body: $readGuidance")
+                            appendLine("  - SKILL.md: ${skill.shellSkillFilePath}")
+                            appendLine("  - Read body: skills_read(skillId=\"${skill.id}\")")
+                        }
+                    }
                 }
             }.trim()
         }
-        val loadedSkillSection = if (resolvedSkills.isEmpty()) {
-            LocalizedText(
-                zhCN = "当前未命中额外 skill，因此本轮没有注入任何 skill 正文。",
-                enUS = "No additional skill matched this turn, so no skill body was injected."
-            ).resolve(locale)
-        } else {
-            buildString {
-                appendLine(
-                    LocalizedText(
-                        zhCN = "当前已加载的 skills 正文：",
-                        enUS = "Loaded skill bodies for this turn:"
-                    ).resolve(locale)
-                )
-                resolvedSkills.forEach { skill ->
-                    appendLine("- ${skill.promptSummary(1200)}")
-                }
-            }.trim()
-        }
+        val loadedSkillSection = buildLoadedSkillSection(resolvedSkills, locale)
         val soulSection = memoryContext?.soul
             ?.takeIf { it.isNotBlank() }
             ?.let {
@@ -135,6 +159,10 @@ object AgentSystemPrompt {
             enUS = "Workspace memory is unavailable, so continue without memory context for this turn."
         ).resolve(locale)
 
+        val functionCandidateSection = functionCandidateContext
+            ?.takeIf { it.isNotBlank() }
+            .orEmpty()
+
         return when (locale) {
             PromptLocale.ZH_CN -> """
                 你是在 Alpine 工作环境内的 AI Agent，你同时能通过工具调用操作用户的手机。
@@ -165,9 +193,9 @@ object AgentSystemPrompt {
                 工具使用规则：
                 - 需要应用包名或确认安装状态时，优先调用 `context_apps_query`。
                 - 需要当前日期、时间、星期或时区信息时，使用本轮自动注入的 `[time_context]`，不要再寻找当前时间查询工具。
-                - 设备自动化使用 `vlm_task`。
-                - `vlm_task` 结果显示任务已被用户手动停止（已取消）时，不要再次调用它重试或续做，简短确认已停止即可；结果为执行失败等报错时，也不要自动重试，先向用户说明原因并询问下一步，用户明确同意后才可再次调用。
-                - 调用任意工具时都必须提供 4-12 个字、与用户相同的语言的 `tool_title`，。
+                - 设备自动化使用 `vlm_task`，但只有在需要观察/操控当前手机屏幕、点击、滑动、输入、打开 App、跨 App 执行流程时才调用。
+                - 用户上传图片、截图、照片后要求识别、OCR、解释、对比、总结或“看看这张图”，不要调用 `vlm_task`，直接基于当前多模态对话里的图片回答；上传图片不是当前手机屏幕任务。
+                - 调用任意工具时都必须提供简洁的 `tool_title`，用于聊天界面展示，建议 4-12 个字，并使用与用户相同的语言。
                 - 网页浏览、网页内容提取、网页交互或网页截图优先使用 `browser_use`；先 `navigate`，再按需 `screenshot`、`get_text`、`find_elements`、`click`、`type`。
                 - 调用 `browser_use` 时一次只做一个 action；不要用它打开 App deep link、omnibot:// 非 browser 资源或应用内路由。
                 - 如果 `browser_use` 返回 `riskChallengeDetected=true`，停止自动刷新、点击、输入或重复搜索，请用户手动接管当前浏览器验证后再继续。
@@ -183,7 +211,8 @@ object AgentSystemPrompt {
                 - 需要安装 Python 依赖时，默认安装到 workspace 项目的 `.venv` 中；不要使用 `--break-system-packages`，除非用户明确要求改动系统 Python。
                 - 如果项目已有 `pyproject.toml` 或 `uv.lock`，优先考虑 `uv sync`、`uv run` 这类工作流，而不是污染系统 Python。
                 - 查询当前有哪些 skills、某类 skill 是否已安装，优先用 `skills_list`。
-                - 如果某个已安装 skill 看起来相关，但本轮没有注入它的正文，使用 `skills_read` 读取对应 `SKILL.md`，不要凭索引信息臆测细节。
+                - 如果某个已安装 skill 看起来相关但本轮没有自动加载，使用 `skills_read` 读取对应 `SKILL.md`，不要凭索引信息臆测细节。
+                - 如果 skill 正文要求读取 references 中的文件，使用 `skills_read_reference(skillId=..., refId=...)`，不要凭文件名猜内容。
                 - 记忆工具统一使用 `memory_*`；短期记忆写入 `memory_write_daily`，长期记忆写入 `memory_upsert_longterm`，检索使用 `memory_search`，整理使用 `memory_rollup_day`。
                 - 允许在用户明确授权时更新 `.omnibot/agent/SOUL.md`，并在回复中说明更新点与原因。
                 - `schedule_task_*`、`alarm_*`、`calendar_*`、`memory_*`、`subagent_dispatch`、`mcp__*`、`terminal_execute`、`android_privileged_action`、`android_privileged_session_*`、`terminal_session_*` 调用后先等待工具结果，再决定下一步。
@@ -191,13 +220,15 @@ object AgentSystemPrompt {
                 Skills：
                 - 已安装 skills 根目录（shell）: $skillsRootShellPath
                 - 已安装 skills 根目录（android）: $skillsRootAndroidPath
-                - 你始终知道“已安装 skills 索引”，可用来回答“当前有哪些 skills”。
-                - 只有“当前已加载的 skills 正文”代表本轮真正注入了该 skill 的详细说明、references、scripts 或 assets 路径。
-                - 如果你发现某个已安装 skill 可能相关，但它没有出现在“当前已加载的 skills 正文”里，要明确说明：你知道它已安装，但本轮只掌握索引信息，尚未拿到正文细节；此时应优先调用 `skills_read`。
+                - 你始终知道”已安装 skills 索引”，可用来回答”当前有哪些 skills”。
+                - Skills 按标准模式工作：每轮启动时先根据用户消息自动匹配相关 skill，并把命中的 SKILL.md 正文注入本 system prompt。
+                - 未命中的 skill 只在索引里；如果任务推进中发现相关，调用 `skills_read(skillId=...)` 读取正文。
+                - 已注入或读取 skill 后，严格按照 skill 正文里的步骤执行，不要跳过或简化。
                 $installedSkillSection
                 $loadedSkillSection
                 $soulSection
                 $memorySection
+                $functionCandidateSection
             """.trimIndent()
             PromptLocale.EN_US -> """
                 You are an AI Agent operating inside an Alpine workspace environment, and you can also control the user's phone through tool calls.
@@ -228,9 +259,9 @@ object AgentSystemPrompt {
                 Tool usage rules:
                 - When you need an app package name or need to confirm installation status, prefer `context_apps_query`.
                 - When you need the current date, time, weekday, or timezone, use this turn's injected `[time_context]`; do not look for a current-time query tool.
-                - Use `vlm_task` for on-device automation.
-                - If a `vlm_task` result says the task was manually stopped (cancelled) by the user, never call it again to retry or resume; briefly acknowledge the stop. If it reports an error, do not retry automatically — explain the failure, ask the user how to proceed, and only call it again after explicit user consent.
-                - Every tool call must include a 4-12 word `tool_title` in the same language as the user.
+                - Use `vlm_task` only for on-device automation: observing or controlling the current phone screen, tapping, swiping, typing, opening apps, or running cross-app workflows.
+                - If the user uploads an image, screenshot, or photo and asks for recognition, OCR, explanation, comparison, summary, or “look at this image”, do not call `vlm_task`; answer directly from the image already attached to the multimodal conversation. Uploaded images are not current phone-screen tasks.
+                - Every tool call must include a concise `tool_title` for the chat UI. Keep it brief, roughly 4-12 words, and use the same language as the user.
                 - Prefer `browser_use` for web browsing, extraction, interaction, and screenshots. Start with `navigate`, then use `screenshot`, `get_text`, `find_elements`, `click`, or `type` as needed.
                 - Only perform one browser action per `browser_use` call. Do not use it for app deep links, non-browser `omnibot://` resources, or in-app routes.
                 - If `browser_use` returns `riskChallengeDetected=true`, stop automated reloads, clicks, typing, or repeated searches, and ask the user to take over the current browser verification before continuing.
@@ -246,7 +277,8 @@ object AgentSystemPrompt {
                 - Install Python dependencies into the workspace project's `.venv` by default. Do not use `--break-system-packages` unless the user explicitly asks to modify the system Python.
                 - If the project already has `pyproject.toml` or `uv.lock`, prefer workflows such as `uv sync` and `uv run` instead of polluting system Python.
                 - Use `skills_list` first when you need to know which skills are installed or whether a category of skill exists.
-                - If an installed skill seems relevant but its full body was not injected in this turn, use `skills_read` to load the corresponding `SKILL.md` instead of guessing from the index.
+                - If an installed skill seems relevant but was not auto-loaded this turn, use `skills_read` to load the corresponding `SKILL.md` instead of guessing from the index.
+                - If a skill body asks for a file under references, call `skills_read_reference(skillId=..., refId=...)` instead of guessing its contents from the file name.
                 - Use `memory_*` for memory operations: `memory_write_daily` for short-term memory, `memory_upsert_longterm` for long-term memory, `memory_search` for retrieval, and `memory_rollup_day` for rollups.
                 - You may update `.omnibot/agent/SOUL.md` when the user clearly authorizes it, and you must explain what changed and why.
                 - After calling `schedule_task_*`, `alarm_*`, `calendar_*`, `memory_*`, `subagent_dispatch`, `mcp__*`, `terminal_execute`, `android_privileged_action`, `android_privileged_session_*`, or `terminal_session_*`, wait for the tool result before deciding the next step.
@@ -255,13 +287,195 @@ object AgentSystemPrompt {
                 - Installed skills root (shell): $skillsRootShellPath
                 - Installed skills root (android): $skillsRootAndroidPath
                 - You always know the installed skills index, so you can answer questions like “what skills are installed right now?”
-                - Only the “loaded skill bodies for this turn” represent skill details that were actually injected this turn, including instructions and referenced `references`, `scripts`, or `assets` paths.
-                - If you identify an installed skill that looks relevant but it does not appear in the loaded skill bodies, state clearly that you only know its index metadata in this turn and do not yet have the full body details. In that case, prefer calling `skills_read`.
+                - Skills follow the standard mode: each turn first auto-matches relevant skills from the user message and injects the matched SKILL.md bodies into this system prompt.
+                - Skills that did not match stay index-only; if they become relevant during the task, call `skills_read(skillId=...)` to load the body.
+                - After a skill is injected or read, follow its steps exactly. Do not skip or simplify.
                 $installedSkillSection
                 $loadedSkillSection
                 $soulSection
                 $memorySection
+                $functionCandidateSection
             """.trimIndent()
         }
     }
+
+    private fun skillExamples(
+        skill: SkillIndexEntry,
+        locale: PromptLocale
+    ): List<String> {
+        val builtin = when (locale) {
+            PromptLocale.ZH_CN -> mapOf(
+                "self-improving-agent" to listOf(
+                    "记录一次工具失败的复盘",
+                    "把用户纠正沉淀成规则",
+                    "把稳定经验提升到长期记忆"
+                ),
+                "skill-creator" to listOf(
+                    "创建一个处理发票的 skill",
+                    "更新已有 skill 的触发描述",
+                    "把脚本或参考资料放进 skill"
+                ),
+                "find-install-skills" to listOf(
+                    "找个处理 PDF 的 skill",
+                    "有没有网页自动化 skill",
+                    "安装一个研究整理 skill"
+                ),
+                "omniflow" to listOf(
+                    "用 vlm_task 操作手机界面",
+                    "管理或执行复用指令",
+                    "用 update_function 修复 checker"
+                )
+            )
+            PromptLocale.EN_US -> mapOf(
+                "self-improving-agent" to listOf(
+                    "record a tool failure learning",
+                    "turn a user correction into a rule",
+                    "promote stable guidance to memory"
+                ),
+                "skill-creator" to listOf(
+                    "create an invoice-processing skill",
+                    "tighten an existing skill trigger",
+                    "package scripts or references into a skill"
+                ),
+                "find-install-skills" to listOf(
+                    "find a PDF handling skill",
+                    "check whether a browser automation skill exists",
+                    "install a research workflow skill"
+                ),
+                "omniflow" to listOf(
+                    "run phone UI automation with vlm_task",
+                    "manage or execute reusable commands",
+                    "repair checkers with update_function"
+                )
+            )
+        }
+        builtin[skill.id]?.let { return it }
+
+        val quoted = Regex("[\"“”'‘’]([^\"“”'‘’]{2,40})[\"“”'‘’]")
+            .findAll(skill.description)
+            .map { it.groupValues[1].trim() }
+            .filter { it.isNotEmpty() }
+            .distinct()
+            .take(3)
+            .toList()
+        if (quoted.isNotEmpty()) {
+            return quoted.map { phrase ->
+                when (locale) {
+                    PromptLocale.ZH_CN -> "用户说“$phrase”"
+                    PromptLocale.EN_US -> "user says \"$phrase\""
+                }
+            }
+        }
+
+        return when (locale) {
+            PromptLocale.ZH_CN -> listOf(
+                "用户请求与 ${skill.name} 讲解相符",
+                "需要该 skill 的 references/scripts/assets",
+                "索引信息不足以安全执行"
+            )
+            PromptLocale.EN_US -> listOf(
+                "the user request matches ${skill.name}",
+                "the task needs this skill's references/scripts/assets",
+                "the index is not enough to proceed safely"
+            )
+        }
+    }
+
+    private fun buildLoadedSkillSection(
+        resolvedSkills: List<ResolvedSkillContext>,
+        locale: PromptLocale
+    ): String {
+        if (resolvedSkills.isEmpty()) {
+            return LocalizedText(
+                zhCN = "本轮没有自动命中 skill 正文；如后续发现相关 skill，调用 `skills_read(skillId=...)`。",
+                enUS = "No skill body was auto-matched this turn; if a relevant skill becomes apparent later, call `skills_read(skillId=...)`."
+            ).resolve(locale)
+        }
+        return buildString {
+            appendLine(
+                LocalizedText(
+                    zhCN = "本轮自动加载的 skill 正文（必须遵守）：",
+                    enUS = "Auto-loaded skill bodies for this turn (must follow):"
+                ).resolve(locale)
+            )
+            resolvedSkills.forEach { skill ->
+                val skillName = skill.frontmatter["name"]?.ifBlank { skill.skillId } ?: skill.skillId
+                appendLine()
+                appendLine("## $skillName (`${skill.skillId}`)")
+                appendLine(
+                    when (locale) {
+                        PromptLocale.ZH_CN -> "- 触发原因: ${skill.triggerReason}"
+                        PromptLocale.EN_US -> "- Trigger: ${skill.triggerReason}"
+                    }
+                )
+                skill.scriptsDir?.takeIf { it.isNotBlank() }?.let { scriptsDir ->
+                    appendLine(
+                        when (locale) {
+                            PromptLocale.ZH_CN -> "- scripts: $scriptsDir"
+                            PromptLocale.EN_US -> "- Scripts: $scriptsDir"
+                        }
+                    )
+                }
+                skill.assetsDir?.takeIf { it.isNotBlank() }?.let { assetsDir ->
+                    appendLine(
+                        when (locale) {
+                            PromptLocale.ZH_CN -> "- assets: $assetsDir"
+                            PromptLocale.EN_US -> "- Assets: $assetsDir"
+                        }
+                    )
+                }
+                if (skill.loadedReferences.isNotEmpty()) {
+                    appendLine(
+                        when (locale) {
+                            PromptLocale.ZH_CN -> "- references: ${skill.loadedReferences.joinToString(", ")}"
+                            PromptLocale.EN_US -> "- References: ${skill.loadedReferences.joinToString(", ")}"
+                        }
+                    )
+                    appendLine(
+                        when (locale) {
+                            PromptLocale.ZH_CN -> "- 如正文要求读取 reference，调用 `skills_read_reference(skillId=\"${skill.skillId}\", refId=\"...\")`。"
+                            PromptLocale.EN_US -> "- If the body asks for a reference, call `skills_read_reference(skillId=\"${skill.skillId}\", refId=\"...\")`."
+                        }
+                    )
+                }
+                appendLine()
+                appendLine(skill.bodyMarkdown.trim())
+            }
+        }.trim()
+    }
+
+    private fun skillReadGuidance(
+        skill: SkillIndexEntry,
+        locale: PromptLocale
+    ): String {
+        val capabilityReason = buildList {
+            if (skill.hasReferences) add("references")
+            if (skill.hasScripts) add("scripts")
+            if (skill.hasAssets) add("assets")
+            if (skill.hasEvals) add("evals")
+        }.joinToString(", ")
+        return when (locale) {
+            PromptLocale.ZH_CN -> {
+                if (skill.id == "omniflow") {
+                    return "涉及手机界面自动化、VLM 执行、RunLog、复用指令、update_function 或 checker 时。"
+                }
+                if (capabilityReason.isBlank()) {
+                    "准备执行该类任务，或索引讲解不足时。"
+                } else {
+                    "准备执行该类任务、需要 $capabilityReason，或索引讲解不足时。"
+                }
+            }
+            PromptLocale.EN_US -> {
+                if (skill.id == "omniflow") {
+                    return "For phone UI automation, VLM execution, RunLogs, reusable commands, update_function, or checkers."
+                }
+                if (capabilityReason.isBlank()) {
+                    "Before executing this kind of task, or when the index explanation is not enough."
+                } else {
+                    "Before executing this kind of task, when $capabilityReason are needed, or when the index explanation is not enough."
+                }
+            }
+        }
+    }
+
 }

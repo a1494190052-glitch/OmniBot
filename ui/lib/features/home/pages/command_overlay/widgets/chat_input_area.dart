@@ -5,6 +5,8 @@ import 'dart:math' as math;
 import 'dart:ui';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:flutter/material.dart';
+import 'package:ui/features/home/pages/command_overlay/services/manual_recording_flow_controller.dart';
+import 'package:ui/l10n/app_text_localizer.dart';
 import 'package:ui/services/model_vendor_catalog.dart';
 import 'package:ui/services/special_permission.dart';
 import 'package:ui/services/storage_service.dart';
@@ -322,9 +324,7 @@ class _ContextUsageRingButtonState extends State<_ContextUsageRingButton> {
       builder: (anchorContext) {
         return GestureDetector(
           behavior: HitTestBehavior.opaque,
-          onTap: hasTooltip
-              ? () => _showTooltip(anchorContext, tooltip)
-              : null,
+          onTap: hasTooltip ? () => _showTooltip(anchorContext, tooltip) : null,
           onLongPress: widget.onLongPress,
           child: ring,
         );
@@ -474,6 +474,7 @@ abstract class _ChatInputAreaStateBase extends State<ChatInputArea>
   final ScrollController _textFieldScrollController = ScrollController();
 
   bool get isPopupVisible => _isPopupVisible;
+  bool get _hasTrajectoryActions => true;
   double _lastReportedInputHeight = 44;
   bool _inputHeightReportScheduled = false;
   bool _isComposerHovered = false;

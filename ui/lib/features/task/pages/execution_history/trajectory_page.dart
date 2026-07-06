@@ -1,5 +1,6 @@
 import 'dart:ui';
 import 'package:flutter/material.dart';
+import 'package:ui/l10n/app_text_localizer.dart';
 import 'package:ui/l10n/l10n.dart';
 import 'package:ui/core/mixins/page_lifecycle_mixin.dart';
 import 'package:ui/core/router/go_router_manager.dart';
@@ -67,7 +68,7 @@ class _TrajectoryPageState extends State<TrajectoryPage>
   @override
   void onPageResumed() {
     if (_hasLoadedOnce) {
-      print('✅ ExecutionRecordPage resumed - reloading data silently');
+      debugPrint('✅ ExecutionRecordPage resumed - reloading data silently');
       _loadData(silent: true);
       _loadScheduledTaskKeys();
     }
@@ -108,7 +109,7 @@ class _TrajectoryPageState extends State<TrajectoryPage>
       });
       _hasLoadedOnce = true;
     } catch (e) {
-      print('Error loading data: $e');
+      debugPrint('Error loading data: $e');
       if (!silent) {
         setState(() {
           _isLoading = false;
@@ -133,7 +134,7 @@ class _TrajectoryPageState extends State<TrajectoryPage>
             .toSet();
       });
     } catch (e) {
-      print('Error loading scheduled task keys: $e');
+      debugPrint('Error loading scheduled task keys: $e');
     }
   }
 
@@ -151,7 +152,7 @@ class _TrajectoryPageState extends State<TrajectoryPage>
         taskExecutionInfos = records;
       });
     } catch (e) {
-      print('Error loading execution records: $e');
+      debugPrint('Error loading execution records: $e');
     }
   }
 
@@ -292,10 +293,10 @@ class _TrajectoryPageState extends State<TrajectoryPage>
         }
 
         // 2. 添加技能类型图标（suggestion iconUrl 或默认类型图标）
-        print(
+        debugPrint(
           'Adding type icon for ${info.title} with iconUrl: ${info.iconUrl}',
         );
-        print('ExecutionRecordType: ${info.type}');
+        debugPrint('ExecutionRecordType: ${info.type}');
         iconsList.add(_buildTypeIcon(info.type, info.iconUrl));
 
         // 3. 判断是否可执行（参照 SkillGridItem 的判断逻辑）
@@ -336,7 +337,7 @@ class _TrajectoryPageState extends State<TrajectoryPage>
         executionRecordViewModels = modelsWithIcons;
       });
     } catch (e) {
-      print('Error loading execution tags: $e');
+      debugPrint('Error loading execution tags: $e');
     }
   }
 
@@ -412,7 +413,11 @@ class _TrajectoryPageState extends State<TrajectoryPage>
     final goal = (suggestionData['goal'] as String?)?.trim() ?? '';
     if (goal.isEmpty) {
       showToast(
-        'Current record does not support execution',
+        _text(
+          context,
+          '当前记录不支持执行',
+          'Current record does not support execution',
+        ),
         type: ToastType.error,
       );
       return;
@@ -424,16 +429,26 @@ class _TrajectoryPageState extends State<TrajectoryPage>
     );
     if (!mounted) return;
     if (success) {
-      showToast('Task started', type: ToastType.success);
+      showToast(
+        _text(context, '任务已开始', 'Task started'),
+        type: ToastType.success,
+      );
     } else {
-      showToast('Task execution failed', type: ToastType.error);
+      showToast(
+        _text(context, '任务执行失败', 'Task execution failed'),
+        type: ToastType.error,
+      );
     }
   }
 
   Future<void> _onSchedulePressed(ExecutionRecordListItemData record) async {
     if (record.suggestionData == null) {
       showToast(
-        'Current record does not support scheduling',
+        _text(
+          context,
+          '当前记录不支持定时执行',
+          'Current record does not support scheduling',
+        ),
         type: ToastType.error,
       );
       return;
@@ -466,7 +481,10 @@ class _TrajectoryPageState extends State<TrajectoryPage>
     ScheduledTaskSchedulerService.scheduleTask(result);
     await _loadScheduledTaskKeys();
     if (mounted) {
-      showToast('Scheduled task set', type: ToastType.success);
+      showToast(
+        _text(context, '定时任务已设置', 'Scheduled task set'),
+        type: ToastType.success,
+      );
     }
   }
 
@@ -651,6 +669,7 @@ class _TrajectoryPageState extends State<TrajectoryPage>
 
       // 显示删除结果
       if (successCount > 0) {
+        if (!mounted) return;
         showToast(context.l10n.skillDeleted, type: ToastType.success);
       }
     }
@@ -677,7 +696,7 @@ class _TrajectoryPageState extends State<TrajectoryPage>
       }
       return success;
     } catch (e) {
-      print('Error deleting task records: $e');
+      debugPrint('Error deleting task records: $e');
       return false;
     }
   }
@@ -688,7 +707,7 @@ class _TrajectoryPageState extends State<TrajectoryPage>
       context,
       title: context.l10n.memoryDeleteConfirmTitle,
       content: context.l10n.memoryDeleteWarning,
-      cancelText: context.trLegacy('取消'),
+      cancelText: context.trText('取消'),
       confirmText: context.l10n.skillDelete,
       confirmButtonColor: AppColors.alertRed,
     ).then((result) async {
@@ -702,6 +721,7 @@ class _TrajectoryPageState extends State<TrajectoryPage>
   Future<void> _performExecutionDelete(int recordId) async {
     try {
       bool success = await CacheUtil.deleteExecutionRecordById(recordId);
+      if (!mounted) return;
       if (!success) {
         showToast(context.l10n.skillDeleteFailed, type: ToastType.error);
         return;
@@ -717,7 +737,8 @@ class _TrajectoryPageState extends State<TrajectoryPage>
       // 重新加载标签统计
       await _loadExecutionTags();
     } catch (e) {
-      print('Error deleting card: $e');
+      debugPrint('Error deleting card: $e');
+      if (!mounted) return;
       showToast(context.l10n.skillDeleteFailed, type: ToastType.error);
     }
   }
@@ -744,14 +765,7 @@ class _TrajectoryPageState extends State<TrajectoryPage>
               title: context.l10n.trajectoryTitle,
               showAiBadge: false,
               primary: true,
-              actions: [
-                IconButton(
-                  tooltip: '复用',
-                  onPressed: () =>
-                      GoRouterManager.push('/task/function_runlog'),
-                  icon: const Icon(Icons.bolt_rounded),
-                ),
-              ],
+              actions: [_buildRunLogAction()],
             ),
       body: SafeArea(
         top: false,
@@ -768,10 +782,10 @@ class _TrajectoryPageState extends State<TrajectoryPage>
                             imageFilter: _isSelectionMode
                                 ? ImageFilter.blur(sigmaX: 10, sigmaY: 10)
                                 : ImageFilter.blur(sigmaX: 0, sigmaY: 0),
-                            child: Column(
+                            child: const Column(
                               children: [
                                 SizedBox(height: 14),
-                                const ActivityDashboardCard(),
+                                ActivityDashboardCard(),
                                 SizedBox(height: 12),
                               ],
                             ),
@@ -790,7 +804,7 @@ class _TrajectoryPageState extends State<TrajectoryPage>
                               ),
                             ),
                           ),
-                          SizedBox(height: 10),
+                          const SizedBox(height: 10),
                           Padding(
                             padding: const EdgeInsets.symmetric(horizontal: 16),
                             child: TagSection(
@@ -801,7 +815,7 @@ class _TrajectoryPageState extends State<TrajectoryPage>
                             ),
                           ),
                           if (allRecords.isNotEmpty) ...[
-                            SizedBox(height: 8),
+                            const SizedBox(height: 8),
                             ExecutionRecordList(
                               records: filterRecords,
                               onDelete: _deleteExecutionRecord,
@@ -834,6 +848,20 @@ class _TrajectoryPageState extends State<TrajectoryPage>
     );
   }
 
+  Widget _buildRunLogAction() {
+    return Tooltip(
+      message: AppTextLocalizer.text(
+        '查看执行记录',
+        locale: Localizations.localeOf(context),
+      ),
+      child: IconButton(
+        icon: const Icon(Icons.route_rounded),
+        color: context.omniPalette.textPrimary,
+        onPressed: () => GoRouterManager.push('/task/run_logs'),
+      ),
+    );
+  }
+
   // 选择模式下的 AppBar
   PreferredSizeWidget _buildSelectionAppBar(
     List<ExecutionRecordListItemData> filterRecords,
@@ -855,7 +883,7 @@ class _TrajectoryPageState extends State<TrajectoryPage>
       leading: TextButton(
         onPressed: _exitSelectionMode,
         child: Text(
-          context.trLegacy('取消'),
+          context.trText('取消'),
           style: TextStyle(
             color: palette.accentPrimary,
             fontSize: 14,
@@ -871,7 +899,7 @@ class _TrajectoryPageState extends State<TrajectoryPage>
             child: Text(
               isAllSelected
                   ? context.l10n.memoryDeselectAll
-                  : context.trLegacy('全选'),
+                  : context.trText('全选'),
               style: TextStyle(
                 color: palette.accentPrimary,
                 fontSize: 14,
@@ -930,11 +958,11 @@ class _TrajectoryPageState extends State<TrajectoryPage>
     if (recordDate.year == today.year &&
         recordDate.month == today.month &&
         recordDate.day == today.day) {
-      section = context.trLegacy('今天');
+      section = context.trText('今天');
     } else if (recordDate.year == today.year &&
         recordDate.month == today.month &&
         recordDate.day == today.day - 1) {
-      section = context.trLegacy('昨天');
+      section = context.trText('昨天');
     } else {
       section = context.l10n.trajectoryThreeDaysAgo;
     }
@@ -948,11 +976,11 @@ class _TrajectoryPageState extends State<TrajectoryPage>
     if (date.year == today.year &&
         date.month == today.month &&
         date.day == today.day) {
-      return '${context.trLegacy('今天')} ' + DateFormat('HH:mm').format(date);
+      return '${context.trText('今天')} ${DateFormat('HH:mm').format(date)}';
     } else if (date.year == today.year &&
         date.month == today.month &&
         date.day == today.day - 1) {
-      return '${context.trLegacy('昨天')} ' + DateFormat('HH:mm').format(date);
+      return '${context.trText('昨天')} ${DateFormat('HH:mm').format(date)}';
     } else {
       return DateFormat('yyyy/MM/dd HH:mm').format(date);
     }
@@ -970,4 +998,12 @@ class _TrajectoryPageState extends State<TrajectoryPage>
       ),
     );
   }
+}
+
+String _text(BuildContext context, String zh, String en) {
+  return AppTextLocalizer.choose(
+    zh: zh,
+    en: en,
+    locale: Localizations.localeOf(context),
+  );
 }

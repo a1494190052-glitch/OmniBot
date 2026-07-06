@@ -1,13 +1,17 @@
 package cn.com.omnimind.bot.agent
 
 import android.content.Context
+import cn.com.omnimind.assists.task.vlmserver.ActionExecutor
+import cn.com.omnimind.assists.task.vlmserver.AndroidDeviceOperator
+import cn.com.omnimind.assists.task.vlmserver.UIContextManager
 import cn.com.omnimind.bot.agent.tool.handlers.BrowserToolHandler
 import cn.com.omnimind.bot.agent.tool.handlers.ContextToolHandler
 import cn.com.omnimind.bot.agent.tool.handlers.FileToolHandler
 import cn.com.omnimind.bot.agent.tool.handlers.ImageGenerationToolHandler
-import cn.com.omnimind.bot.agent.tool.handlers.McpToolHandler
+import cn.com.omnimind.bot.agent.tool.handlers.ImagePickerToolHandler
 import cn.com.omnimind.bot.agent.tool.handlers.MemoryLoadToolHandler
 import cn.com.omnimind.bot.agent.tool.handlers.MemoryToolHandler
+import cn.com.omnimind.bot.agent.tool.handlers.FunctionToolHandler
 import cn.com.omnimind.bot.agent.tool.handlers.PrivilegedToolHandler
 import cn.com.omnimind.bot.agent.tool.handlers.SharedHelper
 import cn.com.omnimind.bot.agent.tool.handlers.SkillsToolHandler
@@ -16,6 +20,8 @@ import cn.com.omnimind.bot.agent.tool.handlers.SystemToolHandler
 import cn.com.omnimind.bot.agent.tool.handlers.TerminalToolHandler
 import cn.com.omnimind.bot.agent.tool.handlers.ToolHandler
 import cn.com.omnimind.bot.agent.tool.handlers.VlmToolHandler
+import cn.com.omnimind.bot.agent.tool.handlers.WebSearchToolHandler
+import cn.com.omnimind.bot.agent.tool.handlers.LocalActionToolHandler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
@@ -36,6 +42,8 @@ class AgentToolRouter(
     }
 
     private val helper = SharedHelper(context, json)
+    private val deviceOperator = AndroidDeviceOperator(null, context)
+    private val actionExecutor = ActionExecutor(deviceOperator, UIContextManager())
 
     private val terminalHandler = TerminalToolHandler(helper, workspaceManager, scope)
     private val privilegedHandler = PrivilegedToolHandler(helper, workspaceManager, terminalHandler)
@@ -43,19 +51,21 @@ class AgentToolRouter(
     private val orderedHandlers: List<ToolHandler> = listOf(
         ContextToolHandler(helper),
         VlmToolHandler(helper, scope),
+        ImagePickerToolHandler(helper),
         privilegedHandler,
         terminalHandler,
+        WebSearchToolHandler(helper, workspaceManager),
         BrowserToolHandler(helper, workspaceManager),
         ImageGenerationToolHandler(helper, workspaceManager),
         FileToolHandler(helper, workspaceManager),
         SkillsToolHandler(helper, workspaceManager),
+        LocalActionToolHandler(actionExecutor),
+        FunctionToolHandler(context),
         SystemToolHandler(helper, scheduleToolBridge, workspaceManager),
         MemoryToolHandler(helper),
         MemoryLoadToolHandler(helper),
         SubagentToolHandler(helper, subagentDispatcher)
     )
-
-    private val mcpFallback = McpToolHandler(helper)
 
     private val handlerMap: Map<String, ToolHandler> = buildMap {
         for (handler in orderedHandlers) {
@@ -76,11 +86,8 @@ class AgentToolRouter(
         helper.ensureRunActive()
         val toolName = toolCall.function.name
         val handler = handlerMap[toolName]
-        return if (handler != null) {
-            handler.execute(toolCall, args, runtimeDescriptor, env, callback, toolHandle)
-        } else {
-            mcpFallback.execute(toolCall, args, runtimeDescriptor, env, callback, toolHandle)
-        }
+        return handler?.execute(toolCall, args, runtimeDescriptor, env, callback, toolHandle)
+            ?: ToolExecutionResult.Error(toolName, "Unknown tool: $toolName")
     }
 
     override suspend fun dispose() {

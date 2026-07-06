@@ -52,6 +52,9 @@ class ActionExecutor(
     data class ActArgsResult(
         val args: Map<String, Any?>,
         val diagnostics: Map<String, Any?> = emptyMap(),
+        val blockDispatch: Boolean = false,
+        val failureMessage: String = "",
+        val failureErrorCode: String = "",
     )
 
     data class ActCheckConfig(
@@ -296,10 +299,28 @@ class ActionExecutor(
                 if (result.diagnostics.isNotEmpty()) {
                     checkDiagnostics["action_transfer"] = result.diagnostics
                 }
+                if (result.blockDispatch) {
+                    val message = result.failureMessage.ifBlank { "Action blocked by action transfer" }
+                    val failureDiagnostics = linkedMapOf<String, Any?>(
+                        "action_source" to source,
+                        "error" to message,
+                        "local_action_error_code" to result.failureErrorCode.ifBlank {
+                            message.substringBefore(':').trim()
+                                .takeIf { it.startsWith("OOB_") }
+                                .orEmpty()
+                        },
+                    ).filterValues { value -> value?.toString()?.isNotBlank() == true }
+                    return OperationResult(
+                        success = false,
+                        message = message,
+                        data = null,
+                        diagnostics = (diagnostics + checkDiagnostics + failureDiagnostics).toStringDiagnostics(),
+                    )
+                }
                 throwIfStopRequested(check)
             }
 
-            val dispatchResult = dispatchCanonical(effectiveAction, effectiveArgs)
+            val dispatchResult = dispatchCanonical(effectiveAction, effectiveArgs, check)
             val mergedDiagnostics = diagnostics + checkDiagnostics + mapOf("action_source" to source)
             if (mergedDiagnostics.isEmpty()) {
                 dispatchResult
@@ -357,6 +378,7 @@ class ActionExecutor(
     private suspend fun dispatchCanonical(
         action: String,
         args: Map<String, Any?>,
+        check: ActCheckConfig? = null,
     ): OperationResult {
         return when (action) {
             OobActionSchema.TOOL_CLICK -> deviceOperator.clickCoordinate(
@@ -432,7 +454,7 @@ class ActionExecutor(
                     ?: ((numberArg(args, OobActionSchema.ARG_TIME_S) ?: 1.0)
                         .coerceAtLeast(0.0) * 1000.0).toLong()
                 val clamped = waitMs.coerceIn(0L, MAX_WAIT_MS)
-                delay(clamped)
+                waitInterruptibly(clamped, check)
                 OperationResult(true, "等待 ${clamped}ms 完成", null)
             }
 
@@ -464,6 +486,17 @@ class ActionExecutor(
             else -> listOf(x, y - half, x, y + half)
         }
         return deviceOperator.slideCoordinate(startX, startY, endX, endY, durationMs)
+    }
+
+    private suspend fun waitInterruptibly(durationMs: Long, check: ActCheckConfig?) {
+        var remainingMs = durationMs.coerceAtLeast(0L)
+        while (remainingMs > 0L) {
+            throwIfStopRequested(check)
+            val chunkMs = remainingMs.coerceAtMost(STOP_POLL_INTERVAL_MS)
+            delay(chunkMs)
+            remainingMs -= chunkMs
+        }
+        throwIfStopRequested(check)
     }
 
     private fun canonicalActionArgs(
@@ -532,6 +565,7 @@ class ActionExecutor(
         private const val OPEN_APP_POST_DELAY_MS = 1000L
         private const val FUNCTION_RUN_POST_DELAY_MS = 500L
         private const val MAX_WAIT_MS = 10_000L
+        private const val STOP_POLL_INTERVAL_MS = 100L
         private const val CHECKER_STABILIZE_LIMIT = 3
         private const val CHECKER_SETTLE_MS = 1_000L
 

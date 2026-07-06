@@ -1,6 +1,10 @@
 package cn.com.omnimind.bot.mcp
 
 import android.content.Context
+import cn.com.omnimind.bot.agent.AgentToolNames
+import cn.com.omnimind.bot.function.FunctionRun
+import cn.com.omnimind.bot.function.FunctionApi
+import cn.com.omnimind.bot.function.FunctionService
 import cn.com.omnimind.bot.util.AssistsUtil
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.application.call
@@ -47,10 +51,10 @@ object McpRoutes {
 
             // 工具发现
             get("/mcp/list_tools") {
-                call.respond(mapOf("tools" to McpToolDefinitions.allTools))
+                call.respond(mapOf("tools" to listMcpTools(context)))
             }
             post("/mcp/list_tools") {
-                call.respond(mapOf("tools" to McpToolDefinitions.allTools))
+                call.respond(mapOf("tools" to listMcpTools(context)))
             }
 
             // REST 风格工具调用
@@ -83,7 +87,7 @@ object McpRoutes {
 
             // 任务回复
             post("/mcp/v1/task/{taskId}/reply") {
-                handleLegacyTaskReply(call)
+                handleLegacyTaskReply(call, context)
             }
         }
     }
@@ -109,7 +113,11 @@ object McpRoutes {
                 "id" to id,
                 "result" to mapOf(
                     "protocolVersion" to "2024-11-05",
-                    "capabilities" to mapOf("tools" to mapOf<String, Any>()),
+                    "capabilities" to mapOf(
+                        "tools" to mapOf<String, Any>(),
+                        "resources" to mapOf<String, Any>(),
+                        "prompts" to mapOf<String, Any>()
+                    ),
                     "serverInfo" to mapOf("name" to "小万Mcp", "version" to "1.0")
                 )
             )
@@ -117,7 +125,7 @@ object McpRoutes {
             "tools/list" -> mapOf(
                 "jsonrpc" to "2.0",
                 "id" to id,
-                "result" to mapOf("tools" to McpToolDefinitions.allTools)
+                "result" to mapOf("tools" to listMcpTools(context))
             )
             "tools/call" -> {
                 val params = request["params"] as? Map<String, Any?>
@@ -125,6 +133,54 @@ object McpRoutes {
                 val args = params?.get("arguments") as? Map<String, Any?>
                 val execResult = executeTool(context, serverScope, name, args)
                 mapOf("jsonrpc" to "2.0", "id" to id, "result" to execResult)
+            }
+            "resources/list" -> mapOf(
+                "jsonrpc" to "2.0",
+                "id" to id,
+                "result" to mapOf("resources" to listOf(McpToolDefinitions.schemaExportResource))
+            )
+            "resources/read" -> {
+                val params = request["params"] as? Map<String, Any?>
+                val uri = params?.get("uri")?.toString()?.trim().orEmpty()
+                if (uri == FunctionApi.SCHEMA_RESOURCE_URI) {
+                    mapOf(
+                        "jsonrpc" to "2.0",
+                        "id" to id,
+                        "result" to mapOf(
+                            "contents" to listOf(
+                                mapOf(
+                                    "uri" to FunctionApi.SCHEMA_RESOURCE_URI,
+                                    "mimeType" to "application/json",
+                                    "text" to McpServerManager.gson.toJson(McpToolDefinitions.schemaExportBundle),
+                                )
+                            )
+                        )
+                    )
+                } else {
+                    mapOf(
+                        "jsonrpc" to "2.0",
+                        "id" to id,
+                        "error" to mapOf(
+                            "code" to -32602,
+                            "message" to "Unknown MCP resource: $uri"
+                        )
+                    )
+                }
+            }
+            "prompts/list" -> mapOf(
+                "jsonrpc" to "2.0",
+                "id" to id,
+                "result" to mapOf("prompts" to emptyList<Map<String, Any?>>())
+            )
+            "prompts/get" -> {
+                mapOf(
+                    "jsonrpc" to "2.0",
+                    "id" to id,
+                    "error" to mapOf(
+                        "code" to -32602,
+                        "message" to "No MCP prompts are available"
+                    )
+                )
             }
             else -> {
                 if (method?.startsWith("$/") == true || method?.startsWith("notifications/") == true) null
@@ -151,15 +207,42 @@ object McpRoutes {
         name: String?,
         args: Map<String, Any?>?
     ): Map<String, Any?> {
-        return when (name) {
-            "vlm_task" -> McpToolExecutors.executeVlmTask(context, args, serverScope)
+        return runCatching {
+            val functionManagementService by lazy { FunctionService(context) }
+            when (name) {
+            AgentToolNames.VLM_TASK -> McpToolExecutors.executeVlmTask(context, args, serverScope)
             "task_status" -> McpToolExecutors.executeTaskStatus(args)
-            "task_reply" -> McpToolExecutors.executeTaskReply(args)
+            "task_reply" -> McpToolExecutors.executeTaskReply(context, args)
             "task_wait_unlock" -> McpToolExecutors.executeTaskWaitUnlock(context, args, serverScope)
+            "get_state" -> McpToolExecutors.executeGetState(context, args)
+            "act" -> McpToolExecutors.executeAct(context, args)
             "file_transfer" -> McpToolExecutors.executeFileTransfer(args)
-            else -> McpResponseBuilder.buildErrorText("Unknown tool: $name")
+            "agent_run" -> McpToolExecutors.executeAgentRun(context, args)
+            "run_function" -> FunctionRun(context).runFunction(args)
+            else -> {
+                if (isFunctionMcpTool(name)) {
+                    functionManagementService.executeTool(name, args)
+                } else if (name.isNullOrBlank()) {
+                    McpResponseBuilder.buildErrorText("Missing tool name")
+                } else {
+                    McpResponseBuilder.buildErrorText("Unknown MCP tool: $name")
+                }
+            }
+            }
+        }.getOrElse { error ->
+            McpResponseBuilder.buildErrorText(error.message ?: "Tool execution failed")
         }
     }
+
+    private fun listMcpTools(context: Context): List<Map<String, Any?>> {
+        return McpToolDefinitions.fixedTools
+    }
+
+    private val FUNCTION_MCP_TOOL_NAMES: Set<String> =
+        FunctionApi.acceptedMcpToolNames
+
+    private fun isFunctionMcpTool(name: String?): Boolean =
+        !name.isNullOrBlank() && name in FUNCTION_MCP_TOOL_NAMES
 
     // ==================== 传统端点处理（保持兼容） ====================
 
@@ -191,18 +274,27 @@ object McpRoutes {
             return
         }
 
-        val args = mapOf(
-            "goal" to payload.goal,
-            "model" to payload.model,
-            "packageName" to payload.packageName
-        )
+        val args = legacyVlmRequestToToolArgs(payload)
 
         val result = McpToolExecutors.executeVlmTask(context, args, serverScope)
         call.respond(HttpStatusCode.OK, result)
     }
 
+    internal fun legacyVlmRequestToToolArgs(payload: VlmTaskRequest): Map<String, Any?> =
+        linkedMapOf(
+            "goal" to payload.goal,
+            "model" to payload.model,
+            "maxSteps" to payload.maxSteps,
+            "waitTimeoutMs" to payload.waitTimeoutMs,
+            "packageName" to payload.packageName,
+            "needSummary" to payload.needSummary,
+            "skipGoHome" to payload.skipGoHome,
+            "disableFunctionRecall" to payload.disableFunctionRecall,
+        )
+
     private suspend fun handleLegacyTaskReply(
-        call: io.ktor.server.application.ApplicationCall
+        call: io.ktor.server.application.ApplicationCall,
+        context: Context,
     ) {
         val taskId = call.parameters["taskId"]
         val body = call.receive<Map<String, Any?>>()

@@ -180,6 +180,7 @@ object AgentToolDefinitions {
         "执行会话命令" to "Run Session Command",
         "读取会话输出" to "Read Session Output",
         "结束终端会话" to "Stop Terminal Session",
+        "网页搜索" to "Web Search",
         "浏览器操作" to "Browser Action",
         "读取文件" to "Read File",
         "写入文件" to "Write File",
@@ -190,6 +191,7 @@ object AgentToolDefinitions {
         "移动文件" to "Move File",
         "列出 Skills" to "List Skills",
         "读取 Skill" to "Read Skill",
+        "读取 Skill 引用" to "Read Skill Reference",
         "创建定时任务" to "Create Scheduled Task",
         "查看定时任务" to "List Scheduled Tasks",
         "修改定时任务" to "Update Scheduled Task",
@@ -208,18 +210,33 @@ object AgentToolDefinitions {
         "沉淀长期记忆" to "Upsert Long-Term Memory",
         "整理当日记忆" to "Roll Up Daily Memory",
         "分派子任务" to "Dispatch Subtasks",
+        "调用工具" to "Call Tool",
+        "统一调用一个明确暴露的工具。手机 UI 自动化请调用 vlm_task；已保存 Function 的召回、参数绑定和重放由本地运行时自动处理，不通过 function_id 暴露给 Agent 直接调用。" to
+            "Call one explicitly exposed tool. For phone UI automation, use vlm_task; saved Function recall, argument binding, and replay are handled by the local runtime and are not exposed to the Agent as direct function_id calls.",
+        "目标工具名，例如 vlm_task、web_search、terminal_execute。" to
+            "Target tool name, for example vlm_task, web_search, or terminal_execute.",
+        "传给目标工具的参数对象。" to
+            "Arguments object passed to the target tool.",
+        "可选自然语言目标，用于记录或需要规划的工具。" to
+            "Optional natural-language goal for tracing or tools that require planning.",
         "查询设备已安装应用列表。需要应用包名或确认应用是否已安装时优先调用。" to
             "Query the list of apps installed on the device. Prefer this when you need an app package name or need to confirm whether an app is installed.",
         "可选关键词，可匹配应用名或包名。" to
             "Optional keyword filter. Matches app names or package names.",
         "可选，返回数量上限，默认 20，范围 1-100。" to
             "Optional maximum number of results to return. Default 20, range 1-100.",
-        "使用视觉语言模型执行手机屏幕操作任务。该工具会阻塞等待到任务完成、需要用户输入、屏幕锁定或超时，再把终态结果返回给模型。" to
-            "Use a vision-language model to execute an on-device screen task. This tool blocks until the task finishes, needs user input, encounters a locked screen, or times out, and then returns the terminal state.",
+        "使用视觉语言模型执行手机当前屏幕操作任务，只用于点击、滑动、输入、打开 App 或跨 App 自动化。一次 vlm_task 调用代表一次完整设备执行流程；打开 App 是该完整流程的第一步，不要先单独调用 vlm_task 打开 App、再第二次调用 vlm_task 执行后续目标。内部点击/输入/滚动会作为 vlm_step 进度持续上报。不要用于用户上传图片/截图/照片的识别、OCR、解释、总结或对比；这类图片已在多模态对话里，应该直接回答。该工具会阻塞等待到任务完成、需要用户输入、屏幕锁定或超时，再把终态结果返回给模型。普通调用默认走在线 VLM 执行；本地 runtime replay 高置信复用指令只允许显式复用指令入口传入内部开关时启用。外层 Agent 不直接调用隐藏 Function replay 或 guard 工具。" to
+            "Use a vision-language model to execute the current phone screen task, only for tapping, swiping, typing, opening apps, or cross-app automation. One `vlm_task` call represents one complete device execution flow; opening an app is the first step of that flow, so do not call `vlm_task` once only to open the app and then call it again for the real goal. Internal tap/input/scroll progress is reported as `vlm_step`. Do not use this for recognizing, OCRing, explaining, summarizing, or comparing user-uploaded images, screenshots, or photos; those are already available to multimodal chat and should be answered directly. This tool blocks until the task finishes, needs user input, hits a locked screen, or times out, then returns the terminal state. Ordinary calls use the online VLM flow by default; local runtime replay of high-confidence reusable commands is enabled only when an explicit reusable-command entrypoint passes the internal opt-in flag. The outer Agent must not directly call hidden Function replay or guard tools.",
         "任务目标，使用第一人称描述。" to
             "Task goal written in the first person.",
+        "可选视觉推理模型或场景 ID。一般留空；需要调试或固定模型时才传具体值。" to
+            "Optional vision reasoning model or scene ID. Usually leave unset; pass a concrete value only for debugging or pinned-model runs.",
         "目标应用包名。" to
             "Target app package name.",
+        "是否在结束后生成总结。设为 true 时，工具结果会尽量直接返回最终整理文本。" to
+            "Whether to generate a summary after completion. When true, the tool result tries to return a final polished summary directly.",
+        "可选最大执行步数。达到上限但模型未明确完成时，任务应返回未完成或超步错误。" to
+            "Optional maximum execution steps. If the limit is reached before the model explicitly finishes, the task should return incomplete or max-step failure.",
         "仅在用户明确要求从当前页面继续时设为 true。" to
             "Only set this to true when the user explicitly asks to continue from the current screen.",
         "通过应用内置的 Alpine（proot）环境执行一次性的非交互终端命令。这是默认首选的终端工具，适合文件处理、脚本、网络诊断、git、python、包管理等绝大多数 CLI 任务；不用于手机界面操作，也不用于交互式 TUI。只有明确需要跨多轮保留 cwd、环境或后台进程时，才改用 terminal_session_*。" to
@@ -266,6 +283,11 @@ object AgentToolDefinitions {
             "Stop an existing terminal session and clean up the corresponding tmux session. Call this after the stateful terminal task is complete.",
         "结束后等待工具结果，再回复用户。" to
             "Wait for the tool result after stopping the session before replying to the user.",
+        "用内置浏览器执行一次网页搜索，并返回搜索结果标题、URL、摘要和搜索页可读片段。用于调研、竞品/开源项目查找、事实核验；拿到候选 URL 后，若需要深读具体页面，再用 browser_use 打开目标页面。不要用它操作网页表单或点击页面。" to
+            "Run one web search through the built-in browser and return result titles, URLs, snippets, and a readable search-page excerpt. Use it for research, competitor or open-source discovery, and fact checking. After getting candidate URLs, use `browser_use` to open specific pages for deeper reading. Do not use it for form filling or page interaction.",
+        "搜索关键词或问题。" to "Search query or question.",
+        "返回结果数量上限，默认 5，范围 1-10。" to
+            "Maximum number of results to return. Default 5, range 1-10.",
         "控制一个最多 3 个标签页的离屏浏览器。不要用它打开 App deep link、omnibot:// 非 browser 资源或应用内路由。浏览器只支持访问 http(s) 页面，以及 omnibot://browser/... 资源文件。使用 navigate 打开页面，screenshot 查看当前视口截图（传 read_image=true 可让模型直接看到截图内容），click/type/hover 与元素交互，get_text/get_readable 抽取内容，scroll 导航长页面，scroll_and_collect 在一次调用中滚动并收集无限列表内容，find_elements 发现可交互元素，get_page_info 获取页面元信息，get_backbone 获取 DOM 骨架，execute_js 执行脚本，fetch 复用当前页面 session 下载资源并返回 omnibot://browser/... 产物，new_tab/close_tab/list_tabs 管理标签页，go_back/go_forward 浏览器前进后退，press_key 模拟键盘按键，wait_for_selector 等待元素出现，get_cookies 返回 cookie 摘要与可复用的 offload env 脚本路径，set_user_agent 兼容 desktop_safari/mobile_safari 入参但实际切换 Android Chrome 风格桌面/移动 UA。结果可能包含 riskChallengeDetected、riskChallengeKind、recommendedNextAction、throttleDelayMs；若 riskChallengeDetected=true，应停止自动交互/刷新并请用户手动接管。tool_title 必须是 5-10 个字的简洁摘要，并使用与用户相同的语言。" to
             "Control an off-screen browser with up to 3 tabs. Do not use it for app deep links, non-browser `omnibot://` resources, or in-app routes. The browser supports http(s) pages and `omnibot://browser/...` resources. Use navigate to open pages, screenshot to capture the current viewport (set read_image=true if the model should inspect the screenshot directly), click/type/hover for interaction, get_text/get_readable for extraction, scroll for long-page navigation, scroll_and_collect to collect infinite-list content in one call, find_elements to discover interactable elements, get_page_info for metadata, get_backbone for a DOM skeleton, execute_js for scripting, fetch to download resources with the current page session and return `omnibot://browser/...` artifacts, new_tab/close_tab/list_tabs for tab management, go_back/go_forward for navigation history, press_key to simulate keys, wait_for_selector to wait for elements, get_cookies for cookie summaries plus a reusable offload env script path, and set_user_agent to accept desktop_safari/mobile_safari for compatibility while actually switching Android Chrome-style desktop/mobile UAs. Results may include riskChallengeDetected, riskChallengeKind, recommendedNextAction, and throttleDelayMs; when riskChallengeDetected=true, stop automated interaction/reload attempts and ask the user to take over manually. `tool_title` must be a concise 5-10 word summary in the same language as the user.",
         "本次工具调用要做什么的简洁摘要，5-10 个字，展示给用户。" to
@@ -370,6 +392,14 @@ object AgentToolDefinitions {
             "Skill id, skill name, SKILL.md path, or the skill root directory path. Prefer checking with skills_list first.",
         "最多返回多少字符的正文，默认 16000，范围 512-64000。" to
             "Maximum number of body characters to return. Default 16000, range 512-64000.",
+        "读取某个已安装 skill 的 references 目录下的单个引用文件。Use this after skills_read shows that a referenced guide/template is needed." to
+            "Read a single reference file under an installed skill's references directory. Use this after skills_read shows that a referenced guide or template is needed.",
+        "读取 reference 后等待结果，再根据内容继续。" to
+            "Wait for the reference content before continuing.",
+        "reference id、文件名或不带扩展名的文件名，例如 agent-prompt-templates。" to
+            "Reference id, file name, or file name without extension, for example agent-prompt-templates.",
+        "最多返回多少字符的引用内容，默认 16000，范围 512-64000。" to
+            "Maximum number of reference characters to return. Default 16000, range 512-64000.",
         "创建新的定时任务。执行后等待工具结果，再决定是否回复用户。" to
             "Create a new scheduled task. Wait for the tool result before deciding how to reply to the user.",
         "创建完成后不要在同一轮继续调用其他工具；请等待工具结果，并通过 response 输出最终答复。" to
@@ -406,11 +436,12 @@ object AgentToolDefinitions {
             "List exact_alarm reminders created and managed by this app.",
         "查看结果后再决定是否删除或继续创建。" to
             "Review the result before deciding whether to delete or create more reminders.",
-        "按 alarmId 删除本应用创建并托管的 exact_alarm 提醒闹钟。" to
-            "Delete an exact_alarm reminder created and managed by this app by alarmId.",
+        "按 alarmId 删除本应用创建并托管的 exact_alarm 提醒闹钟；未传 alarmId 时停止并清空所有应用内 exact_alarm 提醒闹钟。" to
+            "Delete an exact_alarm reminder created and managed by this app by alarmId. If alarmId is omitted, stop and clear all in-app exact_alarm reminders.",
         "删除后等待工具结果，再向用户确认。" to
             "Wait for the tool result after deleting, then confirm with the user.",
-        "闹钟 ID。" to "Alarm ID.",
+        "可选闹钟 ID；用户只要求关闭当前或全部提醒时可不传。" to
+            "Optional alarm ID. Omit it when the user asks to stop the current reminder or all reminders.",
         "查询设备日历账户列表，可用于选择 calendarId。" to
             "Query the device's calendar accounts so the agent can choose a calendarId.",
         "查看结果后再决定新建或管理日程。" to
@@ -519,14 +550,12 @@ object AgentToolDefinitions {
     val vlmTaskTool: JsonObject = buildJsonObject {
         put("type", "function")
         putJsonObject("function") {
-            put("name", "vlm_task")
+            put("name", AgentToolNames.VLM_TASK)
             put("displayName", "视觉执行")
             put("toolType", "builtin")
             put(
                 "description",
-                "使用视觉语言模型执行手机屏幕操作任务。该工具会阻塞等待到任务完成、需要用户输入、屏幕锁定或超时，再把终态结果返回给模型。" +
-                    "如果结果显示任务已被用户手动停止（已取消），绝不要再次调用本工具重试或续做该任务，只需简短确认已停止；" +
-                    "如果结果为执行失败等报错，也不要自动重试，先向用户说明失败原因并询问下一步（如是否重试或调整方案），仅在用户明确同意后才可再次调用。"
+                "使用视觉语言模型执行手机当前屏幕操作任务，只用于点击、滑动、输入、打开 App 或跨 App 自动化。一次 vlm_task 调用代表一次完整设备执行流程；打开 App 是该完整流程的第一步，不要先单独调用 vlm_task 打开 App、再第二次调用 vlm_task 执行后续目标。内部点击/输入/滚动会作为 vlm_step 进度持续上报。不要用于用户上传图片/截图/照片的识别、OCR、解释、总结或对比；这类图片已在多模态对话里，应该直接回答。该工具会阻塞等待到任务完成、需要用户输入、屏幕锁定或超时，再把终态结果返回给模型。普通调用默认走在线 VLM 执行；本地 runtime replay 高置信复用指令只允许显式复用指令入口传入内部开关时启用。外层 Agent 不直接调用隐藏 Function replay 或 guard 工具。"
             )
             putJsonObject("parameters") {
                 put("type", "object")
@@ -535,9 +564,25 @@ object AgentToolDefinitions {
                         put("type", "string")
                         put("description", "任务目标，使用第一人称描述。")
                     }
+                    putJsonObject("model") {
+                        put("type", "string")
+                        put("description", "可选视觉推理模型或场景 ID。一般留空；需要调试或固定模型时才传具体值。")
+                    }
                     putJsonObject("packageName") {
                         put("type", "string")
                         put("description", "目标应用包名。")
+                    }
+                    putJsonObject("needSummary") {
+                        put("type", "boolean")
+                        put("description", "是否在结束后生成总结。设为 true 时，工具结果会尽量直接返回最终整理文本。")
+                    }
+                    putJsonObject("maxSteps") {
+                        put("type", "integer")
+                        put("description", "可选最大执行步数。留空使用 workspace 的 vlm_default_max_steps；运行时安全上限 64。达到上限但模型未明确完成时返回未完成或超步错误。")
+                    }
+                    putJsonObject("timeoutMs") {
+                        put("type", "integer")
+                        put("description", "可选控制面等待超时，单位毫秒。留空使用 workspace 的 vlm_max_wait_timeout_ms；超时会停止设备端 VLM，避免后台继续执行。")
                     }
                     putJsonObject("startFromCurrent") {
                         put("type", "boolean")
@@ -547,6 +592,124 @@ object AgentToolDefinitions {
                 putJsonArray("required") {
                     add("goal")
                 }
+            }
+        }
+    }
+
+    val imagePickerTool: JsonObject = buildJsonObject {
+        put("type", "function")
+        putJsonObject("function") {
+            put("name", "image_picker")
+            put("displayName", "选择图片")
+            put("toolType", "builtin")
+            put("description", "打开手机相册或相机，让用户选择一张或多张图片，返回图片的本地路径。选单张时返回 {path, name}；选多张时返回 {paths: [...], count}。取到路径后可传给 vlm_task 或 file_read 进行后续处理。")
+            putJsonObject("parameters") {
+                put("type", "object")
+                putJsonObject("properties") {
+                    putJsonObject("source") {
+                        put("type", "string")
+                        putJsonArray("enum") { add("gallery"); add("camera") }
+                        put("description", "图片来源：gallery（相册，默认）或 camera（拍照）。")
+                    }
+                    putJsonObject("multiple") {
+                        put("type", "boolean")
+                        put("description", "是否允许多选，默认 false。")
+                    }
+                    putJsonObject("limit") {
+                        put("type", "integer")
+                        put("description", "多选时最大张数，默认 9。")
+                    }
+                }
+                putJsonArray("required") {}
+            }
+        }
+    }
+
+    val notificationSendTool: JsonObject = buildJsonObject {
+        put("type", "function")
+        putJsonObject("function") {
+            put("name", "notification_send")
+            put("displayName", "发送通知")
+            put("toolType", "builtin")
+            put("description", "在手机状态栏显示一条本地通知。用于提醒用户某件事完成或需要关注。")
+            putJsonObject("parameters") {
+                put("type", "object")
+                putJsonObject("properties") {
+                    putJsonObject("title") { put("type", "string"); put("description", "通知标题") }
+                    putJsonObject("body") { put("type", "string"); put("description", "通知正文") }
+                    putJsonObject("channel") { put("type", "string"); put("description", "通知渠道 ID，默认 oob_agent_notify") }
+                }
+                putJsonArray("required") { add("title"); add("body") }
+            }
+        }
+    }
+
+    val userDialogTool: JsonObject = buildJsonObject {
+        put("type", "function")
+        putJsonObject("function") {
+            put("name", "user_dialog")
+            put("displayName", "请求用户确认")
+            put("toolType", "builtin")
+            put(
+                "description",
+                "暂停执行并向用户展示一张交互卡片，等待用户做出选择后继续。仅在用户必须做决策才能继续时使用——例如：确认危险操作（confirm）、分支选择（choices）、收集必要的文本输入（input）。不要用于纯信息展示；信息直接写进对话回复即可。" +
+                "type 枚举：" +
+                "confirm — 两个按钮（确认/取消），用于不可逆操作或需要明确授权的操作；" +
+                "choices — 2-4 个选项卡片，用于流程分支，每个选项有 label(展示文字) 和 value(注入为用户消息)；" +
+                "input — 单行文本框，用于需要用户提供名称、关键词、数字等场景。" +
+                "用户操作结果会作为新的用户消息注入，下一轮从该消息继续。"
+            )
+            putJsonObject("parameters") {
+                put("type", "object")
+                putJsonObject("properties") {
+                    putJsonObject("type") {
+                        put("type", "string")
+                        put("description", "对话类型")
+                        putJsonArray("enum") { add("confirm"); add("choices"); add("input") }
+                    }
+                    putJsonObject("message") {
+                        put("type", "string")
+                        put("description", "展示给用户的问题或说明文字，简洁明确，不超过60字")
+                    }
+                    putJsonObject("title") {
+                        put("type", "string")
+                        put("description", "可选标题，confirm 类型下通常是操作名称")
+                    }
+                    putJsonObject("confirmLabel") {
+                        put("type", "string")
+                        put("description", "confirm 类型：确认按钮文字，默认「确定」")
+                    }
+                    putJsonObject("cancelLabel") {
+                        put("type", "string")
+                        put("description", "confirm 类型：取消按钮文字，默认「取消」")
+                    }
+                    putJsonObject("danger") {
+                        put("type", "boolean")
+                        put("description", "confirm 类型：确认按钮是否显示为危险红色，用于删除/清空等破坏性操作")
+                    }
+                    putJsonObject("choices") {
+                        put("type", "array")
+                        put("description", "choices 类型：选项列表，每项含 label(展示) 和 value(注入为用户消息)，2-4 项")
+                        putJsonObject("items") {
+                            put("type", "object")
+                            putJsonObject("properties") {
+                                putJsonObject("label") { put("type", "string") }
+                                putJsonObject("value") { put("type", "string") }
+                                putJsonObject("hint") { put("type", "string"); put("description", "可选的一行说明") }
+                            }
+                        }
+                    }
+                    putJsonObject("placeholder") {
+                        put("type", "string")
+                        put("description", "input 类型：输入框占位文字")
+                    }
+                    putJsonObject("inputType") {
+                        put("type", "string")
+                        put("description", "input 类型：输入框类型")
+                        putJsonArray("enum") { add("text"); add("number"); add("date") }
+                    }
+                }
+                putJsonArray("required") { add("type"); add("message") }
             }
         }
     }
@@ -618,7 +781,7 @@ object AgentToolDefinitions {
         return decorateToolDefinition(buildJsonObject {
             put("type", "function")
             putJsonObject("function") {
-                put("name", "android_privileged_action")
+                put("name", AgentToolNames.ANDROID_PRIVILEGED_ACTION)
                 put("displayName", text("安卓高级动作", "Android Privileged Action"))
                 put("toolType", "privileged")
                 put(
@@ -1002,10 +1165,39 @@ object AgentToolDefinitions {
         }
     }
 
+    val webSearchTool: JsonObject = buildJsonObject {
+        put("type", "function")
+        putJsonObject("function") {
+            put("name", AgentToolNames.WEB_SEARCH)
+            put("displayName", "网页搜索")
+            put("toolType", "research")
+            put(
+                "description",
+                "用内置浏览器执行一次网页搜索，并返回搜索结果标题、URL、摘要和搜索页可读片段。用于调研、竞品/开源项目查找、事实核验；拿到候选 URL 后，若需要深读具体页面，再用 browser_use 打开目标页面。不要用它操作网页表单或点击页面。"
+            )
+            putJsonObject("parameters") {
+                put("type", "object")
+                putJsonObject("properties") {
+                    putJsonObject("query") {
+                        put("type", "string")
+                        put("description", "搜索关键词或问题。")
+                    }
+                    putJsonObject("limit") {
+                        put("type", "integer")
+                        put("description", "返回结果数量上限，默认 5，范围 1-10。")
+                    }
+                }
+                putJsonArray("required") {
+                    add("query")
+                }
+            }
+        }
+    }
+
     val browserUseTool: JsonObject = buildJsonObject {
         put("type", "function")
         putJsonObject("function") {
-            put("name", "browser_use")
+            put("name", AgentToolNames.BROWSER_USE)
             put("displayName", "浏览器操作")
             put("toolType", "browser")
             put(
@@ -1493,6 +1685,38 @@ object AgentToolDefinitions {
         }
     }
 
+    val skillsReadReferenceTool: JsonObject = buildJsonObject {
+        put("type", "function")
+        putJsonObject("function") {
+            put("name", "skills_read_reference")
+            put("displayName", "读取 Skill 引用")
+            put("toolType", "skill")
+            put("description", "读取某个已安装 skill 的 references 目录下的单个引用文件。Use this after skills_read shows that a referenced guide/template is needed.")
+            put("postToolRule", "读取 reference 后等待结果，再根据内容继续。")
+            putJsonObject("parameters") {
+                put("type", "object")
+                putJsonObject("properties") {
+                    putJsonObject("skillId") {
+                        put("type", "string")
+                        put("description", "skill 的 id、名称、SKILL.md 路径或 skill 根目录路径。建议先用 skills_list 查看。")
+                    }
+                    putJsonObject("refId") {
+                        put("type", "string")
+                        put("description", "reference id、文件名或不带扩展名的文件名，例如 agent-prompt-templates。")
+                    }
+                    putJsonObject("maxChars") {
+                        put("type", "integer")
+                        put("description", "最多返回多少字符的引用内容，默认 16000，范围 512-64000。")
+                    }
+                }
+                putJsonArray("required") {
+                    add("skillId")
+                    add("refId")
+                }
+            }
+        }
+    }
+
     val scheduleTaskCreateTool: JsonObject = buildJsonObject {
         put("type", "function")
         putJsonObject("function") {
@@ -1698,18 +1922,15 @@ object AgentToolDefinitions {
             put("name", "alarm_reminder_delete")
             put("displayName", "删除提醒闹钟")
             put("toolType", "alarm")
-            put("description", "按 alarmId 删除本应用创建并托管的 exact_alarm 提醒闹钟。")
+            put("description", "按 alarmId 删除本应用创建并托管的 exact_alarm 提醒闹钟；未传 alarmId 时停止并清空所有应用内 exact_alarm 提醒闹钟。")
             put("postToolRule", "删除后等待工具结果，再向用户确认。")
             putJsonObject("parameters") {
                 put("type", "object")
                 putJsonObject("properties") {
                     putJsonObject("alarmId") {
                         put("type", "string")
-                        put("description", "闹钟 ID。")
+                        put("description", "可选闹钟 ID；用户只要求关闭当前或全部提醒时可不传。")
                     }
-                }
-                putJsonArray("required") {
-                    add("alarmId")
                 }
             }
         }
@@ -2081,11 +2302,15 @@ object AgentToolDefinitions {
     private val builtinToolDefinitions: List<JsonObject> = listOf(
         contextAppsQueryTool,
         vlmTaskTool,
+        imagePickerTool,
+        notificationSendTool,
+        userDialogTool,
         terminalExecuteTool,
         terminalSessionStartTool,
         terminalSessionExecTool,
         terminalSessionReadTool,
         terminalSessionStopTool,
+        webSearchTool,
         browserUseTool,
         fileReadTool,
         fileWriteTool,
@@ -2096,7 +2321,8 @@ object AgentToolDefinitions {
         fileStatTool,
         fileMoveTool,
         skillsListTool,
-        skillsReadTool
+        skillsReadTool,
+        skillsReadReferenceTool
     )
 
     private val scheduleToolDefinitions: List<JsonObject> = listOf(

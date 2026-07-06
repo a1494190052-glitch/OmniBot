@@ -1,6 +1,7 @@
 package cn.com.omnimind.bot.function
 
 import cn.com.omnimind.baselib.runlog.OobActionSchema
+import cn.com.omnimind.bot.agent.AgentToolNames
 import cn.com.omnimind.bot.runlog.argsForStep
 import cn.com.omnimind.bot.runlog.actionNameForStep
 import cn.com.omnimind.bot.runlog.resolveActionName
@@ -45,7 +46,7 @@ object FunctionSchema {
         resolveActionName(toolName) in OobActionSchema.coordinateToolNames
 
     fun isBrowserReplayTool(toolName: String): Boolean =
-        OobActionSchema.normalizeToolName(toolName) == "browser_use"
+        OobActionSchema.normalizeToolName(toolName) == AgentToolNames.BROWSER_USE
 
     fun shouldSkipCapturedTool(toolName: String): Boolean =
         OobActionSchema.normalizeToolName(toolName) in capturedNoiseTools
@@ -757,6 +758,6 @@ object FunctionSchema {
         "x","y","x1","y1","x2","y2","bounds","clear","duration_ms")
     private const val RUNNER = "oob_agent_reusable_function"
     private val PARAMETER_TOKEN_REGEX by lazy(LazyThreadSafetyMode.PUBLICATION) {
-        Regex("""\$\{([A-Za-z_][A-Za-z0-9_]*)\}|\{\{\s*([A-Za-z_][A-Za-z0-9_]*)\s*\}\}""")
+        Regex("""\$\{([A-Za-z_][A-Za-z0-9_]*)}|\{\{\s*([A-Za-z_][A-Za-z0-9_]*)\s*}}""")
     }
 }

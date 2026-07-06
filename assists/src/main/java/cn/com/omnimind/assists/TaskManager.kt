@@ -166,7 +166,8 @@ class TaskManager(
             assistsEventApi?.getExecutionEventImpl(),
             taskChangeListener,
             params.onMessagePushListener,
-            this,
+            params.needSummary
+            ,this,
             params.functionRunExecutor
         )
         (runningTask as ScheduledVLMOperationTask).start(
@@ -177,16 +178,7 @@ class TaskManager(
     }
 
     fun finishDoingTask() {
-        if (runningTask?.isRunning == true) {
-            if (runningTask is VLMOperationTask) {
-                (runningTask as VLMOperationTask).finishTask()
-            } else {
-                runningTask?.finishTask {
-
-                }
-            }
-
-        }
+        cancelRunningTaskMatching()
     }
 
     fun stopCompanionTask() {
@@ -194,8 +186,7 @@ class TaskManager(
     }
 
     private fun stopAllTask() {
-        if (runningTask?.isRunning == true) {
-            runningTask?.finishTask {}
+        if (cancelRunningTaskMatching()) {
             return
         }
         companionTask?.finishTask() {}
@@ -208,21 +199,13 @@ class TaskManager(
         } else {
             chatTasks[taskId]
         }
+        var cancelledChatTask = false
         if (targetChatTask?.isRunning == true) {
             targetChatTask.finishTask()
-            return
+            cancelledChatTask = true
         }
-        when (val task = runningTask) {
-            is VLMOperationTask -> {
-                if (taskId.isNullOrBlank() || task.id == taskId) {
-                    task.finishTask()
-                }
-            }
-            else -> {
-                if (taskId.isNullOrBlank() || task?.id == taskId) {
-                    task?.finishTask {}
-                }
-            }
+        if (!taskId.isNullOrBlank() || !cancelledChatTask) {
+            cancelRunningTaskMatching(taskId)
         }
     }
 
@@ -230,25 +213,39 @@ class TaskManager(
      * 取消等待中或运行中的任务，不检查 isRunning 状态
      * 用于在预执行 delay 期间取消任务
      */
-    fun cancelPendingTask(taskId: String? = null) {
+    fun cancelPendingTask(taskId: String? = null): Boolean {
         OmniLog.d(TAG, "cancelPendingTask called, runningTask=$runningTask")
-        when (runningTask) {
-            is VLMOperationTask -> {
-                if (!taskId.isNullOrBlank() && runningTask?.id != taskId) {
-                    return
-                }
-                OmniLog.d(TAG, "Cancelling pending VLM task")
-                // Use finishTask to trigger onTaskStop and close ready UI (onReadyStartVLMTask)
-                (runningTask as VLMOperationTask).finishTask()
-            }
-            else -> {
-                if (!taskId.isNullOrBlank() && runningTask?.id != taskId) {
-                    return
-                }
-                // 兜底：尝试调用 finishDoingTask
-                finishDoingTask()
-            }
+        return cancelRunningTaskMatching(taskId)
+    }
+
+    fun completeRunningTask(taskId: String? = null, message: String = "任务已完成"): Boolean {
+        val task = runningTask ?: return false
+        if (!taskId.isNullOrBlank() && task.id != taskId) {
+            return false
         }
+        return when (task) {
+            is VLMOperationTask -> {
+                OmniLog.d(TAG, "Completing VLM task")
+                task.completeByUser(message)
+                true
+            }
+            else -> false
+        }
+    }
+
+    private fun cancelRunningTaskMatching(taskId: String? = null): Boolean {
+        val task = runningTask ?: return false
+        if (!taskId.isNullOrBlank() && task.id != taskId) {
+            return false
+        }
+        if (task is VLMOperationTask) {
+            OmniLog.d(TAG, "Cancelling pending VLM task")
+            // Use finishTask to trigger onTaskStop and close ready UI (onReadyStartVLMTask)
+            task.finishTask()
+        } else {
+            task.finishTask {}
+        }
+        return true
     }
 
     fun startVLMOperationTask(
@@ -256,14 +253,19 @@ class TaskManager(
     ) {
         finishDoingTask()
         pauseCompanionTaskRunning()
-        runningTask = VLMOperationTask(
+        val vlmTask = VLMOperationTask(
             assistsEventApi?.getExecutionEventImpl(),
             taskChangeListener,
             params.onMessagePushListener,
-            this,
+            params.needSummary
+            ,this,
             params.functionRunExecutor
         )
-        (runningTask as VLMOperationTask).start(
+        params.taskId?.trim()?.takeIf { it.isNotEmpty() }?.let { taskId ->
+            vlmTask.id = taskId
+        }
+        runningTask = vlmTask
+        vlmTask.start(
             context,
             params.goal,
             params.model,
@@ -325,6 +327,24 @@ class TaskManager(
         }
         OmniLog.w(TAG, "没有正在运行的VLM任务，无法追加优先事件")
         return false
+    }
+
+
+    /**
+     * 通知VLM任务或ExecutionTask总结Sheet已准备就绪
+     */
+    fun notifySummarySheetReady(): Boolean {
+        when (runningTask) {
+            is VLMOperationTask -> {
+                OmniLog.d(TAG, "通知VLM任务总结Sheet已准备就绪")
+                (runningTask as VLMOperationTask).notifySummarySheetReady()
+                return true
+            }
+            else -> {
+                OmniLog.w(TAG, "没有任务，无法通知总结Sheet就绪")
+                return false
+            }
+        }
     }
 
     suspend fun changeScheduledStates(states: ScheduledStates) {

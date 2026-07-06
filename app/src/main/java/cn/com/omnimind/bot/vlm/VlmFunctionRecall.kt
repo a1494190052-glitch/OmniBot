@@ -5,10 +5,10 @@ import cn.com.omnimind.assists.task.vlmserver.UIContext
 import cn.com.omnimind.assists.task.vlmserver.VLMRecallContextProvider
 import cn.com.omnimind.assists.task.vlmserver.VLMRecallContextRequest
 import cn.com.omnimind.baselib.util.OmniLog
-import cn.com.omnimind.bot.function.FunctionJson.firstNonBlank
-import cn.com.omnimind.bot.function.FunctionJson.listArg
-import cn.com.omnimind.bot.function.FunctionJson.mapArg
 import cn.com.omnimind.bot.function.FunctionService
+import cn.com.omnimind.bot.runlog.firstNonBlank
+import cn.com.omnimind.bot.runlog.listArg
+import cn.com.omnimind.bot.runlog.mapArg
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull

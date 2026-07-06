@@ -4,6 +4,8 @@ import cn.com.omnimind.assists.task.vlmserver.ActionExecutor
 import cn.com.omnimind.assists.task.vlmserver.AndroidDeviceOperator
 import cn.com.omnimind.assists.task.vlmserver.DeviceOperator
 import cn.com.omnimind.assists.task.vlmserver.UIContextManager
+import cn.com.omnimind.bot.agent.AgentToolJson
+import cn.com.omnimind.bot.agent.AgentToolNames
 import cn.com.omnimind.bot.agent.AgentWorkspaceManager
 import cn.com.omnimind.bot.agent.BrowserUseRequest
 import cn.com.omnimind.bot.agent.LiveAgentBrowserSessionManager
@@ -699,7 +701,7 @@ class FunctionRun(
             args["tool_title"] = stepTitle.ifBlank { "浏览器操作" }
         }
         return try {
-            val requestJson = FunctionJson.mapToJsonElement(args) as JsonObject
+            val requestJson = AgentToolJson.mapToJsonElement(args) as JsonObject
             val request = BrowserUseRequest.fromJson(requestJson)
             val agentRunId = env?.agentRunId ?: "function_replay_${System.currentTimeMillis()}"
             val workspace = env?.workspaceDescriptor
@@ -716,7 +718,7 @@ class FunctionRun(
             val outcome = engine.execute(request)
             linkedMapOf<String, Any?>(
                 "step_id" to stepId,
-                "tool" to TOOL_BROWSER_USE,
+                "tool" to AgentToolNames.BROWSER_USE,
                 "executor" to FunctionSchema.EXECUTOR_TOOL,
                 "model_free" to true,
                 "success" to true,
@@ -731,7 +733,7 @@ class FunctionRun(
         } catch (e: Exception) {
             runResultBuilder.failureStep(
                 stepId = stepId,
-                tool = TOOL_BROWSER_USE,
+                tool = AgentToolNames.BROWSER_USE,
                 executor = FunctionSchema.EXECUTOR_TOOL,
                 summary = e.message ?: "browser_use step failed",
                 errorCode = "OOB_BROWSER_USE_STEP_FAILED",
@@ -806,18 +808,44 @@ class FunctionRun(
         val args = resolveStepArgs(step)
         val functionId = firstNonBlank(args["function_id"], step["function_id"])
         val functionArguments = mapArg(args["arguments"])
+        val cardToolName = OobActionSchema.TOOL_CALL_TOOL
+        val cardId = frontendSessionController.cardId(parentToolCallId, toolName, stepId)
+        val cardStartedAtMs = System.currentTimeMillis()
+
+        suspend fun emitStarted() {
+            callback?.onToolCardEvent("tool_started", frontendSessionController.callToolCardPayload(
+                cardId = cardId, toolName = cardToolName, stepTitle = stepTitle,
+                functionId = functionId, callableTool = callableTool,
+                functionArguments = functionArguments, status = "running", success = null,
+                summary = frontendSessionController.runningSummary(functionId),
+                progress = stepTitle, startedAtMs = cardStartedAtMs, finishedAtMs = null, result = null,
+            ))
+        }
+        suspend fun completeWithCard(result: Map<String, Any?>): Map<String, Any?> {
+            val success = result["success"] != false
+            callback?.onToolCardEvent("tool_completed", frontendSessionController.callToolCardPayload(
+                cardId = cardId, toolName = cardToolName, stepTitle = stepTitle,
+                functionId = functionId, callableTool = callableTool,
+                functionArguments = functionArguments, status = if (success) "success" else "error",
+                success = success, summary = result["summary"]?.toString()?.takeIf { it.isNotBlank() }
+                    ?: frontendSessionController.finishedSummary(functionId, success),
+                progress = "", startedAtMs = cardStartedAtMs, finishedAtMs = System.currentTimeMillis(), result = result,
+            ))
+            return result
+        }
         fun failStep(errorCode: String, summary: String, extras: Map<String, Any?> = emptyMap()) =
             runResultBuilder.failureStep(stepId = stepId, tool = callableTool.ifEmpty { OobActionSchema.TOOL_CALL_TOOL },
                 executor = FunctionSchema.EXECUTOR_FUNCTION, summary = summary, errorCode = errorCode, extras = extras)
 
-        if (functionId.isEmpty()) return failStep("OOB_FUNCTION_ID_MISSING", "$stepTitle missing function_id")
+        emitStarted()
+        if (functionId.isEmpty()) return completeWithCard(failStep("OOB_FUNCTION_ID_MISSING", "$stepTitle missing function_id"))
         val calledFunctionSpec = getSpec(functionId)
-            ?: return failStep("OOB_FUNCTION_NOT_FOUND", "Function not found: $functionId",
-                mapOf("called_function_id" to functionId))
+            ?: return completeWithCard(failStep("OOB_FUNCTION_NOT_FOUND", "Function not found: $functionId",
+                mapOf("called_function_id" to functionId)))
         val missing = FunctionSchema.missingRequiredArguments(calledFunctionSpec, functionArguments)
-        if (missing.isNotEmpty()) return failStep("OOB_FUNCTION_ARGUMENTS_MISSING",
+        if (missing.isNotEmpty()) return completeWithCard(failStep("OOB_FUNCTION_ARGUMENTS_MISSING",
             "Missing required arguments: ${missing.joinToString(", ")}",
-            mapOf("called_function_id" to functionId, "missing_required_arguments" to missing))
+            mapOf("called_function_id" to functionId, "missing_required_arguments" to missing)))
         val boundSpec = FunctionSchema.materialize(calledFunctionSpec, functionArguments)
         val calledFunctionRun = runFunction(
             functionId = functionId,
@@ -833,7 +861,7 @@ class FunctionRun(
         )
         val success = calledFunctionRun["success"] == true
         val calledFunctionModelRequired = calledFunctionRun["model_required"] == true
-        return linkedMapOf<String, Any?>(
+        return completeWithCard(linkedMapOf<String, Any?>(
             "step_id" to stepId, "tool" to callableTool.ifEmpty { OobActionSchema.TOOL_CALL_TOOL },
             "executor" to FunctionSchema.EXECUTOR_FUNCTION, "model_free" to true, "success" to success,
             "model_required" to calledFunctionModelRequired.takeIf { it },
@@ -852,7 +880,7 @@ class FunctionRun(
             "summary" to if (success) "复用指令执行完成：$functionId"
                 else calledFunctionRun["error_message"]?.toString()?.takeIf { it.isNotBlank() }
                     ?: "复用指令执行失败：$functionId",
-        ).filterValues { it != null }
+        ).filterValues { it != null })
     }
 
     private fun replayCheckConfig(
@@ -885,7 +913,7 @@ class FunctionRun(
                     mapOf("effects" to effects)
                 }
             },
-            actionTransfer = { _, args ->
+            actionTransfer = actionTransfer@{ _, args ->
                 val transfer = try {
                     ReplayHelper.remapStepArgs(step, deviceOperator)
                 } catch (e: CancellationException) {
@@ -900,7 +928,20 @@ class FunctionRun(
                         ),
                     )
                 }
-                val checkedTransfer = ReplayHelper.requireActionTransferApplied(transfer, args)
+                val checkedTransfer = try {
+                    ReplayHelper.requireActionTransferApplied(transfer, args)
+                } catch (e: ReplayHelper.ExecutionException) {
+                    return@actionTransfer ActionExecutor.ActArgsResult(
+                        args = args,
+                        diagnostics = e.diagnostics + linkedMapOf(
+                            "error_code" to e.errorCode,
+                            "error_message" to e.message.orEmpty(),
+                        ),
+                        blockDispatch = true,
+                        failureMessage = e.message.orEmpty(),
+                        failureErrorCode = e.errorCode,
+                    )
+                }
                 ActionExecutor.ActArgsResult(
                     args = ReplayHelper.normalizeArgsMap(checkedTransfer.args ?: args),
                     diagnostics = checkedTransfer.meta,
@@ -917,7 +958,7 @@ class FunctionRun(
             writeDefaultCheckerRules(file)
         }
         val raw = runCatching {
-            FunctionJson.jsonElementToAny(
+            AgentToolJson.jsonElementToAny(
                 checkerRuleJson.parseToJsonElement(file.readText(Charsets.UTF_8))
             )
         }.getOrNull() ?: return emptyList()
@@ -1142,7 +1183,6 @@ class FunctionRun(
         private const val CHECKER_RULES_FILE = ".omnibot/omniflow/checkers/checker_rules.json"
         private const val CHECKER_RULES_ASSET = "omniflow/checkers/checker_rules.json"
         private const val TAG = "FunctionRun"
-        private const val TOOL_BROWSER_USE = "browser_use"
         private const val MAX_FUNCTION_CALL_DEPTH = 8
         private const val REPLAY_UI_STEP_SETTLE_DELAY_MS = 1_000L
         private const val FRONTEND_SUCCESS_POPUP_VISIBLE_MS = 900L

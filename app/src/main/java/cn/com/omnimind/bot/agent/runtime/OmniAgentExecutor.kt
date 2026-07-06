@@ -7,6 +7,7 @@ import cn.com.omnimind.bot.agent.workspace.memory.LongTermMemoryIndex
 import cn.com.omnimind.bot.agent.workspace.memory.MemoryRetrievalPipeline
 import cn.com.omnimind.bot.agent.workspace.memory.TurnMemoryLoadTracker
 import cn.com.omnimind.bot.mcp.RemoteMcpDiscoveryRegistry
+import cn.com.omnimind.bot.function.FunctionApi
 import java.util.concurrent.atomic.AtomicReference
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -86,13 +87,13 @@ class OmniAgentExecutor(
             return when (locale) {
                 cn.com.omnimind.baselib.i18n.PromptLocale.ZH_CN -> """
                     [time_context]
-                    当前本地时间: ${now.format(isoFormatter)}
-                    本地日期: ${now.toLocalDate()}
-                    本地时间: ${now.toLocalTime().format(DateTimeFormatter.ISO_LOCAL_TIME)}
-                    时区: ${zoneId.id}
+                    褰撳墠鏈湴鏃堕棿: ${now.format(isoFormatter)}
+                    鏈湴鏃ユ湡: ${now.toLocalDate()}
+                    鏈湴鏃堕棿: ${now.toLocalTime().format(DateTimeFormatter.ISO_LOCAL_TIME)}
+                    鏃跺尯: ${zoneId.id}
                     UTC: ${utcNow.format(isoFormatter)}
-                    星期: ${now.dayOfWeek.name}
-                    这条上下文由运行时为本轮请求自动生成，用于解释“今天”“明天”“现在”等相对时间；不要把它当作用户原文或长期记忆。
+                    鏄熸湡: ${now.dayOfWeek.name}
+                    杩欐潯涓婁笅鏂囩敱杩愯鏃朵负鏈疆璇锋眰鑷姩鐢熸垚锛岀敤浜庤В閲娾€滀粖澶┾€濃€滄槑澶┾€濃€滅幇鍦ㄢ€濈瓑鐩稿鏃堕棿锛涗笉瑕佹妸瀹冨綋浣滅敤鎴峰師鏂囨垨闀挎湡璁板繂銆?
                 """.trimIndent()
 
                 cn.com.omnimind.baselib.i18n.PromptLocale.EN_US -> """
@@ -130,6 +131,8 @@ class OmniAgentExecutor(
         reasoningEffort: String?,
         terminalEnvironment: Map<String, String>,
         callback: AgentCallback,
+        visibleToolNames: Set<String>? = null,
+        isLightweightToolProfile: Boolean = false,
         runControl: AgentRunControl = NoOpAgentRunControl,
         continueMode: Boolean = false
     ): AgentResult {
@@ -143,14 +146,19 @@ class OmniAgentExecutor(
                 agentRunId = agentRunId
             )
             val historyRepository = AgentConversationHistoryRepository(context)
-            val promptMemoryContext = runCatching {
+            val promptMemoryContext = if (isLightweightToolProfile) {
+                null
+            } else runCatching {
                 memoryService.buildPromptContext()
             }.getOrNull()
-            val ltmIndex = runCatching {
+            val promptLocale = AppLocaleManager.resolvePromptLocale(context)
+            val ltmIndex = if (isLightweightToolProfile) {
+                null
+            } else runCatching {
                 LongTermMemoryIndex(workspaceManager)
             }.getOrNull()
             val memoryLoadTracker = TurnMemoryLoadTracker()
-            val prefetchedMemoryHits = if (ltmIndex != null) {
+            val prefetchedMemoryHits = if (!isLightweightToolProfile && ltmIndex != null) {
                 runCatching {
                     MemoryRetrievalPipeline(memoryService, ltmIndex)
                         .prefetchRelevant(userMessage, topK = 4)
@@ -164,27 +172,37 @@ class OmniAgentExecutor(
             val skillIndexService = SkillIndexService(context, workspaceManager)
             val skillLoader = SkillLoader(workspaceManager)
             val installedSkills = skillIndexService.listInstalledSkills()
-            val failureLearningSkill = SelfImprovingSkillFailureHook.resolveInstalledSkill(
+            val failureLearningSkill = if (isLightweightToolProfile) {
+                null
+            } else SelfImprovingSkillFailureHook.resolveInstalledSkill(
                 installedSkills = installedSkills,
                 skillLoader = skillLoader
             )
-            val resolvedSkills = SkillTriggerMatcher.resolveMatches(
+            val resolvedSkills = resolveSkillsForRun(
                 userMessage = userMessage,
-                entries = installedSkills
-            ).mapNotNull { match ->
-                val compatibility = SkillCompatibilityChecker.evaluate(match.entry)
-                if (!compatibility.available) {
-                    null
-                } else {
-                    skillLoader.load(match.entry, match.triggerReason)
-                }
-            }
+                installedSkills = installedSkills,
+                skillLoader = skillLoader,
+                forceOmniflowSkill = isLightweightToolProfile,
+            )
+            callback.onSkillsResolved(resolvedSkills.map { it.toCallbackPayload() })
             val discoveredServers = RemoteMcpDiscoveryRegistry.discoverEnabledServers()
             val toolRegistry = AgentToolRegistry(
                 context = context,
                 discoveredServers = discoveredServers,
-                conversationMode = conversationMode
+                conversationMode = conversationMode,
+                visibleToolNames = visibleToolNames,
+                isLightweightToolProfile = isLightweightToolProfile,
             )
+            val functionCandidateContext = if (isLightweightToolProfile) {
+                FunctionApi.promptCandidateContext(
+                    context = context,
+                    locale = promptLocale,
+                    goal = userMessage,
+                    currentPackageName = currentPackageName,
+                )
+            } else {
+                null
+            }
             val initialMessages = buildInitialMessages(
                 promptSeed = historyRepository.buildPromptSeed(
                     conversationId = conversationId,
@@ -200,7 +218,9 @@ class OmniAgentExecutor(
                 skillsRootAndroidPath = workspaceManager.skillsRoot().absolutePath,
                 resolvedSkills = resolvedSkills,
                 memoryContext = promptMemoryContext,
-                prefetchedMemoryHits = prefetchedMemoryHits
+                functionCandidateContext = functionCandidateContext,
+                locale = promptLocale,
+                prefetchedMemoryHits = prefetchedMemoryHits,
             )
 
             val llmClient = HttpAgentLlmClient(
@@ -272,6 +292,7 @@ class OmniAgentExecutor(
                     executionEnv = DefaultAgentExecutionEnvironment(
                         agentRunId = agentRunId,
                         userMessage = userMessage,
+                        attachments = attachments,
                         currentPackageName = currentPackageName,
                         runtimeContextRepository = runtimeContextRepository,
                         workspaceDescriptor = workspaceDescriptor,
@@ -309,7 +330,9 @@ class OmniAgentExecutor(
         skillsRootAndroidPath: String,
         resolvedSkills: List<ResolvedSkillContext>,
         memoryContext: WorkspaceMemoryPromptContext?,
-        prefetchedMemoryHits: List<WorkspaceMemorySearchHit> = emptyList()
+        functionCandidateContext: String?,
+        locale: cn.com.omnimind.baselib.i18n.PromptLocale,
+        prefetchedMemoryHits: List<WorkspaceMemorySearchHit> = emptyList(),
     ): List<cn.com.omnimind.baselib.llm.ChatCompletionMessage> {
         val historyMessages = promptSeed.historyMessages.toMutableList()
         if (historyMessages.lastOrNull()?.role == "user") {
@@ -323,7 +346,8 @@ class OmniAgentExecutor(
             skillsRootAndroidPath = skillsRootAndroidPath,
             resolvedSkills = resolvedSkills,
             memoryContext = memoryContext,
-            locale = AppLocaleManager.resolvePromptLocale(context)
+            functionCandidateContext = functionCandidateContext,
+            locale = locale,
         )
         messages.add(
             cn.com.omnimind.baselib.llm.ChatCompletionMessage(
@@ -338,6 +362,54 @@ class OmniAgentExecutor(
             messages.add(buildCurrentUserMessage(userMessage, attachments))
         }
         return messages
+    }
+
+    private fun resolveSkillsForRun(
+        userMessage: String,
+        installedSkills: List<SkillIndexEntry>,
+        skillLoader: SkillLoader,
+        forceOmniflowSkill: Boolean = false,
+    ): List<ResolvedSkillContext> {
+        val matches = SkillTriggerMatcher.resolveMatches(
+            userMessage = userMessage,
+            entries = installedSkills
+        )
+        val forced = if (forceOmniflowSkill) {
+            installedSkills.firstOrNull { it.id == FunctionApi.SKILL_ID }
+                ?.let { skill ->
+                    listOf(
+                        SkillMatchResult(
+                            entry = skill,
+                            confidence = 1.5,
+                            triggerReason = "function_management tool profile"
+                        )
+                    )
+                }
+                .orEmpty()
+        } else {
+            emptyList()
+        }
+        return (forced + matches)
+            .distinctBy { it.entry.id }
+            .mapNotNull { match ->
+                val compatibility = SkillCompatibilityChecker.evaluate(match.entry)
+                if (!compatibility.available) {
+                    null
+                } else {
+                    skillLoader.load(match.entry, match.triggerReason)
+                }
+            }
+    }
+
+    private fun ResolvedSkillContext.toCallbackPayload(): Map<String, Any?> {
+        return linkedMapOf(
+            "skillId" to skillId,
+            "name" to (frontmatter["name"]?.ifBlank { skillId } ?: skillId),
+            "triggerReason" to triggerReason,
+            "scriptsDir" to scriptsDir,
+            "assetsDir" to assetsDir,
+            "references" to loadedReferences
+        )
     }
 
     private fun buildCurrentTimeContextMessage(

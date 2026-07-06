@@ -1,7 +1,9 @@
 import 'dart:async';
 import 'dart:ui';
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import 'package:simple_gradient_text/simple_gradient_text.dart';
+import 'package:ui/l10n/app_text_localizer.dart';
 import 'package:ui/l10n/legacy_text_localizer.dart';
 import 'package:ui/l10n/l10n.dart';
 import 'package:ui/core/mixins/page_lifecycle_mixin.dart';
@@ -10,6 +12,7 @@ import 'package:ui/features/memory/pages/memory_center/widgets/batch_delete_conf
 import 'package:ui/features/memory/pages/memory_center/widgets/edit_task_sheet.dart';
 import 'package:ui/features/memory/pages/memory_center/widgets/mem0_memory_editor_sheet.dart';
 import 'package:ui/features/memory/pages/memory_center/widgets/mem0_memory_section.dart';
+import 'package:ui/features/task/pages/execution_history/function_library_page.dart';
 
 import 'package:ui/features/memory/pages/memory_center/widgets/tag_section.dart';
 import 'package:ui/features/memory/pages/memory_center/widgets/memory_card.dart';
@@ -25,7 +28,6 @@ import '../../models/memory_model.dart';
 import 'package:ui/utils/ui.dart';
 import 'package:ui/features/memory/pages/memory_center/widgets/memory_card_list.dart';
 import 'package:ui/theme/app_text_styles.dart';
-import 'package:flutter_svg/flutter_svg.dart';
 import 'package:ui/services/storage_service.dart';
 import 'package:ui/widgets/common_app_bar.dart';
 
@@ -51,8 +53,35 @@ class SystemAppConfig {
   });
 }
 
+@visibleForTesting
+const int memoryCenterShortTermTabIndex = 0;
+
+@visibleForTesting
+const int memoryCenterLongTermTabIndex = 1;
+
+@visibleForTesting
+const int memoryCenterReusableCommandsTabIndex = 2;
+
+@visibleForTesting
+int resolveMemoryCenterInitialTabIndex(String? raw) {
+  final normalized = raw?.trim().toLowerCase().replaceAll('-', '_') ?? '';
+  return switch (normalized) {
+    'long_term' || 'longterm' || 'cloud' => memoryCenterLongTermTabIndex,
+    'reusable' ||
+    'reusable_commands' ||
+    'reusable_memory' ||
+    'commands' ||
+    'functions' ||
+    '复用指令' ||
+    '复用记忆' => memoryCenterReusableCommandsTabIndex,
+    _ => memoryCenterShortTermTabIndex,
+  };
+}
+
 class MemoryCenterPage extends StatefulWidget {
-  const MemoryCenterPage({super.key});
+  const MemoryCenterPage({super.key, this.initialTab});
+
+  final String? initialTab;
 
   @override
   State<MemoryCenterPage> createState() => MemoryCenterPageState();
@@ -183,8 +212,9 @@ class MemoryCenterPageState extends State<MemoryCenterPage>
   Mem0MemorySnapshot _mem0Snapshot = Mem0MemorySnapshot.unconfigured();
   bool _isMem0Loading = false;
   bool _isMem0Mutating = false;
-  static const int _localMemoryTab = 0;
-  static const int _cloudMemoryTab = 1;
+  static const int _localMemoryTab = memoryCenterShortTermTabIndex;
+  static const int _cloudMemoryTab = memoryCenterLongTermTabIndex;
+  static const int _reusableCommandTab = memoryCenterReusableCommandsTabIndex;
   int _currentMemoryTab = _localMemoryTab;
   late PageController _memoryPageController;
 
@@ -220,6 +250,7 @@ class MemoryCenterPageState extends State<MemoryCenterPage>
       vsync: this,
       duration: const Duration(milliseconds: 1500),
     )..repeat();
+    _currentMemoryTab = resolveMemoryCenterInitialTabIndex(widget.initialTab);
     _memoryPageController = PageController(initialPage: _currentMemoryTab);
 
     _loadData();
@@ -287,6 +318,7 @@ class MemoryCenterPageState extends State<MemoryCenterPage>
       return;
     }
 
+    final l10n = context.l10n;
     final shouldShowLoading = !_mem0Snapshot.hasData || forceRefresh;
     if (shouldShowLoading) {
       _safeSetState(() {
@@ -305,7 +337,7 @@ class MemoryCenterPageState extends State<MemoryCenterPage>
       _safeSetState(() {
         _mem0Snapshot = Mem0MemorySnapshot(
           configured: true,
-          errorMessage: 'Long-term memory load failed: $e',
+          errorMessage: l10n.memoryLongTermLoadFailed(e),
         );
       });
     } finally {
@@ -323,46 +355,6 @@ class MemoryCenterPageState extends State<MemoryCenterPage>
       _isSuggestionLoading = false;
       _lastTopThreeIds = <String>[];
     });
-    return;
-    // 先加载持久化的建议
-    String? savedSuggestion;
-    try {
-      savedSuggestion = StorageService.getString(kMemorySuggestionKey);
-      print('加载持久化的记忆建议: $savedSuggestion');
-    } catch (e) {
-      print('加载记忆建议失败: $e');
-    }
-
-    // 检查本地+云端的前三条是否变化，只在变化时生成建议
-    final suggestionContext = _buildMemorySuggestionContext();
-    final currentTopThreeIds = suggestionContext.ids;
-
-    // 加载持久化的前三条记录ID
-    await _loadLastTopThreeIds();
-
-    final hasChanged = _hasTopThreeChanged(currentTopThreeIds);
-
-    if (hasChanged) {
-      _lastTopThreeIds = currentTopThreeIds;
-      // 保存到持久化存储
-      await _saveLastTopThreeIds(currentTopThreeIds);
-      if (suggestionContext.records.isEmpty) {
-        await StorageService.remove(kMemorySuggestionKey);
-        _safeSetState(() {
-          _memorySuggestion = null;
-          _isSuggestionLoading = false;
-        });
-        return;
-      }
-      // 异步生成记忆建议（不阻塞主界面）
-      unawaited(_generateMemorySuggestion(suggestionContext.records));
-    } else {
-      _safeSetState(() {
-        _memorySuggestion = _sanitizeMemorySuggestion(savedSuggestion);
-        _isSuggestionLoading = false;
-        print('记忆建议未变化，使用持久化数据: $_memorySuggestion');
-      });
-    }
   }
 
   ({List<String> ids, List<Map<String, String>> records})
@@ -518,12 +510,6 @@ class MemoryCenterPageState extends State<MemoryCenterPage>
 
   */
 
-  String _trimDanglingSuggestionSuffix(String text) =>
-      _trimDanglingSuggestionSuffixAscii(text);
-
-  bool _looksBrokenMemorySuggestion(String text) =>
-      _looksBrokenMemorySuggestionAscii(text);
-
   String _clipSuggestionText(String text, {int maxLength = 24}) {
     if (text.length <= maxLength) {
       return text;
@@ -599,7 +585,7 @@ class MemoryCenterPageState extends State<MemoryCenterPage>
     try {
       final response = await AssistsMessageService.generateMemoryGreeting(
         records: topRecords,
-        model: 'scene.compactor.context.chat',
+        model: 'scene.compactor.context',
       );
 
       if (response != null && response.isNotEmpty && mounted) {
@@ -722,7 +708,7 @@ class MemoryCenterPageState extends State<MemoryCenterPage>
       tagListWithApp.add(
         AppTag(
           id: 'all',
-          label: LegacyTextLocalizer.localize('全部'),
+          label: AppTextLocalizer.text('全部'),
           count: totalCount,
           svgPath: 'assets/common/all_icon.svg',
           iconBgColor: Colors.black,
@@ -769,7 +755,7 @@ class MemoryCenterPageState extends State<MemoryCenterPage>
         );
 
         if (systemConfig.id.isNotEmpty) {
-          label = LegacyTextLocalizer.localize(systemConfig.displayName);
+          label = AppTextLocalizer.text(systemConfig.displayName);
           svgPath = systemConfig.svgIcon;
           iconProvider = null;
         } else {
@@ -808,8 +794,8 @@ class MemoryCenterPageState extends State<MemoryCenterPage>
       context,
       title: context.l10n.memoryDeleteConfirmTitle,
       content: context.l10n.memoryDeleteWarning,
-      cancelText: context.trLegacy('取消'),
-      confirmText: context.trLegacy('删除'),
+      cancelText: context.trText('取消'),
+      confirmText: context.trText('删除'),
       confirmButtonColor: AppColors.alertRed,
     ).then((result) async {
       if (result == true) {
@@ -849,7 +835,7 @@ class MemoryCenterPageState extends State<MemoryCenterPage>
       return true;
     } catch (e) {
       print('Error deleting card: $e');
-      showToast(context.trLegacy('删除失败'), type: ToastType.error);
+      showToast(context.trText('删除失败'), type: ToastType.error);
       return false;
     }
   }
@@ -900,7 +886,7 @@ class MemoryCenterPageState extends State<MemoryCenterPage>
     }
 
     if (!success) {
-      showToast(context.trLegacy('修改失败'), type: ToastType.error);
+      showToast(context.trText('修改失败'), type: ToastType.error);
     } else {
       // 更新本地状态
       _safeSetState(() {
@@ -909,7 +895,7 @@ class MemoryCenterPageState extends State<MemoryCenterPage>
           favoritesCards[idx] = favoritesCards[idx].copyWith(title: text);
       });
 
-      showToast(context.trLegacy('修改成功'), type: ToastType.success);
+      showToast(context.trText('修改成功'), type: ToastType.success);
     }
     return success;
   }
@@ -1004,7 +990,6 @@ class MemoryCenterPageState extends State<MemoryCenterPage>
         .toSet();
 
     final filteredCards = favoritesCards;
-    final hasMem0Section = _mem0Snapshot.shouldShowSection || _isMem0Loading;
 
     return Scaffold(
       backgroundColor: palette.pageBackground,
@@ -1042,8 +1027,6 @@ class MemoryCenterPageState extends State<MemoryCenterPage>
                         Expanded(
                           child: _isLoading
                               ? _buildLoadingIndicator()
-                              : favoritesCards.isEmpty && !hasMem0Section
-                              ? _buildEmptyState()
                               : _buildContent(filteredCards),
                         ),
                         // 选择模式下的底部删除按钮栏
@@ -1218,7 +1201,7 @@ class MemoryCenterPageState extends State<MemoryCenterPage>
       leading: TextButton(
         onPressed: _exitSelectionMode,
         child: Text(
-          context.trLegacy('取消'),
+          context.trText('取消'),
           style: TextStyle(
             color: palette.accentPrimary,
             fontSize: 14,
@@ -1234,7 +1217,7 @@ class MemoryCenterPageState extends State<MemoryCenterPage>
             child: Text(
               isAllSelected
                   ? context.l10n.memoryDeselectAll
-                  : context.trLegacy('全选'),
+                  : context.trText('全选'),
               style: TextStyle(
                 color: palette.accentPrimary,
                 fontSize: 14,
@@ -1279,11 +1262,9 @@ class MemoryCenterPageState extends State<MemoryCenterPage>
             AnimatedAlign(
               duration: const Duration(milliseconds: 280),
               curve: Curves.easeOutCubic,
-              alignment: _currentMemoryTab == _localMemoryTab
-                  ? Alignment.centerLeft
-                  : Alignment.centerRight,
+              alignment: Alignment(-1.0 + _currentMemoryTab.clamp(0, 2), 0),
               child: FractionallySizedBox(
-                widthFactor: 0.5,
+                widthFactor: 1 / 3,
                 child: Container(
                   margin: const EdgeInsets.symmetric(horizontal: 1),
                   decoration: BoxDecoration(
@@ -1329,12 +1310,16 @@ class MemoryCenterPageState extends State<MemoryCenterPage>
             Row(
               children: [
                 _buildMemoryTabButton(
-                  label: LegacyTextLocalizer.localize('短期记忆'),
+                  label: context.l10n.memoryShortTermTitle,
                   tabIndex: _localMemoryTab,
                 ),
                 _buildMemoryTabButton(
-                  label: LegacyTextLocalizer.localize('长期记忆'),
+                  label: context.l10n.memoryLongTermTitle,
                   tabIndex: _cloudMemoryTab,
+                ),
+                _buildMemoryTabButton(
+                  label: context.l10n.memoryCommandsTitle,
+                  tabIndex: _reusableCommandTab,
                 ),
               ],
             ),
@@ -1392,7 +1377,7 @@ class MemoryCenterPageState extends State<MemoryCenterPage>
               child: Row(
                 children: [
                   Text(
-                    LegacyTextLocalizer.localize('短期记忆'),
+                    context.l10n.memoryShortTermTitle,
                     style: TextStyle(
                       color: context.omniPalette.textPrimary,
                       fontSize: AppTextStyles.fontSizeMain,
@@ -1461,6 +1446,14 @@ class MemoryCenterPageState extends State<MemoryCenterPage>
     );
   }
 
+  String _chooseMemoryTabText({required String zh, required String en}) {
+    return AppTextLocalizer.choose(
+      zh: zh,
+      en: en,
+      locale: Localizations.localeOf(context),
+    );
+  }
+
   Widget _buildContent(List<MemoryCardModel> filteredCards) {
     final hasLocalMemories = favoritesCards.isNotEmpty;
     final hasMem0Section = _mem0Snapshot.shouldShowSection || _isMem0Loading;
@@ -1500,6 +1493,7 @@ class MemoryCenterPageState extends State<MemoryCenterPage>
               children: [
                 _buildLocalMemoryPage(filteredCards, hasLocalMemories),
                 _buildCloudMemoryPage(hasMem0Section),
+                const FunctionLibraryEmbed(),
               ],
             ),
           ),
@@ -1679,7 +1673,7 @@ class MemoryCenterPageState extends State<MemoryCenterPage>
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        LegacyTextLocalizer.localize('长期记忆'),
+                        context.l10n.memoryLongTermTitle,
                         style: TextStyle(
                           color: palette.accentPrimary,
                           fontSize: AppTextStyles.fontSizeSmall,
@@ -1743,7 +1737,7 @@ class MemoryCenterPageState extends State<MemoryCenterPage>
                               ),
                             ),
                             icon: const Icon(Icons.delete_outline, size: 16),
-                            label: Text(context.trLegacy('删除')),
+                            label: Text(context.trText('删除')),
                           ),
                         ],
                       ),
@@ -1892,7 +1886,7 @@ class MemoryCenterPageState extends State<MemoryCenterPage>
       title: context.l10n.memoryDeleteLongTermConfirm,
       content:
           '${context.l10n.memoryDeleteWarning}:\n${_clipMem0Memory(item.memory)}',
-      confirmText: context.trLegacy('删除'),
+      confirmText: context.trText('删除'),
       confirmButtonColor: AppColors.alertRed,
     );
     if (confirmed != true) {
@@ -1974,47 +1968,6 @@ class MemoryCenterPageState extends State<MemoryCenterPage>
                 fontSize: AppTextStyles.fontSizeMain,
                 height: AppTextStyles.lineHeightH2,
               ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildEmptyState() {
-    return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          SvgPicture.asset(
-            'assets/common/empty_record.svg',
-            fit: BoxFit.contain,
-            errorBuilder: (ctx, err, stack) => Icon(
-              Icons.favorite_border,
-              size: 72,
-              color: Colors.grey.shade400,
-            ),
-          ),
-          const SizedBox(height: 12),
-          Text(
-            context.l10n.memoryNoMemories,
-            style: TextStyle(
-              fontSize: AppTextStyles.fontSizeH3,
-              fontWeight: AppTextStyles.fontWeightMedium,
-              color: AppColors.primaryBlue,
-              height: AppTextStyles.lineHeightH1,
-              letterSpacing: AppTextStyles.letterSpacingWide,
-            ),
-          ),
-          const SizedBox(height: 4),
-          Text(
-            context.l10n.memoryNoMemoriesDesc,
-            style: TextStyle(
-              fontSize: AppTextStyles.fontSizeMain,
-              fontWeight: AppTextStyles.fontWeightRegular,
-              color: context.omniPalette.textSecondary,
-              height: AppTextStyles.lineHeightH3,
-              letterSpacing: AppTextStyles.letterSpacingWide,
             ),
           ),
         ],

@@ -1,4 +1,7 @@
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
+import java.io.InputStreamReader
+import java.nio.charset.StandardCharsets
+import java.util.Properties
 
 plugins {
     alias(libs.plugins.android.application)
@@ -18,6 +21,42 @@ fun buildConfigString(value: String): String {
     return "\"$escaped\""
 }
 
+fun localProp(name: String): String {
+    val localPropertiesFile = rootProject.file("local.properties")
+    if (!localPropertiesFile.isFile) return ""
+    return Properties()
+        .apply {
+            localPropertiesFile.inputStream().use { input ->
+                load(InputStreamReader(input, StandardCharsets.UTF_8))
+            }
+        }
+        .getProperty(name)
+        ?.trim()
+        ?: ""
+}
+
+fun flutterCommand(): String {
+    val executableName = if (org.gradle.internal.os.OperatingSystem.current().isWindows) "flutter.bat" else "flutter"
+    val configuredFlutterSdk = localProp("flutter.sdk")
+    if (configuredFlutterSdk.isNotBlank()) {
+        val configuredFlutter = File(configuredFlutterSdk, "bin/$executableName")
+        if (configuredFlutter.isFile) return configuredFlutter.absolutePath
+    }
+    return executableName
+}
+
+fun shouldBundleFlutterWebForRequestedTasks(): Boolean {
+    val skip = prop("OOB_SKIP_FLUTTER_WEB").lowercase() in setOf("1", "true", "yes", "on")
+    if (skip) return false
+    return when (prop("OOB_FLUTTER_WEB_MODE").lowercase()) {
+        "include", "always", "true", "1", "yes" -> true
+        "skip", "exclude", "none", "off", "false", "0", "no" -> false
+        else -> gradle.startParameter.taskNames
+            .map { it.substringAfterLast(':').lowercase() }
+            .any { it.contains("release") || it == "assembleproduction" || it == "bundleproduction" }
+    }
+}
+
 val omnibotImageBaseUrl = prop("OMNIBOT_IMAGE_BASE_URL")
     .ifBlank { "https://cloud.omnimind.com.cn" }
 val omnibotImageModel = prop("OMNIBOT_IMAGE_MODEL")
@@ -32,9 +71,8 @@ val buildFlutterWebBundle by tasks.registering(Exec::class) {
     group = "flutter web"
     description = "Build the dedicated web chat Flutter bundle."
     workingDir = rootProject.file("ui")
-    val flutterCmd = if (org.gradle.internal.os.OperatingSystem.current().isWindows) "flutter.bat" else "flutter"
     commandLine(
-        flutterCmd,
+        flutterCommand(),
         "build",
         "web",
         "--target",
@@ -217,7 +255,9 @@ kotlin {
 }
 
 tasks.named("preBuild").configure {
-    dependsOn(syncFlutterWebBundle)
+    if (shouldBundleFlutterWebForRequestedTasks()) {
+        dependsOn(syncFlutterWebBundle)
+    }
 }
 dependencies {
     implementation(project(":flutter"))

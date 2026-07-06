@@ -24,9 +24,9 @@ import cn.com.omnimind.baselib.util.APPPackageUtil
 import cn.com.omnimind.baselib.util.MobileManufacturerUtil
 import cn.com.omnimind.baselib.util.exception.PermissionException
 import cn.com.omnimind.bot.App
-import cn.com.omnimind.bot.function.FunctionJson
-import cn.com.omnimind.bot.function.FunctionRun
+import cn.com.omnimind.bot.agent.AgentToolJson
 import cn.com.omnimind.bot.manager.OmniForegroundService
+import cn.com.omnimind.bot.function.FunctionRun
 import cn.com.omnimind.bot.util.AssistsUtil.Core.createCompanionTask
 import cn.com.omnimind.uikit.UIKit
 import cn.com.omnimind.uikit.api.callback.HalfScreenApi
@@ -152,8 +152,12 @@ class AssistsUtil {
          * 取消正在运行或等待中的任务，不影响陪伴模式
          * 可在预执行 delay 期间取消任务
          */
-        fun cancelRunningTask(taskId: String? = null) {
-            AssistsCore.cancelPendingTask(taskId)
+        fun cancelRunningTask(taskId: String? = null): Boolean {
+            return AssistsCore.cancelPendingTask(taskId)
+        }
+
+        fun completeRunningTask(taskId: String? = null, message: String = "任务已完成"): Boolean {
+            return AssistsCore.completeRunningTask(taskId, message)
         }
 
         /**
@@ -189,6 +193,7 @@ class AssistsUtil {
             maxSteps: Int?,
             packageName: String?,
             onMessagePushListener: OnMessagePushListener,
+            needSummary: Boolean = false,
             skipGoHome: Boolean = false,  // 是否跳过回到主页，从当前页面开始执行
             stepSkillGuidance: String = "",
             taskId: String? = null,
@@ -219,6 +224,7 @@ class AssistsUtil {
                     {
                         onMessagePushListener.onVLMTaskFinish()
                     },
+                    needSummary,
                     onMessagePushListener,
                     skipGoHome,
                     stepSkillGuidance,
@@ -231,7 +237,7 @@ class AssistsUtil {
 
         private fun functionRunExecutor(context: Context): FunctionRunExecutor =
             FunctionRunExecutor { action, runContext ->
-                val arguments = FunctionJson.jsonObjectToMap(action.arguments)
+                val arguments = AgentToolJson.jsonObjectToMap(action.arguments)
                 val callArgs = buildMap<String, Any?> {
                     put("function_id", action.functionId)
                     put("arguments", arguments)
@@ -258,7 +264,7 @@ class AssistsUtil {
                 OperationResult(
                     success = success,
                     message = message,
-                    data = FunctionJson.mapToJsonElement(result),
+                    data = AgentToolJson.mapToJsonElement(result),
                 )
             }
 
@@ -268,6 +274,14 @@ class AssistsUtil {
          */
         fun provideUserInputToVLMTask(userInput: String): Boolean {
             return AssistsCore.provideUserInputToVLMTask(userInput)
+        }
+
+        fun pauseVLMTask(): Boolean {
+            return AssistsCore.pauseVLMTask()
+        }
+
+        fun resumeVLMTask(): Boolean {
+            return AssistsCore.resumeVLMTask()
         }
 
         fun appendVlmExternalMemory(memory: String): Boolean {
@@ -284,6 +298,14 @@ class AssistsUtil {
             return AssistsCore.appendVlmPriorityEvent(memory, eventType, suggestCompletion)
         }
 
+        /**
+         * 通知VLM任务总结Sheet已准备就绪
+         * ChatBotSheet加载完成后调用此方法，VLM任务会开始推送总结消息
+         */
+        fun notifySummarySheetReady(): Boolean {
+            return AssistsCore.notifySummarySheetReady()
+        }
+
         suspend fun scheduleVLMOperationTask(
             context: Context,
             goal: String,
@@ -294,7 +316,8 @@ class AssistsUtil {
             title: String,
             subTitle: String?,
             extraJson: String?,
-            onMessagePushListener: OnMessagePushListener
+            onMessagePushListener: OnMessagePushListener,
+            needSummary: Boolean = false
         ) {
             if (!AssistsCore.isAccessibilityServiceEnabled()) {
                 throw PermissionException("请先开无障碍服务!")
@@ -321,8 +344,8 @@ class AssistsUtil {
                     maxSteps,
                     packageName,
                     "",
-                    onMessagePushListener = onMessagePushListener,
-                    functionRunExecutor = functionRunExecutor(context.applicationContext)
+                    needSummary = needSummary,
+                    onMessagePushListener = onMessagePushListener
                 )
             AssistsCore.startTask(
                 TaskParams.ScheduledTaskParams(taskParams, times, TimeUnit.SECONDS) {

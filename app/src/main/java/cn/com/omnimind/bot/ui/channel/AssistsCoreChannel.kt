@@ -49,6 +49,60 @@ class AssistsCoreChannel {
                 "createAgentTask" -> {
                     assistsCoreManager!!.createAgentTask( call, result)
                 }
+                "getInternalRunLogs" -> {
+                    assistsCoreManager!!.getInternalRunLogs(call, result)
+                }
+                "getInternalRunLogTimeline" -> {
+                    assistsCoreManager!!.getInternalRunLogTimeline(call, result)
+                }
+                "getAgentToolFeatures" -> {
+                    assistsCoreManager!!.getAgentToolFeatures(call, result)
+                }
+                "setAgentToolFeatures" -> {
+                    assistsCoreManager!!.setAgentToolFeatures(call, result)
+                }
+                "registerFunction" -> {
+                    assistsCoreManager!!.registerFunction(call, result)
+                }
+                "updateFunction" -> {
+                    assistsCoreManager!!.updateFunction(call, result)
+                }
+                "convertInternalRunLogToFunction" -> {
+                    assistsCoreManager!!.convertInternalRunLogToFunction(call, result)
+                }
+                "startHumanTrajectoryLearning" -> {
+                    assistsCoreManager!!.startHumanTrajectoryLearning(call, result)
+                }
+                "pauseHumanTrajectoryLearning" -> {
+                    assistsCoreManager!!.pauseHumanTrajectoryLearning(call, result)
+                }
+                "resumeHumanTrajectoryLearning" -> {
+                    assistsCoreManager!!.resumeHumanTrajectoryLearning(call, result)
+                }
+                "getHumanTrajectoryLearningStatus" -> {
+                    assistsCoreManager!!.getHumanTrajectoryLearningStatus(call, result)
+                }
+                "saveCurrentUdegState" -> {
+                    assistsCoreManager!!.saveCurrentUdegState(call, result)
+                }
+                "exportOobUdeg" -> {
+                    assistsCoreManager!!.exportOobUdeg(call, result)
+                }
+                "getFunction" -> {
+                    assistsCoreManager!!.getFunction(call, result)
+                }
+                "listFunctions" -> {
+                    assistsCoreManager!!.listFunctions(call, result)
+                }
+                "deleteFunction" -> {
+                    assistsCoreManager!!.deleteFunction(call, result)
+                }
+                "runFunction" -> {
+                    assistsCoreManager!!.runFunction(call, result)
+                }
+                "agentRunList" -> {
+                    assistsCoreManager!!.agentRunList(call, result)
+                }
                 "agentSkillList" -> {
                     assistsCoreManager!!.agentSkillList(call, result)
                 }
@@ -118,12 +172,6 @@ class AssistsCoreChannel {
                 "saveSceneVoiceConfig" -> {
                     assistsCoreManager!!.saveSceneVoiceConfig(call, result)
                 }
-                "getSceneOperationConfig" -> {
-                    assistsCoreManager!!.getSceneOperationConfig(call, result)
-                }
-                "saveSceneOperationConfig" -> {
-                    assistsCoreManager!!.saveSceneOperationConfig(call, result)
-                }
                 "getSceneModelOverrides" -> {
                     assistsCoreManager!!.getSceneModelOverrides(call, result)
                 }
@@ -135,45 +183,6 @@ class AssistsCoreChannel {
                 }
                 "checkVlmModelAvailability" -> {
                     assistsCoreManager!!.checkVlmModelAvailability(call, result)
-                }
-                "getInternalRunLogs" -> {
-                    assistsCoreManager!!.getInternalRunLogs(call, result)
-                }
-                "getInternalRunLogTimeline" -> {
-                    assistsCoreManager!!.getInternalRunLogTimeline(call, result)
-                }
-                "registerFunction" -> {
-                    assistsCoreManager!!.registerFunction(call, result)
-                }
-                "updateFunction" -> {
-                    assistsCoreManager!!.updateFunction(call, result)
-                }
-                "convertInternalRunLogToFunction" -> {
-                    assistsCoreManager!!.convertInternalRunLogToFunction(call, result)
-                }
-                "startHumanTrajectoryLearning" -> {
-                    assistsCoreManager!!.startHumanTrajectoryLearning(call, result)
-                }
-                "pauseHumanTrajectoryLearning" -> {
-                    assistsCoreManager!!.pauseHumanTrajectoryLearning(call, result)
-                }
-                "resumeHumanTrajectoryLearning" -> {
-                    assistsCoreManager!!.resumeHumanTrajectoryLearning(call, result)
-                }
-                "getHumanTrajectoryLearningStatus" -> {
-                    assistsCoreManager!!.getHumanTrajectoryLearningStatus(call, result)
-                }
-                "getFunction" -> {
-                    assistsCoreManager!!.getFunction(call, result)
-                }
-                "listFunctions" -> {
-                    assistsCoreManager!!.listFunctions(call, result)
-                }
-                "deleteFunction" -> {
-                    assistsCoreManager!!.deleteFunction(call, result)
-                }
-                "runFunction" -> {
-                    assistsCoreManager!!.runFunction(call, result)
                 }
                 "getWorkspaceSoul" -> {
                     assistsCoreManager!!.getWorkspaceSoul(call, result)
@@ -249,6 +258,9 @@ class AssistsCoreChannel {
                 "cancelRunningTask" -> {
                     assistsCoreManager!!.cancelRunningTask( call, result)
                 }
+                "completeRunningTask" -> {
+                    assistsCoreManager!!.completeRunningTask(call, result)
+                }
                 "stopAgentToolCall" -> {
                     assistsCoreManager!!.stopAgentToolCall(call, result)
                 }
@@ -267,7 +279,6 @@ class AssistsCoreChannel {
                 "pressHome" -> {
                     assistsCoreManager!!.pressHome(call, result)
                 }
-
                 "getInstalledApplications" -> {
                     assistsCoreManager!!.getInstalledApplications( call, result)
                 }
@@ -315,6 +326,15 @@ class AssistsCoreChannel {
                 }
                 "provideUserInputToVLMTask" -> {
                     assistsCoreManager!!.provideUserInputToVLMTask(call, result)
+                }
+                "pauseVLMTask" -> {
+                    assistsCoreManager!!.pauseVLMTask(call, result)
+                }
+                "resumeVLMTask" -> {
+                    assistsCoreManager!!.resumeVLMTask(call, result)
+                }
+                "notifySummarySheetReady" -> {
+                    assistsCoreManager!!.notifySummarySheetReady(call, result)
                 }
                 "startFirstUse"->{
                     assistsCoreManager!!.startFirstUse( call, result)

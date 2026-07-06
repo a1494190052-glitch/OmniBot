@@ -1,0 +1,118 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <application>
+        <receiver
+            android:name=".debug.DebugVlmRunLogReceiver"
+            android:enabled="true"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="cn.com.omnimind.bot.debug.RUN_VLM_RUNLOG" />
+            </intent-filter>
+        </receiver>
+        <receiver
+            android:name=".debug.DebugVlmCancelReceiver"
+            android:enabled="true"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="cn.com.omnimind.bot.debug.CANCEL_VLM_TASK" />
+            </intent-filter>
+        </receiver>
+        <receiver
+            android:name=".debug.DebugGetStateReceiver"
+            android:enabled="true"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="cn.com.omnimind.bot.debug.RUN_GET_STATE" />
+            </intent-filter>
+        </receiver>
+        <receiver
+            android:name=".debug.DebugFunctionRunReceiver"
+            android:enabled="true"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="cn.com.omnimind.bot.debug.RUN_OOB_FUNCTION" />
+            </intent-filter>
+        </receiver>
+        <receiver
+            android:name=".debug.DebugRunLogFunctionReplayReceiver"
+            android:enabled="true"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="cn.com.omnimind.bot.debug.CONVERT_RUNLOG_AND_RUN_FUNCTION" />
+            </intent-filter>
+        </receiver>
+        <receiver
+            android:name=".debug.DebugFunctionUpdateReceiver"
+            android:enabled="true"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="cn.com.omnimind.bot.debug.UPDATE_OOB_FUNCTION" />
+            </intent-filter>
+        </receiver>
+        <receiver
+            android:name=".debug.DebugFunctionImportExportReceiver"
+            android:enabled="true"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="cn.com.omnimind.bot.debug.IMPORT_OOB_FUNCTION" />
+                <action android:name="cn.com.omnimind.bot.debug.EXPORT_OOB_FUNCTION" />
+            </intent-filter>
+        </receiver>
+        <receiver
+            android:name=".debug.DebugFunctionSegmentReceiver"
+            android:enabled="true"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="cn.com.omnimind.bot.debug.VALIDATE_OOB_FUNCTION_SEGMENT" />
+            </intent-filter>
+        </receiver>
+        <receiver
+            android:name=".debug.DebugAgentFunctionManagementReceiver"
+            android:enabled="true"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="cn.com.omnimind.bot.debug.RUN_AGENT_FUNCTION_MANAGEMENT_VALIDATION" />
+            </intent-filter>
+        </receiver>
+        <receiver
+            android:name=".debug.DebugAgentConversationFunctionReceiver"
+            android:enabled="true"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="cn.com.omnimind.bot.debug.RUN_AGENT_CONVERSATION_FUNCTION_VALIDATION" />
+            </intent-filter>
+        </receiver>
+        <receiver
+            android:name=".debug.DebugOobRecallReceiver"
+            android:enabled="true"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="cn.com.omnimind.bot.debug.RUN_OOB_RECALL" />
+            </intent-filter>
+        </receiver>
+        <receiver
+            android:name=".debug.DebugManualTraceReceiver"
+            android:enabled="true"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="cn.com.omnimind.bot.debug.RUN_MANUAL_TRACE" />
+            </intent-filter>
+        </receiver>
+        <receiver
+            android:name=".debug.DebugHumanRunRecordingReceiver"
+            android:enabled="true"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="cn.com.omnimind.bot.debug.HUMAN_RUN_RECORDING" />
+            </intent-filter>
+        </receiver>
+        <receiver
+            android:name=".debug.DebugModelProviderConfigReceiver"
+            android:enabled="true"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="cn.com.omnimind.bot.debug.CONFIGURE_MODEL_PROVIDER" />
+            </intent-filter>
+        </receiver>
+    </application>
+</manifest>

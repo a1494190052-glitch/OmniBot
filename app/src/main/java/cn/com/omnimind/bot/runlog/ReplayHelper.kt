@@ -186,8 +186,12 @@ object ReplayHelper {
                 meta = mapOf("applied" to false, "reason" to "missing_source_xml", "algorithm" to "anchor_projection")
             )
         }
-        val currentXml = currentXmlOverride
-            ?: readCurrentXmlForCoordinateRemapDirect(deviceOperator)
+        val currentSnapshot = if (currentXmlOverride == null && deviceOperator != null) {
+            readBackendSnapshotDirect(deviceOperator)
+        } else {
+            null
+        }
+        val currentXml = currentXmlOverride ?: currentSnapshot?.xml.orEmpty()
         if (currentXml.isEmpty()) {
             return StepArgsResult(
                 args,
@@ -199,13 +203,21 @@ object ReplayHelper {
                 action = tool,
                 args = args,
                 sourceContext = sourceContext + ("xml" to sourceXml),
-                currentContext = mapOf("xml" to currentXml),
+                currentContext = linkedMapOf<String, Any?>(
+                    "xml" to currentXml,
+                    "package_name" to currentSnapshot?.rawPackage,
+                    "activity_name" to currentSnapshot?.activityName,
+                ).filterValues { it != null },
                 options = ActionTransfer.Options(
                     allowRootProjectionFallback = coordinateReplayAllowed(args, mapArg(rawArgs)),
                 ),
             ),
         )
-        return StepArgsResult(args = result.args, meta = result.diagnostics)
+        val currentContextMeta = linkedMapOf<String, Any?>(
+            "current_package_name" to currentSnapshot?.rawPackage?.takeIf { it.isNotBlank() },
+            "current_activity_name" to currentSnapshot?.activityName?.takeIf { it.isNotBlank() },
+        ).filterValues { it != null }
+        return StepArgsResult(args = result.args, meta = result.diagnostics + currentContextMeta)
     }
 
     private fun replayArgsWithSemanticAliases(

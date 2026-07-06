@@ -237,6 +237,14 @@ mixin _ChatInputAreaComposerMixin on _ChatInputAreaStateBase {
             child: _buildSlashTriggerButton(iconSize: 20),
           ),
         ],
+        if (_hasTrajectoryActions) ...[
+          const SizedBox(width: 4),
+          SizedBox(
+            width: 28,
+            height: 28,
+            child: _buildTrajectoryButton(iconSize: 20),
+          ),
+        ],
         const SizedBox(width: 4),
         Expanded(
           child: Align(
@@ -353,6 +361,39 @@ mixin _ChatInputAreaComposerMixin on _ChatInputAreaStateBase {
               }
               widget.onTriggerSlashCommand?.call();
             },
+    );
+  }
+
+  Widget _buildTrajectoryButton({required double iconSize}) {
+    final palette = context.omniPalette;
+    final color = context.isDarkTheme
+        ? palette.accentPrimary
+        : const Color(0xFF6D5BD0);
+    return IconButton(
+      key: const ValueKey('chat-input-trajectory-button'),
+      padding: EdgeInsets.zero,
+      iconSize: iconSize,
+      tooltip: AppTextLocalizer.choose(
+        zh: '轨迹',
+        en: 'Trajectories',
+        locale: Localizations.localeOf(context),
+      ),
+      icon: AnimatedContainer(
+        duration: _buttonAnimationDuration,
+        curve: _buttonAnimationCurve,
+        width: 24,
+        height: 24,
+        decoration: BoxDecoration(
+          color: color.withValues(alpha: _isPopupVisible ? 0.20 : 0.12),
+          shape: BoxShape.circle,
+        ),
+        child: Icon(Icons.gesture_rounded, size: iconSize, color: color),
+      ),
+      onPressed: () {
+        final nextVisible = !_isPopupVisible;
+        setState(() => _isPopupVisible = nextVisible);
+        widget.onPopupVisibilityChanged?.call(nextVisible);
+      },
     );
   }
 
@@ -704,6 +745,14 @@ mixin _ChatInputAreaComposerMixin on _ChatInputAreaStateBase {
             width: 24,
             height: 24,
             child: _buildSlashTriggerButton(iconSize: 18),
+          ),
+          const SizedBox(width: 2),
+        ],
+        if (_hasTrajectoryActions) ...[
+          SizedBox(
+            width: 24,
+            height: 24,
+            child: _buildTrajectoryButton(iconSize: 18),
           ),
           const SizedBox(width: 2),
         ],

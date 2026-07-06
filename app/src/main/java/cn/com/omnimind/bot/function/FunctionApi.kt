@@ -5,7 +5,7 @@ import cn.com.omnimind.baselib.i18n.PromptLocale
 import cn.com.omnimind.baselib.runlog.OobActionSchema
 import cn.com.omnimind.baselib.util.OmniLog
 import cn.com.omnimind.bot.agent.AgentToolDefinitions
-import cn.com.omnimind.bot.function.FunctionJson.mapToJsonElement
+import cn.com.omnimind.bot.agent.AgentToolJson.mapToJsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.add
 import kotlinx.serialization.json.buildJsonObject

@@ -29,9 +29,12 @@ data class VlmTaskRequest(
     val goal: String = "",
     val model: String? = null,
     val maxSteps: Int? = null,
+    val waitTimeoutMs: Long? = null,
     val packageName: String? = null,
+    val needSummary: Boolean? = null,
     val skipGoHome: Boolean = false,
     val stepSkillGuidance: String = "",
+    val disableFunctionRecall: Boolean = false,
 )
 
 /**
@@ -53,12 +56,22 @@ enum class TaskStatus {
 data class TaskState(
     val taskId: String,
     val goal: String,
-    var status: TaskStatus,
-    var message: String = "",
-    var waitingQuestion: String? = null,
+    @Volatile var status: TaskStatus,
+    val needSummary: Boolean = false,
+    @Volatile var message: String = "",
+    @Volatile var waitingQuestion: String? = null,
     var chatMessages: MutableList<String> = mutableListOf(),
     @Volatile var finishedContent: String? = null,
+    @Volatile var summaryText: String? = null,
     @Volatile var feedback: String? = null,
+    @Volatile var summaryUnavailable: Boolean = false,
+    @Volatile var compileStatus: String = "",
+    @Volatile var executionRoute: String = "",
+    @Volatile var errorCode: String? = null,
+    @Volatile var missingPermissions: List<String> = emptyList(),
+    @Volatile var functionRecall: Map<String, Any?>? = null,
+    @Volatile var functionExecutionSummary: Map<String, Any?>? = null,
+    @Volatile var vlmRequest: VlmTaskRequest? = null,
     val startTime: Long = System.currentTimeMillis(),
     @Volatile var stateChanged: Boolean = false
 ) {
@@ -74,11 +87,20 @@ data class TaskState(
         "taskId" to taskId,
         "goal" to goal,
         "status" to status.name,
+        "needSummary" to needSummary,
         "message" to message,
         "waitingQuestion" to waitingQuestion,
         "recentMessages" to chatMessages.takeLast(10),
         "finishedContent" to finishedContent,
+        "summary" to summaryText,
         "feedback" to feedback,
+        "summaryUnavailable" to summaryUnavailable,
+        "executionStatus" to compileStatus,
+        "executionRoute" to executionRoute,
+        "errorCode" to errorCode,
+        "missingPermissions" to missingPermissions,
+        "functionRecall" to functionRecall,
+        "functionExecutionSummary" to functionExecutionSummary,
         "elapsedMs" to (System.currentTimeMillis() - startTime)
     )
     
@@ -89,6 +111,10 @@ data class TaskState(
                 chatMessages.removeAt(0)
             }
         }
+    }
+
+    fun updateSummary(summary: String) {
+        summaryText = summary
     }
 
     fun applyTerminalResult(result: VlmTaskTerminalResult) {
@@ -102,12 +128,12 @@ data class TaskState(
             result.errorMessage
                 ?: result.finishedContent
                 ?: result.waitingQuestion
-                ?: result.feedback
                 ?: message
         }
         waitingQuestion = result.waitingQuestion
         finishedContent = result.finishedContent?.takeIf { it.isNotBlank() } ?: finishedContent
-        feedback = result.feedback?.takeIf { it.isNotBlank() } ?: feedback
+        summaryText = result.summaryText?.takeIf { it.isNotBlank() } ?: summaryText
+        summaryUnavailable = summaryUnavailable || result.summaryUnavailable
         markStateChanged()
     }
 }

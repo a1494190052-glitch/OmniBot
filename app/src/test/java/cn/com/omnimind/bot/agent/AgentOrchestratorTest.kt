@@ -1112,7 +1112,11 @@ class AgentOrchestratorTest {
 
         override suspend fun onThinkingUpdate(thinking: String) = Unit
 
-        open override suspend fun onToolCallStart(toolName: String, arguments: JsonObject) = Unit
+        open override suspend fun onToolCallStart(
+            toolName: String,
+            toolCallId: String,
+            arguments: JsonObject
+        ) = Unit
 
         override suspend fun onToolCallProgress(
             toolName: String,
@@ -1198,7 +1202,11 @@ class AgentOrchestratorTest {
         private val runControl: TrackingRunControl,
         private val cardId: String
     ) : RecordingCallback() {
-        override suspend fun onToolCallStart(toolName: String, arguments: JsonObject) {
+        override suspend fun onToolCallStart(
+            toolName: String,
+            toolCallId: String,
+            arguments: JsonObject
+        ) {
             runControl.bindCurrentCardId(cardId)
         }
     }
@@ -1210,6 +1218,7 @@ class AgentOrchestratorTest {
         override val runControl: AgentRunControl = NoOpAgentRunControl
     ) : AgentExecutionEnvironment {
         override val agentRunId: String = "test-run"
+        override val attachments: List<Map<String, Any?>> = emptyList()
         override val currentPackageName: String? = null
         override val runtimeContextRepository: AgentRuntimeContextRepository
             get() = throw UnsupportedOperationException("unused in test")

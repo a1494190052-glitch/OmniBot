@@ -3,9 +3,6 @@ package cn.com.omnimind.assists.task.vlmserver
 import cn.com.omnimind.baselib.runlog.OobActionSchema
 
 object VLMAllowedToolSelector {
-    @Volatile
-    private var deniedToolNames: Set<String> = emptySet()
-
     private val ALL_TOOL_NAMES = linkedSetOf(
         OobActionSchema.TOOL_CLICK,
         OobActionSchema.TOOL_LONG_PRESS,
@@ -22,12 +19,8 @@ object VLMAllowedToolSelector {
         OobActionSchema.TOOL_REQUIRE_USER_CONFIRMATION,
     )
 
-    fun setDeniedTools(tools: Set<String>) {
-        deniedToolNames = tools
-    }
-
     fun select(context: UIContext): Set<String> {
-        val denied = deniedToolNames
+        val denied = VLMToolDenylistRegistry.get()
         if (denied.isEmpty()) return ALL_TOOL_NAMES
         return ALL_TOOL_NAMES.filterTo(linkedSetOf()) { it !in denied }
     }

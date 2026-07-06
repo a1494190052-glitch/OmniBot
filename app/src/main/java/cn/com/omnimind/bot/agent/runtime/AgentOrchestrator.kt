@@ -183,12 +183,22 @@ class AgentOrchestrator(
                     turn.usage?.prefillTokensPerSecond ?: lastPrefillTokensPerSecond
                 lastDecodeTokensPerSecond =
                     turn.usage?.decodeTokensPerSecond ?: lastDecodeTokensPerSecond
-                val rawAssistantContent = turn.message.contentText().trim()
+                val rawAssistantContent = normalizeAssistantVisibleText(
+                    turn.message.contentText()
+                )
                 lastAssistantContent = combineContinuationContent(
                     prefix = accumulatedAssistantContent,
                     content = rawAssistantContent
                 )
                 val toolCalls = turn.message.toolCalls.orEmpty()
+                toolCalls.forEachIndexed { index, call ->
+                    callback.onToolCallPreview(
+                        toolName = call.function.name,
+                        argumentsJson = call.function.arguments,
+                        toolCallId = call.id,
+                        toolCallIndex = index
+                    )
+                }
                 logInfo(
                     tag,
                     "round=$round parsed_tool_calls=${toolCalls.size} finish_reason=${lastFinishReason.orEmpty()} assistant_content_len=${lastAssistantContent.length}"
@@ -512,9 +522,12 @@ class AgentOrchestrator(
             }
         } catch (e: CancellationException) {
             throw e
+        } catch (e: ExhaustedRetryableTurnFailure) {
+            callback.onError(e.errorMessage, retryable = true)
+            return AgentResult.Error(e.errorMessage, e)
         } catch (e: Exception) {
             callback.onError("Agent execution failed: ${e.message}")
-            return AgentResult.Error("Agent execution failed", e as? Exception)
+            return AgentResult.Error("Agent execution failed", e)
         } finally {
             runCatching { toolRouter.dispose() }
         }
@@ -578,11 +591,12 @@ class AgentOrchestrator(
                         }
                     },
                     onContentUpdate = { content ->
-                        if (content.isNotBlank()) {
+                        val visibleContent = normalizeAssistantVisibleText(content)
+                        if (visibleContent.isNotBlank()) {
                             callback.onChatMessage(
                                 combineContinuationContent(
                                     prefix = assistantContentPrefix,
-                                    content = content
+                                    content = visibleContent
                                 ),
                                 false
                             )
@@ -633,7 +647,7 @@ class AgentOrchestrator(
             toolName = toolCall.function.name,
             toolCallId = toolCall.id
         )
-        callback.onToolCallStart(toolCall.function.name, parsedArgs)
+        callback.onToolCallStart(toolCall.function.name, toolCall.id, parsedArgs)
         return try {
             coroutineScope {
                 val deferred = async {
@@ -888,6 +902,12 @@ class AgentOrchestrator(
         return normalized.trim()
     }
 
+    private fun normalizeAssistantVisibleText(text: String): String {
+        return AgentTextSanitizer.stripTextFunctionCalls(
+            AgentTextSanitizer.sanitizeUtf16(text)
+        ).trim()
+    }
+
     private fun isLengthFinishReason(reason: String?): Boolean {
         val normalized = reason?.trim()?.lowercase().orEmpty()
         return normalized == "length" ||
@@ -1010,6 +1030,7 @@ class AgentOrchestrator(
         }
         val actionGoal = userGoalRequiresExternalAction(userGoal)
         val actionIntent = containsActionIntentWithoutToolCall(normalized)
+        val externalActionIntent = containsExternalActionIntentWithoutToolCall(normalized)
         val intermediateUpdate = looksLikeIntermediateExecutionUpdate(normalized)
         val explicitFinalCue = containsExplicitFinalAnswerCue(normalized)
         val answerTooThinForActionGoal =
@@ -1032,11 +1053,13 @@ class AgentOrchestrator(
             roundStartsAfterToolResult ||
                 (hasPriorToolCall && (actionIntent || intermediateUpdate)) ||
                 (actionGoal && (actionIntent || intermediateUpdate)) ||
+                externalActionIntent ||
                 answerTooThinForActionGoal
         val shouldRecover = taskStillExecuting && !completeFinalAnswer
         val reason = when {
             roundStartsAfterToolResult && !completeFinalAnswer -> "pending_tool_chain"
             actionGoal && actionIntent && !completeFinalAnswer -> "action_intent_without_tool_call"
+            externalActionIntent && !completeFinalAnswer -> "action_intent_without_tool_call"
             actionGoal && intermediateUpdate && !completeFinalAnswer -> "intermediate_status_without_result"
             answerTooThinForActionGoal -> "action_goal_reply_too_thin"
             completeFinalAnswer -> "complete_final_answer"
@@ -1094,6 +1117,21 @@ class AgentOrchestrator(
             RegexOption.IGNORE_CASE
         )
         return englishActionIntent.containsMatchIn(content)
+    }
+
+    private fun containsExternalActionIntentWithoutToolCall(content: String): Boolean {
+        val chineseExternalActionIntent = Regex(
+            """(?:让我|我|我来|我会|我将|我先|我再|我去|我来为您|我来帮您|我帮您)(?:先|再|再一次|最后一次|最后再|去|来为您|来帮您)?(?:[^。！？；，,\n]{0,16})?(?:查找|寻找|查询|查|检查|搜索|搜|核实|确认|回到|返回|回去|尝试|试着|筛选|过滤|定位|打开|点击|进入|读取|执行|运行)""",
+            RegexOption.IGNORE_CASE
+        )
+        if (chineseExternalActionIntent.containsMatchIn(content)) {
+            return true
+        }
+        val englishExternalActionIntent = Regex(
+            """\b(?:let me|i(?:'ll| will)|first,\s*let me)\s+(?:check|search|verify|find|try|return|open|click|navigate|filter|read|run|install|download|submit|fill|select|toggle|create|delete|edit)\b""",
+            RegexOption.IGNORE_CASE
+        )
+        return englishExternalActionIntent.containsMatchIn(content)
     }
 
     private fun userGoalRequiresExternalAction(content: String): Boolean {
@@ -1220,8 +1258,8 @@ class AgentOrchestrator(
     }
 
     private fun combineContinuationContent(prefix: String, content: String): String {
-        val normalizedPrefix = AgentTextSanitizer.sanitizeUtf16(prefix).trim()
-        val normalizedContent = AgentTextSanitizer.sanitizeUtf16(content).trim()
+        val normalizedPrefix = normalizeAssistantVisibleText(prefix)
+        val normalizedContent = normalizeAssistantVisibleText(content)
         if (normalizedPrefix.isEmpty()) return normalizedContent
         if (normalizedContent.isEmpty()) return normalizedPrefix
         if (normalizedContent.startsWith(normalizedPrefix)) return normalizedContent

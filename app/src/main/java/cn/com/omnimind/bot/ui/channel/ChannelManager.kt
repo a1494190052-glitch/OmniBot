@@ -20,6 +20,7 @@ class ChannelManager {
     private var pdfPreviewChannel: PdfPreviewChannel = PdfPreviewChannel()
     private var hideFromRecentsChannel: HideFromRecentsChannel = HideFromRecentsChannel()
     private var appUpdateChannel: AppUpdateChannel = AppUpdateChannel()
+    private var screenDialogChannel: ScreenDialogChannel = ScreenDialogChannel()
 
     private var uiRouterChannel: UIRouterChannel = UIRouterChannel()
 
@@ -50,6 +51,7 @@ class ChannelManager {
         pdfPreviewChannel.setChannel(flutterEngine)
         hideFromRecentsChannel.setChannel(flutterEngine)
         appUpdateChannel.setChannel(flutterEngine)
+        screenDialogChannel.setChannel(flutterEngine)
         LocalModelFeature.setChannel(flutterEngine)
         uiRouterChannel.setChannel(flutterEngine)
         mcpServerChannel.setChannel(flutterEngine)
@@ -90,6 +92,7 @@ class ChannelManager {
         pdfPreviewChannel.clear()
         hideFromRecentsChannel.clear()
         appUpdateChannel.clear()
+        screenDialogChannel.clear()
         LocalModelFeature.clearChannel()
         uiRouterChannel.clear()
         cacheChannel.clear()

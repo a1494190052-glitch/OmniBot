@@ -224,6 +224,49 @@ class FunctionStore(private val workspaceRoot: File) {
         }
     }
 
+    fun distillFromRun(record: InternalRunLogRecord): Map<String, Any?> {
+        mirrorRunLog(record)
+
+        val spec = compileRunLogFunctionSpec(record) ?: run {
+            return mapOf("success" to false, "reason" to "no_replayable_steps")
+        }
+
+        val functionId = FunctionSchema.functionId(spec)
+            .ifEmpty { deriveFunctionId(record) }
+        val storedSpec = if (functionId == spec["function_id"]) {
+            spec
+        } else {
+            linkedMapOf<String, Any?>().apply {
+                putAll(spec)
+                put("function_id", functionId)
+            }
+        }
+
+        register(storedSpec)
+
+        return mapOf(
+            "success" to true,
+            "function_id" to functionId,
+            "step_count" to FunctionSchema.materializedSteps(storedSpec).size,
+            "path" to functionFile(functionId).absolutePath,
+        )
+    }
+
+    internal fun compileRunLogFunctionSpec(record: InternalRunLogRecord): Map<String, Any?>? {
+        return FunctionCompiler.compile(record)
+    }
+
+    private fun deriveFunctionId(record: InternalRunLogRecord): String {
+        val base = record.toolName.ifBlank { record.goal }
+            .lowercase()
+            .replace(Regex("[^a-z0-9]+"), "_")
+            .trim('_')
+            .take(40)
+            .ifBlank { "function" }
+        val suffix = record.runId.takeLast(8).replace(Regex("[^A-Za-z0-9]"), "")
+        return "oob_fn_${base}_$suffix"
+    }
+
     private fun functionFile(functionId: String): File {
         val safe = functionId.replace(Regex("[^A-Za-z0-9._-]"), "_").take(120)
         return File(functionsDir, "$safe.json")

@@ -507,7 +507,7 @@ object ActionTargetGrounder {
 
     private fun normalizeText(value: String): String =
         value.lowercase()
-            .replace(Regex("""[\s_\-:/\\|]+"""), " ")
+            .replace(Regex("""[\s_:/\\|-]+"""), " ")
             .replace(Regex("""[^\p{L}\p{N}\u4e00-\u9fff ]"""), "")
             .trim()
 
@@ -552,7 +552,7 @@ object ActionTargetGrounder {
         return right * bottom
     }
 
-    private val BOUNDS_REGEX = Regex("""\[(\-?\d+(?:\.\d+)?),(\-?\d+(?:\.\d+)?)\]\[(\-?\d+(?:\.\d+)?),(\-?\d+(?:\.\d+)?)\]""")
+    private val BOUNDS_REGEX = Regex("""\[(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)\]\[(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)\]""")
     private val KEY_TARGET_REGEX = Regex("""\b(?:digit|number|key|button|press|tap|enter)\s+(00|\d)\b""")
     private val NUMBER_WORDS = mapOf(
         "zero" to "0",

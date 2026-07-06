@@ -2,9 +2,18 @@ package cn.com.omnimind.bot.webchat
 
 import cn.com.omnimind.baselib.util.OmniLog
 import io.flutter.plugin.common.MethodChannel
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.withContext
+import kotlin.coroutines.resume
+import kotlin.coroutines.resumeWithException
 
 object FlutterChatSyncBridge {
     private const val TAG = "[FlutterChatSyncBridge]"
+    private val mainScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 
     @Volatile
     private var currentChannel: MethodChannel? = null
@@ -18,6 +27,50 @@ object FlutterChatSyncBridge {
 
     fun bindMainChannel(channel: MethodChannel?) {
         mainChannel = channel
+    }
+
+    suspend fun invokeForResult(method: String, arguments: Map<String, Any?>): Any? {
+        val targetChannel = currentChannel ?: mainChannel
+            ?: throw IllegalStateException("Flutter channel unavailable for $method")
+        return withContext(Dispatchers.Main) {
+            suspendCancellableCoroutine { continuation ->
+                try {
+                    targetChannel.invokeMethod(method, arguments, object : MethodChannel.Result {
+                        override fun success(result: Any?) {
+                            if (!continuation.isCompleted) {
+                                continuation.resume(result)
+                            }
+                        }
+
+                        override fun error(
+                            errorCode: String,
+                            errorMessage: String?,
+                            errorDetails: Any?
+                        ) {
+                            if (!continuation.isCompleted) {
+                                continuation.resumeWithException(
+                                    IllegalStateException(
+                                        "$errorCode: ${errorMessage ?: "Flutter bridge error"}"
+                                    )
+                                )
+                            }
+                        }
+
+                        override fun notImplemented() {
+                            if (!continuation.isCompleted) {
+                                continuation.resumeWithException(
+                                    NotImplementedError("Flutter method not implemented: $method")
+                                )
+                            }
+                        }
+                    })
+                } catch (e: Exception) {
+                    if (!continuation.isCompleted) {
+                        continuation.resumeWithException(e)
+                    }
+                }
+            }
+        }
     }
 
     fun dispatchConversationListChanged(
@@ -90,11 +143,14 @@ object FlutterChatSyncBridge {
 
     private fun dispatch(method: String, arguments: Any?) {
         val channels = listOfNotNull(currentChannel, mainChannel).distinct()
-        channels.forEach { target ->
-            runCatching {
-                target.invokeMethod(method, arguments)
-            }.onFailure {
-                OmniLog.w(TAG, "dispatch $method failed: ${it.message}")
+        if (channels.isEmpty()) return
+        mainScope.launch {
+            channels.forEach { target ->
+                runCatching {
+                    target.invokeMethod(method, arguments)
+                }.onFailure {
+                    OmniLog.w(TAG, "dispatch $method failed: ${it.message}")
+                }
             }
         }
     }

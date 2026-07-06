@@ -1,9 +1,9 @@
 package cn.com.omnimind.bot.vlm
 
 import android.content.Context
-import cn.com.omnimind.assists.task.vlmserver.VLMAllowedToolSelector
 import cn.com.omnimind.assists.task.vlmserver.VLMRuntimeConfig
 import cn.com.omnimind.assists.task.vlmserver.VLMRuntimeConfigRegistry
+import cn.com.omnimind.assists.task.vlmserver.VLMToolDenylistRegistry
 import cn.com.omnimind.baselib.util.OmniLog
 import cn.com.omnimind.bot.agent.AgentWorkspaceManager
 import kotlinx.serialization.Serializable
@@ -16,6 +16,7 @@ class VlmWorkspaceConfig private constructor(private val appContext: Context) {
         private const val CONFIG_FILE = "vlm_config.json"
 
         const val DEFAULT_PRIMARY_MODEL = "scene.vlm.operation.primary"
+        const val DEFAULT_DISTILL_MODEL = "scene.memory.rollup"
 
         // Safety bounds — Kotlin's last line of defense regardless of file content
         private val ALLOWED_TOOLS = setOf(
@@ -26,6 +27,7 @@ class VlmWorkspaceConfig private constructor(private val appContext: Context) {
         private val CONFIG_SEED = """
             {
               "primary_model": "$DEFAULT_PRIMARY_MODEL",
+              "distill_model": "$DEFAULT_DISTILL_MODEL",
               "vlm_max_completion_tokens": 384,
               "vlm_image_mode": "always",
               "vlm_temperature": 0.2,
@@ -43,6 +45,8 @@ class VlmWorkspaceConfig private constructor(private val appContext: Context) {
               "recall_tool_name_prefix": "run_recalled_workflow",
               "recall_description_chars": 360,
               "recall_tool_description_chars": 1000,
+              "distill_min_trace_steps": 2,
+              "distill_max_skill_chars": 400,
               "disabled_tools": []
             }
         """.trimIndent()
@@ -61,6 +65,7 @@ class VlmWorkspaceConfig private constructor(private val appContext: Context) {
 
         private fun buildDefaultSnapshot() = Snapshot(
             primaryModel = DEFAULT_PRIMARY_MODEL,
+            distillModel = DEFAULT_DISTILL_MODEL,
             vlmMaxCompletionTokens = 384,
             vlmImageMode = "always",
             vlmTemperature = 0.2,
@@ -78,6 +83,8 @@ class VlmWorkspaceConfig private constructor(private val appContext: Context) {
             recallToolNamePrefix = "run_recalled_workflow",
             recallDescriptionChars = 360,
             recallToolDescriptionChars = 1000,
+            distillMinTraceSteps = 2,
+            distillMaxSkillChars = 400,
             disabledTools = emptySet(),
         )
     }
@@ -85,6 +92,7 @@ class VlmWorkspaceConfig private constructor(private val appContext: Context) {
     @Serializable
     private data class ConfigFile(
         val primary_model: String = DEFAULT_PRIMARY_MODEL,
+        val distill_model: String = DEFAULT_DISTILL_MODEL,
         val vlm_max_completion_tokens: Int = 384,
         val vlm_image_mode: String = "always",
         val vlm_temperature: Double = 0.2,
@@ -102,11 +110,14 @@ class VlmWorkspaceConfig private constructor(private val appContext: Context) {
         val recall_tool_name_prefix: String = "run_recalled_workflow",
         val recall_description_chars: Int = 360,
         val recall_tool_description_chars: Int = 1000,
+        val distill_min_trace_steps: Int = 2,
+        val distill_max_skill_chars: Int = 400,
         val disabled_tools: List<String> = emptyList(),
     )
 
     data class Snapshot(
         val primaryModel: String,
+        val distillModel: String,
         val vlmMaxCompletionTokens: Int,
         val vlmImageMode: String,
         val vlmTemperature: Double,
@@ -124,6 +135,8 @@ class VlmWorkspaceConfig private constructor(private val appContext: Context) {
         val recallToolNamePrefix: String,
         val recallDescriptionChars: Int,
         val recallToolDescriptionChars: Int,
+        val distillMinTraceSteps: Int,
+        val distillMaxSkillChars: Int,
         val disabledTools: Set<String>,
     )
 
@@ -166,6 +179,7 @@ class VlmWorkspaceConfig private constructor(private val appContext: Context) {
 
     private fun validate(raw: ConfigFile): Snapshot {
         val primaryModel = raw.primary_model.trim().ifBlank { DEFAULT_PRIMARY_MODEL }
+        val distillModel = raw.distill_model.trim().ifBlank { DEFAULT_DISTILL_MODEL }
         val maxCompletionTokens = raw.vlm_max_completion_tokens.coerceIn(64, 2048)
         val imageMode = raw.vlm_image_mode.trim().takeIf { it in setOf("always", "auto") } ?: "always"
         val temperature = raw.vlm_temperature.coerceIn(0.0, 2.0)
@@ -182,15 +196,22 @@ class VlmWorkspaceConfig private constructor(private val appContext: Context) {
         val recallToolNamePrefix = sanitizeToolNamePrefix(raw.recall_tool_name_prefix)
         val recallDescriptionChars = raw.recall_description_chars.coerceIn(40, 1000)
         val recallToolDescriptionChars = raw.recall_tool_description_chars.coerceIn(120, 2000)
+        val minSteps = raw.distill_min_trace_steps.coerceIn(1, 10)
+        val maxChars = raw.distill_max_skill_chars.coerceIn(100, 1200)
         val denied = raw.disabled_tools.map { it.trim() }.filter { it in ALLOWED_TOOLS }.toSet()
 
         if (maxCandidates != raw.recall_max_candidates)
             OmniLog.w(TAG, "recall_max_candidates clamped to $maxCandidates")
         if (maxRecallTools != raw.recall_max_tools_per_step)
             OmniLog.w(TAG, "recall_max_tools_per_step clamped to $maxRecallTools")
+        if (minSteps != raw.distill_min_trace_steps)
+            OmniLog.w(TAG, "distill_min_trace_steps clamped to $minSteps")
+        if (maxChars != raw.distill_max_skill_chars)
+            OmniLog.w(TAG, "distill_max_skill_chars clamped to $maxChars")
 
         return Snapshot(
             primaryModel = primaryModel,
+            distillModel = distillModel,
             vlmMaxCompletionTokens = maxCompletionTokens,
             vlmImageMode = imageMode,
             vlmTemperature = temperature,
@@ -208,6 +229,8 @@ class VlmWorkspaceConfig private constructor(private val appContext: Context) {
             recallToolNamePrefix = recallToolNamePrefix,
             recallDescriptionChars = recallDescriptionChars,
             recallToolDescriptionChars = recallToolDescriptionChars,
+            distillMinTraceSteps = minSteps,
+            distillMaxSkillChars = maxChars,
             disabledTools = denied,
         )
     }
@@ -226,7 +249,7 @@ class VlmWorkspaceConfig private constructor(private val appContext: Context) {
                 maxToolResultChars = snapshot.vlmToolResultChars,
             )
         )
-        VLMAllowedToolSelector.setDeniedTools(snapshot.disabledTools)
+        VLMToolDenylistRegistry.set(snapshot.disabledTools)
     }
 
     private fun sanitizeToolNamePrefix(raw: String): String {

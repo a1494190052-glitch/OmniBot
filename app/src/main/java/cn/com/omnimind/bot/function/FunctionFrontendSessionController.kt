@@ -4,8 +4,8 @@ import cn.com.omnimind.assists.FunctionUiSession
 import cn.com.omnimind.baselib.util.OmniLog
 import cn.com.omnimind.bot.agent.ManualToolStopCancellationException
 import cn.com.omnimind.bot.agent.tool.handlers.SharedHelper
-import cn.com.omnimind.bot.function.FunctionJson.firstNonBlank
 import cn.com.omnimind.bot.manager.AssistsCoreManager
+import cn.com.omnimind.bot.function.FunctionJson.firstNonBlank
 import cn.com.omnimind.uikit.loader.cat.DraggableBallInstance
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
@@ -128,6 +128,9 @@ class FunctionFrontendSessionController(
         val runId = frontendRunId
             .trim()
             .takeIf { it.isNotEmpty() }
+            ?: toolHandle?.runId
+            ?.trim()
+            ?.takeIf { it.isNotEmpty() }
             ?: fallbackRunIdProvider()
         val taskId = frontendTaskId
             .trim()
@@ -167,7 +170,11 @@ class FunctionFrontendSessionController(
                     DraggableBallInstance.loadBall()
                     DraggableBallInstance.setDoing(
                         message = helper.localized("准备执行复用指令"),
-                        isShowTakeOver = false
+                        isShowTakeOver = false,
+                        subMessage = helper.localized(label),
+                        isShowStop = true,
+                        isTouchable = true,
+                        forceOnTop = true
                     )
                 }
             }.onFailure {
@@ -267,7 +274,11 @@ class FunctionFrontendSessionController(
                     withContext(Dispatchers.Main) {
                         DraggableBallInstance.setDoing(
                             message = message,
-                            isShowTakeOver = false
+                            isShowTakeOver = false,
+                            subMessage = helper.localized(progressText),
+                            isShowStop = true,
+                            isTouchable = true,
+                            forceOnTop = true
                         )
                     }
                 }.onFailure {
@@ -299,19 +310,33 @@ class FunctionFrontendSessionController(
                         if (embeddedInVlmTask) {
                             DraggableBallInstance.setDoing(
                                 message = helper.localized("复用指令执行完成"),
-                                isShowTakeOver = false
+                                isShowTakeOver = false,
+                                subMessage = finishMsg,
+                                isShowStop = false,
+                                isTouchable = false,
+                                forceOnTop = true
                             )
                             delay(OMNIFLOW_FINISH_VISIBLE_MS)
                             DraggableBallInstance.finishDoingTask(finishMsg)
                         } else {
                             DraggableBallInstance.setDoing(
                                 message = finishMsg,
-                                isShowTakeOver = false
+                                isShowTakeOver = false,
+                                subMessage = helper.localized(label),
+                                isShowStop = false,
+                                isTouchable = false,
+                                forceOnTop = true
                             )
                             if (closeAfterMs > 0L) {
                                 delay(closeAfterMs)
                                 DraggableBallInstance.finishDoingTask(finishMsg)
                             }
+                        }
+                        if (embeddedInVlmTask && !stopRequested.get()) {
+                            AssistsCoreManager.requestCompleteActiveVlmTask(
+                                runOrTaskId = runId,
+                                reason = "function_finished",
+                            )
                         }
                     }
                 }.onFailure {

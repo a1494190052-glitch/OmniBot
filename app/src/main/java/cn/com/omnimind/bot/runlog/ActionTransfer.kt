@@ -337,8 +337,73 @@ object ActionTransfer {
                     ),
                 )
             }
+            inputTextTargetFallback(args, targetPage, sourceNode)?.let { return it }
         }
         return matchTargetNode(sourcePage, targetPage, sourceNode)
+    }
+
+    private fun inputTextTargetFallback(
+        args: Map<String, Any?>,
+        targetPage: PageModel,
+        sourceNode: UiNode,
+    ): TargetMatch? {
+        val candidates = targetPage.nodes.filter { node ->
+            node.visible && node.enabled && (node.editable || node.focusable || node.classSuffix.contains("edittext"))
+        }
+        if (candidates.isEmpty()) return null
+        val targetTexts = listOf(
+            args["target_description"],
+            args["targetDescription"],
+            sourceNode.text,
+            sourceNode.contentDesc,
+            sourceNode.hintText,
+            sourceNode.subtreeText,
+        ).mapNotNull { value ->
+            normalizeText(value?.toString()).takeIf(::isMeaningfulSemanticTargetText)
+        }.distinct()
+
+        val scored = candidates.mapNotNull { node ->
+            val labels = nodeVisibleTexts(node)
+            val textMatch = targetTexts.any { target ->
+                labels.any { label ->
+                    label == target ||
+                        label.contains(target) ||
+                        (target.contains(label) && label.length >= 2)
+                }
+            }
+            val hasEvidence = node.focused || textMatch || candidates.size == 1
+            if (!hasEvidence) return@mapNotNull null
+            val sizePenalty = (
+                kotlin.math.abs(node.bounds.width - sourceNode.bounds.width) +
+                    kotlin.math.abs(node.bounds.height - sourceNode.bounds.height)
+                ) * 0.001f
+            val score =
+                (if (node.focused) 1000f else 0f) +
+                    (if (node.editable) 500f else 0f) +
+                    (if (textMatch) 300f else 0f) +
+                    (if (node.classSuffix == sourceNode.classSuffix) 80f else 0f) -
+                    sizePenalty
+            node to score
+        }.maxByOrNull { it.second } ?: return null
+
+        val mode = when {
+            scored.first.focused -> "focused_input"
+            targetTexts.isNotEmpty() -> "semantic_input"
+            else -> "single_input"
+        }
+        return TargetMatch(
+            node = scored.first,
+            confidence = if (scored.first.focused) 1.0f else 0.86f,
+            anchorCount = 0,
+            mode = mode,
+            debug = mapOf(
+                "matched_by" to mode,
+                "candidate_count" to candidates.size,
+                "target_texts" to targetTexts.take(6),
+                "source_element" to summarizeNode(sourceNode),
+                "target_element" to summarizeNode(scored.first),
+            ),
+        )
     }
 
     private fun projectGrounding(

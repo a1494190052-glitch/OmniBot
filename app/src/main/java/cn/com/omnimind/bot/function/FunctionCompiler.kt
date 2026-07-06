@@ -2,6 +2,7 @@ package cn.com.omnimind.bot.function
 
 import cn.com.omnimind.baselib.runlog.InternalRunLogRecord
 import cn.com.omnimind.baselib.runlog.OobActionSchema
+import cn.com.omnimind.bot.agent.AgentToolNames
 import cn.com.omnimind.bot.runlog.RunLogCardAccessors.androidPrivilegedReplayAction
 import cn.com.omnimind.bot.runlog.RunLogCardAccessors.asBoolean
 import cn.com.omnimind.bot.runlog.RunLogCardAccessors.asMap
@@ -133,7 +134,7 @@ object FunctionCompiler {
         if (resolveActionName(toolName) != null) {
             return true
         }
-        if (OobActionSchema.normalizeToolName(toolName) != "android_privileged_action") {
+        if (OobActionSchema.normalizeToolName(toolName) != AgentToolNames.ANDROID_PRIVILEGED_ACTION) {
             return false
         }
         val args = asMap(extractArgs(card))

@@ -7,6 +7,7 @@ import cn.com.omnimind.baselib.runlog.InternalRunLogRecord
 import cn.com.omnimind.baselib.runlog.InternalRunLogStore
 import cn.com.omnimind.baselib.util.OmniLog
 import cn.com.omnimind.bot.agent.AgentWorkspaceManager
+import cn.com.omnimind.bot.runlog.OobUdegNodeStore
 import cn.com.omnimind.bot.runlog.ReplayCheckerRule
 import cn.com.omnimind.bot.runlog.boolArg
 import cn.com.omnimind.bot.runlog.boolArgOrDefault
@@ -365,6 +366,16 @@ class FunctionService(
         }
         val alreadyExists = containsFunctionSpec(functionId)
         val agentVisible = isAgentVisible(spec)
+        val udegResult = runCatching {
+            OobUdegNodeStore(context).upsertFunction(functionId, spec)
+        }.getOrElse { error ->
+            linkedMapOf(
+                "success" to false,
+                "indexed" to false,
+                "error_message" to error.message.orEmpty()
+            )
+        }
+
         val workspaceResult = runCatching {
             workspaceFunctionStore.register(spec)
         }.getOrElse { error ->
@@ -420,6 +431,7 @@ class FunctionService(
             "parameter_binding_normalization" to FunctionJson.mapArg(spec["metadata"])
                 ["oob_parameter_binding_normalization"],
             "workspace" to workspaceResult,
+            "udeg" to udegResult,
             "normalized_from_function_id" to rawFunctionId.takeIf { it != functionId },
             "source_run_ids" to sourceRunIds,
             "run_log_bindings" to runLogBindings,
@@ -464,11 +476,13 @@ class FunctionService(
             )
         }
         val deletedWorkspace = workspaceFunctionStore.delete(normalized)
+        val udegResult = OobUdegNodeStore(context).removeFunctionReferences(setOf(normalized))
         return linkedMapOf(
             "success" to deletedWorkspace,
             "function_id" to normalized,
             "deleted" to deletedWorkspace,
             "deleted_workspace" to deletedWorkspace,
+            "udeg" to udegResult,
             "source" to "function_service",
         )
     }
@@ -479,12 +493,14 @@ class FunctionService(
             .filter { it.isNotEmpty() }
             .distinct()
         val workspaceResult = workspaceFunctionStore.clear()
+        val udegResult = OobUdegNodeStore(context).clearFunctionReferences()
         return linkedMapOf(
             "success" to true,
             "deleted" to true,
             "deleted_count" to functionIds.size,
             "function_ids" to functionIds,
             "workspace" to workspaceResult,
+            "udeg" to udegResult,
             "source" to "function_service",
         )
     }

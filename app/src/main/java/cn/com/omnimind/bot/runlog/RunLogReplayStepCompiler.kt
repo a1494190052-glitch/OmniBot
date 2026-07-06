@@ -1,5 +1,6 @@
 package cn.com.omnimind.bot.runlog
 
+import cn.com.omnimind.bot.agent.AgentToolNames
 import cn.com.omnimind.bot.function.FunctionSchema
 import cn.com.omnimind.baselib.runlog.OobActionSchema
 import cn.com.omnimind.bot.runlog.RunLogCardAccessors.androidPrivilegedReplayAction
@@ -22,7 +23,7 @@ import cn.com.omnimind.bot.runlog.RunLogCardAccessors.toolNameForCard
 internal object RunLogReplayStepCompiler {
     private const val SOURCE_CONTEXT_MODE_COORDINATE_ONLY_NO_XML = "coordinate_only_no_xml"
     private val perceptionOnlyTools = setOf(
-        "vlm_task",
+        AgentToolNames.VLM_TASK,
         "image_picker",
         "android_privileged_action_screenshot",
         "screen_capture",
@@ -54,7 +55,7 @@ internal object RunLogReplayStepCompiler {
         return when {
             FunctionSchema.shouldSkipCapturedTool(normalizedToolName) -> null
             normalizedToolName in perceptionOnlyTools && skipPerceptionTools -> null
-            normalizedToolName == "android_privileged_action" -> {
+            normalizedToolName == AgentToolNames.ANDROID_PRIVILEGED_ACTION -> {
                 val action = androidPrivilegedReplayAction(args) ?: return null
                 functionStep(
                     title = cleanStepTitle(title, action, androidPrivilegedReplayArgs(args)),
@@ -310,14 +311,14 @@ internal object RunLogReplayStepCompiler {
         val sourceXml = observationXml(before)
         val rawToolName = toolNameForCard(card)
         val normalizedToolName = OobActionSchema.normalizeToolName(rawToolName)
-        val actionArgs = if (normalizedToolName == "android_privileged_action") {
+        val actionArgs = if (normalizedToolName == AgentToolNames.ANDROID_PRIVILEGED_ACTION) {
             androidPrivilegedReplayArgs(args)
         } else {
             args
         }
         val sourceAction = linkedMapOf<String, Any?>(
             "tool" to (
-                if (normalizedToolName == "android_privileged_action") {
+                if (normalizedToolName == AgentToolNames.ANDROID_PRIVILEGED_ACTION) {
                     androidPrivilegedReplayAction(args)
                 } else {
                     resolveActionName(rawToolName)

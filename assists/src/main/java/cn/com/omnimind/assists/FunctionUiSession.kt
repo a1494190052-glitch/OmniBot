@@ -1,5 +1,12 @@
 package cn.com.omnimind.assists
 
+/**
+ * Tracks the native floating UI lifetime for local Function replay.
+ *
+ * Function replay does not create a VLMOperationTask, but users still need the
+ * same visible execution surface and a reliable stop signal while local actions
+ * are being dispatched.
+ */
 object FunctionUiSession {
     data class EndResult(
         val wasActive: Boolean,
@@ -60,12 +67,19 @@ object FunctionUiSession {
         }
     }
 
+    fun hasActiveSession(): Boolean {
+        return synchronized(lock) {
+            sessionsByRunId.values.any { it.active && !it.stopRequested && !it.completeRequested }
+        }
+    }
+
     fun requestStopActiveSession(): Boolean = requestStopSession(null)
 
     fun requestStopSession(runOrTaskId: String?): Boolean {
         val normalizedId = runOrTaskId?.trim().orEmpty()
         val callbacks = synchronized(lock) {
-            resolveCandidateSessionsLocked(normalizedId)
+            val candidates = resolveCandidateSessionsLocked(normalizedId)
+            candidates
                 .filter { it.active && !it.completeRequested && !it.stopRequested }
                 .onEach { it.stopRequested = true }
                 .mapNotNull { it.onStopRequested }
@@ -95,7 +109,8 @@ object FunctionUiSession {
         val runId = if (sessionsByRunId.containsKey(normalizedId)) {
             normalizedId
         } else {
-            runIdByTaskId[normalizedId]?.takeIf { runId ->
+            val ownerRunId = runIdByTaskId[normalizedId]
+            ownerRunId?.takeIf { runId ->
                 sessionsByRunId[runId]?.activeTaskIds?.contains(normalizedId) == true
             }
         }
@@ -105,7 +120,11 @@ object FunctionUiSession {
     fun endRun(runId: String): EndResult {
         val normalizedRunId = runId.trim()
         if (normalizedRunId.isEmpty()) {
-            return EndResult(wasActive = false, stopRequested = false, completeRequested = false)
+            return EndResult(
+                wasActive = false,
+                stopRequested = false,
+                completeRequested = false
+            )
         }
         return synchronized(lock) {
             val state = sessionsByRunId.remove(normalizedRunId)

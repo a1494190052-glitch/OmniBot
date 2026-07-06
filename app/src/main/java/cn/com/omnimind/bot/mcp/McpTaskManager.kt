@@ -13,7 +13,9 @@ object McpTaskManager {
     
     // 活跃任务映射表
     private val activeTasks = ConcurrentHashMap<String, TaskState>()
-    
+    // Tracks tasks that already have a cleanup coroutine scheduled — prevents double 300s cleanup jobs
+    private val scheduledCleanups = ConcurrentHashMap.newKeySet<String>()
+
     // 最大等待时间（毫秒）
     const val MAX_WAIT_TIME_MS = 120_000L  // 2分钟
     const val POLL_INTERVAL_MS = 500L      // 轮询间隔
@@ -24,12 +26,14 @@ object McpTaskManager {
     fun createTask(
         taskId: String,
         goal: String,
-        status: TaskStatus = TaskStatus.RUNNING
+        status: TaskStatus = TaskStatus.RUNNING,
+        needSummary: Boolean = false
     ): TaskState {
         val taskState = TaskState(
             taskId = taskId,
             goal = goal,
-            status = status
+            status = status,
+            needSummary = needSummary
         )
         activeTasks[taskId] = taskState
         return taskState
@@ -39,7 +43,7 @@ object McpTaskManager {
      * 获取任务
      */
     fun getTask(taskId: String): TaskState? = activeTasks[taskId]
-    
+
     /**
      * 获取所有活跃任务
      */
@@ -58,9 +62,11 @@ object McpTaskManager {
      * 延迟清理任务（保留一段时间供查询）
      */
     fun scheduleTaskCleanup(taskId: String, scope: CoroutineScope, delayMs: Long = 300_000L) {
+        if (!scheduledCleanups.add(taskId)) return // already scheduled; skip duplicate
         scope.launch {
             kotlinx.coroutines.delay(delayMs)
             activeTasks.remove(taskId)
+            scheduledCleanups.remove(taskId)
             OmniLog.d(TAG, "Task $taskId cleaned up after delay")
         }
     }
@@ -70,9 +76,14 @@ object McpTaskManager {
      */
     fun cleanupExpiredTasks(maxAgeMs: Long = 600_000) {
         val now = System.currentTimeMillis()
-        activeTasks.entries.removeIf { (_, state) ->
-            (state.status == TaskStatus.FINISHED || state.status == TaskStatus.ERROR || state.status == TaskStatus.CANCELLED)
+        val expiredTaskIds = activeTasks.entries
+            .filter { (_, state) ->
+                (state.status == TaskStatus.FINISHED || state.status == TaskStatus.ERROR || state.status == TaskStatus.CANCELLED)
                     && (now - state.startTime) > maxAgeMs
+            }
+            .map { it.key }
+        expiredTaskIds.forEach { taskId ->
+            activeTasks.remove(taskId)
         }
     }
     
@@ -131,4 +142,5 @@ object McpTaskManager {
             addChatMessage("[SYSTEM] Screen locked, task paused")
         }
     }
+
 }

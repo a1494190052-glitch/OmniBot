@@ -1,6 +1,8 @@
 package cn.com.omnimind.bot.mcp
 
 import cn.com.omnimind.baselib.i18n.AppLocaleManager
+import cn.com.omnimind.bot.agent.AgentToolNames
+import cn.com.omnimind.bot.function.FunctionApi
 
 /**
  * MCP 工具定义
@@ -9,7 +11,7 @@ object McpToolDefinitions {
     private fun brandName(): String = AppLocaleManager.brandName()
     
     val vlmTaskTool = mapOf(
-        "name" to "vlm_task",
+        "name" to AgentToolNames.VLM_TASK,
         "description" to """Execute an autonomous VLM (Visual Language Model) agent task on an Android device.
 
 This tool enables AI-driven device automation by using a visual language model to understand screen content and perform actions. The agent will:
@@ -18,11 +20,22 @@ This tool enables AI-driven device automation by using a visual language model t
 3. Execute UI actions (tap, scroll, input text, etc.)
 4. Iterate until the goal is achieved or intervention is needed
 
+Do not use this tool for uploaded image, screenshot, or photo recognition, OCR, explanation, summary, or comparison. Uploaded images are already part of the multimodal conversation; this tool is only for the current Android device screen and real UI automation.
+
 Use cases:
 - Automate repetitive mobile tasks (ordering food, sending messages, etc.)
 - Navigate complex app workflows autonomously
 - Extract information from mobile applications
 - Perform multi-step operations across different apps
+
+OMNIFLOW FUNCTION REUSE:
+- Ordinary vlm_task calls use the normal online VLM flow by default.
+- The outer Agent should not call hidden Function replay tools. Replay stays inside the local runtime.
+
+IMPORTANT FOR SUMMARY TASKS:
+- If the user's goal is to summarize, extract key points, or produce a report (e.g., "总结/汇总/整理/概括/提炼" or "summary/recap"),
+  you MUST set needSummary=true to get the summary back in the tool result.
+- When needSummary=true, the final response will include a Summary section and a `summary` field.
 
 BEHAVIOR:
 - This tool BLOCKS and waits for the task to complete or require input (up to 2 minutes)
@@ -51,6 +64,28 @@ WORKFLOW:
                 "packageName" to mapOf(
                     "type" to "string",
                     "description" to "Optional: Target app package name (e.g., 'com.tencent.mm' for WeChat). If not specified, the agent will start from the current screen."
+                ),
+                "maxSteps" to mapOf(
+                    "type" to "integer",
+                    "default" to 12,
+                    "description" to "Optional maximum execution steps. Defaults to 12 and is capped at 64. If the model does not explicitly finish before the limit, the task reports incomplete or max-step failure."
+                ),
+                "timeoutMs" to mapOf(
+                    "type" to "integer",
+                    "description" to "Optional control-plane wait timeout in milliseconds. If it expires, OOB stops the on-device VLM task instead of leaving it running."
+                ),
+                "startFromCurrent" to mapOf(
+                    "type" to "boolean",
+                    "description" to "Optional: set true to keep the current app/page and skip launching packageName."
+                ),
+                "needSummary" to mapOf(
+                    "type" to "boolean",
+                    "description" to "Optional: Set true for summarization/report tasks so the summary is generated and returned in the tool result. Default: false."
+                ),
+                "disableFunctionRecall" to mapOf(
+                    "type" to "boolean",
+                    "default" to false,
+                    "description" to "Optional: set true to disable local Function recall for this run. This is mainly for first-run capture, diagnostics, and A/B testing."
                 )
             ),
             "required" to listOf("goal")
@@ -144,6 +179,93 @@ BEHAVIOR:
         )
     )
 
+    val getStateTool = mapOf(
+        "name" to "get_state",
+        "description" to """Capture the current Android device state from OOB's on-device Accessibility runtime.
+
+Returns the foreground package/activity, live Accessibility XML, screenshot metadata, and optionally a JPEG screenshot data URI plus OOB indexed page evidence. This is a read-only state capture tool for external testing and GUI agents; it avoids slow host-side adb uiautomator/screencap capture.
+""".trimIndent(),
+        "inputSchema" to mapOf(
+            "type" to "object",
+            "properties" to mapOf(
+                "include_xml" to mapOf(
+                    "type" to "boolean",
+                    "default" to true,
+                    "description" to "Include the full live Accessibility XML string. Default: true."
+                ),
+                "include_screenshot" to mapOf(
+                    "type" to "boolean",
+                    "default" to true,
+                    "description" to "Include a JPEG screenshot data URI under screenshot.data_uri. Default: true."
+                ),
+                "include_indexed_context" to mapOf(
+                    "type" to "boolean",
+                    "default" to true,
+                    "description" to "Include OOB indexed page evidence rendered from XML for element grounding. Default: true."
+                ),
+                "include_marked_screenshot" to mapOf(
+                    "type" to "boolean",
+                    "default" to false,
+                    "description" to "Include a marked screenshot with element indexes. This duplicates image payload size. Default: false."
+                ),
+                "include_image_content" to mapOf(
+                    "type" to "boolean",
+                    "default" to false,
+                    "description" to "Also attach screenshot as MCP image content. Default false because screenshot.data_uri already contains it."
+                ),
+                "filter_overlay" to mapOf(
+                    "type" to "boolean",
+                    "default" to true,
+                    "description" to "Try to hide/filter OOB overlays during screenshot capture. Default: true."
+                ),
+                "image_quality" to mapOf(
+                    "type" to "string",
+                    "enum" to listOf("original", "high", "medium", "low", "summary"),
+                    "default" to "medium",
+                    "description" to "Screenshot compression level. Default: medium."
+                ),
+                "max_xml_chars" to mapOf(
+                    "type" to "integer",
+                    "description" to "Optional XML truncation limit for the returned xml field. Omit or set <=0 for full XML."
+                )
+            )
+        )
+    )
+
+    val actTool = mapOf(
+        "name" to "act",
+        "description" to """Execute one canonical Android UI action through OOB's on-device runtime.
+
+Use this for external evaluators that make their own next-step decision but want OOB to provide the physical device operation. This is a single-step executor, not a planner: pass one action such as click, input_text, swipe, open_app, press_key, long_press, or finished. Coordinates are absolute screen pixels by default; set coordinate_space=relative_0_1000 only when x/y fields are normalized 0..1000 values.
+""".trimIndent(),
+        "inputSchema" to mapOf(
+            "type" to "object",
+            "properties" to mapOf(
+                "action" to mapOf(
+                    "type" to "object",
+                    "description" to "Canonical action object, for example {tool:'click', args:{x:100,y:200}}."
+                ),
+                "tool" to mapOf(
+                    "type" to "string",
+                    "description" to "Action name when action is not supplied."
+                ),
+                "args" to mapOf(
+                    "type" to "object",
+                    "description" to "Action arguments when action is not supplied."
+                ),
+                "coordinate_space" to mapOf(
+                    "type" to "string",
+                    "enum" to listOf("absolute", "relative_0_1000"),
+                    "description" to "Coordinate space for x/y fields. Default absolute."
+                ),
+                "settle_delay_ms" to mapOf(
+                    "type" to "integer",
+                    "description" to "Optional fixed wait after the action. Default 1000ms."
+                )
+            )
+        )
+    )
+
     val fileTransferTool
         get() = mapOf(
         "name" to "file_transfer",
@@ -192,6 +314,88 @@ NOTES:
         )
     )
 
+    val agentRunTool = mapOf(
+        "name" to "agent_run",
+        "description" to """Submit a prompt into the normal in-app ${brandName()} Agent runtime.
+
+Use this when you need OOB itself to run a normal Agent task, call internal Agent tools, or validate a workflow without relying on visual typing into the Flutter Home input.
+
+BEHAVIOR:
+- Returns once the Agent run is accepted.
+- Use WebChat events, task logs, or returned artifacts to verify completion.
+""".trimIndent(),
+        "inputSchema" to mapOf(
+            "type" to "object",
+            "properties" to mapOf(
+                "userMessage" to mapOf(
+                    "type" to "string",
+                    "description" to "The user prompt to submit to the normal OOB Agent runtime."
+                ),
+                "conversationId" to mapOf(
+                    "type" to "integer",
+                    "description" to "Optional existing OOB conversation id. If omitted, a new conversation is created."
+                ),
+                "conversationMode" to mapOf(
+                    "type" to "string",
+                    "description" to "Optional conversation mode. Defaults to normal."
+                ),
+                "title" to mapOf(
+                    "type" to "string",
+                    "description" to "Optional title when creating a new conversation."
+                ),
+                "taskId" to mapOf(
+                    "type" to "string",
+                    "description" to "Optional stable task id for correlation. If omitted, the runtime generates one."
+                ),
+                "attachments" to mapOf(
+                    "type" to "array",
+                    "description" to "Optional image/file attachments in the same shape accepted by WebChat."
+                ),
+                "modelOverride" to mapOf(
+                    "type" to "object",
+                    "description" to "Optional providerProfileId/modelId override in the same shape accepted by WebChat."
+                ),
+                "toolProfile" to mapOf(
+                    "type" to "string",
+                    "enum" to listOf(FunctionApi.PROFILE),
+                    "description" to "Optional focused tool exposure profile. Use function when the Agent only needs to list, inspect, register, convert, run, update, or delete Functions; this keeps regular Agent behavior unchanged while reducing tool-schema tokens. Legacy omniflow and function_management inputs are still accepted and normalized."
+                ),
+                "allowedTools" to mapOf(
+                    "type" to "array",
+                    "description" to "Optional explicit model tool allowlist for this Agent run. When set, only these tool schemas are exposed to the model.",
+                    "items" to mapOf("type" to "string")
+                )
+            ),
+            "required" to listOf("userMessage")
+        )
+    )
+
+    val fixedTools
+        get() = listOf(
+            vlmTaskTool,
+            taskStatusTool,
+            taskReplyTool,
+            taskWaitUnlockTool,
+            getStateTool,
+            actTool,
+            fileTransferTool,
+            agentRunTool,
+        ) + FunctionApi.mcpToolDefinitions
+
+    val fixedToolNames: Set<String>
+        get() = fixedTools.mapNotNull { it["name"]?.toString() }.toSet()
+
+    val schemaExportResource: Map<String, Any?>
+        get() = mapOf(
+            "uri" to FunctionApi.SCHEMA_RESOURCE_URI,
+            "name" to "Function Management Schemas",
+            "description" to "Exported JSON schema bundle for Function, update_function, enhancement reports, function schemas and MCP tool inputs.",
+            "mimeType" to "application/json",
+        )
+
+    val schemaExportBundle: Map<String, Any?>
+        get() = FunctionApi.schemaBundle(fixedTools)
+
     val allTools
-        get() = listOf(vlmTaskTool, taskStatusTool, taskReplyTool, taskWaitUnlockTool, fileTransferTool)
+        get() = fixedTools
 }

@@ -102,7 +102,7 @@ object OobPageVectorSet {
         val normalized = normalize(pooled)
         val signature = signatureFor(normalized, effectivePackage, rootBounds)
         return PageVector(
-            nodeId = "page_node_${signature.take(16)}",
+            nodeId = "udeg_node_${signature.take(16)}",
             packageName = effectivePackage,
             rootBounds = rootBounds,
             vector = normalized,

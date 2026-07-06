@@ -926,7 +926,7 @@ object VLMIndexedPageContext {
         }.getOrNull()
     }
 
-    private val BOUNDS_REGEX = Regex("""\[(\-?\d+(?:\.\d+)?),(\-?\d+(?:\.\d+)?)\]\[(\-?\d+(?:\.\d+)?),(\-?\d+(?:\.\d+)?)\]""")
+    private val BOUNDS_REGEX = Regex("""\[(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)\]\[(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)\]""")
     private val OVERLAY_LABELS = setOf(
         "接管",
         "继续执行",

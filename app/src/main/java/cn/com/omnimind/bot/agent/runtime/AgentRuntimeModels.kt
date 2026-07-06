@@ -148,8 +148,20 @@ data class ResolvedSkillContext(
         return if (base.length <= maxChars) base else base.take(maxChars) + "\n..."
     }
 
-    fun stepGuidance(maxChars: Int = 900): String {
-        val lines = bodyMarkdown.lines()
+    fun stepGuidance(maxChars: Int = 2200): String {
+        val sourceLines = bodyMarkdown.lines()
+        val bodyLines = if (sourceLines.firstOrNull()?.trim() == "---") {
+            sourceLines.drop(1).dropWhile { it.trim() != "---" }.drop(1)
+        } else {
+            sourceLines
+        }
+        val guidanceSection = bodyLines
+            .dropWhile { it.trim() != "## Step Guidance Essentials" }
+            .drop(1)
+            .takeWhile { !it.trim().startsWith("## ") }
+            .takeIf { it.isNotEmpty() }
+            ?: bodyLines
+        val lines = guidanceSection
             .map { it.trim() }
             .filter { line ->
                 line.isNotEmpty() &&
@@ -157,10 +169,37 @@ data class ResolvedSkillContext(
                     !line.startsWith("#") &&
                     !line.startsWith("```")
             }
-            .take(10)
+            .take(24)
         val base = lines.joinToString("\n")
         return if (base.length <= maxChars) base else base.take(maxChars) + "\n..."
     }
+
+    fun vlmStepGuidance(maxChars: Int = 900): String {
+        val base = if (isOmniFlowSkill()) {
+            OMNIFLOW_COMPACT_GUIDANCE
+        } else {
+            ""
+        }
+        return if (base.length <= maxChars) base else base.take(maxChars) + "\n..."
+    }
+
+    private fun isOmniFlowSkill(): Boolean {
+        val skillName = frontmatter["name"].orEmpty()
+        return skillId == "omniflow" || skillName == "omniflow"
+    }
+
+    private companion object {
+        private val OMNIFLOW_COMPACT_GUIDANCE = listOf(
+            "Use one fresh observation for each action turn.",
+            "Choose exactly one executable UI action per step.",
+            "Prefer visible label, role, node_id, element_index, or scrollable_index; use coordinates only as fallback.",
+            "If an editable field is focused, use input_text; otherwise ground the field before typing.",
+            "Call finished only when the requested final state is directly visible.",
+            "Replay registered Functions only when current package and page evidence match; otherwise fall back to live VLM.",
+            "Do not call update_function or enhance inline before RunLog registration, direct replay, recall-hit replay, or debug convert-and-replay."
+        ).joinToString("\n")
+    }
+
 }
 
 data class SkillCompatibilityResult(

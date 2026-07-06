@@ -91,6 +91,14 @@ object AssistsCore {
         return stateMachine?.provideUserInputToVLMTask(userInput) ?: false
     }
 
+    fun pauseVLMTask(): Boolean {
+        return stateMachine?.pauseVLMTask() ?: false
+    }
+
+    fun resumeVLMTask(): Boolean {
+        return stateMachine?.resumeVLMTask() ?: false
+    }
+
     fun appendVlmExternalMemory(memory: String): Boolean {
         return stateMachine?.appendVlmExternalMemory(memory) ?: false
     }
@@ -104,6 +112,14 @@ object AssistsCore {
     fun appendVlmPriorityEvent(memory: String, eventType: String, suggestCompletion: Boolean = false): Boolean {
         return stateMachine?.appendVlmPriorityEvent(memory, eventType, suggestCompletion) ?: false
     }
+
+    /**
+     * 通知VLM任务总结Sheet已准备就绪
+     */
+    fun notifySummarySheetReady(): Boolean {
+        return stateMachine?.notifySummarySheetReady() ?: false
+    }
+
 
     suspend fun showScheduledTip(closeTimer: Long, doTaskTimer: Long) {
         stateMachine?.showScheduledTip(closeTimer, doTaskTimer)
@@ -156,7 +172,13 @@ object AssistsCore {
      * 取消等待中或运行中的任务，不检查 isRunning 状态
      * 用于在预执行 delay 期间取消任务
      */
-    fun cancelPendingTask(taskId: String? = null) = stateMachine?.cancelPendingTask(taskId)
+    fun cancelPendingTask(taskId: String? = null): Boolean {
+        return stateMachine?.cancelPendingTask(taskId) ?: false
+    }
+
+    fun completeRunningTask(taskId: String? = null, message: String = "任务已完成"): Boolean {
+        return stateMachine?.completeRunningTask(taskId, message) ?: false
+    }
 
     /**
      * 导航到主应用指定路由
