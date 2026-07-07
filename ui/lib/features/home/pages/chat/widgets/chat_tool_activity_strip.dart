@@ -32,6 +32,8 @@ const ValueKey<String> kChatToolActivityToggleKey = ValueKey<String>(
 const ValueKey<String> kChatToolActivityStopKey = ValueKey<String>(
   'chat-tool-activity-stop',
 );
+const String kChatCommandToggleKeyPrefix = 'chat-command-toggle';
+const String kChatCommandEffortSliderKeyPrefix = 'chat-command-effort-slider';
 
 const double _kToolActivityRowHeight = 32;
 const double _kToolActivitySurfaceRadius = 18;
@@ -44,6 +46,7 @@ const double _kToolActivityDrawerMaxHeight = 264;
 const double _kToolActivityTypeSlotWidth = 34;
 const double _kToolActivityStatusSlotWidth = 42;
 const double _kToolActivityTrailingSlotWidth = 24;
+const double _kCommandEffortSliderWidth = 156;
 const double _kToolActivityAttachedBorderReveal = 1.5;
 const double _kToolActivityGlassBlurSigma = 14;
 const BorderRadius _kToolActivitySurfaceBorderRadius = BorderRadius.only(
@@ -629,9 +632,18 @@ class _CommandDrawerSurface extends StatelessWidget {
             card: activeCard,
             leadingInset: leadingInset,
             onTap: () => onSelectCommand(activeCard),
-            trailing: canExpand
-                ? _ActivityBarTrailing(expanded: expanded, onToggle: onToggle)
-                : null,
+            trailing:
+                _buildCommandTrailingControl(
+                  activeCard,
+                  onTap: () => onSelectCommand(activeCard),
+                  onSelectCommand: onSelectCommand,
+                ) ??
+                (canExpand
+                    ? _ActivityBarTrailing(
+                        expanded: expanded,
+                        onToggle: onToggle,
+                      )
+                    : null),
           ),
         ],
       ),
@@ -982,7 +994,14 @@ class _HistoryDrawer extends StatelessWidget {
                 color: Colors.transparent,
                 child: InkWell(
                   onTap: () => onOpenCard(card),
-                  child: ToolActivityRow(card: card),
+                  child: ToolActivityRow(
+                    card: card,
+                    trailing: _buildCommandTrailingControl(
+                      card,
+                      onTap: () => onOpenCard(card),
+                      onSelectCommand: onOpenCard,
+                    ),
+                  ),
                 ),
               ),
             );
@@ -1049,6 +1068,15 @@ class ToolActivityRow extends StatelessWidget {
         padding: EdgeInsets.fromLTRB(10 + leadingInset, 0, 8, 0),
         child: LayoutBuilder(
           builder: (context, constraints) {
+            final trailingSlotWidth = math
+                .min(
+                  _resolveActivityTrailingSlotWidth(card),
+                  math.max(
+                    _kToolActivityTrailingSlotWidth,
+                    constraints.maxWidth * 0.52,
+                  ),
+                )
+                .toDouble();
             final commandDescriptionMaxWidth = math
                 .min(constraints.maxWidth * 0.42, 180.0)
                 .toDouble();
@@ -1057,7 +1085,7 @@ class ToolActivityRow extends StatelessWidget {
                 constraints.maxWidth >=
                     _kToolActivityTypeSlotWidth +
                         _kToolActivityStatusSlotWidth +
-                        _kToolActivityTrailingSlotWidth +
+                        trailingSlotWidth +
                         28;
             final showStatusLabel = !isCommandCard;
             return Row(
@@ -1152,7 +1180,7 @@ class ToolActivityRow extends StatelessWidget {
                 ),
                 const SizedBox(width: 4),
                 SizedBox(
-                  width: _kToolActivityTrailingSlotWidth,
+                  width: trailingSlotWidth,
                   child: Align(
                     alignment: Alignment.centerRight,
                     child: trailing,
@@ -1171,6 +1199,84 @@ bool _isCommandActivityCard(Map<String, dynamic> cardData) {
   return (cardData['toolType'] ?? '').toString() == 'command';
 }
 
+bool _isCommandToggleCard(Map<String, dynamic> cardData) {
+  return _isCommandActivityCard(cardData) && cardData['isToggle'] == true;
+}
+
+bool _isCommandEffortSliderCard(Map<String, dynamic> cardData) {
+  return _isCommandActivityCard(cardData) &&
+      (cardData['controlType'] ?? '').toString() == 'effortSlider';
+}
+
+double _resolveActivityTrailingSlotWidth(Map<String, dynamic> cardData) {
+  if (_isCommandEffortSliderCard(cardData)) {
+    return _kCommandEffortSliderWidth;
+  }
+  return _kToolActivityTrailingSlotWidth;
+}
+
+List<String> _resolveCommandEffortOptions(Map<String, dynamic> cardData) {
+  final rawOptions = cardData['effortOptions'];
+  final options = rawOptions is List
+      ? rawOptions
+            .map((item) => item.toString().trim())
+            .where((item) => item.isNotEmpty)
+            .toList(growable: false)
+      : const <String>[];
+  return options.isEmpty
+      ? const <String>['no', 'low', 'high', 'xhigh', 'max']
+      : options;
+}
+
+String? _resolveSelectedCommandEffort(Map<String, dynamic> cardData) {
+  final selected = (cardData['selectedEffort'] ?? cardData['statusLabel'])
+      .toString()
+      .trim();
+  if (selected.isEmpty) {
+    return null;
+  }
+  final options = _resolveCommandEffortOptions(cardData);
+  return options.contains(selected) ? selected : null;
+}
+
+Widget? _buildCommandTrailingControl(
+  Map<String, dynamic> cardData, {
+  VoidCallback? onTap,
+  ValueChanged<Map<String, dynamic>>? onSelectCommand,
+}) {
+  final cardId = (cardData['cardId'] ?? cardData['toolTitle'] ?? '')
+      .toString()
+      .trim();
+  if (_isCommandToggleCard(cardData)) {
+    return _CommandToggleSwitch(
+      value: cardData['toggleValue'] == true,
+      semanticLabel: resolveAgentToolTitle(cardData),
+      onTap: onTap,
+      key: ValueKey<String>('$kChatCommandToggleKeyPrefix-$cardId'),
+    );
+  }
+  if (_isCommandEffortSliderCard(cardData)) {
+    return _CommandEffortSlider(
+      key: ValueKey<String>('$kChatCommandEffortSliderKeyPrefix-$cardId'),
+      options: _resolveCommandEffortOptions(cardData),
+      selectedValue: _resolveSelectedCommandEffort(cardData),
+      semanticLabel: resolveAgentToolTitle(cardData),
+      onChanged: onSelectCommand == null
+          ? null
+          : (effort) {
+              onSelectCommand(<String, dynamic>{
+                ...cardData,
+                'toolName': effort,
+                'toolTitle': effort,
+                'displayName': effort,
+                'selectedEffort': effort,
+              });
+            },
+    );
+  }
+  return null;
+}
+
 bool _isBrowserActivityCard(Map<String, dynamic> cardData) {
   return (cardData['toolType'] ?? '').toString() == 'browser';
 }
@@ -1184,6 +1290,9 @@ String _resolveActivityRowTitle(Map<String, dynamic> cardData) {
 }
 
 String _resolveCommandActivityDescription(Map<String, dynamic> cardData) {
+  if (_isCommandEffortSliderCard(cardData)) {
+    return '';
+  }
   final title = resolveAgentToolTitle(cardData).trim();
   final summary = (cardData['summary'] ?? '').toString().trim();
   if (summary.isNotEmpty && summary != title) {
@@ -1263,6 +1372,206 @@ class _StatusTag extends StatelessWidget {
           fontSize: 8.4,
           fontWeight: FontWeight.w700,
           height: 1,
+        ),
+      ),
+    );
+  }
+}
+
+class _CommandEffortSlider extends StatelessWidget {
+  const _CommandEffortSlider({
+    super.key,
+    required this.options,
+    required this.selectedValue,
+    required this.semanticLabel,
+    this.onChanged,
+  });
+
+  final List<String> options;
+  final String? selectedValue;
+  final String semanticLabel;
+  final ValueChanged<String>? onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final palette = context.omniPalette;
+    final isDark = context.isDarkTheme;
+    final colorScheme = Theme.of(context).colorScheme;
+    final activeColor = palette.accentPrimary;
+    final activeGradient = isDark
+        ? <Color>[
+            Color.lerp(activeColor, Colors.white, 0.12)!,
+            Color.lerp(activeColor, Colors.black, 0.12)!,
+          ]
+        : <Color>[
+            Color.lerp(activeColor, Colors.white, 0.18)!,
+            Color.lerp(activeColor, const Color(0xFF1930D9), 0.34)!,
+          ];
+    final trackColor = isDark
+        ? palette.accentPrimary.withValues(alpha: 0.10)
+        : palette.accentPrimary.withValues(alpha: 0.08);
+    final selectedTextColor = colorScheme.onPrimary;
+    final idleTextColor = isDark
+        ? palette.textSecondary
+        : const Color(0xFF657891);
+    final selectedIndex = selectedValue == null
+        ? -1
+        : options.indexOf(selectedValue!);
+    final alignment = options.length <= 1 || selectedIndex < 0
+        ? Alignment.centerLeft
+        : Alignment(-1 + (2 * selectedIndex / (options.length - 1)), 0);
+
+    return Semantics(
+      label: semanticLabel,
+      value: selectedValue ?? '',
+      child: Container(
+        height: 22,
+        decoration: BoxDecoration(
+          color: trackColor,
+          borderRadius: BorderRadius.circular(999),
+        ),
+        clipBehavior: Clip.antiAlias,
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            if (selectedIndex >= 0)
+              Positioned.fill(
+                child: AnimatedAlign(
+                  duration: const Duration(milliseconds: 180),
+                  curve: Curves.easeOutCubic,
+                  alignment: alignment,
+                  child: FractionallySizedBox(
+                    widthFactor: 1 / options.length,
+                    heightFactor: 1,
+                    child: Padding(
+                      padding: const EdgeInsets.all(2),
+                      child: DecoratedBox(
+                        decoration: BoxDecoration(
+                          gradient: LinearGradient(
+                            begin: Alignment.topLeft,
+                            end: Alignment.bottomRight,
+                            colors: activeGradient,
+                          ),
+                          borderRadius: BorderRadius.circular(999),
+                          boxShadow: [
+                            BoxShadow(
+                              color: activeColor.withValues(
+                                alpha: isDark ? 0.28 : 0.20,
+                              ),
+                              blurRadius: 8,
+                              offset: const Offset(0, 3),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            Row(
+              children: [
+                for (final option in options)
+                  Expanded(
+                    child: Semantics(
+                      button: true,
+                      selected: option == selectedValue,
+                      label: option,
+                      child: GestureDetector(
+                        behavior: HitTestBehavior.opaque,
+                        onTap: onChanged == null
+                            ? null
+                            : () => onChanged!(option),
+                        child: Center(
+                          child: Text(
+                            option,
+                            maxLines: 1,
+                            overflow: TextOverflow.clip,
+                            style: TextStyle(
+                              color: option == selectedValue
+                                  ? selectedTextColor
+                                  : idleTextColor,
+                              fontSize: 8.2,
+                              fontWeight: option == selectedValue
+                                  ? FontWeight.w800
+                                  : FontWeight.w700,
+                              letterSpacing: 0,
+                              height: 1,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _CommandToggleSwitch extends StatelessWidget {
+  const _CommandToggleSwitch({
+    super.key,
+    required this.value,
+    required this.semanticLabel,
+    this.onTap,
+  });
+
+  final bool value;
+  final String semanticLabel;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final palette = context.omniPalette;
+    final activeColor = context.isDarkTheme
+        ? palette.accentPrimary
+        : AppColors.primaryBlue;
+    final inactiveColor = context.isDarkTheme
+        ? palette.borderSubtle.withValues(alpha: 0.72)
+        : const Color(0xFFD4DEEC);
+    final thumbColor = context.isDarkTheme
+        ? palette.surfaceElevated
+        : Colors.white;
+    return Semantics(
+      label: semanticLabel,
+      toggled: value,
+      button: true,
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: onTap,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 180),
+          curve: Curves.easeOutCubic,
+          width: 24,
+          height: 14,
+          padding: const EdgeInsets.all(2),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(999),
+            color: value ? activeColor : inactiveColor,
+          ),
+          child: Align(
+            alignment: value ? Alignment.centerRight : Alignment.centerLeft,
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 180),
+              curve: Curves.easeOutCubic,
+              width: 10,
+              height: 10,
+              decoration: BoxDecoration(
+                color: thumbColor,
+                shape: BoxShape.circle,
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: value ? 0.16 : 0.10),
+                    blurRadius: 3,
+                    offset: const Offset(0, 1),
+                  ),
+                ],
+              ),
+            ),
+          ),
         ),
       ),
     );

@@ -14,6 +14,7 @@ class CodexReduceResult {
     this.threadId,
     this.turnId,
     this.requestId,
+    this.collaborationMode,
   });
 
   final bool handled;
@@ -21,6 +22,7 @@ class CodexReduceResult {
   final String? threadId;
   final String? turnId;
   final Object? requestId;
+  final String? collaborationMode;
 }
 
 class CodexEventReducer {
@@ -87,6 +89,16 @@ class CodexEventReducer {
         method: method,
         threadId: threadId,
         turnId: turnId,
+      );
+    }
+
+    if (method == 'thread/settings/updated') {
+      return CodexReduceResult(
+        handled: true,
+        method: method,
+        threadId: threadId,
+        turnId: turnId,
+        collaborationMode: _collaborationModeFromThreadSettings(params),
       );
     }
 
@@ -219,6 +231,26 @@ class CodexEventReducer {
             parentTaskId: parentTaskId,
             entryId: cardId,
             kind: 'permission_required',
+          ),
+        );
+      } else if (itemType.contains('requestUserInput')) {
+        final question = _firstQuestion(item);
+        final cardId = '$startedItemId-codex-user-input';
+        _upsertCodexRequestCard(
+          runtime,
+          cardId: cardId,
+          taskId: parentTaskId,
+          requestId: params['requestId'] ?? message['id'] ?? item['id'],
+          requestKind: 'user_input',
+          title: question.title,
+          detail: question.detail,
+          questionId: question.id,
+          params: item,
+          streamMeta: _streamMeta(
+            runtime,
+            parentTaskId: parentTaskId,
+            entryId: cardId,
+            kind: 'clarify_required',
           ),
         );
       }
@@ -1604,17 +1636,6 @@ class CodexEventReducer {
     String? questionId,
   }) {
     _touchActiveTurn(runtime, taskId);
-    final cardData = <String, dynamic>{
-      'type': 'codex_request',
-      'taskId': taskId,
-      'requestId': requestId,
-      'requestKind': requestKind,
-      'title': title,
-      'detail': detail,
-      'questionId': questionId,
-      'rawParamsJson': _safeJson(params),
-      'status': 'pending',
-    };
     final index = runtime.messages.indexWhere(
       (message) => message.id == cardId,
     );
@@ -1624,6 +1645,34 @@ class CodexEventReducer {
       cardId,
       existingMessage: existing,
     );
+    final existingRequestId = _string(existing?.cardData?['requestId'])?.trim();
+    final nextRequestId = _string(requestId)?.trim();
+    final shouldPreserveExistingStatus =
+        nextRequestId != null &&
+        nextRequestId.isNotEmpty &&
+        existingRequestId == nextRequestId;
+    final existingCardData = existing?.cardData ?? const <String, dynamic>{};
+    final status = _resolveRequestStatus(
+      requestKind: requestKind,
+      params: params,
+      existingStatus: shouldPreserveExistingStatus
+          ? existingCardData['status']
+          : null,
+    );
+    final cardData = <String, dynamic>{
+      'type': 'codex_request',
+      'taskId': taskId,
+      'requestId': requestId,
+      'requestKind': requestKind,
+      'title': title,
+      'detail': detail,
+      'questionId': questionId,
+      'rawParamsJson': _safeJson(params),
+      'status': status,
+      'conversationId': runtime.conversationId,
+      'cardId': cardId,
+      'startTime': startTime,
+    };
     final message = ChatMessageModel(
       id: cardId,
       type: 2,
@@ -1641,6 +1690,94 @@ class CodexEventReducer {
       );
     }
     runtime.isAiResponding = true;
+  }
+
+  String _resolveRequestStatus({
+    required String requestKind,
+    required Map<String, dynamic> params,
+    required dynamic existingStatus,
+  }) {
+    final existing = _normalizeRequestStatus(
+      existingStatus,
+      requestKind: requestKind,
+    );
+    if (_isTerminalRequestStatus(existing)) {
+      return existing!;
+    }
+    final explicit = _normalizeRequestStatus(
+      _firstString([
+        params['status'],
+        params['state'],
+        params['requestStatus'],
+        params['request_status'],
+        _asStringMap(params['request'])?['status'],
+        _asStringMap(params['request'])?['state'],
+      ]),
+      requestKind: requestKind,
+    );
+    if (explicit != null && explicit != 'pending') {
+      return explicit;
+    }
+    final response =
+        params['response'] ??
+        params['answer'] ??
+        params['answers'] ??
+        params['result'] ??
+        params['decision'];
+    if (response != null) {
+      if (requestKind == 'approval') {
+        final decision = _firstString([
+          response,
+          _asStringMap(response)?['decision'],
+          _asStringMap(response)?['status'],
+          _asStringMap(response)?['state'],
+        ])?.toLowerCase();
+        if (decision == 'accept' ||
+            decision == 'accepted' ||
+            decision == 'approve' ||
+            decision == 'approved' ||
+            decision == 'yes') {
+          return 'accepted';
+        }
+        if (decision == 'decline' ||
+            decision == 'declined' ||
+            decision == 'reject' ||
+            decision == 'rejected' ||
+            decision == 'no') {
+          return 'declined';
+        }
+      }
+      return requestKind == 'approval' ? 'accepted' : 'submitted';
+    }
+    return explicit ?? existing ?? 'pending';
+  }
+
+  String? _normalizeRequestStatus(
+    dynamic value, {
+    required String requestKind,
+  }) {
+    final normalized = _string(value)?.trim().toLowerCase();
+    if (normalized == null || normalized.isEmpty) {
+      return null;
+    }
+    return switch (normalized) {
+      'accept' || 'accepted' || 'approve' || 'approved' => 'accepted',
+      'decline' || 'declined' || 'reject' || 'rejected' => 'declined',
+      'submit' ||
+      'submitted' ||
+      'answered' ||
+      'complete' ||
+      'completed' => requestKind == 'approval' ? 'accepted' : 'submitted',
+      'fail' || 'failed' || 'error' => 'failed',
+      'pending' || 'running' || 'requested' || 'open' => 'pending',
+      _ => normalized,
+    };
+  }
+
+  bool _isTerminalRequestStatus(String? status) {
+    return status == 'submitted' ||
+        status == 'accepted' ||
+        status == 'declined';
   }
 
   String? _deduplicateReplayDelta(
@@ -1722,9 +1859,9 @@ class CodexEventReducer {
       // Keep the thinking card streaming until the entire turn ends.
       // _completeTurn() will call _finalizeThinkingCardsForTask() once
       // turn/completed (or thread/closed/inactive) arrives.
-      runtime.codexReplayDeltaOffsets.remove(
-        '${itemId ?? taskId}-codex-thinking',
-      );
+      final cardId = '${itemId ?? taskId}-codex-thinking';
+      _markThinkingItemCompleted(runtime, taskId, cardId);
+      runtime.codexReplayDeltaOffsets.remove(cardId);
     }
     if (isCodexToolItemType(itemType)) {
       final toolInfo = normalizeCodexToolCall(
@@ -1975,7 +2112,8 @@ class CodexEventReducer {
     final isManualCancel =
         appendCancelIfEmpty &&
         taskId == runtime.currentDispatchTaskId &&
-        !_hasVisibleAssistantTextForTask(runtime, taskId);
+        !_hasVisibleAssistantTextForTask(runtime, taskId) &&
+        !_hasCompletedCodexOutputForTask(runtime, taskId);
     if (isManualCancel) {
       _appendAssistantText(
         runtime,
@@ -1985,6 +2123,7 @@ class CodexEventReducer {
         isFinal: true,
         replace: true,
       );
+      _cancelThinkingCardsForTask(runtime, taskId);
     }
     runtime.isAiResponding = false;
     runtime.isExecutingTask = false;
@@ -1997,7 +2136,9 @@ class CodexEventReducer {
     runtime.activeThinkingCardId = null;
     runtime.currentThinkingStage = ThinkingStage.complete.value;
     _markAssistantMessagesFinalForTask(runtime, taskId);
-    _finalizeThinkingCardsForTask(runtime, taskId);
+    if (!isManualCancel) {
+      _finalizeThinkingCardsForTask(runtime, taskId);
+    }
     _markToolCardsCompleteForTask(runtime, taskId);
   }
 
@@ -2016,6 +2157,35 @@ class CodexEventReducer {
         return true;
       }
       if ((message.text ?? '').trim().isNotEmpty) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  bool _hasCompletedCodexOutputForTask(
+    ChatConversationRuntimeState runtime,
+    String taskId,
+  ) {
+    for (final message in runtime.messages) {
+      final cardData = message.cardData;
+      if (cardData == null) {
+        continue;
+      }
+      final cardTaskId =
+          _string(cardData['taskID']) ??
+          _string(cardData['taskId']) ??
+          _string(message.streamMeta?['parentTaskId']);
+      if (cardTaskId != taskId) {
+        continue;
+      }
+      if (cardData['reasoningItemCompleted'] == true) {
+        return true;
+      }
+      final status = _string(cardData['status'])?.toLowerCase();
+      if (status == 'success' ||
+          status == 'completed' ||
+          status == 'complete') {
         return true;
       }
     }
@@ -2161,6 +2331,70 @@ class CodexEventReducer {
     );
   }
 
+  void _markThinkingItemCompleted(
+    ChatConversationRuntimeState runtime,
+    String parentTaskId,
+    String cardId,
+  ) {
+    final index = runtime.messages.indexWhere(
+      (message) => message.id == cardId,
+    );
+    if (index == -1) return;
+    final existing = runtime.messages[index];
+    final existingCardData = existing.cardData;
+    if (existingCardData?['type'] != 'deep_thinking') return;
+    final cardData = Map<String, dynamic>.from(existingCardData!);
+    cardData['reasoningItemCompleted'] = true;
+    runtime.messages[index] = existing.copyWith(
+      content: {'cardData': cardData, 'id': cardId},
+      streamMeta: _streamMeta(
+        runtime,
+        parentTaskId: parentTaskId,
+        entryId: cardId,
+        kind: 'thinking_snapshot',
+        existingMessage: existing,
+      ),
+    );
+  }
+
+  void _cancelThinkingCard(
+    ChatConversationRuntimeState runtime,
+    String parentTaskId,
+    String cardId,
+  ) {
+    final index = runtime.messages.indexWhere(
+      (message) => message.id == cardId,
+    );
+    if (index == -1) return;
+    final existing = runtime.messages[index];
+    final existingCardData = existing.cardData;
+    if (existingCardData?['type'] != 'deep_thinking') return;
+    final cardData = Map<String, dynamic>.from(existingCardData!);
+    final startTime =
+        _asInt(cardData['startTime']) ??
+        _startTimeForEntry(runtime, cardId, existingMessage: existing);
+    cardData['isLoading'] = false;
+    cardData['stage'] = ThinkingStage.cancelled.value;
+    cardData['taskID'] = parentTaskId;
+    cardData['cardId'] = cardId;
+    cardData['startTime'] = startTime;
+    cardData['endTime'] ??= DateTime.now().millisecondsSinceEpoch;
+    cardData['isCollapsible'] = false;
+    cardData['thinkingContent'] = (cardData['thinkingContent'] ?? '')
+        .toString();
+    runtime.messages[index] = existing.copyWith(
+      content: {'cardData': cardData, 'id': cardId},
+      streamMeta: _streamMeta(
+        runtime,
+        parentTaskId: parentTaskId,
+        entryId: cardId,
+        kind: 'thinking_snapshot',
+        isFinal: true,
+        existingMessage: existing,
+      ),
+    );
+  }
+
   void _finalizeThinkingCardsForTask(
     ChatConversationRuntimeState runtime,
     String parentTaskId,
@@ -2180,6 +2414,28 @@ class CodexEventReducer {
         .toList(growable: false);
     for (final cardId in cardIds) {
       _finalizeThinkingCard(runtime, parentTaskId, cardId);
+    }
+  }
+
+  void _cancelThinkingCardsForTask(
+    ChatConversationRuntimeState runtime,
+    String parentTaskId,
+  ) {
+    final cardIds = runtime.messages
+        .where((message) {
+          final cardData = message.cardData;
+          if (cardData?['type'] != 'deep_thinking') {
+            return false;
+          }
+          final cardTaskId =
+              _string(cardData?['taskID']) ??
+              _string(message.streamMeta?['parentTaskId']);
+          return cardTaskId == parentTaskId;
+        })
+        .map((message) => message.id)
+        .toList(growable: false);
+    for (final cardId in cardIds) {
+      _cancelThinkingCard(runtime, parentTaskId, cardId);
     }
   }
 
@@ -3400,6 +3656,28 @@ bool _statusIsCancelled(String? status) {
   return status == 'cancelled' ||
       status == 'canceled' ||
       status == 'interrupted';
+}
+
+String? _collaborationModeFromThreadSettings(Map<String, dynamic> params) {
+  final settings =
+      _asStringMap(params['threadSettings']) ??
+      _asStringMap(params['thread_settings']) ??
+      _asStringMap(params['settings']) ??
+      _asStringMap(params['thread']) ??
+      params;
+  final modeValue =
+      settings['collaborationMode'] ??
+      settings['collaboration_mode'] ??
+      params['collaborationMode'] ??
+      params['collaboration_mode'];
+  final modeMap = _asStringMap(modeValue);
+  final mode = _firstString([modeMap?['mode'], modeMap?['kind'], modeValue]);
+  if (mode != null) {
+    return mode;
+  }
+  final nestedSettings =
+      _asStringMap(modeMap?['settings']) ?? _asStringMap(settings['settings']);
+  return _firstString([nestedSettings?['mode'], nestedSettings?['kind']]);
 }
 
 int? _asInt(dynamic value) {

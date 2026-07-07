@@ -27,12 +27,14 @@ class _AboutPageState extends State<AboutPage> {
       'https://omnimind-ai.github.io/OmniBot-Docs/en/';
 
   String _version = '';
-  AppUpdateStatus? _updateStatus;
-  bool _betaOptIn = false;
-  AppUpdateDownloadSource _downloadSource = AppUpdateDownloadSource.worker;
+  AppUpdateStatus? _updateStatus = AppUpdateService.statusNotifier.value;
+  bool _betaOptIn = AppUpdateService.betaOptInNotifier.value;
+  AppUpdateDownloadSource _downloadSource =
+      AppUpdateService.downloadSourceNotifier.value;
   bool _isCheckingUpdate = false;
   bool _isUpdatingBetaOptIn = false;
   bool _isUpdatingDownloadSource = false;
+  bool _hasSyncedUpdatePreferences = false;
 
   @override
   void initState() {
@@ -86,6 +88,14 @@ class _AboutPageState extends State<AboutPage> {
       _betaOptIn = AppUpdateService.betaOptInNotifier.value;
       _updateStatus = AppUpdateService.statusNotifier.value;
       _downloadSource = AppUpdateService.downloadSourceNotifier.value;
+    });
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || _hasSyncedUpdatePreferences) {
+        return;
+      }
+      setState(() {
+        _hasSyncedUpdatePreferences = true;
+      });
     });
   }
 
@@ -637,6 +647,9 @@ class _AboutPageState extends State<AboutPage> {
                 inactiveColor: context.omniPalette.borderStrong,
                 value: _betaOptIn,
                 borderRadius: 28.75,
+                duration: _hasSyncedUpdatePreferences
+                    ? const Duration(milliseconds: 200)
+                    : Duration.zero,
                 onToggle: (_) {},
               ),
             ),

@@ -295,11 +295,11 @@ class _SettingsPageState extends State<SettingsPage> {
         items: [
           _SettingItem(
             icon: Icons.smart_toy_outlined,
-            iconSvg: 'assets/home/vlm_model_setting_icon.svg',
+            iconSvg: 'assets/home/model_provider_setting_icon.svg',
             title: context.l10n.settingsModelProviderTitle,
             subtitle: context.l10n.settingsModelProviderSubtitle,
             onTap: () {
-              GoRouterManager.push('/home/vlm_model_setting');
+              GoRouterManager.push('/home/model_provider_setting');
             },
           ),
           _SettingItem(

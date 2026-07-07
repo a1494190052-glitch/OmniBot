@@ -109,6 +109,32 @@ void main() {
     expect(find.text('ui_card'), findsOneWidget);
   });
 
+  testWidgets('does not keep timing when loading is already false', (
+    tester,
+  ) async {
+    final startTime = DateTime.now()
+        .subtract(const Duration(seconds: 5))
+        .millisecondsSinceEpoch;
+    final endTime = startTime + 1000;
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: DeepThinkingCard(
+            thinkingText: '已停止的思考内容',
+            stage: 1,
+            isLoading: false,
+            startTime: startTime,
+            endTime: endTime,
+          ),
+        ),
+      ),
+    );
+    await tester.pump(const Duration(seconds: 2));
+
+    expect(find.byType(DeepThinkingCard), findsOneWidget);
+  });
+
   testWidgets('auto-collapses when completion settles after staged updates', (
     tester,
   ) async {

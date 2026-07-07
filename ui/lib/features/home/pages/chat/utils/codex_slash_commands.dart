@@ -4,7 +4,7 @@ enum CodexSlashSubmitKind {
   selectModel,
   startReview,
   startInit,
-  activatePlan,
+  togglePlan,
   startPlan,
   unsupported,
 }
@@ -44,12 +44,12 @@ CodexSlashSubmitIntent resolveCodexSlashSubmitIntent(String messageText) {
     return const CodexSlashSubmitIntent(CodexSlashSubmitKind.startInit);
   }
   if (normalized == '/plan') {
-    return const CodexSlashSubmitIntent(CodexSlashSubmitKind.activatePlan);
+    return const CodexSlashSubmitIntent(CodexSlashSubmitKind.togglePlan);
   }
   if (normalized.startsWith('/plan ')) {
     final prompt = trimmed.substring('/plan'.length).trim();
     if (prompt.isEmpty) {
-      return const CodexSlashSubmitIntent(CodexSlashSubmitKind.activatePlan);
+      return const CodexSlashSubmitIntent(CodexSlashSubmitKind.togglePlan);
     }
     return CodexSlashSubmitIntent(
       CodexSlashSubmitKind.startPlan,

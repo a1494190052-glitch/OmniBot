@@ -389,7 +389,7 @@ mixin _ChatPageConversationFlowMixin on _ChatPageStateBase {
     _isCheckingSendModelConfiguration = true;
     try {
       final results = await Future.wait<dynamic>([
-        ModelProviderConfigService.loadModelGroups(),
+        ModelProviderConfigService.loadChatModelGroups(),
         SceneModelConfigService.getSceneCatalog(),
       ]);
       if (!mounted) {

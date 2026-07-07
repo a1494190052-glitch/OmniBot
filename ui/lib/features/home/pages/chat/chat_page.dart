@@ -43,7 +43,6 @@ import 'package:ui/services/device_service.dart';
 import 'package:ui/services/home_greeting_settings_service.dart';
 import 'package:ui/services/link_preview_service.dart';
 import 'package:ui/services/model_provider_config_service.dart';
-import 'package:ui/services/model_vendor_catalog.dart';
 import 'package:ui/services/omnibot_resource_service.dart';
 import 'package:ui/services/permission_registry.dart';
 import 'package:ui/services/permission_service.dart';
@@ -84,9 +83,9 @@ import 'widgets/chat_message_anchor_bar.dart';
 import 'widgets/chat_tool_activity_strip.dart';
 import 'package:ui/widgets/app_update_dialog.dart';
 import 'package:ui/widgets/app_background_widgets.dart';
+import 'package:ui/widgets/conversation_model_selector.dart';
 import 'package:ui/widgets/glass_popup.dart';
 import 'package:ui/widgets/omni_glass.dart';
-import 'package:ui/widgets/provider_vendor_icon.dart';
 
 part 'chat_page_browser.dart';
 part 'chat_page_lifecycle.dart';
@@ -154,7 +153,7 @@ abstract class _ChatPageStateBase extends State<ChatPage>
   /// (条件是 **Navigator** 的 `requestFocus`,Route 的 `requestFocus` 不起作用)，
   /// 把焦点从输入框抢走 → 软键盘塌陷 → 输入栏下沉 → popup 锚点错位。
   /// 用 Overlay 直接挂面板可以彻底跳过这条路径。
-  OverlayGlassPopupHandle<_ChatModelOverrideSelection>?
+  OverlayGlassPopupHandle<ConversationModelSelection>?
   _conversationModelSelectorHandle;
 
   // ===================== State =====================
@@ -415,6 +414,7 @@ abstract class _ChatPageStateBase extends State<ChatPage>
   String? _activeCodexModelId;
   String? _activeCodexReasoningEffort;
   String? _activeCodexCollaborationMode;
+  final Set<String> _codexPlanTurnIds = <String>{};
   bool _isCodexModelListLoading = false;
   bool _isCodexCollaborationModeListLoading = false;
   String? _codexModelListError;
@@ -1758,7 +1758,12 @@ abstract class _ChatPageStateBase extends State<ChatPage>
 
   Future<void> _selectCodexReasoningEffort(String effort);
 
-  Future<void> _activateCodexPlanMode({bool persistOnly = false});
+  Future<void> _activateCodexPlanMode({
+    bool persistOnly = false,
+    bool dismissPanel = true,
+  });
+
+  Future<void> _deactivateCodexPlanMode({bool dismissPanel = true});
 
   Future<void> _handleCodexSlashCommandCardSelected(
     Map<String, dynamic> cardData,

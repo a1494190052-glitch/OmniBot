@@ -115,8 +115,7 @@ class _DeepThinkingCardState extends State<DeepThinkingCard>
       _handleCollapseAnimationStatusChanged,
     );
     _updateElapsedTime(notify: false);
-    // 如果正在进行中（未完成且未取消），启动计时器
-    if (widget.stage != 4 && widget.stage != 5) {
+    if (_isActivelyThinking(widget)) {
       _startTimer();
     }
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -133,9 +132,9 @@ class _DeepThinkingCardState extends State<DeepThinkingCard>
     _updateElapsedTime();
 
     final becameCompleted =
-        !_isCompletedStage(oldWidget.stage) && _isCompletedStage(widget.stage);
+        _isActivelyThinking(oldWidget) && !_isActivelyThinking(widget);
     final becameThinking =
-        _isCompletedStage(oldWidget.stage) && !_isCompletedStage(widget.stage);
+        !_isActivelyThinking(oldWidget) && _isActivelyThinking(widget);
     final completionSettled =
         _shouldAutoCollapse(widget) &&
         (!_shouldAutoCollapse(oldWidget) ||
@@ -143,12 +142,10 @@ class _DeepThinkingCardState extends State<DeepThinkingCard>
             oldWidget.isCollapsible != widget.isCollapsible ||
             oldWidget.autoCollapseOnComplete != widget.autoCollapseOnComplete);
 
-    // 如果从非完成状态变为完成/取消状态，停止计时
     if (becameCompleted) {
       _stopTimer();
     }
 
-    // 如果从完成/取消状态变回非完成状态，重新启动计时器并展开内容
     if (becameThinking) {
       _startTimer();
       _autoScrollToLatest = true;
@@ -386,6 +383,10 @@ class _DeepThinkingCardState extends State<DeepThinkingCard>
   }
 
   bool _isCompletedStage(int stage) => stage == 4 || stage == 5;
+
+  bool _isActivelyThinking(DeepThinkingCard widget) {
+    return widget.isLoading && !_isCompletedStage(widget.stage);
+  }
 
   @override
   void dispose() {

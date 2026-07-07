@@ -1,5 +1,8 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_switch/flutter_switch.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:ui/features/my/pages/about/about_page.dart';
 import 'package:ui/l10n/generated/app_localizations.dart';
@@ -96,6 +99,51 @@ void main() {
 
     expect(find.text('通过更新 Worker 分发'), findsOneWidget);
     expect(find.text('官方 Release'), findsOneWidget);
+  });
+
+  testWidgets('shows cached beta opt-in value on the first frame', (
+    tester,
+  ) async {
+    AppUpdateService.betaOptInNotifier.value = true;
+    final betaRead = Completer<bool>();
+
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(deviceChannel, (call) async {
+          if (call.method == 'getAppVersion') {
+            return <String, dynamic>{'versionName': '0.0.1'};
+          }
+          return null;
+        });
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(updateChannel, (call) async {
+          if (call.method == 'getBetaOptIn') {
+            return betaRead.future;
+          }
+          if (call.method == 'getApkDownloadSource') {
+            return 'worker';
+          }
+          if (call.method == 'getCachedStatus') {
+            return null;
+          }
+          return null;
+        });
+
+    await tester.pumpWidget(
+      const MaterialApp(
+        locale: Locale('zh'),
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
+        home: AboutPage(),
+      ),
+    );
+    await tester.pump();
+
+    final betaSwitch = tester.widget<FlutterSwitch>(find.byType(FlutterSwitch));
+    expect(betaSwitch.value, isTrue);
+    expect(betaSwitch.duration, Duration.zero);
+
+    betaRead.complete(true);
+    await tester.pumpAndSettle();
   });
 
   testWidgets('does not render always-up-to-date hint on page', (tester) async {

@@ -40,7 +40,7 @@ class ModelProviderConfig {
       name: '',
       baseUrl: '',
       apiKey: '',
-      customHeaders: const <String, String>{},
+      customHeaders: <String, String>{},
       source: 'none',
       providerType: 'custom',
       readOnly: false,
@@ -341,6 +341,8 @@ class ModelProviderConfigService {
   static const String _kBuiltinOmniInferProfileId = 'omniinfer-local';
   static const String _kLegacyBuiltinMnnLocalProfileId = 'mnn-local';
   static const String _kManualModelIdsKey = 'manual_provider_model_ids_v2';
+  static const String _kHiddenChatModelIdsKey =
+      'hidden_chat_provider_model_ids_v1';
   static const String _kCachedFetchedModelsKey =
       'cached_provider_models_with_base_v2';
   static const String _kLegacyManualModelIdsKey =
@@ -737,6 +739,32 @@ class ModelProviderConfigService {
     await StorageService.setString(_kManualModelIdsKey, jsonEncode(current));
   }
 
+  static Future<List<String>> getHiddenChatModelIds({
+    required String profileId,
+  }) async {
+    final normalizedProfileId = _canonicalProfileId(profileId);
+    await _migrateLegacyStorageIfNeeded(normalizedProfileId);
+    final current = _readJsonMap(_kHiddenChatModelIdsKey);
+    final rawIds = (current[normalizedProfileId] as List?)
+        ?.map((item) => item.toString())
+        .toList();
+    return _normalizeModelIds(rawIds ?? const []);
+  }
+
+  static Future<void> saveHiddenChatModelIds({
+    required String profileId,
+    required List<String> ids,
+  }) async {
+    final normalizedProfileId = _canonicalProfileId(profileId);
+    await _migrateLegacyStorageIfNeeded(normalizedProfileId);
+    final current = _readJsonMap(_kHiddenChatModelIdsKey);
+    current[normalizedProfileId] = _normalizeModelIds(ids);
+    await StorageService.setString(
+      _kHiddenChatModelIdsKey,
+      jsonEncode(current),
+    );
+  }
+
   static Future<List<ProviderModelOption>> getStoredModelOptionsForProfile(
     String profileId, {
     ModelProviderProfileSummary? profile,
@@ -772,11 +800,39 @@ class ModelProviderConfigService {
     );
   }
 
+  static Future<List<ProviderModelOption>> getChatModelOptionsForProfile(
+    String profileId, {
+    ModelProviderProfileSummary? profile,
+  }) async {
+    final storedModels = await getStoredModelOptionsForProfile(
+      profileId,
+      profile: profile,
+    );
+    final hiddenModelIds = await getHiddenChatModelIds(profileId: profileId);
+    return filterChatModelOptions(
+      models: storedModels,
+      hiddenModelIds: hiddenModelIds,
+    );
+  }
+
   static Future<List<ProviderModelGroup>> loadModelGroups() async {
     final payload = await listProfiles();
     final groups = <ProviderModelGroup>[];
     for (final profile in payload.profiles) {
       final models = await getStoredModelOptionsForProfile(
+        profile.id,
+        profile: profile,
+      );
+      groups.add(ProviderModelGroup(profile: profile, models: models));
+    }
+    return groups;
+  }
+
+  static Future<List<ProviderModelGroup>> loadChatModelGroups() async {
+    final payload = await listProfiles();
+    final groups = <ProviderModelGroup>[];
+    for (final profile in payload.profiles) {
+      final models = await getChatModelOptionsForProfile(
         profile.id,
         profile: profile,
       );
@@ -810,6 +866,17 @@ class ModelProviderConfigService {
       }
     }
     return merged;
+  }
+
+  static List<ProviderModelOption> filterChatModelOptions({
+    required List<ProviderModelOption> models,
+    required List<String> hiddenModelIds,
+  }) {
+    if (hiddenModelIds.isEmpty) {
+      return List<ProviderModelOption>.from(models);
+    }
+    final hidden = _normalizeModelIds(hiddenModelIds).toSet();
+    return models.where((item) => !hidden.contains(item.id)).toList();
   }
 
   static String defaultModelGroupName(
@@ -900,6 +967,19 @@ class ModelProviderConfigService {
         );
         await StorageService.remove(_kLegacyManualModelIdsKey);
       }
+    }
+
+    final currentHidden = _readJsonMap(_kHiddenChatModelIdsKey);
+    if (targetProfileId == _kBuiltinOmniInferProfileId &&
+        !currentHidden.containsKey(targetProfileId) &&
+        currentHidden.containsKey(_kLegacyBuiltinMnnLocalProfileId)) {
+      currentHidden[targetProfileId] =
+          currentHidden[_kLegacyBuiltinMnnLocalProfileId];
+      currentHidden.remove(_kLegacyBuiltinMnnLocalProfileId);
+      await StorageService.setString(
+        _kHiddenChatModelIdsKey,
+        jsonEncode(currentHidden),
+      );
     }
 
     final currentCached = _readJsonMap(_kCachedFetchedModelsKey);

@@ -24,12 +24,21 @@ void main() {
     );
     expect(
       resolveCodexSlashSubmitIntent('/plan').kind,
-      CodexSlashSubmitKind.activatePlan,
+      CodexSlashSubmitKind.togglePlan,
     );
 
     final planIntent = resolveCodexSlashSubmitIntent('/plan inspect the diff');
     expect(planIntent.kind, CodexSlashSubmitKind.startPlan);
     expect(planIntent.value, 'inspect the diff');
+
+    expect(
+      resolveCodexSlashSubmitIntent('/chat').kind,
+      CodexSlashSubmitKind.unsupported,
+    );
+    expect(
+      resolveCodexSlashSubmitIntent('/normal').kind,
+      CodexSlashSubmitKind.unsupported,
+    );
   });
 
   test('rejects agent-only slash commands in codex mode', () {

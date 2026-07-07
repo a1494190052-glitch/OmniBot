@@ -143,18 +143,21 @@ class _AgentRunGroupMessageState extends State<AgentRunGroupMessage>
   Widget build(BuildContext context) {
     final processMessages = widget.group.processMessagesOldestFirst;
     final visibleMessages = widget.group.visibleMessagesOldestFirst;
+    final showProcessHeader = processMessages.isNotEmpty;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        _AgentRunSummaryHeader(
-          key: ValueKey('agent-run-summary-${widget.group.taskId}'),
-          group: widget.group,
-          taskId: widget.group.taskId,
-          expanded: widget.expanded,
-          onTap: widget.onToggleExpanded,
-        ),
-        _buildAnimatedProcessSection(processMessages),
+        if (showProcessHeader) ...[
+          _AgentRunSummaryHeader(
+            key: ValueKey('agent-run-summary-${widget.group.taskId}'),
+            group: widget.group,
+            taskId: widget.group.taskId,
+            expanded: widget.expanded,
+            onTap: widget.onToggleExpanded,
+          ),
+          _buildAnimatedProcessSection(processMessages),
+        ],
         ...visibleMessages.map(
           (message) => MessageBubble(
             key: ValueKey('agent-run-${widget.group.taskId}-${message.id}'),
@@ -328,21 +331,37 @@ bool _isAgentToolSummaryMessage(ChatMessageModel message) {
 const String _kCodexAgentRunAvatarAsset = 'assets/home/chat/codex.svg';
 
 /// A run group is treated as "codex" if any of its messages (visible or
-/// collapsed) was produced by the codex reducer — those carry
-/// cardData.uiStyle == 'codex_tool'. We use this to swap the avatar for the
-/// codex glyph and to keep the collapsed-state header concise ("已处理"
-/// instead of "已运行 N 条命令 · 已读取 M 个文件…").
+/// collapsed) was produced by the codex reducer. Tool cards carry
+/// cardData.uiStyle == 'codex_tool', while text-only codex turns use stable
+/// entry ids like `*-codex-agent` / `*-codex-thinking`.
 bool _agentRunGroupIsCodex(AgentRunTimelineGroup group) {
-  bool hasCodexStyle(ChatMessageModel message) {
-    return (message.cardData?['uiStyle'] ?? '').toString().trim() ==
-        'codex_tool';
-  }
-
   for (final message in group.processMessagesNewestFirst) {
-    if (hasCodexStyle(message)) return true;
+    if (_isCodexRunMessage(message)) return true;
   }
   for (final message in group.visibleMessagesNewestFirst) {
-    if (hasCodexStyle(message)) return true;
+    if (_isCodexRunMessage(message)) return true;
+  }
+  return false;
+}
+
+bool _isCodexRunMessage(ChatMessageModel message) {
+  final cardData = message.cardData;
+  if ((cardData?['uiStyle'] ?? '').toString().trim() == 'codex_tool') {
+    return true;
+  }
+  if ((cardData?['type'] ?? '').toString().trim() == 'codex_request') {
+    return true;
+  }
+  for (final rawId in <Object?>[
+    message.id,
+    message.contentId,
+    message.streamMeta?['entryId'],
+    cardData?['cardId'],
+  ]) {
+    final id = rawId?.toString().trim() ?? '';
+    if (id.contains('-codex-')) {
+      return true;
+    }
   }
   return false;
 }

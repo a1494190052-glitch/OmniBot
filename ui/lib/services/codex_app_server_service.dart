@@ -614,6 +614,15 @@ class CodexAppServerService {
     });
   }
 
+  static Future<Map<String, dynamic>> ignoreUserInput({
+    required Object requestId,
+  }) {
+    return _invokeMap('respondToServerRequest', {
+      'requestId': requestId,
+      'response': {'answers': <String, dynamic>{}},
+    });
+  }
+
   static void _ensureEventSubscription() {
     if (_nativeEventSubscription != null) return;
     _nativeEventSubscription = _eventChannel.receiveBroadcastStream().listen(

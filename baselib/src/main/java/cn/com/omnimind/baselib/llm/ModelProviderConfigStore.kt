@@ -16,6 +16,8 @@ object ModelProviderConfigStore {
     private const val KEY_EDITING_PROFILE_ID = "model_provider_editing_profile_id"
     private const val KEY_BUILTIN_OFFICIAL_PROFILES_SEEDED =
         "model_provider_builtin_official_profiles_seeded_v2"
+    private const val KEY_DELETED_OFFICIAL_PROFILE_IDS =
+        "model_provider_deleted_official_profile_ids_v1"
 
     internal const val LEGACY_MODEL_OVERRIDE_KEY = "vlm_operation_model_override"
     internal const val LEGACY_API_BASE_OVERRIDE_KEY = "vlm_operation_api_base_override"
@@ -60,13 +62,19 @@ object ModelProviderConfigStore {
 
     fun listProfiles(): List<ModelProviderProfile> {
         ModelProviderMigration.ensureMigrated()
-        val mmkv = MMKV.defaultMMKV() ?: return withBuiltin(defaultProfiles())
-        val current = ensureBuiltinOfficialProfilesSeeded(mmkv, readProfiles(mmkv))
+        val mmkv = MMKV.defaultMMKV()
+        val deletedOfficialProfileIds = readDeletedOfficialProfileIds(mmkv)
+        val storedProfiles = readActiveProfiles(mmkv, deletedOfficialProfileIds)
+        val current = ensureBuiltinOfficialProfilesSeeded(
+            mmkv,
+            storedProfiles,
+            deletedOfficialProfileIds
+        )
         if (current.isNotEmpty()) {
             ensureEditingProfile(mmkv, withBuiltin(current))
             return withBuiltin(current)
         }
-        val created = defaultProfiles()
+        val created = defaultProfiles(deletedOfficialProfileIds)
         writeProfiles(mmkv, created)
         mmkv.encode(KEY_EDITING_PROFILE_ID, created.first().id)
         return withBuiltin(created)
@@ -75,7 +83,6 @@ object ModelProviderConfigStore {
     fun getEditingProfileId(): String {
         val profiles = listProfiles()
         val mmkv = MMKV.defaultMMKV()
-        if (mmkv == null) return profiles.first().id
         return ensureEditingProfile(mmkv, profiles)
     }
 
@@ -97,7 +104,7 @@ object ModelProviderConfigStore {
         val target = profiles.firstOrNull { it.id == normalizedId }
             ?: throw IllegalArgumentException("profile not found: $normalizedId")
         val mmkv = MMKV.defaultMMKV()
-        mmkv?.encode(KEY_EDITING_PROFILE_ID, target.id)
+        mmkv.encode(KEY_EDITING_PROFILE_ID, target.id)
         return target
     }
 
@@ -106,27 +113,30 @@ object ModelProviderConfigStore {
         editingProfileId: String? = null
     ): List<ModelProviderProfile> {
         ModelProviderMigration.ensureMigrated()
+        val mmkv = MMKV.defaultMMKV()
+        val deletedOfficialProfileIds = readDeletedOfficialProfileIds(mmkv)
 
         val sanitized = buildList<ModelProviderProfile> {
             profiles
                 .filterNot { MnnLocalProviderStateStore.isBuiltinProfileId(it.id) }
+                .filterNot { isDeletedOfficialProfile(it.id, deletedOfficialProfileIds) }
                 .forEach { profile ->
-                val existing = toList()
-                val requestedId = profile.id.trim()
-                val normalizedId = when {
-                    requestedId.isEmpty() -> generateProfileId(existing)
-                    existing.any { it.id == requestedId } -> generateProfileId(existing)
-                    else -> requestedId
-                }
+                    val existing = toList()
+                    val requestedId = profile.id.trim()
+                    val normalizedId = when {
+                        requestedId.isEmpty() -> generateProfileId(existing)
+                        existing.any { it.id == requestedId } -> generateProfileId(existing)
+                        else -> requestedId
+                    }
                     add(
                         ModelProviderProfile(
                             id = normalizedId,
-                        name = sanitizeProfileName(
-                            raw = profile.name,
-                            profiles = existing,
-                            existingId = null
-                        ),
-                        baseUrl = normalizeBaseUrl(profile.baseUrl).orEmpty(),
+                            name = sanitizeProfileName(
+                                raw = profile.name,
+                                profiles = existing,
+                                existingId = null
+                            ),
+                            baseUrl = normalizeBaseUrl(profile.baseUrl).orEmpty(),
                             apiKey = profile.apiKey.trim(),
                             customHeaders = ProviderCustomHeaderUtils.sanitizeCustomHeaders(
                                 profile.customHeaders
@@ -139,9 +149,9 @@ object ModelProviderConfigStore {
                             protocolType = normalizeProtocolType(profile.protocolType),
                             wireApi = normalizeWireApi(profile.wireApi)
                         )
-                )
-            }
-        }.ifEmpty { defaultProfiles() }
+                    )
+                }
+        }.ifEmpty { defaultProfiles(deletedOfficialProfileIds) }
 
         val resolvedEditingId = editingProfileId
             ?.trim()
@@ -151,12 +161,9 @@ object ModelProviderConfigStore {
             }
             ?: sanitized.first().id
 
-        val mmkv = MMKV.defaultMMKV()
-        if (mmkv != null) {
-            writeProfiles(mmkv, sanitized)
-            mmkv.encode(KEY_EDITING_PROFILE_ID, resolvedEditingId)
-            getProfile(resolvedEditingId)?.let { syncLegacyFlatConfig(mmkv, it) }
-        }
+        writeProfiles(mmkv, sanitized)
+        mmkv.encode(KEY_EDITING_PROFILE_ID, resolvedEditingId)
+        getProfile(resolvedEditingId)?.let { syncLegacyFlatConfig(mmkv, it) }
 
         return withBuiltin(sanitized)
     }
@@ -180,24 +187,11 @@ object ModelProviderConfigStore {
             wireApi = wireApi
         )
         val normalizedCustomHeaders = ProviderCustomHeaderUtils.sanitizeCustomHeaders(customHeaders)
-        val mmkv = MMKV.defaultMMKV() ?: return ModelProviderProfile(
-            id = id?.trim().orEmpty().ifEmpty { DEFAULT_PROFILE_ID },
-            name = name.trim().ifEmpty { DEFAULT_PROFILE_NAME },
-            baseUrl = normalizeBaseUrl(baseUrl).orEmpty(),
-            apiKey = apiKey.trim(),
-            customHeaders = normalizedCustomHeaders,
-            sourceType = resolveSourceTypeForSave(
-                requestedSourceType = sourceType,
-                profileId = id,
-                baseUrl = baseUrl,
-                existingSourceType = null
-            ),
-            protocolType = normalizedProtocolType,
-            wireApi = normalizedWireApi
-        )
+        val mmkv = MMKV.defaultMMKV()
 
-        val current = readProfiles(mmkv).toMutableList().ifEmpty {
-            defaultProfiles().toMutableList()
+        val deletedOfficialProfileIds = readDeletedOfficialProfileIds(mmkv)
+        val current = readActiveProfiles(mmkv, deletedOfficialProfileIds).toMutableList().ifEmpty {
+            defaultProfiles(deletedOfficialProfileIds).toMutableList()
         }
         val normalizedId = id?.trim()?.takeIf { it.isNotEmpty() } ?: generateProfileId(current)
         val currentIndex = current.indexOfFirst { it.id == normalizedId }
@@ -229,6 +223,7 @@ object ModelProviderConfigStore {
         }
 
         writeProfiles(mmkv, current)
+        clearDeletedOfficialProfileIfNeeded(mmkv, normalizedId)
         mmkv.encode(KEY_EDITING_PROFILE_ID, nextProfile.id)
         syncLegacyFlatConfig(mmkv, nextProfile)
         return nextProfile
@@ -237,15 +232,17 @@ object ModelProviderConfigStore {
     fun deleteProfile(profileId: String): List<ModelProviderProfile> {
         ModelProviderMigration.ensureMigrated()
         require(!MnnLocalProviderStateStore.isBuiltinProfileId(profileId)) { "builtin provider is read only" }
-        val mmkv = MMKV.defaultMMKV() ?: return withBuiltin(defaultProfiles())
+        val mmkv = MMKV.defaultMMKV()
         val normalizedId = profileId.trim()
-        val current = readProfiles(mmkv).toMutableList().ifEmpty {
-            defaultProfiles().toMutableList()
+        val deletedOfficialProfileIds = readDeletedOfficialProfileIds(mmkv)
+        val current = readActiveProfiles(mmkv, deletedOfficialProfileIds).toMutableList().ifEmpty {
+            defaultProfiles(deletedOfficialProfileIds).toMutableList()
         }
         require(current.size > 1) { "at least one provider profile must remain" }
         val removed = current.removeAll { it.id == normalizedId }
         require(removed) { "profile not found: $normalizedId" }
 
+        markDeletedOfficialProfileIfNeeded(mmkv, normalizedId)
         writeProfiles(mmkv, current)
         val editingId = mmkv.decodeString(KEY_EDITING_PROFILE_ID)?.trim().orEmpty()
         if (editingId == normalizedId || editingId.isEmpty()) {
@@ -454,7 +451,9 @@ object ModelProviderConfigStore {
         }
     }
 
-    private fun defaultProfiles(): List<ModelProviderProfile> {
+    private fun defaultProfiles(
+        deletedOfficialProfileIds: Set<String> = emptySet()
+    ): List<ModelProviderProfile> {
         return buildList {
             add(
                 ModelProviderProfile(
@@ -462,7 +461,10 @@ object ModelProviderConfigStore {
                     name = DEFAULT_PROFILE_NAME
                 )
             )
-            addAll(OfficialProviderRegistry.officialProfiles())
+            addAll(
+                OfficialProviderRegistry.officialProfiles()
+                    .filterNot { it.id in deletedOfficialProfileIds }
+            )
         }
     }
 
@@ -533,12 +535,14 @@ object ModelProviderConfigStore {
 
     private fun ensureBuiltinOfficialProfilesSeeded(
         mmkv: MMKV,
-        profiles: List<ModelProviderProfile>
+        profiles: List<ModelProviderProfile>,
+        deletedOfficialProfileIds: Set<String>
     ): List<ModelProviderProfile> {
         if (profiles.isEmpty()) {
             return profiles
         }
         val officialProfiles = OfficialProviderRegistry.officialProfiles()
+            .filterNot { it.id in deletedOfficialProfileIds }
         val missingProfiles = officialProfiles.filter { official ->
             profiles.none { it.id == official.id }
         }
@@ -559,6 +563,27 @@ object ModelProviderConfigStore {
         writeProfiles(mmkv, next)
         mmkv.encode(KEY_BUILTIN_OFFICIAL_PROFILES_SEEDED, true)
         return next
+    }
+
+    internal fun filterDeletedOfficialProfiles(
+        profiles: List<ModelProviderProfile>,
+        deletedOfficialProfileIds: Set<String>
+    ): List<ModelProviderProfile> {
+        if (deletedOfficialProfileIds.isEmpty()) {
+            return profiles
+        }
+        return profiles.filterNot { profile ->
+            isDeletedOfficialProfile(profile.id, deletedOfficialProfileIds)
+        }
+    }
+
+    private fun isDeletedOfficialProfile(
+        profileId: String?,
+        deletedOfficialProfileIds: Set<String>
+    ): Boolean {
+        val normalizedId = profileId?.trim().orEmpty()
+        return normalizedId in deletedOfficialProfileIds &&
+            OfficialProviderRegistry.findByProfileId(normalizedId) != null
     }
 
     private fun withBuiltin(profiles: List<ModelProviderProfile>): List<ModelProviderProfile> {
@@ -662,8 +687,73 @@ object ModelProviderConfigStore {
         return decodeProfilesJson(mmkv.decodeString(KEY_PROVIDER_PROFILES))
     }
 
+    private fun readActiveProfiles(
+        mmkv: MMKV,
+        deletedOfficialProfileIds: Set<String>
+    ): List<ModelProviderProfile> {
+        val profiles = readProfiles(mmkv)
+        val activeProfiles = filterDeletedOfficialProfiles(profiles, deletedOfficialProfileIds)
+        if (activeProfiles.size != profiles.size) {
+            writeProfiles(mmkv, activeProfiles)
+        }
+        return activeProfiles
+    }
+
     private fun writeProfiles(mmkv: MMKV, profiles: List<ModelProviderProfile>) {
         mmkv.encode(KEY_PROVIDER_PROFILES, encodeProfilesJson(profiles))
+    }
+
+    internal fun decodeDeletedOfficialProfileIds(raw: String?): Set<String> {
+        val normalizedRaw = raw
+            ?.trim()
+            ?.takeIf { it.isNotEmpty() }
+            ?: return emptySet()
+        return try {
+            val type = object : TypeToken<List<String>>() {}.type
+            val parsed: List<String> = gson.fromJson(normalizedRaw, type) ?: emptyList()
+            parsed.mapNotNullTo(LinkedHashSet()) { value ->
+                value.trim().takeIf { id ->
+                    id.isNotEmpty() && OfficialProviderRegistry.findByProfileId(id) != null
+                }
+            }
+        } catch (_: Throwable) {
+            emptySet()
+        }
+    }
+
+    internal fun encodeDeletedOfficialProfileIds(ids: Set<String>): String {
+        val normalized = ids
+            .map(String::trim)
+            .filter { id -> id.isNotEmpty() && OfficialProviderRegistry.findByProfileId(id) != null }
+            .distinct()
+            .sorted()
+        return gson.toJson(normalized)
+    }
+
+    private fun readDeletedOfficialProfileIds(mmkv: MMKV): Set<String> {
+        return decodeDeletedOfficialProfileIds(mmkv.decodeString(KEY_DELETED_OFFICIAL_PROFILE_IDS))
+    }
+
+    private fun writeDeletedOfficialProfileIds(mmkv: MMKV, ids: Set<String>) {
+        mmkv.encode(KEY_DELETED_OFFICIAL_PROFILE_IDS, encodeDeletedOfficialProfileIds(ids))
+    }
+
+    private fun markDeletedOfficialProfileIfNeeded(mmkv: MMKV, profileId: String) {
+        if (OfficialProviderRegistry.findByProfileId(profileId) == null) {
+            return
+        }
+        writeDeletedOfficialProfileIds(mmkv, readDeletedOfficialProfileIds(mmkv) + profileId)
+    }
+
+    private fun clearDeletedOfficialProfileIfNeeded(mmkv: MMKV, profileId: String) {
+        if (OfficialProviderRegistry.findByProfileId(profileId) == null) {
+            return
+        }
+        val current = readDeletedOfficialProfileIds(mmkv)
+        if (profileId !in current) {
+            return
+        }
+        writeDeletedOfficialProfileIds(mmkv, current - profileId)
     }
 
     private fun syncLegacyFlatConfig(mmkv: MMKV, profile: ModelProviderProfile) {
@@ -675,7 +765,7 @@ object ModelProviderConfigStore {
         private const val PRIMARY_SCENE = "scene.dispatch.model"
 
         fun ensureMigrated() {
-            val mmkv = MMKV.defaultMMKV() ?: return
+            val mmkv = MMKV.defaultMMKV()
             if (mmkv.decodeBool(MIGRATION_DONE_KEY, false)) {
                 return
             }

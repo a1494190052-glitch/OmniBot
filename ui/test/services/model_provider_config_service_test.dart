@@ -279,4 +279,26 @@ void main() {
       expect(enriched.single.toolCall, isTrue);
     },
   );
+
+  test('filters chat model options by hidden ids and defaults to visible', () {
+    const models = [
+      ProviderModelOption(id: 'gpt-4o', displayName: 'GPT-4o'),
+      ProviderModelOption(id: 'gpt-4o-mini', displayName: 'GPT-4o mini'),
+    ];
+
+    expect(
+      ModelProviderConfigService.filterChatModelOptions(
+        models: models,
+        hiddenModelIds: const [],
+      ).map((item) => item.id),
+      ['gpt-4o', 'gpt-4o-mini'],
+    );
+    expect(
+      ModelProviderConfigService.filterChatModelOptions(
+        models: models,
+        hiddenModelIds: const ['gpt-4o-mini', 'missing', 'gpt-4o-mini'],
+      ).map((item) => item.id),
+      ['gpt-4o'],
+    );
+  });
 }

@@ -1530,6 +1530,7 @@ class ChatMessageList extends StatefulWidget {
   final ValueChanged<HomeQuickPrompt>? onQuickPromptSelected;
   final String? emptyGreetingCodexWorkspaceName;
   final VoidCallback? onEmptyGreetingCodexWorkspaceTap;
+  final ValueChanged<bool>? onInternalInputFocusChanged;
 
   const ChatMessageList({
     super.key,
@@ -1561,6 +1562,7 @@ class ChatMessageList extends StatefulWidget {
     this.onQuickPromptSelected,
     this.emptyGreetingCodexWorkspaceName,
     this.onEmptyGreetingCodexWorkspaceTap,
+    this.onInternalInputFocusChanged,
   });
 
   @override
@@ -2417,9 +2419,15 @@ class _ChatMessageListState extends State<ChatMessageList> {
     // the keyboard with a plain Padding. Wrapping this in AnimatedPadding
     // makes the chat content tween toward a target that's already moving,
     // so the content visibly trails the composer by ~half the tween length.
+    final focusedContent = Focus(
+      canRequestFocus: false,
+      skipTraversal: true,
+      onFocusChange: widget.onInternalInputFocusChanged,
+      child: content,
+    );
     final paddedContent = Padding(
       padding: EdgeInsets.only(bottom: reservedBottomInset),
-      child: content,
+      child: focusedContent,
     );
 
     if (pageBackgroundColor == null) {

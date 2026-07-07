@@ -7,6 +7,13 @@ const double _kChatMessageBottomSafeSpacing = 12.0;
 const double _kSlashCommandDrawerRadius = 18.0;
 const double _kSlashCommandDrawerHandleWidth = 36.0;
 const double _kSlashCommandDrawerHandleHeight = 4.0;
+const List<String> _kAgentReasoningEffortOptions = <String>[
+  'no',
+  'low',
+  'high',
+  'xhigh',
+  'max',
+];
 
 enum _UserMessageQuickAction { copy, edit, retry }
 
@@ -18,6 +25,11 @@ mixin _ChatPageUiMixin on _ChatPageStateBase {
   static const double _kHdPadPaneCollapseMinWidthFactor = 0.72;
   final Set<String> _pendingManualAgentRetryTaskIds = <String>{};
   final Set<String> _pendingManualAgentContinueTaskIds = <String>{};
+  final Map<ChatPageMode, bool> _messageListInputFocusByMode = {
+    ChatPageMode.normal: false,
+    ChatPageMode.openclaw: false,
+    ChatPageMode.codex: false,
+  };
 
   ChatPageMode get _primaryChatMessagePageMode =>
       _activeMode == ChatPageMode.codex
@@ -53,6 +65,25 @@ mixin _ChatPageUiMixin on _ChatPageStateBase {
     if (!_inputFocusNode.hasFocus) {
       _requestComposerFocus(showKeyboard: true);
     }
+  }
+
+  bool _isMessageListInputFocusedForMode(ChatPageMode mode) {
+    return _messageListInputFocusByMode[mode] ?? false;
+  }
+
+  void _handleMessageListInputFocusChanged(ChatPageMode mode, bool hasFocus) {
+    if (!mounted) {
+      return;
+    }
+    if (_isMessageListInputFocusedForMode(mode) == hasFocus) {
+      return;
+    }
+    if (hasFocus) {
+      _armComposerLiftIntent();
+    }
+    setState(() {
+      _messageListInputFocusByMode[mode] = hasFocus;
+    });
   }
 
   double _resolveNormalSurfaceComposerInset({
@@ -127,59 +158,7 @@ mixin _ChatPageUiMixin on _ChatPageStateBase {
     }
     if (route == _SlashCommandPanelRoute.effort &&
         _supportsReasoningEffortCommand) {
-      final activeEffort = _activeConversationReasoningEffort;
-      final displayActiveEffort = activeEffort == 'xhigh'
-          ? 'max'
-          : activeEffort;
-      final query = _slashCommandRouteQuery(route).toLowerCase();
-      final efforts = <String>['no', 'low', 'high', 'max']
-          .where((effort) {
-            return query.isEmpty ||
-                effort.contains(query) ||
-                (effort == 'max' && 'xhigh'.contains(query));
-          })
-          .toList(growable: false);
-      return efforts
-          .map((effort) {
-            final isSelected = effort == displayActiveEffort;
-            return <String, dynamic>{
-              'cardId': 'slash-command-effort-$effort',
-              'toolName': effort,
-              'toolTitle': effort,
-              'displayName': effort,
-              'toolType': 'command',
-              'toolTypeLabel': LegacyTextLocalizer.isEnglish
-                  ? 'Thinking'
-                  : '思考',
-              'status': isSelected ? 'success' : 'running',
-              'statusLabel': isSelected
-                  ? (LegacyTextLocalizer.isEnglish ? 'Selected' : '已选')
-                  : (LegacyTextLocalizer.isEnglish ? 'Available' : '可选'),
-              'summary': effort == 'no'
-                  ? (isSelected
-                        ? (LegacyTextLocalizer.isEnglish
-                              ? 'Thinking disabled'
-                              : '已关闭思考')
-                        : (LegacyTextLocalizer.isEnglish
-                              ? 'Disable thinking'
-                              : '关闭思考'))
-                  : (isSelected
-                        ? (LegacyTextLocalizer.isEnglish
-                              ? 'Current effort: $effort'
-                              : '当前思考强度：$effort')
-                        : (LegacyTextLocalizer.isEnglish
-                              ? 'Switch reasoning effort to $effort'
-                              : '将思考强度切换为 $effort')),
-              'progress': effort == 'no'
-                  ? (LegacyTextLocalizer.isEnglish
-                        ? 'enable_thinking=false for subsequent requests'
-                        : '后续请求将设置 enable_thinking=false')
-                  : (LegacyTextLocalizer.isEnglish
-                        ? 'reasoning_effort parameter for subsequent requests'
-                        : '用于后续请求的 reasoning_effort 参数'),
-            };
-          })
-          .toList(growable: false);
+      return <Map<String, dynamic>>[_buildReasoningEffortCommandCard()];
     }
 
     final commands = <Map<String, dynamic>>[];
@@ -202,32 +181,7 @@ mixin _ChatPageUiMixin on _ChatPageStateBase {
       });
     }
     if (_supportsReasoningEffortCommand) {
-      final activeEffort = _activeConversationReasoningEffort;
-      final displayActiveEffort = activeEffort == 'xhigh'
-          ? 'max'
-          : activeEffort;
-      commands.add(<String, dynamic>{
-        'cardId': 'slash-command-effort',
-        'toolName': '/effort',
-        'toolTitle': '/effort',
-        'displayName': '/effort',
-        'toolType': 'command',
-        'toolTypeLabel': LegacyTextLocalizer.isEnglish ? 'Thinking' : '思考',
-        'status': displayActiveEffort == null ? 'running' : 'success',
-        'statusLabel':
-            displayActiveEffort ??
-            (LegacyTextLocalizer.isEnglish ? 'Command' : '命令'),
-        'summary': displayActiveEffort == null
-            ? (LegacyTextLocalizer.isEnglish
-                  ? 'Set reasoning effort for this session'
-                  : '设置当前会话的思考强度')
-            : (LegacyTextLocalizer.isEnglish
-                  ? 'Current effort: $displayActiveEffort'
-                  : '当前思考强度：$displayActiveEffort'),
-        'progress': LegacyTextLocalizer.isEnglish
-            ? 'Choose no, low, high or max'
-            : '点击后选择 no、low、high 或 max',
-      });
+      commands.add(_buildReasoningEffortCommandCard());
     }
     if (_isOpenClawSurface) {
       commands.add(<String, dynamic>{
@@ -250,6 +204,27 @@ mixin _ChatPageUiMixin on _ChatPageStateBase {
     return commands;
   }
 
+  Map<String, dynamic> _buildReasoningEffortCommandCard() {
+    final activeEffort = _activeConversationReasoningEffort;
+    final hasSelectedEffort = activeEffort != null;
+    return <String, dynamic>{
+      'cardId': 'slash-command-effort',
+      'toolName': '/effort',
+      'toolTitle': '/effort',
+      'displayName': '/effort',
+      'toolType': 'command',
+      'toolTypeLabel': LegacyTextLocalizer.isEnglish ? 'Thinking' : '思考',
+      'status': hasSelectedEffort ? 'success' : 'running',
+      'statusLabel':
+          activeEffort ?? (LegacyTextLocalizer.isEnglish ? 'Default' : '默认'),
+      'summary': '',
+      'progress': '',
+      'controlType': 'effortSlider',
+      'effortOptions': _kAgentReasoningEffortOptions,
+      if (activeEffort != null) 'selectedEffort': activeEffort,
+    };
+  }
+
   List<Map<String, dynamic>> _buildCodexSlashCommandCards(
     _SlashCommandPanelRoute route,
   ) {
@@ -261,6 +236,7 @@ mixin _ChatPageUiMixin on _ChatPageStateBase {
 
   List<Map<String, dynamic>> _buildCodexRootCommandCards() {
     final query = _messageController.text.trimLeft().toLowerCase();
+    final planModeEnabled = _isCodexPlanMode(_activeCodexCollaborationMode);
     final commands = <Map<String, dynamic>>[
       _buildCodexCommandCard(
         cardId: 'slash-command-codex-model',
@@ -323,19 +299,17 @@ mixin _ChatPageUiMixin on _ChatPageStateBase {
         toolTitle: '/plan',
         displayName: '/plan',
         toolTypeLabel: LegacyTextLocalizer.isEnglish ? 'Plan' : '计划',
-        status: _isCodexPlanMode(_activeCodexCollaborationMode)
-            ? 'success'
-            : 'running',
-        statusLabel: _isCodexPlanMode(_activeCodexCollaborationMode)
+        status: planModeEnabled ? 'success' : 'running',
+        statusLabel: planModeEnabled
             ? (LegacyTextLocalizer.isEnglish ? 'Selected' : '已选')
-            : (LegacyTextLocalizer.isEnglish ? 'Command' : '命令'),
-        summary: _isCodexPlanMode(_activeCodexCollaborationMode)
+            : (LegacyTextLocalizer.isEnglish ? 'Off' : '关闭'),
+        summary: planModeEnabled
             ? (LegacyTextLocalizer.isEnglish
                   ? 'Plan mode is active'
                   : '当前已启用 Plan 模式')
             : (LegacyTextLocalizer.isEnglish
-                  ? 'Switch Codex to plan mode'
-                  : '切换 Codex 到 Plan 模式'),
+                  ? 'Plan mode is off'
+                  : '当前未启用 Plan 模式'),
         progress: _codexCollaborationModeListError != null
             ? _codexCollaborationModeListError!
             : _isCodexCollaborationModeListLoading
@@ -347,6 +321,8 @@ mixin _ChatPageUiMixin on _ChatPageStateBase {
                   : (_codexCollaborationModes.length == 1
                         ? '1 mode'
                         : '${_codexCollaborationModes.length} modes')),
+        isToggle: true,
+        toggleValue: planModeEnabled,
       ),
     ];
     if (query.isEmpty) {
@@ -441,6 +417,8 @@ mixin _ChatPageUiMixin on _ChatPageStateBase {
     required String statusLabel,
     required String summary,
     required String progress,
+    bool isToggle = false,
+    bool toggleValue = false,
   }) {
     return <String, dynamic>{
       'cardId': cardId,
@@ -453,6 +431,10 @@ mixin _ChatPageUiMixin on _ChatPageStateBase {
       'statusLabel': statusLabel,
       'summary': summary,
       'progress': progress,
+      if (isToggle) ...<String, dynamic>{
+        'isToggle': true,
+        'toggleValue': toggleValue,
+      },
     };
   }
 
@@ -469,12 +451,7 @@ mixin _ChatPageUiMixin on _ChatPageStateBase {
         unawaited(_executeManualContextCompactionCommand());
         break;
       case '/effort':
-        _messageController.value = const TextEditingValue(
-          text: '/effort ',
-          selection: TextSelection.collapsed(offset: 8),
-        );
         _requestComposerFocus();
-        _handleSlashCommandInput();
         break;
       case 'no':
       case 'low':
@@ -482,8 +459,6 @@ mixin _ChatPageUiMixin on _ChatPageStateBase {
       case 'xhigh':
       case 'max':
         unawaited(_applyConversationReasoningEffort(command));
-        _messageController.clear();
-        _hideSlashCommandPanel();
         break;
       case '/openclaw':
         _showOpenClawCommandPanel(expand: true);
@@ -866,6 +841,14 @@ mixin _ChatPageUiMixin on _ChatPageStateBase {
       snapshot: toolActivitySnapshot,
     );
     final bottomInset = MediaQuery.maybeOf(context)?.viewInsets.bottom ?? 0.0;
+    final internalInputKeyboardInset =
+        mode == _activeMode && _isMessageListInputFocusedForMode(mode)
+        ? bottomInset + _kChatMessageBottomSafeSpacing
+        : 0.0;
+    final reservedBottomOverlayInset = math.max(
+      bottomOverlayInset,
+      internalInputKeyboardInset,
+    );
     final liftEmptyGreeting =
         mode == _activeMode &&
         _emptyGreetingKeyboardLiftTracker.resolveForBuild(bottomInset);
@@ -894,9 +877,12 @@ mixin _ChatPageUiMixin on _ChatPageStateBase {
       scrollController: _scrollControllerForMode(mode),
       navigator: _messageListNavigatorByMode[mode],
       bottomOverlayInset:
-          bottomOverlayInset +
+          reservedBottomOverlayInset +
           (mode == _activeMode ? _slashCommandPanelOccupiedHeight : 0) +
           (showToolActivityStrip ? _toolActivityOccupiedHeight : 0),
+      onInternalInputFocusChanged: (hasFocus) {
+        _handleMessageListInputFocusChanged(mode, hasFocus);
+      },
       onBeforeTaskExecute: handleBeforeTaskExecute,
       onCancelTask: _onCancelTaskFromCard,
       onRequestAuthorize: mode == ChatPageMode.normal
@@ -1830,9 +1816,14 @@ mixin _ChatPageUiMixin on _ChatPageStateBase {
     final isHdPadLandscape = _isHdPadLandscapeForMediaQuery(mediaQuery);
     final bottomInset = mediaQuery.viewInsets.bottom;
     final viewPaddingBottom = mediaQuery.viewPadding.bottom;
+    final activeMessageListInputFocused = _isMessageListInputFocusedForMode(
+      _activeMode,
+    );
     final shouldLiftComposerForKeyboard = _composerLiftIntentTracker.update(
       hasInputIntent:
-          _inputFocusNode.hasFocus || _editingUserMessageId != null,
+          _inputFocusNode.hasFocus ||
+          _editingUserMessageId != null ||
+          activeMessageListInputFocused,
       bottomInset: bottomInset,
     );
     final composerKeyboardMetrics = _composerKeyboardMetricsTracker.update(

@@ -1587,6 +1587,50 @@ diff --git a/lib/main.dart b/lib/main.dart
     expect(older.cardData!['stage'], ThinkingStage.complete.value);
   });
 
+  test('preserves live pending user input request missing from snapshot', () {
+    final now = DateTime.fromMillisecondsSinceEpoch(1700000000000);
+    final pendingRequest = ChatMessageModel.cardMessage(
+      {
+        'type': 'codex_request',
+        'taskId': 'turn-1',
+        'cardId': 'request-1-codex-user-input',
+        'requestId': 'request-1',
+        'requestKind': 'user_input',
+        'questionId': 'confirm_path',
+        'status': 'pending',
+      },
+      id: 'request-1-codex-user-input',
+      streamMeta: {
+        'parentTaskId': 'turn-1',
+        'entryId': 'request-1-codex-user-input',
+        'kind': 'clarify_required',
+        'isFinal': false,
+      },
+    ).copyWith(createAt: now.add(const Duration(seconds: 1)));
+
+    final merged = mergeRemoteCodexSnapshotMessagesForTesting(
+      snapshotMessages: [
+        ChatMessageModel(
+          id: 'remote-user-1',
+          type: 1,
+          user: 1,
+          content: {'text': 'ask something', 'id': 'remote-user-1'},
+          createAt: now,
+        ),
+      ],
+      existingMessages: [pendingRequest],
+      activeTaskId: 'turn-1',
+      isAiResponding: true,
+    );
+
+    final request = merged.singleWhere(
+      (message) => message.id == 'request-1-codex-user-input',
+    );
+    expect(request.cardData!['type'], 'codex_request');
+    expect(request.cardData!['requestKind'], 'user_input');
+    expect(request.cardData!['status'], 'pending');
+  });
+
   test('finalizes assistant item without duplicating completed text', () {
     reducer.reduce(
       runtime: runtime,
@@ -1730,6 +1774,13 @@ diff --git a/lib/main.dart b/lib/main.dart
     expect(cancelMessage.text, '任务已取消');
     expect(cancelMessage.streamMeta?['parentTaskId'], 'turn-1');
     expect(cancelMessage.streamMeta?['isFinal'], isTrue);
+
+    final thinkingCard = runtime.messages
+        .firstWhere((message) => message.cardData?['type'] == 'deep_thinking')
+        .cardData!;
+    expect(thinkingCard['isLoading'], isFalse);
+    expect(thinkingCard['stage'], ThinkingStage.cancelled.value);
+    expect(thinkingCard['endTime'], isNotNull);
   });
 
   test('updates tool cards in place with stable codex stream metadata', () {
@@ -1810,6 +1861,152 @@ diff --git a/lib/main.dart b/lib/main.dart
     expect(cardData['type'], 'codex_request');
     expect(cardData['requestKind'], 'user_input');
     expect(cardData['questionId'], 'choice');
+    expect(cardData['rawParamsJson'], contains('Choose one'));
+    expect(cardData['status'], 'pending');
+    expect(cardData['conversationId'], 42);
+  });
+
+  test('reads collaboration mode from thread settings update', () {
+    final result = reducer.reduce(
+      runtime: runtime,
+      event: {
+        'method': 'thread/settings/updated',
+        'params': {
+          'threadId': 'thread-1',
+          'threadSettings': {
+            'collaborationMode': {'mode': 'default'},
+          },
+        },
+      },
+    );
+
+    expect(result.handled, isTrue);
+    expect(result.method, 'thread/settings/updated');
+    expect(result.threadId, 'thread-1');
+    expect(result.collaborationMode, 'default');
+  });
+
+  test('maps app-server request_user_input request before turn completes', () {
+    final result = reducer.reduce(
+      runtime: runtime,
+      event: {
+        'method': 'item/tool/requestUserInput',
+        'threadId': 'thread-1',
+        'turnId': 'turn-1',
+        'message': {
+          'jsonrpc': '2.0',
+          'id': 0,
+          'method': 'item/tool/requestUserInput',
+          'params': {
+            'threadId': 'thread-1',
+            'turnId': 'turn-1',
+            'itemId': 'call1',
+            'questions': [
+              {
+                'id': 'confirm_path',
+                'header': 'Confirm',
+                'question': 'Proceed with the plan?',
+                'options': [
+                  {
+                    'label': 'Yes (Recommended)',
+                    'description': 'Continue the current plan.',
+                  },
+                  {
+                    'label': 'No',
+                    'description': 'Stop and revisit the approach.',
+                  },
+                ],
+              },
+            ],
+            'autoResolutionMs': 60000,
+          },
+        },
+      },
+    );
+
+    final cardData = runtime.messages.single.cardData!;
+    expect(result.handled, isTrue);
+    expect(result.requestId, 0);
+    expect(cardData['type'], 'codex_request');
+    expect(cardData['requestKind'], 'user_input');
+    expect(cardData['requestId'], 0);
+    expect(cardData['taskId'], 'turn-1');
+    expect(cardData['questionId'], 'confirm_path');
+    expect(cardData['rawParamsJson'], contains('Yes (Recommended)'));
+    expect(runtime.isAiResponding, isTrue);
+  });
+
+  test('keeps submitted request user input status during event replay', () {
+    final requestEvent = {
+      'message': {
+        'id': 'request-1',
+        'method': 'item/tool/requestUserInput',
+        'params': {
+          'questions': [
+            {
+              'id': 'choice',
+              'question': 'Choose one',
+              'options': [
+                {'label': 'Option A'},
+              ],
+            },
+          ],
+        },
+      },
+    };
+
+    reducer.reduce(runtime: runtime, event: requestEvent);
+    final existing = runtime.messages.single;
+    final submittedCardData = Map<String, dynamic>.from(existing.cardData!)
+      ..['status'] = 'submitted';
+    runtime.messages[0] = existing.copyWith(
+      content: {'cardData': submittedCardData, 'id': existing.id},
+    );
+
+    reducer.reduce(runtime: runtime, event: requestEvent);
+
+    expect(runtime.messages.single.cardData!['status'], 'submitted');
+  });
+
+  test('hydrates historical request user input as submitted request card', () {
+    final messages = codexMessagesFromThreadResponseForTesting({
+      'thread': {
+        'id': 'thread-1',
+        'turns': [
+          {
+            'id': 'turn-1',
+            'items': [
+              {
+                'id': 'request-1',
+                'type': 'requestUserInput',
+                'status': 'completed',
+                'questions': [
+                  {
+                    'id': 'choice',
+                    'question': 'Choose one',
+                    'options': [
+                      {'label': 'Option A'},
+                    ],
+                  },
+                ],
+                'answers': {
+                  'choice': {
+                    'answers': ['Option A'],
+                  },
+                },
+              },
+            ],
+          },
+        ],
+      },
+    });
+
+    final cardData = messages.single.cardData!;
+    expect(cardData['type'], 'codex_request');
+    expect(cardData['requestKind'], 'user_input');
+    expect(cardData['questionId'], 'choice');
+    expect(cardData['status'], 'submitted');
+    expect(cardData['rawParamsJson'], contains('Option A'));
   });
 
   test('ignores unknown events without throwing', () {

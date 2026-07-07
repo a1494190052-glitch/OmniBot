@@ -17,7 +17,8 @@ enum ThinkingStage {
   thinking(1),
   toolCall(2),
   executing(3),
-  complete(4);
+  complete(4),
+  cancelled(5);
 
   final int value;
   const ThinkingStage(this.value);

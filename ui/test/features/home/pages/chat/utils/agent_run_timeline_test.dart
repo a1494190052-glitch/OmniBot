@@ -129,6 +129,45 @@ void main() {
     );
   });
 
+  test('groups active codex request as the visible run message', () {
+    final messages = <ChatMessageModel>[
+      _codexRequestCard(id: 'turn-7-request', taskId: 'turn-7', seq: 12),
+      ChatMessageModel.userMessage('需要选择方案', id: 'user-7'),
+    ];
+
+    final entries = buildAgentRunTimelineEntries(
+      messages,
+      activeTaskIds: const <String>{'turn-7'},
+    );
+
+    expect(entries, hasLength(2));
+    expect(entries.first.group?.taskId, 'turn-7');
+    expect(entries.first.group?.processMessagesNewestFirst, isEmpty);
+    expect(
+      entries.first.group?.visibleMessagesNewestFirst.single.id,
+      'turn-7-request',
+    );
+    expect(entries.last.message?.id, 'user-7');
+  });
+
+  test('keeps codex request visible after thinking process cards', () {
+    final messages = <ChatMessageModel>[
+      _codexRequestCard(id: 'turn-8-request', taskId: 'turn-8', seq: 22),
+      _thinkingCard(id: 'turn-8-thinking', taskId: 'turn-8', seq: 10),
+      ChatMessageModel.userMessage('继续计划吗', id: 'user-8'),
+    ];
+
+    final entries = buildAgentRunTimelineEntries(
+      messages,
+      activeTaskIds: const <String>{'turn-8'},
+    );
+
+    final group = entries.first.group;
+    expect(group?.taskId, 'turn-8');
+    expect(group?.visibleMessagesNewestFirst.single.id, 'turn-8-request');
+    expect(group?.processMessagesNewestFirst.single.id, 'turn-8-thinking');
+  });
+
   test(
     'uses cancelled text as the visible body for a manually stopped run',
     () {
@@ -298,6 +337,27 @@ ChatMessageModel _thinkingCard({
       'isLoading': false,
       'taskID': taskId,
       'cardId': id,
+    },
+  );
+}
+
+ChatMessageModel _codexRequestCard({
+  required String id,
+  required String taskId,
+  required int seq,
+}) {
+  return _cardMessage(
+    id: id,
+    taskId: taskId,
+    kind: 'clarify_required',
+    seq: seq,
+    cardData: <String, dynamic>{
+      'type': 'codex_request',
+      'taskId': taskId,
+      'cardId': id,
+      'requestId': id,
+      'requestKind': 'user_input',
+      'status': 'pending',
     },
   );
 }

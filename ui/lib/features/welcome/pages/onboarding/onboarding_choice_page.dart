@@ -241,7 +241,9 @@ class _OnboardingChoicePageState extends ConsumerState<OnboardingChoicePage>
                                 true,
                               );
                               GoRouterManager.clearAndNavigateTo('/home/chat');
-                              GoRouterManager.push('/home/vlm_model_setting');
+                              GoRouterManager.push(
+                                '/home/model_provider_setting',
+                              );
                             },
                           ),
 

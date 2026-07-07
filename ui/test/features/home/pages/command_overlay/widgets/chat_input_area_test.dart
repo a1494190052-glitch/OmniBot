@@ -207,6 +207,12 @@ void main() {
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 500));
 
+    expect(
+      find.byKey(const ValueKey('conversation-model-selector-search')),
+      findsNothing,
+    );
+    expect(find.text('Codex'), findsNothing);
+
     await tester.tap(
       find.byKey(
         const ValueKey(
@@ -214,7 +220,7 @@ void main() {
         ),
       ),
     );
-    await tester.pump(const Duration(milliseconds: 300));
+    await tester.pump(const Duration(milliseconds: 700));
     expect(selectedModel, 'gpt-5.1-codex');
 
     await tester.tap(settingsButton);
@@ -325,7 +331,10 @@ void main() {
                 child: const SizedBox(width: 120, height: 80),
               ),
             );
-            Overlay.of(anchorContext, rootOverlay: true).insert(modelPickerOverlay!);
+            Overlay.of(
+              anchorContext,
+              rootOverlay: true,
+            ).insert(modelPickerOverlay!);
           },
         ),
       ),
@@ -336,7 +345,9 @@ void main() {
     await tester.pump();
     expect(focusNode.hasFocus, isTrue);
 
-    await tester.tap(find.byKey(const ValueKey('chat-input-model-picker-button')));
+    await tester.tap(
+      find.byKey(const ValueKey('chat-input-model-picker-button')),
+    );
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 500));
 

@@ -71,7 +71,6 @@ mixin _ChatPageOpenClawMixin on _ChatPageStateBase {
   void _handleSlashCommandInput() {
     final value = _messageController.value;
     final shouldShowSlash = value.text.trimLeft().startsWith('/');
-    final slashRoute = _resolveSlashCommandPanelRoute(value.text);
     final nextMentionToken = shouldShowSlash
         ? null
         : _parseActiveModelMentionToken(value);
@@ -90,8 +89,7 @@ mixin _ChatPageOpenClawMixin on _ChatPageStateBase {
         shouldShowModelMention != _showModelMentionPanel ||
         nextMentionToken != _activeModelMentionToken ||
         nextOpenClawPanelExpanded != _openClawPanelExpanded ||
-        _isSlashCommandExpanded !=
-            (shouldShowSlash && slashRoute == _SlashCommandPanelRoute.effort);
+        _isSlashCommandExpanded;
     if (!shouldUpdate) {
       return;
     }
@@ -101,8 +99,7 @@ mixin _ChatPageOpenClawMixin on _ChatPageStateBase {
       _showModelMentionPanel = shouldShowModelMention;
       _activeModelMentionToken = nextMentionToken;
       _openClawPanelExpanded = nextOpenClawPanelExpanded;
-      _slashCommandExpandedByMode[_activeMode] =
-          shouldShowSlash && slashRoute == _SlashCommandPanelRoute.effort;
+      _slashCommandExpandedByMode[_activeMode] = false;
     });
   }
 
@@ -251,7 +248,7 @@ mixin _ChatPageOpenClawMixin on _ChatPageStateBase {
         trimmed.substring('/effort'.length).trimLeft(),
       );
       if (effort == null) {
-        _showSnackBar('可用思考强度：no、low、high、max（兼容 xhigh）');
+        _showSnackBar('可用思考强度：no、low、high、xhigh、max');
         return true;
       }
       await _applyConversationReasoningEffort(effort);

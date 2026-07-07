@@ -3,7 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:ui/features/home/pages/vlm_model_setting/vlm_model_setting_page.dart';
+import 'package:ui/features/home/pages/model_provider_setting/model_provider_setting_page.dart';
 import 'package:ui/services/assists_core_service.dart';
 import 'package:ui/services/model_provider_config_service.dart';
 import 'package:ui/services/models_dev_catalog_service.dart';
@@ -130,7 +130,7 @@ void main() {
         MaterialApp(
           theme: AppTheme.lightTheme,
           darkTheme: AppTheme.darkTheme,
-          home: const VlmModelSettingPage(),
+          home: const ModelProviderSettingPage(),
         ),
       );
 
@@ -147,7 +147,7 @@ void main() {
       expect(
         find.descendant(
           of: find.byKey(const Key('provider-protocol-type-button')),
-          matching: find.text('OpenAI Compatible'),
+          matching: find.text('OpenAI'),
         ),
         findsOneWidget,
       );
@@ -201,7 +201,7 @@ void main() {
       <String, String>{
         'sourceType': 'custom',
         'baseUrl': 'https://api.openai.com/v1',
-        'label': 'OpenAI Compatible',
+        'label': 'OpenAI',
       },
       <String, String>{
         'sourceType': 'custom',
@@ -227,7 +227,7 @@ void main() {
           key: ValueKey('provider-type-${entry['sourceType']}'),
           theme: AppTheme.lightTheme,
           darkTheme: AppTheme.darkTheme,
-          home: const VlmModelSettingPage(),
+          home: const ModelProviderSettingPage(),
         ),
       );
 
@@ -270,7 +270,7 @@ void main() {
       MaterialApp(
         theme: AppTheme.lightTheme,
         darkTheme: AppTheme.darkTheme,
-        home: const VlmModelSettingPage(),
+        home: const ModelProviderSettingPage(),
       ),
     );
 
@@ -289,7 +289,7 @@ void main() {
     expect(find.text('Kimi'), findsOneWidget);
     expect(find.text('MiniMax'), findsOneWidget);
     expect(find.text('阿里百炼'), findsOneWidget);
-    expect(find.text('OpenAI Compatible'), findsAtLeastNWidgets(1));
+    expect(find.text('OpenAI'), findsAtLeastNWidgets(1));
     expect(find.text('Anthropic'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
@@ -301,7 +301,7 @@ void main() {
       MaterialApp(
         theme: AppTheme.lightTheme,
         darkTheme: AppTheme.darkTheme,
-        home: const VlmModelSettingPage(),
+        home: const ModelProviderSettingPage(),
       ),
     );
 
@@ -337,7 +337,7 @@ void main() {
       MaterialApp(
         theme: AppTheme.lightTheme,
         darkTheme: AppTheme.darkTheme,
-        home: const VlmModelSettingPage(),
+        home: const ModelProviderSettingPage(),
       ),
     );
 
@@ -375,7 +375,7 @@ void main() {
       MaterialApp(
         theme: AppTheme.lightTheme,
         darkTheme: AppTheme.darkTheme,
-        home: const VlmModelSettingPage(),
+        home: const ModelProviderSettingPage(),
       ),
     );
 
@@ -385,7 +385,7 @@ void main() {
     expect(
       find.descendant(
         of: find.byKey(const Key('provider-protocol-type-button')),
-        matching: find.text('OpenAI Compatible'),
+        matching: find.text('OpenAI'),
       ),
       findsOneWidget,
     );
@@ -426,7 +426,7 @@ void main() {
       MaterialApp(
         theme: AppTheme.lightTheme,
         darkTheme: AppTheme.darkTheme,
-        home: const VlmModelSettingPage(),
+        home: const ModelProviderSettingPage(),
       ),
     );
 
@@ -478,7 +478,7 @@ void main() {
       MaterialApp(
         theme: AppTheme.lightTheme,
         darkTheme: AppTheme.darkTheme,
-        home: const VlmModelSettingPage(),
+        home: const ModelProviderSettingPage(),
       ),
     );
 
@@ -529,7 +529,7 @@ void main() {
       MaterialApp(
         theme: AppTheme.lightTheme,
         darkTheme: AppTheme.darkTheme,
-        home: const VlmModelSettingPage(),
+        home: const ModelProviderSettingPage(),
       ),
     );
 
@@ -665,6 +665,79 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets(
+    'chat visibility popup hides fetched models without deleting rows',
+    (tester) async {
+      tester.view.devicePixelRatio = 1.0;
+      tester.view.physicalSize = const Size(800, 1000);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      addTearDown(tester.view.resetPhysicalSize);
+
+      await ModelProviderConfigService.saveCachedFetchedModels(
+        profileId: 'provider-1',
+        apiBase: 'https://api.openai.com/v1',
+        models: const [
+          ProviderModelOption(id: 'gpt-4o', displayName: 'gpt-4o'),
+          ProviderModelOption(id: 'gpt-4o-mini', displayName: 'gpt-4o-mini'),
+        ],
+      );
+
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: AppTheme.lightTheme,
+          darkTheme: AppTheme.darkTheme,
+          home: const ModelProviderSettingPage(),
+        ),
+      );
+
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 50));
+
+      expect(
+        find.byKey(const Key('provider-chat-model-visibility-button')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const ValueKey<String>('provider-model-gpt-4o-mini')),
+        findsOneWidget,
+      );
+
+      await tester.tap(
+        find.byKey(const Key('provider-chat-model-visibility-button')),
+      );
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 260));
+
+      expect(
+        find.byKey(const Key('provider-chat-model-visibility-menu')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const Key('provider-chat-model-visibility-row-gpt-4o-mini')),
+        findsOneWidget,
+      );
+
+      await tester.tap(
+        find.byKey(
+          const Key('provider-chat-model-visibility-toggle-gpt-4o-mini'),
+        ),
+      );
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 80));
+
+      final hiddenIds = await ModelProviderConfigService.getHiddenChatModelIds(
+        profileId: 'provider-1',
+      );
+      expect(hiddenIds, ['gpt-4o-mini']);
+      expect(
+        find.byKey(const ValueKey<String>('provider-model-gpt-4o-mini')),
+        findsOneWidget,
+      );
+
+      expect(tester.takeException(), isNull);
+    },
+  );
+
   testWidgets('file sync does not reload provider fields while editing', (
     tester,
   ) async {
@@ -684,7 +757,7 @@ void main() {
       MaterialApp(
         theme: AppTheme.lightTheme,
         darkTheme: AppTheme.darkTheme,
-        home: const VlmModelSettingPage(),
+        home: const ModelProviderSettingPage(),
       ),
     );
 

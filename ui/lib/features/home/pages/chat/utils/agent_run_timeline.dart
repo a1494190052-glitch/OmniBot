@@ -143,13 +143,17 @@ AgentRunTimelineGroup? _buildTimelineGroup(
       .where((message) => agentRunParentTaskId(message) == taskId)
       .where(_isAgentRunCandidateMessage)
       .toList(growable: false);
-  if (taskMessages.length < 2) {
+  final requestMessages = taskMessages
+      .where(_isCodexRequestMessage)
+      .toList(growable: false);
+  if (taskMessages.length < 2 && requestMessages.isEmpty) {
     return null;
   }
 
   final primaryVisibleMessage = _resolvePrimaryVisibleMessage(
     taskMessages,
     isActive: isActive,
+    requestMessages: requestMessages,
   );
   if (primaryVisibleMessage == null) {
     return null;
@@ -165,7 +169,12 @@ AgentRunTimelineGroup? _buildTimelineGroup(
           .where((message) => !visibleIds.contains(message.id))
           .toList(growable: false)
         ..sort((left, right) => _compareNewestFirst(left, right));
-  if (processMessages.isEmpty) {
+  if (processMessages.isEmpty && visibleMessages.length < 2) {
+    if (!_isCodexRequestMessage(primaryVisibleMessage)) {
+      return null;
+    }
+  }
+  if (processMessages.isEmpty && visibleMessages.isEmpty) {
     return null;
   }
 
@@ -189,19 +198,18 @@ bool _isAgentRunCandidateMessage(ChatMessageModel message) {
   final type = _cardType(message);
   return type == 'deep_thinking' ||
       type == 'agent_tool_summary' ||
-      type == 'permission_section';
+      type == 'permission_section' ||
+      type == 'codex_request';
 }
 
 ChatMessageModel? _resolvePrimaryVisibleMessage(
   List<ChatMessageModel> taskMessages, {
   required bool isActive,
+  required List<ChatMessageModel> requestMessages,
 }) {
   final aiTextMessages = taskMessages
       .where((message) => message.type == 1 && message.user == 2)
       .toList(growable: false);
-  if (aiTextMessages.isEmpty) {
-    return null;
-  }
 
   if (isActive) {
     final activeTextSnapshots = aiTextMessages
@@ -209,6 +217,16 @@ ChatMessageModel? _resolvePrimaryVisibleMessage(
         .toList(growable: false);
     if (activeTextSnapshots.isNotEmpty) {
       return _newestBySequence(activeTextSnapshots);
+    }
+    if (requestMessages.isNotEmpty) {
+      return _newestBySequence(requestMessages);
+    }
+    return null;
+  }
+
+  if (aiTextMessages.isEmpty) {
+    if (requestMessages.isNotEmpty) {
+      return _newestBySequence(requestMessages);
     }
     return null;
   }
@@ -232,6 +250,9 @@ ChatMessageModel? _resolvePrimaryVisibleMessage(
       .toList(growable: false);
   if (cancelledTextMessages.isNotEmpty) {
     return _newestBySequence(cancelledTextMessages);
+  }
+  if (requestMessages.isNotEmpty) {
+    return _newestBySequence(requestMessages);
   }
   return null;
 }
@@ -278,9 +299,24 @@ List<ChatMessageModel> _resolveVisibleMessages(
       ),
     );
   }
+  if (primaryKind == 'clarify_required' ||
+      primaryKind == 'permission_required' ||
+      _isCodexRequestMessage(primaryVisibleMessage)) {
+    visibleMessages.addAll(
+      taskMessages.where(
+        (message) =>
+            message.id != primaryVisibleMessage.id &&
+            _isCodexRequestMessage(message),
+      ),
+    );
+  }
   final orderedByNewest = visibleMessages.toList(growable: false)
     ..sort((left, right) => _compareNewestFirst(left, right));
   return orderedByNewest;
+}
+
+bool _isCodexRequestMessage(ChatMessageModel message) {
+  return _cardType(message) == 'codex_request';
 }
 
 ChatMessageModel _newestBySequence(List<ChatMessageModel> messages) {

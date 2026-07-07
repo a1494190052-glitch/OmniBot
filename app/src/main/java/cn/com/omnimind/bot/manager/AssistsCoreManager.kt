@@ -3075,7 +3075,15 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
         val conversationId = call.argument<Number>("conversationId")?.toLong()
         val conversationMode = normalizeConversationMode(call.argument<String>("conversationMode"))
         val userMessage = call.argument<String>("userMessage")?.trim().orEmpty()
-        val userAttachments = call.argument<List<Map<String, Any?>>>("userAttachments") ?: emptyList()
+        val rawUserAttachments = (call.argument<List<Map<String, Any?>>>("userAttachments") ?: emptyList())
+            .map(::sanitizeInteropMap)
+        val userAttachments = AgentImageAttachmentSupport.prepareAttachments(
+            AgentWorkspaceAttachmentSupport.prepareAttachmentsForRuntime(
+                context = context,
+                taskId = taskID,
+                rawAttachments = rawUserAttachments
+            )
+        ).historyAttachments
         val modelOverride = resolveChatTaskModelOverride(
             call.argument<Map<String, Any?>>("modelOverride"),
             ModelProviderConfigStore::getProfile

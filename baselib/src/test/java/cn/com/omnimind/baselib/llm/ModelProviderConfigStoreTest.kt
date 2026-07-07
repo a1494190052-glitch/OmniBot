@@ -27,4 +27,37 @@ class ModelProviderConfigStoreTest {
         )
         assertFalse(ModelProviderConfigStore.hasVersionedBasePath("https://api.example.com"))
     }
+
+    @Test
+    fun filterDeletedOfficialProfiles_onlyRemovesOfficialProfiles() {
+        val profiles = listOf(
+            DeepSeekProvider.officialProfile(),
+            ModelProviderProfile(id = "custom-provider", name = "Custom")
+        )
+
+        val filtered = ModelProviderConfigStore.filterDeletedOfficialProfiles(
+            profiles,
+            setOf(DeepSeekProvider.OFFICIAL_PROFILE_ID, "custom-provider")
+        )
+
+        assertEquals(listOf("custom-provider"), filtered.map { it.id })
+    }
+
+    @Test
+    fun deletedOfficialProfileIds_roundTripDropsUnknownIds() {
+        val encoded = ModelProviderConfigStore.encodeDeletedOfficialProfileIds(
+            setOf(
+                "missing-provider",
+                MoonshotProvider.OFFICIAL_PROFILE_ID,
+                DeepSeekProvider.OFFICIAL_PROFILE_ID
+            )
+        )
+
+        val decoded = ModelProviderConfigStore.decodeDeletedOfficialProfileIds(encoded)
+
+        assertEquals(
+            setOf(DeepSeekProvider.OFFICIAL_PROFILE_ID, MoonshotProvider.OFFICIAL_PROFILE_ID),
+            decoded
+        )
+    }
 }

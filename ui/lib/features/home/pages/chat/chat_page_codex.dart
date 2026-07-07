@@ -486,7 +486,10 @@ mixin _ChatPageCodexMixin on _ChatPageStateBase {
   }
 
   @override
-  Future<void> _activateCodexPlanMode({bool persistOnly = false}) async {
+  Future<void> _activateCodexPlanMode({
+    bool persistOnly = false,
+    bool dismissPanel = true,
+  }) async {
     await _loadCodexCollaborationModes();
     final planMode = _resolveCodexPlanMode(_codexCollaborationModes);
     if (!mounted) return;
@@ -497,10 +500,62 @@ mixin _ChatPageCodexMixin on _ChatPageStateBase {
       _kCodexCollaborationModePreferenceKey,
       planMode,
     );
-    if (!persistOnly) {
+    if (!persistOnly && dismissPanel) {
       _messageController.clear();
       _hideSlashCommandPanel();
     }
+  }
+
+  @override
+  Future<void> _deactivateCodexPlanMode({bool dismissPanel = true}) async {
+    if (!mounted) return;
+    setState(() {
+      _activeCodexCollaborationMode = null;
+    });
+    await _clearCodexPreference(_kCodexCollaborationModePreferenceKey);
+    if (dismissPanel) {
+      _messageController.clear();
+      _hideSlashCommandPanel();
+    }
+  }
+
+  Future<void> _toggleCodexPlanMode({bool dismissPanel = true}) {
+    return _isCodexPlanMode(_activeCodexCollaborationMode)
+        ? _deactivateCodexPlanMode(dismissPanel: dismissPanel)
+        : _activateCodexPlanMode(dismissPanel: dismissPanel);
+  }
+
+  void _syncCodexCollaborationModeFromServer(String? mode) {
+    final normalized = mode?.trim();
+    if (normalized == null || normalized.isEmpty) {
+      return;
+    }
+    if (_isCodexPlanMode(normalized)) {
+      if (_activeCodexCollaborationMode == normalized) {
+        return;
+      }
+      _activeCodexCollaborationMode = normalized;
+      unawaited(
+        _writeCodexPreference(
+          _kCodexCollaborationModePreferenceKey,
+          normalized,
+        ),
+      );
+      return;
+    }
+    if (_activeCodexCollaborationMode == null) {
+      return;
+    }
+    _activeCodexCollaborationMode = null;
+    unawaited(_clearCodexPreference(_kCodexCollaborationModePreferenceKey));
+  }
+
+  void _autoDeactivateCodexPlanModeAfterTurn() {
+    if (!_isCodexPlanMode(_activeCodexCollaborationMode)) {
+      return;
+    }
+    _activeCodexCollaborationMode = null;
+    unawaited(_clearCodexPreference(_kCodexCollaborationModePreferenceKey));
   }
 
   @override
@@ -532,7 +587,7 @@ mixin _ChatPageCodexMixin on _ChatPageStateBase {
       return;
     }
     if (command == '/plan') {
-      await _activateCodexPlanMode();
+      await _toggleCodexPlanMode(dismissPanel: false);
       return;
     }
     if (_resolveSlashCommandPanelRoute(_messageController.text) ==
@@ -565,8 +620,8 @@ mixin _ChatPageCodexMixin on _ChatPageStateBase {
         _hideSlashCommandPanel();
         await _executeCodexInitCommand();
         return true;
-      case CodexSlashSubmitKind.activatePlan:
-        await _activateCodexPlanMode();
+      case CodexSlashSubmitKind.togglePlan:
+        await _toggleCodexPlanMode();
         return true;
       case CodexSlashSubmitKind.startPlan:
         _messageController.clear();
@@ -744,6 +799,16 @@ mixin _ChatPageCodexMixin on _ChatPageStateBase {
     }
   }
 
+  Future<void> _clearCodexPreference(String kind) async {
+    await StorageService.remove(_codexPreferenceKey(kind));
+    final conversationId = _currentConversationIdByMode[ChatPageMode.codex];
+    if (conversationId != null) {
+      await StorageService.remove(
+        _codexPreferenceKey(kind, conversationId: conversationId),
+      );
+    }
+  }
+
   Future<void> _writeCodexCommandPreferencesForCurrentConversation() async {
     final modelId = _activeCodexModelId?.trim();
     if (modelId != null && modelId.isNotEmpty) {
@@ -839,7 +904,18 @@ mixin _ChatPageCodexMixin on _ChatPageStateBase {
       _activeCodexThreadId = threadId ?? _activeCodexThreadId;
       _activeCodexTurnId = turnId ?? _activeCodexTurnId;
     }
+    if (isVisibleConversation) {
+      _syncCodexCollaborationModeFromServer(result.collaborationMode);
+    }
     if (isVisibleConversation && result.method == 'turn/completed') {
+      final completedTurnId = result.turnId;
+      final completedPlanTurn =
+          completedTurnId != null && _codexPlanTurnIds.remove(completedTurnId);
+      if (completedPlanTurn ||
+          (completedTurnId == null &&
+              _isCodexPlanMode(_activeCodexCollaborationMode))) {
+        _autoDeactivateCodexPlanModeAfterTurn();
+      }
       _activeCodexTurnId = null;
     }
     if (isVisibleConversation) {
@@ -911,6 +987,9 @@ mixin _ChatPageCodexMixin on _ChatPageStateBase {
       );
     }
 
+    final collaborationModeForTurn =
+        collaborationModeOverride ?? _activeCodexCollaborationMode;
+    final turnUsesPlanMode = _isCodexPlanMode(collaborationModeForTurn);
     try {
       CodexStatus status = _codexStatus;
       if (!status.connected) {
@@ -930,8 +1009,7 @@ mixin _ChatPageCodexMixin on _ChatPageStateBase {
         sandboxPolicy: _codexPermissionMode.sandboxPolicy,
         model: modelOverride ?? _activeCodexModelId,
         effort: _activeCodexReasoningEffort,
-        collaborationMode:
-            collaborationModeOverride ?? _activeCodexCollaborationMode,
+        collaborationMode: collaborationModeForTurn,
       );
       final resolvedThreadId = _asCodexString(response['threadId']);
       if (resolvedThreadId != null && remoteCodex) {
@@ -941,6 +1019,9 @@ mixin _ChatPageCodexMixin on _ChatPageStateBase {
       _activeCodexThreadId = resolvedThreadId ?? _activeCodexThreadId;
       _activeCodexTurnId =
           _asCodexString(response['turnId']) ?? _activeCodexTurnId;
+      if (turnUsesPlanMode && _activeCodexTurnId != null) {
+        _codexPlanTurnIds.add(_activeCodexTurnId!);
+      }
       final localConversationId = _asCodexInt(response['conversationId']);
       if (!remoteCodex &&
           localConversationId != null &&
@@ -1274,7 +1355,8 @@ mixin _ChatPageCodexMixin on _ChatPageStateBase {
     final hasLivePushStreaming =
         runtime != null &&
         (runtime.currentAiMessages.isNotEmpty ||
-            runtime.currentThinkingMessages.isNotEmpty);
+            runtime.currentThinkingMessages.isNotEmpty ||
+            runtime.messages.any(_isPendingCodexRequestMessage));
     final preserveLiveStreamingState = fromPoll && hasLivePushStreaming;
     setState(() {
       _activeCodexRemoteRuntimeId = runtimeId;
@@ -2057,6 +2139,29 @@ Map<String, dynamic>? _codexHistoricalItemFromEventMethod(
   if (method.isEmpty) {
     return null;
   }
+  final lowerMethod = method.toLowerCase();
+  if (method.endsWith('requestUserInput') ||
+      lowerMethod.endsWith('request_user_input')) {
+    return _codexNormalizeHistoricalItem(<String, dynamic>{
+      ...params,
+      'id':
+          _asCodexString(params['id']) ??
+          _asCodexString(params['requestId']) ??
+          _asCodexString(params['request_id']),
+      'type': 'requestUserInput',
+    });
+  }
+  if (method.endsWith('requestApproval') ||
+      lowerMethod.endsWith('request_approval')) {
+    return _codexNormalizeHistoricalItem(<String, dynamic>{
+      ...params,
+      'id':
+          _asCodexString(params['id']) ??
+          _asCodexString(params['requestId']) ??
+          _asCodexString(params['request_id']),
+      'type': 'requestApproval',
+    });
+  }
   if (method.contains('commandExecution') ||
       method == 'command/exec/outputDelta' ||
       method == 'command/exec/completed' ||
@@ -2522,6 +2627,7 @@ bool _codexLooksLikeHistoricalItemType(String itemType) {
   return canonical == 'userMessage' ||
       canonical == 'agentMessage' ||
       canonical == 'reasoning' ||
+      _codexHistoricalRequestItemTypes.contains(canonical) ||
       _codexHistoricalToolItemTypes.contains(canonical) ||
       _codexHistoricalToolOutputItemTypes.contains(canonical);
 }
@@ -2836,6 +2942,13 @@ bool _shouldPreserveRemoteRuntimeMessage(
   required bool isAiResponding,
   required Set<String> snapshotTaskIds,
 }) {
+  if (_isCodexRequestMessage(message)) {
+    if (isAiResponding) {
+      return true;
+    }
+    final taskId = _messageTaskId(message);
+    return taskId != null && snapshotTaskIds.contains(taskId);
+  }
   final isCodexTool = _isCodexToolSummaryMessage(message);
   if (isAiResponding &&
       activeTaskId != null &&
@@ -2932,6 +3045,23 @@ bool _isCodexToolSummaryMessage(ChatMessageModel message) {
   final cardData = message.cardData;
   return cardData?['type'] == 'agent_tool_summary' &&
       (cardData?['uiStyle'] ?? '').toString().trim() == 'codex_tool';
+}
+
+bool _isCodexRequestMessage(ChatMessageModel message) {
+  final cardData = message.cardData;
+  return cardData?['type'] == 'codex_request';
+}
+
+bool _isPendingCodexRequestMessage(ChatMessageModel message) {
+  if (!_isCodexRequestMessage(message)) return false;
+  final cardData = message.cardData;
+  final status = _asCodexString(cardData?['status'])?.toLowerCase();
+  return status == null ||
+      status == 'pending' ||
+      status == 'running' ||
+      status == 'requested' ||
+      status == 'open' ||
+      status == 'progress';
 }
 
 bool _isInFlightCodexMessage(ChatMessageModel message) {
@@ -3115,6 +3245,61 @@ List<ChatMessageModel> _codexMessagesFromThreadResponse(
               parentTaskId: turnId,
               entryId: cardId,
               isFinal: !isLoading,
+            ),
+          ).copyWith(createAt: createdAt),
+        );
+        continue;
+      }
+      if (_codexHistoricalRequestItemTypes.contains(itemType)) {
+        seq += 1;
+        final requestKind = itemType == 'requestApproval'
+            ? 'approval'
+            : 'user_input';
+        final question = _codexHistoricalFirstQuestion(item);
+        final cardSuffix = requestKind == 'approval'
+            ? 'approval'
+            : 'user-input';
+        final cardId = '$itemId-codex-$cardSuffix';
+        final title = requestKind == 'approval'
+            ? _codexHistoricalApprovalTitle(item)
+            : question.title;
+        final detail = requestKind == 'approval'
+            ? _codexHistoricalApprovalDetail(item)
+            : question.detail;
+        final status = _codexHistoricalRequestStatus(
+          item,
+          requestKind: requestKind,
+        );
+        chronological.add(
+          ChatMessageModel.cardMessage(
+            <String, dynamic>{
+              'type': 'codex_request',
+              'taskId': turnId,
+              'requestId':
+                  _asCodexString(item['requestId']) ??
+                  _asCodexString(item['request_id']) ??
+                  _asCodexString(item['id']) ??
+                  itemId,
+              'requestKind': requestKind,
+              'title': title,
+              'detail': detail,
+              if (requestKind == 'user_input') 'questionId': question.id,
+              'rawParamsJson': _safeCodexJson(item),
+              'status': status,
+              'cardId': cardId,
+              'startTime': createdAt.millisecondsSinceEpoch,
+            },
+            id: cardId,
+            streamMeta: ensureAgentStreamMessageMeta(
+              null,
+              seq: seq,
+              roundIndex: seq,
+              kind: requestKind == 'approval'
+                  ? 'permission_required'
+                  : 'clarify_required',
+              parentTaskId: turnId,
+              entryId: cardId,
+              isFinal: status != 'pending',
             ),
           ).copyWith(createAt: createdAt),
         );
@@ -3787,6 +3972,182 @@ String _safeCodexJson(dynamic value) {
   }
 }
 
+class _CodexHistoricalQuestion {
+  const _CodexHistoricalQuestion({
+    required this.id,
+    required this.title,
+    required this.detail,
+  });
+
+  final String id;
+  final String title;
+  final String detail;
+}
+
+_CodexHistoricalQuestion _codexHistoricalFirstQuestion(
+  Map<String, dynamic> item,
+) {
+  final params = _asCodexMap(item['params']);
+  final questions = item['questions'] ?? params?['questions'];
+  if (questions is List && questions.isNotEmpty) {
+    final first = _asCodexMap(questions.first);
+    if (first != null) {
+      final id =
+          _asCodexString(first['id']) ??
+          _asCodexString(first['questionId']) ??
+          'answer';
+      final title =
+          _codexFirstText([
+            first['label'],
+            first['title'],
+            first['question'],
+          ]) ??
+          'Codex needs input';
+      final detail =
+          _codexFirstText([first['description'], first['placeholder']]) ??
+          title;
+      return _CodexHistoricalQuestion(id: id, title: title, detail: detail);
+    }
+  }
+  final id =
+      _asCodexString(item['questionId']) ??
+      _asCodexString(item['question_id']) ??
+      _asCodexString(item['id']) ??
+      'answer';
+  final title =
+      _codexFirstText([
+        item['question'],
+        item['title'],
+        params?['question'],
+        params?['title'],
+      ]) ??
+      'Codex needs input';
+  final detail =
+      _codexFirstText([
+        item['description'],
+        item['placeholder'],
+        params?['description'],
+        params?['placeholder'],
+      ]) ??
+      title;
+  return _CodexHistoricalQuestion(id: id, title: title, detail: detail);
+}
+
+String _codexHistoricalApprovalTitle(Map<String, dynamic> item) {
+  final command = _codexFirstText([
+    item['command'],
+    _asCodexMap(item['action'])?['command'],
+    _asCodexMap(item['params'])?['command'],
+  ]);
+  if (command != null) {
+    return _truncateCodexText(command, 48);
+  }
+  return 'Codex approval';
+}
+
+String _codexHistoricalApprovalDetail(Map<String, dynamic> item) {
+  return _codexFirstText([
+        item['reason'],
+        item['description'],
+        item['command'],
+        _asCodexMap(item['params'])?['reason'],
+        _asCodexMap(item['params'])?['description'],
+        _asCodexMap(item['params'])?['command'],
+      ]) ??
+      _safeCodexJson(item);
+}
+
+String _codexHistoricalRequestStatus(
+  Map<String, dynamic> item, {
+  required String requestKind,
+}) {
+  final explicit = _codexNormalizeHistoricalRequestStatus(
+    _codexFirstText([
+      item['status'],
+      item['state'],
+      item['requestStatus'],
+      item['request_status'],
+      _asCodexMap(item['request'])?['status'],
+      _asCodexMap(item['request'])?['state'],
+    ]),
+    requestKind: requestKind,
+  );
+  if (explicit != null && explicit != 'pending') {
+    return explicit;
+  }
+  final response =
+      item['response'] ??
+      item['answer'] ??
+      item['answers'] ??
+      item['result'] ??
+      item['decision'];
+  if (_codexHasRequestResponse(response)) {
+    if (requestKind == 'approval') {
+      final decision = _codexNormalizeHistoricalRequestStatus(
+        _codexFirstText([
+          item['decision'],
+          _asCodexMap(response)?['decision'],
+          _asCodexMap(response)?['status'],
+          _asCodexMap(response)?['state'],
+        ]),
+        requestKind: requestKind,
+      );
+      if (decision == 'accepted' || decision == 'declined') {
+        return decision!;
+      }
+      return 'accepted';
+    }
+    return 'submitted';
+  }
+  return explicit ?? 'pending';
+}
+
+String? _codexNormalizeHistoricalRequestStatus(
+  String? value, {
+  required String requestKind,
+}) {
+  final normalized = value?.trim().toLowerCase() ?? '';
+  if (normalized.isEmpty) {
+    return null;
+  }
+  return switch (normalized) {
+    'accept' || 'accepted' || 'approve' || 'approved' => 'accepted',
+    'decline' || 'declined' || 'reject' || 'rejected' => 'declined',
+    'submit' || 'submitted' || 'answered' => 'submitted',
+    'complete' ||
+    'completed' => requestKind == 'approval' ? 'accepted' : 'submitted',
+    'fail' || 'failed' || 'error' => 'failed',
+    'pending' || 'running' || 'requested' || 'open' => 'pending',
+    _ => normalized,
+  };
+}
+
+bool _codexHasRequestResponse(dynamic value) {
+  if (value == null) {
+    return false;
+  }
+  if (value is String) {
+    return value.trim().isNotEmpty;
+  }
+  if (value is Iterable) {
+    return value.isNotEmpty;
+  }
+  if (value is Map) {
+    return value.isNotEmpty;
+  }
+  return true;
+}
+
+String? _codexFirstText(Iterable<dynamic> values) {
+  for (final value in values) {
+    final text = _codexExtractText(value).trim();
+    if (text.isNotEmpty) {
+      return text;
+    }
+  }
+  return null;
+}
+
 const Set<String> _codexHistoricalToolItemTypes = <String>{
   'commandExecution',
   'local_shell_call',
@@ -3807,6 +4168,11 @@ const Set<String> _codexHistoricalToolItemTypes = <String>{
   'collabAgentToolCall',
   'collabToolCall',
   'plan',
+};
+
+const Set<String> _codexHistoricalRequestItemTypes = <String>{
+  'requestUserInput',
+  'requestApproval',
 };
 
 const Set<String> _codexHistoricalToolOutputItemTypes = <String>{

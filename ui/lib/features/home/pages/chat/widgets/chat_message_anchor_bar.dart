@@ -6,7 +6,6 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 import 'package:ui/l10n/legacy_text_localizer.dart';
 import 'package:ui/models/chat_message_model.dart';
 import 'package:ui/services/agent_avatar_service.dart';
@@ -200,14 +199,11 @@ class _ChatMessageAnchorBarState extends State<ChatMessageAnchorBar>
   int _anchorsCacheLength = -1;
   Set<String>? _anchorsCacheTaskIds;
 
-  String _userAvatarAsset = AgentAvatarService.presetAvatars.first;
-
   @override
   void initState() {
     super.initState();
     _bindObservableMessages(widget.messages);
     AgentAvatarService.ensureLoaded();
-    unawaited(_loadUserAvatarAsset());
   }
 
   @override
@@ -255,19 +251,6 @@ class _ChatMessageAnchorBarState extends State<ChatMessageAnchorBar>
     }
   }
 
-  Future<void> _loadUserAvatarAsset() async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      final index = prefs.getInt('avatarIndex') ?? 0;
-      final asset = AgentAvatarService.assetForIndex(index);
-      if (mounted && asset != _userAvatarAsset) {
-        setState(() => _userAvatarAsset = asset);
-      }
-    } catch (_) {
-      // 读取失败沿用默认头像。
-    }
-  }
-
   List<ChatMessageAnchor> _resolveAnchors() {
     final source = widget.messages;
     final observable = source is ObservableChatMessageList ? source : null;
@@ -311,7 +294,6 @@ class _ChatMessageAnchorBarState extends State<ChatMessageAnchorBar>
       }
     });
     if (next) {
-      unawaited(_loadUserAvatarAsset());
       _expandController.forward();
     } else {
       _expandController.reverse();
@@ -761,13 +743,29 @@ class _ChatMessageAnchorBarState extends State<ChatMessageAnchorBar>
 
   Widget _buildAnchorAvatar(ChatMessageAnchor anchor) {
     if (anchor.isUser) {
-      final userAvatarIndex = AgentAvatarService.presetAvatars.indexOf(
-        _userAvatarAsset,
-      );
-      return AgentAvatarCircle(
-        avatarIndex: userAvatarIndex < 0 ? 0 : userAvatarIndex,
-        customImagePath: '',
-        size: _kAnchorAvatarSize,
+      final palette = context.omniPalette;
+      final isDark = context.isDarkTheme;
+      return Container(
+        width: _kAnchorAvatarSize,
+        height: _kAnchorAvatarSize,
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          color: isDark
+              ? palette.surfacePrimary.withValues(alpha: 0.58)
+              : Colors.white.withValues(alpha: 0.96),
+          border: Border.all(
+            color: isDark ? palette.borderStrong : Colors.white,
+            width: 1.5,
+          ),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: isDark ? 0.30 : 0.14),
+              blurRadius: 8,
+              offset: const Offset(0, 3),
+            ),
+          ],
+        ),
+        child: Icon(LucideIcons.user, size: 15, color: palette.textSecondary),
       );
     }
     return ValueListenableBuilder<AgentAvatarState>(

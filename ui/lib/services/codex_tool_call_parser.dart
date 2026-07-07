@@ -120,6 +120,8 @@ String canonicalCodexItemType(String? itemType) {
         'image_generation': 'imageGeneration',
         'collab_agent_tool_call': 'collabAgentToolCall',
         'collab_tool_call': 'collabToolCall',
+        'request_user_input': 'requestUserInput',
+        'request_approval': 'requestApproval',
         'todo_list': 'plan',
       }[normalized] ??
       normalized;

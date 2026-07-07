@@ -103,6 +103,22 @@ void main() {
     expect(calls.first.arguments, {'limit': 100});
   });
 
+  test('ignoreUserInput responds with empty answers payload', () async {
+    MethodCall? capturedCall;
+    messenger.setMockMethodCallHandler(channel, (call) async {
+      capturedCall = call;
+      return <String, dynamic>{'ok': true};
+    });
+
+    await CodexAppServerService.ignoreUserInput(requestId: 'request-1');
+
+    expect(capturedCall?.method, 'respondToServerRequest');
+    expect(capturedCall?.arguments, {
+      'requestId': 'request-1',
+      'response': {'answers': <String, dynamic>{}},
+    });
+  });
+
   test('readThread requests turns by default', () async {
     MethodCall? capturedCall;
     messenger.setMockMethodCallHandler(channel, (call) async {
