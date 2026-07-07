@@ -148,6 +148,7 @@ object FunctionSchema {
         val suppliedArgumentStatus = linkedMapOf<String, LinkedHashMap<String, Any?>>()
         val ignoredArguments = mutableListOf<LinkedHashMap<String, Any?>>()
         val missingRequired = mutableListOf<String>()
+        val templateBindings = templateParameterBindings(spec)
         val legacyParameters = spec["parameters"] as? List<*> ?: emptyList<Any?>()
         if (legacyParameters.isNotEmpty()) {
             legacyParameters.forEach { rawParameter ->
@@ -174,12 +175,18 @@ object FunctionSchema {
                     return@forEach
                 }
                 resolvedArguments[name] = value
-                val bindings = listArg(parameter["bindings"])
+                val bindings = (listArg(parameter["bindings"])
                     .mapNotNull { it?.toString()?.trim()?.takeIf(String::isNotEmpty) }
                     .filter(::isCanonicalBindingPath)
+                    + templateBindings[name].orEmpty())
+                    .distinct()
                 var appliedCount = 0
                 bindings.forEach { binding ->
-                    val applied = setJsonPathValue(spec, binding, value)
+                    val applied = if (binding in templateBindings[name].orEmpty()) {
+                        true
+                    } else {
+                        setJsonPathValue(spec, binding, value)
+                    }
                     if (applied) appliedCount += 1
                     bindingResults += linkedMapOf(
                         "parameter" to name,
@@ -227,7 +234,11 @@ object FunctionSchema {
                 val bindings = parameterBindings(name, parameter, spec)
                 var appliedCount = 0
                 bindings.forEach { binding ->
-                    val applied = setJsonPathValue(spec, binding, value)
+                    val applied = if (binding in templateBindings[name].orEmpty()) {
+                        true
+                    } else {
+                        setJsonPathValue(spec, binding, value)
+                    }
                     if (applied) appliedCount += 1
                     bindingResults += linkedMapOf(
                         "parameter" to name,
@@ -246,14 +257,14 @@ object FunctionSchema {
         }
 
         suppliedArgumentNames.forEach { name ->
-            suppliedArgumentStatus.putIfAbsent(
-                name,
-                if (isInternalFunctionArgumentName(name)) {
-                    ignoredArgumentStatus(name, "internal_replay_argument").also { ignoredArguments += it }
-                } else {
-                    ignoredArgumentStatus(name, "argument_not_declared").also { ignoredArguments += it }
-                }
-            )
+            if (suppliedArgumentStatus.containsKey(name)) return@forEach
+            val ignored = if (isInternalFunctionArgumentName(name)) {
+                ignoredArgumentStatus(name, "internal_replay_argument")
+            } else {
+                ignoredArgumentStatus(name, "argument_not_declared")
+            }
+            suppliedArgumentStatus[name] = ignored
+            ignoredArguments += ignored
         }
         val unboundArguments = suppliedArgumentStatus.values
             .filter { it["applied"] != true && it["ignored"] != true }
@@ -410,9 +421,12 @@ object FunctionSchema {
     ) {
         when (value) {
             is String -> {
-                val name = exactParameterTokenName(value) ?: return
-                if (!isPublicParameterName(name) || !isCanonicalBindingPath(path)) return
-                output.getOrPut(name) { linkedSetOf() }.add(path)
+                if (!isCanonicalBindingPath(path)) return
+                PARAMETER_TOKEN_REGEX.findAll(value).forEach { match ->
+                    val name = parameterTokenName(match)
+                    if (!isPublicParameterName(name)) return@forEach
+                    output.getOrPut(name) { linkedSetOf() }.add(path)
+                }
             }
             is Map<*, *> -> value.forEach { (key, item) ->
                 val childKey = key?.toString()?.trim()?.takeIf { it.matches(Regex("""[A-Za-z0-9_]+""")) }
@@ -758,6 +772,6 @@ object FunctionSchema {
         "x","y","x1","y1","x2","y2","bounds","clear","duration_ms")
     private const val RUNNER = "oob_agent_reusable_function"
     private val PARAMETER_TOKEN_REGEX by lazy(LazyThreadSafetyMode.PUBLICATION) {
-        Regex("""\$\{([A-Za-z_][A-Za-z0-9_]*)}|\{\{\s*([A-Za-z_][A-Za-z0-9_]*)\s*}}""")
+        Regex("""\$\{([A-Za-z_][A-Za-z0-9_]*)\}|\{\{\s*([A-Za-z_][A-Za-z0-9_]*)\s*\}\}""")
     }
 }

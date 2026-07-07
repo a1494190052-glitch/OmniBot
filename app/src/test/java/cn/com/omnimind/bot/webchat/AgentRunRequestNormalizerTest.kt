@@ -114,4 +114,46 @@ class AgentRunRequestNormalizerTest {
             normalized.attachments.single()["mimeType"]
         )
     }
+
+    @Test
+    fun `create agent task arguments preserve function tool profile`() {
+        val arguments = AgentRunRequestNormalizer.buildCreateAgentTaskArguments(
+            taskId = "task-1",
+            conversationId = 42L,
+            request = mapOf(
+                "conversationMode" to "normal",
+                "userMessage" to "register a function",
+                "toolProfile" to "function",
+                "allowedTools" to listOf(
+                    "oob_function_register",
+                    "oob_function_list",
+                    "oob_function_delete"
+                )
+            )
+        )
+
+        assertEquals("task-1", arguments["taskId"])
+        assertEquals(42L, arguments["conversationId"])
+        assertEquals("function", arguments["toolProfile"])
+        assertEquals(
+            listOf("oob_function_register", "oob_function_list", "oob_function_delete"),
+            arguments["allowedTools"]
+        )
+    }
+
+    @Test
+    fun `create agent task arguments accept snake case tool profile aliases`() {
+        val arguments = AgentRunRequestNormalizer.buildCreateAgentTaskArguments(
+            taskId = "task-2",
+            conversationId = 43L,
+            request = mapOf(
+                "userMessage" to "register a function",
+                "tool_profile" to "omniflow",
+                "allowed_tools" to listOf("oob_function_register")
+            )
+        )
+
+        assertEquals("omniflow", arguments["toolProfile"])
+        assertEquals(listOf("oob_function_register"), arguments["allowedTools"])
+    }
 }

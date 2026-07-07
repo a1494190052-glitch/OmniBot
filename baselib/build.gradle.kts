@@ -36,6 +36,12 @@ android {
     }
 }
 
+kapt {
+    arguments {
+        arg("room.schemaLocation", "$projectDir/schemas")
+    }
+}
+
 kotlin {
     compilerOptions {
         jvmTarget.set(JvmTarget.JVM_11)
