@@ -143,6 +143,11 @@ class App : BaseApplication() {
             )
         }
         runCatching {
+            cn.com.omnimind.assists.task.vlmserver.VLMRecallActionProviderRegistry.register(
+                cn.com.omnimind.bot.vlm.VlmRecallFunctionSelector(this)
+            )
+        }
+        runCatching {
             val guidanceManager = cn.com.omnimind.bot.vlm.VlmGuidanceManager.getInstance(this)
             guidanceManager.initialize()
         }

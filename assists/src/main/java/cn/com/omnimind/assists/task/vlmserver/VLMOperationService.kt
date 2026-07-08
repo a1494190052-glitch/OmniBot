@@ -295,6 +295,34 @@ class VLMOperationService(
         }
 
         var stepIndex = 0
+
+        // Eager recall fast path: skip step-1 LLM when a high-confidence function match is found.
+        // The selector runs recall + optional lightweight param-fill (text-only); no screenshot taken.
+        val eagerAction = VLMRecallActionProviderRegistry.selectAction(
+            goal = goal,
+            packageName = packageName,
+            disableFunctionRecall = disableFunctionRecallForCurrentTask,
+            streamClient = streamClient,
+        )
+        if (eagerAction != null) {
+            val eagerStep = UIStep(
+                observation = "Eager recall: ${eagerAction.functionId}",
+                thought = "High-confidence function recall matched goal; executing directly.",
+                action = eagerAction,
+            )
+            onStepStarted(0, eagerStep)
+            val executed = actionExecutor.act(eagerStep)
+            if (!executed.result.orEmpty().startsWith("执行失败")) {
+                context = updateContext(executed, context)
+                executionTrace.add(executed)
+                onStepCompleted(0, executed, false, null)
+                stepIndex = 1
+            } else {
+                disableFunctionRecallForCurrentTask = true
+                OmniLog.w(Tag, "Eager recall execution failed (${eagerAction.functionId}): ${executed.result}; falling back to normal VLM")
+            }
+        }
+
         while (stepIndex < normalizedMaxSteps) {
             // 检查用户是否请求暂停（每一步执行前都检查）
             safePauseCheck("before_step_$stepIndex")
