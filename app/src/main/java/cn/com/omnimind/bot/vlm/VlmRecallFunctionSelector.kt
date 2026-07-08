@@ -95,7 +95,7 @@ class VlmRecallFunctionSelector(private val context: Context) : VLMRecallActionP
             if (useWhen.isNotBlank() && useWhen != purpose) append("\nUse when: $useWhen")
             append(paramSection)
             append("\nReturn JSON: {\"matches\": true/false, \"arguments\": {\"param\": \"value\"}}")
-            append("\nIf matches is false, set arguments to {}.")
+            append("\nSet matches=true if running this workflow is a useful next step toward the goal (even if it only covers part of it). Set arguments to {} if matches is false.")
         }
 
         val model = VLMRuntimeConfigRegistry.get().primarySceneId
@@ -105,7 +105,8 @@ class VlmRecallFunctionSelector(private val context: Context) : VLMRecallActionP
                 ChatCompletionMessage(
                     role = "system",
                     content = JsonPrimitive(
-                        "Decide if a saved workflow handles the user goal. " +
+                        "Decide if executing a saved workflow would advance the user goal — " +
+                            "it does not need to complete the goal entirely, only be a useful next step toward it. " +
                             "If yes, extract any required parameter values from the goal. " +
                             "Return only valid JSON with keys \"matches\" (boolean) and \"arguments\" (object)."
                     )
