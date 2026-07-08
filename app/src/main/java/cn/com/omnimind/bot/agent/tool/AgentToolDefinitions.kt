@@ -225,8 +225,8 @@ object AgentToolDefinitions {
             "Optional keyword filter. Matches app names or package names.",
         "可选，返回数量上限，默认 20，范围 1-100。" to
             "Optional maximum number of results to return. Default 20, range 1-100.",
-        "使用视觉语言模型执行手机当前屏幕操作任务，只用于点击、滑动、输入、打开 App 或跨 App 自动化。一次 vlm_task 调用代表一次完整设备执行流程；打开 App 是该完整流程的第一步，不要先单独调用 vlm_task 打开 App、再第二次调用 vlm_task 执行后续目标。内部点击/输入/滚动会作为 vlm_step 进度持续上报。不要用于用户上传图片/截图/照片的识别、OCR、解释、总结或对比；这类图片已在多模态对话里，应该直接回答。该工具会阻塞等待到任务完成、需要用户输入、屏幕锁定或超时，再把终态结果返回给模型。普通调用默认走在线 VLM 执行；本地 runtime replay 高置信复用指令只允许显式复用指令入口传入内部开关时启用。外层 Agent 不直接调用隐藏 Function replay 或 guard 工具。" to
-            "Use a vision-language model to execute the current phone screen task, only for tapping, swiping, typing, opening apps, or cross-app automation. One `vlm_task` call represents one complete device execution flow; opening an app is the first step of that flow, so do not call `vlm_task` once only to open the app and then call it again for the real goal. Internal tap/input/scroll progress is reported as `vlm_step`. Do not use this for recognizing, OCRing, explaining, summarizing, or comparing user-uploaded images, screenshots, or photos; those are already available to multimodal chat and should be answered directly. This tool blocks until the task finishes, needs user input, hits a locked screen, or times out, then returns the terminal state. Ordinary calls use the online VLM flow by default; local runtime replay of high-confidence reusable commands is enabled only when an explicit reusable-command entrypoint passes the internal opt-in flag. The outer Agent must not directly call hidden Function replay or guard tools.",
+        "手机屏幕自动化首选工具。用户要打开某个 App、在 App 内完成任何操作、或跨 App 执行流程时，立即调用，不要先推理是否需要。一次调用代表从当前状态到目标完成的完整流程；打开 App 和后续操作合并为一个 goal，不要拆成两次调用。阻塞等待到任务完成/需要用户输入/屏幕锁定/超时后返回终态结果。禁止用于识别或解释用户上传的图片/截图，那些图片已在对话上下文里，直接基于上下文回答。" to
+            "The go-to tool for phone screen automation. When the user wants to open an app, do anything inside an app, or run a cross-app flow, call this immediately — do not reason about whether it is needed first. One call covers the complete flow from the current state to the finished goal; merge app launch and follow-up actions into a single goal instead of splitting them into two calls. Blocks until the task finishes, needs user input, hits a locked screen, or times out, then returns the terminal result. Never use this to recognise or explain user-uploaded images or screenshots; those are already in the conversation context — answer directly from there.",
         "任务目标，使用第一人称描述。" to
             "Task goal written in the first person.",
         "可选视觉推理模型或场景 ID。一般留空；需要调试或固定模型时才传具体值。" to
@@ -555,7 +555,7 @@ object AgentToolDefinitions {
             put("toolType", "builtin")
             put(
                 "description",
-                "使用视觉语言模型执行手机当前屏幕操作任务，只用于点击、滑动、输入、打开 App 或跨 App 自动化。一次 vlm_task 调用代表一次完整设备执行流程；打开 App 是该完整流程的第一步，不要先单独调用 vlm_task 打开 App、再第二次调用 vlm_task 执行后续目标。内部点击/输入/滚动会作为 vlm_step 进度持续上报。不要用于用户上传图片/截图/照片的识别、OCR、解释、总结或对比；这类图片已在多模态对话里，应该直接回答。该工具会阻塞等待到任务完成、需要用户输入、屏幕锁定或超时，再把终态结果返回给模型。普通调用默认走在线 VLM 执行；本地 runtime replay 高置信复用指令只允许显式复用指令入口传入内部开关时启用。外层 Agent 不直接调用隐藏 Function replay 或 guard 工具。"
+                "手机屏幕自动化首选工具。用户要打开某个 App、在 App 内完成任何操作、或跨 App 执行流程时，立即调用，不要先推理是否需要。一次调用代表从当前状态到目标完成的完整流程；打开 App 和后续操作合并为一个 goal，不要拆成两次调用。阻塞等待到任务完成/需要用户输入/屏幕锁定/超时后返回终态结果。禁止用于识别或解释用户上传的图片/截图，那些图片已在对话上下文里，直接基于上下文回答。"
             )
             putJsonObject("parameters") {
                 put("type", "object")

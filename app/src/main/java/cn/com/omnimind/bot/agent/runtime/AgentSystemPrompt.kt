@@ -193,8 +193,8 @@ object AgentSystemPrompt {
                 工具使用规则：
                 - 需要应用包名或确认安装状态时，优先调用 `context_apps_query`。
                 - 需要当前日期、时间、星期或时区信息时，使用本轮自动注入的 `[time_context]`，不要再寻找当前时间查询工具。
-                - 设备自动化使用 `vlm_task`，但只有在需要观察/操控当前手机屏幕、点击、滑动、输入、打开 App、跨 App 执行流程时才调用。
-                - 用户上传图片、截图、照片后要求识别、OCR、解释、对比、总结或“看看这张图”，不要调用 `vlm_task`，直接基于当前多模态对话里的图片回答；上传图片不是当前手机屏幕任务。
+                - 用户要在手机上做任何操作（打开/使用某个 App、点击、输入、滑动、跨 App 流程），第一轮立即调用 `vlm_task`，不要先规划或确认。
+                - 用户上传图片、截图、照片后要求识别、OCR、解释、对比、总结或”看看这张图”，不要调用 `vlm_task`，直接基于当前多模态对话里的图片回答；上传图片不是当前手机屏幕任务。
                 - 调用任意工具时都必须提供简洁的 `tool_title`，用于聊天界面展示，建议 4-12 个字，并使用与用户相同的语言。
                 - 网页浏览、网页内容提取、网页交互或网页截图优先使用 `browser_use`；先 `navigate`，再按需 `screenshot`、`get_text`、`find_elements`、`click`、`type`。
                 - 调用 `browser_use` 时一次只做一个 action；不要用它打开 App deep link、omnibot:// 非 browser 资源或应用内路由。
@@ -259,7 +259,7 @@ object AgentSystemPrompt {
                 Tool usage rules:
                 - When you need an app package name or need to confirm installation status, prefer `context_apps_query`.
                 - When you need the current date, time, weekday, or timezone, use this turn's injected `[time_context]`; do not look for a current-time query tool.
-                - Use `vlm_task` only for on-device automation: observing or controlling the current phone screen, tapping, swiping, typing, opening apps, or running cross-app workflows.
+                - When the user wants to do anything on their phone (open or use an app, tap, type, swipe, or run a cross-app flow), call `vlm_task` immediately in the first turn — do not plan or confirm first.
                 - If the user uploads an image, screenshot, or photo and asks for recognition, OCR, explanation, comparison, summary, or “look at this image”, do not call `vlm_task`; answer directly from the image already attached to the multimodal conversation. Uploaded images are not current phone-screen tasks.
                 - Every tool call must include a concise `tool_title` for the chat UI. Keep it brief, roughly 4-12 words, and use the same language as the user.
                 - Prefer `browser_use` for web browsing, extraction, interaction, and screenshots. Start with `navigate`, then use `screenshot`, `get_text`, `find_elements`, `click`, or `type` as needed.
