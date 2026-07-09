@@ -336,7 +336,6 @@ private class ReportingSubagentCallback(
 
     override suspend fun onToolCallStart(
         toolName: String,
-        toolCallId: String,
         arguments: kotlinx.serialization.json.JsonObject
     ) {
         tools.add(toolName)

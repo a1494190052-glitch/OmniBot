@@ -9,6 +9,7 @@ import cn.com.omnimind.baselib.llm.ModelSceneRegistry
 import cn.com.omnimind.baselib.llm.ProviderCustomHeaderUtils
 import cn.com.omnimind.baselib.llm.SceneModelBindingStore
 import cn.com.omnimind.baselib.util.OmniLog
+import cn.com.omnimind.bot.agent.workspace.memory.LongTermMemoryIndex
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
 import com.tencent.mmkv.MMKV
@@ -65,7 +66,8 @@ data class WorkspaceMemorySearchResult(
 data class WorkspaceMemoryPromptContext(
     val soul: String,
     val longTermMemory: String,
-    val todayShortMemory: String
+    val todayShortMemory: String,
+    val longTermIndexSummary: String = ""
 )
 
 data class WorkspaceShortMemoryEntry(
@@ -119,6 +121,9 @@ class WorkspaceMemoryService(
         private const val KEY_ROLLUP_LAST_RUN_AT = "workspace_memory_rollup_last_run_at_v1"
         private const val KEY_ROLLUP_LAST_SUMMARY = "workspace_memory_rollup_last_summary_v1"
         private const val MAX_ROLLUP_LONG_TERM_CANDIDATES = 8
+        // Minimum normalized length before we treat substring containment as a
+        // duplicate — avoids a very short entry swallowing unrelated ones.
+        private const val DEDUP_MIN_CONTAINMENT_LEN = 8
         private val QUICK_LOG_MARKER_REGEX =
             Regex("^\\[quick-log:([A-Za-z0-9-]+)]\\s*(.*)$")
         private val DAILY_TIME_PREFIX_REGEX =
@@ -219,6 +224,30 @@ class WorkspaceMemoryService(
             .format(LocalDateTime.now())
         file.appendText("- [$timestamp] $normalized\n")
         return file
+    }
+
+    /**
+     * Append a short-term memory only if it is not a near-duplicate of an entry
+     * already written today (exact normalized match, or mutual substring once
+     * both sides are long enough). Used by the per-turn reflection writer so
+     * recurring facts ("user prefers Chinese") don't pile up every turn.
+     * Returns true when a new line was written.
+     */
+    fun appendDailyMemoryIfNovel(
+        text: String,
+        date: LocalDate = LocalDate.now()
+    ): Boolean {
+        ensureInitialized()
+        val normalized = text.trim()
+        if (normalized.isEmpty()) return false
+        val key = normalizeText(normalized)
+        if (key.isEmpty()) return false
+        val existingKeys = parseDailyShortMemoryEntries(date, readDailyMemory(date))
+            .map { normalizeText(it.content) }
+            .filter { it.isNotEmpty() }
+        if (isDuplicateNormalized(key, existingKeys)) return false
+        appendDailyMemory(normalized, date)
+        return true
     }
 
     fun listShortMemoryEntries(
@@ -343,13 +372,13 @@ class WorkspaceMemoryService(
         require(normalized.isNotEmpty()) { "memory text is empty" }
         val file = workspaceManager.longTermMemoryMarkdownFile()
         val current = file.readText()
-        val existing = current.lineSequence()
+        val existingKeys = current.lineSequence()
             .map { it.trim() }
             .filter { it.startsWith("- ") }
-            .map { it.removePrefix("- ").trim() }
-            .map { normalizeText(it) }
-            .toSet()
-        if (existing.contains(normalizeText(normalized))) {
+            .map { normalizeText(it.removePrefix("- ").trim()) }
+            .filter { it.isNotEmpty() }
+            .toList()
+        if (isDuplicateNormalized(normalizeText(normalized), existingKeys)) {
             return false
         }
         file.appendText("- $normalized\n")
@@ -370,10 +399,14 @@ class WorkspaceMemoryService(
             summarizeTodayShortMemory(),
             maxDailyChars
         )
+        val indexSummary = runCatching {
+            LongTermMemoryIndex(workspaceManager).summaryForPrompt()
+        }.getOrDefault("")
         return WorkspaceMemoryPromptContext(
             soul = soul,
             longTermMemory = longMemory,
-            todayShortMemory = todayDaily
+            todayShortMemory = todayDaily,
+            longTermIndexSummary = indexSummary
         )
     }
 
@@ -1104,6 +1137,24 @@ class WorkspaceMemoryService(
                     content = file.readText()
                 )
             }
+
+        // Past tool/environment failure lessons (self-improving-agent) so they
+        // surface proactively via search/prefetch, not only when the same tool
+        // fails again.
+        val lessonSource = "skill:self-improving-agent/ERRORS"
+        SelfImprovingSkillFailureHook
+            .collectSearchableLessons(workspaceManager.skillsRoot())
+            .forEach { lesson ->
+                val text = lesson.trim()
+                if (text.isNotEmpty()) {
+                    chunks += MemoryChunk(
+                        id = stableChunkId(lessonSource, null, text),
+                        source = lessonSource,
+                        date = null,
+                        text = text
+                    )
+                }
+            }
         return chunks
     }
 
@@ -1302,6 +1353,20 @@ class WorkspaceMemoryService(
         return text.lowercase(Locale.getDefault())
             .replace(Regex("\\s+"), "")
             .trim()
+    }
+
+    /**
+     * A normalized candidate counts as a duplicate of an existing entry when it
+     * matches exactly, or (once both are long enough) either contains the other.
+     * Shared by long-term upsert and per-turn short-term novelty checks.
+     */
+    private fun isDuplicateNormalized(key: String, existingKeys: List<String>): Boolean {
+        if (key.isEmpty()) return true
+        return existingKeys.any { existing ->
+            existing == key ||
+                (minOf(existing.length, key.length) >= DEDUP_MIN_CONTAINMENT_LEN &&
+                    (existing.contains(key) || key.contains(existing)))
+        }
     }
 
     private fun stableChunkId(source: String, date: String?, text: String): String {

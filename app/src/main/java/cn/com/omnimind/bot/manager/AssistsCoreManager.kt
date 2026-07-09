@@ -11,18 +11,12 @@ import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import cn.com.omnimind.accessibility.api.Constant
-import cn.com.omnimind.accessibility.service.AssistsService
-import cn.com.omnimind.assists.AgentVlmUiSession
 import cn.com.omnimind.assists.AssistsCore
-import cn.com.omnimind.assists.HumanTrajectoryLearningSession
-import cn.com.omnimind.assists.ManualRecordingRunLogRecovery
-import cn.com.omnimind.assists.FunctionUiSession
-import cn.com.omnimind.assists.task.vlmserver.ManualVlmRecordedAction
 import cn.com.omnimind.assists.api.bean.TaskParams
 import cn.com.omnimind.assists.api.interfaces.OnMessagePushListener
 import cn.com.omnimind.assists.controller.accessibility.AccessibilityController
 import cn.com.omnimind.assists.task.scheduled.worker.ScheduledStates
-import cn.com.omnimind.assists.task.scheduled.worker.ScheduledVLMOperationTaskParamsData
+import cn.com.omnimind.assists.task.scheduled.worker.toScheduledVLMOperationTaskParamsData
 import cn.com.omnimind.baselib.database.DatabaseHelper
 import cn.com.omnimind.baselib.database.Conversation
 import cn.com.omnimind.baselib.database.TokenUsageRecord
@@ -53,14 +47,10 @@ import cn.com.omnimind.baselib.llm.SceneOperationConfig
 import cn.com.omnimind.baselib.llm.SceneOperationConfigStore
 import cn.com.omnimind.baselib.llm.SceneVoiceConfig
 import cn.com.omnimind.baselib.llm.SceneVoiceConfigStore
-import cn.com.omnimind.baselib.runlog.InternalRunLogStore
-import cn.com.omnimind.baselib.runlog.OobActionSchema
 import cn.com.omnimind.baselib.util.APPPackageUtil
-import cn.com.omnimind.baselib.util.ImageQuality
 import cn.com.omnimind.baselib.util.OmniLog
 import cn.com.omnimind.baselib.util.RuntimeLogStore
 import cn.com.omnimind.baselib.util.exception.PermissionException
-import cn.com.omnimind.bot.BuildConfig
 import cn.com.omnimind.bot.R
 import cn.com.omnimind.bot.activity.MainActivity
 import cn.com.omnimind.bot.ui.scheduled.ScheduledTaskReminderLoader
@@ -71,7 +61,6 @@ import cn.com.omnimind.bot.util.TaskRuntimeSettings
 import cn.com.omnimind.bot.agent.AgentCallback
 import cn.com.omnimind.bot.agent.AgentAlarmToolService
 import cn.com.omnimind.bot.agent.AgentAiCapabilityConfigSync
-import cn.com.omnimind.bot.agent.config.AgentToolFeatureStore
 import cn.com.omnimind.bot.agent.AgentConversationContextCompactor
 import cn.com.omnimind.bot.agent.AgentImageAttachmentSupport
 import cn.com.omnimind.bot.agent.AgentWorkspaceAttachmentSupport
@@ -79,50 +68,33 @@ import cn.com.omnimind.bot.agent.AgentStreamEvent
 import cn.com.omnimind.bot.agent.AgentTextSanitizer
 import cn.com.omnimind.bot.agent.AgentModelOverride
 import cn.com.omnimind.bot.agent.AgentResult
-import cn.com.omnimind.bot.agent.AgentFinalResponse
-import cn.com.omnimind.bot.agent.AgentOutputKind
 import cn.com.omnimind.bot.agent.AgentConversationHistoryRepository
 import cn.com.omnimind.bot.agent.AgentRuntimeContextRepository
 import cn.com.omnimind.bot.agent.AgentScheduleToolBridge
 import cn.com.omnimind.bot.agent.AgentRunControl
 import cn.com.omnimind.bot.agent.AgentToolExecutionHandle
-import cn.com.omnimind.bot.agent.AgentToolNames
 import cn.com.omnimind.bot.agent.AgentToolProgressSnapshot
 import cn.com.omnimind.bot.agent.AgentWorkspaceManager
-import cn.com.omnimind.bot.agent.AgentToolJson
 import cn.com.omnimind.bot.agent.LiveAgentBrowserSessionManager
 import cn.com.omnimind.bot.agent.ManualToolStopCancellationException
 import cn.com.omnimind.bot.agent.OmniAgentExecutor
 import cn.com.omnimind.bot.agent.SkillIndexEntry
 import cn.com.omnimind.bot.agent.SkillIndexService
 import cn.com.omnimind.bot.agent.ToolExecutionResult
-import cn.com.omnimind.bot.agent.UserDialog
 import cn.com.omnimind.bot.agent.WorkspaceMemoryRollupScheduler
 import cn.com.omnimind.bot.agent.WorkspaceMemoryService
 import cn.com.omnimind.bot.agent.WorkspaceScheduledTaskScheduler
-import cn.com.omnimind.bot.function.FunctionRun
-import cn.com.omnimind.bot.function.FunctionApi
-import cn.com.omnimind.bot.function.FunctionService
-import cn.com.omnimind.bot.runlog.OobUdegNodeStore
+import cn.com.omnimind.bot.agent.resolveToolExecutionStatus
 import cn.com.omnimind.bot.localmodel.LocalModelFeature
-import cn.com.omnimind.bot.mcp.McpTaskManager
-import cn.com.omnimind.bot.mcp.McpToolExecutors
 import cn.com.omnimind.bot.mcp.RemoteMcpConfigStore
-import cn.com.omnimind.bot.mcp.TaskStatus
-import cn.com.omnimind.bot.mcp.VlmTaskRequest
 import cn.com.omnimind.bot.quicklog.QuickLogService
 import cn.com.omnimind.bot.util.TaskCompletionNavigator
-import cn.com.omnimind.bot.vlm.VlmToolCoordinator
-import cn.com.omnimind.bot.vlm.VlmToolOutcomeStatus
-import cn.com.omnimind.bot.webchat.AgentRunService
 import cn.com.omnimind.bot.webchat.ConversationDomainService
 import cn.com.omnimind.bot.webchat.FlutterChatSyncBridge
 import cn.com.omnimind.bot.webchat.RealtimeHub
 import cn.com.omnimind.bot.workspace.PublicStorageAccess
 import cn.com.omnimind.bot.workspace.WorkspaceStorageAccess
 import cn.com.omnimind.uikit.UIKit
-import cn.com.omnimind.uikit.loader.ManualRecordingControlOverlay
-import cn.com.omnimind.uikit.loader.cat.DraggableBallInstance
 import cn.com.omnimind.uikit.loader.ScreenMaskLoader
 import com.google.gson.Gson
 import androidx.core.app.NotificationCompat
@@ -141,7 +113,6 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
-import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
@@ -153,7 +124,6 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
-import java.io.File
 import java.time.LocalDate
 import java.time.LocalDateTime
 import java.time.LocalTime
@@ -167,13 +137,6 @@ import kotlin.coroutines.resumeWithException
 internal const val CHAT_ONLY_MODE = "chat_only"
 private const val MAX_PERSISTED_THINKING_CHARS = 16 * 1024
 private const val THINKING_TRUNCATION_NOTICE = "[Earlier reasoning omitted]\n"
-private const val IDLE_CONSOLIDATION_DELAY_MS = 2 * 60 * 1000L  // 2 min after last task finishes
-private val MANAGED_VLM_TERMINAL_STATUSES = setOf(
-    TaskStatus.FINISHED,
-    TaskStatus.ERROR,
-    TaskStatus.CANCELLED,
-)
-private val MANAGED_VLM_TERMINAL_STATUS_NAMES = MANAGED_VLM_TERMINAL_STATUSES.map { it.name }.toSet()
 
 private val chatTaskPayloadJson = Json {
     ignoreUnknownKeys = true
@@ -278,18 +241,12 @@ internal data class AgentFinalErrorResolution(
     val persistAsError: Boolean
 )
 
-internal fun sanitizeAgentVisibleText(text: String): String {
-    return AgentTextSanitizer.stripTextFunctionCalls(
-        AgentTextSanitizer.sanitizeUtf16(text)
-    ).trim()
-}
-
 internal fun resolveAgentFinalErrorResolution(
     streamed: String,
     error: String,
     localizedFallback: String
 ): AgentFinalErrorResolution {
-    val normalizedStreamed = sanitizeAgentVisibleText(streamed)
+    val normalizedStreamed = AgentTextSanitizer.sanitizeUtf16(streamed).trim()
     if (normalizedStreamed.isNotEmpty()) {
         return AgentFinalErrorResolution(
             text = normalizedStreamed,
@@ -297,9 +254,9 @@ internal fun resolveAgentFinalErrorResolution(
         )
     }
 
-    val normalizedError = sanitizeAgentVisibleText(error)
+    val normalizedError = AgentTextSanitizer.sanitizeUtf16(error).trim()
     val finalText = normalizedError.ifEmpty {
-        sanitizeAgentVisibleText(localizedFallback)
+        AgentTextSanitizer.sanitizeUtf16(localizedFallback).trim()
     }
     return AgentFinalErrorResolution(
         text = finalText,
@@ -329,13 +286,6 @@ private fun sanitizeInteropMap(payload: Map<String, Any?>): Map<String, Any?> {
             put(key, sanitizeInteropValue(value))
         }
     }
-}
-
-private fun normalizeVisibleToolNames(raw: Collection<*>?): Set<String>? {
-    return raw
-        ?.mapNotNull { it?.toString()?.trim()?.takeIf(String::isNotEmpty) }
-        ?.toSet()
-        ?.takeIf { it.isNotEmpty() }
 }
 
 internal data class AgentTurnUsageSnapshot(
@@ -413,11 +363,6 @@ internal fun buildAgentManualCancellationStreamMeta(
     entryId: String
 ): Map<String, Any?> {
     return linkedMapOf(
-        "schema_version" to "oob.agent_event.v1",
-        "trace_id" to taskId,
-        "run_id" to taskId,
-        "span_id" to entryId,
-        "parent_span_id" to taskId,
         "seq" to AGENT_MANUAL_CANCELLATION_SEQUENCE,
         "roundIndex" to AGENT_MANUAL_CANCELLATION_ROUND,
         "kind" to "text_snapshot",
@@ -598,168 +543,10 @@ private fun extractTextPayload(raw: JsonElement?): String {
     }
 }
 
-internal const val OOB_REUSABLE_EXECUTION_STATUS_COMPLETED_LOCAL = "completed_local"
-internal const val OOB_REUSABLE_EXECUTION_STATUS_FAILED = "failed"
-private const val AGENT_STREAM_META_SCHEMA_VERSION = "oob.agent_event.v1"
-
-internal fun buildFunctionLocalPayload(
-    functionId: String,
-    localSuccess: Boolean,
-    runPayload: Map<String, Any?>,
-    stepResults: List<Map<*, *>>,
-    argumentCount: Int,
-): Map<String, Any?> {
-    val executionStatus = if (localSuccess) {
-        OOB_REUSABLE_EXECUTION_STATUS_COMPLETED_LOCAL
-    } else {
-        OOB_REUSABLE_EXECUTION_STATUS_FAILED
-    }
-    val stepCount = (runPayload["step_count"] as? Number)?.toInt() ?: stepResults.size
-    val successStepCount = (runPayload["success_step_count"] as? Number)?.toInt()
-        ?: stepResults.count { it["success"] != false }
-    val timing = runPayload["timing"]
-    val runner = runPayload["runner"] ?: "oob_mixed_runner"
-    val failedStepIndex = runPayload["failed_step_index"]
-    val currentStepIndex = runPayload["current_step_index"]
-        ?: failedStepIndex
-        ?: stepResults.lastOrNull()?.get("index")
-    val currentStepNumber = runPayload["current_step_number"]
-        ?: (currentStepIndex as? Number)?.toInt()?.plus(1)
-    val sharedExecutionMeta = linkedMapOf<String, Any?>(
-        "source" to "oob_function_replay",
-        "run_source" to "oob_function_replay",
-        "runner" to runner,
-        "step_count" to stepCount,
-        "active_step_count" to runPayload["active_step_count"],
-        "success_step_count" to successStepCount,
-        "completed_step_count" to (runPayload["completed_step_count"] ?: successStepCount),
-        "resume_from_step" to runPayload["resume_from_step"],
-        "failed_step_index" to failedStepIndex,
-        "current_step_index" to currentStepIndex,
-        "current_step_number" to currentStepNumber,
-        "model_used" to (runPayload["model_used"] == true),
-        "model_required" to (runPayload["model_required"] == true),
-        "arguments_applied" to true,
-        "timing" to timing
-    )
-
-    return linkedMapOf(
-        "success" to localSuccess,
-        "goal" to "oob_reusable_function_run:$functionId",
-        "function_id" to functionId,
-        "execution_status" to executionStatus,
-        "error_code" to if (localSuccess) {
-            null
-        } else {
-            runPayload["error_code"] ?: "OOB_FUNCTION_STEP_FAILED"
-        },
-        "error_message" to runPayload["error_message"],
-        "timing" to timing,
-        "terminal_state" to linkedMapOf<String, Any?>(
-            "status" to if (localSuccess) {
-                OOB_REUSABLE_EXECUTION_STATUS_COMPLETED_LOCAL
-            } else {
-                "error"
-            },
-            "execution_status" to executionStatus
-        ).apply {
-            putAll(sharedExecutionMeta)
-        },
-        "context" to linkedMapOf<String, Any?>(
-            "source" to "oob_reusable_function",
-            "function_id" to functionId,
-            "execution_status" to executionStatus,
-            "argument_count" to argumentCount,
-            "step_results" to stepResults
-        ).apply {
-            putAll(sharedExecutionMeta)
-        }
-    )
-}
-
-internal fun normalizeFunctionRunPayloadForChannel(payload: Map<String, Any?>): Map<String, Any?> {
-    val resultPayload = normalizeOobChannelMap(payload["result"])
-    val stepResults = normalizeOobChannelStepResultList(
-        payload["step_results"] ?: resultPayload["step_results"]
-    )
-    val success = payload["success"] == true
-    return LinkedHashMap<String, Any?>().apply {
-        putAll(resultPayload)
-        put("success", success)
-        put("function_id", firstNonBlankOobChannelString(payload["function_id"], resultPayload["function_id"]))
-        put("run_id", firstNonBlankOobChannelString(payload["run_id"], resultPayload["run_id"]))
-        put("audit_run_id", firstNonBlankOobChannelString(payload["audit_run_id"], resultPayload["audit_run_id"]))
-        put("runner", firstNonBlankOobChannelString(payload["runner"], resultPayload["runner"], "oob_mixed_runner"))
-        put("step_results", stepResults)
-        put("step_count", payload["step_count"] ?: resultPayload["step_count"] ?: stepResults.size)
-        put(
-            "active_step_count",
-            payload["active_step_count"] ?: resultPayload["active_step_count"]
-        )
-        put(
-            "success_step_count",
-            payload["success_step_count"] ?: resultPayload["success_step_count"]
-                ?: stepResults.count { it["success"] != false }
-        )
-        put(
-            "completed_step_count",
-            payload["completed_step_count"] ?: resultPayload["completed_step_count"]
-        )
-        put("resume_from_step", payload["resume_from_step"] ?: resultPayload["resume_from_step"])
-        put("failed_step_index", payload["failed_step_index"] ?: resultPayload["failed_step_index"])
-        put("current_step_index", payload["current_step_index"] ?: resultPayload["current_step_index"])
-        put("current_step_number", payload["current_step_number"] ?: resultPayload["current_step_number"])
-        put("model_used", payload["model_used"] ?: resultPayload["model_used"] ?: false)
-        put("model_required", payload["model_required"] ?: resultPayload["model_required"])
-        put("agent_prompt", payload["agent_prompt"] ?: resultPayload["agent_prompt"])
-        put("timing", payload["timing"] ?: resultPayload["timing"])
-        put("error_code", payload["error_code"] ?: resultPayload["error_code"])
-        put(
-            "error_message",
-            payload["error_message"] ?: resultPayload["error_message"]
-        )
-        remove("result")
-        remove("guard")
-    }.filterValues { value ->
-        value != null && !(value is String && value.isBlank())
-    }
-}
-
-private fun normalizeOobChannelMap(value: Any?): Map<String, Any?> {
-    val raw = value as? Map<*, *> ?: return emptyMap()
-    return raw.entries.associate { (key, item) ->
-        key.toString() to normalizeOobChannelValue(item)
-    }
-}
-
-private fun normalizeOobChannelValue(value: Any?): Any? {
-    return when (value) {
-        is Map<*, *> -> normalizeOobChannelMap(value)
-        is List<*> -> value.map(::normalizeOobChannelValue)
-        else -> value
-    }
-}
-
-private fun normalizeOobChannelStepResultList(value: Any?): List<Map<String, Any?>> {
-    val rawList = value as? List<*> ?: return emptyList()
-    return rawList.mapNotNull { item ->
-        normalizeOobChannelMap(item).takeIf { it.isNotEmpty() }
-    }
-}
-
-private fun firstNonBlankOobChannelString(vararg values: Any?): String {
-    for (value in values) {
-        val text = value?.toString()?.trim().orEmpty()
-        if (text.isNotEmpty()) return text
-    }
-    return ""
-}
-
 class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
     private val TAG = "[AssistsCoreManager]"
 
     companion object {
-        private const val SUMMARY_TASK_PREFIX_VLM = "vlm-summary-"
         private const val SUMMARY_TASK_PREFIX_TASK = "task-summary-"
         private const val MEMORY_GREETING_TOOL = "submit_memory_greeting"
         private const val DEFAULT_MEMORY_GREETING = "愿你今天也有温暖收获"
@@ -797,82 +584,6 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
             }
         }
 
-        fun dispatchFunctionRunProgress(payload: Map<String, Any?>) {
-            val eventPayload = LinkedHashMap<String, Any?>().apply {
-                putAll(payload)
-            }
-            mainHandler.post {
-                val manager = sharedInstance
-                if (manager != null) {
-                    manager.invokeFlutterEventSafely("onFunctionRunProgress", eventPayload)
-                    return@post
-                }
-                val channel = mainEngineChannel
-                if (channel == null) {
-                    OmniLog.w(
-                        "[AssistsCoreManager]",
-                        "skip onFunctionRunProgress: flutter channel unavailable"
-                    )
-                    return@post
-                }
-                runCatching {
-                    channel.invokeMethod("onFunctionRunProgress", eventPayload)
-                }.onFailure {
-                    OmniLog.w(
-                        "[AssistsCoreManager]",
-                        "dispatch onFunctionRunProgress failed: ${it.message}"
-                    )
-                }
-            }
-        }
-
-        fun requestCompleteActiveVlmTask(
-            runOrTaskId: String? = null,
-            reason: String = "function_finished",
-        ) {
-            val instance = sharedInstance ?: return
-            instance.mainJob.launch {
-                runCatching {
-                    val normalizedId = runOrTaskId?.trim()?.takeIf { it.isNotEmpty() }
-                    val completedManagedVlmTask =
-                        instance.completeManagedVlmTasks(normalizedId, reason)
-                    val completeManagedOnly =
-                        reason in setOf("function_finished", "omniflow_finished") && completedManagedVlmTask
-                    val completedVlmSession = if (completeManagedOnly) {
-                        false
-                    } else {
-                        normalizedId?.let {
-                            AgentVlmUiSession.requestCompleteSession(it)
-                        } ?: AgentVlmUiSession.requestCompleteActiveSession()
-                    }
-                    val completedFunctionSession = normalizedId?.let {
-                        FunctionUiSession.requestCompleteSession(it)
-                    } ?: FunctionUiSession.requestCompleteActiveSession()
-                    val completedNativeTask = if (completedManagedVlmTask) {
-                        false
-                    } else {
-                        normalizedId?.let {
-                            AssistsUtil.Core.completeRunningTask(it, "任务已完成")
-                        } ?: AssistsUtil.Core.completeRunningTask(message = "任务已完成")
-                    }
-                    if (
-                        normalizedId != null &&
-                        !completedVlmSession &&
-                        !completedFunctionSession &&
-                        !completedManagedVlmTask &&
-                        !completedNativeTask
-                    ) {
-                        OmniLog.w(
-                            "[AssistsCoreManager]",
-                            "requestCompleteActiveVlmTask target not found: id=$normalizedId reason=$reason"
-                        )
-                    }
-                }.onFailure {
-                    OmniLog.w("[AssistsCoreManager]", "requestCompleteActiveVlmTask failed: ${it.message}")
-                }
-            }
-        }
-
         fun dispatchAgentAiConfigChanged(source: String, path: String) {
             val payload = mapOf(
                 "source" to source,
@@ -895,20 +606,9 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
         }
 
         private fun isSummaryTask(taskId: String): Boolean {
-            return taskId.startsWith(SUMMARY_TASK_PREFIX_VLM) ||
-                taskId.startsWith(SUMMARY_TASK_PREFIX_TASK)
+            return taskId.startsWith(SUMMARY_TASK_PREFIX_TASK)
         }
     }
-
-    /**
-     * Coalesces agent stream events into per-frame batches so the Flutter side
-     * receives at most one MethodChannel call per vsync (~60/sec) instead of
-     * one per LLM token (~100+/sec).
-     */
-    private val agentStreamEventBatcher = AgentStreamEventBatcher { batch ->
-        invokeFlutterEventSafely("onAgentStreamEventBatch", batch)
-    }
-    private val vlmStreamSeqByTask = mutableMapOf<String, Long>()
 
     init {
         registerSharedInstance(this)
@@ -973,22 +673,11 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
         val arguments: Map<String, Any?>
     )
 
-    private data class ManagedVlmCancellationResult(
-        val taskIds: List<String>,
-        val ownerRunIds: List<String>,
-        val cancelledOwnerRuns: Boolean
-    ) {
-        val handled: Boolean
-            get() = taskIds.isNotEmpty() || ownerRunIds.isNotEmpty() || cancelledOwnerRuns
-    }
-
     private class ActiveAgentRunContext(
         val taskId: String,
         val job: Job,
-        val startedAtMillis: Long,
         val conversationId: Long?,
-        val conversationMode: String,
-        val userMessage: String
+        val conversationMode: String
     ) : AgentRunControl {
         private val lock = Any()
         private var generationCounter = 0L
@@ -1023,33 +712,11 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
             return handle.requestManualStop()
         }
 
-        fun activeToolReferencesTaskIds(taskIds: Set<String>): Boolean {
-            if (taskIds.isEmpty()) return false
-            return synchronized(lock) {
-                activeTool?.referencesTaskIds(taskIds) == true
-            }
-        }
-
         fun clearTool(handle: ManagedToolExecutionHandle) {
             synchronized(lock) {
                 if (activeTool === handle) {
                     activeTool = null
                 }
-            }
-        }
-
-        fun snapshot(now: Long = System.currentTimeMillis()): Map<String, Any?> {
-            return synchronized(lock) {
-                linkedMapOf(
-                    "taskId" to taskId,
-                    "conversationId" to conversationId,
-                    "conversationMode" to conversationMode,
-                    "userMessage" to userMessage,
-                    "startedAtMillis" to startedAtMillis,
-                    "elapsedMillis" to (now - startedAtMillis).coerceAtLeast(0L),
-                    "isActive" to job.isActive,
-                    "activeTool" to activeTool?.snapshot()
-                )
             }
         }
     }
@@ -1060,7 +727,6 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
         override val toolName: String,
         override val toolCallId: String
     ) : AgentToolExecutionHandle {
-        override val runId: String = owner.taskId
         private val lock = Any()
         private var cardId: String? = null
         private var job: Job? = null
@@ -1082,27 +748,6 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
             }
             return synchronized(lock) {
                 cardId == normalized && !completed
-            }
-        }
-
-        fun referencesTaskIds(taskIds: Set<String>): Boolean {
-            if (taskIds.isEmpty()) return false
-            return synchronized(lock) {
-                val extras = latestSnapshot.extras
-                sequenceOf(
-                    cardId,
-                    toolCallId,
-                    extras["taskId"],
-                    extras["task_id"],
-                    extras["vlmTaskId"],
-                    extras["vlm_task_id"],
-                    extras["childRunId"],
-                    extras["child_run_id"],
-                    extras["runId"],
-                    extras["run_id"]
-                )
-                    .mapNotNull { it?.toString()?.trim()?.takeIf { value -> value.isNotEmpty() } }
-                    .any { it in taskIds }
             }
         }
 
@@ -1135,20 +780,6 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
 
         override fun latestProgressSnapshot(): AgentToolProgressSnapshot {
             return synchronized(lock) { latestSnapshot }
-        }
-
-        fun snapshot(): Map<String, Any?> {
-            return synchronized(lock) {
-                linkedMapOf(
-                    "toolName" to toolName,
-                    "toolCallId" to toolCallId,
-                    "cardId" to cardId,
-                    "summary" to latestSnapshot.summary,
-                    "extras" to latestSnapshot.extras,
-                    "manualStopRequested" to manualStopRequested,
-                    "completed" to completed
-                )
-            }
         }
 
         override fun isManualStopRequested(): Boolean {
@@ -1211,31 +842,10 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
     private var currentConversationId: Long? = null
     private var currentConversationMode: String = "normal"
 
-    // Scheduled while the system is idle (no active agent runs). Cancelled and
-    // rescheduled whenever a new task starts, so consolidation only runs when
-    // the engine has been quiet long enough for the work to be non-disruptive.
-    @Volatile private var idleConsolidationJob: Job? = null
-
     private fun registerActiveAgentRun(taskId: String, context: ActiveAgentRunContext) {
-        idleConsolidationJob?.cancel()
-        idleConsolidationJob = null
-        AgentVlmUiSession.registerRun(
-            runId = taskId,
-            onStopRequested = {
-                val cancellation = cancelManagedVlmTasks(taskId, "agent_vlm_ui_stop")
-                if (!cancellation.handled) {
-                    AssistsUtil.Core.cancelRunningTask(taskId)
-                }
-            },
-            onCompleteRequested = {
-                completeManagedVlmTasks(taskId, "agent_vlm_ui_completed")
-                completeActiveAgentRun(taskId, "agent_vlm_ui_completed")
-            }
-        )
         synchronized(activeAgentLock) {
             activeAgentRuns[taskId] = context
         }
-        dispatchAgentRunStateChanged("agent_run_started")
     }
 
     private fun registerChatTaskPersistenceState(taskId: String, state: ChatTaskPersistenceState) {
@@ -1293,215 +903,11 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
     }
 
     private fun clearActiveAgentJob(taskId: String, job: Job) {
-        val (removed, nowIdle) = synchronized(activeAgentLock) {
-            val wasRemoved = activeAgentRuns[taskId]?.job == job &&
-                activeAgentRuns.remove(taskId) != null
-            wasRemoved to (wasRemoved && activeAgentRuns.isEmpty())
-        }
-        if (removed) {
-            dispatchAgentRunStateChanged("agent_run_finished")
-            if (nowIdle) scheduleIdleConsolidation()
-        }
-    }
-
-    private fun resolveManagedVlmTaskIds(runOrTaskId: String?): List<String> {
-        val normalizedId = runOrTaskId?.trim()?.takeIf { it.isNotEmpty() }
-        val taskIds = linkedSetOf<String>()
-        if (normalizedId == null) {
-            McpTaskManager.getActiveTasks().forEach { task ->
-                val taskId = task["taskId"]?.toString()?.trim()?.takeIf { it.isNotEmpty() }
-                val status = task["status"]?.toString()?.trim()?.takeIf { it.isNotEmpty() }
-                if (taskId != null && (status == null || status !in MANAGED_VLM_TERMINAL_STATUS_NAMES)) {
-                    taskIds.add(taskId)
-                }
-            }
-        } else {
-            AgentVlmUiSession.activeTaskIdsForRun(normalizedId).forEach { taskIds.add(it) }
-            if (McpTaskManager.getTask(normalizedId) != null) {
-                taskIds.add(normalizedId)
+        synchronized(activeAgentLock) {
+            if (activeAgentRuns[taskId]?.job == job) {
+                activeAgentRuns.remove(taskId)
             }
         }
-        return taskIds
-            .mapNotNull { it.trim().takeIf { taskId -> taskId.isNotEmpty() } }
-            .filter { taskId ->
-                val status = McpTaskManager.getTask(taskId)?.status
-                status == null || status !in MANAGED_VLM_TERMINAL_STATUSES
-            }
-            .distinct()
-    }
-
-    private fun activeAgentRunIdsForManagedVlmTasks(
-        runOrTaskId: String?,
-        taskIds: List<String>
-    ): List<String> {
-        val runIds = linkedSetOf<String>()
-        val normalizedId = runOrTaskId?.trim()?.takeIf { it.isNotEmpty() }
-        if (normalizedId != null) {
-            synchronized(activeAgentLock) {
-                if (activeAgentRuns.containsKey(normalizedId)) {
-                    runIds.add(normalizedId)
-                }
-            }
-            AgentVlmUiSession.activeRunIdForTask(normalizedId)?.let(runIds::add)
-        }
-        AgentVlmUiSession.activeRunIdsForTaskIds(taskIds).forEach(runIds::add)
-        val normalizedTaskIds = linkedSetOf<String>().apply {
-            normalizedId?.let(::add)
-            taskIds
-                .mapNotNull { it.trim().takeIf { taskId -> taskId.isNotEmpty() } }
-                .forEach(::add)
-        }
-        if (normalizedTaskIds.isNotEmpty()) {
-            synchronized(activeAgentLock) {
-                activeAgentRuns.values
-                    .filter { it.activeToolReferencesTaskIds(normalizedTaskIds) }
-                    .map { it.taskId }
-                    .forEach(runIds::add)
-            }
-        }
-        return synchronized(activeAgentLock) {
-            runIds.filter { activeAgentRuns.containsKey(it) }.distinct()
-        }
-    }
-
-    private fun cancelActiveAgentRuns(runIds: Collection<String>, reason: String): Boolean {
-        var cancelled = false
-        runIds.forEach { runId ->
-            if (cancelActiveAgentRun(runId, reason)) {
-                cancelled = true
-            }
-        }
-        return cancelled
-    }
-
-    private fun cancelManagedVlmTasks(
-        runOrTaskId: String?,
-        reason: String
-    ): ManagedVlmCancellationResult {
-        val taskIds = resolveManagedVlmTaskIds(runOrTaskId)
-        val ownerRunIds = activeAgentRunIdsForManagedVlmTasks(runOrTaskId, taskIds)
-        taskIds.forEach { taskId ->
-            VlmToolCoordinator.cancelTask(
-                taskId = taskId,
-                scope = mainJob,
-                message = "任务已取消"
-            )
-        }
-        val cancelledOwnerRuns = cancelActiveAgentRuns(ownerRunIds, reason)
-        if (taskIds.isNotEmpty() || ownerRunIds.isNotEmpty()) {
-            OmniLog.i(
-                TAG,
-                "Cancelled managed VLM lifecycle: reason=$reason taskIds=$taskIds ownerRunIds=$ownerRunIds cancelledOwnerRuns=$cancelledOwnerRuns"
-            )
-        }
-        return ManagedVlmCancellationResult(
-            taskIds = taskIds,
-            ownerRunIds = ownerRunIds,
-            cancelledOwnerRuns = cancelledOwnerRuns
-        )
-    }
-
-    private fun completeManagedVlmTasks(runOrTaskId: String?, reason: String): Boolean {
-        val taskIds = resolveManagedVlmTaskIds(runOrTaskId)
-        val completed = taskIds.map { taskId ->
-            VlmToolCoordinator.completeTask(
-                taskId = taskId,
-                scope = mainJob,
-                message = "任务已完成"
-            )
-        }
-        val success = completed.any { it } || taskIds.isNotEmpty()
-        if (success) {
-            OmniLog.i(TAG, "Completed managed VLM task(s): reason=$reason taskIds=$taskIds")
-        }
-        return success
-    }
-
-    private suspend fun finishAgentVlmUiSessionIfNeeded(runId: String, message: String) {
-        val sessionEnd = AgentVlmUiSession.endRun(runId)
-        if (!sessionEnd.wasActive || sessionEnd.stopRequested || sessionEnd.completeRequested) {
-            return
-        }
-        runCatching {
-            withContext(Dispatchers.Main) {
-                UIKit.uiTaskEvent?.finishDoingTask(message)
-            }
-            if (sessionEnd.shouldFinishCompanion) {
-                delay(500)
-                withContext(Dispatchers.Main) {
-                    UIKit.uiBaseEvent?.finishCompanion()
-                }
-            }
-        }.onFailure {
-            OmniLog.w(TAG, "finish agent VLM UI session failed: ${it.message}")
-        }
-    }
-
-    private fun scheduleIdleConsolidation() {
-        idleConsolidationJob?.cancel()
-        idleConsolidationJob = workJob.launch {
-            delay(IDLE_CONSOLIDATION_DELAY_MS)
-            val isStillIdle = synchronized(activeAgentLock) { activeAgentRuns.isEmpty() }
-            if (isStillIdle) {
-                runCatching { consolidateIdleRunLogs() }
-                    .onFailure { OmniLog.w(TAG, "idle consolidation failed: ${it.message}") }
-            }
-        }
-    }
-
-    private suspend fun consolidateIdleRunLogs() {
-        val runs = InternalRunLogStore.listRunRecords(context, limit = 50)
-
-        // Seal any run that never received finishRun() because the process was killed
-        // or crashed before the finally block could execute. Human manual recordings
-        // persist action cards incrementally, so they can still be recovered when at
-        // least one replayable manual action card is already present.
-        var sealed = 0
-        var recoveredHuman = 0
-        var emptyHuman = 0
-        for (record in runs) {
-            if (record.finishedAtMs != null) continue
-            val runId = record.runId.trim().takeIf { it.isNotEmpty() } ?: continue
-            runCatching {
-                val recovery = ManualRecordingRunLogRecovery.decisionFor(record)
-                if (recovery != null) {
-                    if (recovery.diagnostics.isNotEmpty()) {
-                        InternalRunLogStore.updateDiagnostics(
-                            context = context,
-                            runId = runId,
-                            diagnostics = recovery.diagnostics
-                        )
-                    }
-                    InternalRunLogStore.finishRun(
-                        context = context,
-                        runId = runId,
-                        success = recovery.success,
-                        doneReason = recovery.doneReason,
-                        errorMessage = recovery.errorMessage
-                    )
-                    if (recovery.success) {
-                        recoveredHuman++
-                    } else {
-                        emptyHuman++
-                    }
-                } else {
-                    InternalRunLogStore.finishRun(
-                        context = context,
-                        runId = runId,
-                        success = false,
-                        doneReason = "orphaned"
-                    )
-                    sealed++
-                }
-            }.onFailure { OmniLog.w(TAG, "consolidate unfinished run failed runId=$runId: ${it.message}") }
-        }
-        if (sealed > 0 || recoveredHuman > 0 || emptyHuman > 0) {
-            OmniLog.i(
-                TAG,
-                "idle consolidation: sealed=$sealed recovered_human=$recoveredHuman empty_human=$emptyHuman"
-            )
-        }
-        OmniLog.d(TAG, "idle consolidation completed without implicit RunLog registration")
     }
 
     private fun syncAgentAiCapabilityConfigFile() {
@@ -1519,7 +925,7 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
         }
     }
 
-    private fun cancelActiveAgentRun(taskId: String?, reason: String): Boolean {
+    private fun cancelActiveAgentRun(taskId: String?, reason: String) {
         val runsToCancel = synchronized(activeAgentLock) {
             if (taskId.isNullOrBlank()) {
                 val snapshot = activeAgentRuns.values.toList()
@@ -1537,25 +943,6 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
                 run.job.cancel(CancellationException(reason))
             }
         }
-        return runsToCancel.isNotEmpty()
-    }
-
-    private fun completeActiveAgentRun(taskId: String?, reason: String): Boolean {
-        val runsToComplete = synchronized(activeAgentLock) {
-            if (taskId.isNullOrBlank()) {
-                activeAgentRuns.values.toList()
-            } else {
-                activeAgentRuns[taskId]?.let(::listOf).orEmpty()
-            }
-        }
-        if (runsToComplete.isNotEmpty()) {
-            OmniLog.i(TAG, "Completing active agent run(s): $reason taskId=$taskId")
-            runsToComplete.forEach { run ->
-                publishManualAgentCompletion(run)
-                run.job.cancel(CancellationException(reason))
-            }
-        }
-        return runsToComplete.isNotEmpty()
     }
 
     private fun publishManualAgentCancellation(run: ActiveAgentRunContext) {
@@ -1600,54 +987,6 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
             }.onFailure {
                 OmniLog.w(TAG, "publish manual agent cancellation failed: ${it.message}", it)
             }
-            dispatchAgentRunStateChanged("agent_run_cancelled")
-        }
-    }
-
-    private fun publishManualAgentCompletion(run: ActiveAgentRunContext) {
-        val conversationId = run.conversationId ?: return
-        val completedText = when (AppLocaleManager.resolvePromptLocale(context)) {
-            PromptLocale.EN_US -> "Task completed"
-            PromptLocale.ZH_CN -> "任务已完成"
-        }
-        val entryId = "${run.taskId}-completed"
-        val now = System.currentTimeMillis()
-        val streamMeta = buildAgentManualCancellationStreamMeta(run.taskId, entryId) +
-            mapOf("doneReason" to "user_completed")
-        workJob.launch {
-            runCatching {
-                val repository = conversationHistoryRepository()
-                repository.upsertAssistantMessage(
-                    conversationId = conversationId,
-                    conversationMode = run.conversationMode,
-                    entryId = entryId,
-                    text = completedText,
-                    isError = false,
-                    streamMeta = streamMeta,
-                    createdAt = now
-                )
-                withContext(Dispatchers.Main) {
-                    invokeFlutterEventSafely(
-                        "onAgentStreamEvent",
-                        sanitizeInteropMap(
-                            mapOf(
-                                "taskId" to run.taskId,
-                                "seq" to AGENT_MANUAL_CANCELLATION_SEQUENCE,
-                                "kind" to "text_snapshot",
-                                "entryId" to entryId,
-                                "roundIndex" to AGENT_MANUAL_CANCELLATION_ROUND,
-                                "isFinal" to true,
-                                "text" to completedText,
-                                "createdAt" to now,
-                                "streamMeta" to streamMeta
-                            )
-                        )
-                    )
-                }
-            }.onFailure {
-                OmniLog.w(TAG, "publish manual agent completion failed: ${it.message}", it)
-            }
-            dispatchAgentRunStateChanged("agent_run_completed_by_user")
         }
     }
 
@@ -1759,7 +1098,7 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
     }
 
     fun setChannel(_channel: MethodChannel) {
-        OmniLog.e(TAG, "setChannel")
+        OmniLog.d(TAG, "setChannel")
         this.channel = _channel
         FlutterChatSyncBridge.bindCurrentChannel(_channel)
     }
@@ -1808,45 +1147,6 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
     fun activeAgentTaskIds(): List<String> {
         return synchronized(activeAgentLock) {
             activeAgentRuns.keys.toList()
-        }
-    }
-
-    private fun activeAgentRunsPayload(reason: String? = null): Map<String, Any?> {
-        val now = System.currentTimeMillis()
-        val runs = synchronized(activeAgentLock) {
-            activeAgentRuns.values
-                .sortedBy { it.startedAtMillis }
-                .map { it.snapshot(now) }
-        }
-        return linkedMapOf(
-            "success" to true,
-            "reason" to reason.orEmpty(),
-            "count" to runs.size,
-            "running" to runs.isNotEmpty(),
-            "runs" to runs
-        )
-    }
-
-    private fun dispatchAgentRunStateChanged(reason: String) {
-        val payload = activeAgentRunsPayload(reason)
-        mainJob.launch(Dispatchers.Main) {
-            invokeFlutterEventSafely("onAgentRunStateChanged", payload)
-        }
-    }
-
-    fun agentRunList(call: MethodCall, result: MethodChannel.Result) {
-        mainJob.launch {
-            try {
-                val payload = activeAgentRunsPayload("agent_run_list")
-                withContext(Dispatchers.Main) {
-                    result.success(payload)
-                }
-            } catch (e: Exception) {
-                OmniLog.e(TAG, "agentRunList error: ${e.message}")
-                withContext(Dispatchers.Main) {
-                    result.error("AGENT_RUN_LIST_ERROR", e.message, null)
-                }
-            }
         }
     }
 
@@ -1924,11 +1224,9 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
         return when (toolName) {
             "context_apps_query" -> AgentToolMeta("builtin", t("查询已安装应用", "Query Installed Apps"))
             "context_time_now" -> AgentToolMeta("builtin", t("查询当前时间", "Query Current Time"))
-            AgentToolNames.VLM_TASK -> AgentToolMeta("vlm", t("视觉执行", "Visual Task"))
-            OobActionSchema.TOOL_CALL_TOOL -> AgentToolMeta("builtin", t("复用指令", "Reusable command"))
-            AgentToolNames.WEB_SEARCH -> AgentToolMeta("research", t("网页搜索", "Web Search"))
-            AgentToolNames.BROWSER_USE -> AgentToolMeta("browser", t("浏览器操作", "Browser Action"))
-            AgentToolNames.ANDROID_PRIVILEGED_ACTION -> AgentToolMeta("privileged", t("安卓高级动作", "Android Privileged Action"))
+            "vlm_task" -> AgentToolMeta("builtin", t("视觉执行", "Vision Task"))
+            "browser_use" -> AgentToolMeta("browser", t("浏览器操作", "Browser Action"))
+            "android_privileged_action" -> AgentToolMeta("privileged", t("安卓高级动作", "Android Privileged Action"))
             "android_privileged_session_start" -> AgentToolMeta("privileged", t("启动高权限会话", "Start Privileged Session"))
             "android_privileged_session_exec" -> AgentToolMeta("privileged", t("执行高权限命令", "Run Privileged Command"))
             "android_privileged_session_read" -> AgentToolMeta("privileged", t("读取高权限输出", "Read Privileged Output"))
@@ -1968,30 +1266,11 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
                     val serverId = match.groupValues[1]
                     val rawToolName = match.groupValues[2]
                     val serverName = RemoteMcpConfigStore.getServer(serverId)?.name
-                    AgentToolMeta("mcp", prettifyToolName(rawToolName), serverName)
+                    AgentToolMeta("mcp", rawToolName, serverName)
                 } else {
-                    AgentToolMeta("builtin", prettifyToolName(toolName))
+                    AgentToolMeta("builtin", toolName)
                 }
             }
-        }
-    }
-
-    private fun prettifyToolName(rawToolName: String): String {
-        val trimmed = rawToolName.trim()
-        if (trimmed.isBlank()) {
-            return t("工具调用", "Tool Call")
-        }
-        val normalized = trimmed
-            .replace(Regex("([a-z0-9])([A-Z])"), "$1 $2")
-            .replace(Regex("[_-]+"), " ")
-            .replace(Regex("\\s+"), " ")
-            .trim()
-        if (normalized.isBlank()) {
-            return t("工具调用", "Tool Call")
-        }
-        return when (normalized.lowercase()) {
-            "calltool", "call tool" -> t("工具调用", "Tool Call")
-            else -> normalized
         }
     }
 
@@ -2124,11 +1403,7 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
                 previewJson = result.previewJson
                 rawResultJson = result.rawResultJson
                 success = result.success
-                status = when {
-                    result.timedOut -> AgentConversationHistoryRepository.STATUS_TIMEOUT
-                    result.success -> AgentConversationHistoryRepository.STATUS_SUCCESS
-                    else -> AgentConversationHistoryRepository.STATUS_ERROR
-                }
+                status = resolveToolExecutionStatus(result)
             }
             is ToolExecutionResult.Interrupted -> {
                 summary = result.summaryText
@@ -2191,318 +1466,7 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
         if (result.actions.isNotEmpty()) {
             payload["actions"] = result.actions.map { it.toPayload() }
         }
-        if (toolName.equals(AgentToolNames.VLM_TASK, ignoreCase = true)) {
-            listOf(previewJson, rawResultJson)
-                .firstNotNullOfOrNull { json ->
-                    runCatching {
-                        JSONObject(json).optString("taskId").trim()
-                            .takeIf { it.isNotEmpty() }
-                    }.getOrNull()
-                }
-                ?.let { childRunId ->
-                    payload["childRunId"] = childRunId
-                    payload["child_run_id"] = childRunId
-                }
-            payload["spanKind"] = AgentToolNames.VLM_TASK
-            payload["span_kind"] = AgentToolNames.VLM_TASK
-        }
         return payload
-    }
-
-    private fun buildAgentToolRunLogCard(
-        entryId: String,
-        toolName: String,
-        argsJson: String,
-        payload: Map<String, Any?>,
-        status: String,
-        startedAtMillis: Long,
-        finishedAtMillis: Long? = null
-    ): Map<String, Any?> {
-        val meta = resolveAgentToolMeta(toolName)
-        val isVlmWrapper = toolName.trim().equals(AgentToolNames.VLM_TASK, ignoreCase = true)
-        val durationMs = finishedAtMillis?.let { (it - startedAtMillis).coerceAtLeast(0L) }
-        val success = when (val raw = payload["success"]) {
-            is Boolean -> raw
-            is String -> raw.equals("true", ignoreCase = true)
-            else -> when (status) {
-                AgentConversationHistoryRepository.STATUS_SUCCESS, "success", "running" -> true
-                else -> false
-            }
-        }
-        val title = listOf(
-            payload["toolTitle"],
-            payload["summary"],
-            payload["displayName"],
-            meta.displayName,
-            toolName
-        ).firstNotNullOfOrNull { raw ->
-            raw?.toString()?.trim()?.takeIf { it.isNotEmpty() }
-        }.orEmpty()
-        val resultValue = payload["resultPreviewJson"]
-            ?: payload["rawResultJson"]
-            ?: payload["progress"]?.let { progress ->
-                JSONObject(
-                    mapOf(
-                        "status" to status,
-                        "progress" to progress.toString()
-                    )
-                ).toString()
-            }
-            ?: JSONObject(mapOf("status" to status)).toString()
-        val resultChildRunId = if (isVlmWrapper) {
-            listOf(payload["resultPreviewJson"], payload["rawResultJson"])
-                .firstNotNullOfOrNull { raw ->
-                    raw?.toString()
-                        ?.trim()
-                        ?.takeIf { it.startsWith("{") }
-                        ?.let { json ->
-                            runCatching {
-                                JSONObject(json).optString("taskId").trim()
-                                    .takeIf { it.isNotEmpty() }
-                            }.getOrNull()
-                        }
-                }
-                .orEmpty()
-        } else {
-            ""
-        }
-        val childRunId = firstNonBlankString(
-            payload["childRunId"],
-            payload["child_run_id"],
-            resultChildRunId
-        )
-        val parentCardId = firstNonBlankString(
-            payload["parentCardId"],
-            payload["parent_card_id"]
-        )
-        val spanKind = firstNonBlankString(
-            payload["spanKind"],
-            payload["span_kind"]
-        ).ifBlank {
-            if (isVlmWrapper) AgentToolNames.VLM_TASK else ""
-        }
-        val recallKind = firstNonBlankString(
-            payload["recall_kind"],
-            payload["recallKind"],
-            payload["compile_kind"],
-            payload["compileKind"]
-        ).ifBlank { "agent_tool" }
-        val toolType = firstNonBlankString(
-            payload["toolType"],
-            payload["tool_type"],
-            meta.toolType
-        )
-        val stepIndex = entryId.substringAfterLast('-')
-            .toIntOrNull()
-            ?.minus(1)
-            ?.coerceAtLeast(0)
-            ?: 0
-        val header = linkedMapOf<String, Any?>(
-            "step_index" to stepIndex,
-            "title" to title,
-            "tool_name" to toolName,
-            "status" to status,
-            "success" to success
-        )
-        durationMs?.let { header["duration_ms"] = it }
-        val replaySource = agentToolReplaySource(toolName, argsJson, payload)
-        if (replaySource.isNotBlank()) {
-            header["source"] = replaySource
-            header["run_source"] = replaySource
-            header["runner"] = firstNonBlankString(
-                payload["runner"],
-                payload["runRunner"],
-                payload["run_runner"]
-            ).ifBlank { "oob_fixed_replay" }
-        }
-        return linkedMapOf(
-            "card_id" to entryId,
-            "tool_call_id" to entryId,
-            "header" to header,
-            "title" to title,
-            "summary" to payload["summary"],
-            "tool_name" to toolName,
-            "toolName" to toolName,
-            "tool_type" to toolType,
-            "server_name" to meta.serverName,
-            "status" to status,
-            "success" to success,
-            "duration_ms" to durationMs,
-            "started_at_ms" to startedAtMillis,
-            "finished_at_ms" to finishedAtMillis,
-            "tool_call" to linkedMapOf(
-                "id" to entryId,
-                "name" to toolName,
-                "arguments" to argsJson
-            ),
-            "params" to argsJson,
-            "arguments" to argsJson,
-            "result" to resultValue,
-            "raw_result_json" to payload["rawResultJson"],
-            "recall_kind" to recallKind
-        ).apply {
-            if (childRunId.isNotBlank()) {
-                put("child_run_id", childRunId)
-                put("childRunId", childRunId)
-            }
-            if (parentCardId.isNotBlank()) {
-                put("parent_card_id", parentCardId)
-                put("parentCardId", parentCardId)
-            }
-            if (spanKind.isNotBlank()) {
-                put("span_kind", spanKind)
-                put("spanKind", spanKind)
-            }
-            if (recallKind == "vlm_step") {
-                put("source", "vlm")
-                payload["token_usage"]?.let { put("token_usage", it) }
-                payload["tokenUsage"]?.let { if (!containsKey("token_usage")) put("token_usage", it) }
-            }
-            if (replaySource.isNotBlank()) {
-                put("source", replaySource)
-                put("run_source", replaySource)
-                put("selection_source", replaySource)
-                put("runner", header["runner"])
-            }
-        }
-    }
-
-    private fun agentToolReplaySource(
-        toolName: String,
-        argsJson: String,
-        payload: Map<String, Any?>
-    ): String {
-        val evidence = linkedSetOf<String>()
-        var hasFunctionIdArgument = false
-        fun collect(raw: Any?, depth: Int = 0) {
-            if (raw == null || depth > 4) return
-            when (raw) {
-                is Map<*, *> -> raw.forEach { (key, value) ->
-                    val normalizedKey = key?.toString()?.trim()?.lowercase().orEmpty()
-                    if (normalizedKey in setOf("function_id", "functionid", "oob_function_id")) {
-                        if (value?.toString()?.trim().orEmpty().isNotBlank()) {
-                            hasFunctionIdArgument = true
-                        }
-                    }
-                    if (normalizedKey in setOf(
-                            "source",
-                            "run_source",
-                            "runsource",
-                            "runner",
-                            "executor",
-                            "execution_status",
-                            "executionstatus"
-                        )
-                    ) {
-                        collect(value, depth + 1)
-                    } else if (value is Map<*, *> || value is List<*>) {
-                        collect(value, depth + 1)
-                    }
-                }
-                is List<*> -> raw.forEach { collect(it, depth + 1) }
-                else -> raw.toString().trim().lowercase()
-                    .takeIf { it.isNotBlank() }
-                    ?.let(evidence::add)
-            }
-        }
-        collect(payload)
-        if (argsJson.trim().startsWith("{")) {
-            runCatching { collect(jsonObjectToMap(JSONObject(argsJson))) }
-        }
-        listOf("resultPreviewJson", "rawResultJson").forEach { key ->
-            val jsonText = payload[key]?.toString()?.trim().orEmpty()
-            if (jsonText.startsWith("{")) {
-                runCatching { collect(jsonObjectToMap(JSONObject(jsonText))) }
-            }
-        }
-        val normalizedToolName = toolName.trim().lowercase()
-        val isReplay = (normalizedToolName == OobActionSchema.TOOL_CALL_TOOL && hasFunctionIdArgument) ||
-            evidence.any { value ->
-                value.contains("oob_omniflow_replay") ||
-                    value.contains("oob_function_replay") ||
-                    value.contains("oob_fixed_replay") ||
-                    value.contains("omniflow_replay") ||
-                    value.contains("function_replay") ||
-                    value.contains("call_tool_runner") ||
-                    value == OOB_REUSABLE_EXECUTION_STATUS_COMPLETED_LOCAL
-            }
-        return if (isReplay) "function_replay" else ""
-    }
-
-    private fun firstNonBlankString(vararg values: Any?): String {
-        return values.firstNotNullOfOrNull { raw ->
-            raw?.toString()?.trim()?.takeIf { it.isNotEmpty() }
-        }.orEmpty()
-    }
-
-    private fun jsonObjectToMap(json: JSONObject): Map<String, Any?> {
-        val result = linkedMapOf<String, Any?>()
-        val keys = json.keys()
-        while (keys.hasNext()) {
-            val key = keys.next()
-            result[key] = jsonValueToKotlin(json.opt(key))
-        }
-        return result
-    }
-
-    private fun jsonValueToKotlin(value: Any?): Any? {
-        return when (value) {
-            JSONObject.NULL -> null
-            is JSONObject -> jsonObjectToMap(value)
-            is JSONArray -> (0 until value.length()).map { index ->
-                jsonValueToKotlin(value.opt(index))
-            }
-            else -> value
-        }
-    }
-
-    private fun buildAssistantResponseRunLogCard(
-        entryId: String,
-        text: String,
-        isError: Boolean,
-        startedAtMillis: Long,
-        finishedAtMillis: Long
-    ): Map<String, Any?> {
-        val normalizedText = AgentTextSanitizer.sanitizeUtf16(text).trim()
-        val durationMs = (finishedAtMillis - startedAtMillis).coerceAtLeast(0L)
-        val status = if (isError) {
-            AgentConversationHistoryRepository.STATUS_ERROR
-        } else {
-            AgentConversationHistoryRepository.STATUS_SUCCESS
-        }
-        val title = t("最终回复", "Final response")
-        val result = JSONObject(
-            mapOf(
-                "text" to normalizedText,
-                "status" to status
-            )
-        ).toString()
-        return linkedMapOf(
-            "card_id" to entryId,
-            "header" to linkedMapOf<String, Any?>(
-                "step_index" to 0,
-                "title" to title,
-                "tool_name" to "assistant_response",
-                "status" to status,
-                "success" to !isError,
-                "duration_ms" to durationMs
-            ),
-            "title" to title,
-            "summary" to normalizedText.take(160),
-            "tool_name" to "assistant_response",
-            "toolName" to "assistant_response",
-            "tool_type" to "message",
-            "status" to status,
-            "success" to !isError,
-            "duration_ms" to durationMs,
-            "started_at_ms" to startedAtMillis,
-            "finished_at_ms" to finishedAtMillis,
-            "params" to JSONObject(mapOf("kind" to "assistant_response")).toString(),
-            "arguments" to JSONObject(mapOf("kind" to "assistant_response")).toString(),
-            "result" to result,
-            "output" to normalizedText,
-            "recall_kind" to "assistant_text"
-        )
     }
 
     private fun conversationHistoryRepository(): AgentConversationHistoryRepository {
@@ -2578,11 +1542,6 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
     ) {
         mainJob.launch {
             try {
-                AgentVlmUiSession.requestStopActiveSession()
-                FunctionUiSession.requestStopActiveSession()
-                cancelManagedVlmTasks(null, "cancelTask")
-                cancelActiveAgentRun(null, "cancelTask")
-                AssistsUtil.Core.cancelRunningTask()
                 AssistsUtil.Core.finishTask(context)
                 withContext(Dispatchers.Main) {
                     result.success("SUCCESS")
@@ -2603,33 +1562,9 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
     ) {
         mainJob.launch {
             try {
-                val taskId = call.argument<String>("taskId")?.trim()?.takeIf { it.isNotEmpty() }
-                val stoppedVlmSession = taskId?.let {
-                    AgentVlmUiSession.requestStopSession(it)
-                } ?: AgentVlmUiSession.requestStopActiveSession()
-                val stoppedFunctionSession = taskId?.let {
-                    FunctionUiSession.requestStopSession(it)
-                } ?: FunctionUiSession.requestStopActiveSession()
-                val managedVlmCancellation = cancelManagedVlmTasks(taskId, "cancelRunningTask")
-                val stoppedNativeTask = if (managedVlmCancellation.handled) {
-                    false
-                } else if (taskId == null) {
-                    AssistsUtil.Core.cancelRunningTask()
-                } else {
-                    AssistsUtil.Core.cancelRunningTask(taskId)
-                }
-                if (
-                    taskId != null &&
-                    !stoppedVlmSession &&
-                    !stoppedFunctionSession &&
-                    !managedVlmCancellation.handled &&
-                    !stoppedNativeTask
-                ) {
-                    OmniLog.w(
-                        TAG,
-                        "cancelRunningTask target not found; ignoring stale targeted cancel: taskId=$taskId"
-                    )
-                }
+                val taskId = call.argument<String>("taskId")
+                cancelActiveAgentRun(taskId, "cancelRunningTask")
+                AssistsUtil.Core.cancelRunningTask(taskId)
                 withContext(Dispatchers.Main) {
                     result.success("SUCCESS")
                 }
@@ -2637,54 +1572,6 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
                 OmniLog.e(TAG, "cancelRunningTask error: ${e.message}")
                 withContext(Dispatchers.Main) {
                     result.error("CANCEL_RUNNING_TASK_ERROR", e.message, null)
-                }
-            }
-        }
-    }
-
-    fun completeRunningTask(
-        call: MethodCall, result: MethodChannel.Result,
-    ) {
-        mainJob.launch {
-            try {
-                val taskId = call.argument<String>("taskId")?.trim()?.takeIf { it.isNotEmpty() }
-                val completedFunctionSession = taskId?.let {
-                    FunctionUiSession.requestCompleteSession(it)
-                } ?: FunctionUiSession.requestCompleteActiveSession()
-                val completedVlmSession = taskId?.let {
-                    AgentVlmUiSession.requestCompleteSession(it)
-                } ?: AgentVlmUiSession.requestCompleteActiveSession()
-                val completedManagedVlmTask = completeManagedVlmTasks(taskId, "completeRunningTask")
-                val completedAgentRun = taskId?.let {
-                    completeActiveAgentRun(it, "agent_vlm_ui_completed")
-                } ?: false
-                val completedNativeTask = if (completedManagedVlmTask) {
-                    false
-                } else if (taskId == null) {
-                    AssistsUtil.Core.completeRunningTask()
-                } else {
-                    AssistsUtil.Core.completeRunningTask(taskId)
-                }
-                if (
-                    taskId != null &&
-                    !completedFunctionSession &&
-                    !completedVlmSession &&
-                    !completedManagedVlmTask &&
-                    !completedAgentRun &&
-                    !completedNativeTask
-                ) {
-                    OmniLog.w(
-                        TAG,
-                        "completeRunningTask target not found; ignoring stale targeted complete: taskId=$taskId"
-                    )
-                }
-                withContext(Dispatchers.Main) {
-                    result.success("SUCCESS")
-                }
-            } catch (e: Exception) {
-                OmniLog.e(TAG, "completeRunningTask error: ${e.message}")
-                withContext(Dispatchers.Main) {
-                    result.error("COMPLETE_RUNNING_TASK_ERROR", e.message, null)
                 }
             }
         }
@@ -2711,13 +1598,7 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
                 val runContext = synchronized(activeAgentLock) {
                     activeAgentRuns[taskId]
                 }
-                val stoppedAgentTool = runContext?.requestManualToolStop(cardId) == true
-                val stoppedFunctionSession = if (stoppedAgentTool) {
-                    false
-                } else {
-                    FunctionUiSession.requestStopSession(taskId)
-                }
-                val stopped = stoppedAgentTool || stoppedFunctionSession
+                val stopped = runContext?.requestManualToolStop(cardId) == true
                 withContext(Dispatchers.Main) {
                     if (stopped) {
                         result.success("SUCCESS")
@@ -2742,67 +1623,16 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
      * 提供用户输入给VLM任务（响应INFO动作）
      */
     fun provideUserInputToVLMTask(call: MethodCall, result: MethodChannel.Result) {
-        mainJob.launch {
-            try {
-                val userInput = call.argument<String>("userInput")!!
-                val success = AssistsUtil.Core.provideUserInputToVLMTask(userInput)
-                withContext(Dispatchers.Main) {
-                    result.success(success)
-                }
-            } catch (e: Exception) {
-                OmniLog.e(TAG, "提供用户输入失败: ${e.message}")
-                withContext(Dispatchers.Main) {
-                    result.error("PROVIDE_USER_INPUT_ERROR", e.message, null)
-                }
-            }
-        }
-    }
-
-    fun pauseVLMTask(call: MethodCall, result: MethodChannel.Result) {
         try {
-            val success = AssistsUtil.Core.pauseVLMTask()
+            val userInput = call.argument<String>("userInput")!!
+            val success = AssistsUtil.Core.provideUserInputToVLMTask(userInput)
             mainJob.launch(Dispatchers.Main) {
                 result.success(success)
             }
         } catch (e: Exception) {
-            OmniLog.e(TAG, "暂停VLM任务失败: ${e.message}")
+            OmniLog.e(TAG, "提供用户输入失败: ${e.message}")
             mainJob.launch(Dispatchers.Main) {
-                result.error("PAUSE_VLM_TASK_ERROR", e.message, null)
-            }
-        }
-    }
-
-    fun resumeVLMTask(call: MethodCall, result: MethodChannel.Result) {
-        try {
-            val success = AssistsUtil.Core.resumeVLMTask()
-            mainJob.launch(Dispatchers.Main) {
-                result.success(success)
-            }
-        } catch (e: Exception) {
-            OmniLog.e(TAG, "恢复VLM任务失败: ${e.message}")
-            mainJob.launch(Dispatchers.Main) {
-                result.error("RESUME_VLM_TASK_ERROR", e.message, null)
-            }
-        }
-    }
-
-    /**
-     * 通知VLM任务总结Sheet已准备就绪
-     */
-    fun notifySummarySheetReady(call: MethodCall, result: MethodChannel.Result) {
-        try {
-            val success = AssistsUtil.Core.notifySummarySheetReady()
-            mainJob.launch(Dispatchers.Main) {
-                if (success) {
-                    result.success("SUCCESS")
-                } else {
-                    result.error("NO_RUNNING_VLM_TASK", "没有正在运行的VLM任务", null)
-                }
-            }
-        } catch (e: Exception) {
-            OmniLog.e(TAG, "通知总结Sheet准备就绪失败: ${e.message}")
-            mainJob.launch(Dispatchers.Main) {
-                result.error("NOTIFY_SUMMARY_SHEET_READY_ERROR", e.message, null)
+                result.error("PROVIDE_USER_INPUT_ERROR", e.message, null)
             }
         }
     }
@@ -2979,12 +1809,8 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
     ) {
         mainJob.launch {
             try {
-                val taskId = call.argument<String>("taskId")?.trim()?.takeIf { it.isNotEmpty() }
-                if (taskId != null) {
-                    AgentVlmUiSession.requestStopSession(taskId)
-                    FunctionUiSession.requestStopSession(taskId)
-                    cancelManagedVlmTasks(taskId, "cancelChatTask")
-                }
+                val taskId = call.argument<String>("taskId")
+                cancelActiveAgentRun(taskId, "cancelChatTask")
                 AssistsUtil.Core.cancelChatTask(taskId)
                 withContext(Dispatchers.Main) {
                     result.success("SUCCESS")
@@ -3213,7 +2039,6 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
                 }
             }
             when (normalizedType) {
-                "summary_start",
                 "openclaw_attachment" -> Unit
                 "error",
                 "rate_limited" -> {
@@ -3460,110 +2285,12 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
         }
     }
 
-    override fun onVlmToolEvent(event: Map<String, Any?>) {
-        dispatchVlmToolStreamEvent(event)
-    }
-
-    private fun nextVlmStreamSeq(taskId: String): Long {
-        return synchronized(vlmStreamSeqByTask) {
-            val next = (vlmStreamSeqByTask[taskId] ?: 0L) + 1L
-            vlmStreamSeqByTask[taskId] = next
-            next
-        }
-    }
-
-    private fun dispatchVlmToolStreamEvent(
-        event: Map<String, Any?>,
-        boundTaskId: String? = null
-    ) {
-        val taskId = boundTaskId?.trim()?.takeIf { it.isNotEmpty() }
-            ?: event["taskId"]?.toString()?.trim()?.takeIf { it.isNotEmpty() }
-            ?: event["runLogId"]?.toString()?.trim()?.takeIf { it.isNotEmpty() }
-            ?: return
-        val cardId = listOf(
-            event["cardId"],
-            event["toolCallId"],
-            event["tool_call_id"]
-        ).firstNotNullOfOrNull { raw ->
-            raw?.toString()?.trim()?.takeIf { it.isNotEmpty() }
-        } ?: return
-        val streamKind = event["agentStreamKind"]?.toString()?.trim()
-            ?: event["kind"]?.toString()?.trim()
-            ?: "tool_progress"
-        val normalizedKind = when (streamKind) {
-            "tool_started", "tool_progress", "tool_completed" -> streamKind
-            else -> "tool_progress"
-        }
-        val roundIndex = event["stepIndex"]?.toString()?.toIntOrNull()?.plus(1) ?: 1
-        val success = when (val raw = event["success"]) {
-            is Boolean -> raw
-            is String -> raw.equals("true", ignoreCase = true)
-            else -> null
-        }
-        val extras = linkedMapOf<String, Any?>(
-            "cardId" to cardId,
-            "toolCallId" to cardId,
-            "toolName" to (event["toolName"] ?: AgentToolNames.VLM_TASK),
-            "displayName" to (event["displayName"] ?: event["toolName"] ?: AgentToolNames.VLM_TASK),
-            "toolType" to "vlm",
-            "spanKind" to (event["spanKind"] ?: event["span_kind"] ?: "vlm_step"),
-            "span_kind" to (event["span_kind"] ?: event["spanKind"] ?: "vlm_step"),
-            "parentSpanKind" to (event["parentSpanKind"] ?: event["parent_span_kind"] ?: AgentToolNames.VLM_TASK),
-            "parent_span_kind" to (event["parent_span_kind"] ?: event["parentSpanKind"] ?: AgentToolNames.VLM_TASK),
-            "runLogId" to (event["runLogId"] ?: event["run_id"] ?: taskId),
-            "run_id" to (event["run_id"] ?: event["runLogId"] ?: taskId),
-            "status" to (event["status"] ?: if (normalizedKind == "tool_completed") "success" else "running")
-        ).apply {
-            putAll(event)
-            put("cardId", cardId)
-            put("toolCallId", cardId)
-            put("toolType", "vlm")
-        }
-        val seq = nextVlmStreamSeq(taskId)
-        val payload = sanitizeInteropMap(
-            AgentStreamEvent(
-                taskId = taskId,
-                seq = seq,
-                kind = normalizedKind,
-                createdAt = System.currentTimeMillis(),
-                entryId = cardId,
-                roundIndex = roundIndex,
-                isFinal = normalizedKind == "tool_completed",
-                success = success,
-                extras = extras
-            ).toPayload(
-                conversationId = null,
-                conversationMode = "agent"
-            ) + mapOf(
-                "streamMeta" to linkedMapOf<String, Any?>(
-                    "schema_version" to AGENT_STREAM_META_SCHEMA_VERSION,
-                    "trace_id" to taskId,
-                    "run_id" to taskId,
-                    "span_id" to cardId,
-                    "parent_span_id" to taskId,
-                    "seq" to seq,
-                    "roundIndex" to roundIndex,
-                    "kind" to normalizedKind,
-                    "parentTaskId" to taskId,
-                    "runLogId" to (event["runLogId"] ?: event["run_id"] ?: taskId),
-                    "entryId" to cardId,
-                    "isFinal" to (normalizedKind == "tool_completed")
-                )
-            )
-        )
-        agentStreamEventBatcher.enqueue(payload)
-        if (normalizedKind == "tool_completed") {
-            agentStreamEventBatcher.flushNow()
-        }
-    }
-
     fun createVLMOperationTask(
         call: MethodCall, result: MethodChannel.Result,
     ) {
 
 
         val taskId = call.argument<String>("taskId")?.trim().orEmpty()
-        val needSummary = call.argument<Boolean>("needSummary") ?: false
         val skipGoHome = call.argument<Boolean>("skipGoHome") ?: false
         val vlmListener = if (taskId.isEmpty()) {
             this@AssistsCoreManager
@@ -3584,42 +2311,19 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
                         )
                     }
                 }
-
-                override fun onVlmToolEvent(event: Map<String, Any?>) {
-                    dispatchVlmToolStreamEvent(event, boundTaskId = taskId)
-                }
             }
         }
         mainJob.launch {
             try {
                 TaskRuntimeSettings.onTaskStarted(context)
-                val taskPackageName = call.argument<String>("packageName")
-                val wsSnapshot = runCatching {
-                    cn.com.omnimind.bot.vlm.VlmWorkspaceConfig.getInstance(context)
-                        .also { it.initialize() }
-                        .get()
-                }.getOrElse {
-                    cn.com.omnimind.bot.vlm.VlmWorkspaceConfig.defaultSnapshot()
-                }
-                val callerGuidance = call.argument<String>("stepSkillGuidance").orEmpty()
-                val learnedGuidance = runCatching {
-                    cn.com.omnimind.bot.vlm.VlmGuidanceManager.getInstance(context)
-                        .loadGuidance(taskPackageName)
-                }.getOrNull().orEmpty()
-                val mergedGuidance = listOf(callerGuidance, learnedGuidance)
-                    .filter { it.isNotBlank() }.joinToString("\n")
                 AssistsUtil.Core.createVLMOperationTask(
                     context,
                     call.argument<String>("goal")!!,
-                    call.argument<String>("model")?.trim()?.takeIf { it.isNotEmpty() }
-                        ?: wsSnapshot.primaryModel,
-                    VlmToolCoordinator.resolveMaxSteps(call.argument<Int>("maxSteps"), wsSnapshot),
-                    taskPackageName,
+                    call.argument<String>("model"),
+                    call.argument<Int>("maxSteps"),
+                    call.argument<String>("packageName"),
                     vlmListener,
-                    needSummary,
-                    skipGoHome,
-                    mergedGuidance,
-                    taskId.takeIf { it.isNotBlank() }
+                    skipGoHome
                 )
                 withContext(Dispatchers.Main) {
                     result.success("SUCCESS")
@@ -3637,901 +2341,6 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
             }
         }
 
-    }
-
-    fun getInternalRunLogs(call: MethodCall, result: MethodChannel.Result) {
-        mainJob.launch {
-            val limit = call.argument<Number>("limit")?.toInt() ?: 50
-            val offset = call.argument<Number>("offset")?.toInt() ?: 0
-            val payload = withContext(Dispatchers.IO) {
-                InternalRunLogStore.listRuns(context, limit, offset)
-            }
-            withContext(Dispatchers.Main) {
-                result.success(payload)
-            }
-        }
-    }
-
-    fun getInternalRunLogTimeline(call: MethodCall, result: MethodChannel.Result) {
-        mainJob.launch {
-            val runId = call.argument<String>("run_id")?.trim().orEmpty()
-            val payload = withContext(Dispatchers.IO) {
-                InternalRunLogStore.timelinePayload(context, runId)
-            }
-            withContext(Dispatchers.Main) {
-                result.success(payload)
-            }
-        }
-    }
-
-    fun getAgentToolFeatures(call: MethodCall, result: MethodChannel.Result) {
-        mainJob.launch {
-            val payload = AgentToolFeatureStore.getFeatures(context)
-            withContext(Dispatchers.Main) { result.success(payload) }
-        }
-    }
-
-    fun setAgentToolFeatures(call: MethodCall, result: MethodChannel.Result) {
-        mainJob.launch {
-            val args = normalizeMethodCallMap(call.arguments)
-            val recallEnabled = when (val raw = args["functionRecallEnabled"]) {
-                is Boolean -> raw
-                is String -> raw.equals("true", ignoreCase = true)
-                else -> null
-            }
-            if (recallEnabled != null) {
-                AgentToolFeatureStore.setFunctionRecallEnabled(context, recallEnabled)
-            }
-            val payload = AgentToolFeatureStore.getFeatures(context)
-            withContext(Dispatchers.Main) { result.success(payload) }
-        }
-    }
-
-    private suspend fun executeFunctionManagementToolForChannel(
-        toolName: String,
-        args: Map<String, Any?>,
-        errorCode: String,
-    ): Map<String, Any?> = withContext(Dispatchers.IO) {
-        runCatching {
-            FunctionService(context).executeTool(toolName, args)
-        }.getOrElse { error ->
-            linkedMapOf(
-                "success" to false,
-                "error_code" to errorCode,
-                "error_message" to error.fullCauseMessage(),
-                "error_type" to error.javaClass.name,
-                "error_cause_chain" to error.causeChainPayload(),
-                "function_kind" to "oob_reusable_function",
-                "asset_state" to "native_local",
-                "source" to "assists_core_channel"
-            )
-        }
-    }
-
-    fun registerFunction(call: MethodCall, result: MethodChannel.Result) {
-        mainJob.launch {
-            val args = normalizeMethodCallMap(call.arguments)
-            val directSpec = normalizeMethodCallMap(args["function_spec"])
-            val functionSpec = when {
-                directSpec.isNotEmpty() -> directSpec
-                args.containsKey("function_id") -> args
-                else -> emptyMap()
-            }
-            val payload = executeFunctionManagementToolForChannel(
-                toolName = FunctionApi.FUNCTION_REGISTER,
-                args = linkedMapOf("function_spec" to functionSpec),
-                errorCode = "OOB_FUNCTION_REGISTER_FAILED",
-            )
-            withContext(Dispatchers.Main) {
-                result.success(payload)
-            }
-        }
-    }
-
-    fun updateFunction(call: MethodCall, result: MethodChannel.Result) {
-        mainJob.launch {
-            val args = normalizeMethodCallMap(call.arguments)
-            val payload = executeFunctionManagementToolForChannel(
-                toolName = FunctionApi.FUNCTION_UPDATE,
-                args = args,
-                errorCode = "OOB_FUNCTION_UPDATE_FAILED",
-            )
-            withContext(Dispatchers.Main) {
-                result.success(payload)
-            }
-        }
-    }
-
-    fun convertInternalRunLogToFunction(call: MethodCall, result: MethodChannel.Result) {
-        mainJob.launch {
-            val args = normalizeMethodCallMap(call.arguments)
-            val runId = args["run_id"]?.toString()?.trim().orEmpty()
-            val register = when (val raw = args["register"]) {
-                is Boolean -> raw
-                is String -> raw.equals("true", ignoreCase = true)
-                else -> false
-            }
-            val agentVisible = when (val raw = args["agent_visible"]) {
-                is Boolean -> raw
-                is String -> raw.equals("true", ignoreCase = true)
-                else -> false
-            }
-            val payload = executeFunctionManagementToolForChannel(
-                toolName = FunctionApi.RUN_LOG_CONVERT,
-                args = linkedMapOf<String, Any?>(
-                    "run_id" to runId,
-                    "register" to register,
-                    "agent_visible" to agentVisible,
-                    "function_id" to args["function_id"]?.toString(),
-                    "name" to args["name"]?.toString(),
-                    "description" to args["description"]?.toString(),
-                ).filterValues { it != null },
-                errorCode = "OOB_RUN_LOG_CONVERT_FAILED",
-            )
-            withContext(Dispatchers.Main) {
-                result.success(payload)
-            }
-        }
-    }
-
-    fun startHumanTrajectoryLearning(call: MethodCall, result: MethodChannel.Result) {
-        mainJob.launch {
-            val args = normalizeMethodCallMap(call.arguments)
-            val name = (
-                args["name"] ?: args["title"] ?: call.argument<String>("name")
-            )?.toString()?.trim().orEmpty()
-            val description = (
-                args["description"] ?: args["goal"] ?: call.argument<String>("description")
-            )?.toString()?.trim().orEmpty()
-            val enableDebugScreenshots = BuildConfig.DEBUG && (
-                booleanMethodCallValue(args["enableDebugScreenshots"]) ||
-                    booleanMethodCallValue(args["debugScreenshots"]) ||
-                    booleanMethodCallValue(args["recordDebugScreenshots"])
-                )
-            val learningResult = runCatching {
-                val sessionResult = withContext(Dispatchers.Default) {
-                    if (!awaitHumanTrajectoryRecordingBackend()) {
-                        throw IllegalStateException("无障碍服务未就绪，无法开始手动录制")
-                    }
-                    val startedSession = HumanTrajectoryLearningSession.start(
-                        context = context,
-                        name = name,
-                        description = description,
-                        enableDebugScreenshots = enableDebugScreenshots
-                    )
-                    if (startedSession.isCompleted) {
-                        startedSession.await()
-                    }
-                    if (!HumanTrajectoryLearningSession.pauseActive()) {
-                        throw IllegalStateException("手动录制初始化失败，无法进入待机状态")
-                    }
-                    startedSession
-                }
-                val controlShown = withContext(Dispatchers.Main) {
-                    val controlShown = ManualRecordingControlOverlay.show(
-                        context,
-                        ManualRecordingControlOverlay.State.READY,
-                        onCaptureState = {
-                            captureCurrentUdegStateForManualRecording(description)
-                        }
-                    )
-                    if (controlShown) {
-                        ManualRecordingControlOverlay.markReady()
-                    }
-                    controlShown
-                }
-                if (!controlShown) {
-                    withContext(Dispatchers.Default) {
-                        HumanTrajectoryLearningSession.cancelActive("录制控制浮窗显示失败，请检查悬浮窗权限")
-                    }
-                    throw IllegalStateException("录制控制浮窗显示失败，请检查悬浮窗权限")
-                }
-                OmniLog.d(TAG, "manual recording control overlay shown=$controlShown")
-                sessionResult.await()
-            }.getOrElse { error ->
-                OmniLog.e(TAG, "start human trajectory learning failed: ${error.message}", error)
-                withContext(Dispatchers.Main) {
-                    ManualRecordingControlOverlay.dismiss()
-                    DraggableBallInstance.finishDoingTask("手动录制失败")
-                    result.success(
-                        linkedMapOf(
-                            "success" to false,
-                            "error_code" to "HUMAN_TRAJECTORY_LEARNING_FAILED",
-                            "error_message" to error.message.orEmpty(),
-                            "function_kind" to "oob_reusable_function",
-                            "asset_state" to "native_local"
-                        )
-                    )
-                }
-                return@launch
-            }
-
-            withContext(Dispatchers.Main) {
-                ManualRecordingControlOverlay.dismiss()
-            }
-            val payload = if (!learningResult.success) {
-                val errorMessage = learningResult.errorMessage.ifBlank { "未记录到可复用的人类操作" }
-                val runLog = withContext(Dispatchers.Default) {
-                    runCatching {
-                        InternalRunLogStore.timelinePayload(context, learningResult.runId)
-                    }.getOrNull()
-                }
-                withContext(Dispatchers.Main) {
-                    ManualRecordingControlOverlay.dismiss()
-                    DraggableBallInstance.finishDoingTask(
-                        if (errorMessage.contains("取消")) "学习已取消" else "学习失败"
-                    )
-                }
-                linkedMapOf(
-                    "success" to false,
-                    "error_code" to if (errorMessage.contains("取消")) {
-                        "HUMAN_TRAJECTORY_CANCELLED"
-                    } else if (errorMessage.contains("raw touch") || errorMessage.contains("遗漏")) {
-                        "HUMAN_TRAJECTORY_INCOMPLETE"
-                    } else {
-                        "HUMAN_TRAJECTORY_EMPTY"
-                    },
-                    "error_message" to errorMessage,
-                    "run_id" to learningResult.runId,
-                    "action_count" to learningResult.actionCount,
-                    "summary" to learningResult.summary,
-                    "diagnostics" to learningResult.diagnostics.takeIf { it.isNotEmpty() },
-                    "run_log" to runLog,
-                    "function_kind" to "oob_reusable_function",
-                    "asset_state" to "native_local"
-                )
-            } else {
-                withContext(Dispatchers.Main) {
-                    DraggableBallInstance.setDoing(
-                        message = "正在整理录制结果",
-                        isShowTakeOver = false,
-                        subMessage = "请稍候",
-                        isShowStop = false
-                    )
-                }
-                val conversion = withContext(Dispatchers.Default) {
-                    runCatching {
-                        FunctionService(context).convertRunLog(
-                            mapOf(
-                                "run_id" to learningResult.runId,
-                                "register" to true,
-                                "agent_visible" to false,
-                                "name" to learningResult.name,
-                                "description" to learningResult.description,
-                            )
-                        )
-                    }.getOrElse { error ->
-                        OmniLog.e(TAG, "human trajectory conversion failed: ${error.fullCauseMessage()}", error)
-                        linkedMapOf(
-                            "success" to false,
-                            "error_code" to "HUMAN_TRAJECTORY_CONVERT_FAILED",
-                            "error_message" to error.fullCauseMessage(),
-                            "error_type" to error.javaClass.name,
-                            "error_cause_chain" to error.causeChainPayload(),
-                            "run_id" to learningResult.runId,
-                            "function_kind" to "oob_reusable_function",
-                            "asset_state" to "native_local"
-                        )
-                    }
-                }
-                val conversionSuccess = conversion["success"] == true
-                val runLog = withContext(Dispatchers.Default) {
-                    runCatching {
-                        InternalRunLogStore.timelinePayload(context, learningResult.runId)
-                    }.getOrNull()
-                }
-                val actionList = learningResult.actions.mapIndexed { index, action ->
-                    manualRecordedActionPayload(index + 1, action)
-                }
-                val recordingWarning = learningResult.errorMessage
-                    .takeIf { learningResult.success && it.isNotBlank() }
-                withContext(Dispatchers.Main) {
-                    ManualRecordingControlOverlay.dismiss()
-                    DraggableBallInstance.finishDoingTask(
-                        if (conversionSuccess) "学习完成" else "录制完成"
-                    )
-                }
-                val recordingSuccess = learningResult.actionCount > 0
-                linkedMapOf<String, Any?>(
-                    "success" to recordingSuccess,
-                    "recording_success" to recordingSuccess,
-                    "conversion_success" to conversionSuccess,
-                    "function_registered" to (conversion["registered"] == true),
-                    "agent_visible" to (conversion["agent_visible"] == true),
-                    "error_code" to if (conversionSuccess) null else {
-                        conversion["error_code"] ?: "HUMAN_TRAJECTORY_CONVERT_FAILED"
-                    },
-                    "error_message" to if (conversionSuccess) null else {
-                        conversion["error_message"] ?: "录制已完成，但生成复用指令失败"
-                    },
-                    "warning_message" to recordingWarning,
-                    "recording_warning" to recordingWarning,
-                    "run_id" to learningResult.runId,
-                    "name" to learningResult.name,
-                    "description" to learningResult.description,
-                    "action_count" to learningResult.actionCount,
-                    "actions" to actionList,
-                    "editable_actions" to actionList,
-                    "summary" to learningResult.summary,
-                    "diagnostics" to learningResult.diagnostics.takeIf { it.isNotEmpty() },
-                    "run_log" to runLog,
-                    "function_id" to conversion["function_id"],
-                    "created_function_id" to conversion["created_function_id"],
-                    "function_spec" to conversion["function_spec"],
-                    "conversion" to conversion,
-                    "function_kind" to "oob_reusable_function",
-                    "asset_state" to "native_local"
-                )
-            }
-            withContext(Dispatchers.Main) {
-                result.success(payload)
-            }
-        }
-    }
-
-    fun pauseHumanTrajectoryLearning(call: MethodCall, result: MethodChannel.Result) {
-        mainJob.launch {
-            val (paused, status) = withContext(Dispatchers.Default) {
-                HumanTrajectoryLearningSession.pauseActive() to HumanTrajectoryLearningSession.status().asMap()
-            }
-            withContext(Dispatchers.Main) {
-                if (paused) {
-                    ManualRecordingControlOverlay.markPaused()
-                }
-                result.success(
-                    linkedMapOf(
-                        "success" to paused,
-                        "recording_active" to status["recording_active"],
-                        "recording_paused" to status["recording_paused"],
-                        "action_count" to status["action_count"],
-                        "latest_action_summary" to status["latest_action_summary"],
-                        "status" to status,
-                        "error_code" to if (paused) null else "NO_ACTIVE_RECORDING",
-                        "error_message" to if (paused) null else "No active human recording session",
-                        "source" to "human_trajectory_learning"
-                    ).filterValues { it != null }
-                )
-            }
-        }
-    }
-
-    fun resumeHumanTrajectoryLearning(call: MethodCall, result: MethodChannel.Result) {
-        mainJob.launch {
-            val (resumed, status) = withContext(Dispatchers.Default) {
-                HumanTrajectoryLearningSession.resumeActive() to HumanTrajectoryLearningSession.status().asMap()
-            }
-            withContext(Dispatchers.Main) {
-                if (resumed) {
-                    ManualRecordingControlOverlay.markRecording()
-                }
-                result.success(
-                    linkedMapOf(
-                        "success" to resumed,
-                        "recording_active" to status["recording_active"],
-                        "recording_paused" to status["recording_paused"],
-                        "action_count" to status["action_count"],
-                        "latest_action_summary" to status["latest_action_summary"],
-                        "status" to status,
-                        "error_code" to if (resumed) null else "NO_ACTIVE_RECORDING",
-                        "error_message" to if (resumed) null else "No active human recording session",
-                        "source" to "human_trajectory_learning"
-                    ).filterValues { it != null }
-                )
-            }
-        }
-    }
-
-    fun getHumanTrajectoryLearningStatus(call: MethodCall, result: MethodChannel.Result) {
-        result.success(
-            linkedMapOf(
-                "success" to true,
-                "status" to HumanTrajectoryLearningSession.status().asMap(),
-                "source" to "human_trajectory_learning"
-            )
-        )
-    }
-
-    fun saveCurrentUdegState(call: MethodCall, result: MethodChannel.Result) {
-        mainJob.launch {
-            val args = normalizeMethodCallMap(call.arguments)
-            val goal = firstNonBlankString(
-                args["goal"],
-                args["description"],
-                call.argument<String>("goal")
-            )
-            val payload = withContext(Dispatchers.Default) {
-                runCatching {
-                    captureCurrentUdegState(goal = goal)
-                }.getOrElse { error ->
-                    OmniLog.e(TAG, "save current UDEG state failed: ${error.fullCauseMessage()}", error)
-                    udegStateCaptureErrorPayload(error)
-                }
-            }
-            withContext(Dispatchers.Main) {
-                result.success(payload)
-            }
-        }
-    }
-
-    /**
-     * Captures the current screen as a persisted UDEG get-state artifact during
-     * manual recording and appends a non-replay RunLog evidence card.
-     *
-     * @param goal Current recording goal used to annotate the observed page.
-     * @return Capture payload with state artifact paths, node id, page analysis,
-     * decision context, node skill, and error fields when capture fails.
-     */
-    private suspend fun captureCurrentUdegStateForManualRecording(goal: String): Map<String, Any?> {
-        val activeRunId = HumanTrajectoryLearningSession.activeRunId()
-        val payload = runCatching {
-            captureCurrentUdegState(goal = goal)
-        }.getOrElse { error ->
-            OmniLog.e(TAG, "manual recording UDEG state capture failed: ${error.fullCauseMessage()}", error)
-            udegStateCaptureErrorPayload(error)
-        }
-        if (!activeRunId.isNullOrBlank()) {
-            InternalRunLogStore.appendCard(
-                context = context,
-                runId = activeRunId,
-                card = buildManualUdegStateCaptureCard(
-                    runId = activeRunId,
-                    payload = payload,
-                )
-            )
-        }
-        return payload
-    }
-
-    /**
-     * Captures the live accessibility state and persists the UDEG node inputs.
-     *
-     * @param goal Optional task goal stored with the page observation.
-     * @return A `oob.udeg.capture_result.v1` payload containing the captured
-     * XML/screenshot manifest, UDEG node id, PageVector observation, page
-     * analysis, decision context, node skill, and artifact paths.
-     */
-    private suspend fun captureCurrentUdegState(goal: String?): Map<String, Any?> {
-        if (!awaitHumanTrajectoryRecordingBackend(timeoutMs = 8_000L)) {
-            throw IllegalStateException("无障碍服务未就绪，无法保存当前页面状态")
-        }
-        val capturedAtMs = System.currentTimeMillis()
-        val pageXml = AccessibilityController.getCaptureScreenShotXml(true)
-            ?.takeIf { it.isNotBlank() }
-            ?: throw IllegalStateException("当前页面 XML 为空")
-        val packageName = AccessibilityController.getPackageName().orEmpty()
-        val activityName = AccessibilityController.getCurrentActivity().orEmpty()
-        val screenshot = AccessibilityController.captureScreenshotImage(
-            isBitmap = false,
-            isBase64 = true,
-            isFilterOverlay = true,
-            compressQuality = ImageQuality.MEDIUM
-        )
-        val screenshotBase64 = screenshot.imageBase64
-            ?.takeIf { screenshot.isSuccess && it.isNotBlank() }
-        val store = OobUdegNodeStore(context)
-        val observedPage = OobUdegNodeStore.ObservedPage(
-            pageXml = pageXml,
-            packageName = packageName,
-            activityName = activityName,
-            screenshotBase64 = screenshotBase64,
-            goal = goal.orEmpty(),
-            stepIndex = 0,
-        )
-        val observation = store.observePage(observedPage)
-            ?: throw IllegalStateException("当前页面无法生成 UDEG PageVector")
-        val stateArtifact = store.saveCapturedState(
-            observedPage = observedPage,
-            observation = observation,
-            screenshotBytes = screenshotBase64?.let(::decodeDataUrlBase64),
-            capturedAtMs = capturedAtMs,
-        )
-        return linkedMapOf<String, Any?>(
-            "success" to true,
-            "schema_version" to "oob.udeg.capture_result.v1",
-            "kind" to "oob_udeg_state_capture",
-            "captured_at_ms" to capturedAtMs,
-            "node_id" to observation.node["node_id"],
-            "page_similarity" to observation.pageSimilarity,
-            "first_seen" to observation.firstSeen,
-            "reason" to observation.reason,
-            "package_name" to packageName,
-            "activity_name" to activityName.takeIf { it.isNotBlank() },
-            "xml_chars" to pageXml.length,
-            "screenshot_present" to (screenshotBase64 != null),
-            "screenshot_original_width" to screenshot.originalWidth,
-            "screenshot_original_height" to screenshot.originalHeight,
-            "screenshot_width" to screenshot.compressedWidth,
-            "screenshot_height" to screenshot.compressedHeight,
-            "state_artifact" to stateArtifact.toMap(),
-            "page_observation" to observation.toMap(),
-            "page_analysis" to OobUdegNodeStore.mapArg(observation.node["page_analysis"])
-                .takeIf { it.isNotEmpty() },
-            "decision_context" to OobUdegNodeStore.mapArg(observation.node["decision_context"])
-                .takeIf { it.isNotEmpty() },
-            "node_skill" to OobUdegNodeStore.mapArg(observation.node["skill"])
-                .takeIf { it.isNotEmpty() },
-            "skill_artifact" to OobUdegNodeStore.mapArg(observation.node["skill_artifact"])
-                .takeIf { it.isNotEmpty() },
-            "decision_path" to OobUdegNodeStore.UDEG_DECISION_PATH,
-            "source" to "oob_udeg_manual_capture",
-        ).filterValues { it != null }
-    }
-
-    /**
-     * Builds the MethodChannel-compatible failure payload for UDEG state capture.
-     *
-     * @param error Failure raised while reading screen state or persisting assets.
-     * @return Structured error payload that matches `oob.udeg.capture_result.v1`.
-     */
-    private fun udegStateCaptureErrorPayload(error: Throwable): Map<String, Any?> {
-        return linkedMapOf(
-            "success" to false,
-            "schema_version" to "oob.udeg.capture_result.v1",
-            "kind" to "oob_udeg_state_capture",
-            "error_code" to "OOB_UDEG_STATE_CAPTURE_FAILED",
-            "error_message" to error.fullCauseMessage(),
-            "error_type" to error.javaClass.name,
-            "error_cause_chain" to error.causeChainPayload(),
-            "source" to "oob_udeg_manual_capture",
-        )
-    }
-
-    /**
-     * Creates a RunLog evidence card for manual get-state capture.
-     *
-     * @param runId Active manual recording run id.
-     * @param payload Capture result produced by [captureCurrentUdegState].
-     * @return A successful or failed `get_state` card that is persisted in the
-     * RunLog but skipped by reusable-function conversion.
-     */
-    private fun buildManualUdegStateCaptureCard(
-        runId: String,
-        payload: Map<String, Any?>
-    ): Map<String, Any?> {
-        val capturedAtMs = (payload["captured_at_ms"] as? Number)?.toLong()
-            ?: System.currentTimeMillis()
-        val cardId = "$runId-udeg-state-$capturedAtMs"
-        val stateArtifact = normalizeMethodCallMap(payload["state_artifact"])
-        val success = payload["success"] == true
-        val title = if (success) "人工截图" else "人工截图失败"
-        val summary = if (success) {
-            "已保存当前屏幕 get state / UDEG node 信息"
-        } else {
-            firstNonBlankString(payload["error_message"], "保存当前屏幕状态失败")
-        }
-        val artifactRefs = linkedMapOf<String, Any?>(
-            "state_artifact" to stateArtifact.takeIf { it.isNotEmpty() },
-            "manifest_path" to stateArtifact["manifest_path"],
-            "xml_path" to stateArtifact["xml_path"],
-            "screenshot_path" to stateArtifact["screenshot_path"],
-        ).filterValues { it != null }
-        return linkedMapOf<String, Any?>(
-            "card_id" to cardId,
-            "tool_call_id" to cardId,
-            "header" to linkedMapOf<String, Any?>(
-                "step_index" to 0,
-                "title" to title,
-                "tool_name" to "get_state",
-                "status" to if (success) "success" else "error",
-                "success" to success,
-            ),
-            "step_index" to 0,
-            "title" to title,
-            "summary" to summary,
-            "tool_name" to "get_state",
-            "toolName" to "get_state",
-            "tool_type" to "manual_recording_evidence",
-            "toolType" to "manual_recording_evidence",
-            "status" to if (success) "success" else "error",
-            "success" to success,
-            "started_at_ms" to capturedAtMs,
-            "finished_at_ms" to capturedAtMs,
-            "package_name" to payload["package_name"],
-            "activity_name" to payload["activity_name"],
-            "recall_kind" to "manual_recording_evidence",
-            "source" to "human_trajectory",
-            "asset_refs" to artifactRefs.takeIf { it.isNotEmpty() },
-            "tool_call" to linkedMapOf(
-                "id" to cardId,
-                "name" to "get_state",
-                "arguments" to linkedMapOf(
-                    "capture_kind" to "manual_udeg_state_capture",
-                    "node_id" to payload["node_id"],
-                    "state_artifact" to stateArtifact.takeIf { it.isNotEmpty() },
-                    "decision_path" to payload["decision_path"],
-                ).filterValues { it != null }
-            ),
-            "params" to linkedMapOf(
-                "capture_kind" to "manual_udeg_state_capture",
-                "node_id" to payload["node_id"],
-                "state_artifact" to stateArtifact.takeIf { it.isNotEmpty() },
-                "decision_path" to payload["decision_path"],
-                "recording_backend" to "manual_recording_control"
-            ).filterValues { it != null },
-            "result" to compactManualUdegStateCaptureResult(payload),
-            "_oob_meta" to linkedMapOf(
-                "mode" to "manual_operation_recording",
-                "recording_backend" to "manual_recording_control",
-                "replayable" to false,
-                "state_capture_kind" to "get_state_udeg_node",
-            )
-        ).filterValues { it != null }
-    }
-
-    private fun compactManualUdegStateCaptureResult(payload: Map<String, Any?>): Map<String, Any?> {
-        val success = payload["success"] == true
-        return linkedMapOf<String, Any?>(
-            "success" to success,
-            "schema_version" to payload["schema_version"],
-            "kind" to payload["kind"],
-            "captured_at_ms" to payload["captured_at_ms"],
-            "node_id" to payload["node_id"],
-            "page_similarity" to payload["page_similarity"],
-            "first_seen" to payload["first_seen"],
-            "reason" to payload["reason"],
-            "package_name" to payload["package_name"],
-            "activity_name" to payload["activity_name"],
-            "xml_chars" to payload["xml_chars"],
-            "screenshot_present" to payload["screenshot_present"],
-            "screenshot_width" to payload["screenshot_width"],
-            "screenshot_height" to payload["screenshot_height"],
-            "state_artifact" to normalizeMethodCallMap(payload["state_artifact"])
-                .takeIf { it.isNotEmpty() },
-            "decision_path" to payload["decision_path"],
-            "error_code" to payload["error_code"],
-            "error_message" to payload["error_message"],
-            "error_type" to payload["error_type"],
-            "source" to payload["source"],
-        ).filterValues { it != null }
-    }
-
-    fun exportOobUdeg(call: MethodCall, result: MethodChannel.Result) {
-        mainJob.launch {
-            val args = normalizeMethodCallMap(call.arguments)
-            val limit = ((args["limit"] ?: call.argument<Number>("limit")) as? Number)?.toInt()
-                ?: 1_000
-            val payload = runCatching {
-                OobUdegNodeStore(context).exportBundle(limit = limit)
-            }.getOrElse { error ->
-                OmniLog.e(TAG, "export OOB UDEG failed: ${error.fullCauseMessage()}", error)
-                linkedMapOf(
-                    "success" to false,
-                    "schema_version" to "oob.udeg.export.v1",
-                    "kind" to "oob_udeg_export",
-                    "error_code" to "OOB_UDEG_EXPORT_FAILED",
-                    "error_message" to error.fullCauseMessage(),
-                    "error_type" to error.javaClass.name,
-                    "error_cause_chain" to error.causeChainPayload(),
-                    "source" to "oob_udeg_node_store",
-                )
-            }
-            withContext(Dispatchers.Main) {
-                result.success(payload)
-            }
-        }
-    }
-
-    private suspend fun awaitHumanTrajectoryRecordingBackend(
-        timeoutMs: Long = 30_000L,
-        intervalMs: Long = 150L
-    ): Boolean {
-        runCatching {
-            if (!AssistsUtil.Core.isInitialized()) {
-                AssistsUtil.Core.initCore(context)
-            }
-        }.onFailure {
-            OmniLog.w(TAG, "manual recording core init failed: ${it.message}")
-        }
-        val deadline = System.currentTimeMillis() + timeoutMs
-        while (System.currentTimeMillis() <= deadline) {
-            if (AssistsService.instance != null && AccessibilityController.initController()) {
-                return true
-            }
-            delay(intervalMs)
-        }
-        return false
-    }
-
-    private fun manualRecordedActionPayload(
-        index: Int,
-        action: ManualVlmRecordedAction
-    ): Map<String, Any?> {
-        return linkedMapOf<String, Any?>(
-            "index" to index,
-            "action" to action.actionName,
-            "title" to action.title,
-            "summary" to action.summary,
-            "params" to action.params,
-            "package_name" to action.packageName,
-            "started_at_ms" to action.startedAtMs,
-            "finished_at_ms" to action.finishedAtMs,
-            "duration_ms" to (action.finishedAtMs - action.startedAtMs).coerceAtLeast(0L),
-            "event_context" to action.eventContext.takeIf { it.isNotEmpty() },
-            "before" to linkedMapOf(
-                "observation_xml" to action.beforeXml,
-                "package_name" to action.packageName
-            ).filterValues { it != null },
-            "after" to linkedMapOf(
-                "observation_xml" to action.afterXml,
-                "package_name" to action.packageName
-            ).filterValues { it != null },
-            "source_context" to linkedMapOf(
-                "src_ctx" to linkedMapOf(
-                    "page" to action.beforeXml,
-                    "package_name" to action.packageName,
-                    "require_unique_action_signature" to false
-                ).filterValues { it != null },
-                "dst_ctx" to linkedMapOf(
-                    "page" to action.afterXml,
-                    "package_name" to action.packageName
-                ).filterValues { it != null },
-                "action" to linkedMapOf<String, Any?>("tool" to action.actionName).apply {
-                    putAll(action.params)
-                },
-                "_oob_meta" to linkedMapOf(
-                    "mode" to "manual_operation_recording",
-                    "recording_backend" to "accessibility_event",
-                    "event_context" to action.eventContext.takeIf { it.isNotEmpty() },
-                    "editable" to true
-                ).filterValues { it != null }
-            )
-        ).filterValues { it != null }
-    }
-
-    private fun Throwable.fullCauseMessage(): String {
-        val parts = mutableListOf<String>()
-        var current: Throwable? = this
-        val seen = mutableSetOf<Throwable>()
-        while (current != null && seen.add(current)) {
-            parts += current.message?.takeIf(String::isNotBlank)
-                ?.let { "${current.javaClass.name}: $it" }
-                ?: current.javaClass.name
-            current = current.cause
-        }
-        return parts.joinToString(" <- ")
-    }
-
-    private fun Throwable.causeChainPayload(): List<Map<String, String>> {
-        val output = mutableListOf<Map<String, String>>()
-        var current: Throwable? = this
-        val seen = mutableSetOf<Throwable>()
-        while (current != null && seen.add(current)) {
-            output += linkedMapOf(
-                "type" to current.javaClass.name,
-                "message" to current.message.orEmpty()
-            )
-            current = current.cause
-        }
-        return output
-    }
-
-    private fun decodeDataUrlBase64(dataUrl: String): ByteArray? {
-        val normalized = dataUrl.trim()
-        if (normalized.isBlank()) return null
-        val encoded = normalized.substringAfter(",", normalized).trim()
-        return runCatching {
-            android.util.Base64.decode(encoded, android.util.Base64.DEFAULT)
-        }.getOrNull()
-    }
-
-    fun getFunction(call: MethodCall, result: MethodChannel.Result) {
-        mainJob.launch {
-            val args = normalizeMethodCallMap(call.arguments)
-            val functionId = args["function_id"]?.toString()?.trim().orEmpty()
-            val payload = executeFunctionManagementToolForChannel(
-                toolName = FunctionApi.FUNCTION_GET,
-                args = linkedMapOf("function_id" to functionId),
-                errorCode = "OOB_FUNCTION_GET_FAILED",
-            ).let { response ->
-                if (response["success"] == false && response["error_code"] == "OOB_FUNCTION_NOT_FOUND") {
-                    null
-                } else {
-                    response["function"] as? Map<*, *> ?: response
-                }
-            }
-            withContext(Dispatchers.Main) {
-                result.success(payload)
-            }
-        }
-    }
-
-    fun listFunctions(call: MethodCall, result: MethodChannel.Result) {
-        mainJob.launch {
-            val limit = call.argument<Number>("limit")?.toInt() ?: 100
-            val offset = call.argument<Number>("offset")?.toInt() ?: 0
-            val includeHidden =
-                call.argument<Boolean>("includeHidden")
-                    ?: call.argument<Boolean>("include_hidden")
-                    ?: false
-            val payload = executeFunctionManagementToolForChannel(
-                toolName = FunctionApi.FUNCTION_LIST,
-                args = linkedMapOf(
-                    "limit" to limit,
-                    "offset" to offset,
-                    "includeHidden" to includeHidden,
-                    "include_hidden" to includeHidden,
-                ),
-                errorCode = "OOB_FUNCTION_LIST_FAILED",
-            )
-            withContext(Dispatchers.Main) {
-                result.success(payload)
-            }
-        }
-    }
-
-    fun deleteFunction(call: MethodCall, result: MethodChannel.Result) {
-        mainJob.launch {
-            val args = normalizeMethodCallMap(call.arguments)
-            val functionId = args["function_id"]?.toString()?.trim().orEmpty()
-            val payload = executeFunctionManagementToolForChannel(
-                toolName = FunctionApi.FUNCTION_DELETE,
-                args = linkedMapOf("function_id" to functionId),
-                errorCode = "OOB_FUNCTION_DELETE_FAILED",
-            )
-            withContext(Dispatchers.Main) {
-                result.success(payload)
-            }
-        }
-    }
-
-    fun runFunction(call: MethodCall, result: MethodChannel.Result) {
-        mainJob.launch {
-            val args = normalizeMethodCallMap(call.arguments)
-            val functionId = args["function_id"]?.toString()?.trim().orEmpty()
-            val callArguments = normalizeCallArgumentMap(args["arguments"])
-            val providedLocalReplayResult = normalizeProvidedLocalReplayResult(
-                args["localReplayResult"] ?: args["local_replay_result"]
-            )
-            val runPayload = providedLocalReplayResult ?: runCatching {
-                val functionRunPayload = withContext(Dispatchers.IO) {
-                    FunctionRun(context).runFunction(
-                        linkedMapOf<String, Any?>(
-                            "function_id" to functionId,
-                            "arguments" to callArguments,
-                            "frontend_run_id" to firstNonBlankString(
-                                args["frontend_run_id"],
-                                args["frontendRunId"]
-                            ).takeIf { it.isNotEmpty() },
-                            "frontend_task_id" to firstNonBlankString(
-                                args["frontend_task_id"],
-                                args["frontendTaskId"],
-                                args["taskId"],
-                                args["task_id"]
-                            ).takeIf { it.isNotEmpty() },
-                            "frontend_parent" to "oob_function_direct_run",
-                        ).filterValues { it != null }
-                    )
-                }
-                normalizeFunctionRunPayload(functionRunPayload)
-            }.getOrElse { error ->
-                linkedMapOf<String, Any?>(
-                    "success" to false,
-                    "function_id" to functionId,
-                    "runner" to "oob_mixed_runner",
-                    "step_count" to 0,
-                    "success_step_count" to 0,
-                    "model_used" to false,
-                    "error_code" to "OOB_FUNCTION_RUN_FAILED",
-                    "error_message" to error.message.orEmpty(),
-                    "step_results" to emptyList<Map<String, Any?>>()
-                )
-            }
-
-            val stepResults = (runPayload["step_results"] as? List<*>)
-                ?.filterIsInstance<Map<*, *>>() ?: emptyList()
-
-            val localSuccess = runPayload["success"] != false
-            val payload = buildFunctionLocalPayload(
-                functionId = functionId,
-                localSuccess = localSuccess,
-                runPayload = runPayload,
-                stepResults = stepResults,
-                argumentCount = callArguments.size
-            )
-            withContext(Dispatchers.Main) {
-                result.success(payload)
-            }
-        }
     }
 
     /**
@@ -4580,15 +2389,15 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
                     val packageName = appInfo.packageName
                     val appName = pm.getApplicationLabel(appInfo).toString()
                     var iconPath = ""
-
+                    
                     // 查询数据库中是否已有该应用的图标
                     var appIcon = DatabaseHelper.getAppIconByPackageName(packageName)
-
+                    
                     // 如果数据库中没有图标，则获取并保存
                     if (appIcon == null && appName.isNotEmpty()) {
                         val iconBase64 = APPPackageUtil.getAppIconBase64(context, packageName)
                         iconPath = APPPackageUtil.getAppIconFilePath(context, packageName)
-
+                        
                         if (iconBase64.isNotEmpty()) {
                             DatabaseHelper.insertAppIcon(
                                 appName = appName,
@@ -4598,7 +2407,7 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
                             )
                         }
                     }
-
+                    
                     mapOf(
                         "package_name" to packageName,
                         "app_name" to appName,
@@ -4631,7 +2440,6 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
     ) {
 
         try {
-            val needSummary = call.argument<Boolean>("needSummary") ?: false
             mainJob.launch {
                 AssistsUtil.Core.scheduleVLMOperationTask(
                     context,
@@ -4643,8 +2451,7 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
                     call.argument<String>("title")!!,
                     call.argument<String>("subTitle"),
                     call.argument<String>("extraJson"),
-                    this@AssistsCoreManager,
-                    needSummary
+                    this@AssistsCoreManager
                 )
                 withContext(Dispatchers.Main){
                     result.success("SUCCESS")
@@ -4672,18 +2479,8 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
             val scheduleTaskParams = AssistsUtil.Core.getScheduleParams()
             val taskParamsJson = when (scheduleTaskParams?.taskParams) {
                 is TaskParams.ScheduledVLMOperationTaskParams -> {
-                    val scheduledParams =
-                        scheduleTaskParams.taskParams as TaskParams.ScheduledVLMOperationTaskParams
-                    val params = ScheduledVLMOperationTaskParamsData(
-                        goal = scheduledParams.goal,
-                        name = scheduledParams.name,
-                        subTitle = scheduledParams.subTitle,
-                        extraJson = scheduledParams.extraJson,
-                        model = scheduledParams.model,
-                        maxSteps = scheduledParams.maxSteps,
-                        packageName = scheduledParams.packageName,
-                        needSummary = scheduledParams.needSummary
-                    )
+                    val params =
+                        (scheduleTaskParams.taskParams as TaskParams.ScheduledVLMOperationTaskParams).toScheduledVLMOperationTaskParamsData()
                     Gson().toJson(params)
                 }
 
@@ -4775,14 +2572,13 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
      */
     fun deleteAgentExactAlarm(call: MethodCall, result: MethodChannel.Result) {
         val alarmId = call.argument<String>("alarmId")?.trim().orEmpty()
+        if (alarmId.isEmpty()) {
+            result.error("INVALID_ARGUMENTS", "alarmId is empty", null)
+            return
+        }
         workJob.launch {
             try {
-                val alarmToolService = AgentAlarmToolService(context)
-                val payload = if (alarmId.isEmpty()) {
-                    alarmToolService.deleteAllExactReminders()
-                } else {
-                    alarmToolService.deleteExactReminder(alarmId)
-                }
+                val payload = AgentAlarmToolService(context).deleteExactReminder(alarmId)
                 withContext(Dispatchers.Main) {
                     result.success(payload)
                 }
@@ -4983,15 +2779,10 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
     fun postLLMChat(call: MethodCall, result: MethodChannel.Result) {
         val text = call.argument<String>("text") ?: ""
         val model = call.argument<String>("model") ?: "scene.dispatch.model"
-        val responseJsonObject = call.argument<Boolean>("responseJsonObject") ?: false
 
         workJob.launch {
             try {
-                val response = HttpController.postLLMRequest(
-                    model = model,
-                    text = text,
-                    responseJsonObject = responseJsonObject
-                )
+                val response = HttpController.postLLMRequest(model, text)
 
                 withContext(Dispatchers.Main) {
                     result.success(response.message)
@@ -5010,7 +2801,7 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
      */
     fun generateMemoryGreeting(call: MethodCall, result: MethodChannel.Result) {
         val model = call.argument<String>("model")?.trim().orEmpty()
-            .ifEmpty { "scene.compactor.context" }
+            .ifEmpty { "scene.compactor.context.chat" }
         val records = (call.argument<List<Map<String, Any?>>>("records") ?: emptyList())
             .map { entry ->
                 entry.mapKeys { it.key.toString() }
@@ -6382,92 +4173,6 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
         }
     }
 
-    private fun normalizeMethodCallMap(value: Any?): Map<String, Any?> {
-        val raw = value as? Map<*, *> ?: return emptyMap()
-        return raw.entries.associate { (key, item) ->
-            key.toString() to normalizeMethodCallValue(item)
-        }
-    }
-
-    private fun normalizeMethodCallValue(value: Any?): Any? {
-        return when (value) {
-            is Map<*, *> -> normalizeMethodCallMap(value)
-            is List<*> -> value.map(::normalizeMethodCallValue)
-            else -> value
-        }
-    }
-
-    private fun normalizeCallArgumentMap(value: Any?): Map<String, Any?> {
-        return normalizeMethodCallMap(value)
-    }
-
-    private fun normalizeProvidedLocalReplayResult(value: Any?): Map<String, Any?>? {
-        val raw = normalizeMethodCallMap(value)
-        if (raw.isEmpty()) return null
-        val contextPayload = normalizeMethodCallMap(raw["context"])
-        val stepResults = normalizeStepResultList(
-            contextPayload["step_results"] ?: raw["step_results"]
-        )
-        val runPayload = LinkedHashMap<String, Any?>().apply {
-            putAll(raw)
-            if (stepResults.isNotEmpty()) {
-                put("step_results", stepResults)
-            }
-            putIfAbsent("function_id", raw["function_id"])
-            putIfAbsent("runner", raw["runner"] ?: contextPayload["runner"] ?: "oob_mixed_runner")
-            putIfAbsent("model_used", raw["model_used"] ?: contextPayload["model_used"] ?: false)
-            putIfAbsent(
-                "model_required",
-                raw["model_required"] ?: contextPayload["model_required"]
-            )
-            putIfAbsent("timing", raw["timing"] ?: contextPayload["timing"])
-            putIfAbsent(
-                "step_count",
-                raw["step_count"] ?: contextPayload["step_count"] ?: stepResults.size
-            )
-            putIfAbsent(
-                "success_step_count",
-                raw["success_step_count"] ?: contextPayload["success_step_count"]
-                    ?: stepResults.count { it["success"] != false }
-            )
-            putIfAbsent(
-                "error_message",
-                raw["error_message"] ?: raw["errorMessage"] ?: contextPayload["error_message"]
-            )
-            putIfAbsent("error_code", raw["error_code"] ?: contextPayload["error_code"])
-        }
-        return runPayload
-    }
-
-    private fun normalizeFunctionRunPayload(payload: Map<String, Any?>): Map<String, Any?> =
-        normalizeFunctionRunPayloadForChannel(payload)
-
-    private fun normalizeStepResultList(value: Any?): List<Map<String, Any?>> {
-        val rawList = value as? List<*> ?: return emptyList()
-        return rawList.mapNotNull { item ->
-            normalizeMethodCallMap(item).takeIf { it.isNotEmpty() }
-        }
-    }
-
-    private fun booleanMethodCallValue(value: Any?): Boolean {
-        return when (value) {
-            is Boolean -> value
-            is Number -> value.toInt() != 0
-            is String -> value.trim().lowercase().let { normalized ->
-                normalized == "true" || normalized == "1" || normalized == "yes"
-            }
-            else -> false
-        }
-    }
-
-    private fun positiveLongMethodCallValue(value: Any?): Long? {
-        return when (value) {
-            is Number -> value.toLong()
-            is String -> value.trim().toLongOrNull()
-            else -> null
-        }?.takeIf { it > 0L }
-    }
-
     private fun parseScheduledSubagentRunMeta(
         conversationMode: String,
         conversationId: Long?,
@@ -6649,9 +4354,6 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
         )
     }
 
-    private fun encodeAgentPayload(payload: Any?): String =
-        chatTaskPayloadJson.encodeToString(AgentToolJson.mapToJsonElement(payload))
-
     fun createAgentTask(call: MethodCall, result: MethodChannel.Result) {
         handleCreateOrContinueAgentTask(call, result, isContinue = false)
     }
@@ -6683,6 +4385,10 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
         val runtimeAttachments = preparedAttachments.runtimeAttachments
         val historyAttachments = preparedAttachments.historyAttachments
         val userMessageCreatedAt = call.argument<Number>("userMessageCreatedAt")?.toLong()
+        val userEntryId = userMessageCreatedAt
+            ?.takeIf { it > 0L }
+            ?.let { "$it-user" }
+            ?: "$taskId-user"
         val conversationId = call.argument<Number>("conversationId")?.toLong()?.takeIf { it > 0L }
         val requestedConversationMode =
             call.argument<String>("conversationMode")?.trim()?.ifEmpty { null }
@@ -6706,15 +4412,6 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
         val terminalEnvironment = parseTerminalEnvironmentMap(
             call.argument<Map<String, Any?>>("terminalEnvironment")
         )
-        val toolProfile = call.argument<String>("toolProfile")
-            ?: call.argument<String>("tool_profile")
-        val explicitVisibleToolNames = normalizeVisibleToolNames(
-            call.argument<List<Any?>>("allowedTools")
-                ?: call.argument<List<Any?>>("allowed_tools")
-        )
-        val isLightweightToolProfile = FunctionApi.isProfile(toolProfile)
-        val visibleToolNames = explicitVisibleToolNames
-            ?: if (isLightweightToolProfile) FunctionApi.toolNames else null
         val continueMode = isContinue || call.argument<Boolean>("continueMode") == true
         val continueResumeMode = call.argument<String>("continueResumeMode")
             ?.trim()
@@ -6761,8 +4458,6 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
                 "conversationMode" to resolvedConversationMode,
                 "reasoningEffort" to reasoningEffort,
                 "terminalEnvironment" to terminalEnvironment,
-                "toolProfile" to toolProfile,
-                "allowedTools" to visibleToolNames?.toList(),
                 "continueMode" to continueMode,
                 "continueResumeMode" to continueResumeMode,
                 "continueFromAssistantEntryId" to continueFromAssistantEntryId,
@@ -6771,34 +4466,19 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
                 "continueGeneration" to continueGeneration
             )
         )
-        runCatching {
-            InternalRunLogStore.beginRun(
-                context = context,
-                runId = taskId,
-                goal = userMessage,
-                source = "agent",
-                toolName = "agent",
-                operationDescription = userMessage
-            )
-        }.onFailure {
-            OmniLog.w(TAG, "begin internal agent run log failed: ${it.message}")
-        }
         val agentRunJob = SupervisorJob()
         val agentRunScope = CoroutineScope(agentRunJob + Dispatchers.Default)
         val agentRunContext = ActiveAgentRunContext(
             taskId = taskId,
             job = agentRunJob,
-            startedAtMillis = System.currentTimeMillis(),
             conversationId = conversationId,
-            conversationMode = resolvedConversationMode,
-            userMessage = userMessage
+            conversationMode = resolvedConversationMode
         )
         registerActiveAgentRun(taskId, agentRunContext)
         TaskRuntimeSettings.onTaskStarted(context)
 
         agentRunScope.launch {
             var historyRepository: AgentConversationHistoryRepository? = null
-            var agentVlmUiFinishMessage = "任务已完成"
             try {
                 // 1. 获取当前包名
                 val currentPackageName = AssistsCore.getCurrentPackageName()
@@ -6850,35 +4530,1407 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
 
                 // 2. 初始化 Executor
                 val executor = OmniAgentExecutor(context, agentRunScope, scheduleBridge)
+                fun asLong(value: Any?): Long? {
+                    return when (value) {
+                        is Number -> value.toLong()
+                        is String -> value.trim().toLongOrNull()
+                        else -> value?.toString()?.trim()?.toLongOrNull()
+                    }
+                }
 
-                // 3. 创建事件桥
-                val bridge = AgentTaskEventBridge(
-                    taskId = taskId,
-                    conversationId = conversationId,
-                    resolvedConversationMode = resolvedConversationMode,
-                    scheduledSubagentMeta = scheduledSubagentMeta,
-                    historyRepository = historyRepository,
-                    repository = repository,
-                    agentRunContext = agentRunContext,
-                    retryArguments = retryArguments,
-                    continueMode = continueMode,
-                    continueResumeMode = continueResumeMode,
-                    continueFromAssistantEntryId = continueFromAssistantEntryId,
-                    continueTurnUsage = continueTurnUsage,
-                    continueGeneration = continueGeneration,
-                )
+                val initialEntryOrderSeqs = mutableMapOf<String, Long>()
+                var initialStreamSequence = 0L
+                var initialEntrySequence = 0L
+                if (conversationId != null) {
+                    runCatching {
+                        repository.listConversationMessages(
+                            conversationId = conversationId,
+                            conversationMode = resolvedConversationMode
+                        )
+                    }.onSuccess { existingMessages ->
+                        existingMessages.forEach { message ->
+                            val streamMeta = toStringAnyMap(message["streamMeta"])
+                            if (streamMeta["parentTaskId"]?.toString()?.trim() != taskId) {
+                                return@forEach
+                            }
+                            asLong(streamMeta["seq"])?.let { seq ->
+                                initialStreamSequence = maxOf(initialStreamSequence, seq)
+                            }
+                            val entrySeq = asLong(streamMeta["entrySeq"])
+                            if (entrySeq != null) {
+                                initialEntrySequence = maxOf(initialEntrySequence, entrySeq)
+                                val entryId = streamMeta["entryId"]?.toString()?.trim()
+                                    ?.takeIf { it.isNotEmpty() }
+                                    ?: message["id"]?.toString()?.trim()
+                                        ?.takeIf { it.isNotEmpty() }
+                                if (entryId != null) {
+                                    initialEntryOrderSeqs[entryId] = entrySeq
+                                }
+                            }
+                        }
+                    }.onFailure { error ->
+                        OmniLog.w(
+                            TAG,
+                            "seed agent stream sequence failed for taskId=$taskId: ${error.message}",
+                            error
+                        )
+                    }
+                }
+                val activeToolArgs = mutableMapOf<String, ArrayDeque<String>>()
+                val activeToolEntryIds = mutableMapOf<String, ArrayDeque<String>>()
+                val thinkingCardStartTimes = mutableMapOf<String, Long>()
+                val entryCreatedAtTimes = mutableMapOf<String, Long>()
+                val entryOrderSeqs = initialEntryOrderSeqs
+                val scheduledAssistantBuffer = StringBuilder()
+                var toolSequence = 0
+                var eventSequence = initialStreamSequence
+                var persistedStreamSequence = initialStreamSequence
+                var entrySequence = initialEntrySequence
+                var activeThinkingEntryId: String? = null
+                var activeAssistantEntryId: String? = null
+                var thinkingRound = 0
+                var assistantRound = 0
+                var latestThinkingContent = ""
+                var latestAssistantVisibleText = ""
+                var shouldStartNewAssistantRound = false
+                val assistantReasoningByEntryId = mutableMapOf<String, String>()
+                var lastAssistantEntryId: String? = null
+                var lastAssistantRoundIndex = 0
+
+                fun parseRoundFromAssistantEntryId(entryId: String): Int? {
+                    val baseId = "$taskId-text"
+                    return when {
+                        entryId == baseId -> 1
+                        entryId.startsWith("$baseId-") ->
+                            entryId.removePrefix("$baseId-").toIntOrNull()
+                        else -> null
+                    }
+                }
+
+                // 续跑:只复用失败那一轮的 assistant entry id / round,让第一帧新内容直接落
+                // 进旧 bubble。pending 标志在 ensureAssistantEntry 首次命中后清零,
+                // 避免后续轮次被误锁。
+                //
+                // 注意几个故意不 preset 的状态:
+                // - thinkingRound 留 0:新 run 自己起算,resolveThinkingEntryId 再叠上
+                //   continueGeneration 的 -c 后缀,确保不和旧 thinking 卡碰撞。
+                // - latestAssistantVisibleText 留空:onComplete 的 finalText fallback 不
+                //   应该回退到旧错误文案("Failed to connect..."),否则续跑万一啥都没
+                //   流出来时,DB 还会被旧错误文案重新覆盖。
+                var continueEntryPending = false
+                if (continueMode && continueFromAssistantEntryId != null) {
+                    val parsedRound = parseRoundFromAssistantEntryId(continueFromAssistantEntryId)
+                    if (parsedRound != null && parsedRound >= 1) {
+                        activeAssistantEntryId = continueFromAssistantEntryId
+                        assistantRound = parsedRound
+                        lastAssistantEntryId = continueFromAssistantEntryId
+                        lastAssistantRoundIndex = parsedRound
+                        continueEntryPending = true
+                    }
+                }
+
+                fun pushToolValue(
+                    store: MutableMap<String, ArrayDeque<String>>,
+                    toolName: String,
+                    value: String
+                ) {
+                    store.getOrPut(toolName) { ArrayDeque() }.addLast(value)
+                }
+
+                fun peekToolValue(
+                    store: MutableMap<String, ArrayDeque<String>>,
+                    toolName: String
+                ): String {
+                    return store[toolName]?.lastOrNull().orEmpty()
+                }
+
+                fun popToolValue(
+                    store: MutableMap<String, ArrayDeque<String>>,
+                    toolName: String
+                ): String {
+                    val queue = store[toolName] ?: return ""
+                    val value = if (queue.isEmpty()) "" else queue.removeLast()
+                    if (queue.isEmpty()) {
+                        store.remove(toolName)
+                    }
+                    return value
+                }
+
+                suspend fun publishConversationMessagesSync() {
+                    val normalizedConversationId = conversationId ?: return
+                    val repository = historyRepository ?: return
+                    try {
+                        val messages = repository.listConversationMessages(
+                            conversationId = normalizedConversationId,
+                            conversationMode = resolvedConversationMode
+                        )
+                        RealtimeHub.publish(
+                            "messages_replaced",
+                            mapOf(
+                                "conversationId" to normalizedConversationId,
+                                "mode" to resolvedConversationMode,
+                                "messages" to messages
+                            )
+                        )
+                        FlutterChatSyncBridge.dispatchConversationMessagesChanged(
+                            conversationId = normalizedConversationId,
+                            mode = resolvedConversationMode,
+                            reason = "messages_replaced"
+                        )
+                    } catch (error: CancellationException) {
+                        throw error
+                    } catch (error: Exception) {
+                        OmniLog.w(
+                            TAG,
+                            "publish conversation messages failed: ${error.message}",
+                            error
+                        )
+                    }
+                }
+
+                suspend fun persistConversationMutation(
+                    description: String,
+                    publish: Boolean = true,
+                    block: suspend () -> Unit
+                ) {
+                    val persisted = try {
+                        block()
+                        true
+                    } catch (error: CancellationException) {
+                        throw error
+                    } catch (error: Exception) {
+                        OmniLog.w(TAG, "$description failed: ${error.message}", error)
+                        false
+                    }
+                    if (persisted && publish) {
+                        publishConversationMessagesSync()
+                    }
+                }
+
+                // 续跑代数后缀,用于隔离 thinking / tool entry id,避免新 run 的卡片
+                // 用 entryId 命中失败 run 已有的卡片导致前端"被替代"。
+                // assistant 文本 entry id 故意不加这个后缀:那条 bubble 我们要主动复用旧 id,
+                // 让新内容原地落入失败那条 bubble。
+                val continueGenerationSuffix =
+                    if (continueGeneration > 0) "-c$continueGeneration" else ""
+
+                fun resolveThinkingEntryId(round: Int): String {
+                    val base = if (round <= 1) {
+                        "$taskId-thinking"
+                    } else {
+                        "$taskId-thinking-$round"
+                    }
+                    return base + continueGenerationSuffix
+                }
+
+                fun resolveAssistantEntryId(round: Int): String {
+                    return if (round <= 1) {
+                        "$taskId-text"
+                    } else {
+                        "$taskId-text-$round"
+                    }
+                }
+
+                fun nextEventSeq(): Long {
+                    eventSequence += 1
+                    return eventSequence
+                }
+
+                fun resolveEntryOrderSeq(entryId: String): Long {
+                    return entryOrderSeqs.getOrPut(entryId) {
+                        entrySequence += 1
+                        entrySequence
+                    }
+                }
+
+                fun nextPersistedStreamSeq(): Long {
+                    persistedStreamSequence += 1
+                    return persistedStreamSequence
+                }
+
+                fun buildStreamMeta(
+                    entryId: String,
+                    roundIndex: Int,
+                    kind: String,
+                    seq: Long,
+                    isFinal: Boolean = false
+                ): Map<String, Any?> {
+                    val entrySeq = resolveEntryOrderSeq(entryId)
+                    val meta = linkedMapOf<String, Any?>(
+                        "seq" to seq,
+                        "entrySeq" to entrySeq,
+                        "roundIndex" to roundIndex,
+                        "kind" to kind,
+                        "parentTaskId" to taskId,
+                        "entryId" to entryId
+                    )
+                    if (isFinal) {
+                        meta["isFinal"] = true
+                    }
+                    return meta
+                }
+
+                fun persistedStreamMeta(
+                    entryId: String,
+                    roundIndex: Int,
+                    kind: String,
+                    isFinal: Boolean = false
+                ): Map<String, Any?> {
+                    return buildStreamMeta(
+                        entryId = entryId,
+                        roundIndex = roundIndex,
+                        kind = kind,
+                        seq = nextPersistedStreamSeq(),
+                        isFinal = isFinal
+                    )
+                }
+
+                fun eventStreamMeta(
+                    entryId: String,
+                    roundIndex: Int,
+                    kind: String,
+                    eventSeq: Long
+                ): Map<String, Any?> {
+                    return buildStreamMeta(
+                        entryId = entryId,
+                        roundIndex = roundIndex,
+                        kind = kind,
+                        seq = eventSeq
+                    )
+                }
+
+                fun rememberAssistantEntry(entryId: String, roundIndex: Int) {
+                    if (entryId.isBlank()) return
+                    lastAssistantEntryId = entryId
+                    lastAssistantRoundIndex = roundIndex.coerceAtLeast(1)
+                }
+
+                fun captureAssistantReasoningForEntry(entryId: String): String? {
+                    if (entryId.isBlank()) return null
+                    assistantReasoningByEntryId[entryId]
+                        ?.takeIf { it.isNotBlank() }
+                        ?.let { return it }
+                    val normalizedReasoning = AgentTextSanitizer.sanitizeUtf16(
+                        latestThinkingContent
+                    ).trim()
+                    if (normalizedReasoning.isBlank()) {
+                        return null
+                    }
+                    assistantReasoningByEntryId[entryId] = normalizedReasoning
+                    return normalizedReasoning
+                }
+
+                fun markAssistantRoundBoundary() {
+                    if (activeAssistantEntryId != null || assistantRound > 0) {
+                        shouldStartNewAssistantRound = true
+                        activeAssistantEntryId = null
+                        scheduledAssistantBuffer.setLength(0)
+                    }
+                }
+
+                fun ensureAssistantEntry(forceNewRound: Boolean = false): Pair<Int, String> {
+                    // 续跑首次复用旧 entryId,忽略 forceNewRound (调用方常按 assistantRound>0 触发新轮,
+                    // 但续跑时 assistantRound>0 是从失败那一轮还原下来的,不是真的"已经走完一轮"。)
+                    if (continueEntryPending && activeAssistantEntryId != null) {
+                        continueEntryPending = false
+                        shouldStartNewAssistantRound = false
+                        val entryId = activeAssistantEntryId!!
+                        entryCreatedAtTimes.putIfAbsent(entryId, System.currentTimeMillis())
+                        rememberAssistantEntry(entryId, assistantRound)
+                        return assistantRound to entryId
+                    }
+                    if (activeAssistantEntryId == null || shouldStartNewAssistantRound || forceNewRound) {
+                        assistantRound = (assistantRound + 1).coerceAtLeast(1)
+                        activeAssistantEntryId = resolveAssistantEntryId(assistantRound)
+                        shouldStartNewAssistantRound = false
+                        scheduledAssistantBuffer.setLength(0)
+                    }
+                    val entryId = activeAssistantEntryId!!
+                    entryCreatedAtTimes.putIfAbsent(entryId, System.currentTimeMillis())
+                    rememberAssistantEntry(entryId, assistantRound)
+                    return assistantRound to entryId
+                }
+
+                fun currentToolRoundIndex(): Int {
+                    return maxOf(thinkingRound, assistantRound, 1)
+                }
+
+                fun buildDeepThinkingCardData(
+                    thinkingContent: String,
+                    isLoading: Boolean,
+                    stage: Int,
+                    startTime: Long,
+                    endTime: Long?
+                ): Map<String, Any?> {
+                    val sanitizedThinking = AgentTextSanitizer.sanitizeUtf16(thinkingContent)
+                    val originalLength = sanitizedThinking.length
+                    val persistedThinking = if (originalLength <= MAX_PERSISTED_THINKING_CHARS) {
+                        sanitizedThinking
+                    } else {
+                        val bodyLimit = (MAX_PERSISTED_THINKING_CHARS - THINKING_TRUNCATION_NOTICE.length)
+                            .coerceAtLeast(0)
+                        AgentTextSanitizer.sanitizeUtf16(
+                            THINKING_TRUNCATION_NOTICE + sanitizedThinking.takeLast(bodyLimit)
+                        )
+                    }
+                    val truncated = persistedThinking.length < originalLength
+                    return linkedMapOf(
+                        "type" to "deep_thinking",
+                        "isLoading" to isLoading,
+                        "thinkingContent" to persistedThinking,
+                        "thinkingContentTruncated" to truncated,
+                        "thinkingOriginalLength" to originalLength,
+                        "thinkingTruncateMode" to if (truncated) "head_omitted" else "none",
+                        "stage" to stage,
+                        "taskID" to taskId,
+                        "startTime" to startTime,
+                        "endTime" to endTime,
+                        "isCollapsible" to true
+                    )
+                }
+
+                suspend fun upsertThinkingCard(
+                    entryId: String,
+                    roundIndex: Int,
+                    thinkingContent: String,
+                    isLoading: Boolean,
+                    stage: Int,
+                    createdAt: Long = thinkingCardStartTimes[entryId] ?: System.currentTimeMillis(),
+                    streamKind: String = "thinking_snapshot",
+                    endTime: Long? = null,
+                    publish: Boolean = true
+                ) {
+                    val normalizedConversationId = conversationId ?: return
+                    if (entryId.isBlank()) return
+                    val startTime = thinkingCardStartTimes.getOrPut(entryId) { createdAt }
+                    persistConversationMutation(
+                        description = "upsert thinking card",
+                        publish = publish
+                    ) {
+                        repository.upsertUiCard(
+                            conversationId = normalizedConversationId,
+                            conversationMode = resolvedConversationMode,
+                            entryId = entryId,
+                            cardData = buildDeepThinkingCardData(
+                                thinkingContent = thinkingContent,
+                                isLoading = isLoading,
+                                stage = stage,
+                                startTime = startTime,
+                                endTime = endTime
+                            ),
+                            streamMeta = persistedStreamMeta(
+                                entryId = entryId,
+                                roundIndex = roundIndex,
+                                kind = streamKind
+                            ),
+                            createdAt = startTime
+                        )
+                    }
+                }
+
+                suspend fun finalizeThinkingCardIfNeeded(publish: Boolean = true) {
+                    val entryId = activeThinkingEntryId ?: return
+                    upsertThinkingCard(
+                        entryId = entryId,
+                        roundIndex = thinkingRound.coerceAtLeast(1),
+                        thinkingContent = latestThinkingContent,
+                        isLoading = false,
+                        stage = 4,
+                        streamKind = "thinking_snapshot",
+                        endTime = System.currentTimeMillis(),
+                        publish = publish
+                    )
+                }
+
+                suspend fun upsertAssistantSnapshot(
+                    entryId: String,
+                    roundIndex: Int,
+                    text: String,
+                    isError: Boolean,
+                    interruptedTurn: Boolean = false,
+                    streamKind: String = "text_snapshot",
+                    isFinal: Boolean = false,
+                    usageSnapshot: AgentTurnUsageSnapshot? = null,
+                    reasoningContent: String? = null
+                ) {
+                    val normalizedConversationId = conversationId ?: return
+                    val normalizedText = AgentTextSanitizer.sanitizeUtf16(text).trim()
+                    if (normalizedText.isEmpty()) return
+                    val createdAt = entryCreatedAtTimes.getOrPut(entryId) {
+                        System.currentTimeMillis()
+                    }
+                    persistConversationMutation("upsert assistant snapshot") {
+                        repository.upsertAssistantMessage(
+                            conversationId = normalizedConversationId,
+                            conversationMode = resolvedConversationMode,
+                            entryId = entryId,
+                            text = normalizedText,
+                            isError = isError,
+                            interruptedTurn = interruptedTurn,
+                            reasoningContent = reasoningContent
+                                ?.takeIf { it.isNotBlank() }
+                                ?.let(AgentTextSanitizer::sanitizeUtf16),
+                            streamMeta = persistedStreamMeta(
+                                entryId = entryId,
+                                roundIndex = roundIndex,
+                                kind = streamKind,
+                                isFinal = isFinal
+                            ),
+                            turnUsage = usageSnapshot?.toPayload(),
+                            createdAt = createdAt
+                        )
+                    }
+                }
+
+                suspend fun upsertClarifyMessage(
+                    entryId: String,
+                    roundIndex: Int,
+                    question: String
+                ) {
+                    val normalizedConversationId = conversationId ?: return
+                    val normalizedQuestion = AgentTextSanitizer.sanitizeUtf16(question).trim()
+                    if (normalizedQuestion.isEmpty()) return
+                    val createdAt = entryCreatedAtTimes.getOrPut(entryId) {
+                        System.currentTimeMillis()
+                    }
+                    persistConversationMutation("upsert clarify message") {
+                        repository.upsertAssistantMessage(
+                            conversationId = normalizedConversationId,
+                            conversationMode = resolvedConversationMode,
+                            entryId = entryId,
+                            text = normalizedQuestion,
+                            isError = false,
+                            streamMeta = persistedStreamMeta(
+                                entryId = entryId,
+                                roundIndex = roundIndex,
+                                kind = "clarify_required"
+                            ),
+                            createdAt = createdAt
+                        )
+                    }
+                }
+
+                fun buildPermissionRequiredMessage(missing: List<String>): String {
+                    val names = missing.map(::localizedPermissionName).filter { it.isNotEmpty() }
+                    return if (names.isEmpty()) {
+                        t(
+                            "执行任务前需要先开启权限",
+                            "Enable the required permissions before running the task."
+                        )
+                    } else {
+                        t(
+                            "执行任务前，请先开启：${names.joinToString("、")}",
+                            "Enable these permissions before running the task: ${names.joinToString(", ")}"
+                        )
+                    }
+                }
+
+                suspend fun upsertPermissionState(
+                    textEntryId: String,
+                    roundIndex: Int,
+                    missing: List<String>
+                ) {
+                    val normalizedConversationId = conversationId ?: return
+                    val names = missing.map(::localizedPermissionName).filter { it.isNotEmpty() }
+                    val message = buildPermissionRequiredMessage(missing)
+                    persistConversationMutation("upsert permission state") {
+                        repository.upsertAssistantMessage(
+                            conversationId = normalizedConversationId,
+                            conversationMode = resolvedConversationMode,
+                            entryId = textEntryId,
+                            text = AgentTextSanitizer.sanitizeUtf16(message),
+                            isError = false,
+                            streamMeta = persistedStreamMeta(
+                                entryId = textEntryId,
+                                roundIndex = roundIndex,
+                                kind = "permission_required"
+                            ),
+                            createdAt = entryCreatedAtTimes.getOrPut(textEntryId) {
+                                System.currentTimeMillis()
+                            }
+                        )
+                        val permissionIds = resolveRequiredPermissionIds(names)
+                        if (permissionIds.isNotEmpty()) {
+                            repository.upsertUiCard(
+                                conversationId = normalizedConversationId,
+                                conversationMode = resolvedConversationMode,
+                                entryId = "$taskId-permission",
+                                cardData = buildPermissionCardData(permissionIds),
+                                streamMeta = persistedStreamMeta(
+                                    entryId = "$taskId-permission",
+                                    roundIndex = roundIndex,
+                                    kind = "permission_required"
+                                ),
+                                createdAt = entryCreatedAtTimes.getOrPut("$taskId-permission") {
+                                    System.currentTimeMillis()
+                                }
+                            )
+                        }
+                    }
+                }
+
+                suspend fun upsertToolEvent(
+                    entryId: String,
+                    roundIndex: Int,
+                    payload: Map<String, Any?>,
+                    streamKind: String,
+                    fallbackStatus: String,
+                    fallbackSummary: String
+                ) {
+                    val normalizedConversationId = conversationId ?: return
+                    if (entryId.isBlank()) return
+                    persistConversationMutation("upsert tool event") {
+                        val sanitizedPayload = sanitizeInteropMap(
+                            linkedMapOf<String, Any?>("taskId" to taskId).apply {
+                                putAll(payload)
+                                put(
+                                    "streamMeta",
+                                    persistedStreamMeta(
+                                        entryId = entryId,
+                                        roundIndex = roundIndex,
+                                        kind = streamKind
+                                    )
+                                )
+                            }
+                        )
+                        repository.upsertToolEvent(
+                            conversationId = normalizedConversationId,
+                            conversationMode = resolvedConversationMode,
+                            entryId = entryId,
+                            payload = sanitizedPayload,
+                            fallbackStatus = fallbackStatus,
+                            fallbackSummary = AgentTextSanitizer.sanitizeUtf16(fallbackSummary)
+                        )
+                    }
+                }
+
+                suspend fun sendStreamEvent(
+                    kind: String,
+                    entryId: String? = null,
+                    roundIndex: Int = 0,
+                    isFinal: Boolean = false,
+                    text: String? = null,
+                    thinking: String? = null,
+                    stage: Int? = null,
+                    prefillTokensPerSecond: Double? = null,
+                    decodeTokensPerSecond: Double? = null,
+                    success: Boolean? = null,
+                    outputKind: String? = null,
+                    hasUserVisibleOutput: Boolean? = null,
+                    latestPromptTokens: Int? = null,
+                    promptTokenThreshold: Int? = null,
+                    error: String? = null,
+                    question: String? = null,
+                    missingFields: List<String>? = null,
+                    missing: List<String>? = null,
+                    turnUsage: Map<String, Any?>? = null,
+                    extras: Map<String, Any?> = emptyMap(),
+                    attachLatestThinkingToText: Boolean = true
+                ) {
+                    val effectiveThinking = thinking
+                        ?.takeIf { it.isNotBlank() }
+                        ?: latestThinkingContent.takeIf {
+                            kind == "text_snapshot" &&
+                                attachLatestThinkingToText &&
+                                it.isNotBlank()
+                        }
+                    val eventSeq = nextEventSeq()
+                    val basePayload = AgentStreamEvent(
+                        taskId = taskId,
+                        seq = eventSeq,
+                        kind = kind,
+                        createdAt = System.currentTimeMillis(),
+                        entryId = entryId,
+                        roundIndex = roundIndex,
+                        isFinal = isFinal,
+                        text = text,
+                        thinking = effectiveThinking,
+                        stage = stage,
+                        prefillTokensPerSecond = prefillTokensPerSecond,
+                        decodeTokensPerSecond = decodeTokensPerSecond,
+                        success = success,
+                        outputKind = outputKind,
+                        hasUserVisibleOutput = hasUserVisibleOutput,
+                        latestPromptTokens = latestPromptTokens,
+                        promptTokenThreshold = promptTokenThreshold,
+                        error = error,
+                        question = question,
+                        missingFields = missingFields,
+                        missing = missing,
+                        turnUsage = turnUsage,
+                        extras = extras
+                    ).toPayload(
+                        conversationId = conversationId,
+                        conversationMode = resolvedConversationMode
+                    )
+                    val payload = sanitizeInteropMap(
+                        entryId?.takeIf { it.isNotBlank() }?.let { resolvedEntryId ->
+                            basePayload + mapOf(
+                                "streamMeta" to eventStreamMeta(
+                                    entryId = resolvedEntryId,
+                                    roundIndex = roundIndex,
+                                    kind = kind,
+                                    eventSeq = eventSeq
+                                )
+                            )
+                        } ?: basePayload
+                    )
+                    RealtimeHub.publish("agent_stream_event", payload)
+                    withContext(Dispatchers.Main) {
+                        invokeFlutterEventSafely("onAgentStreamEvent", payload)
+                    }
+                }
 
                 conversationId?.let { normalizedConversationId ->
                     if (!continueMode && (userMessage.isNotBlank() || historyAttachments.isNotEmpty())) {
-                        bridge.persistConversationMutation("upsert user message") {
+                        persistConversationMutation("upsert user message") {
                             repository.upsertUserMessage(
                                 conversationId = normalizedConversationId,
                                 conversationMode = resolvedConversationMode,
-                                entryId = "$taskId-user",
+                                entryId = userEntryId,
                                 text = userMessage,
                                 attachments = historyAttachments,
                                 createdAt = userMessageCreatedAt ?: System.currentTimeMillis()
                             )
+                        }
+                    }
+                }
+
+                // 3. 创建回调
+                val callback = object : AgentCallback {
+                    override suspend fun onThinkingStart() {
+                        finalizeThinkingCardIfNeeded(publish = false)
+                        thinkingRound += 1
+                        val entryId = resolveThinkingEntryId(thinkingRound)
+                        val startTime = System.currentTimeMillis()
+                        activeThinkingEntryId = entryId
+                        latestThinkingContent = ""
+                        thinkingCardStartTimes.putIfAbsent(entryId, startTime)
+                        markAssistantRoundBoundary()
+                        upsertThinkingCard(
+                            entryId = entryId,
+                            roundIndex = thinkingRound,
+                            thinkingContent = "",
+                            isLoading = true,
+                            stage = 1,
+                            createdAt = startTime,
+                            streamKind = "thinking_started"
+                        )
+                        sendStreamEvent(
+                            kind = "thinking_started",
+                            entryId = entryId,
+                            roundIndex = thinkingRound,
+                            thinking = "",
+                            stage = 1
+                        )
+                    }
+
+                    override suspend fun onThinkingUpdate(thinking: String) {
+                        val normalizedThinking = AgentTextSanitizer.sanitizeUtf16(thinking).trim()
+                        if (shouldIgnoreRegressiveSnapshot(latestThinkingContent, normalizedThinking)) {
+                            OmniLog.d(
+                                TAG,
+                                "ignore stale thinking snapshot: incoming=${normalizedThinking.length}, current=${latestThinkingContent.length}"
+                            )
+                            return
+                        }
+                        if (activeThinkingEntryId == null) {
+                            if (thinkingRound <= 0) {
+                                thinkingRound = 1
+                            }
+                            val generated = resolveThinkingEntryId(thinkingRound)
+                            activeThinkingEntryId = generated
+                            thinkingCardStartTimes.putIfAbsent(
+                                generated,
+                                System.currentTimeMillis()
+                            )
+                        }
+                        val entryId = activeThinkingEntryId ?: return
+                        latestThinkingContent = normalizedThinking
+                        upsertThinkingCard(
+                            entryId = entryId,
+                            roundIndex = thinkingRound.coerceAtLeast(1),
+                            thinkingContent = normalizedThinking,
+                            isLoading = true,
+                            stage = 1,
+                            streamKind = "thinking_snapshot"
+                        )
+                        sendStreamEvent(
+                            kind = "thinking_snapshot",
+                            entryId = entryId,
+                            roundIndex = thinkingRound.coerceAtLeast(1),
+                            thinking = normalizedThinking,
+                            stage = 1
+                        )
+                    }
+
+                    override suspend fun onToolCallStart(
+                        toolName: String,
+                        arguments: JsonObject
+                    ) {
+                        val argsJson = arguments.toString()
+                        pushToolValue(activeToolArgs, toolName, argsJson)
+                        val entryId = "$taskId-tool$continueGenerationSuffix-${++toolSequence}"
+                        val roundIndex = currentToolRoundIndex()
+                        pushToolValue(activeToolEntryIds, toolName, entryId)
+                        agentRunContext.bindActiveToolCardId(entryId)
+                        activeThinkingEntryId?.let { thinkingEntryId ->
+                            upsertThinkingCard(
+                                entryId = thinkingEntryId,
+                                roundIndex = thinkingRound.coerceAtLeast(roundIndex),
+                                thinkingContent = latestThinkingContent,
+                                isLoading = true,
+                                stage = 2,
+                                streamKind = "thinking_snapshot",
+                                publish = false
+                            )
+                        }
+                        markAssistantRoundBoundary()
+                        val payload = buildToolStartPayload(toolName, argsJson).toMutableMap().apply {
+                            put("cardId", entryId)
+                        }
+                        latestThinkingContent.takeIf { it.isNotBlank() }?.let { reasoning ->
+                            payload["reasoning_content"] = reasoning
+                        }
+                        upsertToolEvent(
+                            entryId = entryId,
+                            roundIndex = roundIndex,
+                            payload = payload,
+                            streamKind = "tool_started",
+                            fallbackStatus = AgentConversationHistoryRepository.STATUS_RUNNING,
+                            fallbackSummary = payload["summary"]?.toString()?.ifBlank {
+                                t("正在调用工具", "Calling tool")
+                            } ?: t("正在调用工具", "Calling tool")
+                        )
+                        sendStreamEvent(
+                            kind = "tool_started",
+                            entryId = entryId,
+                            roundIndex = roundIndex,
+                            extras = payload
+                        )
+                    }
+
+                    override suspend fun onToolCallProgress(
+                        toolName: String,
+                        progress: String,
+                        extras: Map<String, Any?>
+                    ) {
+                        val entryId = peekToolValue(activeToolEntryIds, toolName)
+                        val roundIndex = currentToolRoundIndex()
+                        val payload = buildToolProgressPayload(
+                            toolName,
+                            progress,
+                            peekToolValue(activeToolArgs, toolName),
+                            extras
+                        ).toMutableMap().apply {
+                            if (entryId.isNotBlank()) {
+                                put("cardId", entryId)
+                            }
+                        }
+                        upsertToolEvent(
+                            entryId = entryId,
+                            roundIndex = roundIndex,
+                            payload = payload,
+                            streamKind = "tool_progress",
+                            fallbackStatus = AgentConversationHistoryRepository.STATUS_RUNNING,
+                            fallbackSummary = payload["summary"]?.toString()?.ifBlank {
+                                t("正在调用工具", "Calling tool")
+                            } ?: t("正在调用工具", "Calling tool")
+                        )
+                        sendStreamEvent(
+                            kind = "tool_progress",
+                            entryId = entryId.takeIf { it.isNotBlank() },
+                            roundIndex = roundIndex,
+                            extras = payload
+                        )
+                    }
+
+                    override suspend fun onToolCallComplete(
+                        toolName: String,
+                        result: ToolExecutionResult
+                    ) {
+                        val argsJson = popToolValue(activeToolArgs, toolName)
+                        val entryId = popToolValue(activeToolEntryIds, toolName).ifBlank {
+                            "$taskId-tool$continueGenerationSuffix-${++toolSequence}"
+                        }
+                        val roundIndex = currentToolRoundIndex()
+                        activeThinkingEntryId?.let { thinkingEntryId ->
+                            upsertThinkingCard(
+                                entryId = thinkingEntryId,
+                                roundIndex = thinkingRound.coerceAtLeast(roundIndex),
+                                thinkingContent = latestThinkingContent,
+                                isLoading = true,
+                                stage = 2,
+                                streamKind = "thinking_snapshot",
+                                publish = false
+                            )
+                        }
+                        markAssistantRoundBoundary()
+                        val payload = buildToolCompletePayload(toolName, result, argsJson)
+                            .toMutableMap().apply {
+                                put("cardId", entryId)
+                            }
+                        latestThinkingContent.takeIf { it.isNotBlank() }?.let { reasoning ->
+                            payload["reasoning_content"] = reasoning
+                        }
+                        val success = payload["success"] != false
+                        upsertToolEvent(
+                            entryId = entryId,
+                            roundIndex = roundIndex,
+                            payload = payload,
+                            streamKind = "tool_completed",
+                            fallbackStatus = if (success) {
+                                AgentConversationHistoryRepository.STATUS_SUCCESS
+                            } else {
+                                AgentConversationHistoryRepository.STATUS_ERROR
+                            },
+                            fallbackSummary = payload["summary"]?.toString().orEmpty()
+                        )
+                        sendStreamEvent(
+                            kind = "tool_completed",
+                            entryId = entryId,
+                            roundIndex = roundIndex,
+                            extras = payload
+                        )
+                        if (payload["toolType"]?.toString() == "browser") {
+                            val snapshot = LiveAgentBrowserSessionManager.currentSnapshot()
+                            RealtimeHub.publish(
+                                "browser_snapshot_updated",
+                                mapOf("snapshot" to snapshot)
+                            )
+                            FlutterChatSyncBridge.dispatchBrowserSnapshotUpdated(snapshot)
+                        }
+                    }
+
+                    override suspend fun onChatMessage(message: String) {
+                        dispatchAgentChatMessage(message, isFinal = true)
+                    }
+
+                    override suspend fun onChatMessage(message: String, isFinal: Boolean) {
+                        dispatchAgentChatMessage(message, isFinal)
+                    }
+
+                    override suspend fun onChatMessage(
+                        message: String,
+                        isFinal: Boolean,
+                        prefillTokensPerSecond: Double?,
+                        decodeTokensPerSecond: Double?
+                    ) {
+                        dispatchAgentChatMessage(
+                            message = message,
+                            isFinal = isFinal,
+                            prefillTokensPerSecond = prefillTokensPerSecond,
+                            decodeTokensPerSecond = decodeTokensPerSecond
+                        )
+                    }
+
+                    override suspend fun onPromptTokenUsageChanged(
+                        latestPromptTokens: Int,
+                        promptTokenThreshold: Int?
+                    ) {
+                        sendFlutterEvent(
+                            "onAgentPromptTokenUsageChanged",
+                            mapOf(
+                                "latestPromptTokens" to latestPromptTokens,
+                                "promptTokenThreshold" to promptTokenThreshold
+                            )
+                        )
+                    }
+
+                    override suspend fun onContextCompactionStateChanged(
+                        isCompacting: Boolean,
+                        latestPromptTokens: Int?,
+                        promptTokenThreshold: Int?
+                    ) {
+                        sendFlutterEvent(
+                            "onAgentContextCompactionStateChanged",
+                            mapOf(
+                                "isCompacting" to isCompacting,
+                                "latestPromptTokens" to latestPromptTokens,
+                                "promptTokenThreshold" to promptTokenThreshold
+                            )
+                        )
+                    }
+
+                    override suspend fun onClarifyRequired(
+                        question: String,
+                        missingFields: List<String>?
+                    ) {
+                        finalizeThinkingCardIfNeeded()
+                        val normalizedQuestion = AgentTextSanitizer.sanitizeUtf16(question).trim()
+                        val (roundIndex, entryId) = ensureAssistantEntry(
+                            forceNewRound = latestAssistantVisibleText.isNotEmpty() || assistantRound > 0
+                        )
+                        latestAssistantVisibleText = normalizedQuestion
+                        if (normalizedQuestion.isNotEmpty()) {
+                            upsertClarifyMessage(
+                                entryId = entryId,
+                                roundIndex = roundIndex,
+                                question = normalizedQuestion
+                            )
+                        }
+                        sendStreamEvent(
+                            kind = "clarify_required",
+                            entryId = entryId,
+                            roundIndex = roundIndex,
+                            text = normalizedQuestion,
+                            question = normalizedQuestion,
+                            missingFields = missingFields
+                        )
+                    }
+
+                    override suspend fun onComplete(result: AgentResult) {
+                        removeFailedAgentRetryContext(taskId)
+                        removeFailedAgentContinueContext(taskId)
+                        val isSuccess = result is AgentResult.Success
+                        val outputKind = (result as? AgentResult.Success)?.outputKind ?: "none"
+                        val hasUserVisibleOutput =
+                            (result as? AgentResult.Success)?.hasUserVisibleOutput == true
+                        val latestPromptTokens = (result as? AgentResult.Success)?.latestPromptTokens
+                        val promptTokenThreshold =
+                            (result as? AgentResult.Success)?.promptTokenThreshold
+                        val turnUsageSnapshot = buildTurnUsageSnapshot(
+                            latestPromptTokens = latestPromptTokens,
+                            promptTokenThreshold = promptTokenThreshold,
+                            result = result as? AgentResult.Success
+                        )
+                        val streamed = scheduledAssistantBuffer.toString().trim()
+                        val fallback = (result as? AgentResult.Success)
+                            ?.response
+                            ?.content
+                            ?.trim()
+                            .orEmpty()
+                        val finalText = resolveAssistantFinalText(
+                            streamed = streamed.ifEmpty { latestAssistantVisibleText },
+                            fallback = fallback
+                        ).ifEmpty {
+                            if (isSuccess && outputKind == "none" && !hasUserVisibleOutput) {
+                                t(
+                                    "暂时无法生成回复，请重试。",
+                                    "I can't generate a reply right now. Please try again."
+                                )
+                            } else {
+                                ""
+                            }
+                        }
+                        finalizeThinkingCardIfNeeded(publish = finalText.isBlank())
+                        var completedEntryId: String? = activeAssistantEntryId ?: lastAssistantEntryId
+                        var completedRoundIndex = if (activeAssistantEntryId != null) {
+                            assistantRound.coerceAtLeast(1)
+                        } else {
+                            lastAssistantRoundIndex.coerceAtLeast(1)
+                        }
+                        if (finalText.isNotBlank()) {
+                            val existingEntryId = completedEntryId
+                                ?.takeIf { it.isNotBlank() }
+                                ?.takeIf {
+                                    shouldReuseAssistantEntryForFinalText(
+                                        finalText = finalText,
+                                        fallback = fallback
+                                    )
+                                }
+                            val (roundIndex, entryId) = if (existingEntryId != null) {
+                                completedRoundIndex.coerceAtLeast(1) to existingEntryId
+                            } else {
+                                ensureAssistantEntry(forceNewRound = assistantRound > 0)
+                            }
+                            val reasoningForEntry = assistantReasoningByEntryId[entryId]
+                                ?: if (entryId == activeAssistantEntryId || existingEntryId == null) {
+                                    captureAssistantReasoningForEntry(entryId)
+                                } else {
+                                    null
+                                }
+                            completedEntryId = entryId
+                            completedRoundIndex = roundIndex
+                            rememberAssistantEntry(entryId, roundIndex)
+                            latestAssistantVisibleText = finalText
+                            scheduledAssistantBuffer.setLength(0)
+                            scheduledAssistantBuffer.append(finalText)
+                            upsertAssistantSnapshot(
+                                entryId = entryId,
+                                roundIndex = roundIndex,
+                                text = finalText,
+                                isError = !isSuccess,
+                                streamKind = "text_snapshot",
+                                isFinal = true,
+                                usageSnapshot = turnUsageSnapshot,
+                                reasoningContent = reasoningForEntry
+                            )
+                            sendStreamEvent(
+                                kind = "text_snapshot",
+                                entryId = entryId,
+                                roundIndex = roundIndex,
+                                isFinal = true,
+                                text = finalText,
+                                turnUsage = turnUsageSnapshot?.toPayload(),
+                                attachLatestThinkingToText = false
+                            )
+                        }
+                        scheduledSubagentMeta?.let { meta ->
+                            val notificationText = finalText.ifEmpty {
+                                if (isSuccess) {
+                                    t("任务已完成，点击查看详情。", "Task completed. Tap to view details.")
+                                } else {
+                                    t("任务已结束，请点击查看详情。", "Task ended. Tap to view details.")
+                                }
+                            }
+                            runCatching {
+                                notifyScheduledSubagentCompletion(meta, notificationText)
+                            }.onFailure {
+                                OmniLog.w(
+                                    TAG,
+                                    "notify scheduled subagent completion failed: ${it.message}",
+                                    it
+                                )
+                            }
+                        }
+                        if (scheduledSubagentMeta == null) {
+                            TaskRuntimeSettings.notifyTaskFinished(
+                                context = context,
+                                title = if (isSuccess) "Agent 任务已完成" else "Agent 任务已结束",
+                                message = finalText.ifBlank {
+                                    if (isSuccess) "任务已完成，点击查看详情" else "任务已结束，点击查看详情"
+                                },
+                                conversationId = conversationId ?: currentConversationId,
+                                conversationMode = resolvedConversationMode
+                            )
+                        }
+                        sendStreamEvent(
+                            kind = "completed",
+                            entryId = completedEntryId,
+                            roundIndex = completedRoundIndex,
+                            success = isSuccess,
+                            outputKind = outputKind,
+                            hasUserVisibleOutput = hasUserVisibleOutput,
+                            latestPromptTokens = latestPromptTokens,
+                            promptTokenThreshold = promptTokenThreshold,
+                            turnUsage = turnUsageSnapshot?.toPayload()
+                        )
+                    }
+
+                    override suspend fun onRetrying(
+                        retryCount: Int,
+                        maxRetries: Int,
+                        retryDelayMs: Long,
+                        message: String,
+                        retryReason: String?
+                    ) {
+                        val retryEntryId = activeAssistantEntryId ?: activeThinkingEntryId
+                        val retryRoundIndex = if (activeAssistantEntryId != null) {
+                            assistantRound.coerceAtLeast(1)
+                        } else {
+                            thinkingRound.coerceAtLeast(1)
+                        }
+                        sendStreamEvent(
+                            kind = "retrying",
+                            entryId = retryEntryId,
+                            roundIndex = retryRoundIndex,
+                            text = AgentTextSanitizer.sanitizeUtf16(message).trim(),
+                            stage = 1,
+                            extras = mapOf(
+                                "willRetry" to true,
+                                "retryable" to true,
+                                "retryCount" to retryCount,
+                                "maxRetries" to maxRetries,
+                                "retryDelayMs" to retryDelayMs,
+                                "retryReason" to retryReason
+                            )
+                        )
+                    }
+
+                    override suspend fun onError(error: String) {
+                        onError(error, retryable = false)
+                    }
+
+                    override suspend fun onError(error: String, retryable: Boolean) {
+                        if (retryable) {
+                            registerFailedAgentRetryContext(
+                                taskId,
+                                FailedAgentRetryContext(arguments = retryArguments)
+                            )
+                        } else {
+                            removeFailedAgentRetryContext(taskId)
+                        }
+                        val resolution = resolveAgentFinalErrorResolution(
+                            streamed = scheduledAssistantBuffer.toString().ifBlank {
+                                latestAssistantVisibleText
+                            },
+                            error = error,
+                            localizedFallback = t(
+                                "暂时无法生成回复，请重试。",
+                                "I can't generate a reply right now. Please try again."
+                            )
+                        )
+                        val errorText = AgentTextSanitizer.sanitizeUtf16(error).trim().ifEmpty {
+                            t(
+                                "暂时无法生成回复，请重试。",
+                                "I can't generate a reply right now. Please try again."
+                            )
+                        }
+                        val finalText = resolution.text
+                        val errorTurnUsageSnapshot = buildTurnUsageSnapshot(
+                            latestPromptTokens = (result as? AgentResult.Success)?.latestPromptTokens,
+                            promptTokenThreshold = (result as? AgentResult.Success)?.promptTokenThreshold,
+                            result = result as? AgentResult.Success
+                        )
+                        finalizeThinkingCardIfNeeded(publish = finalText.isBlank())
+                        var errorEntryId: String? = activeAssistantEntryId ?: lastAssistantEntryId
+                        var errorRoundIndex = if (activeAssistantEntryId != null) {
+                            assistantRound.coerceAtLeast(1)
+                        } else {
+                            lastAssistantRoundIndex.coerceAtLeast(1)
+                        }
+                        if (finalText.isNotBlank()) {
+                            val existingEntryId = errorEntryId
+                                ?.takeIf { it.isNotBlank() }
+                                ?.takeIf {
+                                    shouldReuseAssistantEntryForFinalText(
+                                        finalText = finalText,
+                                        fallback = errorText
+                                    )
+                                }
+                            val (roundIndex, entryId) = if (existingEntryId != null) {
+                                errorRoundIndex.coerceAtLeast(1) to existingEntryId
+                            } else {
+                                ensureAssistantEntry(forceNewRound = assistantRound > 0)
+                            }
+                            val reasoningForEntry = assistantReasoningByEntryId[entryId]
+                                ?: if (entryId == activeAssistantEntryId || existingEntryId == null) {
+                                    captureAssistantReasoningForEntry(entryId)
+                                } else {
+                                    null
+                                }
+                            errorEntryId = entryId
+                            errorRoundIndex = roundIndex
+                            rememberAssistantEntry(entryId, roundIndex)
+                            latestAssistantVisibleText = finalText
+                            scheduledAssistantBuffer.setLength(0)
+                            scheduledAssistantBuffer.append(finalText)
+                            upsertAssistantSnapshot(
+                                entryId = entryId,
+                                roundIndex = roundIndex,
+                                text = finalText,
+                                isError = resolution.persistAsError,
+                                interruptedTurn = true,
+                                streamKind = "text_snapshot",
+                                isFinal = true,
+                                usageSnapshot = errorTurnUsageSnapshot,
+                                reasoningContent = reasoningForEntry
+                            )
+                            sendStreamEvent(
+                                kind = "text_snapshot",
+                                entryId = entryId,
+                                roundIndex = roundIndex,
+                                isFinal = true,
+                                text = finalText,
+                                turnUsage = errorTurnUsageSnapshot?.toPayload(),
+                                attachLatestThinkingToText = false
+                            )
+                        }
+                        val continueResumeModeValue = continueResumeMode ?: "approximate"
+                        val continuePayload = errorTurnUsageSnapshot?.toPayload() ?: continueTurnUsage
+                        val continueable = conversationId != null &&
+                            errorEntryId?.isNotBlank() == true &&
+                            finalText.isNotBlank()
+                        if (continueable) {
+                            registerFailedAgentContinueContext(
+                                taskId,
+                                FailedAgentContinueContext(
+                                    arguments = sanitizeInteropMap(
+                                        retryArguments + mapOf(
+                                            "continueMode" to true,
+                                            "continueResumeMode" to continueResumeModeValue,
+                                            "continueFromAssistantEntryId" to errorEntryId,
+                                            "continueFromAssistantText" to finalText,
+                                            "continueTurnUsage" to continuePayload
+                                        )
+                                    )
+                                )
+                            )
+                        } else if (!continueMode) {
+                            removeFailedAgentContinueContext(taskId)
+                        }
+                        scheduledSubagentMeta?.let { meta ->
+                            runCatching {
+                                notifyScheduledSubagentCompletion(meta, finalText)
+                            }.onFailure {
+                                OmniLog.w(
+                                    TAG,
+                                    "notify scheduled subagent error failed: ${it.message}",
+                                    it
+                                )
+                            }
+                        }
+                        sendStreamEvent(
+                            kind = "error",
+                            entryId = errorEntryId,
+                            roundIndex = errorRoundIndex,
+                            error = error,
+                            turnUsage = continuePayload,
+                            extras = mapOf(
+                                "persistAsError" to resolution.persistAsError,
+                                "willRetry" to false,
+                                "retryable" to retryable,
+                                "continueable" to continueable,
+                                "continueResumeMode" to if (continueable) continueResumeModeValue else null,
+                                "retryCount" to if (retryable) 3 else 0,
+                                "maxRetries" to 3,
+                                "errorText" to errorText
+                            )
+                        )
+                    }
+
+                    override suspend fun onPermissionRequired(missing: List<String>) {
+                        finalizeThinkingCardIfNeeded()
+                        val (roundIndex, entryId) = ensureAssistantEntry(
+                            forceNewRound = latestAssistantVisibleText.isNotEmpty() || assistantRound > 0
+                        )
+                        val permissionMessage = buildPermissionRequiredMessage(missing)
+                        latestAssistantVisibleText = AgentTextSanitizer.sanitizeUtf16(permissionMessage).trim()
+                        upsertPermissionState(
+                            textEntryId = entryId,
+                            roundIndex = roundIndex,
+                            missing = missing
+                        )
+                        sendStreamEvent(
+                            kind = "permission_required",
+                            entryId = entryId,
+                            roundIndex = roundIndex,
+                            text = permissionMessage,
+                            missing = missing,
+                            extras = mapOf("permissionCardId" to "$taskId-permission")
+                        )
+                    }
+
+                    override suspend fun onVlmTaskFinished() {
+                        handleVlmTaskFinished("unified_agent_listener", taskId = taskId)
+                    }
+
+                    private suspend fun dispatchAgentChatMessage(
+                        message: String,
+                        isFinal: Boolean,
+                        prefillTokensPerSecond: Double? = null,
+                        decodeTokensPerSecond: Double? = null
+                    ) {
+                        val normalizedMessage = AgentTextSanitizer.sanitizeUtf16(message).trim()
+                        var entryId: String? = activeAssistantEntryId
+                        var roundIndex = assistantRound
+                        if (normalizedMessage.isNotEmpty()) {
+                            val resolvedEntry = ensureAssistantEntry()
+                            roundIndex = resolvedEntry.first
+                            entryId = resolvedEntry.second
+                            val resolvedEntryId = resolvedEntry.second
+                            val currentSnapshot =
+                                AgentTextSanitizer.sanitizeUtf16(
+                                    scheduledAssistantBuffer.toString()
+                                ).trim()
+                            if (shouldIgnoreRegressiveSnapshot(currentSnapshot, normalizedMessage)) {
+                                OmniLog.d(
+                                    TAG,
+                                    "ignore stale agent snapshot: incoming=${normalizedMessage.length}, current=${currentSnapshot.length}, final=$isFinal"
+                                )
+                                return
+                            }
+                            scheduledAssistantBuffer.setLength(0)
+                            scheduledAssistantBuffer.append(normalizedMessage)
+                            latestAssistantVisibleText = normalizedMessage
+                            rememberAssistantEntry(resolvedEntryId, roundIndex)
+                            val reasoningForEntry = captureAssistantReasoningForEntry(
+                                resolvedEntryId
+                            )
+                            upsertAssistantSnapshot(
+                                entryId = resolvedEntryId,
+                                roundIndex = roundIndex,
+                                text = normalizedMessage,
+                                isError = false,
+                                streamKind = "text_snapshot",
+                                isFinal = isFinal,
+                                reasoningContent = reasoningForEntry
+                            )
+                        }
+                        val snapshotText = entryId?.let {
+                            AgentTextSanitizer.sanitizeUtf16(
+                                scheduledAssistantBuffer.toString()
+                            ).trim()
+                        }.orEmpty()
+                        if (entryId != null && snapshotText.isNotEmpty()) {
+                            sendStreamEvent(
+                                kind = "text_snapshot",
+                                entryId = entryId,
+                                roundIndex = roundIndex.coerceAtLeast(1),
+                                isFinal = isFinal,
+                                text = snapshotText.ifEmpty { normalizedMessage },
+                                prefillTokensPerSecond = prefillTokensPerSecond,
+                                decodeTokensPerSecond = decodeTokensPerSecond,
+                                attachLatestThinkingToText = false
+                            )
+                        }
+                    }
+
+                    private fun shouldIgnoreRegressiveSnapshot(
+                        current: String,
+                        incoming: String
+                    ): Boolean {
+                        if (current.isEmpty() || incoming.isEmpty()) {
+                            return false
+                        }
+                        return incoming.length < current.length && current.startsWith(incoming)
+                    }
+
+                    private fun resolveAssistantFinalText(
+                        streamed: String,
+                        fallback: String
+                    ): String {
+                        val normalizedStreamed = AgentTextSanitizer.sanitizeUtf16(streamed).trim()
+                        val normalizedFallback = AgentTextSanitizer.sanitizeUtf16(fallback).trim()
+                        if (normalizedFallback.isEmpty()) {
+                            return normalizedStreamed
+                        }
+                        if (normalizedStreamed.isEmpty()) {
+                            return normalizedFallback
+                        }
+                        return when {
+                            normalizedFallback.length >= normalizedStreamed.length &&
+                                normalizedFallback.startsWith(normalizedStreamed) -> normalizedFallback
+                            normalizedStreamed.length > normalizedFallback.length &&
+                                normalizedStreamed.startsWith(normalizedFallback) -> normalizedStreamed
+                            else -> normalizedFallback
+                        }
+                    }
+
+                    private fun shouldReuseAssistantEntryForFinalText(
+                        finalText: String,
+                        fallback: String
+                    ): Boolean {
+                        if (activeAssistantEntryId != null) {
+                            return true
+                        }
+                        if (!shouldStartNewAssistantRound || fallback.isBlank()) {
+                            return true
+                        }
+                        val latestText = AgentTextSanitizer.sanitizeUtf16(
+                            latestAssistantVisibleText
+                        ).trim()
+                        val normalizedFinal = AgentTextSanitizer.sanitizeUtf16(finalText).trim()
+                        if (latestText.isBlank() || normalizedFinal == latestText) {
+                            return true
+                        }
+                        return normalizedFinal.startsWith(latestText)
+                    }
+
+                    private suspend fun sendFlutterEvent(
+                        method: String,
+                        args: Map<String, Any?>
+                    ) {
+                        val payload = sanitizeInteropMap(
+                            mapOf(
+                                "taskId" to taskId,
+                                "conversationId" to conversationId,
+                                "conversationMode" to resolvedConversationMode
+                            ) + args
+                        )
+                        withContext(Dispatchers.Main) {
+                            invokeFlutterEventSafely(method, payload)
                         }
                     }
                 }
@@ -6895,44 +5947,21 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
                     modelOverride,
                     reasoningEffort,
                     terminalEnvironment,
-                    bridge,
-                    visibleToolNames = visibleToolNames,
-                    isLightweightToolProfile = isLightweightToolProfile,
+                    callback,
                     runControl = agentRunContext,
                     continueMode = continueMode
                 )
             } catch (e: CancellationException) {
-                val completedByUser = e.message == "agent_vlm_ui_completed"
-                agentVlmUiFinishMessage = if (completedByUser) "任务已完成" else "任务已结束"
                 OmniLog.i(TAG, "createAgentTask cancelled: ${e.message}")
-                runCatching {
-                    InternalRunLogStore.finishRun(
-                        context = context,
-                        runId = taskId,
-                        success = completedByUser,
-                        doneReason = if (completedByUser) "user_completed" else "cancelled",
-                        errorMessage = if (completedByUser) null else e.message
-                    )
-                }.onFailure {
-                    OmniLog.w(TAG, "finish internal agent cancelled run log failed: ${it.message}")
-                }
             } catch (e: Exception) {
-                agentVlmUiFinishMessage = "任务执行失败"
+                removeFailedAgentRetryContext(taskId)
                 OmniLog.e(TAG, "createAgentTask error: ${e.message}")
-                runCatching {
-                    InternalRunLogStore.finishRun(
-                        context = context,
-                        runId = taskId,
-                        success = false,
-                        doneReason = "error",
-                        errorMessage = e.message
-                    )
-                }.onFailure {
-                    OmniLog.w(TAG, "finish internal agent exception run log failed: ${it.message}")
-                }
                 val errorMessage = e.message?.trim()?.takeIf { it.isNotEmpty() }?.let {
                     "Agent execution failed: $it"
                 } ?: "Agent execution failed"
+                var failureTextSeq = 1L
+                var failureErrorSeq = 2L
+                var failureTextStreamMeta: Map<String, Any?>? = null
                 runCatching {
                     val normalizedConversationId = conversationId ?: return@runCatching
                     val failureRepository =
@@ -6941,18 +5970,42 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
                         }
                     val roundIndex = 1
                     val entryId = "$taskId-text"
+                    fun streamSeq(value: Any?): Long? {
+                        return when (value) {
+                            is Number -> value.toLong()
+                            is String -> value.trim().toLongOrNull()
+                            else -> value?.toString()?.trim()?.toLongOrNull()
+                        }
+                    }
+                    val maxExistingSeq = failureRepository.listConversationMessages(
+                        conversationId = normalizedConversationId,
+                        conversationMode = resolvedConversationMode
+                    ).mapNotNull { message ->
+                        val meta = toStringAnyMap(message["streamMeta"])
+                        if (meta["parentTaskId"]?.toString()?.trim() != taskId) {
+                            null
+                        } else {
+                            streamSeq(meta["seq"])
+                        }
+                    }.maxOrNull() ?: 0L
+                    failureTextSeq = maxExistingSeq + 1
+                    failureErrorSeq = failureTextSeq + 1
+                    failureTextStreamMeta = linkedMapOf(
+                        "seq" to failureTextSeq,
+                        "entrySeq" to failureTextSeq,
+                        "roundIndex" to roundIndex,
+                        "kind" to "error",
+                        "parentTaskId" to taskId,
+                        "entryId" to entryId,
+                        "isFinal" to true
+                    )
                     failureRepository.upsertAssistantMessage(
                         conversationId = normalizedConversationId,
                         conversationMode = resolvedConversationMode,
                         entryId = entryId,
                         text = errorMessage,
                         isError = true,
-                        streamMeta = linkedMapOf(
-                            "seq" to 1L,
-                            "roundIndex" to roundIndex,
-                            "kind" to "error",
-                            "parentTaskId" to taskId
-                        ),
+                        streamMeta = failureTextStreamMeta,
                         createdAt = System.currentTimeMillis()
                     )
                     val messages = failureRepository.listConversationMessages(
@@ -6988,7 +6041,7 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
                     val textPayload = sanitizeInteropMap(
                         AgentStreamEvent(
                             taskId = taskId,
-                            seq = 1L,
+                            seq = failureTextSeq,
                             kind = "text_snapshot",
                             createdAt = System.currentTimeMillis(),
                             entryId = failureEntryId,
@@ -6998,12 +6051,12 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
                         ).toPayload(
                             conversationId = conversationId,
                             conversationMode = resolvedConversationMode
-                        )
+                        ) + mapOf("streamMeta" to failureTextStreamMeta)
                     )
                     val errorPayload = sanitizeInteropMap(
                         AgentStreamEvent(
                             taskId = taskId,
-                            seq = 2L,
+                            seq = failureErrorSeq,
                             kind = "error",
                             createdAt = System.currentTimeMillis(),
                             entryId = failureEntryId,
@@ -7013,6 +6066,16 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
                         ).toPayload(
                             conversationId = conversationId,
                             conversationMode = resolvedConversationMode
+                        ) + mapOf(
+                            "streamMeta" to linkedMapOf(
+                                "seq" to failureErrorSeq,
+                                "entrySeq" to failureErrorSeq,
+                                "roundIndex" to failureRoundIndex,
+                                "kind" to "error",
+                                "parentTaskId" to taskId,
+                                "entryId" to failureEntryId,
+                                "isFinal" to true
+                            )
                         )
                     )
                     RealtimeHub.publish("agent_stream_event", textPayload)
@@ -7025,7 +6088,6 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
                     OmniLog.w(TAG, "dispatch agent startup failure failed: ${it.message}")
                 }
             } finally {
-                finishAgentVlmUiSessionIfNeeded(taskId, agentVlmUiFinishMessage)
                 TaskRuntimeSettings.onTaskFinished(context)
                 clearActiveAgentJob(taskId, agentRunJob)
             }
@@ -7968,1567 +7030,6 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
             } catch (e: Exception) {
                 OmniLog.e(TAG, "reopenChatBotAfterAuth failed: ${e.message}")
                 result.error("REOPEN_ERROR", e.message, null)
-            }
-        }
-    }
-
-    // ---------------------------------------------------------------------------
-    // Unified Execution Kernel — named class for stack traces and testability
-    // ---------------------------------------------------------------------------
-
-    /**
-     * Bridges the [OmniAgentExecutor] callback stream to the conversation
-     * repository and Flutter event channel for a single agent task run.
-     *
-     * All mutable state that was previously scattered as local variables inside
-     * the `agentRunScope.launch { }` block now lives here as named member vars,
-     * making ownership explicit and enabling future unit testing.
-     */
-    private inner class AgentTaskEventBridge(
-        val taskId: String,
-        val conversationId: Long?,
-        val resolvedConversationMode: String,
-        val scheduledSubagentMeta: ScheduledSubagentRunMeta?,
-        var historyRepository: AgentConversationHistoryRepository?,
-        val repository: AgentConversationHistoryRepository,
-        val agentRunContext: ActiveAgentRunContext,
-        val retryArguments: Map<String, Any?>,
-        val continueMode: Boolean,
-        val continueResumeMode: String?,
-        val continueFromAssistantEntryId: String?,
-        val continueTurnUsage: Map<String, Any?>?,
-        val continueGeneration: Int,
-    ) : AgentCallback {
-
-        // -----------------------------------------------------------------------
-        // Task-local state vars
-        // -----------------------------------------------------------------------
-
-        val activeToolArgs = mutableMapOf<String, ArrayDeque<String>>()
-        val activeToolEntryIds = mutableMapOf<String, ArrayDeque<String>>()
-        val activeToolStartTimes = mutableMapOf<String, Long>()
-        val thinkingCardStartTimes = mutableMapOf<String, Long>()
-        val entryCreatedAtTimes = mutableMapOf<String, Long>()
-        val entryOrderSeqs = mutableMapOf<String, Long>()
-        val scheduledAssistantBuffer = StringBuilder()
-        var toolSequence = 0
-        var eventSequence = 0L
-        var entrySequence = 0L
-        var activeThinkingEntryId: String? = null
-        var activeAssistantEntryId: String? = null
-        var thinkingSequence = 0
-        var assistantRound = 0
-        var latestThinkingContent = ""
-        var latestAssistantVisibleText = ""
-        var shouldStartNewThinkingSegment = false
-        var shouldStartNewAssistantRound = false
-        var continueEntryPending = false
-        val continueGenerationSuffix =
-            if (continueGeneration > 0) "-c$continueGeneration" else ""
-        // toolCallId (LLM-assigned, e.g. "toolu_01xxx") → our stable entryId.
-        // Populated by onToolCallPreview during streaming; consumed by onToolCallStart
-        // so both phases write to the same Flutter card.
-        val previewEntryIdByToolCallId = mutableMapOf<String, String>()
-        val previewEntryIdsByToolName = mutableMapOf<String, ArrayDeque<String>>()
-
-        init {
-            if (continueMode && continueFromAssistantEntryId != null) {
-                parseRoundFromAssistantEntryId(continueFromAssistantEntryId)?.let { parsedRound ->
-                    if (parsedRound >= 1) {
-                        activeAssistantEntryId = continueFromAssistantEntryId
-                        assistantRound = parsedRound
-                        continueEntryPending = true
-                    }
-                }
-            }
-        }
-
-        // -----------------------------------------------------------------------
-        // Helper methods
-        // -----------------------------------------------------------------------
-
-        fun pushToolValue(
-            store: MutableMap<String, ArrayDeque<String>>,
-            toolName: String,
-            value: String
-        ) {
-            store.getOrPut(toolName) { ArrayDeque() }.addLast(value)
-        }
-
-        fun peekToolValue(
-            store: MutableMap<String, ArrayDeque<String>>,
-            toolName: String
-        ): String {
-            return store[toolName]?.lastOrNull().orEmpty()
-        }
-
-        fun popToolValue(
-            store: MutableMap<String, ArrayDeque<String>>,
-            toolName: String
-        ): String {
-            val queue = store[toolName] ?: return ""
-            val value = if (queue.isEmpty()) "" else queue.removeLast()
-            if (queue.isEmpty()) {
-                store.remove(toolName)
-            }
-            return value
-        }
-
-        fun parseRoundFromAssistantEntryId(entryId: String): Int? {
-            val baseId = "$taskId-text"
-            return when {
-                entryId == baseId -> 1
-                entryId.startsWith("$baseId-") ->
-                    entryId.removePrefix("$baseId-").toIntOrNull()
-                else -> null
-            }
-        }
-
-        fun rememberPreviewToolEntry(
-            toolName: String,
-            toolCallId: String,
-            entryId: String
-        ) {
-            previewEntryIdByToolCallId[toolCallId] = entryId
-            previewEntryIdsByToolName.getOrPut(toolName) { ArrayDeque() }.addLast(entryId)
-        }
-
-        fun removePreviewToolEntry(entryId: String) {
-            previewEntryIdByToolCallId.entries.removeIf { it.value == entryId }
-            val emptyToolNames = mutableListOf<String>()
-            previewEntryIdsByToolName.forEach { (name, queue) ->
-                queue.remove(entryId)
-                if (queue.isEmpty()) {
-                    emptyToolNames.add(name)
-                }
-            }
-            emptyToolNames.forEach(previewEntryIdsByToolName::remove)
-        }
-
-        fun takePreviewToolEntry(toolName: String, toolCallId: String): String? {
-            previewEntryIdByToolCallId.remove(toolCallId)?.let { entryId ->
-                removePreviewToolEntry(entryId)
-                return entryId
-            }
-            val queue = previewEntryIdsByToolName[toolName] ?: return null
-            val entryId = if (queue.isEmpty()) null else queue.removeFirst()
-            if (queue.isEmpty()) {
-                previewEntryIdsByToolName.remove(toolName)
-            }
-            entryId?.let { removePreviewToolEntry(it) }
-            return entryId
-        }
-
-        suspend fun publishConversationMessagesSync() {
-            val normalizedConversationId = conversationId ?: return
-            val repo = historyRepository ?: return
-            try {
-                val messages = repo.listConversationMessages(
-                    conversationId = normalizedConversationId,
-                    conversationMode = resolvedConversationMode
-                )
-                RealtimeHub.publish(
-                    "messages_replaced",
-                    mapOf(
-                        "conversationId" to normalizedConversationId,
-                        "mode" to resolvedConversationMode,
-                        "messages" to messages
-                    )
-                )
-                FlutterChatSyncBridge.dispatchConversationMessagesChanged(
-                    conversationId = normalizedConversationId,
-                    mode = resolvedConversationMode,
-                    reason = "messages_replaced"
-                )
-            } catch (error: CancellationException) {
-                throw error
-            } catch (error: Exception) {
-                OmniLog.w(
-                    TAG,
-                    "publish conversation messages failed: ${error.message}",
-                    error
-                )
-            }
-        }
-
-        suspend fun persistConversationMutation(
-            description: String,
-            publish: Boolean = true,
-            block: suspend () -> Unit
-        ) {
-            val persisted = try {
-                block()
-                true
-            } catch (error: CancellationException) {
-                throw error
-            } catch (error: Exception) {
-                OmniLog.w(TAG, "$description failed: ${error.message}", error)
-                false
-            }
-            if (persisted && publish) {
-                publishConversationMessagesSync()
-            }
-        }
-
-        fun resolveAssistantEntryId(round: Int): String {
-            return if (round <= 1) {
-                "$taskId-text"
-            } else {
-                "$taskId-text-$round"
-            }
-        }
-
-        fun resolveThinkingEntryId(round: Int): String {
-            return "$taskId-thinking-${round.coerceAtLeast(1)}$continueGenerationSuffix"
-        }
-
-        fun nextEventSeq(): Long {
-            eventSequence += 1
-            return eventSequence
-        }
-
-        fun resolveEntryOrderSeq(entryId: String): Long {
-            return entryOrderSeqs.getOrPut(entryId) {
-                entrySequence += 1
-                entrySequence
-            }
-        }
-
-        fun streamMeta(
-            entryId: String,
-            roundIndex: Int,
-            kind: String,
-            isFinal: Boolean = false
-        ): Map<String, Any?> {
-            return linkedMapOf(
-                "schema_version" to "oob.agent_event.v1",
-                "trace_id" to taskId,
-                "run_id" to taskId,
-                "span_id" to entryId,
-                "parent_span_id" to taskId,
-                "seq" to resolveEntryOrderSeq(entryId),
-                "roundIndex" to roundIndex,
-                "kind" to kind,
-                "parentTaskId" to taskId,
-                "runLogId" to taskId,
-                "run_id" to taskId,
-                "entryId" to entryId,
-                "isFinal" to isFinal
-            )
-        }
-
-        fun markAssistantRoundBoundary() {
-            if (activeAssistantEntryId != null || assistantRound > 0) {
-                shouldStartNewAssistantRound = true
-                activeAssistantEntryId = null
-                scheduledAssistantBuffer.setLength(0)
-            }
-        }
-
-        fun ensureAssistantEntry(forceNewRound: Boolean = false): Pair<Int, String> {
-            if (continueEntryPending && activeAssistantEntryId != null) {
-                continueEntryPending = false
-                shouldStartNewAssistantRound = false
-                val entryId = activeAssistantEntryId!!
-                entryCreatedAtTimes.putIfAbsent(entryId, System.currentTimeMillis())
-                return assistantRound.coerceAtLeast(1) to entryId
-            }
-            if (activeAssistantEntryId == null || shouldStartNewAssistantRound || forceNewRound) {
-                assistantRound = (assistantRound + 1).coerceAtLeast(1)
-                activeAssistantEntryId = resolveAssistantEntryId(assistantRound)
-                shouldStartNewAssistantRound = false
-                scheduledAssistantBuffer.setLength(0)
-            }
-            val entryId = activeAssistantEntryId!!
-            entryCreatedAtTimes.putIfAbsent(entryId, System.currentTimeMillis())
-            return assistantRound to entryId
-        }
-
-        fun currentToolRoundIndex(): Int {
-            return maxOf(thinkingSequence, assistantRound, 1)
-        }
-
-        fun buildDeepThinkingCardData(
-            thinkingContent: String,
-            isLoading: Boolean,
-            stage: Int,
-            startTime: Long,
-            endTime: Long?
-        ): Map<String, Any?> {
-            val sanitizedThinking = AgentTextSanitizer.sanitizeUtf16(thinkingContent)
-            val originalLength = sanitizedThinking.length
-            val persistedThinking = if (originalLength <= MAX_PERSISTED_THINKING_CHARS) {
-                sanitizedThinking
-            } else {
-                val bodyLimit = (MAX_PERSISTED_THINKING_CHARS - THINKING_TRUNCATION_NOTICE.length)
-                    .coerceAtLeast(0)
-                AgentTextSanitizer.sanitizeUtf16(
-                    THINKING_TRUNCATION_NOTICE + sanitizedThinking.takeLast(bodyLimit)
-                )
-            }
-            val truncated = persistedThinking.length < originalLength
-            return linkedMapOf(
-                "type" to "deep_thinking",
-                "isLoading" to isLoading,
-                "thinkingContent" to persistedThinking,
-                "thinkingContentTruncated" to truncated,
-                "thinkingOriginalLength" to originalLength,
-                "thinkingTruncateMode" to if (truncated) "head_omitted" else "none",
-                "stage" to stage,
-                "taskID" to taskId,
-                "startTime" to startTime,
-                "endTime" to endTime,
-                "isCollapsible" to true
-            )
-        }
-
-        suspend fun upsertThinkingCard(
-            entryId: String,
-            roundIndex: Int,
-            thinkingContent: String,
-            isLoading: Boolean,
-            stage: Int,
-            createdAt: Long = thinkingCardStartTimes[entryId] ?: System.currentTimeMillis(),
-            streamKind: String = "thinking_snapshot",
-            endTime: Long? = null,
-            publish: Boolean = true
-        ) {
-            val normalizedConversationId = conversationId ?: return
-            if (entryId.isBlank()) return
-            val startTime = thinkingCardStartTimes.getOrPut(entryId) { createdAt }
-            persistConversationMutation(
-                description = "upsert thinking card",
-                publish = publish
-            ) {
-                repository.upsertUiCard(
-                    conversationId = normalizedConversationId,
-                    conversationMode = resolvedConversationMode,
-                    entryId = entryId,
-                    cardData = buildDeepThinkingCardData(
-                        thinkingContent = thinkingContent,
-                        isLoading = isLoading,
-                        stage = stage,
-                        startTime = startTime,
-                        endTime = endTime
-                    ),
-                    streamMeta = streamMeta(
-                        entryId = entryId,
-                        roundIndex = roundIndex,
-                        kind = streamKind
-                    ),
-                    createdAt = startTime
-                )
-            }
-        }
-
-        suspend fun finalizeThinkingCardIfNeeded(publish: Boolean = true) {
-            val entryId = activeThinkingEntryId ?: return
-            if (latestThinkingContent.isBlank()) return
-            upsertThinkingCard(
-                entryId = entryId,
-                roundIndex = thinkingSequence.coerceAtLeast(1),
-                thinkingContent = latestThinkingContent,
-                isLoading = false,
-                stage = 4,
-                streamKind = "thinking_snapshot",
-                endTime = System.currentTimeMillis(),
-                publish = publish
-            )
-        }
-
-        suspend fun upsertAssistantSnapshot(
-            entryId: String,
-            roundIndex: Int,
-            text: String,
-            isError: Boolean,
-            isFinal: Boolean = false,
-            streamKind: String = "text_snapshot",
-            usageSnapshot: AgentTurnUsageSnapshot? = null,
-            turnUsagePayload: Map<String, Any?>? = null,
-            interruptedTurn: Boolean = false
-        ) {
-            val normalizedConversationId = conversationId ?: return
-            val normalizedText = sanitizeAgentVisibleText(text)
-            if (normalizedText.isEmpty()) return
-            val createdAt = entryCreatedAtTimes.getOrPut(entryId) {
-                System.currentTimeMillis()
-            }
-            persistConversationMutation("upsert assistant snapshot") {
-                repository.upsertAssistantMessage(
-                    conversationId = normalizedConversationId,
-                    conversationMode = resolvedConversationMode,
-                    entryId = entryId,
-                    text = normalizedText,
-                    isError = isError,
-                    interruptedTurn = interruptedTurn,
-                    streamMeta = streamMeta(
-                        entryId = entryId,
-                        roundIndex = roundIndex,
-                        kind = streamKind,
-                        isFinal = isFinal
-                    ),
-                    turnUsage = turnUsagePayload ?: usageSnapshot?.toPayload(),
-                    createdAt = createdAt
-                )
-            }
-            if (isFinal) {
-                val finishedAt = System.currentTimeMillis()
-                runCatching {
-                    InternalRunLogStore.upsertCard(
-                        context = this@AssistsCoreManager.context,
-                        runId = taskId,
-                        cardId = entryId,
-                        card = this@AssistsCoreManager.buildAssistantResponseRunLogCard(
-                            entryId = entryId,
-                            text = normalizedText,
-                            isError = isError,
-                            startedAtMillis = createdAt,
-                            finishedAtMillis = finishedAt
-                        )
-                    )
-                }.onFailure {
-                    OmniLog.w(TAG, "upsert assistant response run log failed: ${it.message}")
-                }
-            }
-        }
-
-        suspend fun upsertClarifyMessage(
-            entryId: String,
-            roundIndex: Int,
-            question: String
-        ) {
-            val normalizedConversationId = conversationId ?: return
-            val normalizedQuestion = AgentTextSanitizer.sanitizeUtf16(question).trim()
-            if (normalizedQuestion.isEmpty()) return
-            val createdAt = entryCreatedAtTimes.getOrPut(entryId) {
-                System.currentTimeMillis()
-            }
-            persistConversationMutation("upsert clarify message") {
-                repository.upsertAssistantMessage(
-                    conversationId = normalizedConversationId,
-                    conversationMode = resolvedConversationMode,
-                    entryId = entryId,
-                    text = normalizedQuestion,
-                    isError = false,
-                    streamMeta = streamMeta(
-                        entryId = entryId,
-                        roundIndex = roundIndex,
-                        kind = "clarify_required",
-                        isFinal = true
-                    ),
-                    createdAt = createdAt
-                )
-            }
-        }
-
-        fun buildPermissionRequiredMessage(missing: List<String>): String {
-            val names = missing.map(::localizedPermissionName).filter { it.isNotEmpty() }
-            return if (names.isEmpty()) {
-                this@AssistsCoreManager.t(
-                    "执行任务前需要先开启权限",
-                    "Enable the required permissions before running the task."
-                )
-            } else {
-                this@AssistsCoreManager.t(
-                    "执行任务前，请先开启：${names.joinToString("、")}",
-                    "Enable these permissions before running the task: ${names.joinToString(", ")}"
-                )
-            }
-        }
-
-        suspend fun upsertPermissionState(
-            textEntryId: String,
-            roundIndex: Int,
-            missing: List<String>
-        ) {
-            val normalizedConversationId = conversationId ?: return
-            val names = missing.map(::localizedPermissionName).filter { it.isNotEmpty() }
-            val message = buildPermissionRequiredMessage(missing)
-            persistConversationMutation("upsert permission state") {
-                repository.upsertAssistantMessage(
-                    conversationId = normalizedConversationId,
-                    conversationMode = resolvedConversationMode,
-                    entryId = textEntryId,
-                    text = AgentTextSanitizer.sanitizeUtf16(message),
-                    isError = false,
-                    streamMeta = streamMeta(
-                        entryId = textEntryId,
-                        roundIndex = roundIndex,
-                        kind = "permission_required",
-                        isFinal = true
-                    ),
-                    createdAt = entryCreatedAtTimes.getOrPut(textEntryId) {
-                        System.currentTimeMillis()
-                    }
-                )
-                val permissionIds = resolveRequiredPermissionIds(names)
-                if (permissionIds.isNotEmpty()) {
-                    repository.upsertUiCard(
-                        conversationId = normalizedConversationId,
-                        conversationMode = resolvedConversationMode,
-                        entryId = "$taskId-permission",
-                        cardData = buildPermissionCardData(permissionIds),
-                        streamMeta = streamMeta(
-                            entryId = "$taskId-permission",
-                            roundIndex = roundIndex,
-                            kind = "permission_required",
-                            isFinal = true
-                        ),
-                        createdAt = entryCreatedAtTimes.getOrPut("$taskId-permission") {
-                            System.currentTimeMillis()
-                        }
-                    )
-                }
-            }
-        }
-
-        suspend fun upsertToolEvent(
-            entryId: String,
-            roundIndex: Int,
-            payload: Map<String, Any?>,
-            streamKind: String,
-            fallbackStatus: String,
-            fallbackSummary: String
-        ) {
-            val normalizedConversationId = conversationId ?: return
-            if (entryId.isBlank()) return
-            persistConversationMutation("upsert tool event") {
-                val sanitizedPayload = sanitizeInteropMap(
-                    linkedMapOf<String, Any?>("taskId" to taskId).apply {
-                        putAll(payload)
-                        put(
-                            "streamMeta",
-                            streamMeta(
-                                entryId = entryId,
-                                roundIndex = roundIndex,
-                                kind = streamKind
-                            )
-                        )
-                    }
-                )
-                repository.upsertToolEvent(
-                    conversationId = normalizedConversationId,
-                    conversationMode = resolvedConversationMode,
-                    entryId = entryId,
-                    payload = sanitizedPayload,
-                    fallbackStatus = fallbackStatus,
-                    fallbackSummary = AgentTextSanitizer.sanitizeUtf16(fallbackSummary)
-                )
-            }
-        }
-
-        suspend fun sendStreamEvent(
-            kind: String,
-            entryId: String? = null,
-            roundIndex: Int = 0,
-            isFinal: Boolean = false,
-            text: String? = null,
-            thinking: String? = null,
-            stage: Int? = null,
-            prefillTokensPerSecond: Double? = null,
-            decodeTokensPerSecond: Double? = null,
-            success: Boolean? = null,
-            outputKind: String? = null,
-            hasUserVisibleOutput: Boolean? = null,
-            latestPromptTokens: Int? = null,
-            promptTokenThreshold: Int? = null,
-            turnUsage: Map<String, Any?>? = null,
-            error: String? = null,
-            question: String? = null,
-            missingFields: List<String>? = null,
-            missing: List<String>? = null,
-            extras: Map<String, Any?> = emptyMap()
-        ) {
-            val basePayload = AgentStreamEvent(
-                taskId = taskId,
-                seq = nextEventSeq(),
-                kind = kind,
-                createdAt = System.currentTimeMillis(),
-                entryId = entryId,
-                roundIndex = roundIndex,
-                isFinal = isFinal,
-                text = text,
-                thinking = thinking,
-                stage = stage,
-                prefillTokensPerSecond = prefillTokensPerSecond,
-                decodeTokensPerSecond = decodeTokensPerSecond,
-                success = success,
-                outputKind = outputKind,
-                hasUserVisibleOutput = hasUserVisibleOutput,
-                latestPromptTokens = latestPromptTokens,
-                promptTokenThreshold = promptTokenThreshold,
-                turnUsage = turnUsage,
-                error = error,
-                question = question,
-                missingFields = missingFields,
-                missing = missing,
-                extras = extras
-            ).toPayload(
-                conversationId = conversationId,
-                conversationMode = resolvedConversationMode
-            )
-            val payload = sanitizeInteropMap(
-                entryId?.takeIf { it.isNotBlank() }?.let { resolvedEntryId ->
-                    basePayload + mapOf(
-                        "streamMeta" to streamMeta(
-                            entryId = resolvedEntryId,
-                            roundIndex = roundIndex,
-                            kind = kind,
-                            isFinal = isFinal
-                        )
-                    )
-                } ?: basePayload
-            )
-            RealtimeHub.publish("agent_stream_event", payload)
-            // Route through the per-frame batcher: coalesces up to ~60 calls/sec
-            // regardless of LLM token rate, eliminating IPC overhead spikes.
-            this@AssistsCoreManager.agentStreamEventBatcher.enqueue(payload)
-        }
-
-        // -----------------------------------------------------------------------
-        // AgentCallback overrides
-        // -----------------------------------------------------------------------
-
-        override suspend fun onToolCallPreview(
-            toolName: String,
-            argumentsJson: String,
-            toolCallId: String?,
-            toolCallIndex: Int
-        ) {
-            if (toolName.isBlank()) return
-            val resolvedId = toolCallId?.takeIf { it.isNotBlank() } ?: return
-            // Each toolCallId is unique within a turn — fire only once per ID.
-            if (previewEntryIdByToolCallId.containsKey(resolvedId)) return
-
-            // Allocate the entry ID now; onToolCallStart will reuse it via the map.
-            val entryId = "$taskId-tool$continueGenerationSuffix-${++toolSequence}"
-            rememberPreviewToolEntry(toolName, resolvedId, entryId)
-
-            val roundIndex = currentToolRoundIndex()
-            val earlyPayload = this@AssistsCoreManager.buildToolStartPayload(toolName, "{}").toMutableMap().apply {
-                put("cardId", entryId)
-            }
-            upsertToolEvent(
-                entryId = entryId,
-                roundIndex = roundIndex,
-                payload = earlyPayload,
-                streamKind = "tool_started",
-                fallbackStatus = AgentConversationHistoryRepository.STATUS_RUNNING,
-                fallbackSummary = this@AssistsCoreManager.t("正在准备工具调用...", "Preparing tool call...")
-            )
-            sendStreamEvent(
-                kind = "tool_started",
-                entryId = entryId,
-                roundIndex = roundIndex,
-                extras = earlyPayload
-            )
-        }
-
-        override suspend fun onThinkingStart() {
-            val startsNewSegment =
-                activeThinkingEntryId == null || shouldStartNewThinkingSegment
-            if (startsNewSegment) {
-                finalizeThinkingCardIfNeeded(publish = false)
-                thinkingSequence += 1
-                activeThinkingEntryId = resolveThinkingEntryId(thinkingSequence)
-                latestThinkingContent = ""
-                shouldStartNewThinkingSegment = false
-            } else if (thinkingSequence <= 0) {
-                thinkingSequence = 1
-                activeThinkingEntryId = resolveThinkingEntryId(thinkingSequence)
-            }
-            val entryId = activeThinkingEntryId
-                ?: run {
-                    thinkingSequence += 1
-                    resolveThinkingEntryId(thinkingSequence).also { activeThinkingEntryId = it }
-                }
-            val startTime = System.currentTimeMillis()
-            thinkingCardStartTimes.putIfAbsent(entryId, startTime)
-            markAssistantRoundBoundary()
-            if (startsNewSegment) {
-                sendStreamEvent(
-                    kind = "thinking_started",
-                    entryId = entryId,
-                    roundIndex = thinkingSequence,
-                    thinking = "",
-                    stage = 1
-                )
-            }
-        }
-
-        override suspend fun onThinkingUpdate(thinking: String) {
-            val normalizedThinking = AgentTextSanitizer.sanitizeUtf16(thinking).trim()
-            if (normalizedThinking.isBlank()) return
-            if (activeThinkingEntryId == null || shouldStartNewThinkingSegment) {
-                thinkingSequence += 1
-                val generated = resolveThinkingEntryId(thinkingSequence)
-                activeThinkingEntryId = generated
-                latestThinkingContent = ""
-                shouldStartNewThinkingSegment = false
-                thinkingCardStartTimes.putIfAbsent(
-                    generated,
-                    System.currentTimeMillis()
-                )
-            }
-            if (shouldIgnoreRegressiveSnapshot(latestThinkingContent, normalizedThinking)) {
-                OmniLog.d(
-                    TAG,
-                    "ignore stale thinking snapshot: incoming=${normalizedThinking.length}, current=${latestThinkingContent.length}"
-                )
-                return
-            }
-            val entryId = activeThinkingEntryId
-            latestThinkingContent = normalizedThinking
-            entryId?.let { thinkingEntryId ->
-                upsertThinkingCard(
-                    entryId = thinkingEntryId,
-                    roundIndex = thinkingSequence.coerceAtLeast(1),
-                    thinkingContent = normalizedThinking,
-                    isLoading = true,
-                    stage = 1,
-                    streamKind = "thinking_snapshot",
-                    publish = false
-                )
-            }
-            sendStreamEvent(
-                kind = "thinking_snapshot",
-                entryId = entryId,
-                roundIndex = thinkingSequence.coerceAtLeast(1),
-                thinking = normalizedThinking,
-                stage = 1
-            )
-        }
-
-        override suspend fun onToolCallStart(
-            toolName: String,
-            toolCallId: String,
-            arguments: JsonObject
-        ) {
-            val argsJson = arguments.toString()
-            pushToolValue(activeToolArgs, toolName, argsJson)
-            // Look up the entry ID allocated during onToolCallPreview using the
-            // LLM-assigned toolCallId as the stable key. This guarantees the
-            // confirmed event lands on the same Flutter card as the preview,
-            // with a tool-name fallback for providers that rewrite streamed IDs.
-            val entryId = takePreviewToolEntry(toolName, toolCallId)
-                ?: "$taskId-tool$continueGenerationSuffix-${++toolSequence}"
-            val startedAtMillis = System.currentTimeMillis()
-            activeToolStartTimes[entryId] = startedAtMillis
-            val roundIndex = currentToolRoundIndex()
-            pushToolValue(activeToolEntryIds, toolName, entryId)
-            agentRunContext.bindActiveToolCardId(entryId)
-            activeThinkingEntryId?.takeIf { latestThinkingContent.isNotBlank() }?.let { thinkingEntryId ->
-                upsertThinkingCard(
-                    entryId = thinkingEntryId,
-                    roundIndex = thinkingSequence.coerceAtLeast(roundIndex),
-                    thinkingContent = latestThinkingContent,
-                    isLoading = true,
-                    stage = 2,
-                    streamKind = "thinking_snapshot",
-                    publish = false
-                )
-            }
-            shouldStartNewThinkingSegment = true
-            markAssistantRoundBoundary()
-            val payload = this@AssistsCoreManager.buildToolStartPayload(toolName, argsJson).toMutableMap().apply {
-                put("cardId", entryId)
-            }
-            runCatching {
-                InternalRunLogStore.upsertCard(
-                    context = this@AssistsCoreManager.context,
-                    runId = taskId,
-                    cardId = entryId,
-                    card = buildAgentToolRunLogCard(
-                        entryId = entryId,
-                        toolName = toolName,
-                        argsJson = argsJson,
-                        payload = payload,
-                        status = AgentConversationHistoryRepository.STATUS_RUNNING,
-                        startedAtMillis = startedAtMillis
-                    )
-                )
-            }.onFailure {
-                OmniLog.w(TAG, "upsert agent tool run log start failed: ${it.message}")
-            }
-            upsertToolEvent(
-                entryId = entryId,
-                roundIndex = roundIndex,
-                payload = payload,
-                streamKind = "tool_started",
-                fallbackStatus = AgentConversationHistoryRepository.STATUS_RUNNING,
-                fallbackSummary = payload["summary"]?.toString()?.ifBlank {
-                    this@AssistsCoreManager.t("正在调用工具", "Calling tool")
-                } ?: this@AssistsCoreManager.t("正在调用工具", "Calling tool")
-            )
-            sendStreamEvent(
-                kind = "tool_started",
-                entryId = entryId,
-                roundIndex = roundIndex,
-                extras = payload
-            )
-        }
-
-        override suspend fun onToolCallProgress(
-            toolName: String,
-            progress: String,
-            extras: Map<String, Any?>
-        ) {
-            val entryId = peekToolValue(activeToolEntryIds, toolName)
-            val roundIndex = currentToolRoundIndex()
-            val payload = this@AssistsCoreManager.buildToolProgressPayload(
-                toolName,
-                progress,
-                peekToolValue(activeToolArgs, toolName),
-                extras
-            ).toMutableMap().apply {
-                if (entryId.isNotBlank()) {
-                    put("cardId", entryId)
-                }
-            }
-            if (entryId.isNotBlank()) {
-                val startedAtMillis = activeToolStartTimes[entryId]
-                    ?: System.currentTimeMillis()
-                runCatching {
-                    InternalRunLogStore.upsertCard(
-                        context = this@AssistsCoreManager.context,
-                        runId = taskId,
-                        cardId = entryId,
-                        card = buildAgentToolRunLogCard(
-                            entryId = entryId,
-                            toolName = toolName,
-                            argsJson = peekToolValue(activeToolArgs, toolName),
-                            payload = payload,
-                            status = AgentConversationHistoryRepository.STATUS_RUNNING,
-                            startedAtMillis = startedAtMillis
-                        )
-                    )
-                }.onFailure {
-                    OmniLog.w(TAG, "upsert agent tool run log progress failed: ${it.message}")
-                }
-            }
-            upsertToolEvent(
-                entryId = entryId,
-                roundIndex = roundIndex,
-                payload = payload,
-                streamKind = "tool_progress",
-                fallbackStatus = AgentConversationHistoryRepository.STATUS_RUNNING,
-                fallbackSummary = payload["summary"]?.toString()?.ifBlank {
-                    this@AssistsCoreManager.t("正在调用工具", "Calling tool")
-                } ?: this@AssistsCoreManager.t("正在调用工具", "Calling tool")
-            )
-            sendStreamEvent(
-                kind = "tool_progress",
-                entryId = entryId.takeIf { it.isNotBlank() },
-                roundIndex = roundIndex,
-                extras = payload
-            )
-        }
-
-        override suspend fun onToolCardEvent(
-            kind: String,
-            payload: Map<String, Any?>
-        ) {
-            val streamKind = when (kind.trim()) {
-                "tool_started", "tool_progress", "tool_completed" -> kind.trim()
-                else -> "tool_progress"
-            }
-            val entryId = listOf(
-                payload["cardId"],
-                payload["toolCallId"],
-                payload["tool_call_id"],
-                payload["callId"],
-                payload["call_id"]
-            ).firstNotNullOfOrNull { raw ->
-                raw?.toString()?.trim()?.takeIf { it.isNotEmpty() }
-            } ?: return
-            val roundIndex = currentToolRoundIndex()
-            val normalizedPayload = sanitizeInteropMap(
-                linkedMapOf<String, Any?>().apply {
-                    putAll(payload)
-                    put("cardId", entryId)
-                    put("toolCallId", entryId)
-                    put("toolType", payload["toolType"] ?: "vlm")
-                }
-            )
-            val status = normalizedPayload["status"]?.toString()?.trim()
-                ?: if (streamKind == "tool_completed") {
-                    if (normalizedPayload["success"] == false) {
-                        AgentConversationHistoryRepository.STATUS_ERROR
-                    } else {
-                        AgentConversationHistoryRepository.STATUS_SUCCESS
-                    }
-                } else {
-                    AgentConversationHistoryRepository.STATUS_RUNNING
-                }
-            val success = normalizedPayload["success"] != false
-            fun payloadMillis(vararg keys: String): Long? {
-                return keys.firstNotNullOfOrNull { key ->
-                    when (val raw = normalizedPayload[key]) {
-                        is Number -> raw.toLong()
-                        is String -> raw.trim().toLongOrNull()
-                        else -> null
-                    }?.takeIf { it > 0L }
-                }
-            }
-            val now = System.currentTimeMillis()
-            val startedAtMillis = payloadMillis("startedAtMs", "started_at_ms")
-                ?: activeToolStartTimes[entryId]
-                ?: now
-            val finishedAtMillis = if (streamKind == "tool_completed") {
-                payloadMillis("finishedAtMs", "finished_at_ms") ?: now
-            } else {
-                null
-            }
-            if (streamKind == "tool_completed") {
-                activeToolStartTimes.remove(entryId)
-            } else {
-                activeToolStartTimes.putIfAbsent(entryId, startedAtMillis)
-            }
-            val toolName = normalizedPayload["toolName"]?.toString()?.trim()?.takeIf { it.isNotEmpty() }
-                ?: normalizedPayload["tool_name"]?.toString()?.trim()?.takeIf { it.isNotEmpty() }
-                ?: "tool"
-            val argsJson = listOf(
-                normalizedPayload["argsJson"],
-                normalizedPayload["args_json"],
-                normalizedPayload["args"]
-            ).firstNotNullOfOrNull { raw ->
-                raw?.toString()?.takeIf { it.isNotBlank() }
-            }.orEmpty()
-            runCatching {
-                InternalRunLogStore.upsertCard(
-                    context = this@AssistsCoreManager.context,
-                    runId = taskId,
-                    cardId = entryId,
-                    card = buildAgentToolRunLogCard(
-                        entryId = entryId,
-                        toolName = toolName,
-                        argsJson = argsJson,
-                        payload = normalizedPayload,
-                        status = status,
-                        startedAtMillis = startedAtMillis,
-                        finishedAtMillis = finishedAtMillis
-                    )
-                )
-            }.onFailure {
-                OmniLog.w(TAG, "upsert explicit tool card run log failed: ${it.message}")
-            }
-            upsertToolEvent(
-                entryId = entryId,
-                roundIndex = roundIndex,
-                payload = normalizedPayload,
-                streamKind = streamKind,
-                fallbackStatus = status,
-                fallbackSummary = normalizedPayload["summary"]?.toString()
-                    ?: normalizedPayload["progress"]?.toString()
-                    ?: this@AssistsCoreManager.t("正在执行手机操作", "Running device action")
-            )
-            sendStreamEvent(
-                kind = streamKind,
-                entryId = entryId,
-                roundIndex = roundIndex,
-                isFinal = streamKind == "tool_completed",
-                success = if (streamKind == "tool_completed") success else null,
-                extras = normalizedPayload
-            )
-        }
-
-        override suspend fun onToolCallComplete(
-            toolName: String,
-            result: ToolExecutionResult
-        ) {
-            val argsJson = popToolValue(activeToolArgs, toolName)
-            val entryId = popToolValue(activeToolEntryIds, toolName).ifBlank {
-                "$taskId-tool$continueGenerationSuffix-${++toolSequence}"
-            }
-            val roundIndex = currentToolRoundIndex()
-            activeThinkingEntryId?.takeIf { latestThinkingContent.isNotBlank() }?.let { thinkingEntryId ->
-                upsertThinkingCard(
-                    entryId = thinkingEntryId,
-                    roundIndex = thinkingSequence.coerceAtLeast(roundIndex),
-                    thinkingContent = latestThinkingContent,
-                    isLoading = true,
-                    stage = 2,
-                    streamKind = "thinking_snapshot",
-                    publish = false
-                )
-            }
-            markAssistantRoundBoundary()
-            val payload = this@AssistsCoreManager.buildToolCompletePayload(toolName, result, argsJson)
-                .toMutableMap().apply {
-                    put("cardId", entryId)
-                }
-            val success = payload["success"] != false
-            val finishedAtMillis = System.currentTimeMillis()
-            val startedAtMillis = activeToolStartTimes.remove(entryId)
-                ?: finishedAtMillis
-            runCatching {
-                InternalRunLogStore.upsertCard(
-                    context = this@AssistsCoreManager.context,
-                    runId = taskId,
-                    cardId = entryId,
-                    card = buildAgentToolRunLogCard(
-                        entryId = entryId,
-                        toolName = toolName,
-                        argsJson = argsJson,
-                        payload = payload,
-                        status = payload["status"]?.toString()
-                            ?: if (success) {
-                                AgentConversationHistoryRepository.STATUS_SUCCESS
-                            } else {
-                                AgentConversationHistoryRepository.STATUS_ERROR
-                            },
-                        startedAtMillis = startedAtMillis,
-                        finishedAtMillis = finishedAtMillis
-                    )
-                )
-            }.onFailure {
-                OmniLog.w(TAG, "upsert agent tool run log complete failed: ${it.message}")
-            }
-            upsertToolEvent(
-                entryId = entryId,
-                roundIndex = roundIndex,
-                payload = payload,
-                streamKind = "tool_completed",
-                fallbackStatus = if (success) {
-                    AgentConversationHistoryRepository.STATUS_SUCCESS
-                } else {
-                    AgentConversationHistoryRepository.STATUS_ERROR
-                },
-                fallbackSummary = payload["summary"]?.toString().orEmpty()
-            )
-            sendStreamEvent(
-                kind = "tool_completed",
-                entryId = entryId,
-                roundIndex = roundIndex,
-                extras = payload
-            )
-            if (payload["toolType"]?.toString() == "browser") {
-                val snapshot = LiveAgentBrowserSessionManager.currentSnapshot()
-                RealtimeHub.publish(
-                    "browser_snapshot_updated",
-                    mapOf("snapshot" to snapshot)
-                )
-                FlutterChatSyncBridge.dispatchBrowserSnapshotUpdated(snapshot)
-            }
-        }
-
-        override suspend fun onChatMessage(message: String) {
-            dispatchAgentChatMessage(message, isFinal = true)
-        }
-
-        override suspend fun onChatMessage(message: String, isFinal: Boolean) {
-            dispatchAgentChatMessage(message, isFinal)
-        }
-
-        override suspend fun onChatMessage(
-            message: String,
-            isFinal: Boolean,
-            prefillTokensPerSecond: Double?,
-            decodeTokensPerSecond: Double?
-        ) {
-            dispatchAgentChatMessage(
-                message = message,
-                isFinal = isFinal,
-                prefillTokensPerSecond = prefillTokensPerSecond,
-                decodeTokensPerSecond = decodeTokensPerSecond
-            )
-        }
-
-        override suspend fun onPromptTokenUsageChanged(
-            latestPromptTokens: Int,
-            promptTokenThreshold: Int?
-        ) {
-            sendFlutterEvent(
-                "onAgentPromptTokenUsageChanged",
-                mapOf(
-                    "latestPromptTokens" to latestPromptTokens,
-                    "promptTokenThreshold" to promptTokenThreshold
-                )
-            )
-        }
-
-        override suspend fun onContextCompactionStateChanged(
-            isCompacting: Boolean,
-            latestPromptTokens: Int?,
-            promptTokenThreshold: Int?
-        ) {
-            sendFlutterEvent(
-                "onAgentContextCompactionStateChanged",
-                mapOf(
-                    "isCompacting" to isCompacting,
-                    "latestPromptTokens" to latestPromptTokens,
-                    "promptTokenThreshold" to promptTokenThreshold
-                )
-            )
-        }
-
-        override suspend fun onClarifyRequired(
-            question: String,
-            missingFields: List<String>?,
-            dialog: UserDialog?
-        ) {
-            finalizeThinkingCardIfNeeded()
-            val normalizedQuestion = AgentTextSanitizer.sanitizeUtf16(question).trim()
-            val (roundIndex, entryId) = ensureAssistantEntry(
-                forceNewRound = latestAssistantVisibleText.isNotEmpty() || assistantRound > 0
-            )
-            latestAssistantVisibleText = normalizedQuestion
-            if (normalizedQuestion.isNotEmpty()) {
-                upsertClarifyMessage(
-                    entryId = entryId,
-                    roundIndex = roundIndex,
-                    question = normalizedQuestion
-                )
-            }
-            sendStreamEvent(
-                kind = "clarify_required",
-                entryId = entryId,
-                roundIndex = roundIndex,
-                text = normalizedQuestion,
-                question = normalizedQuestion,
-                missingFields = missingFields,
-                extras = if (dialog != null) mapOf("dialog" to dialog.toPayload()) else emptyMap()
-            )
-        }
-
-        override suspend fun onComplete(result: AgentResult) {
-            removeFailedAgentRetryContext(taskId)
-            removeFailedAgentContinueContext(taskId)
-            val isSuccess = result is AgentResult.Success
-            runCatching {
-                InternalRunLogStore.finishRun(
-                    context = this@AssistsCoreManager.context,
-                    runId = taskId,
-                    success = isSuccess,
-                    doneReason = if (isSuccess) "finished" else "error"
-                )
-            }.onFailure {
-                OmniLog.w(TAG, "finish internal agent run log failed: ${it.message}")
-            }
-            val outputKind = (result as? AgentResult.Success)?.outputKind ?: "none"
-            val hasUserVisibleOutput =
-                (result as? AgentResult.Success)?.hasUserVisibleOutput == true
-            val latestPromptTokens = (result as? AgentResult.Success)?.latestPromptTokens
-            val promptTokenThreshold =
-                (result as? AgentResult.Success)?.promptTokenThreshold
-            val turnUsageSnapshot = buildTurnUsageSnapshot(
-                latestPromptTokens = latestPromptTokens,
-                promptTokenThreshold = promptTokenThreshold,
-                result = result as? AgentResult.Success
-            )
-            val streamed = scheduledAssistantBuffer.toString().trim()
-            val fallback = (result as? AgentResult.Success)
-                ?.response
-                ?.content
-                ?.trim()
-                .orEmpty()
-            val finalText = resolveAssistantFinalText(
-                streamed = streamed.ifEmpty { latestAssistantVisibleText },
-                fallback = fallback
-            ).ifEmpty {
-                if (isSuccess && outputKind == "none" && !hasUserVisibleOutput) {
-                    this@AssistsCoreManager.t(
-                        "暂时无法生成回复，请重试。",
-                        "I can't generate a reply right now. Please try again."
-                    )
-                } else {
-                    ""
-                }
-            }
-            finalizeThinkingCardIfNeeded(publish = finalText.isBlank())
-            var completedEntryId: String? = activeAssistantEntryId
-            var completedRoundIndex = assistantRound
-            if (finalText.isNotBlank()) {
-                val shouldCreateAssistantEntry =
-                    activeAssistantEntryId != null || latestAssistantVisibleText.isBlank()
-                if (shouldCreateAssistantEntry) {
-                    val (roundIndex, entryId) = if (activeAssistantEntryId != null) {
-                        assistantRound.coerceAtLeast(1) to activeAssistantEntryId!!
-                    } else {
-                        ensureAssistantEntry(forceNewRound = assistantRound > 0)
-                    }
-                    completedEntryId = entryId
-                    completedRoundIndex = roundIndex
-                    latestAssistantVisibleText = finalText
-                    upsertAssistantSnapshot(
-                        entryId = entryId,
-                        roundIndex = roundIndex,
-                        text = finalText,
-                        isError = !isSuccess,
-                        isFinal = true,
-                        streamKind = "text_snapshot",
-                        usageSnapshot = turnUsageSnapshot
-                    )
-                    sendStreamEvent(
-                        kind = "text_snapshot",
-                        entryId = entryId,
-                        roundIndex = roundIndex,
-                        isFinal = true,
-                        text = finalText,
-                        turnUsage = turnUsageSnapshot?.toPayload()
-                    )
-                }
-            }
-            scheduledSubagentMeta?.let { meta ->
-                val notificationText = finalText.ifEmpty {
-                    if (isSuccess) {
-                        this@AssistsCoreManager.t("任务已完成，点击查看详情。", "Task completed. Tap to view details.")
-                    } else {
-                        this@AssistsCoreManager.t("任务已结束，请点击查看详情。", "Task ended. Tap to view details.")
-                    }
-                }
-                runCatching {
-                    this@AssistsCoreManager.notifyScheduledSubagentCompletion(meta, notificationText)
-                }.onFailure {
-                    OmniLog.w(
-                        TAG,
-                        "notify scheduled subagent completion failed: ${it.message}",
-                        it
-                    )
-                }
-            }
-            if (scheduledSubagentMeta == null) {
-                TaskRuntimeSettings.notifyTaskFinished(
-                    context = this@AssistsCoreManager.context,
-                    title = if (isSuccess) "Agent 任务已完成" else "Agent 任务已结束",
-                    message = finalText.ifBlank {
-                        if (isSuccess) "任务已完成，点击查看详情" else "任务已结束，点击查看详情"
-                    },
-                    conversationId = conversationId ?: currentConversationId,
-                    conversationMode = resolvedConversationMode
-                )
-            }
-            sendStreamEvent(
-                kind = "completed",
-                entryId = completedEntryId,
-                roundIndex = completedRoundIndex,
-                success = isSuccess,
-                outputKind = outputKind,
-                hasUserVisibleOutput = hasUserVisibleOutput,
-                latestPromptTokens = latestPromptTokens,
-                promptTokenThreshold = promptTokenThreshold,
-                turnUsage = turnUsageSnapshot?.toPayload()
-            )
-            // Terminal event — bypass vsync and deliver immediately so the UI
-            // drops the "running" state on the same frame. (cc-haha pattern:
-            // content_block_stop yields directly without buffering.)
-            agentStreamEventBatcher.flushNow()
-        }
-
-        override suspend fun onError(error: String) {
-            onError(error, retryable = false)
-        }
-
-        override suspend fun onRetrying(
-            retryCount: Int,
-            maxRetries: Int,
-            retryDelayMs: Long,
-            message: String,
-            retryReason: String?
-        ) {
-            val retryEntryId = activeAssistantEntryId ?: activeThinkingEntryId
-            val retryRoundIndex = if (activeAssistantEntryId != null) {
-                assistantRound.coerceAtLeast(1)
-            } else {
-                thinkingSequence.coerceAtLeast(1)
-            }
-            sendStreamEvent(
-                kind = "retrying",
-                entryId = retryEntryId,
-                roundIndex = retryRoundIndex,
-                text = AgentTextSanitizer.sanitizeUtf16(message).trim(),
-                stage = 1,
-                extras = mapOf(
-                    "willRetry" to true,
-                    "retryable" to true,
-                    "retryCount" to retryCount,
-                    "maxRetries" to maxRetries,
-                    "retryDelayMs" to retryDelayMs,
-                    "retryReason" to retryReason
-                )
-            )
-        }
-
-        override suspend fun onError(error: String, retryable: Boolean) {
-            if (retryable) {
-                registerFailedAgentRetryContext(
-                    taskId,
-                    FailedAgentRetryContext(arguments = retryArguments)
-                )
-            } else {
-                removeFailedAgentRetryContext(taskId)
-            }
-            runCatching {
-                InternalRunLogStore.finishRun(
-                    context = this@AssistsCoreManager.context,
-                    runId = taskId,
-                    success = false,
-                    doneReason = "error",
-                    errorMessage = error
-                )
-            }.onFailure {
-                OmniLog.w(TAG, "finish internal agent error run log failed: ${it.message}")
-            }
-            val resolution = resolveAgentFinalErrorResolution(
-                streamed = scheduledAssistantBuffer.toString().ifBlank {
-                    latestAssistantVisibleText
-                },
-                error = error,
-                localizedFallback = this@AssistsCoreManager.t(
-                    "暂时无法生成回复，请重试。",
-                    "I can't generate a reply right now. Please try again."
-                )
-            )
-            val errorText = AgentTextSanitizer.sanitizeUtf16(error).trim().ifEmpty {
-                this@AssistsCoreManager.t(
-                    "暂时无法生成回复，请重试。",
-                    "I can't generate a reply right now. Please try again."
-                )
-            }
-            val finalText = resolution.text
-            val errorTurnUsagePayload = continueTurnUsage
-            finalizeThinkingCardIfNeeded(publish = finalText.isBlank())
-            var errorEntryId: String? = activeAssistantEntryId
-            var errorRoundIndex = assistantRound
-            if (finalText.isNotBlank()) {
-                val shouldCreateAssistantEntry =
-                    activeAssistantEntryId != null || latestAssistantVisibleText.isBlank()
-                if (shouldCreateAssistantEntry) {
-                    val (roundIndex, entryId) = if (activeAssistantEntryId != null) {
-                        assistantRound.coerceAtLeast(1) to activeAssistantEntryId!!
-                    } else {
-                        ensureAssistantEntry(forceNewRound = assistantRound > 0)
-                    }
-                    errorEntryId = entryId
-                    errorRoundIndex = roundIndex
-                    latestAssistantVisibleText = finalText
-                    upsertAssistantSnapshot(
-                        entryId = entryId,
-                        roundIndex = roundIndex,
-                        text = finalText,
-                        isError = resolution.persistAsError,
-                        isFinal = true,
-                        streamKind = "text_snapshot",
-                        turnUsagePayload = errorTurnUsagePayload,
-                        interruptedTurn = true
-                    )
-                    sendStreamEvent(
-                        kind = "text_snapshot",
-                        entryId = entryId,
-                        roundIndex = roundIndex,
-                        isFinal = true,
-                        text = finalText,
-                        turnUsage = errorTurnUsagePayload
-                    )
-                }
-            }
-            val continueResumeModeValue = continueResumeMode ?: "approximate"
-            val continueable = conversationId != null &&
-                errorEntryId?.isNotBlank() == true &&
-                finalText.isNotBlank()
-            if (continueable) {
-                registerFailedAgentContinueContext(
-                    taskId,
-                    FailedAgentContinueContext(
-                        arguments = sanitizeInteropMap(
-                            retryArguments + mapOf(
-                                "continueMode" to true,
-                                "continueResumeMode" to continueResumeModeValue,
-                                "continueFromAssistantEntryId" to errorEntryId,
-                                "continueFromAssistantText" to finalText,
-                                "continueTurnUsage" to errorTurnUsagePayload
-                            )
-                        )
-                    )
-                )
-            } else if (!continueMode) {
-                removeFailedAgentContinueContext(taskId)
-            }
-            scheduledSubagentMeta?.let { meta ->
-                runCatching {
-                    this@AssistsCoreManager.notifyScheduledSubagentCompletion(meta, finalText)
-                }.onFailure {
-                    OmniLog.w(
-                        TAG,
-                        "notify scheduled subagent error failed: ${it.message}",
-                        it
-                    )
-                }
-            }
-            sendStreamEvent(
-                kind = "error",
-                entryId = errorEntryId,
-                roundIndex = errorRoundIndex,
-                error = error,
-                turnUsage = errorTurnUsagePayload,
-                extras = mapOf(
-                    "persistAsError" to resolution.persistAsError,
-                    "willRetry" to false,
-                    "retryable" to retryable,
-                    "continueable" to continueable,
-                    "continueResumeMode" to if (continueable) continueResumeModeValue else null,
-                    "retryCount" to if (retryable) 3 else 0,
-                    "maxRetries" to 3,
-                    "errorText" to errorText
-                )
-            )
-            agentStreamEventBatcher.flushNow()
-        }
-
-        override suspend fun onPermissionRequired(missing: List<String>) {
-            finalizeThinkingCardIfNeeded()
-            val (roundIndex, entryId) = ensureAssistantEntry(
-                forceNewRound = latestAssistantVisibleText.isNotEmpty() || assistantRound > 0
-            )
-            val permissionMessage = buildPermissionRequiredMessage(missing)
-            latestAssistantVisibleText = AgentTextSanitizer.sanitizeUtf16(permissionMessage).trim()
-            upsertPermissionState(
-                textEntryId = entryId,
-                roundIndex = roundIndex,
-                missing = missing
-            )
-            sendStreamEvent(
-                kind = "permission_required",
-                entryId = entryId,
-                roundIndex = roundIndex,
-                text = permissionMessage,
-                missing = missing,
-                extras = mapOf("permissionCardId" to "$taskId-permission")
-            )
-        }
-
-        override suspend fun onVlmTaskFinished() {
-            handleVlmTaskFinished("unified_agent_listener", taskId = taskId)
-        }
-
-        override suspend fun onSkillsResolved(skills: List<Map<String, Any?>>) {
-            if (skills.isEmpty()) return
-            val names = skills.joinToString(", ") { it["skillId"]?.toString() ?: "" }
-            val card = linkedMapOf<String, Any?>(
-                "card_id" to "$taskId-skills",
-                "type" to "skills_loaded",
-                "title" to "Skills: $names",
-                "header" to linkedMapOf(
-                    "step_index" to 0,
-                    "title" to "Skills: $names",
-                    "tool_name" to "skills_loaded",
-                    "status" to "success",
-                    "success" to true
-                ),
-                "skills" to skills,
-                "skill_names" to names
-            )
-            runCatching {
-                InternalRunLogStore.upsertCard(
-                    context = this@AssistsCoreManager.context,
-                    runId = taskId,
-                    cardId = "$taskId-skills",
-                    card = card
-                )
-            }.onFailure {
-                OmniLog.w(TAG, "onSkillsResolved run log failed: ${it.message}")
-            }
-        }
-
-        // -----------------------------------------------------------------------
-        // Private helpers
-        // -----------------------------------------------------------------------
-
-        private suspend fun dispatchAgentChatMessage(
-            message: String,
-            isFinal: Boolean,
-            prefillTokensPerSecond: Double? = null,
-            decodeTokensPerSecond: Double? = null
-        ) {
-            val normalizedMessage = sanitizeAgentVisibleText(message)
-            var entryId: String? = activeAssistantEntryId
-            var roundIndex = assistantRound
-            if (normalizedMessage.isNotEmpty()) {
-                val resolvedEntry = ensureAssistantEntry()
-                roundIndex = resolvedEntry.first
-                entryId = resolvedEntry.second
-                val resolvedEntryId = resolvedEntry.second
-                val currentSnapshot =
-                    sanitizeAgentVisibleText(scheduledAssistantBuffer.toString())
-                if (shouldIgnoreRegressiveSnapshot(currentSnapshot, normalizedMessage)) {
-                    OmniLog.d(
-                        TAG,
-                        "ignore stale agent snapshot: incoming=${normalizedMessage.length}, current=${currentSnapshot.length}, final=$isFinal"
-                    )
-                    return
-                }
-                scheduledAssistantBuffer.setLength(0)
-                scheduledAssistantBuffer.append(normalizedMessage)
-                latestAssistantVisibleText = normalizedMessage
-                upsertAssistantSnapshot(
-                    entryId = resolvedEntryId,
-                    roundIndex = roundIndex,
-                    text = normalizedMessage,
-                    isError = false,
-                    isFinal = isFinal,
-                    streamKind = "text_snapshot"
-                )
-            }
-            val snapshotText = entryId?.let {
-                sanitizeAgentVisibleText(scheduledAssistantBuffer.toString())
-            }.orEmpty()
-            if (entryId != null && snapshotText.isNotEmpty()) {
-                sendStreamEvent(
-                    kind = "text_snapshot",
-                    entryId = entryId,
-                    roundIndex = roundIndex.coerceAtLeast(1),
-                    isFinal = isFinal,
-                    text = snapshotText.ifEmpty { normalizedMessage },
-                    prefillTokensPerSecond = prefillTokensPerSecond,
-                    decodeTokensPerSecond = decodeTokensPerSecond
-                )
-            }
-        }
-
-        private fun shouldIgnoreRegressiveSnapshot(
-            current: String,
-            incoming: String
-        ): Boolean {
-            if (current.isEmpty() || incoming.isEmpty()) {
-                return false
-            }
-            return incoming.length < current.length && current.startsWith(incoming)
-        }
-
-        private fun resolveAssistantFinalText(
-            streamed: String,
-            fallback: String
-        ): String {
-            val normalizedStreamed = sanitizeAgentVisibleText(streamed)
-            val normalizedFallback = sanitizeAgentVisibleText(fallback)
-            if (normalizedFallback.isEmpty()) {
-                return normalizedStreamed
-            }
-            if (normalizedStreamed.isEmpty()) {
-                return normalizedFallback
-            }
-            return when {
-                normalizedFallback.length >= normalizedStreamed.length &&
-                    normalizedFallback.startsWith(normalizedStreamed) -> normalizedFallback
-                normalizedStreamed.length > normalizedFallback.length &&
-                    normalizedStreamed.startsWith(normalizedFallback) -> normalizedStreamed
-                else -> normalizedFallback
-            }
-        }
-
-        private suspend fun sendFlutterEvent(
-            method: String,
-            args: Map<String, Any?>
-        ) {
-            val payload = sanitizeInteropMap(
-                mapOf(
-                    "taskId" to taskId,
-                    "conversationId" to conversationId,
-                    "conversationMode" to resolvedConversationMode
-                ) + args
-            )
-            withContext(Dispatchers.Main) {
-                this@AssistsCoreManager.invokeFlutterEventSafely(method, payload)
             }
         }
     }

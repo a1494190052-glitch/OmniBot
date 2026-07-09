@@ -4,7 +4,6 @@ import cn.com.omnimind.assists.FunctionUiSession
 import cn.com.omnimind.baselib.util.OmniLog
 import cn.com.omnimind.bot.agent.ManualToolStopCancellationException
 import cn.com.omnimind.bot.agent.tool.handlers.SharedHelper
-import cn.com.omnimind.bot.manager.AssistsCoreManager
 import cn.com.omnimind.bot.function.FunctionJson.firstNonBlank
 import cn.com.omnimind.uikit.loader.cat.DraggableBallInstance
 import kotlinx.coroutines.Dispatchers
@@ -154,16 +153,6 @@ class FunctionFrontendSessionController(
             requestStopNow()
         }
         FunctionUiSession.beginTask(runId, taskId)
-        dispatchRunProgress(
-            status = "started",
-            runId = runId,
-            taskId = taskId,
-            functionId = functionId,
-            label = label,
-            stepCount = stepCount,
-            embeddedInVlmTask = embeddedInVlmTask,
-            message = helper.localized("准备执行复用指令"),
-        )
         if (canUseUiOverlay) {
             runCatching {
                 withContext(Dispatchers.Main) {
@@ -188,8 +177,6 @@ class FunctionFrontendSessionController(
             completeRequested = completeRequested,
             label = label,
             helper = helper,
-            functionId = functionId,
-            stepCount = stepCount,
             embeddedInVlmTask = embeddedInVlmTask,
             canUseUiOverlay = canUseUiOverlay,
             toolHandle = toolHandle,
@@ -225,8 +212,6 @@ class FunctionFrontendSessionController(
         private val completeRequested: AtomicBoolean,
         private val label: String,
         private val helper: SharedHelper,
-        private val functionId: String,
-        private val stepCount: Int,
         private val embeddedInVlmTask: Boolean,
         private val canUseUiOverlay: Boolean,
         private val toolHandle: cn.com.omnimind.bot.agent.AgentToolExecutionHandle?,
@@ -236,8 +221,6 @@ class FunctionFrontendSessionController(
         }
 
         fun isStopRequested(): Boolean = stopRequested.get()
-
-        fun isCompleteRequested(): Boolean = completeRequested.get()
 
         fun isUserFinishedRequested(): Boolean =
             completeRequested.get() && !stopRequested.get()
@@ -251,23 +234,8 @@ class FunctionFrontendSessionController(
         suspend fun update(progress: String) {
             throwIfStopRequested()
             val progressText = progress.trim().ifBlank { label }.take(48)
-            val currentStepNumber = STEP_PROGRESS_REGEX.find(progressText)
-                ?.groupValues
-                ?.getOrNull(1)
-                ?.toIntOrNull()
             val message = helper.localized(
                 "复用指令：${label.take(32)}"
-            )
-            dispatchRunProgress(
-                status = "progress",
-                runId = runId,
-                taskId = taskId,
-                functionId = functionId,
-                label = label,
-                stepCount = stepCount,
-                embeddedInVlmTask = embeddedInVlmTask,
-                message = helper.localized(progressText),
-                currentStepNumber = currentStepNumber,
             )
             if (canUseUiOverlay) {
                 runCatching {
@@ -292,16 +260,6 @@ class FunctionFrontendSessionController(
             FunctionUiSession.endTask(taskId)
             val end = FunctionUiSession.endRun(runId)
             toolHandle?.bindStopAction(null)
-            dispatchRunProgress(
-                status = if (stopRequested.get()) "stopped" else "finished",
-                runId = runId,
-                taskId = taskId,
-                functionId = functionId,
-                label = label,
-                stepCount = stepCount,
-                embeddedInVlmTask = embeddedInVlmTask,
-                message = helper.localized(message.ifBlank { "任务已完成" }),
-            )
             if (canUseUiOverlay) {
                 runCatching {
                     withContext(NonCancellable + Dispatchers.Main) {
@@ -332,12 +290,6 @@ class FunctionFrontendSessionController(
                                 DraggableBallInstance.finishDoingTask(finishMsg)
                             }
                         }
-                        if (embeddedInVlmTask && !stopRequested.get()) {
-                            AssistsCoreManager.requestCompleteActiveVlmTask(
-                                runOrTaskId = runId,
-                                reason = "function_finished",
-                            )
-                        }
                     }
                 }.onFailure {
                     OmniLog.w(TAG, "finish Function frontend failed: ${it.message}")
@@ -349,44 +301,5 @@ class FunctionFrontendSessionController(
     private companion object {
         const val TAG = "FunctionFrontendSession"
         const val OMNIFLOW_FINISH_VISIBLE_MS = 900L
-        val STEP_PROGRESS_REGEX = Regex("""第\s*(\d+)\s*/\s*\d+\s*步""")
-
-        fun dispatchRunProgress(
-            status: String,
-            runId: String,
-            taskId: String,
-            functionId: String,
-            label: String,
-            stepCount: Int,
-            embeddedInVlmTask: Boolean,
-            message: String,
-            currentStepNumber: Int? = null,
-        ) {
-            val currentStepIndex = currentStepNumber
-                ?.takeIf { it > 0 }
-                ?.minus(1)
-            AssistsCoreManager.dispatchFunctionRunProgress(
-                linkedMapOf<String, Any?>(
-                    "status" to status,
-                    "run_id" to runId,
-                    "runId" to runId,
-                    "task_id" to taskId,
-                    "taskId" to taskId,
-                    "function_id" to functionId,
-                    "functionId" to functionId,
-                    "label" to label,
-                    "message" to message,
-                    "step_count" to stepCount.takeIf { it > 0 },
-                    "stepCount" to stepCount.takeIf { it > 0 },
-                    "current_step_index" to currentStepIndex,
-                    "currentStepIndex" to currentStepIndex,
-                    "current_step_number" to currentStepNumber,
-                    "currentStepNumber" to currentStepNumber,
-                    "parent" to if (embeddedInVlmTask) "vlm_task" else "oob_function_direct_run",
-                    "embedded_in_vlm_task" to embeddedInVlmTask,
-                    "timestamp_ms" to System.currentTimeMillis(),
-                ).filterValues { it != null }
-            )
-        }
     }
 }

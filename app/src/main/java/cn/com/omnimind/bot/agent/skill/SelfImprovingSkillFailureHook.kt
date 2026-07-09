@@ -138,8 +138,59 @@ object SelfImprovingSkillFailureHook {
                 }
             }
             append("不要机械重复刚刚失败的同一步骤；先依据失败结果修正方案。")
+            appendLine()
+            append(
+                "找到修复方法后，用 memory_write_daily 写一条“遇到X先Y”的简短规则" +
+                    "（跨会话稳定则用 memory_upsert_longterm），并回填本条 ERRORS 的“建议修复”与状态。" +
+                    "历史失败教训已纳入记忆检索，相关操作前会被自动召回。"
+            )
         }.trim()
         return base
+    }
+
+    /**
+     * Compact one-liners extracted from `data/ERRORS.md` for the memory
+     * retrieval index, so past tool/environment failures surface proactively via
+     * `memory_search` / prefetch — not only when the same tool fails again.
+     * Format: `[toolName] summary` (plus ` → fix` once 建议修复 is filled).
+     * Newest first, capped at [limit].
+     */
+    fun collectSearchableLessons(skillsRoot: File, limit: Int = 40): List<String> {
+        return runCatching {
+            val errorsFile = File(File(File(skillsRoot, SKILL_ID), "data"), ERRORS_FILE_NAME)
+            if (!errorsFile.exists()) {
+                return emptyList()
+            }
+            extractBlocks(errorsFile.readText())
+                .asReversed()
+                .mapNotNull { block -> lessonLineFromBlock(block) }
+                .take(limit)
+        }.getOrDefault(emptyList())
+    }
+
+    private fun lessonLineFromBlock(block: String): String? {
+        val toolName = Regex("^## \\[[^\\]]+]\\s*(.*)$", RegexOption.MULTILINE)
+            .find(block)
+            ?.groupValues
+            ?.getOrNull(1)
+            ?.trim()
+            .orEmpty()
+        val summary = extractSectionFirstLine(block, "### 摘要")?.trim().orEmpty()
+        if (summary.isBlank()) {
+            return null
+        }
+        val fix = extractSectionFirstLine(block, "### 建议修复")
+            ?.trim()
+            ?.takeUnless { it.isBlank() || it == "（待补充）" }
+        return buildString {
+            if (toolName.isNotBlank()) {
+                append("[").append(toolName).append("] ")
+            }
+            append(summary)
+            if (fix != null) {
+                append(" → ").append(fix)
+            }
+        }.trim().takeUnless { it.isBlank() }
     }
 
     private fun failureSummary(result: ToolExecutionResult): String {
