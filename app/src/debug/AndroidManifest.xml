@@ -33,6 +33,10 @@
                 <action android:name="cn.com.omnimind.bot.debug.RUN_OMNIFLOW_PYTHON" />
             </intent-filter>
         </receiver>
+        <service
+            android:name=".debug.DebugOmniFlowPythonService"
+            android:enabled="true"
+            android:exported="false" />
         <receiver
             android:name=".debug.DebugFunctionRunReceiver"
             android:enabled="true"
