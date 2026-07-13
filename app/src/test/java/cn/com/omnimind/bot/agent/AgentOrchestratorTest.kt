@@ -1112,11 +1112,7 @@ class AgentOrchestratorTest {
 
         override suspend fun onThinkingUpdate(thinking: String) = Unit
 
-        open override suspend fun onToolCallStart(
-            toolName: String,
-            toolCallId: String,
-            arguments: JsonObject
-        ) = Unit
+        open override suspend fun onToolCallStart(toolName: String, arguments: JsonObject) = Unit
 
         override suspend fun onToolCallProgress(
             toolName: String,
@@ -1202,11 +1198,7 @@ class AgentOrchestratorTest {
         private val runControl: TrackingRunControl,
         private val cardId: String
     ) : RecordingCallback() {
-        override suspend fun onToolCallStart(
-            toolName: String,
-            toolCallId: String,
-            arguments: JsonObject
-        ) {
+        override suspend fun onToolCallStart(toolName: String, arguments: JsonObject) {
             runControl.bindCurrentCardId(cardId)
         }
     }

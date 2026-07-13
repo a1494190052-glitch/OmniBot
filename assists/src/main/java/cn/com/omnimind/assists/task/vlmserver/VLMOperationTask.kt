@@ -377,17 +377,7 @@ open class VLMOperationTask(
                 cardId = cardId,
                 card = card
             )
-            if (completedVlmStepCardIds.add(cardId)) {
-                notifyVlmToolEvent(
-                    streamKind = "tool_completed",
-                    index = index,
-                    card = card,
-                    step = step,
-                    status = if (stepSuccess) "success" else "error",
-                    success = stepSuccess,
-                    errorMessage = if (stepSuccess) null else step.result
-                )
-            }
+            completedVlmStepCardIds.add(cardId)
         }
         InternalRunLogStore.finishRun(
             context = context,
@@ -572,15 +562,6 @@ open class VLMOperationTask(
             cardId = cardId,
             card = card
         )
-        notifyVlmToolEvent(
-            streamKind = "tool_started",
-            index = index,
-            card = card,
-            step = step,
-            status = "running",
-            success = null,
-            errorMessage = null
-        )
     }
 
     private fun handleVlmStepCompleted(
@@ -606,15 +587,6 @@ open class VLMOperationTask(
             card = card
         )
         completedVlmStepCardIds.add(cardId)
-        notifyVlmToolEvent(
-            streamKind = "tool_completed",
-            index = index,
-            card = card,
-            step = step,
-            status = status,
-            success = success,
-            errorMessage = errorMessage
-        )
     }
 
     private fun buildInternalRunLogCard(
@@ -729,107 +701,6 @@ open class VLMOperationTask(
             "disappeared_texts" to disappearedTexts.takeIf { it.isNotEmpty() },
             "after_focused_editable" to afterFocusedEditable
         ).filterValues { it != null }
-
-    private fun notifyVlmToolEvent(
-        streamKind: String,
-        index: Int,
-        card: Map<String, Any?>,
-        step: UIStep,
-        status: String,
-        success: Boolean?,
-        errorMessage: String?
-    ) {
-        val actionParams = actionParams(step.action)
-        val argsJson = runCatching { JSONObject(actionParams).toString() }
-            .getOrDefault("{}")
-        val resultJson = runCatching {
-            val tokenUsage = step.tokenUsage?.let(VLMTokenUsageMapper::toRunLogMap)
-                ?.takeIf { it.isNotEmpty() }
-            val postActionObservation = VLMPostActionObservation.summarize(step)
-            val postActionObservationMap = postActionObservation?.toRunLogMap()
-            val pageDiagnostics = step.pageDiagnostics.takeIf { it.isNotEmpty() }
-            val actionResultData = step.actionResultData?.toRunLogAny()
-            JSONObject(
-                linkedMapOf<String, Any?>(
-                    "message" to step.result,
-                    "summary" to step.summary,
-                    "status" to status,
-                    "success" to success,
-                    "error_message" to errorMessage,
-                    "package_name" to step.packageName,
-                    "page_diagnostics" to pageDiagnostics,
-                    "token_usage" to tokenUsage,
-                    "token_usage_total" to tokenUsage?.get("total_tokens"),
-                    "post_action_observation" to postActionObservationMap,
-                    "screen_changed" to postActionObservation?.screenChanged,
-                    "package_changed" to postActionObservation?.packageChanged,
-                    "after_visible_texts" to postActionObservation?.afterVisibleTexts?.takeIf { it.isNotEmpty() },
-                    "appeared_texts" to postActionObservation?.appearedTexts?.takeIf { it.isNotEmpty() },
-                    "disappeared_texts" to postActionObservation?.disappearedTexts?.takeIf { it.isNotEmpty() },
-                    "after_focused_editable" to postActionObservation?.afterFocusedEditable,
-                    "observation_summary" to postActionObservation?.summaryText,
-                    "data" to actionResultData,
-                    "action_result_data" to actionResultData,
-                    "function_result" to actionResultData.takeIf { step.action is FunctionRunAction },
-                    "recall_kind" to "vlm_step"
-                ).filterValues { it != null }
-            ).toString()
-        }.getOrDefault("{}")
-        val tokenUsage = step.tokenUsage?.let(VLMTokenUsageMapper::toRunLogMap)
-            ?.takeIf { it.isNotEmpty() }
-        val pageDiagnostics = step.pageDiagnostics.takeIf { it.isNotEmpty() }
-        val cardId = vlmStepCardId(index)
-        val title = card["title"]?.toString()?.trim().orEmpty()
-        val summary = listOf(step.summary, step.result, title)
-            .firstOrNull { it?.trim()?.isNotEmpty() == true }
-            ?.trim()
-            .orEmpty()
-        val payload = linkedMapOf<String, Any?>(
-            "agentStreamKind" to streamKind,
-            "taskId" to id,
-            "runLogId" to id,
-            "run_id" to id,
-            "cardId" to cardId,
-            "toolCallId" to cardId,
-            "toolName" to step.action.name,
-            "displayName" to step.action.name,
-            "toolType" to "vlm",
-            "toolTitle" to title,
-            "status" to status,
-            "summary" to summary,
-            "progress" to summary,
-            "argsJson" to argsJson,
-            "args" to argsJson,
-            "resultPreviewJson" to if (streamKind == "tool_completed") resultJson else "",
-            "rawResultJson" to if (streamKind == "tool_completed") resultJson else "",
-            "success" to success,
-            "actionResultData" to step.actionResultData?.toString().takeIf { streamKind == "tool_completed" },
-            "action_result_data" to step.actionResultData?.toString().takeIf { streamKind == "tool_completed" },
-            "stepIndex" to index,
-            "startedAtMs" to step.startedAtMs,
-            "started_at_ms" to step.startedAtMs,
-            "finishedAtMs" to step.finishedAtMs,
-            "finished_at_ms" to step.finishedAtMs,
-            "durationMs" to card["duration_ms"],
-            "duration_ms" to card["duration_ms"],
-            "pageDiagnostics" to pageDiagnostics,
-            "page_diagnostics" to pageDiagnostics,
-            "tokenUsage" to tokenUsage,
-            "token_usage" to tokenUsage,
-            "tokenUsageTotal" to tokenUsage?.get("total_tokens"),
-            "token_usage_total" to tokenUsage?.get("total_tokens"),
-            "spanKind" to "vlm_step",
-            "span_kind" to "vlm_step",
-            "parentSpanKind" to "vlm_task",
-            "parent_span_kind" to "vlm_task",
-            "recall_kind" to "vlm_step"
-        ).filterValues { it != null }
-        try {
-            onMessagePushListener?.onVlmToolEvent(payload)
-        } catch (e: Exception) {
-            OmniLog.e(Tag, "通知VLM步骤事件失败: ${e.message}")
-        }
-    }
 
     private fun actionTitle(action: UIAction): String {
         return when (action) {

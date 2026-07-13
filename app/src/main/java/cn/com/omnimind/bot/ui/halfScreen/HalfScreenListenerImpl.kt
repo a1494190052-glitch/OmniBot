@@ -15,7 +15,6 @@ import cn.com.omnimind.bot.activity.MainActivity
 
 import cn.com.omnimind.bot.ui.channel.ChannelManager
 import cn.com.omnimind.bot.ui.channel.RouteOptions
-import cn.com.omnimind.bot.ui.channel.ScreenDialogChannel
 import cn.com.omnimind.uikit.api.callback.HalfScreenApi
 import io.flutter.embedding.android.ExclusiveAppComponent
 import io.flutter.embedding.android.FlutterSurfaceView
@@ -26,7 +25,6 @@ import io.flutter.plugin.common.MethodChannel
 open class HalfScreenListenerImpl(val context: Context) : HalfScreenApi {
 private val TAG = "[HalfScreenListenerImpl]"
     private var channelManagerForWindow: ChannelManager = ChannelManager()
-    private var screenDialogChannel: ScreenDialogChannel = ScreenDialogChannel()
     private var windowFlutterEngine: FlutterEngine? = null
     private var flutterView: FlutterView? = null
     private var isViewDestroyed = false
@@ -117,13 +115,11 @@ private val TAG = "[HalfScreenListenerImpl]"
         isViewDestroyed = false
         OmniLog.d("HalfScreen", "✅ 销毁标志已重置")
 
-        // 配置 ChannelManager 和 ScreenDialogChannel
+        // 配置 ChannelManager
         OmniLog.d("HalfScreen", "📡 配置 Channel...")
         channelManagerForWindow = ChannelManager()
-        screenDialogChannel = ScreenDialogChannel()
 
         channelManagerForWindow.configureFlutterEngine(windowFlutterEngine!!)
-        screenDialogChannel.setChannel(windowFlutterEngine!!)
         channelManagerForWindow.onCreate(context)
 
         OmniLog.d("HalfScreen", "✅ Channels 配置完成")
@@ -168,10 +164,8 @@ private val TAG = "[HalfScreenListenerImpl]"
 
         // 配置 ChannelManager 和 CacheChannel
         channelManagerForWindow = ChannelManager()
-        screenDialogChannel = ScreenDialogChannel()
 
         channelManagerForWindow.configureFlutterEngine(windowFlutterEngine!!)
-        screenDialogChannel.setChannel(windowFlutterEngine!!)
         channelManagerForWindow.onCreate(context)
 
         OmniLog.d(TAG, "Channels configured for learn flutter")
@@ -203,7 +197,6 @@ private val TAG = "[HalfScreenListenerImpl]"
         isViewDestroyed = true
         
         // 清理 channel
-        screenDialogChannel.clear()
         channelManagerForWindow.clearChannel()
         
         // 禁用消息缓冲
@@ -312,7 +305,6 @@ private val TAG = "[HalfScreenListenerImpl]"
             // windowFlutterEngine?.destroy()
             // windowFlutterEngine = null
             // channelManagerForWindow = ChannelManager()
-            // screenDialogChannel = ScreenDialogChannel()
             // CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {
             //     //延时一秒处理flutter
             //     delay(1000)

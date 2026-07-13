@@ -49,7 +49,6 @@ class ExecutionUIImpl(
     }
 
     override suspend fun onVlmTaskPaused(vmlTask: VLMOperationTask) {
-        uiBaseEvent.cancelLockScreenMask()
         uiTaskEvent.pauseTask("用户已接管任务")
     }
 
@@ -84,11 +83,9 @@ class ExecutionUIImpl(
     override suspend fun clickCoordinate(
         x: Float, y: Float, block: suspend () -> Unit
     ) {
-        uiBaseEvent.doAssistsUnlockScreenMask({
-            uiBaseEvent.move(x, y, x, y)
-            uiBaseEvent.showClickIndicator(x.toInt(), y.toInt())
-            block.invoke()
-        })
+        uiBaseEvent.move(x, y, x, y)
+        uiBaseEvent.showClickIndicator(x.toInt(), y.toInt())
+        block.invoke()
     }
 
     override suspend fun clickCoordinateWithOutLock(
@@ -100,9 +97,7 @@ class ExecutionUIImpl(
     }
 
     override suspend fun goBack(goBackFun: suspend () -> Unit) {
-        uiBaseEvent.doAssistsUnlockScreenMask({
-            goBackFun.invoke()
-        })
+        goBackFun.invoke()
     }
 
 
@@ -113,58 +108,35 @@ class ExecutionUIImpl(
         distance: Int,
         scrollCoordinateFun: suspend () -> Unit
     ) {
-        uiBaseEvent.doAssistsUnlockScreenMask({
-            var endX = x
-            var endY = y
-            when (direction) {
-                ScrollDirection.LEFT -> {
-                    endX = x - distance
-                }
-
-                ScrollDirection.RIGHT -> {
-                    endX = x + distance
-                }
-
-                ScrollDirection.UP -> {
-                    endY = y - distance
-                }
-
-                ScrollDirection.DOWN -> {
-                    endY = y + distance
-                }
-            }
-            // 等待动画完成后再执行滑动操作
-            uiBaseEvent.move(x, y, endX, endY)
-            // 确保动画完成后再执行实际滑动
-            scrollCoordinateFun.invoke()
-        })
+        var endX = x
+        var endY = y
+        when (direction) {
+            ScrollDirection.LEFT -> { endX = x - distance }
+            ScrollDirection.RIGHT -> { endX = x + distance }
+            ScrollDirection.UP -> { endY = y - distance }
+            ScrollDirection.DOWN -> { endY = y + distance }
+        }
+        uiBaseEvent.move(x, y, endX, endY)
+        scrollCoordinateFun.invoke()
     }
 
     override suspend fun longClickCoordinate(
         x: Float, y: Float, longClickCoordinateFun: suspend () -> Unit
     ) {
-        uiBaseEvent.doAssistsUnlockScreenMask({
-            uiBaseEvent.move(x, y, x, y)
-            longClickCoordinateFun.invoke()
-        })
+        uiBaseEvent.move(x, y, x, y)
+        longClickCoordinateFun.invoke()
     }
 
     override suspend fun goHome(goHomeFun: suspend () -> Unit) {
-        uiBaseEvent.doAssistsUnlockScreenMask({
-            goHomeFun.invoke()
-        })
+        goHomeFun.invoke()
     }
 
     override suspend fun inputText(inputTextFun: suspend () -> Unit) {
-        uiBaseEvent.doAssistsUnlockScreenMask({
-            inputTextFun.invoke()
-        })
+        inputTextFun.invoke()
     }
 
     override suspend fun pasteText(pasteTextFun: suspend () -> Unit) {
-        uiBaseEvent.doAssistsUnlockScreenMask({
-            pasteTextFun.invoke()
-        })
+        pasteTextFun.invoke()
     }
 
     //业务相关

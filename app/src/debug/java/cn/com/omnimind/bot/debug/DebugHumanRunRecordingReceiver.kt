@@ -57,6 +57,7 @@ class DebugHumanRunRecordingReceiver : BroadcastReceiver() {
                         )
                         "pause" -> pauseRecording()
                         "resume" -> resumeRecording()
+                        "wait" -> recordManualWait(intent)
                         "gesture", "overlay_gesture" -> recordOverlayGesture(intent, recoverRunId)
                         "finish", "stop", "complete" -> finishRecording(appContext)
                         "recover", "recover_latest", "finish_latest" -> recoverRecording(appContext, recoverRunId)
@@ -162,6 +163,33 @@ class DebugHumanRunRecordingReceiver : BroadcastReceiver() {
             "status" to status,
             "error_code" to if (resumed) null else "NO_ACTIVE_RECORDING",
             "error_message" to if (resumed) null else "No active human recording session",
+            "source" to "oob_debug_human_run_recording"
+        ).filterValues { it != null }
+    }
+
+    private suspend fun recordManualWait(intent: Intent?): Map<String, Any?> {
+        if (!HumanTrajectoryLearningSession.isActive()) {
+            return errorPayload("NO_ACTIVE_RECORDING", "No active human recording session")
+        }
+        if (HumanTrajectoryLearningSession.isPaused()) {
+            return errorPayload("RECORDING_PAUSED", "Resume the human recording before waiting")
+        }
+        val durationMs = longExtra(intent, "durationMs")
+            ?: longExtra(intent, "timeMs")
+            ?: 1_000L
+        val recorded = HumanTrajectoryLearningSession.recordManualWait(durationMs)
+        val status = HumanTrajectoryLearningSession.status().asMap()
+        return linkedMapOf(
+            "success" to recorded,
+            "phase" to "wait_recorded",
+            "duration_ms" to durationMs,
+            "recording_active" to status["recording_active"],
+            "recording_paused" to status["recording_paused"],
+            "action_count" to status["action_count"],
+            "latest_action_summary" to status["latest_action_summary"],
+            "status" to status,
+            "error_code" to if (recorded) null else "WAIT_NOT_RECORDED",
+            "error_message" to if (recorded) null else "Manual wait was not recorded",
             "source" to "oob_debug_human_run_recording"
         ).filterValues { it != null }
     }

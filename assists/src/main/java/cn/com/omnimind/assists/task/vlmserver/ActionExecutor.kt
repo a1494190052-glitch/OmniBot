@@ -13,6 +13,8 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
 import kotlinx.serialization.json.Json
 
+internal const val MAX_CANONICAL_WAIT_MS = 60_000L
+
 interface DeviceOperator {
     suspend fun clickCoordinate(x: Float, y: Float): OperationResult
     suspend fun longClickCoordinate(x: Float, y: Float, duration: Long = 1000L): OperationResult
@@ -35,6 +37,23 @@ interface DeviceOperator {
     fun currentPackageName(): String?
     fun currentActivityName(): String?
     suspend fun hideKeyboard(): OperationResult
+}
+
+interface TargetedInputDeviceOperator : DeviceOperator {
+    suspend fun inputTextAtTarget(
+        text: String,
+        targetDescription: String,
+        x: Float?,
+        y: Float?,
+        nodeResourceId: String,
+    ): OperationResult
+
+    suspend fun pressImeEnterAtTarget(
+        targetDescription: String,
+        x: Float?,
+        y: Float?,
+        nodeResourceId: String,
+    ): OperationResult
 }
 
 fun interface FunctionRunExecutor {
@@ -404,8 +423,8 @@ class ActionExecutor(
                     "resource_id",
                     "nodeResourceId",
                 )
-                if (deviceOperator is AndroidDeviceOperator) {
-                    return deviceOperator.inputText(
+                if (deviceOperator is TargetedInputDeviceOperator) {
+                    return deviceOperator.inputTextAtTarget(
                         text = text,
                         targetDescription = targetDescription,
                         x = x,
@@ -437,11 +456,36 @@ class ActionExecutor(
                 }
             }
 
-            OobActionSchema.TOOL_PRESS_KEY -> when (stringArg(args, OobActionSchema.ARG_KEY).lowercase()) {
-                "back" -> deviceOperator.goBack()
-                "home" -> deviceOperator.goHome()
-                "enter" -> deviceOperator.pressHotKey("ENTER")
-                else -> OperationResult(false, "press_key requires key=back/home/enter", null)
+            OobActionSchema.TOOL_PRESS_KEY -> {
+                val key = stringArg(args, OobActionSchema.ARG_KEY).lowercase()
+                val targetDescription = stringArg(args, OobActionSchema.ARG_TARGET_DESCRIPTION)
+                val x = numberArg(args, OobActionSchema.ARG_X)?.toFloat()
+                val y = numberArg(args, OobActionSchema.ARG_Y)?.toFloat()
+                val nodeResourceId = stringArg(
+                    args,
+                    OobActionSchema.ARG_NODE_RESOURCE_ID,
+                    OobActionSchema.ARG_NODE_ID,
+                    "resource_id",
+                    "nodeResourceId",
+                )
+                when (key) {
+                    "back" -> deviceOperator.goBack()
+                    "home" -> deviceOperator.goHome()
+                    "enter" -> if (
+                        deviceOperator is TargetedInputDeviceOperator &&
+                        (targetDescription.isNotBlank() || nodeResourceId.isNotBlank() || x != null || y != null)
+                    ) {
+                        deviceOperator.pressImeEnterAtTarget(
+                            targetDescription = targetDescription,
+                            x = x,
+                            y = y,
+                            nodeResourceId = nodeResourceId,
+                        )
+                    } else {
+                        deviceOperator.pressHotKey("ENTER")
+                    }
+                    else -> OperationResult(false, "press_key requires key=back/home/enter", null)
+                }
             }
 
             OobActionSchema.TOOL_WAIT -> {
@@ -453,7 +497,7 @@ class ActionExecutor(
                 ).takeIf { it >= 0L }
                     ?: ((numberArg(args, OobActionSchema.ARG_TIME_S) ?: 1.0)
                         .coerceAtLeast(0.0) * 1000.0).toLong()
-                val clamped = waitMs.coerceIn(0L, MAX_WAIT_MS)
+                val clamped = waitMs.coerceIn(0L, MAX_CANONICAL_WAIT_MS)
                 waitInterruptibly(clamped, check)
                 OperationResult(true, "等待 ${clamped}ms 完成", null)
             }
@@ -564,7 +608,6 @@ class ActionExecutor(
         private const val SWIPE_POST_DELAY_MS = 800L
         private const val OPEN_APP_POST_DELAY_MS = 1000L
         private const val FUNCTION_RUN_POST_DELAY_MS = 500L
-        private const val MAX_WAIT_MS = 10_000L
         private const val STOP_POLL_INTERVAL_MS = 100L
         private const val CHECKER_STABILIZE_LIMIT = 3
         private const val CHECKER_SETTLE_MS = 1_000L

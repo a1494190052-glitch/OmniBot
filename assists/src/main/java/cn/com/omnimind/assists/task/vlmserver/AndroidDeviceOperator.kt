@@ -31,7 +31,7 @@ import kotlin.math.sqrt
 class AndroidDeviceOperator(
     private val executionTaskEventApi: ExecutionTaskEventApi?,
     private val context: Context? = null
-) : DeviceOperator {
+) : TargetedInputDeviceOperator {
 
     private val Tag = "AndroidDeviceOperator"
     private val json = Json { encodeDefaults = false }
@@ -164,7 +164,7 @@ class AndroidDeviceOperator(
         }
     }
 
-    suspend fun inputText(
+    override suspend fun inputTextAtTarget(
         text: String,
         targetDescription: String,
         x: Float?,
@@ -192,6 +192,26 @@ class AndroidDeviceOperator(
             val shellFallback = inputTextViaShell(text)
             if (shellFallback.success) return shellFallback
             OperationResult(false, "输入失败: ${error.message}", null)
+        }
+    }
+
+    override suspend fun pressImeEnterAtTarget(
+        targetDescription: String,
+        x: Float?,
+        y: Float?,
+        nodeResourceId: String,
+    ): OperationResult {
+        return try {
+            AccessibilityController.pressImeEnterToBestNode(
+                targetDescription = targetDescription,
+                x = x,
+                y = y,
+                nodeResourceId = nodeResourceId,
+            )
+            OperationResult(true, "按下输入法 ENTER 成功", null)
+        } catch (error: Exception) {
+            pressHotKey("ENTER").takeIf { it.success }
+                ?: OperationResult(false, "输入法 ENTER 执行失败: ${error.message}", null)
         }
     }
 

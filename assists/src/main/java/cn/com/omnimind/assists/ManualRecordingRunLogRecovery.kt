@@ -23,7 +23,8 @@ object ManualRecordingRunLogRecovery {
         OobActionSchema.TOOL_SWIPE,
         "scroll",
         OobActionSchema.TOOL_INPUT_TEXT,
-        OobActionSchema.TOOL_PRESS_KEY
+        OobActionSchema.TOOL_PRESS_KEY,
+        OobActionSchema.TOOL_WAIT,
     )
 
     fun decisionFor(record: InternalRunLogRecord): ManualRecordingRunLogRecoveryDecision? {

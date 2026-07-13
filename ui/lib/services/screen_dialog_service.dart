@@ -89,6 +89,11 @@ class ScreenDialogService {
     try {
       final result = await _channel.invokeMethod('hideForExternalActivity');
       return result == true;
+    } on MissingPluginException catch (e) {
+      debugPrint(
+        'Screen dialog channel unavailable while hiding external activity: $e',
+      );
+      return false;
     } on PlatformException catch (e) {
       debugPrint('Failed to hide dialog for external activity: ${e.message}');
       return false;
@@ -101,6 +106,11 @@ class ScreenDialogService {
         'restoreAfterExternalActivity',
       );
       return result == true;
+    } on MissingPluginException catch (e) {
+      debugPrint(
+        'Screen dialog channel unavailable while restoring external activity: $e',
+      );
+      return false;
     } on PlatformException catch (e) {
       debugPrint(
         'Failed to restore dialog after external activity: ${e.message}',
@@ -108,5 +118,4 @@ class ScreenDialogService {
       return false;
     }
   }
-
 }

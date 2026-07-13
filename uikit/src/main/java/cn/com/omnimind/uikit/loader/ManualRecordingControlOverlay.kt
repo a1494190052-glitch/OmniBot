@@ -7,6 +7,7 @@ import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.os.Build
 import android.text.InputType
+import android.view.inputmethod.InputMethodManager
 import android.view.Gravity
 import android.view.MotionEvent
 import android.view.View
@@ -15,6 +16,7 @@ import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.TextView
 import cn.com.omnimind.assists.HumanTrajectoryLearningSession
+import cn.com.omnimind.assists.ManualInputTarget
 import cn.com.omnimind.baselib.util.OmniLog
 import cn.com.omnimind.baselib.util.dpToPx
 import cn.com.omnimind.uikit.UIKit
@@ -195,6 +197,31 @@ object ManualRecordingControlOverlay {
         }
     }
 
+    fun offerInput(target: ManualInputTarget) {
+        recordingControlScope.launch {
+            if (!ManualTouchRecordLoader.awaitIdle()) return@launch
+            withContext(Dispatchers.Main) {
+                val context = synchronized(this@ManualRecordingControlOverlay) {
+                    if (state != State.RECORDING || manualActionDialogShowing) return@withContext
+                    overlayView?.context ?: UIKit.appContext
+                } ?: return@withContext
+                if (!ManualTouchRecordLoader.prepareForManualAction()) return@withContext
+                val inputAvailable = synchronized(this@ManualRecordingControlOverlay) {
+                    if (state != State.RECORDING || manualActionDialogShowing) {
+                        false
+                    } else {
+                        manualActionDialogShowing = true
+                        true
+                    }
+                }
+                if (!inputAvailable) {
+                    return@withContext
+                }
+                showManualInputTextDialog(context, target)
+            }
+        }
+    }
+
     private fun tryShow(
         context: Context,
         state: State
@@ -304,6 +331,10 @@ object ManualRecordingControlOverlay {
                 setColor(Color.rgb(58, 64, 78))
             }
             setOnClickListener {
+                if (synchronized(this@ManualRecordingControlOverlay) { manualActionDialogShowing }) {
+                    showTransientStatus("动作处理中", 900L)
+                    return@setOnClickListener
+                }
                 val shouldResume = when (ManualRecordingControlOverlay.state) {
                     State.PREPARING -> return@setOnClickListener
                     State.READY -> true
@@ -315,11 +346,20 @@ object ManualRecordingControlOverlay {
                     val updated = if (shouldResume) {
                         HumanTrajectoryLearningSession.resumeActive()
                     } else {
-                        HumanTrajectoryLearningSession.pauseActive()
+                        ManualTouchRecordLoader.beginFinishing()
+                        if (ManualTouchRecordLoader.awaitIdle()) {
+                            HumanTrajectoryLearningSession.pauseActive()
+                        } else {
+                            false
+                        }
                     }
                     withContext(Dispatchers.Main) {
                         isEnabled = true
                         if (!updated) {
+                            if (!shouldResume) {
+                                markRecording()
+                                showTransientStatus("动作尚未保存，暂停失败", 1200L)
+                            }
                             return@withContext
                         }
                         if (shouldResume) {
@@ -334,7 +374,7 @@ object ManualRecordingControlOverlay {
         val manualActionButton = TextView(context).apply {
             tag = "manual_recording_manual_action"
             text = "动作"
-            contentDescription = "手动补录 input_text 或 press_key"
+            contentDescription = "手动补录 input_text、press_key 或 wait"
             setTextColor(Color.WHITE)
             textSize = 11f
             typeface = Typeface.DEFAULT_BOLD
@@ -387,12 +427,18 @@ object ManualRecordingControlOverlay {
                 setColor(Color.rgb(31, 111, 235))
             }
             setOnClickListener {
+                if (synchronized(this@ManualRecordingControlOverlay) { manualActionDialogShowing }) {
+                    showTransientStatus("动作处理中", 900L)
+                    return@setOnClickListener
+                }
                 isEnabled = false
                 text = "保存中"
-                synchronized(this@ManualRecordingControlOverlay) {
-                    dismissLocked()
-                }
+                ManualTouchRecordLoader.beginFinishing()
                 recordingControlScope.launch {
+                    val drained = ManualTouchRecordLoader.awaitIdle()
+                    if (!drained) {
+                        OmniLog.w(TAG, "finishing manual recording with undrained touch work")
+                    }
                     val updated = runCatching {
                         HumanTrajectoryLearningSession.completeActive()
                     }.getOrElse { error ->
@@ -401,6 +447,11 @@ object ManualRecordingControlOverlay {
                     }
                     if (!updated) {
                         OmniLog.w(TAG, "finish clicked without active manual recording session")
+                    }
+                    withContext(Dispatchers.Main) {
+                        synchronized(this@ManualRecordingControlOverlay) {
+                            dismissLocked()
+                        }
                     }
                 }
             }
@@ -470,19 +521,21 @@ object ManualRecordingControlOverlay {
             return
         }
         val labels = arrayOf(
-            "input_text",
-            "press_key enter",
-            "press_key back",
-            "press_key home"
+            "输入文字",
+            "按回车",
+            "按返回",
+            "回到桌面",
+            "等待"
         )
         val dialog = AlertDialog.Builder(context)
             .setTitle("补录动作")
             .setItems(labels) { _, which ->
                 when (which) {
-                    0 -> showManualInputTextDialog(context)
+                    0 -> showManualInputTextDialog(context, null)
                     1 -> executeManualPressKey("enter")
                     2 -> executeManualPressKey("back")
                     3 -> executeManualPressKey("home")
+                    4 -> showManualWaitDialog(context)
                     else -> finishManualActionDialog()
                 }
             }
@@ -498,33 +551,57 @@ object ManualRecordingControlOverlay {
         }
     }
 
-    private fun showManualInputTextDialog(context: Context) {
+    private fun showManualInputTextDialog(
+        context: Context,
+        inputTarget: ManualInputTarget?,
+        draft: String = "",
+        errorMessage: String? = null,
+    ) {
         val input = EditText(context).apply {
-            hint = "输入要写入目标输入框的文本"
+            hint = errorMessage ?: "输入要写入目标输入框的文本"
             minLines = 1
             maxLines = 4
             inputType = InputType.TYPE_CLASS_TEXT or
                 InputType.TYPE_TEXT_FLAG_MULTI_LINE or
                 InputType.TYPE_TEXT_FLAG_CAP_SENTENCES
             setSingleLine(false)
+            setText(draft)
+            setSelection(text?.length ?: 0)
         }
         val dialog = AlertDialog.Builder(context)
-            .setTitle("input_text")
+            .setTitle(inputTarget?.description?.let { "输入：$it" } ?: "输入文字")
             .setView(input)
-            .setPositiveButton("执行并记录", null)
-            .setNegativeButton("取消") { _, _ ->
+            .setPositiveButton("输入", null)
+            .setNeutralButton("输入并回车", null)
+            .setNegativeButton(if (inputTarget == null) "取消" else "仅保留点击") { _, _ ->
                 finishManualActionDialog()
             }
             .create()
         dialog.setOnShowListener {
-            dialog.getButton(AlertDialog.BUTTON_POSITIVE)?.setOnClickListener {
+            val submit: (Boolean) -> Unit = submit@{ pressEnter ->
                 val text = input.text?.toString().orEmpty()
-                if (text.isBlank()) {
+                if (text.isEmpty()) {
                     input.error = "请输入文本"
-                    return@setOnClickListener
+                    return@submit
                 }
                 dialog.dismiss()
-                executeManualInputText(text)
+                executeManualInputText(context, text, inputTarget, pressEnter)
+            }
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE)?.setOnClickListener { submit(false) }
+            dialog.getButton(AlertDialog.BUTTON_NEUTRAL)?.setOnClickListener { submit(true) }
+            input.requestFocus()
+            dialog.window?.apply {
+                setGravity(Gravity.BOTTOM)
+                setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_VISIBLE)
+                setLayout(
+                    WindowManager.LayoutParams.MATCH_PARENT,
+                    WindowManager.LayoutParams.WRAP_CONTENT,
+                )
+            }
+            input.post {
+                val inputMethodManager = context.getSystemService(Context.INPUT_METHOD_SERVICE)
+                    as? InputMethodManager
+                inputMethodManager?.showSoftInput(input, InputMethodManager.SHOW_IMPLICIT)
             }
         }
         dialog.setOnCancelListener {
@@ -535,23 +612,91 @@ object ManualRecordingControlOverlay {
         }
     }
 
-    private fun executeManualInputText(text: String) {
-        showTransientStatus("补录中", 600L)
+    private fun showManualWaitDialog(context: Context) {
+        val input = EditText(context).apply {
+            hint = "等待秒数（1-60）"
+            inputType = InputType.TYPE_CLASS_NUMBER
+            setSingleLine(true)
+        }
+        val dialog = AlertDialog.Builder(context)
+            .setTitle("wait")
+            .setView(input)
+            .setPositiveButton("执行并记录", null)
+            .setNegativeButton("取消") { _, _ ->
+                finishManualActionDialog()
+            }
+            .create()
+        dialog.setOnShowListener {
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE)?.setOnClickListener {
+                val seconds = input.text?.toString()?.trim()?.toLongOrNull()
+                if (seconds == null || seconds !in 1L..60L) {
+                    input.error = "请输入 1-60 秒"
+                    return@setOnClickListener
+                }
+                dialog.dismiss()
+                executeManualWait(seconds * 1_000L)
+            }
+        }
+        dialog.setOnCancelListener {
+            finishManualActionDialog()
+        }
+        if (!showOverlayDialog(dialog)) {
+            finishManualActionDialog("补录窗口失败")
+        }
+    }
+
+    private fun executeManualInputText(
+        context: Context,
+        text: String,
+        inputTarget: ManualInputTarget?,
+        pressEnter: Boolean,
+    ) {
+        showTransientStatus("输入中", 600L)
+        if (!ManualTouchRecordLoader.blockTouches()) {
+            finishManualActionDialog("补录失败")
+            return
+        }
         recordingControlScope.launch {
             val recorded = runCatching {
-                HumanTrajectoryLearningSession.recordManualInputText(text)
+                HumanTrajectoryLearningSession.recordManualInputText(text, inputTarget)
             }.getOrElse { error ->
                 OmniLog.e(TAG, "manual input_text action failed: ${error.message}", error)
                 false
             }
+            val enterRecorded = if (recorded && pressEnter) {
+                runCatching { HumanTrajectoryLearningSession.recordManualPressKey("enter") }
+                    .getOrElse { error ->
+                        OmniLog.e(TAG, "manual enter action failed: ${error.message}", error)
+                        false
+                    }
+            } else {
+                !pressEnter
+            }
             withContext(Dispatchers.Main) {
-                finishManualActionDialog(if (recorded) "已补录 input_text" else "补录失败")
+                when {
+                    !recorded && ManualTouchRecordLoader.prepareForManualAction() -> {
+                        showManualInputTextDialog(
+                            context = context,
+                            inputTarget = inputTarget,
+                            draft = text,
+                            errorMessage = "输入失败，内容已保留，请重试",
+                        )
+                    }
+                    !recorded -> finishManualActionDialog("输入失败")
+                    !enterRecorded -> finishManualActionDialog("文字已输入，回车失败")
+                    pressEnter -> finishManualActionDialog("已输入并回车")
+                    else -> finishManualActionDialog("已输入")
+                }
             }
         }
     }
 
     private fun executeManualPressKey(key: String) {
         showTransientStatus("补录中", 600L)
+        if (!ManualTouchRecordLoader.blockTouches()) {
+            finishManualActionDialog("补录失败")
+            return
+        }
         recordingControlScope.launch {
             val recorded = runCatching {
                 HumanTrajectoryLearningSession.recordManualPressKey(key)
@@ -561,6 +706,26 @@ object ManualRecordingControlOverlay {
             }
             withContext(Dispatchers.Main) {
                 finishManualActionDialog(if (recorded) "已补录 press_key" else "补录失败")
+            }
+        }
+    }
+
+    private fun executeManualWait(durationMs: Long) {
+        val seconds = durationMs / 1_000L
+        showTransientStatus("等待 $seconds 秒", durationMs + 400L)
+        if (!ManualTouchRecordLoader.blockTouches()) {
+            finishManualActionDialog("等待失败")
+            return
+        }
+        recordingControlScope.launch {
+            val recorded = runCatching {
+                HumanTrajectoryLearningSession.recordManualWait(durationMs)
+            }.getOrElse { error ->
+                OmniLog.e(TAG, "manual wait action failed: ${error.message}", error)
+                false
+            }
+            withContext(Dispatchers.Main) {
+                finishManualActionDialog(if (recorded) "已记录 wait ${seconds}s" else "等待失败")
             }
         }
     }

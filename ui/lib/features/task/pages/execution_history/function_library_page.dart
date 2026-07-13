@@ -1,4 +1,3 @@
-import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
@@ -39,22 +38,12 @@ class _FunctionLibraryPageState extends State<FunctionLibraryPage> {
   final Set<String> _deletingIds = {};
   final Set<String> _runningIds = {};
   final Set<String> _openingRunLogIds = {};
-  final Map<String, FunctionRunProgressEvent> _runProgressBySignature = {};
-  StreamSubscription<FunctionRunProgressEvent>? _runProgressSubscription;
   bool _isLearning = false;
 
   @override
   void initState() {
     super.initState();
-    _runProgressSubscription = RunLogFunctionService.functionRunProgressStream
-        .listen(_handleRunProgressEvent);
     _load();
-  }
-
-  @override
-  void dispose() {
-    _runProgressSubscription?.cancel();
-    super.dispose();
   }
 
   Future<void> _load() async {
@@ -217,7 +206,6 @@ class _FunctionLibraryPageState extends State<FunctionLibraryPage> {
     if (_runningIds.contains(group.signature)) return;
     setState(() {
       _runningIds.add(group.signature);
-      _runProgressBySignature.remove(group.signature);
     });
     try {
       final spec = await RunLogFunctionService.getFunction(
@@ -234,7 +222,6 @@ class _FunctionLibraryPageState extends State<FunctionLibraryPage> {
       if (!mounted) return;
       setState(() {
         _runningIds.remove(group.signature);
-        _runProgressBySignature.remove(group.signature);
       });
       showToast(
         functionRunResultToastMessage(context, result),
@@ -254,7 +241,6 @@ class _FunctionLibraryPageState extends State<FunctionLibraryPage> {
       if (mounted) {
         setState(() {
           _runningIds.remove(group.signature);
-          _runProgressBySignature.remove(group.signature);
         });
       }
     }
@@ -281,39 +267,6 @@ class _FunctionLibraryPageState extends State<FunctionLibraryPage> {
         });
       },
     );
-  }
-
-  FunctionRunProgressEvent? get _runningFunctionProgressEvent =>
-      _runningProgressEventFor(
-        groups: _functions,
-        runningIds: _runningIds,
-        progressBySignature: _runProgressBySignature,
-      );
-
-  void _handleRunProgressEvent(FunctionRunProgressEvent event) {
-    if (!mounted || event.functionId.isEmpty) return;
-    final signature = _signatureForFunctionId(event.functionId);
-    if (signature == null) return;
-    setState(() {
-      if (event.isTerminal) {
-        _runProgressBySignature.remove(signature);
-        _runningIds.remove(signature);
-      } else {
-        _runningIds.add(signature);
-        _runProgressBySignature[signature] = event;
-      }
-    });
-  }
-
-  String? _signatureForFunctionId(String functionId) {
-    final id = functionId.trim();
-    if (id.isEmpty) return null;
-    for (final group in _functions) {
-      if (group.items.any((item) => item.functionId == id)) {
-        return group.signature;
-      }
-    }
-    return null;
   }
 
   @override
@@ -410,136 +363,8 @@ class _FunctionLibraryPageState extends State<FunctionLibraryPage> {
         },
       ),
     );
-    final runningEvent = _runningFunctionProgressEvent;
-    if (runningEvent == null) return list;
-    return Column(
-      children: [
-        _FunctionLibraryProgressSlot(event: runningEvent),
-        Expanded(child: list),
-      ],
-    );
+    return list;
   }
-}
-
-class _FunctionLibraryProgressSlot extends StatelessWidget {
-  const _FunctionLibraryProgressSlot({required this.event});
-
-  final FunctionRunProgressEvent event;
-
-  @override
-  Widget build(BuildContext context) {
-    final palette = context.omniPalette;
-    final message = event.message.trim();
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.fromLTRB(16, 10, 16, 12),
-      decoration: BoxDecoration(
-        color: palette.accentPrimary.withValues(alpha: 0.10),
-        border: Border(
-          bottom: BorderSide(
-            color: palette.accentPrimary.withValues(alpha: 0.18),
-          ),
-        ),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Text(
-            _progressTitle(event),
-            style: TextStyle(
-              color: palette.textPrimary,
-              fontSize: 13,
-              fontWeight: FontWeight.w600,
-            ),
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-          ),
-          if (message.isNotEmpty) ...[
-            const SizedBox(height: 4),
-            Text(
-              message,
-              style: TextStyle(color: palette.textSecondary, fontSize: 11),
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-            ),
-          ],
-        ],
-      ),
-    );
-  }
-
-  static String _progressTitle(FunctionRunProgressEvent event) {
-    final name = event.label.trim().isNotEmpty
-        ? event.label.trim()
-        : event.functionId.trim();
-    final prefix = event.isRunning
-        ? AppTextLocalizer.choose(zh: '正在执行', en: 'Running')
-        : event.status == 'stopped'
-        ? AppTextLocalizer.choose(zh: '已停止', en: 'Stopped')
-        : event.status == 'failed' || event.message.contains('失败')
-        ? AppTextLocalizer.choose(zh: '执行失败', en: 'Failed')
-        : AppTextLocalizer.choose(zh: '执行完成', en: 'Completed');
-    final step = event.displayStepNumber;
-    final stepText = step != null && step > 0
-        ? (event.stepCount > 0 ? ' $step/${event.stepCount}' : ' $step')
-        : '';
-    final target = name.isEmpty
-        ? AppTextLocalizer.choose(zh: '复用指令', en: 'Function')
-        : name;
-    return '$prefix $target$stepText';
-  }
-}
-
-FunctionRunProgressEvent? _runningProgressEventFor({
-  required List<_FunctionGroup> groups,
-  required Set<String> runningIds,
-  required Map<String, FunctionRunProgressEvent> progressBySignature,
-}) {
-  if (runningIds.isEmpty) return null;
-  for (final group in groups) {
-    if (!runningIds.contains(group.signature)) continue;
-    return progressBySignature[group.signature] ??
-        _fallbackRunningProgressEvent(group);
-  }
-  return null;
-}
-
-FunctionRunProgressEvent _fallbackRunningProgressEvent(_FunctionGroup group) {
-  final function = group.primary;
-  final stepCount = function.stepCount > 0
-      ? function.stepCount
-      : function.stepSummaries.length;
-  final label = group.displayName.trim().isNotEmpty
-      ? group.displayName.trim()
-      : function.displayName;
-  final message = AppTextLocalizer.choose(
-    zh: '准备执行复用指令',
-    en: 'Preparing Function',
-  );
-  final raw = <String, dynamic>{
-    'status': 'started',
-    'function_id': function.functionId,
-    'functionId': function.functionId,
-    'label': label,
-    'message': message,
-    if (stepCount > 0) 'step_count': stepCount,
-    if (stepCount > 0) 'stepCount': stepCount,
-  };
-  return FunctionRunProgressEvent(
-    status: 'started',
-    runId: '',
-    taskId: '',
-    functionId: function.functionId,
-    label: label,
-    message: message,
-    stepCount: stepCount,
-    currentStepIndex: null,
-    currentStepNumber: null,
-    embeddedInVlmTask: false,
-    timestampMs: 0,
-    rawJson: raw,
-  );
 }
 
 class _FunctionCard extends StatelessWidget {

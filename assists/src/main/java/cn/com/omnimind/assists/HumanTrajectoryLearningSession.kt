@@ -143,13 +143,6 @@ object HumanTrajectoryLearningSession {
      */
     fun activeRunId(): String? = synchronized(lock) { activeSession?.runId }
 
-    fun hasActiveTextInputAnchor(): Boolean {
-        val session = synchronized(lock) { activeSession } ?: return false
-        if (synchronized(lock) { activePaused }) return false
-        return runCatching { session.recorder.hasActiveTextInputAnchor() }
-            .getOrDefault(false)
-    }
-
     fun start(
         context: Context,
         name: String,
@@ -168,14 +161,6 @@ object HumanTrajectoryLearningSession {
             sessionLabel = "human_trajectory:$runId",
             enableRawTouch = enableRawTouch,
             enableDebugScreenshots = enableDebugScreenshots,
-            onActionRecorded = { index, action ->
-                persistRecordedAction(
-                    context = appContext,
-                    runId = runId,
-                    index = index,
-                    action = action
-                )
-            }
         )
         synchronized(lock) {
             // Auto-cancel any stale session whose coroutine was cancelled without
@@ -284,30 +269,13 @@ object HumanTrajectoryLearningSession {
             }
     }
 
-    fun prepareImeSubmitRecording(): Boolean {
+    suspend fun recordManualInputText(
+        text: String,
+        inputTarget: ManualInputTarget? = null,
+    ): Boolean {
         val session = synchronized(lock) { activeSession } ?: return false
         if (synchronized(lock) { activePaused }) return false
-        return runCatching { session.recorder.prepareImeSubmitRecording() }
-            .getOrElse { error ->
-                OmniLog.w(TAG, "manual IME submit prepare failed: ${error.message}")
-                false
-            }
-    }
-
-    suspend fun recordImeSubmitGesture(gesture: ManualOverlayTouchGesture): Boolean {
-        val session = synchronized(lock) { activeSession } ?: return false
-        if (synchronized(lock) { activePaused }) return false
-        return runCatching { session.recorder.recordImeSubmitGesture(gesture) }
-            .getOrElse { error ->
-                OmniLog.w(TAG, "manual IME submit record failed: ${error.message}")
-                false
-            }
-    }
-
-    suspend fun recordManualInputText(text: String): Boolean {
-        val session = synchronized(lock) { activeSession } ?: return false
-        if (synchronized(lock) { activePaused }) return false
-        return runCatching { session.recorder.recordManualInputText(text) }
+        return runCatching { session.recorder.recordManualInputText(text, inputTarget) }
             .getOrElse { error ->
                 OmniLog.w(TAG, "manual input_text record failed: ${error.message}")
                 false
@@ -320,6 +288,16 @@ object HumanTrajectoryLearningSession {
         return runCatching { session.recorder.recordManualPressKey(key) }
             .getOrElse { error ->
                 OmniLog.w(TAG, "manual press_key record failed: ${error.message}")
+                false
+            }
+    }
+
+    suspend fun recordManualWait(durationMs: Long): Boolean {
+        val session = synchronized(lock) { activeSession } ?: return false
+        if (synchronized(lock) { activePaused }) return false
+        return runCatching { session.recorder.recordManualWait(durationMs) }
+            .getOrElse { error ->
+                OmniLog.w(TAG, "manual wait record failed: ${error.message}")
                 false
             }
     }
@@ -482,24 +460,6 @@ object HumanTrajectoryLearningSession {
             )
         }
         return true
-    }
-
-    private fun persistRecordedAction(
-        context: Context,
-        runId: String,
-        index: Int,
-        action: ManualVlmRecordedAction
-    ) {
-        val card = buildRunLogCard(context, runId, index, action)
-        val cardId = card["card_id"]?.toString()?.trim()
-            ?.takeIf { it.isNotEmpty() }
-            ?: "$runId-human-$index"
-        InternalRunLogStore.upsertCard(
-            context = context,
-            runId = runId,
-            cardId = cardId,
-            card = card
-        )
     }
 
     fun cancelActive(message: String = "人工轨迹学习已取消"): Boolean {

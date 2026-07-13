@@ -24,6 +24,7 @@ import cn.com.omnimind.accessibility.action.ScreenCaptureManager
 import cn.com.omnimind.accessibility.service.AssistsService
 import cn.com.omnimind.accessibility.service.AssistsServiceListener
 import cn.com.omnimind.assists.AssistsCore
+import cn.com.omnimind.assists.ManualInputTarget
 import cn.com.omnimind.assists.api.bean.CaptureData
 import cn.com.omnimind.assists.detection.scenarios.stability.PageStabilityDetector
 import cn.com.omnimind.assists.detection.state.SystemNotificationStateManager
@@ -204,6 +205,44 @@ class AccessibilityController() {
                 "No input text target found: " +
                     inputTargetLookupDescription(targetDescription, nodeResourceId, x, y) +
                     failureSuffix
+            )
+        }
+
+        fun focusedInputTarget(): ManualInputTarget? {
+            if (!initController()) return null
+            val node = currentFocusedInputTextCandidate() ?: return null
+            return node.toManualInputTarget()
+        }
+
+        fun focusedInputTargetAt(x: Float, y: Float): ManualInputTarget? {
+            if (!initController()) return null
+            val node = currentFocusedInputTextCandidate() ?: return null
+            val bounds = node.boundsInScreenOrNull() ?: return null
+            if (!bounds.contains(x.toInt(), y.toInt())) return null
+            return node.toManualInputTarget(bounds)
+        }
+
+        private fun currentFocusedInputTextCandidate(): AccessibilityNodeInfo? =
+            findSystemFocusedInputTextCandidate() ?: findFocusedInputTextCandidate()
+
+        private fun AccessibilityNodeInfo.toManualInputTarget(
+            bounds: Rect? = boundsInScreenOrNull(),
+        ): ManualInputTarget? {
+            val targetBounds = bounds ?: return null
+            val description = listOf(
+                hintText?.toString(),
+                contentDescription?.toString(),
+                safeViewIdResourceName(),
+            ).firstOrNull { !it.isNullOrBlank() }
+                ?.trim()
+                .orEmpty()
+                .ifBlank { "输入框" }
+            return ManualInputTarget(
+                description = description,
+                x = targetBounds.exactCenterX(),
+                y = targetBounds.exactCenterY(),
+                nodeResourceId = safeViewIdResourceName().ifBlank { null },
+                password = isPassword,
             )
         }
 

@@ -1,6 +1,5 @@
 import 'dart:async';
 
-import 'package:flutter/foundation.dart';
 import 'package:ui/services/assists_core_service.dart';
 
 class UtgManualRunResult {
@@ -274,126 +273,6 @@ class UtgManualRunResult {
       if (value != null) return value;
     }
     return null;
-  }
-
-  static bool _truthy(dynamic value) {
-    if (value is bool) return value;
-    if (value is num) return value != 0;
-    if (value is String) {
-      final normalized = value.trim().toLowerCase();
-      return normalized == 'true' || normalized == '1' || normalized == 'yes';
-    }
-    return false;
-  }
-
-  static int _intValue(dynamic value) {
-    if (value is int) return value;
-    if (value is num) return value.toInt();
-    if (value is String) return int.tryParse(value.trim()) ?? 0;
-    return 0;
-  }
-
-  static int? _nullableIntValue(dynamic value) {
-    if (value is int) return value;
-    if (value is num) return value.toInt();
-    if (value is String) return int.tryParse(value.trim());
-    return null;
-  }
-}
-
-class FunctionRunProgressEvent {
-  final String status;
-  final String runId;
-  final String taskId;
-  final String functionId;
-  final String label;
-  final String message;
-  final int stepCount;
-  final int? currentStepIndex;
-  final int? currentStepNumber;
-  final bool embeddedInVlmTask;
-  final int timestampMs;
-  final Map<String, dynamic> rawJson;
-
-  const FunctionRunProgressEvent({
-    required this.status,
-    required this.runId,
-    required this.taskId,
-    required this.functionId,
-    required this.label,
-    required this.message,
-    required this.stepCount,
-    required this.currentStepIndex,
-    required this.currentStepNumber,
-    required this.embeddedInVlmTask,
-    required this.timestampMs,
-    required this.rawJson,
-  });
-
-  factory FunctionRunProgressEvent.fromMap(Map<dynamic, dynamic>? map) {
-    final raw = (map ?? const <dynamic, dynamic>{}).map(
-      (key, value) => MapEntry(key.toString(), value),
-    );
-    return FunctionRunProgressEvent(
-      status: (raw['status'] ?? '').toString().trim(),
-      runId: _firstNonBlank([
-        raw['run_log_id'],
-        raw['runLogId'],
-        raw['run_id'],
-        raw['runId'],
-      ]),
-      taskId: _firstNonBlank([raw['task_id'], raw['taskId']]),
-      functionId: _firstNonBlank([raw['function_id'], raw['functionId']]),
-      label: (raw['label'] ?? '').toString().trim(),
-      message: (raw['message'] ?? '').toString().trim(),
-      stepCount: _intValue(raw['step_count'] ?? raw['stepCount']),
-      currentStepIndex: _nullableIntValue(
-        raw['current_step_index'] ?? raw['currentStepIndex'],
-      ),
-      currentStepNumber: _nullableIntValue(
-        raw['current_step_number'] ?? raw['currentStepNumber'],
-      ),
-      embeddedInVlmTask: _truthy(
-        raw['embedded_in_vlm_task'] ?? raw['embeddedInVlmTask'],
-      ),
-      timestampMs: _intValue(raw['timestamp_ms'] ?? raw['timestampMs']),
-      rawJson: raw,
-    );
-  }
-
-  bool get isRunning =>
-      status == 'started' || status == 'progress' || status == 'running';
-
-  bool get isTerminal =>
-      status == 'finished' || status == 'stopped' || status == 'failed';
-
-  String get runLogId => _firstNonBlank([
-    rawJson['run_log_id'],
-    rawJson['runLogId'],
-    runId,
-    taskId,
-  ]);
-
-  bool get shouldShowShortcut {
-    if (isRunning) return true;
-    if (status == 'stopped' || status == 'failed') return true;
-    return message.trim().contains('失败');
-  }
-
-  int? get displayStepNumber {
-    final explicit = currentStepNumber;
-    if (explicit != null && explicit > 0) return explicit;
-    final index = currentStepIndex;
-    if (index != null && index >= 0) return index + 1;
-    return null;
-  }
-
-  static String _firstNonBlank(Iterable<dynamic> values) {
-    for (final value in values) {
-      final text = (value ?? '').toString().trim();
-      if (text.isNotEmpty) return text;
-    }
-    return '';
   }
 
   static bool _truthy(dynamic value) {
@@ -959,33 +838,6 @@ class UtgRunLogImportResult {
 class RunLogFunctionService {
   const RunLogFunctionService._();
 
-  static StreamSubscription<NativeMethodEvent>? _nativeEventSubscription;
-  static final StreamController<FunctionRunProgressEvent>
-  _functionRunProgressController =
-      StreamController<FunctionRunProgressEvent>.broadcast(
-        onListen: _ensureNativeEventSubscription,
-      );
-  static final ValueNotifier<FunctionRunProgressEvent?>
-  _functionRunProgressNotifier = ValueNotifier<FunctionRunProgressEvent?>(null);
-
-  static Stream<FunctionRunProgressEvent> get functionRunProgressStream {
-    _ensureNativeEventSubscription();
-    return _functionRunProgressController.stream;
-  }
-
-  static ValueNotifier<FunctionRunProgressEvent?>
-  get functionRunProgressNotifier {
-    _ensureNativeEventSubscription();
-    return _functionRunProgressNotifier;
-  }
-
-  @visibleForTesting
-  static void debugDispatchFunctionRunProgressForTest(
-    Map<String, dynamic> payload,
-  ) {
-    dispatchFunctionRunProgressEvent(FunctionRunProgressEvent.fromMap(payload));
-  }
-
   static Future<UtgRunLogsSnapshot> getInternalRunLogs({
     int limit = 50,
     int offset = 0,
@@ -1269,22 +1121,6 @@ class RunLogFunctionService {
     return UtgManualRunResult.fromMap(_jsonSafeDynamicMap(result));
   }
 
-  static void _ensureNativeEventSubscription() {
-    _nativeEventSubscription ??= AssistsMessageService.nativeMethodEventStream
-        .listen((event) {
-          if (event.method != 'onFunctionRunProgress') return;
-          dispatchFunctionRunProgressEvent(
-            FunctionRunProgressEvent.fromMap(event.arguments as Map?),
-          );
-        });
-  }
-
-  static void dispatchFunctionRunProgressEvent(FunctionRunProgressEvent event) {
-    _functionRunProgressController.add(event);
-    _functionRunProgressNotifier.value = event.shouldShowShortcut
-        ? event
-        : null;
-  }
 }
 
 bool? _parseBool(dynamic value) {

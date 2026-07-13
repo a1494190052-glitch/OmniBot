@@ -2,10 +2,7 @@ package cn.com.omnimind.bot.webchat
 
 import cn.com.omnimind.baselib.util.OmniLog
 import io.flutter.plugin.common.MethodChannel
-import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import kotlin.coroutines.resume
@@ -13,7 +10,6 @@ import kotlin.coroutines.resumeWithException
 
 object FlutterChatSyncBridge {
     private const val TAG = "[FlutterChatSyncBridge]"
-    private val mainScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 
     @Volatile
     private var currentChannel: MethodChannel? = null
@@ -143,14 +139,11 @@ object FlutterChatSyncBridge {
 
     private fun dispatch(method: String, arguments: Any?) {
         val channels = listOfNotNull(currentChannel, mainChannel).distinct()
-        if (channels.isEmpty()) return
-        mainScope.launch {
-            channels.forEach { target ->
-                runCatching {
-                    target.invokeMethod(method, arguments)
-                }.onFailure {
-                    OmniLog.w(TAG, "dispatch $method failed: ${it.message}")
-                }
+        channels.forEach { target ->
+            runCatching {
+                target.invokeMethod(method, arguments)
+            }.onFailure {
+                OmniLog.w(TAG, "dispatch $method failed: ${it.message}")
             }
         }
     }

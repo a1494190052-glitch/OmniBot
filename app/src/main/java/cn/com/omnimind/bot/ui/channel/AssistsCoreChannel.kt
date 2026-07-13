@@ -124,6 +124,45 @@ class AssistsCoreChannel {
                 "saveSceneOperationConfig" -> {
                     assistsCoreManager!!.saveSceneOperationConfig(call, result)
                 }
+                "getInternalRunLogs" -> {
+                    assistsCoreManager!!.getInternalRunLogs(call, result)
+                }
+                "getInternalRunLogTimeline" -> {
+                    assistsCoreManager!!.getInternalRunLogTimeline(call, result)
+                }
+                "convertInternalRunLogToFunction" -> {
+                    assistsCoreManager!!.convertInternalRunLogToFunction(call, result)
+                }
+                "startHumanTrajectoryLearning" -> {
+                    assistsCoreManager!!.startHumanTrajectoryLearning(call, result)
+                }
+                "pauseHumanTrajectoryLearning" -> {
+                    assistsCoreManager!!.pauseHumanTrajectoryLearning(call, result)
+                }
+                "resumeHumanTrajectoryLearning" -> {
+                    assistsCoreManager!!.resumeHumanTrajectoryLearning(call, result)
+                }
+                "getHumanTrajectoryLearningStatus" -> {
+                    assistsCoreManager!!.getHumanTrajectoryLearningStatus(call, result)
+                }
+                "listFunctions" -> {
+                    assistsCoreManager!!.listFunctions(call, result)
+                }
+                "getFunction" -> {
+                    assistsCoreManager!!.getFunction(call, result)
+                }
+                "registerFunction" -> {
+                    assistsCoreManager!!.registerFunction(call, result)
+                }
+                "updateFunction" -> {
+                    assistsCoreManager!!.updateFunction(call, result)
+                }
+                "deleteFunction" -> {
+                    assistsCoreManager!!.deleteFunction(call, result)
+                }
+                "runFunction" -> {
+                    assistsCoreManager!!.runFunction(call, result)
+                }
                 "getSceneModelOverrides" -> {
                     assistsCoreManager!!.getSceneModelOverrides(call, result)
                 }

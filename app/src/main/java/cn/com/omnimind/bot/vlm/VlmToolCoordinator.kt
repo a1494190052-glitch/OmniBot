@@ -1002,45 +1002,6 @@ object VlmToolCoordinator {
                 taskState.markStateChanged()
             }
 
-            override fun onVlmToolEvent(event: Map<String, Any?>) {
-                val summary = listOf(
-                    event["summary"],
-                    event["progress"],
-                    event["toolTitle"],
-                    event["toolName"]
-                ).firstNotNullOfOrNull { raw ->
-                    raw?.toString()?.trim()?.takeIf { it.isNotEmpty() }
-                }.orEmpty()
-                if (summary.isNotBlank()) {
-                    if (taskState.status == TaskStatus.WAITING_INPUT || taskState.status == TaskStatus.USER_PAUSED) {
-                        taskState.status = TaskStatus.RUNNING
-                    }
-                    taskState.message = summary
-                    taskState.markStateChanged()
-                }
-                scope.launch {
-                    runCatching {
-                        progressReporter(
-                            summary.ifBlank { "视觉任务执行中" },
-                            linkedMapOf<String, Any?>().apply {
-                                putAll(event)
-                                put(
-                                    "agentStreamKind",
-                                    event["agentStreamKind"]?.toString()
-                                        ?: event["kind"]?.toString()
-                                        ?: "tool_progress"
-                                )
-                                put("vlmTaskId", taskId)
-                                put("runLogId", event["runLogId"] ?: taskId)
-                            }
-                        )
-                    }.onFailure { e ->
-                        if (e is kotlinx.coroutines.CancellationException) throw e
-                        OmniLog.w(TAG, "onVlmToolEvent progress reporting failed: ${e.message}")
-                    }
-                }
-            }
-
             override fun onVlmTaskResult(result: VlmTaskTerminalResult) {
                 taskState.applyTerminalResult(result)
                 if (result.status != cn.com.omnimind.assists.api.bean.VlmTaskTerminalStatus.WAITING_INPUT) {

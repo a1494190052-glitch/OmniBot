@@ -211,18 +211,10 @@ class VlmToolHandler(
                         }
                     }
                     if (
-                        streamKind == "tool_started" ||
-                        streamKind == "tool_progress" ||
-                        streamKind == "tool_completed"
+                        streamKind != "tool_started" &&
+                        streamKind != "tool_progress" &&
+                        streamKind != "tool_completed"
                     ) {
-                        callback.onToolCardEvent(
-                            streamKind,
-                            traceExtras + mapOf(
-                                "spanKind" to "vlm_step",
-                                "span_kind" to "vlm_step"
-                            )
-                        )
-                    } else {
                         helper.reportToolProgress(
                             callback,
                             AgentToolNames.VLM_TASK,

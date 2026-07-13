@@ -43,7 +43,6 @@ class UITaskEventImpl : UITaskEvent {
                 CancelClickLoader.cancelIntercepting()
                 ScreenMaskLoader.loadGoneViewScreenMask()
                 DraggableBallInstance.loadBall()
-                ScreenMaskLoader.loadLockScreenMask()
                 DraggableBallInstance.doingTask(
                     "小万已领取任务，即将开始执行",
                     "执行中"
@@ -82,7 +81,6 @@ class UITaskEventImpl : UITaskEvent {
     override suspend fun readyDoingTask(message: String) {
         VibrationUtil.vibrateNormal()
         withContext(Dispatchers.Main) {
-            ScreenMaskLoader.loadLockScreenMask()
             DraggableBallInstance.readyDoingTask(message)
         }
     }
@@ -90,7 +88,6 @@ class UITaskEventImpl : UITaskEvent {
     override suspend fun startDoingAutoTask(message: String, subMessage: String) {
         VibrationUtil.vibrateNormal()
         withContext(Dispatchers.Main) {
-            ScreenMaskLoader.loadLockScreenMask()
             DraggableBallInstance.doingTask(message, subMessage)
         }
     }
@@ -105,7 +102,6 @@ class UITaskEventImpl : UITaskEvent {
 
     override suspend fun setDoing(message: String, showTakeOver: Boolean) {
         withContext(Dispatchers.Main) {
-            ScreenMaskLoader.loadLockScreenMask()
             DraggableBallInstance.setDoing(message, showTakeOver)
         }
     }

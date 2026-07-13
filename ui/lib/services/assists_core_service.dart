@@ -709,13 +709,6 @@ class AgentAiConfigChangedEvent {
   }
 }
 
-class NativeMethodEvent {
-  final String method;
-  final dynamic arguments;
-
-  const NativeMethodEvent({required this.method, this.arguments});
-}
-
 class AssistsMessageService {
   static const MethodChannel assistCore = MethodChannel(
     'cn.com.omnimind.bot/AssistCoreEvent',
@@ -753,12 +746,6 @@ class AssistsMessageService {
   static final StreamController<Map<String, dynamic>>
   _workbenchProjectUpdatedController =
       StreamController<Map<String, dynamic>>.broadcast();
-  static final StreamController<Map<String, dynamic>>
-  _agentRunStateChangedController =
-      StreamController<Map<String, dynamic>>.broadcast();
-  static final StreamController<NativeMethodEvent>
-  _nativeMethodEventController =
-      StreamController<NativeMethodEvent>.broadcast();
   // IM/WeChat/Telegram 等外部入口直推的用户消息：
   // 原生侧在写库后立刻 invokeMethod 发过来，runtime 直接插入气泡，
   // 不依赖 messagesChanged + DB reload 的事件链。
@@ -784,20 +771,6 @@ class AssistsMessageService {
       _browserSessionSnapshotChangedController.stream;
   static Stream<Map<String, dynamic>> get workbenchProjectUpdatedStream =>
       _workbenchProjectUpdatedController.stream;
-  static Stream<Map<String, dynamic>> get agentRunStateChangedStream =>
-      _agentRunStateChangedController.stream;
-  static Stream<NativeMethodEvent> get nativeMethodEventStream =>
-      _nativeMethodEventController.stream;
-
-  @visibleForTesting
-  static void debugDispatchNativeMethodForTest(
-    String method,
-    dynamic arguments,
-  ) {
-    _nativeMethodEventController.add(
-      NativeMethodEvent(method: method, arguments: arguments),
-    );
-  }
 
   static void initialize() {
     assistCore.setMethodCallHandler(_handleMethod);
@@ -873,18 +846,6 @@ class AssistsMessageService {
             Map<String, dynamic>.from(
               (call.arguments as Map?) ?? const <String, dynamic>{},
             ),
-          );
-          break;
-        case 'onAgentRunStateChanged':
-          _agentRunStateChangedController.add(
-            Map<String, dynamic>.from(
-              (call.arguments as Map?) ?? const <String, dynamic>{},
-            ),
-          );
-          break;
-        case 'onFunctionRunProgress':
-          _nativeMethodEventController.add(
-            NativeMethodEvent(method: call.method, arguments: call.arguments),
           );
           break;
         case 'onChatMessage':
@@ -1001,19 +962,6 @@ class AssistsMessageService {
           final event = AgentStreamEvent.fromMap(call.arguments as Map?);
           for (final callback in _onAgentStreamEventCallbacks) {
             callback(event);
-          }
-          break;
-        case 'onAgentStreamEventBatch':
-          final rawBatch = call.arguments;
-          if (rawBatch is List) {
-            for (final rawEvent in rawBatch) {
-              try {
-                final event = AgentStreamEvent.fromMap(rawEvent as Map?);
-                for (final callback in _onAgentStreamEventCallbacks) {
-                  callback(event);
-                }
-              } catch (_) {}
-            }
           }
           break;
         case 'onScheduledTaskCancelled':
@@ -1904,8 +1852,6 @@ class AssistsMessageService {
     Map<String, dynamic>? modelOverride,
     String? reasoningEffort,
     Map<String, String>? terminalEnvironment,
-    String? toolProfile,
-    List<String> allowedTools = const [],
   }) async {
     try {
       final args = <String, dynamic>{
@@ -1945,25 +1891,6 @@ class AssistsMessageService {
       }
       if (terminalEnvironment != null && terminalEnvironment.isNotEmpty) {
         args['terminalEnvironment'] = terminalEnvironment;
-      }
-      final normalizedToolProfile = toolProfile
-          ?.trim()
-          .toLowerCase()
-          .replaceAll('-', '_');
-      final canonicalToolProfile =
-          normalizedToolProfile == 'function' ||
-              normalizedToolProfile == 'omniflow' ||
-              normalizedToolProfile == 'function_management'
-          ? 'function'
-          : toolProfile?.trim();
-      if (canonicalToolProfile != null && canonicalToolProfile.isNotEmpty) {
-        args['toolProfile'] = canonicalToolProfile;
-      }
-      if (allowedTools.isNotEmpty) {
-        args['allowedTools'] = allowedTools
-            .map((tool) => tool.trim())
-            .where((tool) => tool.isNotEmpty)
-            .toList(growable: false);
       }
       final result = await assistCore.invokeMethod('createAgentTask', {
         ...args,

@@ -116,7 +116,7 @@ class HttpAgentLlmClient(
 
     private data class StreamRequestVariant(
         val name: String,
-        val requestJson: String
+        val request: ChatCompletionRequest
     )
 
     override suspend fun streamTurn(
@@ -149,9 +149,12 @@ class HttpAgentLlmClient(
                             "retry stream request model=$candidateModel variant=${variant.name}"
                         )
                     }
+                    // Encode lazily, one variant at a time, so we never hold multiple
+                    // copies of a potentially huge request payload in memory at once.
+                    val requestJson = json.encodeToString(variant.request)
                     return streamTurnOnce(
                         model = candidateModel,
-                        requestJson = variant.requestJson,
+                        requestJson = requestJson,
                         onReasoningUpdate = onReasoningUpdate,
                         onContentUpdate = onContentUpdate
                     )
@@ -522,11 +525,14 @@ class HttpAgentLlmClient(
         routeInfo: HttpController.ChatCompletionRouteInfo
     ): List<StreamRequestVariant> {
         val variants = mutableListOf<StreamRequestVariant>()
-        val seenPayloads = LinkedHashSet<String>()
+        val seenRequests = LinkedHashSet<ChatCompletionRequest>()
+        // Dedup by structural equality of the request itself instead of by its
+        // serialized JSON. This is equivalent (equal data classes serialize to equal
+        // JSON) but avoids eagerly materializing every variant's payload string, which
+        // could be tens of MB each and previously exhausted the heap (issue #429).
         fun add(name: String, candidate: ChatCompletionRequest) {
-            val encoded = json.encodeToString(candidate)
-            if (seenPayloads.add(encoded)) {
-                variants.add(StreamRequestVariant(name = name, requestJson = encoded))
+            if (seenRequests.add(candidate)) {
+                variants.add(StreamRequestVariant(name = name, request = candidate))
             }
         }
 

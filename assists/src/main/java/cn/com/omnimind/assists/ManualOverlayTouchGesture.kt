@@ -25,5 +25,14 @@ data class ManualOverlayGestureReplayResult(
     val executed: Boolean,
     val recorded: Boolean = executed,
     val mayOpenIme: Boolean = false,
-    val ignoredControl: Boolean = false
+    val ignoredControl: Boolean = false,
+    val inputTarget: ManualInputTarget? = null,
+)
+
+data class ManualInputTarget(
+    val description: String,
+    val x: Float,
+    val y: Float,
+    val nodeResourceId: String? = null,
+    val password: Boolean = false,
 )

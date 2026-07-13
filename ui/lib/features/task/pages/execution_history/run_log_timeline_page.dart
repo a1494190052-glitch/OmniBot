@@ -15,7 +15,6 @@ import 'package:ui/l10n/app_text_localizer.dart';
 import 'package:ui/l10n/l10n.dart';
 import 'package:ui/services/scheduled_task_scheduler_service.dart';
 import 'package:ui/services/scheduled_task_storage_service.dart';
-import 'package:ui/services/run_log_function_enhancement_job_service.dart';
 import 'package:ui/theme/theme_context.dart';
 import 'package:ui/utils/ui.dart';
 import 'package:ui/widgets/common_app_bar.dart';
@@ -228,20 +227,12 @@ class _RunLogTimelinePageState extends State<RunLogTimelinePage> {
       _RunLogFunctionPanelStatus.idle;
   String? _functionPanelMessage;
   String? _functionPanelError;
-  RunLogFunctionEnhancementJob? _runLogEnhancementJob;
-  StreamSubscription<RunLogFunctionEnhancementJob>? _runLogEnhancementJobSub;
   String? _error;
 
   @override
   void initState() {
     super.initState();
     _load();
-  }
-
-  @override
-  void dispose() {
-    _runLogEnhancementJobSub?.cancel();
-    super.dispose();
   }
 
   Future<void> _load() async {
@@ -342,7 +333,6 @@ class _RunLogTimelinePageState extends State<RunLogTimelinePage> {
       _cards,
     );
     final savedSpec = _savedFunctionSpec;
-    final isEnhancingRunLogFunction = _runLogEnhancementJob?.isRunning == true;
     final List<Widget> actions = <Widget>[
       Tooltip(
         message: _text(context, '执行复用指令', 'Run Function'),
@@ -389,9 +379,7 @@ class _RunLogTimelinePageState extends State<RunLogTimelinePage> {
           onPressed:
               _isConvertingFunction ||
                   _isReplayingRunLog ||
-                  (savedSpec == null &&
-                      (isEnhancingRunLogFunction ||
-                          !convertEligibility.canConvert))
+                  (savedSpec == null && !convertEligibility.canConvert)
               ? null
               : savedSpec != null
               ? _openSavedFunctionSheet
@@ -703,15 +691,8 @@ class _RunLogTimelinePageState extends State<RunLogTimelinePage> {
         _functionPanelError?.trim().isNotEmpty == true;
     if (!shouldShow) return null;
     final savedSpec = _savedFunctionSpec;
-    final isEnhancing = _runLogEnhancementJob?.isRunning == true;
     final isBusy = _isConvertingFunction;
     final canView = savedSpec != null && !isBusy;
-    final canEnhance =
-        savedSpec != null &&
-        !isBusy &&
-        !isEnhancing &&
-        (_functionPanelStatus == _RunLogFunctionPanelStatus.saved ||
-            _functionPanelStatus == _RunLogFunctionPanelStatus.failed);
     final canRetrySave =
         savedSpec == null &&
         !isBusy &&
@@ -723,10 +704,10 @@ class _RunLogTimelinePageState extends State<RunLogTimelinePage> {
       message: _functionPanelMessage,
       error: _functionPanelError,
       canView: canView,
-      canEnhance: canEnhance,
+      canEnhance: false,
       canRetrySave: canRetrySave,
       onView: canView ? _openSavedFunctionSheet : null,
-      onEnhance: canEnhance ? _enhanceSavedRunLogFunction : null,
+      onEnhance: null,
       onRetrySave: canRetrySave ? _registerCurrentRunLog : null,
     );
   }
@@ -738,86 +719,6 @@ class _RunLogTimelinePageState extends State<RunLogTimelinePage> {
       spec,
       initialImportResult: _savedFunctionImportResult,
     );
-  }
-
-  Future<void> _enhanceSavedRunLogFunction() async {
-    final spec = _savedFunctionSpec;
-    if (spec == null ||
-        _isConvertingFunction ||
-        _isReplayingRunLog ||
-        _runLogEnhancementJob?.isRunning == true) {
-      return;
-    }
-    final useEnglish = _localeValue(context, zh: false, en: true);
-    setState(() {
-      _functionPanelStatus = _RunLogFunctionPanelStatus.enhancing;
-      _functionPanelMessage = _text(
-        context,
-        'Agent 已将这个复用指令加入后台增强队列。',
-        'Agent queued this Function for background enhancement.',
-      );
-      _functionPanelError = null;
-    });
-    try {
-      final job = await RunLogFunctionEnhancementJobService.enqueue(
-        runId: widget.runId,
-        functionJson: spec.json,
-        useEnglish: useEnglish,
-      );
-      if (!mounted) return;
-      _attachRunLogEnhancementJob(job);
-      final latestJob = await _latestEnhancementJobState(job);
-      if (!mounted) return;
-      _applyRunLogEnhancementJob(latestJob);
-    } catch (e) {
-      if (!mounted) return;
-      setState(() {
-        _functionPanelStatus = _RunLogFunctionPanelStatus.failed;
-        _functionPanelMessage = _text(
-          context,
-          '后台增强启动失败，当前复用指令保持原样。',
-          'Failed to start background enhancement. The current Function is unchanged.',
-        );
-        _functionPanelError = e.toString();
-      });
-    }
-  }
-
-  void _attachRunLogEnhancementJob(RunLogFunctionEnhancementJob job) {
-    if (_runLogEnhancementJob?.jobId == job.jobId &&
-        _runLogEnhancementJobSub != null) {
-      return;
-    }
-    unawaited(_runLogEnhancementJobSub?.cancel());
-    _runLogEnhancementJob = job;
-    _runLogEnhancementJobSub =
-        RunLogFunctionEnhancementJobService.watchJob(job.jobId).listen((
-          updatedJob,
-        ) {
-          if (!mounted) return;
-          _applyRunLogEnhancementJob(updatedJob);
-        });
-  }
-
-  void _applyRunLogEnhancementJob(RunLogFunctionEnhancementJob job) {
-    final savedSpec = job.savedSpec;
-    final importResult = _runLogImportResultFromEnhancementJob(
-      job,
-      runId: widget.runId,
-    );
-    setState(() {
-      _runLogEnhancementJob = job;
-      if (savedSpec != null) {
-        _savedFunctionSpec = savedSpec;
-        _savedFunctionImportResult = importResult ?? _savedFunctionImportResult;
-      }
-      _functionPanelStatus = _panelStatusFromEnhancementJob(job);
-      _functionPanelMessage = job.message;
-      _functionPanelError =
-          job.phase == RunLogFunctionEnhancementJobPhase.failed
-          ? (job.error ?? job.message)
-          : null;
-    });
   }
 
   String _buildRunLogTranscript() {
@@ -921,72 +822,7 @@ enum _RunLogFunctionPanelStatus {
   idle,
   saving,
   saved,
-  enhancing,
-  enhanced,
-  partial,
-  unchanged,
   failed,
-}
-
-_RunLogFunctionPanelStatus _panelStatusFromEnhancementJob(
-  RunLogFunctionEnhancementJob job,
-) {
-  if (job.isRunning) return _RunLogFunctionPanelStatus.enhancing;
-  if (job.phase == RunLogFunctionEnhancementJobPhase.failed) {
-    return _RunLogFunctionPanelStatus.failed;
-  }
-  switch (job.enhancementStatus) {
-    case FunctionEnhancementStatus.enhanced:
-      return _RunLogFunctionPanelStatus.enhanced;
-    case FunctionEnhancementStatus.partial:
-      return _RunLogFunctionPanelStatus.partial;
-    case FunctionEnhancementStatus.unchanged:
-      return _RunLogFunctionPanelStatus.unchanged;
-    case FunctionEnhancementStatus.failed:
-      return _RunLogFunctionPanelStatus.failed;
-    case FunctionEnhancementStatus.enhancing:
-      return _RunLogFunctionPanelStatus.enhancing;
-    case FunctionEnhancementStatus.none:
-      return _RunLogFunctionPanelStatus.saved;
-  }
-}
-
-UtgRunLogImportResult? _runLogImportResultFromEnhancementJob(
-  RunLogFunctionEnhancementJob job, {
-  required String runId,
-}) {
-  final result = job.registrationResult;
-  if (result == null || result['success'] != true) {
-    return null;
-  }
-  final registeredId = _firstNonBlank([
-    result['created_function_id'],
-    result['function_id'],
-    job.functionId,
-  ]);
-  return UtgRunLogImportResult.fromMap({
-    ...result,
-    'success': true,
-    'run_id': runId,
-    'function_id': registeredId,
-    'created_function_id': registeredId,
-    'functions_created': result['already_exists'] == true ? 0 : 1,
-    'asset_kind': result['asset_kind'] ?? result['function_kind'],
-    'asset_state': result['asset_state'],
-  });
-}
-
-Future<RunLogFunctionEnhancementJob> _latestEnhancementJobState(
-  RunLogFunctionEnhancementJob job,
-) async {
-  final latest = await RunLogFunctionEnhancementJobService.latestFor(
-    runId: job.runId,
-    functionId: job.functionId,
-  );
-  if (latest?.jobId == job.jobId) {
-    return latest!;
-  }
-  return job;
 }
 
 class _RunLogRegisteredFunctionBinding {
@@ -1079,9 +915,7 @@ class _RunLogFunctionStatusStrip extends StatelessWidget {
   Widget build(BuildContext context) {
     final palette = context.omniPalette;
     final color = _color(context);
-    final busy =
-        status == _RunLogFunctionPanelStatus.saving ||
-        status == _RunLogFunctionPanelStatus.enhancing;
+    final busy = status == _RunLogFunctionPanelStatus.saving;
     final title = _title(context);
     final detail = _firstNonBlank([
       error,
@@ -1172,17 +1006,10 @@ class _RunLogFunctionStatusStrip extends StatelessWidget {
     switch (status) {
       case _RunLogFunctionPanelStatus.saved:
         return Icons.cloud_done_outlined;
-      case _RunLogFunctionPanelStatus.enhanced:
-        return Icons.auto_awesome_rounded;
-      case _RunLogFunctionPanelStatus.partial:
-        return Icons.rule_rounded;
-      case _RunLogFunctionPanelStatus.unchanged:
-        return Icons.fact_check_outlined;
       case _RunLogFunctionPanelStatus.failed:
         return Icons.error_outline_rounded;
       case _RunLogFunctionPanelStatus.idle:
       case _RunLogFunctionPanelStatus.saving:
-      case _RunLogFunctionPanelStatus.enhancing:
         return Icons.info_outline_rounded;
     }
   }
@@ -1190,16 +1017,11 @@ class _RunLogFunctionStatusStrip extends StatelessWidget {
   Color _color(BuildContext context) {
     switch (status) {
       case _RunLogFunctionPanelStatus.saved:
-      case _RunLogFunctionPanelStatus.enhanced:
         return _successColor(context);
-      case _RunLogFunctionPanelStatus.partial:
-        return _warningColor(context);
       case _RunLogFunctionPanelStatus.failed:
         return _errorColor(context);
       case _RunLogFunctionPanelStatus.idle:
       case _RunLogFunctionPanelStatus.saving:
-      case _RunLogFunctionPanelStatus.enhancing:
-      case _RunLogFunctionPanelStatus.unchanged:
         return _routeColor(context);
     }
   }
@@ -1210,14 +1032,6 @@ class _RunLogFunctionStatusStrip extends StatelessWidget {
         return _text(context, '正在保存复用指令', 'Saving Function');
       case _RunLogFunctionPanelStatus.saved:
         return _text(context, '已保存为复用指令', 'Function saved');
-      case _RunLogFunctionPanelStatus.enhancing:
-        return _text(context, '后台增强中', 'Enhancing in background');
-      case _RunLogFunctionPanelStatus.enhanced:
-        return _text(context, '已增强并保存', 'Enhanced and saved');
-      case _RunLogFunctionPanelStatus.partial:
-        return _text(context, '部分增强并保存', 'Partially enhanced and saved');
-      case _RunLogFunctionPanelStatus.unchanged:
-        return _text(context, '已检查，无需修改', 'Checked, no change');
       case _RunLogFunctionPanelStatus.failed:
         return _text(context, '处理失败', 'Action failed');
       case _RunLogFunctionPanelStatus.idle:
@@ -2850,38 +2664,17 @@ class _ReusableFunctionSpecSheetState
   bool _isImporting = false;
   bool _isExecuting = false;
   bool _isScheduling = false;
-  bool _isEnhancing = false;
-  bool _hasAgentEnhanced = false;
   bool _hasStructuralEdits = false;
-  FunctionEnhancementStatus _enhancementStatus = FunctionEnhancementStatus.none;
-  String? _enhancementMessage;
-  RunLogFunctionEnhancementJob? _enhancementJob;
-  StreamSubscription<RunLogFunctionEnhancementJob>? _enhancementJobSub;
   late String _lastSavedSpecFingerprint;
   String? _apiError;
 
   FunctionSpec get spec =>
       _draftSpec.copyWith(json: _functionJsonWithHeaderEdits(_draftSpec.json));
 
-  FunctionEnhancementStatus get _visibleEnhancementStatus {
-    if (_enhancementJob?.isRunning == true) {
-      return FunctionEnhancementStatus.enhancing;
-    }
-    if (_enhancementStatus != FunctionEnhancementStatus.none) {
-      return _enhancementStatus;
-    }
-    return spec.enhancementStatus;
-  }
+  FunctionEnhancementStatus get _visibleEnhancementStatus =>
+      spec.enhancementStatus;
 
-  String? get _visibleEnhancementMessage =>
-      _enhancementJob?.message ??
-      _enhancementMessage ??
-      spec.enhancementMessage;
-
-  bool get _hasCompletedEnhancement =>
-      _visibleEnhancementStatus == FunctionEnhancementStatus.enhanced ||
-      _visibleEnhancementStatus == FunctionEnhancementStatus.partial ||
-      _visibleEnhancementStatus == FunctionEnhancementStatus.unchanged;
+  String? get _visibleEnhancementMessage => spec.enhancementMessage;
 
   @override
   void initState() {
@@ -2892,19 +2685,13 @@ class _ReusableFunctionSpecSheetState
       text: (widget.spec.json['description'] ?? '').toString(),
     );
     _importResult = widget.initialImportResult;
-    _enhancementStatus = widget.spec.enhancementStatus;
-    _enhancementMessage = widget.spec.enhancementMessage;
-    _hasAgentEnhanced =
-        widget.spec.aiEnhanced || widget.spec.enhancementStatus.isApplied;
     _lastSavedSpecFingerprint = _specFingerprint(spec.json);
     _nameController.addListener(_onHeaderFieldChanged);
     _descriptionController.addListener(_onHeaderFieldChanged);
-    unawaited(_restoreEnhancementJob());
   }
 
   @override
   void dispose() {
-    _enhancementJobSub?.cancel();
     _nameController.removeListener(_onHeaderFieldChanged);
     _descriptionController.removeListener(_onHeaderFieldChanged);
     _nameController.dispose();
@@ -2927,10 +2714,8 @@ class _ReusableFunctionSpecSheetState
     final hasUnsavedEdits = _hasUnsavedEdits;
     final detail = _ReusableFunctionDraftSnapshot.fromSpec(spec.json);
     final enhancementStatus = _visibleEnhancementStatus;
-    final isEnhancing = _isEnhancing || _enhancementJob?.isRunning == true;
     final isAgentVisible = _isAgentVisible;
-    final hasAgentEnhanced =
-        _hasAgentEnhanced || spec.aiEnhanced || enhancementStatus.isApplied;
+    final hasAgentEnhanced = spec.aiEnhanced || enhancementStatus.isApplied;
     final showOfflineEnhancementHint =
         _hasOfflineEnhancementPolicy &&
         enhancementStatus == FunctionEnhancementStatus.none;
@@ -3157,34 +2942,14 @@ class _ReusableFunctionSpecSheetState
                                     ),
                                     icon: hasUnsavedEdits
                                         ? Icons.cloud_upload_outlined
-                                        : enhancementStatus ==
-                                              FunctionEnhancementStatus.failed
-                                        ? Icons.refresh_rounded
-                                        : Icons.auto_awesome_rounded,
+                                        : Icons.check_circle_outline_rounded,
                                     label: _isImporting
                                         ? _text(context, '保存中', 'Saving')
                                         : hasUnsavedEdits
                                         ? _text(context, '保存修改', 'Save changes')
-                                        : isEnhancing
-                                        ? _text(
-                                            context,
-                                            '后台增强中',
-                                            'Background enhance',
-                                          )
-                                        : enhancementStatus ==
-                                              FunctionEnhancementStatus.failed
-                                        ? _text(
-                                            context,
-                                            '重试增强',
-                                            'Retry enhance',
-                                          )
-                                        : enhancementStatus ==
-                                              FunctionEnhancementStatus
-                                                  .unchanged
-                                        ? _text(context, '已检查', 'Checked')
                                         : hasAgentEnhanced
                                         ? _text(context, '已增强', 'Enhanced')
-                                        : _text(context, '增强', 'Enhance'),
+                                        : _text(context, '已保存', 'Saved'),
                                     onTap:
                                         _isImporting ||
                                             _isExecuting ||
@@ -3192,15 +2957,7 @@ class _ReusableFunctionSpecSheetState
                                         ? null
                                         : hasUnsavedEdits
                                         ? _registerFunction
-                                        : isEnhancing
-                                        ? null
-                                        : enhancementStatus ==
-                                              FunctionEnhancementStatus.failed
-                                        ? _enhanceWithAgent
-                                        : _hasCompletedEnhancement ||
-                                              hasAgentEnhanced
-                                        ? null
-                                        : _enhanceWithAgent,
+                                        : null,
                                   ),
                                 ),
                                 const SizedBox(width: 10),
@@ -3540,141 +3297,6 @@ class _ReusableFunctionSpecSheetState
       _text(context, '步骤已删除，保存后生效', 'Step deleted. Save to apply.'),
       type: ToastType.success,
     );
-  }
-
-  void _enhanceWithAgent() {
-    if (_isImporting ||
-        _isExecuting ||
-        _isScheduling ||
-        _enhancementJob?.isRunning == true) {
-      return;
-    }
-    final useEnglish = _localeValue(context, zh: false, en: true);
-    setState(() {
-      _isEnhancing = true;
-      _enhancementStatus = FunctionEnhancementStatus.enhancing;
-      _enhancementMessage = _text(
-        context,
-        'Agent 已将这个复用指令加入后台增强队列。',
-        'Agent queued this Function for background enhancement.',
-      );
-      _apiError = null;
-    });
-    unawaited(_enqueueEnhancementJob(useEnglish: useEnglish));
-  }
-
-  Future<void> _restoreEnhancementJob() async {
-    try {
-      final job = await RunLogFunctionEnhancementJobService.latestFor(
-        runId: widget.runId,
-        functionId: spec.functionId,
-      );
-      if (!mounted || job == null || job.isRunning) {
-        return;
-      }
-      _attachEnhancementJob(job);
-      _applyEnhancementJob(job, showTerminalToast: false);
-    } catch (_) {
-      // Best-effort UI restoration; the user can retry from the sheet.
-    }
-  }
-
-  Future<void> _enqueueEnhancementJob({required bool useEnglish}) async {
-    try {
-      final job = await RunLogFunctionEnhancementJobService.enqueue(
-        runId: widget.runId,
-        functionJson: spec.json,
-        useEnglish: useEnglish,
-      );
-      if (!mounted) return;
-      _attachEnhancementJob(job);
-      final latestJob = await _latestEnhancementJobState(job);
-      if (!mounted) return;
-      _applyEnhancementJob(latestJob, showTerminalToast: false);
-    } catch (e) {
-      if (!mounted) return;
-      setState(() {
-        _isEnhancing = false;
-        _enhancementStatus = FunctionEnhancementStatus.failed;
-        _enhancementMessage = _text(
-          context,
-          '后台增强启动失败，当前复用指令保持原样。',
-          'Failed to start background enhancement. The current Function is unchanged.',
-        );
-        _apiError = e.toString();
-      });
-    }
-  }
-
-  void _attachEnhancementJob(RunLogFunctionEnhancementJob job) {
-    if (_enhancementJob?.jobId == job.jobId && _enhancementJobSub != null) {
-      return;
-    }
-    unawaited(_enhancementJobSub?.cancel());
-    _enhancementJob = job;
-    _enhancementJobSub = RunLogFunctionEnhancementJobService.watchJob(job.jobId)
-        .listen((updatedJob) {
-          if (!mounted) return;
-          _applyEnhancementJob(updatedJob, showTerminalToast: true);
-        });
-  }
-
-  void _applyEnhancementJob(
-    RunLogFunctionEnhancementJob job, {
-    required bool showTerminalToast,
-  }) {
-    final savedSpec = job.savedSpec;
-    if (savedSpec != null) {
-      _nameController.text = savedSpec.name;
-      _descriptionController.text = (savedSpec.json['description'] ?? '')
-          .toString();
-    }
-    final importResult = _importResultFromEnhancementJob(job);
-    final apiError = job.phase == RunLogFunctionEnhancementJobPhase.failed
-        ? job.error
-        : null;
-    setState(() {
-      _enhancementJob = job;
-      _isEnhancing = job.isRunning;
-      if (savedSpec != null) {
-        _draftSpec = savedSpec;
-        _lastSavedSpecFingerprint = _specFingerprint(savedSpec.json);
-        _hasStructuralEdits = false;
-        _hasAgentEnhanced = savedSpec.enhancementStatus.isApplied;
-        _importResult = importResult ?? _importResult;
-        _runResult = null;
-      }
-      _enhancementStatus = job.enhancementStatus;
-      _enhancementMessage = job.message;
-      _apiError = apiError;
-    });
-    if (!showTerminalToast || job.isRunning) {
-      return;
-    }
-  }
-
-  UtgRunLogImportResult? _importResultFromEnhancementJob(
-    RunLogFunctionEnhancementJob job,
-  ) {
-    final result = job.registrationResult;
-    if (result == null || result['success'] != true) {
-      return null;
-    }
-    final registeredId = _firstNonBlank([
-      result['created_function_id'],
-      result['function_id'],
-      job.functionId,
-    ]);
-    return UtgRunLogImportResult.fromMap({
-      ...result,
-      'success': true,
-      'run_id': widget.runId,
-      'function_id': registeredId,
-      'created_function_id': registeredId,
-      'functions_created': result['already_exists'] == true ? 0 : 1,
-      'asset_kind': result['asset_kind'] ?? result['function_kind'],
-      'asset_state': result['asset_state'],
-    });
   }
 
   Future<void> _updateDraftJson(

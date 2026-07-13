@@ -808,29 +808,10 @@ class FunctionRun(
         val args = resolveStepArgs(step)
         val functionId = firstNonBlank(args["function_id"], step["function_id"])
         val functionArguments = mapArg(args["arguments"])
-        val cardToolName = OobActionSchema.TOOL_CALL_TOOL
-        val cardId = frontendSessionController.cardId(parentToolCallId, toolName, stepId)
-        val cardStartedAtMs = System.currentTimeMillis()
 
         suspend fun emitStarted() {
-            callback?.onToolCardEvent("tool_started", frontendSessionController.callToolCardPayload(
-                cardId = cardId, toolName = cardToolName, stepTitle = stepTitle,
-                functionId = functionId, callableTool = callableTool,
-                functionArguments = functionArguments, status = "running", success = null,
-                summary = frontendSessionController.runningSummary(functionId),
-                progress = stepTitle, startedAtMs = cardStartedAtMs, finishedAtMs = null, result = null,
-            ))
         }
         suspend fun completeWithCard(result: Map<String, Any?>): Map<String, Any?> {
-            val success = result["success"] != false
-            callback?.onToolCardEvent("tool_completed", frontendSessionController.callToolCardPayload(
-                cardId = cardId, toolName = cardToolName, stepTitle = stepTitle,
-                functionId = functionId, callableTool = callableTool,
-                functionArguments = functionArguments, status = if (success) "success" else "error",
-                success = success, summary = result["summary"]?.toString()?.takeIf { it.isNotBlank() }
-                    ?: frontendSessionController.finishedSummary(functionId, success),
-                progress = "", startedAtMs = cardStartedAtMs, finishedAtMs = System.currentTimeMillis(), result = result,
-            ))
             return result
         }
         fun failStep(errorCode: String, summary: String, extras: Map<String, Any?> = emptyMap()) =

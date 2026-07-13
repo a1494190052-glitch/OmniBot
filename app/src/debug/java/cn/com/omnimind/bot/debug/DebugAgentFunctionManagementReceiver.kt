@@ -16,13 +16,13 @@ import cn.com.omnimind.bot.agent.AgentConversationModePolicy
 import cn.com.omnimind.bot.agent.AgentEventAdapter
 import cn.com.omnimind.bot.agent.AgentExecutionEnvironment
 import cn.com.omnimind.bot.agent.AgentLlmClient
+import cn.com.omnimind.bot.agent.AgentResult
 import cn.com.omnimind.bot.agent.AgentRuntimeContextRepository
 import cn.com.omnimind.bot.agent.AgentScheduleToolBridge
 import cn.com.omnimind.bot.agent.AgentToolRegistry
 import cn.com.omnimind.bot.agent.AgentToolRouter
 import cn.com.omnimind.bot.agent.AgentWorkspaceManager
 import cn.com.omnimind.bot.agent.DefaultAgentExecutionEnvironment
-import cn.com.omnimind.bot.agent.NoOpAgentCallback
 import cn.com.omnimind.bot.agent.NoOpAgentRunControl
 import cn.com.omnimind.bot.agent.SubagentDispatcher
 import cn.com.omnimind.bot.agent.ToolExecutionResult
@@ -454,6 +454,41 @@ class DebugAgentFunctionManagementReceiver : BroadcastReceiver() {
             String(Base64.decode(raw, Base64.DEFAULT), Charsets.UTF_8).trim()
                 .takeIf { it.isNotEmpty() }
         }.getOrNull()
+    }
+
+    private object NoOpAgentCallback : AgentCallback {
+        override suspend fun onThinkingStart() = Unit
+
+        override suspend fun onThinkingUpdate(thinking: String) = Unit
+
+        override suspend fun onToolCallStart(
+            toolName: String,
+            arguments: JsonObject
+        ) = Unit
+
+        override suspend fun onToolCallProgress(
+            toolName: String,
+            progress: String,
+            extras: Map<String, Any?>
+        ) = Unit
+
+        override suspend fun onToolCallComplete(
+            toolName: String,
+            result: ToolExecutionResult
+        ) = Unit
+
+        override suspend fun onChatMessage(message: String) = Unit
+
+        override suspend fun onComplete(result: AgentResult) = Unit
+
+        override suspend fun onError(error: String) = Unit
+
+        override suspend fun onPermissionRequired(missing: List<String>) = Unit
+
+        override suspend fun onClarifyRequired(
+            question: String,
+            missingFields: List<String>?
+        ) = Unit
     }
 
     private object NoOpScheduleBridge : AgentScheduleToolBridge {

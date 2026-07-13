@@ -12,6 +12,8 @@ import android.os.Handler
 import android.os.Looper
 import cn.com.omnimind.accessibility.api.Constant
 import cn.com.omnimind.assists.AssistsCore
+import cn.com.omnimind.assists.HumanTrajectoryLearningResult
+import cn.com.omnimind.assists.HumanTrajectoryLearningSession
 import cn.com.omnimind.assists.api.bean.TaskParams
 import cn.com.omnimind.assists.api.interfaces.OnMessagePushListener
 import cn.com.omnimind.assists.controller.accessibility.AccessibilityController
@@ -47,6 +49,7 @@ import cn.com.omnimind.baselib.llm.SceneOperationConfig
 import cn.com.omnimind.baselib.llm.SceneOperationConfigStore
 import cn.com.omnimind.baselib.llm.SceneVoiceConfig
 import cn.com.omnimind.baselib.llm.SceneVoiceConfigStore
+import cn.com.omnimind.baselib.runlog.InternalRunLogStore
 import cn.com.omnimind.baselib.util.APPPackageUtil
 import cn.com.omnimind.baselib.util.OmniLog
 import cn.com.omnimind.baselib.util.RuntimeLogStore
@@ -85,6 +88,8 @@ import cn.com.omnimind.bot.agent.WorkspaceMemoryRollupScheduler
 import cn.com.omnimind.bot.agent.WorkspaceMemoryService
 import cn.com.omnimind.bot.agent.WorkspaceScheduledTaskScheduler
 import cn.com.omnimind.bot.agent.resolveToolExecutionStatus
+import cn.com.omnimind.bot.function.FunctionRun
+import cn.com.omnimind.bot.function.FunctionService
 import cn.com.omnimind.bot.localmodel.LocalModelFeature
 import cn.com.omnimind.bot.mcp.RemoteMcpConfigStore
 import cn.com.omnimind.bot.quicklog.QuickLogService
@@ -95,6 +100,7 @@ import cn.com.omnimind.bot.webchat.RealtimeHub
 import cn.com.omnimind.bot.workspace.PublicStorageAccess
 import cn.com.omnimind.bot.workspace.WorkspaceStorageAccess
 import cn.com.omnimind.uikit.UIKit
+import cn.com.omnimind.uikit.loader.ManualRecordingControlOverlay
 import cn.com.omnimind.uikit.loader.ScreenMaskLoader
 import com.google.gson.Gson
 import androidx.core.app.NotificationCompat
@@ -6423,6 +6429,346 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
             }
         }
     }
+
+    private fun methodCallArgs(call: MethodCall): Map<String, Any?> {
+        val args = call.arguments
+        if (args !is Map<*, *>) {
+            return emptyMap()
+        }
+        return linkedMapOf<String, Any?>().apply {
+            args.forEach { (key, value) ->
+                if (key != null) {
+                    put(key.toString(), value)
+                }
+            }
+        }
+    }
+
+    private fun methodText(value: Any?): String = value?.toString()?.trim().orEmpty()
+
+    private fun methodBool(value: Any?, defaultValue: Boolean = false): Boolean {
+        return when (value) {
+            is Boolean -> value
+            is Number -> value.toInt() != 0
+            is String -> when (value.trim().lowercase()) {
+                "true", "1", "yes", "y" -> true
+                "false", "0", "no", "n" -> false
+                else -> defaultValue
+            }
+            else -> defaultValue
+        }
+    }
+
+    private fun throwableMessage(error: Throwable): String =
+        error.message?.takeIf { it.isNotBlank() } ?: error.toString()
+
+    private fun runLogFunctionErrorPayload(
+        code: String,
+        message: String,
+        extra: Map<String, Any?> = emptyMap()
+    ): Map<String, Any?> = linkedMapOf<String, Any?>(
+        "success" to false,
+        "error_code" to code,
+        "error_message" to message,
+        "recording_active" to HumanTrajectoryLearningSession.isActive(),
+        "source" to "oob_run_log_function_channel"
+    ).apply {
+        putAll(extra)
+    }.filterValues { it != null }
+
+    private fun runRunLogFunctionApi(
+        result: MethodChannel.Result,
+        errorCode: String,
+        block: suspend () -> Map<String, Any?>
+    ) {
+        workJob.launch {
+            try {
+                val payload = block()
+                withContext(Dispatchers.Main) {
+                    result.success(payload)
+                }
+            } catch (e: Exception) {
+                OmniLog.e(TAG, "$errorCode: ${e.message}")
+                withContext(Dispatchers.Main) {
+                    result.error(errorCode, throwableMessage(e), null)
+                }
+            }
+        }
+    }
+
+    fun getInternalRunLogs(call: MethodCall, result: MethodChannel.Result) {
+        runRunLogFunctionApi(result, "GET_INTERNAL_RUN_LOGS_ERROR") {
+            FunctionService(context).listRunLogs(methodCallArgs(call))
+        }
+    }
+
+    fun getInternalRunLogTimeline(call: MethodCall, result: MethodChannel.Result) {
+        runRunLogFunctionApi(result, "GET_INTERNAL_RUN_LOG_TIMELINE_ERROR") {
+            FunctionService(context).getRunLog(methodCallArgs(call))
+        }
+    }
+
+    fun convertInternalRunLogToFunction(call: MethodCall, result: MethodChannel.Result) {
+        runRunLogFunctionApi(result, "CONVERT_INTERNAL_RUN_LOG_TO_FUNCTION_ERROR") {
+            FunctionService(context).convertRunLog(methodCallArgs(call))
+        }
+    }
+
+    fun listFunctions(call: MethodCall, result: MethodChannel.Result) {
+        runRunLogFunctionApi(result, "LIST_FUNCTIONS_ERROR") {
+            FunctionService(context).listFunctions(methodCallArgs(call))
+        }
+    }
+
+    fun getFunction(call: MethodCall, result: MethodChannel.Result) {
+        runRunLogFunctionApi(result, "GET_FUNCTION_ERROR") {
+            FunctionService(context).getFunction(methodCallArgs(call))
+        }
+    }
+
+    fun registerFunction(call: MethodCall, result: MethodChannel.Result) {
+        runRunLogFunctionApi(result, "REGISTER_FUNCTION_ERROR") {
+            FunctionService(context).registerFunction(methodCallArgs(call))
+        }
+    }
+
+    fun updateFunction(call: MethodCall, result: MethodChannel.Result) {
+        runRunLogFunctionApi(result, "UPDATE_FUNCTION_ERROR") {
+            FunctionService(context).updateFunction(methodCallArgs(call))
+        }
+    }
+
+    fun deleteFunction(call: MethodCall, result: MethodChannel.Result) {
+        runRunLogFunctionApi(result, "DELETE_FUNCTION_ERROR") {
+            FunctionService(context).deleteFunction(methodCallArgs(call))
+        }
+    }
+
+    fun runFunction(call: MethodCall, result: MethodChannel.Result) {
+        runRunLogFunctionApi(result, "RUN_FUNCTION_ERROR") {
+            FunctionRun(context).runFunction(methodCallArgs(call))
+        }
+    }
+
+    fun startHumanTrajectoryLearning(call: MethodCall, result: MethodChannel.Result) {
+        val args = methodCallArgs(call)
+        val name = methodText(args["name"]).ifBlank { "人工录制轨迹" }
+        val description = methodText(args["description"]).ifBlank { name }
+        val enableRawTouch = methodBool(args["enableRawTouch"]) ||
+            methodBool(args["enable_raw_touch"])
+        val enableDebugScreenshots = methodBool(args["enableDebugScreenshots"]) ||
+            methodBool(args["enable_debug_screenshots"])
+
+        workJob.launch {
+            val payload = runCatching {
+                val learningResult = HumanTrajectoryLearningSession.start(
+                    context = context,
+                    name = name,
+                    description = description,
+                    enableRawTouch = enableRawTouch,
+                    enableDebugScreenshots = enableDebugScreenshots
+                )
+                if (!HumanTrajectoryLearningSession.isActive()) {
+                    return@runCatching runCatching {
+                        humanTrajectoryFinalizedPayload(
+                            result = learningResult.await(),
+                            phase = "failed"
+                        )
+                    }.getOrElse { error ->
+                        runLogFunctionErrorPayload(
+                            code = "HUMAN_TRAJECTORY_LEARNING_FAILED",
+                            message = throwableMessage(error)
+                        )
+                    }
+                }
+
+                val overlayShown = withContext(Dispatchers.Main) {
+                    val shown = ManualRecordingControlOverlay.show(
+                        context = context,
+                        state = ManualRecordingControlOverlay.State.RECORDING,
+                        onCaptureState = { humanTrajectoryStatusPayload("status", true) }
+                    )
+                    if (shown) {
+                        ManualRecordingControlOverlay.markRecording()
+                    }
+                    shown
+                }
+                if (!overlayShown) {
+                    HumanTrajectoryLearningSession.cancelActive("悬浮窗无法显示，轨迹学习已取消")
+                }
+                humanTrajectoryFinalizedPayload(
+                    result = learningResult.await(),
+                    phase = if (overlayShown) "finished" else "cancelled"
+                )
+            }.getOrElse { error ->
+                OmniLog.e(TAG, "startHumanTrajectoryLearning failed: ${error.message}")
+                runLogFunctionErrorPayload(
+                    code = "HUMAN_TRAJECTORY_LEARNING_FAILED",
+                    message = throwableMessage(error)
+                )
+            }
+            withContext(Dispatchers.Main) {
+                result.success(payload)
+            }
+        }
+    }
+
+    fun pauseHumanTrajectoryLearning(call: MethodCall, result: MethodChannel.Result) {
+        workJob.launch {
+            val paused = HumanTrajectoryLearningSession.pauseActive()
+            if (paused) {
+                withContext(Dispatchers.Main) {
+                    ManualRecordingControlOverlay.markPaused()
+                }
+            }
+            val payload = humanTrajectoryStatusPayload(
+                phase = "paused",
+                success = paused,
+                errorCode = if (paused) null else "NO_ACTIVE_RECORDING",
+                errorMessage = if (paused) null else "No active human recording session"
+            )
+            withContext(Dispatchers.Main) {
+                result.success(payload)
+            }
+        }
+    }
+
+    fun resumeHumanTrajectoryLearning(call: MethodCall, result: MethodChannel.Result) {
+        workJob.launch {
+            val resumed = HumanTrajectoryLearningSession.resumeActive()
+            if (resumed) {
+                withContext(Dispatchers.Main) {
+                    ManualRecordingControlOverlay.markRecording()
+                }
+            }
+            val payload = humanTrajectoryStatusPayload(
+                phase = "recording",
+                success = resumed,
+                errorCode = if (resumed) null else "NO_ACTIVE_RECORDING",
+                errorMessage = if (resumed) null else "No active human recording session"
+            )
+            withContext(Dispatchers.Main) {
+                result.success(payload)
+            }
+        }
+    }
+
+    fun getHumanTrajectoryLearningStatus(call: MethodCall, result: MethodChannel.Result) {
+        result.success(humanTrajectoryStatusPayload("status", true))
+    }
+
+    private fun humanTrajectoryStatusPayload(
+        phase: String,
+        success: Boolean,
+        errorCode: String? = null,
+        errorMessage: String? = null
+    ): Map<String, Any?> {
+        val status = HumanTrajectoryLearningSession.status().asMap()
+        return linkedMapOf<String, Any?>(
+            "success" to success,
+            "phase" to phase,
+            "recording_active" to status["recording_active"],
+            "recording_paused" to status["recording_paused"],
+            "run_id" to status["run_id"],
+            "name" to status["name"],
+            "description" to status["description"],
+            "started_at_ms" to status["started_at_ms"],
+            "action_count" to status["action_count"],
+            "latest_action_summary" to status["latest_action_summary"],
+            "pending_action_summary" to status["pending_action_summary"],
+            "recording_backend" to status["recording_backend"],
+            "raw_touch_enabled" to status["raw_touch_enabled"],
+            "raw_touch_available" to status["raw_touch_available"],
+            "debug_screenshots_enabled" to status["debug_screenshots_enabled"],
+            "debug_screenshot_stored_count" to status["debug_screenshot_stored_count"],
+            "debug_screenshot_failed_count" to status["debug_screenshot_failed_count"],
+            "debug_screenshot_skipped_count" to status["debug_screenshot_skipped_count"],
+            "status" to status,
+            "error_code" to errorCode,
+            "error_message" to errorMessage,
+            "source" to "oob_manual_recording"
+        ).filterValues { it != null }
+    }
+
+    private fun humanTrajectoryFinalizedPayload(
+        result: HumanTrajectoryLearningResult,
+        phase: String
+    ): Map<String, Any?> {
+        val runLog = InternalRunLogStore.timelinePayload(context, result.runId)
+        val conversion = if (result.success && result.actionCount > 0) {
+            convertFinishedHumanTrajectoryRunLog(
+                runId = result.runId,
+                name = result.name,
+                description = result.description
+            )
+        } else {
+            null
+        }
+        val conversionSuccess = conversion?.get("success") == true
+        return linkedMapOf<String, Any?>(
+            "success" to if (result.success) conversionSuccess else false,
+            "recording_success" to result.success,
+            "conversion_success" to conversionSuccess,
+            "function_registered" to (conversion?.get("registered") == true),
+            "agent_visible" to (conversion?.get("agent_visible") == true),
+            "phase" to phase,
+            "recording_active" to false,
+            "run_id" to result.runId,
+            "name" to result.name,
+            "description" to result.description,
+            "action_count" to result.actionCount,
+            "summary" to result.summary,
+            "diagnostics" to result.diagnostics.takeIf { it.isNotEmpty() },
+            "error_code" to if (!result.success) null else if (conversionSuccess) null else {
+                conversion?.get("error_code") ?: "HUMAN_TRAJECTORY_CONVERT_FAILED"
+            },
+            "error_message" to if (!result.success) {
+                result.errorMessage.takeIf { it.isNotBlank() }
+            } else if (conversionSuccess) {
+                null
+            } else {
+                conversion?.get("error_message") ?: "Recording finished but Function conversion failed"
+            },
+            "run_log" to runLog,
+            "function_id" to conversion?.get("function_id"),
+            "created_function_id" to conversion?.get("created_function_id"),
+            "function_spec" to conversion?.get("function_spec"),
+            "conversion" to conversion,
+            "function_kind" to "oob_reusable_function",
+            "asset_state" to "native_local",
+            "token_usage_total" to 0,
+            "source" to "oob_manual_recording"
+        ).filterValues { it != null }
+    }
+
+    private fun convertFinishedHumanTrajectoryRunLog(
+        runId: String,
+        name: String,
+        description: String
+    ): Map<String, Any?> =
+        runCatching {
+            FunctionService(context).convertRunLog(
+                mapOf(
+                    "run_id" to runId,
+                    "register" to true,
+                    "agent_visible" to false,
+                    "name" to name,
+                    "description" to description,
+                )
+            )
+        }.getOrElse { error ->
+            OmniLog.e(TAG, "human recording conversion failed: ${error.message}", error)
+            linkedMapOf(
+                "success" to false,
+                "error_code" to "HUMAN_TRAJECTORY_CONVERT_FAILED",
+                "error_message" to throwableMessage(error),
+                "error_type" to error.javaClass.name,
+                "run_id" to runId,
+                "function_kind" to "oob_reusable_function",
+                "asset_state" to "native_local",
+                "source" to "oob_manual_recording"
+            )
+        }
 
     /**
      * 获取所有对话列表
