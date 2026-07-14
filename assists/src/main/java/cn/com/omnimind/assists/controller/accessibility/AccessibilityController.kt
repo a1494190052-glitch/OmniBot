@@ -27,7 +27,6 @@ import cn.com.omnimind.assists.AssistsCore
 import cn.com.omnimind.assists.ManualInputTarget
 import cn.com.omnimind.assists.api.bean.CaptureData
 import cn.com.omnimind.assists.detection.scenarios.stability.PageStabilityDetector
-import cn.com.omnimind.assists.detection.state.SystemNotificationStateManager
 import cn.com.omnimind.baselib.util.ImageCompressor
 import cn.com.omnimind.baselib.util.ImageQuality
 import cn.com.omnimind.baselib.util.ImageUtils
@@ -85,10 +84,6 @@ class AccessibilityController() {
                 AssistsService.addListener(object : AssistsServiceListener {
                     override fun onAccessibilityEvent(event: AccessibilityEvent) {
                         captureAction?.onAccessibilityEvent(event)
-
-                        // 将事件传递给系统通知状态管理器处理
-                        SystemNotificationStateManager.handleAccessibilityEvent(event)
-
                     }
 
                     override fun onUnbind() {
