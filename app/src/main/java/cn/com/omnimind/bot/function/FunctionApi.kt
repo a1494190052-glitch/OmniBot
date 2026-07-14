@@ -276,12 +276,12 @@ object FunctionApi {
         "inputSchema" to mapOf(
             "type" to "object",
             "properties" to mapOf(
-                "run_id" to mapOf("type" to "string", "description" to "Existing RunLog id."),
-                "run_log" to mapOf("type" to "object", "description" to "Optional inline canonical run log."),
+                "run_id" to mapOf("type" to "string", "description" to "Existing RunLog id. Raw RunLog state stays in the RunLog store and is resolved by id."),
                 "register" to mapOf("type" to "boolean", "description" to "Persist the converted manual Function. Default false."),
                 "agent_visible" to mapOf("type" to "boolean", "description" to "Compatibility flag for older callers. Function recall/replay is runtime-owned and not exposed as model-callable tools."),
                 "auto_enrich" to mapOf("type" to "boolean", "description" to "Accepted for compatibility; Function import does deterministic local import.")
-            )
+            ),
+            "required" to listOf("run_id")
         )
     )
 
@@ -332,7 +332,7 @@ object FunctionApi {
 
     private val updateFunctionMcpTool = mapOf(
         "name" to FUNCTION_UPDATE,
-        "description" to "Update one saved Function from a complete function_spec replacement, structured patch, user correction, or RunLog evidence. Agent-generated Function metadata should be passed as function_spec; update_function validates identity and saves deterministically.",
+        "description" to "Update one saved Function with a structured patch derived from user correction or RunLog evidence. Raw RunLog state stays in the RunLog store.",
         "inputSchema" to updateFunctionInputSchema(includeCamelCaseAliases = false)
     )
 
@@ -584,17 +584,17 @@ object FunctionApi {
     private fun updateFunctionInputSchema(includeCamelCaseAliases: Boolean): Map<String, Any?> =
         obj(
             properties = updateFunctionInputProperties(includeCamelCaseAliases = includeCamelCaseAliases),
+            required = listOf("function_id"),
         )
 
     private fun updateFunctionInputProperties(includeCamelCaseAliases: Boolean): Map<String, Any?> {
         val properties = linkedMapOf<String, Any?>(
-            "function_id" to string("Existing Function id to update in place. Optional when function_spec.function_id is provided."),
-            "function_spec" to obj("Complete replacement Function JSON. update_function validates function_id identity and execution.steps, then saves it."),
+            "function_id" to string("Existing Function id to update in place."),
             "run_id" to string("Optional local RunLog id used as evidence for agent analysis."),
             "instruction" to string("Optional user correction or enhancement instruction."),
             "mode" to enumString("Update mode.", listOf("enhance", "repair", "annotate", "fix", "correction")),
             "offline_job" to boolean("Set true when this enhancement is running as an explicit offline/background maintenance job."),
-            "auto_analyze_with_model" to boolean("Legacy flag accepted for compatibility. update_function no longer invokes a model; callers should pass function_spec, analysis, or patch."),
+            "auto_analyze_with_model" to boolean("Legacy flag accepted for compatibility. update_function no longer invokes a model; the Function skill supplies analysis and patch."),
             "analysis" to updateFunctionAnalysisSchema,
             "patch" to updateFunctionPatchSchema,
             "usage" to obj(description = "Optional token usage from the API call that produced this enhancement analysis."),
@@ -602,7 +602,6 @@ object FunctionApi {
             "dry_run" to boolean("Preview changes without saving."),
         )
         if (includeCamelCaseAliases) {
-            properties["functionSpec"] = obj("Alias of function_spec.")
             properties["offlineJob"] = boolean("Alias of offline_job.")
             properties["autoAnalyzeWithModel"] = boolean("Alias of auto_analyze_with_model.")
             properties["dryRun"] = boolean("Alias of dry_run.")
@@ -612,7 +611,7 @@ object FunctionApi {
 
     private val updateFunctionAnalysisSchema: Map<String, Any?>
         get() = obj(
-            description = "Agent-authored RunLog evidence analysis to persist in Function metadata.",
+            description = "Agent-authored RunLog evidence analysis. Raw analysis is stored with the RunLog; the Function keeps only run_id references.",
             properties = linkedMapOf(
                 "summary" to string("Short conclusion from the RunLog evidence."),
                 "step_findings" to array(
@@ -645,6 +644,10 @@ object FunctionApi {
             properties = linkedMapOf(
                 "name" to string("Updated user-visible Function name."),
                 "description" to string("Updated reusable Function description."),
+                "action_edits" to array(
+                    description = "Evidence-backed action cleanup. Indexes refer to the current stored action list; unspecified actions are preserved.",
+                    items = actionEditSchema,
+                ),
                 "steps" to array(
                     description = "Non-structural per-step label/annotation patches.",
                     items = stepLabelPatchSchema,
@@ -674,6 +677,18 @@ object FunctionApi {
                 "checker_rules" to checkerRulesSchema,
                 "checkerRules" to checkerRulesSchema,
             ),
+        )
+
+    private val actionEditSchema: Map<String, Any?>
+        get() = obj(
+            properties = linkedMapOf(
+                "op" to enumString("Action edit operation.", listOf("delete", "replace_args")),
+                "index" to integer("Zero-based action index in the current Function."),
+                "expected_tool" to string("Optional stale-index guard; the edit is ignored if the tool differs."),
+                "args" to obj("Arguments merged into the existing action for replace_args. Source state fields are removed."),
+                "reason" to string("Evidence-backed reason for the edit."),
+            ),
+            required = listOf("op", "index"),
         )
 
     private val stepLabelPatchSchema: Map<String, Any?>
@@ -723,6 +738,7 @@ object FunctionApi {
                     "id" to string("Stable checker rule id."),
                     "condition" to string("Supported condition such as ad_blocking, permission_dialog, keyboard_obscuring, package_mismatch, app_upgrade_prompt, or resolver_dialog."),
                     "action" to string("Supported action such as dismiss, allow, hide_keyboard, open_app, or choose."),
+                    "recovery_function_id" to string("Stored single-action Function executed when the condition matches."),
                     "enabled" to boolean("Whether the checker is enabled."),
                     "params" to obj(
                         properties = linkedMapOf(
@@ -768,7 +784,7 @@ object FunctionApi {
                                     "description" to string("Visible action intent."),
                                     "args" to obj(description = "Concrete replay arguments."),
                                     "cleanup_annotation" to cleanupAnnotationSchema,
-                                    "source_context" to obj(description = "Recorder evidence. Not sent to label enhancement prompts."),
+                                    "source_context" to obj(description = "Minimal coordinate semantics and source action index. Raw page evidence remains in the RunLog."),
                                 )
                             ),
                         ),
@@ -812,9 +828,11 @@ object FunctionApi {
     private fun obj(
         description: String? = null,
         properties: Map<String, Any?> = emptyMap(),
+        required: List<String> = emptyList(),
     ): Map<String, Any?> = linkedMapOf<String, Any?>("type" to "object").apply {
         if (description != null) put("description", description)
         if (properties.isNotEmpty()) put("properties", properties)
+        if (required.isNotEmpty()) put("required", required)
     }
 
     private fun array(description: String, items: Map<String, Any?>): Map<String, Any?> =

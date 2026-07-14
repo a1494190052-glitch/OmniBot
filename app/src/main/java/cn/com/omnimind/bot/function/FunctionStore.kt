@@ -37,16 +37,17 @@ class FunctionStore(private val workspaceRoot: File) {
         get() = RecallIndex(workspaceRoot)
 
     fun register(spec: Map<String, Any?>): Map<String, Any?> {
-        val functionId = FunctionSchema.functionId(spec).takeIf { it.isNotEmpty() }
+        val safeSpec = FunctionContract.sanitize(spec)
+        val functionId = FunctionSchema.functionId(safeSpec).takeIf { it.isNotEmpty() }
             ?: return mapOf("success" to false, "errorMessage" to "function_id required")
         val existing = get(functionId)
         val sourceRunIds = (existing?.let(FunctionSchema::sourceRunIds).orEmpty() +
-            FunctionSchema.sourceRunIds(spec)).distinct()
+            FunctionSchema.sourceRunIds(safeSpec)).distinct()
         val now = System.currentTimeMillis().toString()
         val existingRegistry = FunctionJson.mapArg(existing?.get("_oob_registry"))
-        val incomingRegistry = FunctionJson.mapArg(spec["_oob_registry"])
+        val incomingRegistry = FunctionJson.mapArg(safeSpec["_oob_registry"])
         val storedSpec = linkedMapOf<String, Any?>().apply {
-            putAll(spec)
+            putAll(safeSpec)
             put("function_id", functionId)
             putIfAbsent("name", functionId)
             put(
@@ -69,7 +70,7 @@ class FunctionStore(private val workspaceRoot: File) {
                     "metadata",
                     linkedMapOf<String, Any?>().apply {
                         putAll(FunctionJson.mapArg(existing?.get("metadata")))
-                        putAll(FunctionJson.mapArg(spec["metadata"]))
+                        putAll(FunctionJson.mapArg(safeSpec["metadata"]))
                         put("source_run_ids", sourceRunIds)
                     }
                 )
@@ -222,49 +223,6 @@ class FunctionStore(private val workspaceRoot: File) {
         }.onFailure {
             OmniLog.w(TAG, "mirror run log failed: ${record.runId}, ${it.message}")
         }
-    }
-
-    fun distillFromRun(record: InternalRunLogRecord): Map<String, Any?> {
-        mirrorRunLog(record)
-
-        val spec = compileRunLogFunctionSpec(record) ?: run {
-            return mapOf("success" to false, "reason" to "no_replayable_steps")
-        }
-
-        val functionId = FunctionSchema.functionId(spec)
-            .ifEmpty { deriveFunctionId(record) }
-        val storedSpec = if (functionId == spec["function_id"]) {
-            spec
-        } else {
-            linkedMapOf<String, Any?>().apply {
-                putAll(spec)
-                put("function_id", functionId)
-            }
-        }
-
-        register(storedSpec)
-
-        return mapOf(
-            "success" to true,
-            "function_id" to functionId,
-            "step_count" to FunctionSchema.materializedSteps(storedSpec).size,
-            "path" to functionFile(functionId).absolutePath,
-        )
-    }
-
-    internal fun compileRunLogFunctionSpec(record: InternalRunLogRecord): Map<String, Any?>? {
-        return FunctionCompiler.compile(record)
-    }
-
-    private fun deriveFunctionId(record: InternalRunLogRecord): String {
-        val base = record.toolName.ifBlank { record.goal }
-            .lowercase()
-            .replace(Regex("[^a-z0-9]+"), "_")
-            .trim('_')
-            .take(40)
-            .ifBlank { "function" }
-        val suffix = record.runId.takeLast(8).replace(Regex("[^A-Za-z0-9]"), "")
-        return "oob_fn_${base}_$suffix"
     }
 
     private fun functionFile(functionId: String): File {

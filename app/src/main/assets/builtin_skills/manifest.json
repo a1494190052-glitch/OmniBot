@@ -29,6 +29,16 @@
       "hasReferences": false,
       "hasAssets": false,
       "hasEvals": false
+    },
+    {
+      "id": "function",
+      "name": "function",
+      "description": "Manage and improve Omnibot reusable Functions from recorded RunLogs. Use whenever the user asks to save, register, inspect, clean, enhance, repair, parameterize, or delete a 复用指令 / Function / recorded trajectory, including duplicate input cleanup, noisy actions, optional popup checkers, 保存刚才的操作, 增强这个 Function, and 应该点 A 而不是 B.",
+      "assetPath": "builtin_skills/function",
+      "hasScripts": false,
+      "hasReferences": false,
+      "hasAssets": false,
+      "hasEvals": false
     }
   ]
 }

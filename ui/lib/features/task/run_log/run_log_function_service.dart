@@ -913,8 +913,7 @@ class RunLogFunctionService {
   }
 
   static Future<Map<String, dynamic>> updateFunction({
-    String? functionId,
-    Map<String, dynamic>? functionSpec,
+    required String functionId,
     String? runId,
     String mode = 'enhance',
     Map<String, dynamic>? analysis,
@@ -922,18 +921,13 @@ class RunLogFunctionService {
     Map<String, dynamic> extraArgs = const <String, dynamic>{},
     bool autoAnalyzeWithModel = false,
   }) async {
-    final normalizedFunctionId = functionId?.trim() ?? '';
-    final normalizedFunctionSpec = functionSpec == null
-        ? const <String, dynamic>{}
-        : _jsonSafeMap(functionSpec);
-    if (normalizedFunctionId.isEmpty && normalizedFunctionSpec.isEmpty) {
-      throw Exception('function_id 或 function_spec 为空，无法更新 Function');
+    final normalizedFunctionId = functionId.trim();
+    if (normalizedFunctionId.isEmpty) {
+      throw Exception('function_id 为空，无法更新 Function');
     }
     final args = <String, dynamic>{
       ..._jsonSafeMap(extraArgs),
-      if (normalizedFunctionId.isNotEmpty) 'function_id': normalizedFunctionId,
-      if (normalizedFunctionSpec.isNotEmpty)
-        'function_spec': normalizedFunctionSpec,
+      'function_id': normalizedFunctionId,
       'mode': mode.trim().isEmpty ? 'enhance' : mode.trim(),
       'auto_analyze_with_model': autoAnalyzeWithModel,
       if (runId != null && runId.trim().isNotEmpty) 'run_id': runId.trim(),
@@ -1120,7 +1114,6 @@ class RunLogFunctionService {
     );
     return UtgManualRunResult.fromMap(_jsonSafeDynamicMap(result));
   }
-
 }
 
 bool? _parseBool(dynamic value) {

@@ -19,7 +19,8 @@ import cn.com.omnimind.baselib.runlog.OobActionSchema
 data class ReplayCheckerRule(
     val id: String,
     val condition: String,
-    val action: String,
+    val action: String = "",
+    val recoveryFunctionId: String = "",
     val params: Map<String, Any?> = emptyMap(),
     val phase: String = phaseForCondition(condition),
     val enabled: Boolean = true,
@@ -42,6 +43,7 @@ data class ReplayCheckerRule(
         const val COND_TARGET_COVERED_BY_XPATH = "target_covered_by_xpath"
         /** Soft keyboard overlaps the action target. */
         const val COND_KEYBOARD_OBSCURING = "keyboard_obscuring"
+        const val COND_PERMISSION_DIALOG = "permission_dialog"
 
         // ── Actions ─────────────────────────────────────────────────────────
         /** Launch the expected app (params: package_name overrides step inference). */
@@ -65,25 +67,34 @@ data class ReplayCheckerRule(
             val id = map["id"]?.toString()?.trim().orEmpty().ifBlank { return null }
             val conditionValue = map["condition"] ?: map["when"] ?: map["type"]
             val actionValue = map["action"] ?: map["then"] ?: map["effect"]
+            val recoveryFunctionId = firstNonBlank(
+                map["recovery_function_id"],
+                map["recoveryFunctionId"],
+            )
             val condition = normalizeCondition(
                 firstNonBlank(
                     checkerType(conditionValue),
                     conditionValue,
                 )
             ).ifBlank { return null }
-            val action = normalizeAction(
-                raw = firstNonBlank(
-                    checkerType(actionValue),
-                    actionValue,
-                ),
-                condition = condition,
-            ).ifBlank { return null }
-            if (!isSupportedPair(condition, action)) return null
+            val action = if (recoveryFunctionId.isNotBlank()) {
+                ""
+            } else {
+                normalizeAction(
+                    raw = firstNonBlank(
+                        checkerType(actionValue),
+                        actionValue,
+                    ),
+                    condition = condition,
+                ).ifBlank { return null }
+            }
+            if (recoveryFunctionId.isBlank() && !isSupportedPair(condition, action)) return null
             val params = checkerParams(map)
             return ReplayCheckerRule(
                 id = id,
                 condition = condition,
                 action = action,
+                recoveryFunctionId = recoveryFunctionId,
                 params = params,
                 phase = map["phase"]?.toString()?.trim()?.ifBlank { null } ?: phaseForCondition(condition),
                 enabled = map["enabled"]?.let(::boolArg) ?: true,
@@ -179,6 +190,22 @@ data class ReplayCheckerRule(
                 "wrong_app",
                 "app_mismatch",
                 "foreground_package_mismatch" -> COND_PACKAGE_MISMATCH
+                "permission",
+                "permission_dialog" -> COND_PERMISSION_DIALOG
+                "overlay_blocking",
+                "blocking_overlay",
+                "popup_blocking",
+                "popup",
+                "ad_blocking",
+                "ad",
+                "ads",
+                "splash_ad",
+                "resolver_dialog",
+                "open_with_dialog",
+                "chooser_dialog",
+                "app_upgrade_prompt",
+                "upgrade_prompt",
+                "update_prompt" -> raw.trim().lowercase().replace('-', '_')
                 else -> ""
             }
 

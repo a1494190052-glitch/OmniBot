@@ -12,6 +12,8 @@ import cn.com.omnimind.bot.agent.LiveAgentBrowserSessionManager
 import cn.com.omnimind.bot.agent.ManualToolStopCancellationException
 import cn.com.omnimind.bot.agent.tool.handlers.SharedHelper
 import cn.com.omnimind.baselib.runlog.OobActionSchema
+import cn.com.omnimind.bot.omniflow.ActionPipeline
+import cn.com.omnimind.bot.omniflow.OmniFlowReplayAdapter
 import cn.com.omnimind.bot.function.FunctionJson.firstNonBlank
 import cn.com.omnimind.bot.function.FunctionJson.intArg
 import cn.com.omnimind.bot.function.FunctionJson.listArg
@@ -46,6 +48,11 @@ class FunctionRun(
     private val runResultBuilder: FunctionRunResultBuilder =
         FunctionRunResultBuilder(),
 ) {
+    private val omniFlowReplayAdapter = OmniFlowReplayAdapter(
+        context = context,
+        deviceOperator = deviceOperator,
+    )
+    private val actionPipeline = ActionPipeline(actionExecutor)
     private val checkerRuleJson = Json {
         ignoreUnknownKeys = true
         isLenient = true
@@ -370,7 +377,7 @@ class FunctionRun(
             }
         try {
         val checkerRules = checkerRulesForSpec(spec)
-        val checkerBudget = ReplayHelper.CheckerTriggerBudget()
+        val sourceRunId = FunctionSchema.sourceRunIds(spec).lastOrNull().orEmpty()
 
         val stepLoopStartedAt = System.nanoTime()
         timing.recordSinceStart("pre_step_loop_ms", stepLoopStartedAt)
@@ -458,16 +465,25 @@ class FunctionRun(
                     val normalizedArgs = ReplayHelper.normalizeArgsMap(argsForStep(step))
                     val evidence = replayStepEvidence(step, normalizedArgs)
                     try {
-                        val result = actionExecutor.act(
+                        val result = actionPipeline.execute(
                             action = action,
                             args = normalizedArgs,
                             source = "function_replay",
-                            check = replayCheckConfig(
-                                step = step,
-                                checkerRules = checkerRules,
-                                checkerBudget = checkerBudget,
-                                stopRequested = replayStopRequested,
-                            ),
+                            stopRequested = replayStopRequested,
+                            prepare = { currentAction, currentArgs ->
+                                omniFlowReplayAdapter.prepareAct(
+                                    functionId = functionId,
+                                    step = step,
+                                    sourceRunId = sourceRunId,
+                                    sourceActionIndex = intArg(
+                                        mapArg(normalizedArgs["source_context"])["action_index"],
+                                        defaultValue = index,
+                                    ),
+                                    action = currentAction,
+                                    args = currentArgs,
+                                    rules = checkerRules,
+                                )
+                            },
                         )
                         if (!result.success) {
                             throw ReplayHelper.ExecutionException(
@@ -863,72 +879,6 @@ class FunctionRun(
                     ?: "复用指令执行失败：$functionId",
         ).filterValues { it != null })
     }
-
-    private fun replayCheckConfig(
-        step: Map<String, Any?>,
-        checkerRules: List<ReplayCheckerRule>,
-        checkerBudget: ReplayHelper.CheckerTriggerBudget,
-        stopRequested: (() -> Boolean)?,
-    ): ActionExecutor.ActCheckConfig =
-        ActionExecutor.ActCheckConfig(
-            step = step,
-            stopRequested = {
-                if (stopRequested?.invoke() == true) {
-                    throw ManualToolStopCancellationException("Function execution stopped manually")
-                }
-                false
-            },
-            checker = { action, args ->
-                val effects = ReplayHelper.runChecker(
-                    deviceOperator = deviceOperator,
-                    step = step,
-                    action = action,
-                    args = args,
-                    checkerRules = checkerRules,
-                    checkerBudget = checkerBudget,
-                    stopRequested = stopRequested,
-                )
-                if (effects.isEmpty()) {
-                    emptyMap()
-                } else {
-                    mapOf("effects" to effects)
-                }
-            },
-            actionTransfer = actionTransfer@{ _, args ->
-                val transfer = try {
-                    ReplayHelper.remapStepArgs(step, deviceOperator)
-                } catch (e: CancellationException) {
-                    throw e
-                } catch (e: Exception) {
-                    ReplayHelper.StepArgsResult(
-                        args = args,
-                        meta = mapOf(
-                            "applied" to false,
-                            "reason" to "action_transfer_exception",
-                            "error_message" to e.message.orEmpty(),
-                        ),
-                    )
-                }
-                val checkedTransfer = try {
-                    ReplayHelper.requireActionTransferApplied(transfer, args)
-                } catch (e: ReplayHelper.ExecutionException) {
-                    return@actionTransfer ActionExecutor.ActArgsResult(
-                        args = args,
-                        diagnostics = e.diagnostics + linkedMapOf(
-                            "error_code" to e.errorCode,
-                            "error_message" to e.message.orEmpty(),
-                        ),
-                        blockDispatch = true,
-                        failureMessage = e.message.orEmpty(),
-                        failureErrorCode = e.errorCode,
-                    )
-                }
-                ActionExecutor.ActArgsResult(
-                    args = ReplayHelper.normalizeArgsMap(checkedTransfer.args ?: args),
-                    diagnostics = checkedTransfer.meta,
-                )
-            },
-        )
 
     private fun checkerRulesForSpec(spec: Map<String, Any?>): List<ReplayCheckerRule> =
         ReplayCheckerRule.fromSpec(spec) + workspaceCheckerRules()

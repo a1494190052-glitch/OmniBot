@@ -302,7 +302,7 @@ class DebugHumanRunRecordingReceiver : BroadcastReceiver() {
         return awaitResult(context, result, "cancelled")
     }
 
-    private fun recoverRecording(context: Context, requestedRunId: String?): Map<String, Any?> {
+    private suspend fun recoverRecording(context: Context, requestedRunId: String?): Map<String, Any?> {
         if (activeResult != null || HumanTrajectoryLearningSession.isActive()) {
             return errorPayload(
                 "ACTIVE_RECORDING",
@@ -382,7 +382,7 @@ class DebugHumanRunRecordingReceiver : BroadcastReceiver() {
         )
     }
 
-    private fun finalizedPayload(
+    private suspend fun finalizedPayload(
         context: Context,
         success: Boolean,
         phase: String,
@@ -438,7 +438,7 @@ class DebugHumanRunRecordingReceiver : BroadcastReceiver() {
         ).filterValues { it != null }
     }
 
-    private fun convertFinishedRunLog(
+    private suspend fun convertFinishedRunLog(
         context: Context,
         runId: String,
         name: String,

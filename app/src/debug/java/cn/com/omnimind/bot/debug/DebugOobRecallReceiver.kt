@@ -11,6 +11,8 @@ import cn.com.omnimind.assists.task.vlmserver.VLMConversationState
 import cn.com.omnimind.assists.task.vlmserver.VLMRecallContextRequest
 import cn.com.omnimind.baselib.util.OmniLog
 import cn.com.omnimind.bot.function.FunctionService
+import cn.com.omnimind.bot.omniflow.OmniFlowFunctionRecallAdapter
+import cn.com.omnimind.bot.omniflow.OmniFlowPythonRuntime
 import cn.com.omnimind.bot.vlm.VlmFunctionRecall
 import com.google.gson.GsonBuilder
 import java.io.File
@@ -48,14 +50,22 @@ class DebugOobRecallReceiver : BroadcastReceiver() {
             ?: runCatching { AccessibilityController.getCaptureScreenShotXml(true) }.getOrNull().orEmpty()
         val topK = intent?.getIntExtra("k", 8)?.coerceIn(1, 50) ?: 8
 
+        val recallRequest = linkedMapOf<String, Any?>(
+            "goal" to goal,
+            "current_package" to currentPackage,
+            "current_xml" to currentXml,
+            "k" to topK,
+        )
         val recallResult = runCatching {
-            FunctionService(appContext).recall(
-                linkedMapOf(
-                    "goal" to goal,
-                    "current_package" to currentPackage,
-                    "current_xml" to currentXml,
-                    "k" to topK,
-                )
+            val service = FunctionService(appContext)
+            OmniFlowFunctionRecallAdapter(
+                enabled = OmniFlowPythonRuntime::isReady,
+                bridgeCall = { operation, payload ->
+                    OmniFlowPythonRuntime.call(appContext, operation, payload)
+                },
+            ).recall(
+                request = recallRequest,
+                functionSpecs = service.listFunctionSpecs(limit = 500),
             )
         }.getOrElse { error ->
             linkedMapOf<String, Any?>(

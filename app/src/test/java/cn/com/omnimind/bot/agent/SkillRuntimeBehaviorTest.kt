@@ -110,6 +110,20 @@ class SkillRuntimeBehaviorTest {
     }
 
     @Test
+    fun builtinFunctionSkillOwnsRunLogEnhancementRules() {
+        val skillFile = File("src/main/assets/builtin_skills/function/SKILL.md")
+        val text = skillFile.readText()
+        val manifest = File("src/main/assets/builtin_skills/manifest.json").readText()
+
+        assertTrue(manifest.contains("\"id\": \"function\""))
+        assertTrue(text.contains("oob_run_log_get"))
+        assertTrue(text.contains("update_function"))
+        assertTrue(text.contains("patch.action_edits"))
+        assertTrue(text.contains("The baseline conversion intentionally preserves every successful recorded"))
+        assertTrue(text.contains("copy XML, screenshots"))
+    }
+
+    @Test
     fun builtinHatchPetSkillKeepsStandardPetOutputContract() {
         val skillFile = File("src/main/assets/builtin_skills/hatch-pet/SKILL.md")
         val text = skillFile.readText()

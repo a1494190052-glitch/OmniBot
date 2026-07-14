@@ -6690,7 +6690,7 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
         ).filterValues { it != null }
     }
 
-    private fun humanTrajectoryFinalizedPayload(
+    private suspend fun humanTrajectoryFinalizedPayload(
         result: HumanTrajectoryLearningResult,
         phase: String
     ): Map<String, Any?> {
@@ -6741,7 +6741,7 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
         ).filterValues { it != null }
     }
 
-    private fun convertFinishedHumanTrajectoryRunLog(
+    private suspend fun convertFinishedHumanTrajectoryRunLog(
         runId: String,
         name: String,
         description: String

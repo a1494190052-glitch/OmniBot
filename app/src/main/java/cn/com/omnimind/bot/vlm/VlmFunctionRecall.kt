@@ -6,6 +6,8 @@ import cn.com.omnimind.assists.task.vlmserver.VLMRecallContextProvider
 import cn.com.omnimind.assists.task.vlmserver.VLMRecallContextRequest
 import cn.com.omnimind.baselib.util.OmniLog
 import cn.com.omnimind.bot.function.FunctionService
+import cn.com.omnimind.bot.omniflow.OmniFlowFunctionRecallAdapter
+import cn.com.omnimind.bot.omniflow.OmniFlowPythonRuntime
 import cn.com.omnimind.bot.runlog.firstNonBlank
 import cn.com.omnimind.bot.runlog.listArg
 import cn.com.omnimind.bot.runlog.mapArg
@@ -23,6 +25,12 @@ import kotlinx.serialization.json.put
 class VlmFunctionRecall(context: Context) : VLMRecallContextProvider {
     private val appContext = context.applicationContext
     private val config get() = VlmWorkspaceConfig.getInstance(appContext).get()
+    private val recallAdapter = OmniFlowFunctionRecallAdapter(
+        enabled = OmniFlowPythonRuntime::isReady,
+        bridgeCall = { operation, payload ->
+            OmniFlowPythonRuntime.call(appContext, operation, payload)
+        },
+    )
 
     override suspend fun enrich(request: VLMRecallContextRequest): UIContext {
         if (request.disableFunctionRecall || !config.recallEnabled) {
@@ -45,14 +53,17 @@ class VlmFunctionRecall(context: Context) : VLMRecallContextProvider {
                 )
             )
         }
+        val recallRequest = mapOf(
+            "goal" to goal,
+            "current_package" to request.currentPackageName,
+            "current_xml" to request.currentXml,
+            "k" to fetchK,
+        )
         val recallResult = runCatching {
-            FunctionService(appContext).recall(
-                mapOf(
-                    "goal" to goal,
-                    "current_package" to request.currentPackageName,
-                    "current_xml" to request.currentXml,
-                    "k" to fetchK,
-                )
+            val service = FunctionService(appContext)
+            recallAdapter.recall(
+                request = recallRequest,
+                functionSpecs = service.listFunctionSpecs(limit = 500),
             )
         }.onFailure { OmniLog.w(TAG, "recall failed: ${it.message}") }
             .getOrNull()
@@ -73,14 +84,20 @@ class VlmFunctionRecall(context: Context) : VLMRecallContextProvider {
             val function = definition["function"] as? JsonObject
             function?.get("name")?.jsonPrimitive?.contentOrNull
         }
+        val recallDiagnostics = linkedMapOf(
+            "recall_context_lookup_ms" to elapsed(startedAt),
+            "recall_context_state" to firstNonBlank(recallResult["retrieval_state"]).ifBlank { "miss" },
+            "recall_context_tool_count" to tools.size.toString(),
+            "recall_context_tool_names" to ids.joinToString(",").take(4000),
+            "recall_context_runtime_source" to firstNonBlank(recallResult["runtime_source"])
+                .ifBlank { "omniflow_python" },
+        )
+        firstNonBlank(recallResult["reason"])
+            .takeIf(String::isNotBlank)
+            ?.let { reason -> recallDiagnostics["recall_context_reason"] = reason.take(240) }
         return request.context.copy(
             dynamicToolDefinitions = request.context.dynamicToolDefinitions + tools,
-            pageDiagnostics = request.context.pageDiagnostics + mapOf(
-                "recall_context_lookup_ms" to elapsed(startedAt),
-                "recall_context_state" to firstNonBlank(recallResult["retrieval_state"]).ifBlank { "miss" },
-                "recall_context_tool_count" to tools.size.toString(),
-                "recall_context_tool_names" to ids.joinToString(",").take(4000),
-            )
+            pageDiagnostics = request.context.pageDiagnostics + recallDiagnostics,
         )
     }
 

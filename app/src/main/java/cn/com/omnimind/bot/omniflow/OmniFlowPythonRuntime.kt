@@ -11,11 +11,15 @@ import kotlinx.coroutines.launch
 
 internal object OmniFlowPythonRuntime {
     private const val TAG = "[OmniFlowPythonRuntime]"
+    private const val EXPECTED_PROTOCOL = "omniflow.bridge.v2"
     private val runtimeScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val startLock = Any()
 
     @Volatile
     private var client: OmniFlowPythonClient? = null
+
+    @Volatile
+    private var ready: Boolean = false
 
     fun start(context: Context) {
         val sharedClient = synchronized(startLock) {
@@ -24,8 +28,15 @@ internal object OmniFlowPythonRuntime {
         }
         val startedAt = SystemClock.elapsedRealtime()
         runtimeScope.launch {
-            runCatching { sharedClient.warmup() }
+            runCatching {
+                sharedClient.warmup().also { health ->
+                    require(health["protocol_version"] == EXPECTED_PROTOCOL) {
+                        "unsupported_omniflow_protocol:${health["protocol_version"]}"
+                    }
+                }
+            }
                 .onSuccess { health ->
+                    ready = true
                     OmniLog.i(
                         TAG,
                         "warmup_ready durationMs=${SystemClock.elapsedRealtime() - startedAt} " +
@@ -33,6 +44,7 @@ internal object OmniFlowPythonRuntime {
                     )
                 }
                 .onFailure { error ->
+                    ready = false
                     if (error !is CancellationException) {
                         OmniLog.w(
                             TAG,
@@ -43,6 +55,8 @@ internal object OmniFlowPythonRuntime {
                 }
         }
     }
+
+    fun isReady(): Boolean = ready
 
     suspend fun call(
         context: Context,

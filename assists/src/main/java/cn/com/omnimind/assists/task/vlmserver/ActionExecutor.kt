@@ -68,21 +68,6 @@ class ActionExecutor(
     private val TAG = "ActionExecutor"
     private val json = Json { ignoreUnknownKeys = true }
 
-    data class ActArgsResult(
-        val args: Map<String, Any?>,
-        val diagnostics: Map<String, Any?> = emptyMap(),
-        val blockDispatch: Boolean = false,
-        val failureMessage: String = "",
-        val failureErrorCode: String = "",
-    )
-
-    data class ActCheckConfig(
-        val step: Map<String, Any?>? = null,
-        val stopRequested: (() -> Boolean)? = null,
-        val checker: (suspend (action: String, args: Map<String, Any?>) -> Map<String, Any?>)? = null,
-        val actionTransfer: (suspend (action: String, args: Map<String, Any?>) -> ActArgsResult)? = null,
-    )
-
     private suspend fun ensureActionActive() {
         currentCoroutineContext().ensureActive()
     }
@@ -283,64 +268,16 @@ class ActionExecutor(
     suspend fun act(
         action: String,
         args: Map<String, Any?>,
-        check: ActCheckConfig? = null,
         source: String = SOURCE_AGENT_ACTION,
         diagnostics: Map<String, Any?> = emptyMap(),
+        stopRequested: (() -> Boolean)? = null,
     ): OperationResult {
         return try {
-            throwIfStopRequested(check)
-            val checkDiagnostics = linkedMapOf<String, Any?>()
-            var effectiveAction = resolveActionName(action) ?: OobActionSchema.normalizeToolName(action)
-            var effectiveArgs = canonicalActionArgs(effectiveAction, args)
-
-            check?.checker?.let { checker ->
-                val checkerResults = mutableListOf<Map<String, Any?>>()
-                for (attempt in 0 until CHECKER_STABILIZE_LIMIT) {
-                    val result = checker(effectiveAction, effectiveArgs)
-                    if (result.isNotEmpty()) checkerResults += result
-                    throwIfStopRequested(check)
-                    if (!checkerChangedPage(result)) {
-                        break
-                    }
-                    delay(CHECKER_SETTLE_MS)
-                    throwIfStopRequested(check)
-                }
-                when (checkerResults.size) {
-                    0 -> Unit
-                    1 -> checkDiagnostics["checker"] = checkerResults.first()
-                    else -> checkDiagnostics["checker"] = checkerResults
-                }
-            }
-
-            check?.actionTransfer?.let { transfer ->
-                val result = transfer(effectiveAction, effectiveArgs)
-                effectiveArgs = canonicalActionArgs(effectiveAction, result.args)
-                if (result.diagnostics.isNotEmpty()) {
-                    checkDiagnostics["action_transfer"] = result.diagnostics
-                }
-                if (result.blockDispatch) {
-                    val message = result.failureMessage.ifBlank { "Action blocked by action transfer" }
-                    val failureDiagnostics = linkedMapOf<String, Any?>(
-                        "action_source" to source,
-                        "error" to message,
-                        "local_action_error_code" to result.failureErrorCode.ifBlank {
-                            message.substringBefore(':').trim()
-                                .takeIf { it.startsWith("OOB_") }
-                                .orEmpty()
-                        },
-                    ).filterValues { value -> value?.toString()?.isNotBlank() == true }
-                    return OperationResult(
-                        success = false,
-                        message = message,
-                        data = null,
-                        diagnostics = (diagnostics + checkDiagnostics + failureDiagnostics).toStringDiagnostics(),
-                    )
-                }
-                throwIfStopRequested(check)
-            }
-
-            val dispatchResult = dispatchCanonical(effectiveAction, effectiveArgs, check)
-            val mergedDiagnostics = diagnostics + checkDiagnostics + mapOf("action_source" to source)
+            throwIfStopRequested(stopRequested)
+            val effectiveAction = resolveActionName(action) ?: OobActionSchema.normalizeToolName(action)
+            val effectiveArgs = canonicalActionArgs(effectiveAction, args)
+            val dispatchResult = dispatchCanonical(effectiveAction, effectiveArgs, stopRequested)
+            val mergedDiagnostics = diagnostics + mapOf("action_source" to source)
             if (mergedDiagnostics.isEmpty()) {
                 dispatchResult
             } else {
@@ -397,7 +334,7 @@ class ActionExecutor(
     private suspend fun dispatchCanonical(
         action: String,
         args: Map<String, Any?>,
-        check: ActCheckConfig? = null,
+        stopRequested: (() -> Boolean)? = null,
     ): OperationResult {
         return when (action) {
             OobActionSchema.TOOL_CLICK -> deviceOperator.clickCoordinate(
@@ -498,7 +435,7 @@ class ActionExecutor(
                     ?: ((numberArg(args, OobActionSchema.ARG_TIME_S) ?: 1.0)
                         .coerceAtLeast(0.0) * 1000.0).toLong()
                 val clamped = waitMs.coerceIn(0L, MAX_CANONICAL_WAIT_MS)
-                waitInterruptibly(clamped, check)
+                waitInterruptibly(clamped, stopRequested)
                 OperationResult(true, "等待 ${clamped}ms 完成", null)
             }
 
@@ -532,15 +469,18 @@ class ActionExecutor(
         return deviceOperator.slideCoordinate(startX, startY, endX, endY, durationMs)
     }
 
-    private suspend fun waitInterruptibly(durationMs: Long, check: ActCheckConfig?) {
+    private suspend fun waitInterruptibly(
+        durationMs: Long,
+        stopRequested: (() -> Boolean)?,
+    ) {
         var remainingMs = durationMs.coerceAtLeast(0L)
         while (remainingMs > 0L) {
-            throwIfStopRequested(check)
+            throwIfStopRequested(stopRequested)
             val chunkMs = remainingMs.coerceAtMost(STOP_POLL_INTERVAL_MS)
             delay(chunkMs)
             remainingMs -= chunkMs
         }
-        throwIfStopRequested(check)
+        throwIfStopRequested(stopRequested)
     }
 
     private fun canonicalActionArgs(
@@ -556,19 +496,9 @@ class ActionExecutor(
         }
     }
 
-    private fun throwIfStopRequested(check: ActCheckConfig?) {
-        if (check?.stopRequested?.invoke() == true) {
+    private fun throwIfStopRequested(stopRequested: (() -> Boolean)?) {
+        if (stopRequested?.invoke() == true) {
             throw ActionStoppedException("Function execution stopped manually")
-        }
-    }
-
-    private fun checkerChangedPage(result: Map<String, Any?>): Boolean {
-        if (result.isEmpty()) return false
-        if (result["executed"] == true || result["effect"] == "run_actions") return true
-        val effects = result["effects"] as? Iterable<*> ?: return false
-        return effects.any { effect ->
-            val map = effect as? Map<*, *> ?: return@any false
-            map["effect"] == "run_actions" || map["executed"] == true
         }
     }
 
@@ -609,9 +539,6 @@ class ActionExecutor(
         private const val OPEN_APP_POST_DELAY_MS = 1000L
         private const val FUNCTION_RUN_POST_DELAY_MS = 500L
         private const val STOP_POLL_INTERVAL_MS = 100L
-        private const val CHECKER_STABILIZE_LIMIT = 3
-        private const val CHECKER_SETTLE_MS = 1_000L
-
         fun resolveActionName(raw: String): String? =
             OobActionSchema.canonicalToolName(raw)?.takeIf { it in OobActionSchema.replayableToolNames }
 
