@@ -9,6 +9,7 @@ import android.os.SystemClock
 import android.util.Base64
 import cn.com.omnimind.baselib.util.OmniLog
 import cn.com.omnimind.bot.omniflow.OmniFlowPythonRuntime
+import cn.com.omnimind.bot.omniflow.omniFlowRunLogHostCall
 import cn.com.omnimind.bot.terminal.EmbeddedTerminalRuntime
 import com.google.gson.GsonBuilder
 import com.google.gson.reflect.TypeToken
@@ -146,7 +147,12 @@ class DebugOmniFlowPythonService : Service() {
             val callDurationsMs = mutableListOf<Long>()
             val bridgeResults = List(repeatCount) {
                 val callStartedAt = SystemClock.elapsedRealtime()
-                OmniFlowPythonRuntime.call(context, operation, payload).also {
+                OmniFlowPythonRuntime.call(
+                    context = context,
+                    operation = operation,
+                    payload = payload,
+                    hostCall = omniFlowRunLogHostCall(context),
+                ).also {
                     callDurationsMs += SystemClock.elapsedRealtime() - callStartedAt
                 }
             }

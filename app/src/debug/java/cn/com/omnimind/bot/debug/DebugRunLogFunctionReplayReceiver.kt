@@ -7,6 +7,7 @@ import android.util.Base64
 import com.google.gson.reflect.TypeToken
 import cn.com.omnimind.accessibility.service.AssistsService
 import cn.com.omnimind.assists.controller.accessibility.AccessibilityController
+import cn.com.omnimind.baselib.runlog.InternalRunLogStore
 import cn.com.omnimind.baselib.util.OmniLog
 import cn.com.omnimind.bot.function.FunctionRun
 import cn.com.omnimind.bot.function.FunctionService
@@ -68,20 +69,21 @@ class DebugRunLogFunctionReplayReceiver : BroadcastReceiver() {
 
         scope.launch {
             val result = runCatching {
-                waitForAccessibility(appContext)
+                if (shouldRun) waitForAccessibility(appContext)
                 CompanionOverlaySettings.init(appContext)
                 CompanionOverlaySettings.dismissFloatingUi()
                 delay(300L)
                 val service = FunctionService(appContext)
+                val sourceRunId = if (rawRunLogHasReplayableSteps) {
+                    persistInlineRunLog(appContext, runId, rawRunLog, effectiveGoal)
+                } else {
+                    runId
+                }
                 val convertArgs = linkedMapOf<String, Any?>(
-                    "run_id" to runId,
+                    "run_id" to sourceRunId,
                     "register" to true,
                     "agent_visible" to agentVisible,
                 )
-                if (rawRunLogHasReplayableSteps) {
-                    convertArgs.remove("run_id")
-                    convertArgs["run_log"] = rawRunLog
-                }
                 val inlineFunctionId = firstNonBlank(
                     functionId,
                     rawFunctionSpec["function_id"],
@@ -100,7 +102,7 @@ class DebugRunLogFunctionReplayReceiver : BroadcastReceiver() {
                 }
 
                 val convert = when {
-                    rawRunLogHasReplayableSteps -> service.ingestRunLog(linkedMapOf("run_log" to rawRunLog))
+                    rawRunLogHasReplayableSteps -> service.convertRunLog(convertArgs)
                     rawFunctionSpec.isNotEmpty() -> linkedMapOf<String, Any?>(
                         "success" to true,
                         "function_id" to inlineFunctionId,
@@ -384,6 +386,54 @@ class DebugRunLogFunctionReplayReceiver : BroadcastReceiver() {
     private fun Map<String, Any?>.hasReplayableSteps(): Boolean =
         (this["steps"] as? List<*>)?.isNotEmpty() == true ||
             (this["cards"] as? List<*>)?.isNotEmpty() == true
+
+    private fun persistInlineRunLog(
+        context: Context,
+        requestedRunId: String,
+        runLog: Map<String, Any?>,
+        fallbackGoal: String,
+    ): String {
+        val payload = firstMap(runLog["payload"]).ifEmpty { runLog }
+        val runId = firstNonBlank(requestedRunId, payload["run_id"], runLog["run_id"])
+            .ifBlank { "debug_inline_${System.currentTimeMillis()}" }
+        val goal = firstNonBlank(
+            payload["goal"],
+            payload["operation_description"],
+            fallbackGoal,
+        )
+        val rawCards = (payload["steps"] as? List<*>)
+            ?: (payload["cards"] as? List<*>)
+            ?: emptyList<Any?>()
+        val cards = rawCards.mapNotNull { raw ->
+            (raw as? Map<*, *>)?.entries?.associate { (key, value) -> key.toString() to value }
+        }
+        InternalRunLogStore.beginRun(
+            context = context,
+            runId = runId,
+            goal = goal,
+            source = "debug_inline_runlog_import",
+            operationDescription = goal,
+        )
+        InternalRunLogStore.appendCards(context, runId, cards)
+        InternalRunLogStore.finishRun(
+            context = context,
+            runId = runId,
+            success = runSucceeded(payload, runLog),
+            doneReason = "debug_inline_runlog_imported",
+        )
+        return runId
+    }
+
+    private fun runSucceeded(payload: Map<String, Any?>, root: Map<String, Any?>): Boolean {
+        listOf("run_success", "androidworld_success", "success").forEach { key ->
+            listOf(payload, root).forEach { source ->
+                if (source.containsKey(key) && source[key] != null) {
+                    return source[key].toString().trim().lowercase() !in setOf("", "0", "false", "no")
+                }
+            }
+        }
+        return false
+    }
 
     private fun Intent?.booleanExtra(name: String): Boolean? =
         this?.takeIf { it.hasExtra(name) }?.getBooleanExtra(name, false)
