@@ -183,32 +183,40 @@ class DebugAgentFunctionManagementReceiver : BroadcastReceiver() {
             env = env,
             toolName = "oob_function_register",
             args = buildJsonObject {
-                put("functionId", JsonPrimitive(functionId))
-                put("name", JsonPrimitive(name))
-                put("description", JsonPrimitive(description))
-                put("packageName", JsonPrimitive(targetPackage))
-                put("agent_visible", JsonPrimitive(true))
-                put("visibility", JsonPrimitive("agent_reusable"))
-                put("disable_current_page_capture", JsonPrimitive(true))
                 put(
-                    "steps",
-                    JsonArray(
-                        listOf(
-                            mapToJson(
-                                linkedMapOf(
-                                    "action" to "open_app",
-                                    "packageName" to targetPackage,
-                                    "title" to "Open $targetPackage",
-                                )
-                            ),
-                            mapToJson(
-                                linkedMapOf(
-                                    "action" to "finished",
-                                    "content" to "$targetPackage opened",
-                                )
+                    "function_spec",
+                    mapToJson(
+                        linkedMapOf(
+                            "schema_version" to "oob.reusable_function.v1",
+                            "function_id" to functionId,
+                            "name" to name,
+                            "description" to description,
+                            "agent_visible" to true,
+                            "visibility" to "agent_reusable",
+                            "constraints" to mapOf("package_name" to targetPackage),
+                            "execution" to mapOf(
+                                "kind" to "tool_sequence",
+                                "runner" to "oob_tool_sequence",
+                                "entrypoint" to "execute",
+                                "steps" to listOf(
+                                    mapOf(
+                                        "id" to "step_1",
+                                        "index" to 0,
+                                        "title" to "Open $targetPackage",
+                                        "tool" to "open_app",
+                                        "args" to mapOf("package_name" to targetPackage),
+                                    ),
+                                    mapOf(
+                                        "id" to "step_2",
+                                        "index" to 1,
+                                        "title" to "$targetPackage opened",
+                                        "tool" to "finished",
+                                        "args" to mapOf("content" to "$targetPackage opened"),
+                                    ),
+                                ),
                             ),
                         )
-                    )
+                    ),
                 )
             },
             callback = NoOpAgentCallback,

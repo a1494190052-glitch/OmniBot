@@ -5,13 +5,11 @@ import android.os.SystemClock
 import cn.com.omnimind.assists.task.vlmserver.DeviceOperator
 import cn.com.omnimind.baselib.runlog.OobActionSchema
 import cn.com.omnimind.baselib.util.OmniLog
-import cn.com.omnimind.bot.runlog.ReplayCheckerRule
 import cn.com.omnimind.bot.runlog.ReplayHelper
 import cn.com.omnimind.bot.runlog.firstNonBlank
 import cn.com.omnimind.bot.runlog.mapArg
 import cn.com.omnimind.bot.runlog.resolveActionName
 import cn.com.omnimind.bot.runlog.sourceContextForStep
-import cn.com.omnimind.bot.runlog.sourceXmlForStep
 
 internal class OmniFlowReplayAdapter(
     private val observe: suspend () -> Map<String, Any?>,
@@ -51,7 +49,7 @@ internal class OmniFlowReplayAdapter(
         sourceActionIndex: Int = -1,
         action: String,
         args: Map<String, Any?>,
-        rules: List<ReplayCheckerRule>,
+        rules: List<Map<String, Any?>>,
     ): ActionDecision {
         if (!enabled()) {
             return failure("python_not_ready", emptyMap())
@@ -60,16 +58,12 @@ internal class OmniFlowReplayAdapter(
         val observation = observe()
         val normalizedAction = resolveActionName(action) ?: OobActionSchema.normalizeToolName(action)
         val sourceContext = sourceContextForStep(step)
-        val hasSourcePage = ReplayHelper.sourceXmlForStep(step).isNotBlank()
-        val recordedCoordinateSpace = firstNonBlank(sourceContext["coordinate_space"])
         val coordinateSpace = if (
-            normalizedAction !in OobActionSchema.coordinateToolNames
+            normalizedAction in OobActionSchema.coordinateToolNames &&
+            sourceRunId.isNotBlank() &&
+            sourceActionIndex >= 0
         ) {
-            "absolute_passthrough"
-        } else if (recordedCoordinateSpace == "relative_0_1000") {
-            recordedCoordinateSpace
-        } else if (hasSourcePage) {
-            "absolute_pixels"
+            "relative_0_1000"
         } else {
             "absolute_passthrough"
         }
@@ -86,7 +80,7 @@ internal class OmniFlowReplayAdapter(
                     "coordinate_space" to coordinateSpace,
                     "action" to canonicalAction(normalizedAction, controlArgs),
                     "observation" to observation,
-                    "checker_rules" to rules.map { rule -> checkerRulePayload(rule, step) },
+                    "checker_rules" to rules,
                 ).filterValues { it != null },
             )
             responseAttempt(
@@ -156,63 +150,6 @@ internal class OmniFlowReplayAdapter(
                 "unsupported_conditions" to response["unsupported_conditions"],
             ).filterValues { it != null },
         )
-    }
-
-    private fun checkerRulePayload(
-        rule: ReplayCheckerRule,
-        step: Map<String, Any?>,
-    ): Map<String, Any?> {
-        val expectedPackage = firstNonBlank(
-            rule.params["package_name"],
-            rule.params["expected_package"],
-            ReplayHelper.stepSourcePackage(step),
-        )
-        val condition = linkedMapOf<String, Any?>("type" to rule.condition)
-        val recovery = linkedMapOf<String, Any?>("type" to rule.action)
-        when (rule.condition) {
-            ReplayCheckerRule.COND_PACKAGE_MISMATCH -> {
-                condition["expected_package"] = expectedPackage
-                recovery["package_name"] = expectedPackage
-            }
-            ReplayCheckerRule.COND_XPATH_EXISTS -> condition["xpath_exists"] = firstNonBlank(
-                rule.params["xpath_exists"],
-                rule.params["xpath"],
-            )
-            ReplayCheckerRule.COND_TARGET_COVERED_BY_XPATH -> {
-                condition["target_covered_by_xpath"] = firstNonBlank(
-                    rule.params["target_covered_by_xpath"]
-                )
-            }
-            ReplayCheckerRule.COND_KEYBOARD_OBSCURING -> condition["keyboard_obscuring"] = true
-        }
-        listOf(
-            "text_any",
-            "text_contains_any",
-            "xml_contains_any",
-            "content_desc_any",
-            "content_desc_contains_any",
-            "resource_id_any",
-            "resource_id_contains_any",
-            "package_any",
-            "package_allowlist",
-        ).forEach { key ->
-            rule.params[key]?.let { value -> condition[key] = value }
-        }
-        firstNonBlank(rule.params["target_xpath"])
-            .takeIf(String::isNotBlank)
-            ?.let { recovery["target_xpath"] = it }
-        rule.params["delay_ms"]?.let { recovery["wait_ms"] = it }
-        return linkedMapOf<String, Any?>(
-            "schema_version" to "omniflow.checker_rule.v1",
-            "id" to rule.id,
-            "enabled" to rule.enabled,
-            "phase" to rule.phase,
-            "condition" to condition.filterValues { it?.toString()?.isNotBlank() == true },
-            "action" to recovery.filterValues { it?.toString()?.isNotBlank() == true }
-                .takeIf { rule.recoveryFunctionId.isBlank() },
-            "recovery_function_id" to rule.recoveryFunctionId.takeIf(String::isNotBlank),
-            "priority" to rule.params["priority"],
-        ).filterValues { it != null }
     }
 
     private fun canonicalAction(action: String, args: Map<String, Any?>): Map<String, Any?> =

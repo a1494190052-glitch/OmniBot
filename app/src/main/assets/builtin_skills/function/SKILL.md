@@ -6,8 +6,10 @@ description: Manage and improve Omnibot reusable Functions from recorded RunLogs
 # Function
 
 Use this skill for the agent decisions around recorded RunLogs and reusable
-Functions. Native code owns storage, compilation, validation, recall, and
-execution. This skill owns evidence interpretation and explicit patches.
+Functions. Kotlin owns Android RunLog access, Function files, and physical
+action execution. OmniFlow owns compilation, recall, materialization, action
+transfer, and checker policy. This skill owns evidence interpretation and
+explicit action edits.
 
 ## Storage Model
 
@@ -36,7 +38,7 @@ action. Do not expect the compiler to merge input or remove behavior.
 1. Read the saved Function with `oob_function_get`.
 2. Resolve its source `run_id`, then read that RunLog with `oob_run_log_get`.
 3. Compare Function actions with RunLog cards in order.
-4. Build the smallest evidence-backed `analysis` and `patch`.
+4. Build the smallest evidence-backed `patch.action_edits`.
 5. Call `update_function` with `dry_run=true` and inspect the preview.
 6. If the preview preserves the intended workflow, call the same patch without
    `dry_run`.
@@ -46,11 +48,6 @@ Use `patch.action_edits` for executable cleanup:
 ```json
 {
   "function_id": "fn_example",
-  "run_id": "run_example",
-  "mode": "enhance",
-  "analysis": {
-    "summary": "The first input_text is an incremental value superseded by the next action."
-  },
   "patch": {
     "action_edits": [
       {
@@ -81,11 +78,11 @@ whole Function.
 - Delete an earlier incremental `input_text` only when a later `input_text`
   targets the same field and fully supersedes it.
 - Treat ads, permission prompts, update prompts, and transient popups as
-  optional checker candidates, not mandatory happy-path actions.
+  checker evidence, not mandatory happy-path actions. Do not encode checker
+  rules through `update_function`.
 - Use `replace_args` for an explicit user correction or unambiguous RunLog
   evidence. Do not invent coordinates, selectors, or target text.
-- If evidence is ambiguous, leave executable actions unchanged and improve only
-  the description or annotations.
+- If evidence is ambiguous, leave the Function unchanged and report why.
 
 ## Safety And Identity
 

@@ -1,7 +1,6 @@
 package cn.com.omnimind.bot.omniflow
 
 import cn.com.omnimind.assists.task.vlmserver.OperationResult
-import cn.com.omnimind.bot.runlog.ReplayCheckerRule
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -78,16 +77,14 @@ class OmniFlowReplayAdapterTest {
     @Test
     fun `control act preserves stored recovery function id`() = runBlocking {
         var checkerRule = emptyMap<String, Any?>()
-        val rule = ReplayCheckerRule.fromMap(
-            mapOf(
-                "id" to "dismiss_permission",
-                "condition" to mapOf(
-                    "type" to "permission_dialog",
-                    "text_any" to listOf("Don’t allow"),
-                ),
-                "recovery_function_id" to "fn_dismiss_permission",
-            )
-        ) ?: error("rule was not parsed")
+        val rule = mapOf(
+            "id" to "dismiss_permission",
+            "condition" to mapOf(
+                "type" to "permission_dialog",
+                "text_any" to listOf("Don’t allow"),
+            ),
+            "recovery_function_id" to "fn_dismiss_permission",
+        )
         val adapter = OmniFlowReplayAdapter(
             observe = { mapOf("xml" to TARGET_XML, "package_name" to "com.example") },
             enabled = { true },
@@ -167,11 +164,11 @@ class OmniFlowReplayAdapterTest {
         )
     }
 
-    private fun packageRule(): ReplayCheckerRule = ReplayCheckerRule(
-        id = "restore_package",
-        condition = ReplayCheckerRule.COND_PACKAGE_MISMATCH,
-        action = ReplayCheckerRule.ACTION_OPEN_APP,
-        params = mapOf("package_name" to "com.example"),
+    private fun packageRule(): Map<String, Any?> = mapOf(
+        "id" to "restore_package",
+        "condition" to "package_mismatch",
+        "action" to "open_app",
+        "params" to mapOf("package_name" to "com.example"),
     )
 
     private fun step(): Map<String, Any?> = mapOf(

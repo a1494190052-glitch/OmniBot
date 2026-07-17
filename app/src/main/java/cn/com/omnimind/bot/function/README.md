@@ -8,7 +8,7 @@ Keep the model simple:
 FunctionService = manage Functions
 FunctionRun     = run one Function
 FunctionStore   = persist workspace JSON
-FunctionSchema  = normalize/materialize Function specs
+FunctionSchema  = expose read-only Function views
 FunctionApi     = external tool names and schemas
 ```
 
@@ -24,11 +24,10 @@ FunctionApi     = external tool names and schemas
 - `FunctionService.kt`: Function management flow: list/get/save/update/delete/clear/recall/convert.
 - `FunctionRun.kt`: Function execution flow.
 - `FunctionStore.kt`: workspace JSON persistence only.
-- `FunctionSchema.kt`: spec normalization, materialization, required-argument checks, and canonical JSON shape.
-- `FunctionCompiler.kt`: RunLog/manual recording to Function conversion.
-- `FunctionParameterBindingNormalizer.kt`: explicit binding normalization only. Do not infer parameters from names or text.
-- `FunctionArgumentBindingValidator.kt`: binding validation.
-- `FunctionStepNormalizer.kt`: simple step/action normalization for imported or registered specs.
+- `FunctionSchema.kt`: Function IDs, input schemas, source runs, and execution-step views.
+- `OmniFlowPythonRuntime`: RunLog conversion, recall, argument materialization, checker policy, and action transfer.
+- `FunctionActionEdits.kt`: explicit `delete` / `replace_args` mutations produced by the Function skill.
+- `FunctionService.registerFunction`: accepts one canonical `function_spec`; compilation stays in OmniFlow.
 - `FunctionFrontendSessionController.kt`: progress/card/session updates for Function runs.
 - `FunctionRunLogRecorder.kt`: Function run log persistence.
 - `FunctionRunResultBuilder.kt`: result payload construction.
@@ -41,7 +40,9 @@ FunctionApi     = external tool names and schemas
 - Do not add Kotlin rules that guess user parameters. Parameters must come from explicit Function schema/bindings or agent-produced updates.
 - Do not expose internal Function replay as a normal VLM action. Online VLM should output ordinary phone actions only.
 - Keep Function storage in workspace JSON. Do not add SharedPreferences fallback or double-write paths.
-- Keep compatibility aliases at the boundary; save canonical Function JSON internally.
+- Accept canonical tool input in production. Legacy aliases belong only in explicit offline import/migration paths.
+- Let OmniFlow materialize arguments and validate bindings before Kotlin executes steps.
+- Pass Function `metadata.checker_rules` to OmniFlow unchanged; checker normalization and support decisions belong to Python.
 
 ## Extension Point
 

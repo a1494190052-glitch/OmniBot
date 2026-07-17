@@ -433,24 +433,6 @@ object VlmToolCoordinator {
         result.copy(phaseMs = phaseMs.toMap())
     }
 
-    private fun recallCurrentPage(
-        context: Context,
-        request: VlmTaskRequest,
-    ): Map<String, Any?> {
-        val currentPackage = runCatching { AccessibilityController.getPackageName().orEmpty() }
-            .getOrDefault("")
-        val currentXml = runCatching { AccessibilityController.getCaptureScreenShotXml(true).orEmpty() }
-            .getOrDefault("")
-        return FunctionService(context).recall(
-            linkedMapOf(
-                "goal" to request.goal,
-                "current_package" to firstNonBlank(request.packageName, currentPackage),
-                "current_xml" to currentXml,
-                "k" to 8,
-            )
-        )
-    }
-
     internal suspend fun parseOnlyNextAction(
         context: UIContext,
         snapshot: VLMCurrentPageSnapshot,

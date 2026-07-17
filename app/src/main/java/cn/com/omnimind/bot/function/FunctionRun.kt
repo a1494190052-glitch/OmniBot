@@ -13,13 +13,13 @@ import cn.com.omnimind.bot.agent.ManualToolStopCancellationException
 import cn.com.omnimind.bot.agent.tool.handlers.SharedHelper
 import cn.com.omnimind.baselib.runlog.OobActionSchema
 import cn.com.omnimind.bot.omniflow.ActionPipeline
+import cn.com.omnimind.bot.omniflow.OmniFlowPythonRuntime
 import cn.com.omnimind.bot.omniflow.OmniFlowReplayAdapter
 import cn.com.omnimind.bot.function.FunctionJson.firstNonBlank
 import cn.com.omnimind.bot.function.FunctionJson.intArg
 import cn.com.omnimind.bot.function.FunctionJson.listArg
 import cn.com.omnimind.bot.function.FunctionJson.longArg
 import cn.com.omnimind.bot.function.FunctionJson.mapArg
-import cn.com.omnimind.bot.runlog.ReplayCheckerRule
 import cn.com.omnimind.bot.runlog.ReplayHelper
 import cn.com.omnimind.bot.runlog.argsForStep
 import kotlinx.coroutines.CancellationException
@@ -28,7 +28,6 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
-import java.io.File
 import java.util.concurrent.atomic.AtomicLong
 
 class FunctionRun(
@@ -53,12 +52,6 @@ class FunctionRun(
         deviceOperator = deviceOperator,
     )
     private val actionPipeline = ActionPipeline(actionExecutor)
-    private val checkerRuleJson = Json {
-        ignoreUnknownKeys = true
-        isLenient = true
-        encodeDefaults = false
-    }
-
     /** Workspace-backed function store; injected by the Function layer on init. */
     var workspaceFunctionStore: cn.com.omnimind.bot.function.FunctionStore? =
         cn.com.omnimind.bot.function.FunctionStore(
@@ -75,7 +68,10 @@ class FunctionRun(
             stepResult["model_free"] == true
 
     suspend fun runFunction(args: Map<String, Any?>?): Map<String, Any?> {
-        val callTiming = CallTiming()
+        val callTiming = FunctionTiming(
+            source = "oob_function_call",
+            requiredPhases = CALL_PHASES,
+        )
         val request = args ?: emptyMap()
         val functionId = firstNonBlank(request["function_id"], request["functionId"])
         val executionMode = firstNonBlank(request["execution_mode"])
@@ -92,7 +88,7 @@ class FunctionRun(
                 frontendParent = firstNonBlank(request["frontend_parent"], request["frontendParent"]),
             )
         }
-        runPayload = normalizeIncompleteReplay(callTiming.attachTo(runPayload))
+        runPayload = normalizeIncompleteReplay(attachCallTiming(runPayload, callTiming))
         workspaceFunctionStore?.recordRun(
             functionId = functionId,
             success = runPayload["success"] == true,
@@ -233,7 +229,6 @@ class FunctionRun(
         frontendParent: String = "",
         functionSpec: Map<String, Any?>? = null,
         preparedSpec: Map<String, Any?>? = null,
-        argumentsValidated: Boolean = false,
         callback: cn.com.omnimind.bot.agent.AgentCallback? = null,
         toolHandle: cn.com.omnimind.bot.agent.AgentToolExecutionHandle? = null,
         env: cn.com.omnimind.bot.agent.AgentExecutionEnvironment? = null,
@@ -241,7 +236,10 @@ class FunctionRun(
         toolName: String = functionId,
         callStack: List<String> = emptyList(),
     ): Map<String, Any?> = withContext(Dispatchers.Default) {
-        val startupTiming = FunctionExecutionTiming()
+        val startupTiming = FunctionTiming(
+            source = "oob_function_execute",
+            requiredPhases = EXECUTION_PHASES,
+        )
         val spec = startupTiming.measure("load_function_spec_ms") {
             functionSpec ?: getSpec(functionId)
         }
@@ -250,22 +248,38 @@ class FunctionRun(
                 message = "Function not found: $functionId",
                 functionId = functionId
             ).let { attachExecutionTiming(it, startupTiming) }
-        val missing = startupTiming.measure("check_arguments_ms") {
-            if (preparedSpec != null || argumentsValidated) {
-                emptyList()
-            } else {
-                FunctionSchema.missingRequiredArguments(spec, arguments)
+        val materialization = if (preparedSpec == null) {
+            startupTiming.measureSuspend("bind_function_args_ms") {
+                OmniFlowPythonRuntime.materializeFunction(context, spec, arguments)
             }
+        } else {
+            null
         }
-        if (missing.isNotEmpty()) {
+        val missing = listArg(materialization?.get("missing_arguments"))
+            .mapNotNull { it?.toString()?.trim()?.takeIf(String::isNotEmpty) }
+        if (materialization?.get("success") == false) {
+            val error = materialization["error"]?.toString().orEmpty()
             return@withContext errorPayload(
-                code = "OOB_FUNCTION_ARGUMENTS_MISSING",
-                message = "Missing required arguments: ${missing.joinToString(", ")}",
+                code = if (missing.isNotEmpty()) {
+                    "OOB_FUNCTION_ARGUMENTS_MISSING"
+                } else {
+                    "OOB_FUNCTION_MATERIALIZE_FAILED"
+                },
+                message = if (missing.isNotEmpty()) {
+                    "Missing required arguments: ${missing.joinToString(", ")}"
+                } else {
+                    error.ifBlank { "OmniFlow could not materialize Function arguments" }
+                },
                 functionId = functionId
             ).let { attachExecutionTiming(it + linkedMapOf("missing_required_arguments" to missing), startupTiming) }
         }
-        val specForRun = startupTiming.measure("bind_function_args_ms") {
-            preparedSpec ?: FunctionSchema.materialize(spec, arguments)
+        val specForRun = preparedSpec ?: mapArg(materialization?.get("function"))
+        if (specForRun.isEmpty()) {
+            return@withContext errorPayload(
+                code = "OOB_FUNCTION_MATERIALIZE_FAILED",
+                message = "OmniFlow returned an empty materialized Function",
+                functionId = functionId,
+            ).let { attachExecutionTiming(it, startupTiming) }
         }
         startupTiming.measure("bound_step_count_ms") {
             FunctionSchema.materializedSteps(specForRun).size
@@ -303,25 +317,6 @@ class FunctionRun(
             callStack
         }
         val steps = timing.measure("bound_steps_ms") { boundSteps(specForRun) }
-        val bindingValidation = timing.measure("argument_binding_validation_ms") {
-            FunctionArgumentBindingValidator.validate(specForRun)
-        }
-        if (!bindingValidation.success) {
-            return@measureSuspend runResultBuilder.withRunnerTiming(
-                runResultBuilder.failedRun(
-                    functionId = functionId,
-                    spec = spec,
-                    auditRunId = auditRunId,
-                    startedAtMs = runStartedAtMs,
-                    errorCode = FunctionArgumentBindingValidator.ERROR_CODE,
-                    errorMessage = bindingValidation.errorMessage,
-                    extras = bindingValidation.diagnostics,
-                ),
-                timing.finish()
-            )
-        }
-        val argumentSourcesByStepIndex =
-            FunctionArgumentBindingValidator.argumentSourcesByStepIndex(specForRun)
         val normalizedResumeFromStep = resumeFromStep.coerceIn(0, steps.size)
         val activeSteps = steps.drop(normalizedResumeFromStep)
 
@@ -359,9 +354,7 @@ class FunctionRun(
             stepResults = stepResults,
             normalizedResumeFromStep = normalizedResumeFromStep,
             failureReason = failureReason,
-        ).also {
-            it.putAll(FunctionArgumentBindingValidator.runtimeDiagnostics(specForRun))
-        }
+        )
         fun isUserCompletedReplay(): Boolean =
             frontendSession?.isUserFinishedRequested() == true &&
                 stepResults.size >= activeSteps.size &&
@@ -541,12 +534,6 @@ class FunctionRun(
                 putIfAbsent("started_at_ms", stepStartedAtMs)
                 putIfAbsent("finished_at_ms", stepFinishedAtMs)
                 putIfAbsent("duration_ms", (stepFinishedAtMs - stepStartedAtMs).coerceAtLeast(0))
-                if (ReplayHelper.actionNameForStep(step) == "input_text") {
-                    argumentSourcesByStepIndex[index]?.let { source ->
-                        put("argument_source", source["argument_source"])
-                        put("argument_binding", source)
-                    }
-                }
             }
             stepResults += timedStepResult
             currentStepIndex = -1
@@ -839,17 +826,38 @@ class FunctionRun(
         val calledFunctionSpec = getSpec(functionId)
             ?: return completeWithCard(failStep("OOB_FUNCTION_NOT_FOUND", "Function not found: $functionId",
                 mapOf("called_function_id" to functionId)))
-        val missing = FunctionSchema.missingRequiredArguments(calledFunctionSpec, functionArguments)
-        if (missing.isNotEmpty()) return completeWithCard(failStep("OOB_FUNCTION_ARGUMENTS_MISSING",
-            "Missing required arguments: ${missing.joinToString(", ")}",
-            mapOf("called_function_id" to functionId, "missing_required_arguments" to missing)))
-        val boundSpec = FunctionSchema.materialize(calledFunctionSpec, functionArguments)
+        val materialization = OmniFlowPythonRuntime.materializeFunction(
+            context,
+            calledFunctionSpec,
+            functionArguments,
+        )
+        val missing = listArg(materialization["missing_arguments"])
+            .mapNotNull { it?.toString()?.trim()?.takeIf(String::isNotEmpty) }
+        if (materialization["success"] != true) {
+            val error = materialization["error"]?.toString().orEmpty()
+            return completeWithCard(failStep(
+                if (missing.isNotEmpty()) "OOB_FUNCTION_ARGUMENTS_MISSING" else "OOB_FUNCTION_MATERIALIZE_FAILED",
+                if (missing.isNotEmpty()) {
+                    "Missing required arguments: ${missing.joinToString(", ")}"
+                } else {
+                    error.ifBlank { "OmniFlow could not materialize Function arguments" }
+                },
+                mapOf("called_function_id" to functionId, "missing_required_arguments" to missing),
+            ))
+        }
+        val boundSpec = mapArg(materialization["function"])
+        if (boundSpec.isEmpty()) {
+            return completeWithCard(failStep(
+                "OOB_FUNCTION_MATERIALIZE_FAILED",
+                "OmniFlow returned an empty materialized Function",
+                mapOf("called_function_id" to functionId),
+            ))
+        }
         val calledFunctionRun = runFunction(
             functionId = functionId,
             arguments = functionArguments,
             functionSpec = calledFunctionSpec,
             preparedSpec = boundSpec,
-            argumentsValidated = true,
             callback = callback, toolHandle = toolHandle, env = env,
             parentToolCallId = "${parentToolCallId ?: toolName}_$stepId",
             toolName = functionId,
@@ -880,50 +888,16 @@ class FunctionRun(
         ).filterValues { it != null })
     }
 
-    private fun checkerRulesForSpec(spec: Map<String, Any?>): List<ReplayCheckerRule> =
-        ReplayCheckerRule.fromSpec(spec) + workspaceCheckerRules()
-
-    private fun workspaceCheckerRules(): List<ReplayCheckerRule> {
-        val file = File(AgentWorkspaceManager.rootDirectory(context), CHECKER_RULES_FILE)
-        if (!file.isFile) {
-            writeDefaultCheckerRules(file)
-        }
-        val raw = runCatching {
-            AgentToolJson.jsonElementToAny(
-                checkerRuleJson.parseToJsonElement(file.readText(Charsets.UTF_8))
-            )
-        }.getOrNull() ?: return emptyList()
-        val rawRules = when (raw) {
-            is Iterable<*> -> raw.toList()
-            is Array<*> -> raw.toList()
-            is Map<*, *> -> {
-                val map = mapArg(raw)
-                listArg(map["checker_rules"])
-                    .ifEmpty { listArg(map["checkerRules"]) }
-                    .ifEmpty { listArg(map["rules"]) }
-            }
-            else -> emptyList()
-        }
-        return rawRules.mapNotNull { value ->
-            mapArg(value).takeIf { it.isNotEmpty() }?.let(ReplayCheckerRule::fromMap)
-        }
-    }
-
-    private fun writeDefaultCheckerRules(file: File) {
-        runCatching {
-            file.parentFile?.mkdirs()
-            context.assets.open(CHECKER_RULES_ASSET).use { input ->
-                file.outputStream().use { output -> input.copyTo(output) }
-            }
-        }
-    }
+    private fun checkerRulesForSpec(spec: Map<String, Any?>): List<Map<String, Any?>> =
+        listArg(mapArg(spec["metadata"])["checker_rules"])
+            .mapNotNull { mapArg(it).takeIf(Map<String, Any?>::isNotEmpty) }
 
     private fun boundSteps(boundSpec: Map<String, Any?>): List<Map<String, Any?>> =
         FunctionSchema.materializedSteps(boundSpec)
 
     private fun attachExecutionTiming(
         payload: Map<String, Any?>,
-        timing: FunctionExecutionTiming,
+        timing: FunctionTiming,
     ): Map<String, Any?> {
         val startupTiming = timing.finish()
         val startupPhaseMs = mapArg(startupTiming["phase_ms"])
@@ -946,6 +920,24 @@ class FunctionRun(
         }.let { runResultBuilder.withExecutionSummary(it) }
     }
 
+    private fun attachCallTiming(
+        payload: Map<String, Any?>,
+        timing: FunctionTiming,
+    ): Map<String, Any?> {
+        val callTiming = timing.finish()
+        val mergedTiming = linkedMapOf<String, Any?>().apply {
+            putAll(mapArg(payload["timing"]))
+            put("call_started_at_ms", callTiming["started_at_ms"])
+            put("call_finished_at_ms", callTiming["finished_at_ms"])
+            put("call_duration_ms", callTiming["duration_ms"])
+            put("call_phase_ms", callTiming["phase_ms"])
+        }
+        return linkedMapOf<String, Any?>().apply {
+            putAll(payload)
+            put("timing", mergedTiming)
+        }
+    }
+
     private fun errorPayload(
         code: String,
         message: String,
@@ -958,57 +950,6 @@ class FunctionRun(
         "function_kind" to "oob_reusable_function",
         "asset_state" to "native_local",
     )
-
-    private class FunctionExecutionTiming {
-        private val startedAtNanos = System.nanoTime()
-        private val startedAtMs: Long = System.currentTimeMillis()
-        private val phases = linkedMapOf<String, Long>()
-
-        fun <T> measure(phaseName: String, block: () -> T): T {
-            val phaseStartedAtNanos = System.nanoTime()
-            return try {
-                block()
-            } finally {
-                phases[phaseName] = elapsedMs(phaseStartedAtNanos)
-            }
-        }
-
-        suspend fun <T> measureSuspend(phaseName: String, block: suspend () -> T): T {
-            val phaseStartedAtNanos = System.nanoTime()
-            return try {
-                block()
-            } finally {
-                phases[phaseName] = elapsedMs(phaseStartedAtNanos)
-            }
-        }
-
-        fun finish(): Map<String, Any?> {
-            val finishedAtMs = System.currentTimeMillis()
-            val completedPhases = linkedMapOf<String, Long>()
-            listOf(
-                "load_function_spec_ms",
-                "check_arguments_ms",
-                "bind_function_args_ms",
-                "bound_step_count_ms",
-                "run_function_steps_ms",
-            ).forEach { phaseName ->
-                completedPhases[phaseName] = phases[phaseName] ?: 0L
-            }
-            phases.forEach { (phaseName, durationMs) ->
-                completedPhases.putIfAbsent(phaseName, durationMs)
-            }
-            return linkedMapOf(
-                "source" to "oob_function_execute",
-                "started_at_ms" to startedAtMs,
-                "finished_at_ms" to finishedAtMs,
-                "duration_ms" to elapsedMs(startedAtNanos),
-                "phase_ms" to completedPhases,
-            )
-        }
-
-        private fun elapsedMs(startedAtNanos: Long): Long =
-            ((System.nanoTime() - startedAtNanos) / 1_000_000L).coerceAtLeast(0L)
-    }
 
     private data class CallRequest(val targetTool: String, val targetArgs: Map<String, Any?>, val functionId: String)
 
@@ -1111,78 +1052,22 @@ class FunctionRun(
     companion object {
         const val FUNCTION_DIRECT_RUNNER = "oob_function_direct_runner"
         const val FUNCTION_RUN_SOURCE = "oob_function_replay"
-        private const val CHECKER_RULES_FILE = ".omnibot/omniflow/checkers/checker_rules.json"
-        private const val CHECKER_RULES_ASSET = "omniflow/checkers/checker_rules.json"
         private const val TAG = "FunctionRun"
         private const val MAX_FUNCTION_CALL_DEPTH = 8
         private const val REPLAY_UI_STEP_SETTLE_DELAY_MS = 1_000L
         private const val FRONTEND_SUCCESS_POPUP_VISIBLE_MS = 900L
         private const val FRONTEND_TERMINAL_POPUP_VISIBLE_MS = 2500L
+        private val CALL_PHASES = listOf("execute_function_ms")
+        private val EXECUTION_PHASES = listOf(
+            "load_function_spec_ms",
+            "check_arguments_ms",
+            "bind_function_args_ms",
+            "bound_step_count_ms",
+            "run_function_steps_ms",
+        )
         private val RUN_SEQUENCE = AtomicLong(0)
     }
 
     private fun nextRunId(startedAtMs: Long): String =
         "function_run_${startedAtMs}_${RUN_SEQUENCE.incrementAndGet()}"
-}
-
-private class CallTiming {
-    private val startedAtNanos = System.nanoTime()
-    val startedAtMs: Long = System.currentTimeMillis()
-    private val phases = linkedMapOf<String, Long>()
-
-    fun <T> measure(phaseName: String, block: () -> T): T {
-        val phaseStartedAtNanos = System.nanoTime()
-        return try {
-            block()
-        } finally {
-            phases[phaseName] = elapsedMs(phaseStartedAtNanos)
-        }
-    }
-
-    suspend fun <T> measureSuspend(phaseName: String, block: suspend () -> T): T {
-        val phaseStartedAtNanos = System.nanoTime()
-        return try {
-            block()
-        } finally {
-            phases[phaseName] = elapsedMs(phaseStartedAtNanos)
-        }
-    }
-
-    fun attachTo(payload: Map<String, Any?>): Map<String, Any?> {
-        val callTiming = finish()
-        val mergedTiming = linkedMapOf<String, Any?>().apply {
-            putAll(mapArg(payload["timing"]))
-            put("call_started_at_ms", callTiming["started_at_ms"])
-            put("call_finished_at_ms", callTiming["finished_at_ms"])
-            put("call_duration_ms", callTiming["duration_ms"])
-            put("call_phase_ms", callTiming["phase_ms"])
-        }
-        return linkedMapOf<String, Any?>().apply {
-            putAll(payload)
-            put("timing", mergedTiming)
-        }
-    }
-
-    private fun finish(): Map<String, Any?> {
-        val finishedAtMs = System.currentTimeMillis()
-        val completedPhases = linkedMapOf<String, Long>()
-        listOf(
-            "execute_function_ms",
-        ).forEach { phaseName ->
-            completedPhases[phaseName] = phases[phaseName] ?: 0L
-        }
-        phases.forEach { (phaseName, durationMs) ->
-            completedPhases.putIfAbsent(phaseName, durationMs)
-        }
-        return linkedMapOf(
-            "source" to "oob_function_call",
-            "started_at_ms" to startedAtMs,
-            "finished_at_ms" to finishedAtMs,
-            "duration_ms" to elapsedMs(startedAtNanos),
-            "phase_ms" to completedPhases,
-        )
-    }
-
-    private fun elapsedMs(startedAtNanos: Long): Long =
-        ((System.nanoTime() - startedAtNanos) / 1_000_000L).coerceAtLeast(0L)
 }

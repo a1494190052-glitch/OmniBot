@@ -91,7 +91,7 @@ class DebugFunctionSegmentReceiver : BroadcastReceiver() {
         val registerChild = timing.measure("register_child_ms") {
             managementService.registerFunction(
                 mapOf(
-                    "functionSpec" to openSettingsChildSpec(
+                    "function_spec" to openSettingsChildSpec(
                         functionId = childFunctionId,
                         packageName = packageName,
                         sourcePageXml = beforeXml,
@@ -102,7 +102,7 @@ class DebugFunctionSegmentReceiver : BroadcastReceiver() {
         }
         val registerParent = timing.measure("register_parent_ms") {
             managementService.registerFunction(
-                mapOf("functionSpec" to parentCallsChildSpec(parentFunctionId, childFunctionId))
+                mapOf("function_spec" to parentCallsChildSpec(parentFunctionId, childFunctionId))
             )
         }
         val storedChild = timing.measure("load_child_ms") {

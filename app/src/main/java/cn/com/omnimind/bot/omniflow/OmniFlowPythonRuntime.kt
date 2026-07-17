@@ -65,6 +65,19 @@ internal object OmniFlowPythonRuntime {
         hostCall: OmniFlowPythonHostCall? = null,
     ): Map<String, Any?> = sharedClient(context).call(operation, payload, hostCall)
 
+    suspend fun materializeFunction(
+        context: Context,
+        function: Map<String, Any?>,
+        arguments: Map<String, Any?>,
+    ): Map<String, Any?> = call(
+        context = context,
+        operation = "materialize",
+        payload = mapOf(
+            "function" to function,
+            "arguments" to arguments,
+        ),
+    )
+
     private fun sharedClient(context: Context): OmniFlowPythonClient =
         client ?: synchronized(startLock) {
             client ?: OmniFlowPythonClient(context.applicationContext).also { client = it }

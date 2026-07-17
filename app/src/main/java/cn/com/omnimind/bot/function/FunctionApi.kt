@@ -7,10 +7,8 @@ import cn.com.omnimind.baselib.util.OmniLog
 import cn.com.omnimind.bot.agent.AgentToolDefinitions
 import cn.com.omnimind.bot.agent.AgentToolJson.mapToJsonElement
 import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.add
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
-import kotlinx.serialization.json.putJsonArray
 import kotlinx.serialization.json.putJsonObject
 
 /**
@@ -75,14 +73,7 @@ object FunctionApi {
             "canonical_actions_schema_version" to OobActionSchema.SCHEMA_VERSION,
             "schemas" to linkedMapOf(
                 "oob.reusable_function.v1" to reusableFunctionSchema,
-                "oob.function_enhancement.v1" to enhancementReportSchema,
-                "update_function.input.mcp" to updateFunctionInputSchema(
-                    includeCamelCaseAliases = false
-                ),
-                "update_function.input.agent_profile" to updateFunctionInputSchema(
-                    includeCamelCaseAliases = true
-                ),
-                "update_function.analysis" to updateFunctionAnalysisSchema,
+                "update_function.input" to updateFunctionInputSchema(),
                 "update_function.patch" to updateFunctionPatchSchema,
             ),
             "tool_schemas" to mcpTools.mapNotNull(::toolSchemaSummary),
@@ -129,8 +120,6 @@ object FunctionApi {
         val candidates = runCatching {
             promptCandidates(
                 context = context,
-                goal = goal,
-                currentPackageName = currentPackageName,
                 limit = limit.coerceIn(1, MAX_PROMPT_FUNCTION_CANDIDATES),
             )
         }.onFailure {
@@ -169,26 +158,8 @@ object FunctionApi {
 
     private fun promptCandidates(
         context: Context,
-        goal: String?,
-        currentPackageName: String?,
         limit: Int,
-    ): List<Map<String, Any?>> {
-        val normalizedGoal = goal?.trim().orEmpty()
-        if (normalizedGoal.isNotEmpty()) {
-            val recall = FunctionService(context).recall(
-                mapOf(
-                    "goal" to normalizedGoal,
-                    "current_package" to currentPackageName.orEmpty(),
-                    "k" to limit,
-                    "include_debug" to false,
-                )
-            )
-            val recalled = FunctionJson.listArg(recall["candidates"])
-                .mapNotNull { FunctionJson.mapArg(it).takeIf { candidate -> candidate.isNotEmpty() } }
-            if (recalled.isNotEmpty()) return recalled
-        }
-        return FunctionService(context).listFunctionSpecs(limit)
-    }
+    ): List<Map<String, Any?>> = FunctionService(context).listFunctionSpecs(limit)
 
     private fun normalizeProfile(profile: String?): String = profile
         ?.trim()
@@ -245,9 +216,6 @@ object FunctionApi {
             }
         }
     }
-
-    private val canonicalReplayTools: String =
-        OobActionSchema.replayableToolNames.joinToString(", ")
 
     private val functionRecallMcpTool = mapOf(
         "name" to FUNCTION_RECALL,
@@ -310,35 +278,25 @@ object FunctionApi {
 
     private val functionRegisterMcpTool = mapOf(
         "name" to FUNCTION_REGISTER,
-        "description" to "Register or update one Function. Prefer the simple shape {function_id,name,description,steps,source_page}; pass function_spec only when you already have a full oob.reusable_function.v1 spec. Registration never auto-executes the Function.",
+        "description" to "Register or update one canonical Function spec. Compilation belongs to OmniFlow; this tool only persists function_spec and never executes it.",
         "inputSchema" to mapOf(
             "type" to "object",
             "properties" to mapOf(
-                "function_id" to mapOf("type" to "string", "description" to "Optional stable Function id. Generated from name when omitted."),
-                "name" to mapOf("type" to "string", "description" to "User-readable Function name."),
-                "description" to mapOf("type" to "string", "description" to "One-sentence description of when to reuse this Function."),
-                "package_name" to mapOf("type" to "string", "description" to "Optional target/source app package for page-scoped recall."),
-                "source_page" to mapOf("type" to "object", "description" to "Optional source page context, for example {xml, package_name, activity_name}."),
-                "parameters" to mapOf("type" to "array", "description" to "Optional Function parameter descriptors with name/type/required/default/bindings."),
-                "steps" to mapOf(
-                    "type" to "array",
-                    "description" to "Simple canonical step list. Each item must use {tool,args,title?}. Supported tool values are $canonicalReplayTools. input_text uses args.text; finished uses args.content.",
-                    "items" to mapOf("type" to "object")
-                ),
-                "function_spec" to mapOf("type" to "object", "description" to "Optional full oob.reusable_function.v1 spec object.")
-            )
+                "function_spec" to reusableFunctionSchema,
+            ),
+            "required" to listOf("function_spec"),
         )
     )
 
     private val updateFunctionMcpTool = mapOf(
         "name" to FUNCTION_UPDATE,
-        "description" to "Update one saved Function with a structured patch derived from user correction or RunLog evidence. Raw RunLog state stays in the RunLog store.",
-        "inputSchema" to updateFunctionInputSchema(includeCamelCaseAliases = false)
+        "description" to "Apply explicit delete or replace_args edits to one saved Function. Raw RunLog evidence stays in the RunLog store.",
+        "inputSchema" to updateFunctionInputSchema()
     )
 
     private val functionDeleteMcpTool = mapOf(
         "name" to FUNCTION_DELETE,
-        "description" to "Delete one registered Function from Workspace, local registry, and UDEG node references.",
+        "description" to "Delete one registered Function from the workspace Function store.",
         "inputSchema" to mapOf(
             "type" to "object",
             "properties" to mapOf(
@@ -350,7 +308,7 @@ object FunctionApi {
 
     private val functionClearMcpTool = mapOf(
         "name" to FUNCTION_CLEAR,
-        "description" to "Clear all registered Functions and detach all Function references from UDEG node skills. Requires confirm=true.",
+        "description" to "Clear all registered Functions from the workspace Function store. Requires confirm=true.",
         "inputSchema" to mapOf(
             "type" to "object",
             "properties" to mapOf(
@@ -390,7 +348,8 @@ object FunctionApi {
             "type" to "object",
             "properties" to mapOf(
                 "run_id" to mapOf("type" to "string", "description" to "RunLog id to convert."),
-                "register" to mapOf("type" to "boolean", "description" to "Register the converted Function. Default follows service policy."),
+                "register" to mapOf("type" to "boolean", "description" to "Register the converted Function. Default false."),
+                "agent_visible" to mapOf("type" to "boolean", "description" to "Publish the registered Function for runtime recall. Default false."),
                 "function_id" to mapOf("type" to "string", "description" to "Optional Function id override."),
                 "name" to mapOf("type" to "string", "description" to "Optional Function name override."),
                 "description" to mapOf("type" to "string", "description" to "Optional Function description override.")
@@ -399,178 +358,42 @@ object FunctionApi {
         )
     )
 
-    private val functionListTool: JsonObject = buildJsonObject {
-        put("type", "function")
-        putJsonObject("function") {
-            put("name", FunctionApi.FUNCTION_LIST)
-            put("displayName", "列出复用指令")
-            put("toolType", "oob_function")
-            put("description", "列出本机已注册的复用指令。用于查看可选 Function 候选；不会执行任何手机操作。")
-            putJsonObject("parameters") {
-                put("type", "object")
-                putJsonObject("properties") {
-                    putJsonObject("limit") {
-                        put("type", "integer")
-                        put("description", "可选。返回数量上限，默认 100，最大 500。")
-                    }
-                }
-            }
-        }
-    }
-
-    private val functionGetTool: JsonObject = buildJsonObject {
-        put("type", "function")
-        putJsonObject("function") {
-            put("name", FunctionApi.FUNCTION_GET)
-            put("displayName", "查看复用指令")
-            put("toolType", "oob_function")
-            put("description", "读取一个复用指令的结构化 Function spec，用于确认步骤、参数和来源。不会执行手机操作。")
-            putJsonObject("parameters") {
-                put("type", "object")
-                putJsonObject("properties") {
-                    putJsonObject("function_id") {
-                        put("type", "string")
-                        put("description", "要读取的 Function id。")
-                    }
-                }
-                putJsonArray("required") { add("function_id") }
-            }
-        }
-    }
-
-    private val functionRegisterTool: JsonObject = buildJsonObject {
-        put("type", "function")
-        putJsonObject("function") {
-            put("name", FunctionApi.FUNCTION_REGISTER)
-            put("displayName", "注册复用指令")
-            put("toolType", "oob_function")
-            put("description", "注册或更新一个复用指令。优先使用轻量字段 function_id/name/description/steps；只有已有完整底层结构时才传 function_spec。")
-            putJsonObject("parameters") {
-                put("type", "object")
-                putJsonObject("properties") {
-                    putJsonObject("function_id") { put("type", "string") }
-                    putJsonObject("name") { put("type", "string") }
-                    putJsonObject("description") { put("type", "string") }
-                    putJsonObject("package_name") { put("type", "string") }
-                    putJsonObject("source_page") { put("type", "object") }
-                    putJsonObject("parameters") { put("type", "array") }
-                    putJsonObject("steps") {
-                        put("type", "array")
-                        putJsonObject("items") { put("type", "object") }
-                    }
-                    putJsonObject("function_spec") { put("type", "object") }
-                }
-            }
-        }
-    }
-
-    private val updateFunctionTool: JsonObject = buildJsonObject {
-        put("type", "function")
-        putJsonObject("function") {
-            put("name", FunctionApi.FUNCTION_UPDATE)
-            put("displayName", "更新复用指令")
-            put("toolType", "oob_function")
-            put("description", "离线维护一个已保存的 Function：根据结构化 patch、用户纠错指令或 RunLog 证据更新语义信息。传 run_id 且不传 analysis/patch 时后台会分析 RunLog、生成 patch 并保存结果；不会执行手机操作，也不属于 vlm_task 实时路径。")
-            put("parameters", mapToJsonElement(updateFunctionInputSchema(includeCamelCaseAliases = true)))
-        }
-    }
-
-    private val functionDeleteTool: JsonObject = buildJsonObject {
-        put("type", "function")
-        putJsonObject("function") {
-            put("name", FunctionApi.FUNCTION_DELETE)
-            put("displayName", "删除复用指令")
-            put("toolType", "oob_function")
-            put("description", "删除一个复用指令。")
-            putJsonObject("parameters") {
-                put("type", "object")
-                putJsonObject("properties") {
-                    putJsonObject("function_id") { put("type", "string") }
-                }
-                putJsonArray("required") { add("function_id") }
-            }
-        }
-    }
-
-    private val functionClearTool: JsonObject = buildJsonObject {
-        put("type", "function")
-        putJsonObject("function") {
-            put("name", FunctionApi.FUNCTION_CLEAR)
-            put("displayName", "清空复用指令")
-            put("toolType", "oob_function")
-            put("description", "清空所有复用指令。只有用户明确要求清空全部时使用，必须传 confirm=true。")
-            putJsonObject("parameters") {
-                put("type", "object")
-                putJsonObject("properties") {
-                    putJsonObject("confirm") { put("type", "boolean") }
-                }
-            }
-        }
-    }
-
-    private val oobRunLogListTool: JsonObject = buildJsonObject {
-        put("type", "function")
-        putJsonObject("function") {
-            put("name", FunctionApi.RUN_LOG_LIST)
-            put("displayName", "列出 RunLog")
-            put("toolType", "oob_function")
-            put("description", "列出 OOB 内部最近的 RunLogs，用于选择可固化或检查的历史执行。")
-            putJsonObject("parameters") {
-                put("type", "object")
-                putJsonObject("properties") {}
-            }
-        }
-    }
-
-    private val oobRunLogGetTool: JsonObject = buildJsonObject {
-        put("type", "function")
-        putJsonObject("function") {
-            put("name", FunctionApi.RUN_LOG_GET)
-            put("displayName", "查看 RunLog")
-            put("toolType", "oob_function")
-            put("description", "读取一个 OOB 内部 RunLog 时间线。只在需要检查具体历史执行时使用。")
-            putJsonObject("parameters") {
-                put("type", "object")
-                putJsonObject("properties") {
-                    putJsonObject("run_id") { put("type", "string") }
-                }
-                putJsonArray("required") { add("run_id") }
-            }
-        }
-    }
-
-    private val oobRunLogConvertTool: JsonObject = buildJsonObject {
-        put("type", "function")
-        putJsonObject("function") {
-            put("name", FunctionApi.RUN_LOG_CONVERT)
-            put("displayName", "转换 RunLog")
-            put("toolType", "oob_function")
-            put("description", "把成功完成的 RunLog 转换为 oob.reusable_function.v1。register=true 默认保存为 agent 不可见的人工 Function；只有显式 agent_visible=true 才发布为可复用指令候选。")
-            putJsonObject("parameters") {
-                put("type", "object")
-                putJsonObject("properties") {
-                    putJsonObject("run_id") { put("type", "string") }
-                    putJsonObject("register") { put("type", "boolean") }
-                    putJsonObject("agent_visible") { put("type", "boolean") }
-                    putJsonObject("function_id") { put("type", "string") }
-                    putJsonObject("name") { put("type", "string") }
-                    putJsonObject("description") { put("type", "string") }
-                }
-            }
-        }
-    }
-
-    private val functionManagementToolDefinitions: List<JsonObject> = listOf(
-        functionListTool,
-        functionGetTool,
-        functionRegisterTool,
-        updateFunctionTool,
-        functionDeleteTool,
-        functionClearTool,
-        oobRunLogListTool,
-        oobRunLogGetTool,
-        oobRunLogConvertTool,
+    private data class ToolPresentation(
+        val displayName: String,
+        val description: String,
     )
+
+    private val staticToolPresentations = mapOf(
+        FUNCTION_LIST to ToolPresentation("列出复用指令", "列出本机已注册的复用指令；不会执行手机操作。"),
+        FUNCTION_GET to ToolPresentation("查看复用指令", "读取一个复用指令的 Function spec；不会执行手机操作。"),
+        FUNCTION_REGISTER to ToolPresentation("注册复用指令", "保存一个由 OmniFlow 生成的完整 function_spec；不会执行手机操作。"),
+        FUNCTION_UPDATE to ToolPresentation("更新复用指令", "对已保存 Function 应用 delete 或 replace_args 动作编辑。"),
+        FUNCTION_DELETE to ToolPresentation("删除复用指令", "删除一个复用指令。"),
+        FUNCTION_CLEAR to ToolPresentation("清空复用指令", "清空所有复用指令，必须传 confirm=true。"),
+        RUN_LOG_LIST to ToolPresentation("列出 RunLog", "列出最近的 RunLogs，用于选择可固化或检查的历史执行。"),
+        RUN_LOG_GET to ToolPresentation("查看 RunLog", "读取一个 RunLog 时间线。"),
+        RUN_LOG_CONVERT to ToolPresentation("转换 RunLog", "把成功 RunLog 交给 OmniFlow 编译为可复用 Function。"),
+    )
+
+    private val functionManagementToolDefinitions: List<JsonObject> by lazy {
+        mcpToolDefinitions.mapNotNull { definition ->
+            val name = definition["name"]?.toString()?.takeIf(profileTools::contains) ?: return@mapNotNull null
+            val presentation = staticToolPresentations.getValue(name)
+            buildJsonObject {
+                put("type", "function")
+                putJsonObject("function") {
+                    put("name", name)
+                    put("displayName", presentation.displayName)
+                    put("toolType", "oob_function")
+                    put("description", presentation.description)
+                    put(
+                        "parameters",
+                        mapToJsonElement(FunctionJson.mapArg(definition["inputSchema"])),
+                    )
+                }
+            }
+        }
+    }
 
     private fun toolSchemaSummary(tool: Map<String, Any?>): Map<String, Any?>? {
         val name = tool["name"]?.toString()?.trim().orEmpty()
@@ -581,102 +404,26 @@ object FunctionApi {
         )
     }
 
-    private fun updateFunctionInputSchema(includeCamelCaseAliases: Boolean): Map<String, Any?> =
+    private fun updateFunctionInputSchema(): Map<String, Any?> =
         obj(
-            properties = updateFunctionInputProperties(includeCamelCaseAliases = includeCamelCaseAliases),
-            required = listOf("function_id"),
-        )
-
-    private fun updateFunctionInputProperties(includeCamelCaseAliases: Boolean): Map<String, Any?> {
-        val properties = linkedMapOf<String, Any?>(
-            "function_id" to string("Existing Function id to update in place."),
-            "run_id" to string("Optional local RunLog id used as evidence for agent analysis."),
-            "instruction" to string("Optional user correction or enhancement instruction."),
-            "mode" to enumString("Update mode.", listOf("enhance", "repair", "annotate", "fix", "correction")),
-            "offline_job" to boolean("Set true when this enhancement is running as an explicit offline/background maintenance job."),
-            "auto_analyze_with_model" to boolean("Legacy flag accepted for compatibility. update_function no longer invokes a model; the Function skill supplies analysis and patch."),
-            "analysis" to updateFunctionAnalysisSchema,
-            "patch" to updateFunctionPatchSchema,
-            "usage" to obj(description = "Optional token usage from the API call that produced this enhancement analysis."),
-            "cost" to obj(description = "Optional cost estimate from the API call that produced this enhancement analysis."),
-            "dry_run" to boolean("Preview changes without saving."),
-        )
-        if (includeCamelCaseAliases) {
-            properties["offlineJob"] = boolean("Alias of offline_job.")
-            properties["autoAnalyzeWithModel"] = boolean("Alias of auto_analyze_with_model.")
-            properties["dryRun"] = boolean("Alias of dry_run.")
-        }
-        return properties
-    }
-
-    private val updateFunctionAnalysisSchema: Map<String, Any?>
-        get() = obj(
-            description = "Agent-authored RunLog evidence analysis. Raw analysis is stored with the RunLog; the Function keeps only run_id references.",
             properties = linkedMapOf(
-                "summary" to string("Short conclusion from the RunLog evidence."),
-                "step_findings" to array(
-                    description = "Per-step evidence mapping between Function steps and RunLog cards.",
-                    items = obj(
-                        properties = linkedMapOf(
-                            "function_step_index" to integer("Function step index."),
-                            "runlog_card_index" to integer("RunLog card index."),
-                            "label" to string("Short finding label."),
-                            "role" to string("Evidence role, for example success_evidence, failure_evidence, or noise."),
-                            "reason" to string("Why this evidence matters."),
-                        ),
-                    ),
-                ),
-                "failure_reason" to obj(
-                    properties = linkedMapOf(
-                        "code" to string("Failure code if known."),
-                        "message" to string("Failure explanation if known."),
-                    ),
-                ),
-                "recommended_patch" to obj(
-                    description = "Optional patch with the same shape as update_function.patch.",
-                ),
+                "function_id" to string("Existing Function id to update in place."),
+                "patch" to updateFunctionPatchSchema,
+                "dry_run" to boolean("Preview changes without saving."),
             ),
+            required = listOf("function_id"),
         )
 
     private val updateFunctionPatchSchema: Map<String, Any?>
         get() = obj(
-            description = "Safe in-place patch for one existing Function. update_function never creates, splits, merges, or batch-registers Functions.",
+            description = "Explicit in-place action edits. Unspecified actions are preserved.",
             properties = linkedMapOf(
-                "name" to string("Updated user-visible Function name."),
-                "description" to string("Updated reusable Function description."),
                 "action_edits" to array(
                     description = "Evidence-backed action cleanup. Indexes refer to the current stored action list; unspecified actions are preserved.",
                     items = actionEditSchema,
                 ),
-                "steps" to array(
-                    description = "Non-structural per-step label/annotation patches.",
-                    items = stepLabelPatchSchema,
-                ),
-                "parameters" to array(
-                    description = "Optional parameter descriptors. Coordinate, XML, screenshot, and source_context bindings are ignored as unsafe.",
-                    items = obj(
-                        properties = linkedMapOf(
-                            "name" to string("Parameter name."),
-                            "type" to string("Parameter type."),
-                            "description" to string("User-visible parameter description."),
-                            "required" to boolean("Whether the parameter is required."),
-                            "default" to obj(description = "Optional default value."),
-                            "bindings" to array("Binding paths into Function args.", string()),
-                        ),
-                    ),
-                ),
-                "agent_reuse" to agentReuseSchema,
-                "agentReuse" to agentReuseSchema,
-                "metadata" to obj(
-                    description = "Optional metadata patch. checker_rules/checkerRules are sanitized into supported runtime checker rules.",
-                    properties = linkedMapOf(
-                        "checker_rules" to checkerRulesSchema,
-                        "checkerRules" to checkerRulesSchema,
-                    ),
-                ),
-                "checker_rules" to checkerRulesSchema,
-                "checkerRules" to checkerRulesSchema,
             ),
+            required = listOf("action_edits"),
         )
 
     private val actionEditSchema: Map<String, Any?>
@@ -689,21 +436,6 @@ object FunctionApi {
                 "reason" to string("Evidence-backed reason for the edit."),
             ),
             required = listOf("op", "index"),
-        )
-
-    private val stepLabelPatchSchema: Map<String, Any?>
-        get() = obj(
-            properties = linkedMapOf(
-                "index" to integer("Step index."),
-                "step_index" to integer("Alias of index."),
-                "id" to string("Step id."),
-                "step_id" to string("Alias of id."),
-                "title" to string("Updated step title."),
-                "summary" to string("Updated step summary."),
-                "description" to string("Updated step description."),
-                "cleanup_annotation" to cleanupAnnotationSchema,
-                "cleanupAnnotation" to cleanupAnnotationSchema,
-            ),
         )
 
     private val cleanupAnnotationSchema: Map<String, Any?>
@@ -730,28 +462,9 @@ object FunctionApi {
             ),
         )
 
-    private val checkerRulesSchema: Map<String, Any?>
-        get() = array(
-            description = "Supported runtime checker rules only. Unsupported condition/action pairs are ignored.",
-            items = obj(
-                properties = linkedMapOf(
-                    "id" to string("Stable checker rule id."),
-                    "condition" to string("Supported condition such as ad_blocking, permission_dialog, keyboard_obscuring, package_mismatch, app_upgrade_prompt, or resolver_dialog."),
-                    "action" to string("Supported action such as dismiss, allow, hide_keyboard, open_app, or choose."),
-                    "recovery_function_id" to string("Stored single-action Function executed when the condition matches."),
-                    "enabled" to boolean("Whether the checker is enabled."),
-                    "params" to obj(
-                        properties = linkedMapOf(
-                            "package_name" to string("Expected package for package_mismatch/open_app checker."),
-                        ),
-                    ),
-                ),
-            ),
-        )
-
     private val reusableFunctionSchema: Map<String, Any?>
         get() = obj(
-            description = "Saved Function. Execution fields are preserved by enhancement; update_function owns safe patches.",
+            description = "Saved Function. update_function only applies explicit action edits.",
             properties = linkedMapOf(
                 "schema_version" to constString("oob.reusable_function.v1"),
                 "function_id" to string("Stable Function id."),
@@ -791,37 +504,7 @@ object FunctionApi {
                     )
                 ),
                 "agent_reuse" to agentReuseSchema,
-                "metadata" to obj(description = "Runtime metadata, enhancement report, checker rules, and diagnostics."),
-            ),
-        )
-
-    private val enhancementReportSchema: Map<String, Any?>
-        get() = obj(
-            description = "Report persisted under metadata.oob_enhancement after label enhancement.",
-            properties = linkedMapOf(
-                "schema_version" to constString("oob.function_enhancement.v1"),
-                "source" to constString("run_log_agent_label_enhancer"),
-                "status" to enumString("Enhancement result.", listOf("enhanced", "unchanged", "partial", "failed")),
-                "changed" to boolean("Whether validated Function JSON changed."),
-                "message" to string("User-visible status message."),
-                "updated_at" to string("UTC ISO timestamp."),
-                "sections" to array(
-                    "Per-request parse and validation diagnostics.",
-                    obj(
-                        properties = linkedMapOf(
-                            "part" to string("Request part, for example header, step_0, parameters, or agent_reuse."),
-                            "section" to string("Logical section."),
-                            "status" to string("parsed, corrected, empty_patch, no_response, invalid_json, error, changed, or unchanged."),
-                            "accepted" to boolean("Whether this section may contribute to the merge."),
-                            "chunk_index" to integer("Zero-based chunk index for step prompts."),
-                            "chunk_count" to integer("Total chunk count for step prompts."),
-                            "step_indexes" to array("Step indexes included in this request.", integer("Step index.")),
-                            "prompt_chars" to integer("Prompt character count for this request."),
-                            "prompt_approx_tokens" to integer("Prompt character count divided by four, rounded up."),
-                            "raw_chars" to integer("Raw model output character count."),
-                        )
-                    ),
-                ),
+                "metadata" to obj(description = "Runtime metadata, checker rules, and diagnostics."),
             ),
         )
 

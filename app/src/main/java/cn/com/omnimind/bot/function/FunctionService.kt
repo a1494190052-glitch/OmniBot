@@ -8,23 +8,20 @@ import cn.com.omnimind.baselib.runlog.InternalRunLogStore
 import cn.com.omnimind.baselib.util.OmniLog
 import cn.com.omnimind.bot.agent.AgentWorkspaceManager
 import cn.com.omnimind.bot.omniflow.OmniFlowPythonRuntime
+import cn.com.omnimind.bot.omniflow.OmniFlowFunctionRecallAdapter
 import cn.com.omnimind.bot.omniflow.omniFlowRunLogHostCall
-import cn.com.omnimind.bot.runlog.OobUdegNodeStore
-import cn.com.omnimind.bot.runlog.ReplayCheckerRule
 import cn.com.omnimind.bot.runlog.boolArg
 import cn.com.omnimind.bot.runlog.boolArgOrDefault
 import cn.com.omnimind.bot.runlog.firstNonBlank
 import cn.com.omnimind.bot.runlog.intArg
 import cn.com.omnimind.bot.runlog.listArg
-import cn.com.omnimind.bot.runlog.longArg
 import cn.com.omnimind.bot.runlog.mapArg
 
 /**
  * OOB-native implementation of Function management tools.
  *
- * The service deliberately keeps Function management local: Functions are
- * registered in OOB stores and recall is deterministic. Function execution is
- * owned by FunctionRun.
+ * Kotlin owns local Function files and Android-facing management calls.
+ * OmniFlow owns compilation, recall, materialization, and replay policy.
  */
 class FunctionService(
     private val context: Context,
@@ -33,6 +30,13 @@ class FunctionService(
         AgentWorkspaceManager.rootDirectory(context)
     ),
 ) {
+    private val recallAdapter = OmniFlowFunctionRecallAdapter(
+        enabled = OmniFlowPythonRuntime::isReady,
+        bridgeCall = { operation, payload ->
+            OmniFlowPythonRuntime.call(context, operation, payload)
+        },
+    )
+
     suspend fun executeTool(name: String?, args: Map<String, Any?>?): Map<String, Any?> {
         return when (name) {
             FunctionApi.FUNCTION_RECALL,
@@ -53,50 +57,17 @@ class FunctionService(
         }
     }
 
-    fun recall(args: Map<String, Any?>?): Map<String, Any?> {
-        val startedAt = System.currentTimeMillis()
-        val request = args ?: emptyMap()
-        val goal = firstNonBlank(request["goal"], request["query"], request["task"])
-        val includeDebug = boolArg(request["include_debug"]) ||
-            boolArg(request["includeDebug"]) ||
-            boolArg(request["debug"])
+    suspend fun recall(args: Map<String, Any?>?): Map<String, Any?> {
+        val request = args.orEmpty()
         val currentPackage = firstNonBlank(
             request["current_package"],
             request["currentPackage"],
             runCatching { deviceOperator.currentPackageName() }.getOrNull(),
         )
-        val limit = intArg(request["k"], defaultValue = DEFAULT_RECALL_LIMIT)
-            .coerceIn(1, MAX_RECALLED_FUNCTIONS)
-        val hits = workspaceFunctionStore.recall(goal = goal, limit = limit)
-        val candidates = hits.mapNotNull { hit ->
-            val spec = getFunctionSpec(hit.functionId) ?: return@mapNotNull null
-            if (!isAgentVisible(spec)) return@mapNotNull null
-            recallCandidateMap(spec = spec, hit = hit, currentPackage = currentPackage)
-        }
-        val retrievalState = if (candidates.isNotEmpty()) "has_candidates" else "miss"
-        return linkedMapOf<String, Any?>(
-            "success" to true,
-            "retrieval_state" to retrievalState,
-            "candidates" to candidates,
-            "count" to candidates.size,
-            "reason" to when {
-                goal.isBlank() -> "empty_goal"
-                candidates.isEmpty() -> "no_function_index_match"
-                else -> "function_index_match"
-            },
-            "current_package" to currentPackage.takeIf { it.isNotBlank() },
-            "source" to "function_recall",
-            "payload_mode" to if (includeDebug) "debug_full" else "agent_compact",
-            "timing" to linkedMapOf(
-                "source" to "function_recall",
-                "retrieval_state" to retrievalState,
-                "duration_ms" to (System.currentTimeMillis() - startedAt).coerceAtLeast(0L),
-                "counts" to linkedMapOf(
-                    "index_hits" to hits.size,
-                    "function_candidates" to candidates.size,
-                )
-            ),
-        ).filterValues { it != null }
+        return recallAdapter.recall(
+            request = request + ("current_package" to currentPackage),
+            functionSpecs = listFunctionSpecs(limit = 500),
+        )
     }
 
     fun listFunctionSpecs(limit: Int = 100, includeHidden: Boolean = false): List<Map<String, Any?>> =
@@ -185,14 +156,13 @@ class FunctionService(
 
     fun registerFunction(args: Map<String, Any?>?): Map<String, Any?> {
         val request = args ?: emptyMap()
-        val functionSpec = buildFunctionSpecForRegistration(request)
+        val functionSpec = mapArg(request["function_spec"])
         if (functionSpec.isEmpty()) {
             return errorPayload(
-                code = "FUNCTION_SPEC_EMPTY",
-                message = "functionSpec or steps are required"
+                code = "FUNCTION_SPEC_REQUIRED",
+                message = "function_spec is required"
             )
         }
-        val mode = if (hasExplicitFunctionSpec(request)) "function_spec" else "simple"
         val registration = saveFunctionSpec(functionSpec)
         val registeredId = firstNonBlank(
             registration["function_id"],
@@ -206,150 +176,15 @@ class FunctionService(
         }
         return withFunctionPromptPayload(
             registration + linkedMapOf(
-                "registration_input_mode" to mode,
-                "simple_schema_supported" to true,
+                "registration_input_mode" to "function_spec",
                 "function" to savedFunction,
                 "function_spec" to savedFunction,
             )
         )
     }
 
-    private fun hasExplicitFunctionSpec(request: Map<String, Any?>): Boolean =
-        mapArg(request["function_spec"]).isNotEmpty() ||
-            mapArg(request["functionSpec"]).isNotEmpty() ||
-            ((request.containsKey("function_id") || request.containsKey("name")) &&
-                (mapArg(request["execution"]).isNotEmpty() || listArg(request["actions"]).isNotEmpty()))
-
-    private fun buildFunctionSpecForRegistration(request: Map<String, Any?>): Map<String, Any?> {
-        val explicit = mapArg(request["function_spec"]).ifEmpty { mapArg(request["functionSpec"]) }
-            .ifEmpty { if (hasExplicitFunctionSpec(request)) request else emptyMap() }
-        if (explicit.isNotEmpty()) return explicit
-        val rawSteps = listArg(request["steps"])
-            .ifEmpty { listArg(request["execution_steps"]) }
-            .ifEmpty { listArg(request["executionSteps"]) }
-            .mapNotNull { raw -> mapArg(raw).takeIf { it.isNotEmpty() } }
-        if (rawSteps.isEmpty()) return emptyMap()
-        val now = System.currentTimeMillis().toString()
-        val rawFunctionId = firstNonBlank(request["function_id"], request["functionId"], request["id"])
-        val name = firstNonBlank(request["name"], request["title"], rawFunctionId).ifBlank { "Reusable function" }
-        val description = firstNonBlank(request["description"], request["goal"], request["summary"], name)
-        val functionId = rawFunctionId.ifBlank {
-            val seed = "$name $description".lowercase().replace(Regex("[^a-z0-9]+"), "_")
-                .replace(Regex("_+"), "_").trim('_').take(48).ifBlank { "registered_function" }
-            "oob_fn_${seed}_${now.takeLast(6)}"
-        }
-        val sourceContext = sourceContextFromRegistration(request)
-        val sourcePackageName = firstNonBlank(
-            mapArg(sourceContext["src_ctx"])["package_name"],
-            mapArg(sourceContext["src_ctx"])["packageName"],
-        )
-        val packageName = firstNonBlank(
-            request["packageName"], request["package_name"], request["current_package"], request["currentPackage"],
-            mapArg(request["source_page"])["package_name"], mapArg(request["source_page"])["packageName"],
-            mapArg(request["sourcePage"])["package_name"], mapArg(request["sourcePage"])["packageName"],
-            sourcePackageName,
-        )
-        val normalizedSteps = rawSteps.mapIndexed { index, raw ->
-            cn.com.omnimind.bot.function.FunctionStepNormalizer.normalizeSimpleRegisteredStep(
-                raw = raw,
-                index = index,
-                inheritedSourceContext = if (index == 0) sourceContext else emptyMap(),
-            )
-        }
-        val capabilities = cn.com.omnimind.bot.function.FunctionStepNormalizer.executionCapabilities(normalizedSteps)
-        val explicitAgentVisible = request["agent_visible"] ?: request["agentVisible"]
-        val explicitVisibility = firstNonBlank(request["visibility"])
-        return linkedMapOf<String, Any?>(
-            "schema_version" to "oob.reusable_function.v1",
-            "function_id" to functionId,
-            "name" to name,
-            "description" to description,
-            "agent_visible" to explicitAgentVisible,
-            "visibility" to explicitVisibility.takeIf { it.isNotBlank() },
-            "parameters" to listArg(request["parameters"]).mapNotNull { raw -> mapArg(raw).takeIf { it.isNotEmpty() } },
-            "constraints" to linkedMapOf("package_name" to packageName.takeIf { it.isNotBlank() }).filterValues { it != null },
-            "source" to linkedMapOf(
-                "kind" to "agent_registered_function",
-                "goal" to firstNonBlank(request["goal"], description),
-                "package_name" to packageName.takeIf { it.isNotBlank() },
-                "registered_via" to "oob_function_register.simple",
-                "source_context_mode" to firstNonBlank(mapArg(sourceContext["_oob_meta"])["mode"], "none")
-                    .takeIf { sourceContext.isNotEmpty() },
-                "registered_at" to now,
-            ).filterValues { it != null },
-            "execution" to linkedMapOf(
-                "kind" to "tool_sequence",
-                "runner" to "oob_tool_sequence",
-                "entrypoint" to "execute",
-                "capabilities" to capabilities,
-                "steps" to normalizedSteps,
-                "step_count" to normalizedSteps.size,
-                "function_step_count" to capabilities["function_step_count"],
-            ),
-            "_oob_registry" to linkedMapOf(
-                "registered_at" to now,
-                "updated_at" to now,
-                "runner" to "oob_agent_reusable_function",
-                "storage" to "workspace",
-                "registration_input_mode" to "simple",
-            ),
-        ).filterValues { it != null }
-    }
-
-    private fun sourceContextFromRegistration(request: Map<String, Any?>): Map<String, Any?> {
-        val explicit = mapArg(request["source_context"]).ifEmpty { mapArg(request["sourceContext"]) }
-        if (explicit.isNotEmpty()) return explicit
-        val sourcePage = mapArg(request["source_page"]).ifEmpty { mapArg(request["sourcePage"]) }
-            .ifEmpty { mapArg(request["currentPage"]) }.ifEmpty { mapArg(request["current_page"]) }
-        val pageXmlFromRequest = firstNonBlank(
-            sourcePage["page"], sourcePage["xml"], sourcePage["observation_xml"], sourcePage["observationXml"],
-            request["current_xml"], request["currentXml"], request["source_xml"], request["sourceXml"], request["xml"],
-        )
-        val requestPackageName = firstNonBlank(
-            sourcePage["package_name"], sourcePage["packageName"], request["package_name"],
-            request["packageName"], request["current_package"], request["currentPackage"],
-        )
-        val requestActivityName = firstNonBlank(
-            sourcePage["activity_name"], sourcePage["activityName"],
-            request["activity_name"], request["activityName"],
-        )
-        val autoCaptureDisabled = boolArg(request["disable_current_page_capture"]) ||
-            boolArg(request["disableCurrentPageCapture"]) ||
-            boolArg(request["no_current_page_capture"]) || boolArg(request["noCurrentPageCapture"])
-        val capturedPage = if (pageXmlFromRequest.isBlank() && !autoCaptureDisabled) {
-            runCatching {
-                val pageXml = deviceOperator.currentXml()?.trim().orEmpty()
-                if (pageXml.isBlank()) return@runCatching emptyMap()
-                val pkg = deviceOperator.currentPackageName()?.trim().orEmpty()
-                val act = deviceOperator.currentActivityName()?.trim().orEmpty()
-                linkedMapOf("src_ctx" to linkedMapOf<String, Any?>(
-                    "page" to pageXml, "package_name" to pkg.takeIf { it.isNotBlank() },
-                    "activity_name" to act.takeIf { it.isNotBlank() },
-                    "require_unique_action_signature" to false,
-                ).filterValues { it != null })
-            }.getOrDefault(emptyMap())
-        } else emptyMap()
-        val capturedSrcCtx = mapArg(capturedPage["src_ctx"])
-        val pageXml = firstNonBlank(pageXmlFromRequest, capturedSrcCtx["page"])
-        if (pageXml.isBlank()) return emptyMap()
-        val packageName = firstNonBlank(requestPackageName, capturedSrcCtx["package_name"], capturedSrcCtx["packageName"])
-        val activityName = firstNonBlank(requestActivityName, capturedSrcCtx["activity_name"], capturedSrcCtx["activityName"])
-        val mode = if (pageXmlFromRequest.isBlank()) "current_page_capture" else "explicit_request"
-        return linkedMapOf(
-            "src_ctx" to linkedMapOf<String, Any?>(
-                "page" to pageXml,
-                "package_name" to packageName.takeIf { it.isNotBlank() },
-                "activity_name" to activityName.takeIf { it.isNotBlank() },
-                "require_unique_action_signature" to false,
-            ).filterValues { it != null },
-            "_oob_meta" to linkedMapOf("mode" to mode, "captured_current_page" to (mode == "current_page_capture")),
-        )
-    }
-
     private fun saveFunctionSpec(functionSpec: Map<String, Any?>): Map<String, Any?> {
-        val rawSpec = FunctionParameterBindingNormalizer.normalize(
-            FunctionJson.sanitizeMap(functionSpec)
-        )
+        val rawSpec = FunctionJson.sanitizeMap(functionSpec)
         val rawFunctionId = functionIdFromSpec(rawSpec)
         if (rawFunctionId.isEmpty()) {
             return errorPayload(
@@ -366,16 +201,6 @@ class FunctionService(
         val spec = FunctionContract.sanitize(indexSpec)
         val alreadyExists = containsFunctionSpec(functionId)
         val agentVisible = isAgentVisible(spec)
-        val udegResult = runCatching {
-            OobUdegNodeStore(context).upsertFunction(functionId, spec)
-        }.getOrElse { error ->
-            linkedMapOf(
-                "success" to false,
-                "indexed" to false,
-                "error_message" to error.message.orEmpty()
-            )
-        }
-
         val workspaceResult = runCatching {
             workspaceFunctionStore.register(spec)
         }.getOrElse { error ->
@@ -431,7 +256,6 @@ class FunctionService(
             "parameter_binding_normalization" to FunctionJson.mapArg(spec["metadata"])
                 ["oob_parameter_binding_normalization"],
             "workspace" to workspaceResult,
-            "udeg" to udegResult,
             "normalized_from_function_id" to rawFunctionId.takeIf { it != functionId },
             "source_run_ids" to sourceRunIds,
             "run_log_bindings" to runLogBindings,
@@ -476,13 +300,11 @@ class FunctionService(
             )
         }
         val deletedWorkspace = workspaceFunctionStore.delete(normalized)
-        val udegResult = OobUdegNodeStore(context).removeFunctionReferences(setOf(normalized))
         return linkedMapOf(
             "success" to deletedWorkspace,
             "function_id" to normalized,
             "deleted" to deletedWorkspace,
             "deleted_workspace" to deletedWorkspace,
-            "udeg" to udegResult,
             "source" to "function_service",
         )
     }
@@ -493,14 +315,12 @@ class FunctionService(
             .filter { it.isNotEmpty() }
             .distinct()
         val workspaceResult = workspaceFunctionStore.clear()
-        val udegResult = OobUdegNodeStore(context).clearFunctionReferences()
         return linkedMapOf(
             "success" to true,
             "deleted" to true,
             "deleted_count" to functionIds.size,
             "function_ids" to functionIds,
             "workspace" to workspaceResult,
-            "udeg" to udegResult,
             "source" to "function_service",
         )
     }
@@ -751,135 +571,9 @@ class FunctionService(
             )
         }
 
-    private fun recallCandidateMap(
-        spec: Map<String, Any?>,
-        hit: FunctionStore.RecallHit,
-        currentPackage: String,
-    ): Map<String, Any?> {
-        val callable = FunctionSchema.callableSummary(spec)
-        val functionId = firstNonBlank(callable["function_id"], FunctionSchema.functionId(spec))
-        val packageNames = packageScopes(spec)
-        return linkedMapOf<String, Any?>(
-            "capability_type" to "function",
-            "function_id" to functionId,
-            "description" to firstNonBlank(callable["description"], callable["name"], functionId),
-            "name" to callable["name"],
-            "parameters" to callable["parameters"],
-            "argument_names" to callable["argument_names"],
-            "inputSchema" to callable["parameters"],
-            "input_schema" to callable["parameters"],
-            "retrieval" to linkedMapOf(
-                "score" to hit.score,
-                "source" to "local_function_index",
-                "rank_order" to "local_text_overlap",
-                "current_package_match" to (
-                    currentPackage.isNotBlank() && packageNames.contains(currentPackage)
-                    ),
-            ),
-            "package_names" to packageNames.takeIf { it.isNotEmpty() },
-            "requires_arguments" to !isNoArgumentFunction(spec),
-            "resolve_policy" to argumentResolvePolicy(spec),
-            "execution_scope" to "function",
-            "step_count" to FunctionSchema.materializedSteps(spec).size,
-            "step_summaries" to FunctionSchema.stepSummaries(spec),
-            "function_profile" to functionProfile(spec),
-            "function_kind" to "oob_reusable_function",
-            "asset_state" to "native_local",
-            "source" to "function_recall",
-        ).filterValues { it != null }
-    }
-
-    private fun functionProfile(spec: Map<String, Any?>): Map<String, Any?> {
-        val metadata = mapArg(spec["metadata"])
-        val agentReuse = mapArg(spec["agent_reuse"])
-            .ifEmpty { mapArg(metadata["agent_reuse"]) }
-        val source = mapArg(spec["source"])
-        return linkedMapOf<String, Any?>(
-            "purpose" to firstNonBlank(
-                spec["description"],
-                spec["name"],
-                FunctionSchema.functionId(spec),
-            ),
-            "use_when" to firstNonBlank(
-                agentReuse["use_when"],
-                agentReuse["reuse_when"],
-                source["goal"],
-            ).takeIf { it.isNotBlank() },
-            "success_signal" to firstNonBlank(
-                agentReuse["success_signal"],
-                agentReuse["successSignal"],
-            ).takeIf { it.isNotBlank() },
-            "limitations" to listArg(agentReuse["limitations"]).take(5).takeIf { it.isNotEmpty() },
-            "common_situations" to listArg(agentReuse["common_situations"])
-                .ifEmpty { listArg(agentReuse["commonSituations"]) }
-                .take(5)
-                .takeIf { it.isNotEmpty() },
-            "package_name" to packageScopes(spec).firstOrNull(),
-        ).filterValues { it != null }
-    }
-
-    private fun packageScopes(spec: Map<String, Any?>): Set<String> {
-        val constraints = mapArg(spec["constraints"])
-        val source = mapArg(spec["source"])
-        return buildList {
-            listOf(
-                constraints["package_name"],
-                constraints["packageName"],
-                source["package_name"],
-                source["packageName"],
-            ).map { firstNonBlank(it) }
-                .filterTo(this) { it.isNotBlank() }
-            FunctionSchema.materializedSteps(spec).forEach { step ->
-                val args = mapArg(step["args"])
-                val sourceContext = mapArg(step["source_context"])
-                val srcCtx = mapArg(sourceContext["src_ctx"])
-                val dstCtx = mapArg(sourceContext["dst_ctx"])
-                val sourceAction = mapArg(sourceContext["action"])
-                listOf(
-                    args["package_name"],
-                    args["packageName"],
-                    srcCtx["package_name"],
-                    srcCtx["packageName"],
-                    dstCtx["package_name"],
-                    dstCtx["packageName"],
-                    sourceAction["package_name"],
-                    sourceAction["packageName"],
-                ).map { firstNonBlank(it) }
-                    .filterTo(this) { it.isNotBlank() }
-            }
-        }.toSet()
-    }
-
-    private fun isNoArgumentFunction(spec: Map<String, Any?>): Boolean {
-        val schema = FunctionSchema.inputSchema(spec)
-        return listArg(schema["required"]).isEmpty() && mapArg(schema["properties"]).isEmpty()
-    }
-
-    private fun argumentResolvePolicy(spec: Map<String, Any?>): String =
-        if (isNoArgumentFunction(spec)) {
-            "no_arguments_required"
-        } else {
-            "goal_bound_arguments_required"
-        }
-
     private fun applyFunctionUpdateRequest(args: Map<String, Any?>?): Map<String, Any?> {
-        val updateStartedAtMs = System.currentTimeMillis()
-        val request = args ?: emptyMap()
-        val runId = firstNonBlank(request["run_id"])
-        val runLogTimeline = if (runId.isNotEmpty()) {
-            val timeline = InternalRunLogStore.timelinePayload(context, runId)
-            if (timeline["success"] != true) {
-                return errorPayload(code = "RUN_LOG_NOT_FOUND", message = "RunLog not found: $runId")
-            }
-            timeline
-        } else {
-            emptyMap()
-        }
-        val functionId = firstNonBlank(
-            request["function_id"], request["functionId"],
-            runLogTimeline["registered_function_id"],
-            mapArg(runLogTimeline["registered_function_spec"])["function_id"],
-        )
+        val request = args.orEmpty()
+        val functionId = firstNonBlank(request["function_id"])
         if (functionId.isEmpty()) {
             return errorPayload(code = "FUNCTION_ID_EMPTY", message = "update_function requires function_id")
         }
@@ -887,488 +581,65 @@ class FunctionService(
             ?: return errorPayload(
                 code = "OOB_FUNCTION_NOT_FOUND",
                 message = "Function not found: $functionId",
-                functionId = functionId
+                functionId = functionId,
             )
-        val mode = firstNonBlank(request["mode"], request["operation"]).lowercase().ifBlank { "enhance" }
-        val dryRun = boolArg(request["dry_run"]) || boolArg(request["dryRun"])
-        val instruction = firstNonBlank(request["instruction"], request["request"], request["user_instruction"])
-        val analysis = mapArg(request["analysis"]).ifEmpty { mapArg(request["evidence_analysis"]) }
         val patch = mapArg(request["patch"])
-            .ifEmpty { mapArg(request["function_patch"]) }
-            .ifEmpty { mapArg(request["updates"]) }
-            .ifEmpty { mapArg(analysis["recommended_patch"]) }
-        val updateCost = updateCostPayload(
-            request = request,
-            analysis = analysis,
-            patch = patch,
-            startedAtMs = updateStartedAtMs,
-            mode = mode,
-        )
-
+        val edits = listArg(patch["action_edits"])
+            .mapNotNull { mapArg(it).takeIf { edit -> edit.isNotEmpty() } }
         val updated = FunctionJson.mutableJsonMap(original)
-        val changes = mutableListOf<Map<String, Any?>>()
-        if (patch.isNotEmpty()) changes += applyFunctionPatch(updated, patch)
-        if (analysis.isNotEmpty()) changes += applyRunLogEvidenceRef(updated, runId)
-        updated["function_id"] = functionId
+        val changes = FunctionActionEdits.apply(updated, edits)
+        val dryRun = boolArg(request["dry_run"])
 
-        val changed = changes.isNotEmpty()
-        appendUpdateAudit(
-            spec = updated,
-            mode = mode,
-            instruction = instruction,
-            changed = changed,
-            dryRun = dryRun,
-            changes = changes,
-            updateCost = updateCost,
-        )
-        if (!changed) {
-            if (!dryRun) persistRunLogEnhancementAnalysis(runId, functionId, mode, analysis)
+        if (changes.isEmpty()) {
             return linkedMapOf(
                 "success" to true,
                 "function_id" to functionId,
-                "mode" to mode,
                 "changed" to false,
                 "saved" to false,
                 "dry_run" to dryRun,
-                "requires_confirmation" to false,
-                "message" to "未找到可安全应用的 Function 更新。",
                 "function" to original,
                 "updated_function" to original,
-                "changes" to changes,
-                "cost" to updateCost,
-                "source" to "function_service"
+                "changes" to emptyList<Map<String, Any?>>(),
+                "message" to "No applicable action edits.",
+                "source" to "function_service",
             )
         }
+        updated["function_id"] = functionId
         if (dryRun) {
             return linkedMapOf(
                 "success" to true,
                 "function_id" to functionId,
-                "mode" to mode,
                 "changed" to true,
                 "saved" to false,
                 "dry_run" to true,
-                "requires_confirmation" to false,
-                "changes" to changes,
                 "function" to original,
                 "updated_function" to updated,
-                "message" to "已生成 Function 更新预览，未保存。",
-                "cost" to updateCost,
-                "source" to "function_service"
+                "changes" to changes,
+                "message" to "Function update preview generated.",
+                "source" to "function_service",
             )
         }
 
         val save = saveFunctionSpec(updated)
-        val savedFunctionId = firstNonBlank(save["function_id"], functionId)
-        val identityPreserved = savedFunctionId == functionId && firstNonBlank(updated["function_id"]) == functionId
-        val saved = save["success"] == true && identityPreserved
-        val savedUpdated = if (saved) {
-            getFunctionSpec(savedFunctionId) ?: updated
-        } else {
-            updated
-        }
-        if (saved) persistRunLogEnhancementAnalysis(runId, functionId, mode, analysis)
+        val saved = save["success"] == true && firstNonBlank(save["function_id"]) == functionId
+        val savedUpdated = if (saved) getFunctionSpec(functionId) ?: updated else updated
         return linkedMapOf(
             "success" to saved,
-            "function_id" to savedFunctionId,
-            "updated_function_id" to firstNonBlank(updated["function_id"], functionId),
-            "mode" to mode,
-            "changed" to changed,
+            "function_id" to functionId,
+            "changed" to true,
             "saved" to saved,
             "dry_run" to false,
-            "requires_confirmation" to false,
-            "changes" to changes,
-            "save" to save,
             "function" to original,
             "updated_function" to savedUpdated,
-            "message" to if (saved) {
-                "Function 已更新并保存。"
-            } else if (!identityPreserved) {
-                "Function 更新必须保持同一个 function_id。"
-            } else {
-                save["error_message"]?.toString() ?: "Function 更新保存失败。"
-            },
-            "cost" to updateCost,
-            "source" to "function_service"
+            "changes" to changes,
+            "save" to save,
+            "message" to if (saved) "Function updated." else "Function update failed.",
+            "source" to "function_service",
         )
     }
-
-    private fun persistRunLogEnhancementAnalysis(
-        runId: String,
-        functionId: String,
-        mode: String,
-        analysis: Map<String, Any?>,
-    ) {
-        if (runId.isBlank() || analysis.isEmpty()) return
-        InternalRunLogStore.updateDiagnostics(
-            context = context,
-            runId = runId,
-            diagnostics = mapOf(
-                "function_enhancement" to linkedMapOf(
-                    "schema_version" to "oob.function_enhancement_analysis.v1",
-                    "function_id" to functionId,
-                    "mode" to mode,
-                    "analysis" to analysis,
-                    "updated_at_ms" to System.currentTimeMillis(),
-                ),
-            ),
-        )
-    }
-
-    private fun applyFunctionPatch(
-        spec: MutableMap<String, Any?>,
-        patch: Map<String, Any?>,
-    ): List<Map<String, Any?>> {
-        val changes = mutableListOf<Map<String, Any?>>()
-        setStringFieldIfChanged(spec, "name", patch["name"], changes, "header")
-        setStringFieldIfChanged(spec, "description", patch["description"], changes, "header")
-        changes += FunctionActionEdits.apply(
-            spec,
-            listArg(patch["action_edits"]).mapNotNull { mapArg(it).takeIf { edit -> edit.isNotEmpty() } },
-        )
-        applyStepLabelPatches(spec, patch, changes)
-        applyParameterPatch(spec, patch, changes)
-        applyAgentReusePatch(spec, patch, changes)
-        applyMetadataPatch(spec, patch, changes)
-        applyTopLevelCheckerRulesPatch(spec, patch, changes)
-        return changes
-    }
-
-    private fun applyRunLogEvidenceRef(
-        spec: MutableMap<String, Any?>,
-        runId: String,
-    ): List<Map<String, Any?>> {
-        val metadata = FunctionJson.mutableJsonMap(mapArg(spec["metadata"]))
-        val existing = FunctionJson.mutableJsonMap(mapArg(metadata["oob_function_evidence"]))
-        val sourceRunIds = sourceRunIds(spec).toMutableList()
-        listArg(existing["source_run_ids"]).forEach { raw ->
-            raw?.toString()?.trim()?.takeIf(String::isNotEmpty)?.let { existingRunId ->
-                if (existingRunId !in sourceRunIds) sourceRunIds += existingRunId
-            }
-        }
-        if (runId.isNotBlank() && sourceRunIds.none { it == runId }) sourceRunIds += runId
-        val evidence = linkedMapOf<String, Any?>().apply {
-            putAll(existing.filterKeys { it != "latest_analysis" })
-            put("schema_version", "oob.function_evidence.v1")
-            put("source", "update_function.runlog_analysis")
-            put("latest_run_id", runId.takeIf { it.isNotBlank() })
-            put("source_run_ids", sourceRunIds)
-            put("updated_at_ms", System.currentTimeMillis())
-        }.filterValues { it != null }
-        val oldMetadataSourceRunIds = listArg(metadata["source_run_ids"])
-        metadata["source_run_ids"] = sourceRunIds
-        metadata["oob_function_evidence"] = evidence
-        spec["metadata"] = metadata
-        val changes = mutableListOf<Map<String, Any?>>()
-        if (oldMetadataSourceRunIds != sourceRunIds) {
-            changes += changeMap("metadata", "source_run_ids", oldMetadataSourceRunIds, sourceRunIds)
-        }
-        if (existing != evidence) {
-            changes += changeMap("metadata", "oob_function_evidence", existing.takeIf { it.isNotEmpty() }, evidence)
-        }
-        return changes
-    }
-
-    private fun appendUpdateAudit(
-        spec: MutableMap<String, Any?>,
-        mode: String,
-        instruction: String,
-        changed: Boolean,
-        dryRun: Boolean,
-        changes: List<Map<String, Any?>>,
-        updateCost: Map<String, Any?>,
-    ) {
-        val metadata = FunctionJson.mutableJsonMap(mapArg(spec["metadata"]))
-        metadata["oob_function_update"] = linkedMapOf(
-            "schema_version" to "oob.function_update.v1",
-            "tool" to FunctionApi.FUNCTION_UPDATE,
-            "mode" to mode,
-            "status" to if (changed) "updated" else "unchanged",
-            "changed" to changed,
-            "dry_run" to dryRun,
-            "instruction" to instruction.takeIf { it.isNotBlank() },
-            "change_count" to changes.size,
-            "updated_at_ms" to System.currentTimeMillis(),
-            "cost" to updateCost.takeIf { it.isNotEmpty() },
-        ).filterValues { it != null }
-        if (mode == "enhance" || metadata["oob_enhancement"] != null) {
-            metadata["oob_enhancement"] = linkedMapOf(
-                "schema_version" to "oob.function_enhancement.v1",
-                "source" to FunctionApi.FUNCTION_UPDATE,
-                "status" to if (changed) "enhanced" else "unchanged",
-                "changed" to changed,
-                "message" to if (changed) {
-                    "Agent enhancement applied through update_function."
-                } else {
-                    "No safe useful enhancement was applied."
-                },
-                "updated_at_ms" to System.currentTimeMillis(),
-                "cost" to updateCost.takeIf { it.isNotEmpty() },
-            )
-        }
-        spec["metadata"] = metadata
-    }
-
-    private fun updateCostPayload(
-        request: Map<String, Any?>,
-        analysis: Map<String, Any?>,
-        patch: Map<String, Any?>,
-        startedAtMs: Long,
-        mode: String,
-    ): Map<String, Any?> {
-        val usage = firstPatchMap(
-            request["usage"],
-            request["token_usage"],
-            request["tokenUsage"],
-            analysis["usage"],
-            analysis["token_usage"],
-            analysis["tokenUsage"],
-            patch["usage"],
-            patch["token_usage"],
-            patch["tokenUsage"],
-        )
-        val cost = firstCostMap(
-            request["cost"],
-            request["cost_estimate"],
-            request["costEstimate"],
-            analysis["cost"],
-            analysis["cost_estimate"],
-            analysis["costEstimate"],
-            patch["cost"],
-            patch["cost_estimate"],
-            patch["costEstimate"],
-        )
-        val endedAtMs = System.currentTimeMillis()
-        return linkedMapOf(
-            "mode" to mode.takeIf { it.isNotBlank() },
-            "backend" to (firstNonBlank(request["source"], analysis["source"]).takeIf { it.isNotBlank() }
-                ?: "function_service"),
-            "started_at_ms" to startedAtMs,
-            "ended_at_ms" to endedAtMs,
-            "duration_ms" to (endedAtMs - startedAtMs).coerceAtLeast(0L),
-            "usage" to usage.takeIf { it.isNotEmpty() },
-            "cost" to cost.takeIf { it.isNotEmpty() },
-        ).filterValues { it != null }
-    }
-
-    private fun firstPatchMap(vararg values: Any?): Map<String, Any?> {
-        for (value in values) {
-            val mapped = mapArg(value).filterKeys { it.isNotBlank() }
-            if (mapped.isNotEmpty()) return mapped
-        }
-        return emptyMap()
-    }
-
-    private fun firstCostMap(vararg values: Any?): Map<String, Any?> {
-        for (value in values) {
-            val mapped = mapArg(value).filterKeys { it.isNotBlank() }
-            if (mapped.isNotEmpty()) return mapped
-            val text = value?.toString()?.trim().orEmpty()
-            if (text.isNotBlank()) return linkedMapOf("total" to text)
-        }
-        return emptyMap()
-    }
-
-    private fun applyStepLabelPatches(
-        spec: MutableMap<String, Any?>,
-        patch: Map<String, Any?>,
-        changes: MutableList<Map<String, Any?>>,
-    ) {
-        val stepPatches = listArg(patch["steps"]).mapNotNull { mapArg(it).takeIf { sp -> sp.isNotEmpty() } }
-        if (stepPatches.isEmpty()) return
-        val execution = FunctionJson.mutableJsonMap(mapArg(spec["execution"]))
-        val steps = FunctionJson.mutableJsonList(listArg(execution["steps"]))
-        stepPatches.forEach { sp ->
-            val index = intArg(sp["index"], sp["step_index"], sp["stepIndex"], defaultValue = -1)
-            val stepIndex = if (index >= 0) index else {
-                val stepId = firstNonBlank(sp["id"], sp["step_id"], sp["stepId"])
-                steps.indexOfFirst { firstNonBlank(mapArg(it)["id"]) == stepId }
-            }
-            if (stepIndex !in steps.indices) return@forEach
-            val step = FunctionJson.mutableJsonMap(mapArg(steps[stepIndex]))
-            setStringFieldIfChanged(step, "title", sp["title"], changes, "step_label", stepIndex)
-            setStringFieldIfChanged(step, "summary", sp["summary"], changes, "step_label", stepIndex)
-            setStringFieldIfChanged(step, "description", sp["description"], changes, "step_label", stepIndex)
-            val cleanup = mapArg(sp["cleanup_annotation"]).ifEmpty { mapArg(sp["cleanupAnnotation"]) }
-            if (cleanup.isNotEmpty()) {
-                val metadata = FunctionJson.mutableJsonMap(mapArg(step["metadata"]))
-                val old = metadata["cleanup_annotation"]
-                metadata["cleanup_annotation"] = cleanup
-                step["metadata"] = metadata
-                if (old != cleanup) changes += changeMap("step_metadata", "cleanup_annotation", old, cleanup, stepIndex)
-            }
-            steps[stepIndex] = step
-        }
-        execution["steps"] = steps
-        spec["execution"] = execution
-    }
-
-    private fun applyParameterPatch(
-        spec: MutableMap<String, Any?>,
-        patch: Map<String, Any?>,
-        changes: MutableList<Map<String, Any?>>,
-    ) {
-        val parameters = listArg(patch["parameters"]).mapNotNull { mapArg(it).takeIf(::isSafeParameterPatch) }
-        if (parameters.isEmpty()) return
-        val old = spec["parameters"]
-        spec["parameters"] = parameters
-        if (old != parameters) changes += changeMap("schema", "parameters", old, parameters)
-    }
-
-    private fun applyAgentReusePatch(
-        spec: MutableMap<String, Any?>,
-        patch: Map<String, Any?>,
-        changes: MutableList<Map<String, Any?>>,
-    ) {
-        val agentReuse = mapArg(patch["agent_reuse"]).ifEmpty { mapArg(patch["agentReuse"]) }
-        if (agentReuse.isEmpty()) return
-        val old = spec["agent_reuse"]
-        spec["agent_reuse"] = agentReuse
-        if (old != agentReuse) changes += changeMap("metadata", "agent_reuse", old, agentReuse)
-    }
-
-    private fun applyMetadataPatch(
-        spec: MutableMap<String, Any?>,
-        patch: Map<String, Any?>,
-        changes: MutableList<Map<String, Any?>>,
-    ) {
-        val metadataPatch = mapArg(patch["metadata"])
-        if (metadataPatch.isEmpty()) return
-        val metadata = FunctionJson.mutableJsonMap(mapArg(spec["metadata"]))
-        metadataPatch.forEach { (key, value) ->
-            when (key) {
-                "checker_rules", "checkerRules" -> changes += applyCheckerRulesPatch(metadata, value)
-            }
-        }
-        spec["metadata"] = metadata
-    }
-
-    private fun applyTopLevelCheckerRulesPatch(
-        spec: MutableMap<String, Any?>,
-        patch: Map<String, Any?>,
-        changes: MutableList<Map<String, Any?>>,
-    ) {
-        val rawRules = patch["checker_rules"] ?: patch["checkerRules"] ?: return
-        val metadata = FunctionJson.mutableJsonMap(mapArg(spec["metadata"]))
-        changes += applyCheckerRulesPatch(metadata, rawRules)
-        spec["metadata"] = metadata
-    }
-
-    private fun isSafeParameterPatch(parameter: Map<String, Any?>): Boolean {
-        val name = firstNonBlank(parameter["name"])
-        if (!isValidParameterName(name)) return false
-        val bindings = listArg(parameter["bindings"]).mapNotNull { it?.toString()?.trim()?.takeIf(String::isNotEmpty) }
-        if (bindings.isEmpty()) return true
-        val forbidden = listOf("x", "y", "coordinate", "bounds", "width", "height", "screenshot", "xml", "source_context")
-        return bindings.all { binding -> forbidden.none { binding.lowercase().contains(it) } }
-    }
-
-    private fun isValidParameterName(name: String): Boolean =
-        Regex("^[A-Za-z_][A-Za-z0-9_]{0,63}$").matches(name)
-
-    private fun setStringFieldIfChanged(
-        target: MutableMap<String, Any?>,
-        field: String,
-        rawValue: Any?,
-        changes: MutableList<Map<String, Any?>>,
-        part: String,
-        stepIndex: Int? = null,
-    ) {
-        val value = rawValue?.toString()?.trim()?.takeIf { it.isNotEmpty() } ?: return
-        val old = target[field]?.toString()
-        if (old == value) return
-        target[field] = value
-        changes += changeMap(part, field, old, value, stepIndex)
-    }
-
-    private fun applyCheckerRulesPatch(
-        metadata: MutableMap<String, Any?>,
-        rawRules: Any?,
-    ): List<Map<String, Any?>> {
-        val additions = listArg(rawRules).mapNotNull { raw -> sanitizeCheckerRule(mapArg(raw)) }
-        if (additions.isEmpty()) return emptyList()
-        val existing = listArg(metadata["checker_rules"])
-        val merged = mergeCheckerRules(existing, additions)
-        if (merged == existing) return emptyList()
-        metadata["checker_rules"] = merged
-        return listOf(changeMap("metadata", "checker_rules", existing, merged))
-    }
-
-    private fun sanitizeCheckerRule(raw: Map<String, Any?>): Map<String, Any?>? {
-        if (raw.isEmpty()) return null
-        val parsed = ReplayCheckerRule.fromMap(raw) ?: return null
-        val id = safeCheckerRuleId(
-            firstNonBlank(raw["id"]).ifBlank {
-                "${parsed.condition}-${parsed.action.ifBlank { parsed.recoveryFunctionId }}"
-            }
-        )
-        return linkedMapOf<String, Any?>(
-            "id" to id,
-            "condition" to parsed.condition,
-            "action" to parsed.action.takeIf(String::isNotBlank),
-            "recovery_function_id" to parsed.recoveryFunctionId.takeIf(String::isNotBlank),
-            "enabled" to (raw["enabled"] as? Boolean ?: true),
-            "params" to parsed.params.takeIf { it.isNotEmpty() },
-        ).filterValues { it != null }
-    }
-
-    private fun mergeCheckerRules(
-        existing: List<Any?>,
-        additions: List<Map<String, Any?>>,
-    ): List<Any?> {
-        val output = existing.toMutableList()
-        val signatures = existing.mapNotNull { mapArg(it).takeIf { rule -> rule.isNotEmpty() } }
-            .map(::checkerRuleSignature)
-            .toMutableSet()
-        val usedIds = existing.mapNotNull { firstNonBlank(mapArg(it)["id"]).takeIf(String::isNotEmpty) }.toMutableSet()
-        additions.forEach { rule ->
-            val signature = checkerRuleSignature(rule)
-            if (signature in signatures) return@forEach
-            val id = uniqueCheckerRuleId(firstNonBlank(rule["id"]), usedIds)
-            output += linkedMapOf<String, Any?>().apply {
-                putAll(rule)
-                put("id", id)
-            }
-            signatures += signature
-            usedIds += id
-        }
-        return output
-    }
-
-    private fun checkerRuleSignature(rule: Map<String, Any?>): String {
-        val condition = firstNonBlank(rule["condition"])
-        val action = firstNonBlank(rule["action"])
-        val params = mapArg(rule["params"]).toSortedMap().entries.joinToString("|") { "${it.key}=${it.value}" }
-        return "$condition::$action::$params"
-    }
-
-    private fun safeCheckerRuleId(raw: String): String {
-        val normalized = raw.lowercase().replace(Regex("[^a-z0-9_-]+"), "_").trim('_', '-')
-        return normalized.take(48).ifBlank { "checker_rule" }
-    }
-
-    private fun uniqueCheckerRuleId(raw: String, usedIds: MutableSet<String>): String {
-        val base = safeCheckerRuleId(raw)
-        if (base !in usedIds) return base
-        var suffix = 2
-        while (true) {
-            val candidate = "${base}_$suffix"
-            if (candidate !in usedIds) return candidate
-            suffix += 1
-        }
-    }
-
-    private fun changeMap(
-        part: String,
-        field: String,
-        old: Any?,
-        new: Any?,
-        stepIndex: Int? = null,
-    ): Map<String, Any?> =
-        linkedMapOf("part" to part, "field" to field, "old" to old, "new" to new, "step_index" to stepIndex)
-            .filterValues { it != null }
 
     suspend fun updateFunction(args: Map<String, Any?>?): Map<String, Any?> {
-        return withFunctionPromptPayload(applyFunctionUpdateRequest(args ?: emptyMap()))
+        return withFunctionPromptPayload(applyFunctionUpdateRequest(args))
     }
 
     fun listRunLogs(args: Map<String, Any?>?): Map<String, Any?> {
@@ -1696,8 +967,6 @@ class FunctionService(
 
     private companion object {
         const val TAG = "FunctionService"
-        private const val DEFAULT_RECALL_LIMIT = 50
-        private const val MAX_RECALLED_FUNCTIONS = 50
         private const val MAX_FUNCTION_ID_LENGTH = 64
         private val FUNCTION_ID_REGEX = Regex("^[A-Za-z0-9_-]{1,$MAX_FUNCTION_ID_LENGTH}$")
 
