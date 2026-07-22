@@ -44,4 +44,5 @@ dependencies {
     implementation(libs.material)
     implementation(libs.androidx.animation.core)
     implementation(libs.androidx.lifecycle.service)
+    testImplementation(libs.junit)
 }

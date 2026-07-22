@@ -17,6 +17,7 @@ import android.widget.LinearLayout
 import android.widget.TextView
 import cn.com.omnimind.assists.HumanTrajectoryLearningSession
 import cn.com.omnimind.assists.ManualInputTarget
+import cn.com.omnimind.assists.controller.accessibility.AccessibilityController
 import cn.com.omnimind.baselib.util.OmniLog
 import cn.com.omnimind.baselib.util.dpToPx
 import cn.com.omnimind.uikit.UIKit
@@ -48,6 +49,7 @@ object ManualRecordingControlOverlay {
     private var transientStatusToken = 0
     private var manualActionDialogShowing = false
     private var captureStateCallback: (suspend () -> Map<String, Any?>)? = null
+    private var sessionRunId: String? = null
 
     enum class State {
         PREPARING,
@@ -58,21 +60,30 @@ object ManualRecordingControlOverlay {
 
     fun show(
         context: Context? = UIKit.appContext,
+        runId: String,
         state: State = State.READY,
         onCaptureState: (suspend () -> Map<String, Any?>)? = null
     ): Boolean {
+        require(runId.isNotBlank()) { "manual_recording_run_id_required" }
         this.state = state
         val appContext = context?.applicationContext ?: UIKit.appContext
         val safeContext = appContext ?: return false
         return synchronized(this) {
             if (overlayView?.isAttachedToWindow == true) {
+                sessionRunId = runId
                 captureStateCallback = onCaptureState
                 bindState(overlayView, state)
                 return@synchronized true
             }
             dismissLocked()
+            sessionRunId = runId
             captureStateCallback = onCaptureState
-            tryShow(safeContext, state)
+            val shown = tryShow(safeContext, state)
+            if (!shown) {
+                sessionRunId = null
+                captureStateCallback = null
+            }
+            shown
         }
     }
 
@@ -122,26 +133,34 @@ object ManualRecordingControlOverlay {
     }
 
     fun dismiss() {
+        val runId = synchronized(this) { sessionRunId }
         synchronized(this) {
             dismissLocked()
         }
         // Cancel any active session that was never explicitly completed.
         // This covers force-dismissal paths (back press, system overlay kill, etc.)
         // where the Finish button was never tapped.
-        if (HumanTrajectoryLearningSession.isActive()) {
+        if (runId != null) {
             recordingControlScope.launch {
-                HumanTrajectoryLearningSession.cancelActive("录制窗口关闭，轨迹学习已取消")
+                HumanTrajectoryLearningSession.cancelActive(
+                    expectedRunId = runId,
+                    message = "录制窗口关闭，轨迹学习已取消"
+                )
             }
         }
     }
 
     fun cancelRecording(message: String = "人工轨迹学习已取消") {
+        val runId = synchronized(this) { sessionRunId }
         synchronized(this) {
             dismissLocked()
         }
         recordingControlScope.launch {
             val updated = runCatching {
-                HumanTrajectoryLearningSession.cancelActive(message)
+                runId != null && HumanTrajectoryLearningSession.cancelActive(
+                    expectedRunId = runId,
+                    message = message
+                )
             }.getOrElse { error ->
                 OmniLog.e(TAG, "cancel manual recording failed: ${error.message}", error)
                 false
@@ -165,6 +184,7 @@ object ManualRecordingControlOverlay {
         windowManager = null
         overlayParams = null
         captureStateCallback = null
+        sessionRunId = null
         if (view != null && manager != null && view.isAttachedToWindow) {
             runCatching { manager.removeView(view) }
                 .onFailure { OmniLog.w(TAG, "dismiss failed: ${it.message}") }
@@ -198,6 +218,10 @@ object ManualRecordingControlOverlay {
     }
 
     fun offerInput(target: ManualInputTarget) {
+        if (target.password) {
+            showTransientStatus("密码输入不录制", 1_400L)
+            return
+        }
         recordingControlScope.launch {
             if (!ManualTouchRecordLoader.awaitIdle()) return@launch
             withContext(Dispatchers.Main) {
@@ -433,6 +457,7 @@ object ManualRecordingControlOverlay {
                 }
                 isEnabled = false
                 text = "保存中"
+                val runId = synchronized(this@ManualRecordingControlOverlay) { sessionRunId }
                 ManualTouchRecordLoader.beginFinishing()
                 recordingControlScope.launch {
                     val drained = ManualTouchRecordLoader.awaitIdle()
@@ -440,7 +465,7 @@ object ManualRecordingControlOverlay {
                         OmniLog.w(TAG, "finishing manual recording with undrained touch work")
                     }
                     val updated = runCatching {
-                        HumanTrajectoryLearningSession.completeActive()
+                        runId != null && HumanTrajectoryLearningSession.completeActive(runId)
                     }.getOrElse { error ->
                         OmniLog.e(TAG, "finish manual recording failed: ${error.message}", error)
                         false
@@ -503,6 +528,7 @@ object ManualRecordingControlOverlay {
     }
 
     private fun showManualActionDialog(context: Context) {
+        val inputTarget = AccessibilityController.focusedInputTarget()
         val canShow = synchronized(this) {
             if (manualActionDialogShowing) return
             if (state != State.RECORDING) return@synchronized false
@@ -531,7 +557,11 @@ object ManualRecordingControlOverlay {
             .setTitle("补录动作")
             .setItems(labels) { _, which ->
                 when (which) {
-                    0 -> showManualInputTextDialog(context, null)
+                    0 -> when {
+                        inputTarget == null -> finishManualActionDialog("请先点击输入框")
+                        inputTarget.password -> finishManualActionDialog("密码输入不录制")
+                        else -> showManualInputTextDialog(context, inputTarget)
+                    }
                     1 -> executeManualPressKey("enter")
                     2 -> executeManualPressKey("back")
                     3 -> executeManualPressKey("home")

@@ -157,20 +157,18 @@ class ManualRecordingFlowController {
   }
 
   static void _showCompletionToast(Map<String, dynamic> result) {
-    final success = result['success'] == true;
-    final conversionSuccess =
-        result['conversion_success'] == true ||
-        result['conversionSuccess'] == true ||
-        (result['function_id'] ?? result['functionId'])
-            .toString()
-            .trim()
-            .isNotEmpty;
+    final recordingSuccess = _recordingSucceeded(result);
+    final conversionSuccess = result['function'] is Map;
     showToast(
-      success
-          ? (conversionSuccess ? '手动录制完成，复用指令已保存' : '手动录制完成，轨迹已生成')
+      recordingSuccess
+          ? (conversionSuccess ? '手动录制完成，复用指令已保存' : '手动录制完成，轨迹已生成；复用指令生成失败')
           : '手动录制失败',
-      type: success ? ToastType.success : ToastType.error,
+      type: recordingSuccess ? ToastType.success : ToastType.error,
     );
+  }
+
+  static bool _recordingSucceeded(Map<String, dynamic> result) {
+    return result['success'] == true;
   }
 
   static Future<void> openRunLogList() async {
@@ -216,9 +214,12 @@ class ManualRecordingFlowController {
     bool Function() isMounted,
     void Function(String runId)? openRunLogTimeline,
   ) {
-    final success = result['success'] == true;
-    final runId = (result['run_id'] ?? result['runId'] ?? '').toString().trim();
-    if (!success || runId.isEmpty || !isMounted()) return;
+    final recordingSuccess = _recordingSucceeded(result);
+    final runLog = result['run_log'];
+    final runId = runLog is Map
+        ? (runLog['run_id'] ?? '').toString().trim()
+        : '';
+    if (!recordingSuccess || runId.isEmpty || !isMounted()) return;
     final opener =
         openRunLogTimeline ??
         (id) {

@@ -57,9 +57,8 @@ class DebugRunLogFunctionReplayReceiver : BroadcastReceiver() {
         val replayArguments = intent.decodeJsonMapBase64Extra("argumentsBase64")
             ?: intent.decodeJsonMapBase64Extra("replayArgumentsBase64")
             ?: emptyMap()
-        val rawFunctionSpec = intent.decodeJsonMapBase64Extra("functionSpecBase64")
-            ?: intent.decodeJsonMapBase64Extra("function_spec_base64")
-            ?: intent.readJsonMapPath(appContext, "functionSpecPath", "function_spec_path")
+        val rawFunctionSpec = intent.decodeJsonMapBase64Extra("functionBase64")
+            ?: intent.readJsonMapPath(appContext, "functionPath")
             ?: emptyMap()
         val rawRunLog = intent.decodeBase64Extra("runLogBase64")
             ?.let(::decodeRunLog)
@@ -87,9 +86,6 @@ class DebugRunLogFunctionReplayReceiver : BroadcastReceiver() {
                 val inlineFunctionId = firstNonBlank(
                     functionId,
                     rawFunctionSpec["function_id"],
-                    rawFunctionSpec["functionId"],
-                    rawFunctionSpec["id"],
-                    rawFunctionSpec["name"],
                 )
                 inlineFunctionId.takeIf { it.isNotBlank() }?.let {
                     convertArgs["function_id"] = it
@@ -106,16 +102,15 @@ class DebugRunLogFunctionReplayReceiver : BroadcastReceiver() {
                     rawFunctionSpec.isNotEmpty() -> linkedMapOf<String, Any?>(
                         "success" to true,
                         "function_id" to inlineFunctionId,
-                        "function_spec" to rawFunctionSpec,
-                        "source" to "oob_function_spec",
+                        "function" to rawFunctionSpec,
+                        "source" to "omniflow.function.v2",
                     )
                     else -> service.convertRunLog(convertArgs)
                 }
                 val inlineFunctionSpec = when {
                     rawRunLogHasReplayableSteps -> {
-                        ((convert["result"] as? Map<*, *>)?.get("function_spec") as? Map<*, *>)
+                        (convert["function"] as? Map<*, *>)
                             ?.mapKeys { it.key?.toString().orEmpty() }
-                            ?: (convert["function_spec"] as? Map<*, *>)?.mapKeys { it.key?.toString().orEmpty() }
                     }
                     rawFunctionSpec.isNotEmpty() -> rawFunctionSpec
                     else -> null
@@ -125,22 +120,17 @@ class DebugRunLogFunctionReplayReceiver : BroadcastReceiver() {
                     convert["success"] == true &&
                     inlineFunctionSpec != null
                 ) {
-                    service.registerFunction(linkedMapOf("function_spec" to inlineFunctionSpec))
+                    service.registerFunction(linkedMapOf("function" to inlineFunctionSpec))
                 } else {
                     null
                 }
-                val createdFunctionId = convert["function_id"]?.toString()
-                    ?: convert["created_function_id"]?.toString()
+                val resolvedFunctionId = convert["function_id"]?.toString()
                     ?: inlineRegistration?.get("function_id")?.toString()
-                    ?: inlineRegistration?.get("created_function_id")?.toString()
                     ?: ""
-                val convertResult = (convert["result"] as? Map<*, *>)
-                    ?.mapKeys { it.key?.toString().orEmpty() }
-                    ?: emptyMap<String, Any?>()
-                val functionSpec = convert["function_spec"] ?: convertResult["function_spec"]
+                val functionSpec = convert["function"]
                 val enhance = buildOfflineEnhanceStatus(
                     requested = shouldEnhance,
-                    functionId = createdFunctionId,
+                    functionId = resolvedFunctionId,
                     runId = convert["run_id"]?.toString()
                         ?: runId.ifBlank { rawRunLog["run_id"]?.toString().orEmpty() },
                     goal = effectiveGoal,
@@ -152,14 +142,13 @@ class DebugRunLogFunctionReplayReceiver : BroadcastReceiver() {
                     requested = shouldEnhance,
                     enhance = enhance,
                 )
-                val enhancedFunctionSpec = null
                 val functionSpecHash = stableHash(functionSpec)
                 val canReplay = shouldRun &&
                     convert["success"] == true &&
                     inlineRegistration?.get("success") != false &&
-                    createdFunctionId.isNotBlank()
+                    resolvedFunctionId.isNotBlank()
                 val functionSpecBeforeReplay = if (canReplay) {
-                    service.getFunction(linkedMapOf("function_id" to createdFunctionId))["function"]
+                    service.getFunction(linkedMapOf("function_id" to resolvedFunctionId))["function"]
                 } else {
                     null
                 }
@@ -169,7 +158,7 @@ class DebugRunLogFunctionReplayReceiver : BroadcastReceiver() {
                 ) {
                     FunctionRun(appContext).runFunction(
                         linkedMapOf(
-                            "function_id" to createdFunctionId,
+                            "function_id" to resolvedFunctionId,
                             "goal" to effectiveGoal,
                             "arguments" to replayArguments,
                             "confirmed" to true,
@@ -185,7 +174,7 @@ class DebugRunLogFunctionReplayReceiver : BroadcastReceiver() {
                     "convert_failed"
                 } else if (inlineRegistration?.get("success") == false) {
                     "registration_failed"
-                } else if (createdFunctionId.isBlank()) {
+                } else if (resolvedFunctionId.isBlank()) {
                     "missing_function_id"
                 } else {
                     null
@@ -201,17 +190,16 @@ class DebugRunLogFunctionReplayReceiver : BroadcastReceiver() {
                             rawRunLog["run_id"] ?: rawRunLog["runId"]
                         }
                     ),
-                    "function_id" to createdFunctionId,
+                    "function_id" to resolvedFunctionId,
                     "agent_visible" to agentVisible,
                     "convert" to convert,
                     "inline_registration" to inlineRegistration,
                     "enhance_requested" to shouldEnhance,
                     "enhance" to enhance,
                     "enhance_cost" to enhanceCost,
-                    "function_spec" to functionSpec,
-                    "enhanced_function_spec" to enhancedFunctionSpec,
-                    "function_spec_hash" to functionSpecHash.takeIf { it.isNotBlank() },
-                    "function_spec_before_replay_hash" to functionSpecBeforeReplayHash.takeIf { it.isNotBlank() },
+                    "function" to functionSpec,
+                    "function_hash" to functionSpecHash.takeIf { it.isNotBlank() },
+                    "function_before_replay_hash" to functionSpecBeforeReplayHash.takeIf { it.isNotBlank() },
                     "replay_arguments" to replayArguments,
                     "replay" to replay,
                     "replay_uses_enhanced_function" to false,
@@ -384,8 +372,8 @@ class DebugRunLogFunctionReplayReceiver : BroadcastReceiver() {
         }.orEmpty()
 
     private fun Map<String, Any?>.hasReplayableSteps(): Boolean =
-        (this["steps"] as? List<*>)?.isNotEmpty() == true ||
-            (this["cards"] as? List<*>)?.isNotEmpty() == true
+        this["schema_version"] == "omniflow.canonical_run_log.v1" &&
+            (this["steps"] as? List<*>)?.isNotEmpty() == true
 
     private fun persistInlineRunLog(
         context: Context,
@@ -393,46 +381,28 @@ class DebugRunLogFunctionReplayReceiver : BroadcastReceiver() {
         runLog: Map<String, Any?>,
         fallbackGoal: String,
     ): String {
-        val payload = firstMap(runLog["payload"]).ifEmpty { runLog }
-        val runId = firstNonBlank(requestedRunId, payload["run_id"], runLog["run_id"])
+        require(runLog["schema_version"] == "omniflow.canonical_run_log.v1") {
+            "canonical_run_log_required"
+        }
+        val runId = firstNonBlank(requestedRunId, runLog["run_id"])
             .ifBlank { "debug_inline_${System.currentTimeMillis()}" }
-        val goal = firstNonBlank(
-            payload["goal"],
-            payload["operation_description"],
-            fallbackGoal,
-        )
-        val rawCards = (payload["steps"] as? List<*>)
-            ?: (payload["cards"] as? List<*>)
-            ?: emptyList<Any?>()
-        val cards = rawCards.mapNotNull { raw ->
+        val goal = firstNonBlank(runLog["goal"], fallbackGoal)
+        val rawSteps = (runLog["steps"] as? List<*>) ?: emptyList<Any?>()
+        val steps = rawSteps.mapNotNull { raw ->
             (raw as? Map<*, *>)?.entries?.associate { (key, value) -> key.toString() to value }
         }
-        InternalRunLogStore.beginRun(
+        InternalRunLogStore.replaceRun(
             context = context,
             runId = runId,
             goal = goal,
             source = "debug_inline_runlog_import",
             operationDescription = goal,
-        )
-        InternalRunLogStore.appendCards(context, runId, cards)
-        InternalRunLogStore.finishRun(
-            context = context,
-            runId = runId,
-            success = runSucceeded(payload, runLog),
+            steps = steps,
+            success = runLog["success"] == true,
             doneReason = "debug_inline_runlog_imported",
+            finalStateId = firstNonBlank(runLog["final_state_id"]).takeIf(String::isNotEmpty),
         )
         return runId
-    }
-
-    private fun runSucceeded(payload: Map<String, Any?>, root: Map<String, Any?>): Boolean {
-        listOf("run_success", "androidworld_success", "success").forEach { key ->
-            listOf(payload, root).forEach { source ->
-                if (source.containsKey(key) && source[key] != null) {
-                    return source[key].toString().trim().lowercase() !in setOf("", "0", "false", "no")
-                }
-            }
-        }
-        return false
     }
 
     private fun Intent?.booleanExtra(name: String): Boolean? =

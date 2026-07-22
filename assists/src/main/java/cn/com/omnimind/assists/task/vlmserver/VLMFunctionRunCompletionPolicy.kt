@@ -7,7 +7,7 @@ import kotlinx.serialization.json.jsonPrimitive
 
 object VLMFunctionRunCompletionPolicy {
     fun shouldFinishAfterSuccessfulFunction(step: UIStep): Boolean {
-        if (step.action !is FunctionRunAction) return false
+        if (step.action !is FunctionInvocation) return false
         val payload = step.actionResultData as? JsonObject ?: return false
         if (payload.bool("success") != true) return false
         val nestedResult = payload["result"] as? JsonObject

@@ -1,9 +1,8 @@
 package cn.com.omnimind.bot.function
 
-import cn.com.omnimind.assists.task.vlmserver.ActionExecutor
 import cn.com.omnimind.assists.task.vlmserver.AndroidDeviceOperator
 import cn.com.omnimind.assists.task.vlmserver.DeviceOperator
-import cn.com.omnimind.assists.task.vlmserver.UIContextManager
+import cn.com.omnimind.assists.task.vlmserver.State
 import cn.com.omnimind.bot.agent.AgentToolJson
 import cn.com.omnimind.bot.agent.AgentToolNames
 import cn.com.omnimind.bot.agent.AgentWorkspaceManager
@@ -12,7 +11,6 @@ import cn.com.omnimind.bot.agent.LiveAgentBrowserSessionManager
 import cn.com.omnimind.bot.agent.ManualToolStopCancellationException
 import cn.com.omnimind.bot.agent.tool.handlers.SharedHelper
 import cn.com.omnimind.baselib.runlog.OobActionSchema
-import cn.com.omnimind.bot.omniflow.ActionPipeline
 import cn.com.omnimind.bot.omniflow.OmniFlowPythonRuntime
 import cn.com.omnimind.bot.omniflow.OmniFlowReplayAdapter
 import cn.com.omnimind.bot.function.FunctionJson.firstNonBlank
@@ -28,6 +26,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.jsonObject
 import java.util.concurrent.atomic.AtomicLong
 
 class FunctionRun(
@@ -41,7 +40,6 @@ class FunctionRun(
         }
     ),
     private val deviceOperator: DeviceOperator = AndroidDeviceOperator(null, context),
-    private val actionExecutor: ActionExecutor = ActionExecutor(deviceOperator, UIContextManager()),
     private val frontendSessionController: FunctionFrontendSessionController =
         FunctionFrontendSessionController(helper),
     private val runResultBuilder: FunctionRunResultBuilder =
@@ -51,7 +49,6 @@ class FunctionRun(
         context = context,
         deviceOperator = deviceOperator,
     )
-    private val actionPipeline = ActionPipeline(actionExecutor)
     /** Workspace-backed function store; injected by the Function layer on init. */
     var workspaceFunctionStore: cn.com.omnimind.bot.function.FunctionStore? =
         cn.com.omnimind.bot.function.FunctionStore(
@@ -73,7 +70,7 @@ class FunctionRun(
             requiredPhases = CALL_PHASES,
         )
         val request = args ?: emptyMap()
-        val functionId = firstNonBlank(request["function_id"], request["functionId"])
+        val functionId = firstNonBlank(request["function_id"])
         val executionMode = firstNonBlank(request["execution_mode"])
             .ifBlank { "foreground" }
 
@@ -83,9 +80,9 @@ class FunctionRun(
                 arguments = mapArg(request["arguments"]),
                 resumeFromStep = intArg(request["resume_from_step"], defaultValue = 0)
                     .coerceAtLeast(0),
-                frontendRunId = firstNonBlank(request["frontend_run_id"], request["frontendRunId"]),
-                frontendTaskId = firstNonBlank(request["frontend_task_id"], request["frontendTaskId"]),
-                frontendParent = firstNonBlank(request["frontend_parent"], request["frontendParent"]),
+                frontendRunId = firstNonBlank(request["frontend_run_id"]),
+                frontendTaskId = firstNonBlank(request["frontend_task_id"]),
+                frontendParent = firstNonBlank(request["frontend_parent"]),
             )
         }
         runPayload = normalizeIncompleteReplay(attachCallTiming(runPayload, callTiming))
@@ -152,7 +149,7 @@ class FunctionRun(
         val resumeFromStepResult = runPayload["resume_from_step"]
         val currentStepIndex = runPayload["current_step_index"]
             ?: failedStepIndex
-            ?: stepResults.lastOrNull()?.let { mapArg(it)["index"] }
+            ?: stepResults.lastOrNull()?.let { mapArg(it)["step_index"] }
         val currentStepNumber = runPayload["current_step_number"]
             ?: when (currentStepIndex) {
                 is Number -> currentStepIndex.toInt().plus(1)
@@ -161,6 +158,7 @@ class FunctionRun(
             }
         return linkedMapOf<String, Any?>(
             "success" to (runPayload["success"] == true),
+            "status" to if (runPayload["success"] == true) "succeeded" else "failed",
             "run_id" to runPayload["run_id"],
             "audit_run_id" to runPayload["audit_run_id"],
             "function_id" to functionId,
@@ -185,7 +183,6 @@ class FunctionRun(
             "error_code" to runPayload["error_code"],
             "error_message" to runPayload["error_message"],
             "missing_required_arguments" to runPayload["missing_required_arguments"],
-            "result" to runPayload
         ).filterValues { it != null }
     }
 
@@ -240,7 +237,7 @@ class FunctionRun(
             source = "oob_function_execute",
             requiredPhases = EXECUTION_PHASES,
         )
-        val spec = startupTiming.measure("load_function_spec_ms") {
+        val spec = startupTiming.measure("load_function_ms") {
             functionSpec ?: getSpec(functionId)
         }
             ?: return@withContext errorPayload(
@@ -370,7 +367,6 @@ class FunctionRun(
             }
         try {
         val checkerRules = checkerRulesForSpec(spec)
-        val sourceRunId = FunctionSchema.sourceRunIds(spec).lastOrNull().orEmpty()
 
         val stepLoopStartedAt = System.nanoTime()
         timing.recordSinceStart("pre_step_loop_ms", stepLoopStartedAt)
@@ -380,18 +376,16 @@ class FunctionRun(
             toolHandle?.throwIfStopRequested()
             val index = normalizedResumeFromStep + relativeIndex
             val stepIndex = index + 1
-            val stepId = step["id"]?.toString() ?: "step_$stepIndex"
-            val stepTitle = step["title"]?.toString() ?: stepId
-            val callableTool = step["tool"]?.toString()?.trim().orEmpty()
+            val stepId = "step_$stepIndex"
+            val callableTool = FunctionSchema.actionTool(step)
+            val stepTitle = callableTool.ifBlank { stepId }
             val functionExecutionTool = functionExecutionToolForStep(step, callableTool)
-            val executor = step["executor"]?.toString()?.trim()?.lowercase().orEmpty()
-                .ifEmpty {
-                    when {
-                        ReplayHelper.isUIStep(step) ||
-                            FunctionSchema.isFunctionCallTool(functionExecutionTool) -> FunctionSchema.EXECUTOR_FUNCTION
-                        else -> FunctionSchema.EXECUTOR_TOOL
-                    }
-                }
+            val action = FunctionSchema.action(step)
+            val executor = when {
+                ReplayHelper.isUIStep(action) ||
+                    FunctionSchema.isFunctionCallTool(functionExecutionTool) -> FunctionSchema.EXECUTOR_FUNCTION
+                else -> FunctionSchema.EXECUTOR_TOOL
+            }
             currentStepIndex = index
             currentStepId = stepId
             currentStepTool = callableTool
@@ -399,10 +393,10 @@ class FunctionRun(
             currentStepStartedAtMs = stepStartedAtMs
             frontendSession?.update("第 $stepIndex/${steps.size} 步 $stepTitle")
             if (isSkippedStep(step, callableTool)) {
-                val skippedArgs = ReplayHelper.normalizeArgsMap(argsForStep(step))
+                val skippedArgs = ReplayHelper.normalizeArgsMap(argsForStep(action))
                 stepResults += linkedMapOf<String, Any?>(
                     "step_id" to stepId,
-                    "index" to index,
+                    "step_index" to index,
                     "tool" to callableTool.ifEmpty { functionExecutionTool },
                     "executor" to FunctionSchema.EXECUTOR_FUNCTION,
                     "skipped" to true,
@@ -453,64 +447,75 @@ class FunctionRun(
                     )
                 }
 
-                ReplayHelper.isUIStep(step) -> {
-                    val action = ReplayHelper.actionNameForStep(step)
-                    val normalizedArgs = ReplayHelper.normalizeArgsMap(argsForStep(step))
+                ReplayHelper.isUIStep(action) -> {
+                    val actionName = ReplayHelper.actionNameForStep(action)
+                    val normalizedArgs = ReplayHelper.normalizeArgsMap(argsForStep(action))
                     val evidence = replayStepEvidence(step, normalizedArgs)
                     try {
-                        val result = actionPipeline.execute(
-                            action = action,
+                        val result = omniFlowReplayAdapter.controlAct(
+                            functionId = functionId,
+                            sourceStateId = firstNonBlank(step["source_state_id"]),
+                            action = actionName,
                             args = normalizedArgs,
-                            source = "function_replay",
+                            rules = checkerRules,
                             stopRequested = replayStopRequested,
-                            prepare = { currentAction, currentArgs ->
-                                omniFlowReplayAdapter.prepareAct(
-                                    functionId = functionId,
-                                    step = step,
-                                    sourceRunId = sourceRunId,
-                                    sourceActionIndex = intArg(
-                                        mapArg(normalizedArgs["source_context"])["action_index"],
-                                        defaultValue = index,
-                                    ),
-                                    action = currentAction,
-                                    args = currentArgs,
-                                    rules = checkerRules,
-                                )
-                            },
                         )
-                        if (!result.success) {
-                            throw ReplayHelper.ExecutionException(
-                                errorCode = result.diagnostics["local_action_error_code"]?.takeIf { it.isNotBlank() }
+                        val runtimeEvidence = evidence + replayStateEvidence(result.beforeState, result.afterState)
+                        if (result.success) {
+                            linkedMapOf<String, Any?>(
+                                "step_id" to stepId,
+                                "tool" to actionName,
+                                "executor" to FunctionSchema.EXECUTOR_FUNCTION,
+                                "model_free" to true,
+                                "success" to true,
+                                "summary" to stepTitle.takeIf { it.isNotBlank() }.orEmpty(),
+                                "diagnostics" to result.diagnostics.takeIf { it.isNotEmpty() },
+                            ).apply {
+                                putAll(runtimeEvidence)
+                            }.filterValues { it != null }
+                        } else {
+                            val transfer = transferResult(result.diagnostics)
+                            runResultBuilder.failureStep(
+                                stepId = stepId,
+                                tool = actionName,
+                                executor = FunctionSchema.EXECUTOR_FUNCTION,
+                                summary = result.message,
+                                errorCode = result.diagnostics["local_action_error_code"]
+                                    ?.takeIf { it.isNotBlank() }
                                     ?: "OOB_FUNCTION_ACTION_FAILED",
-                                message = result.message,
-                                diagnostics = result.diagnostics,
+                                extras = linkedMapOf<String, Any?>().apply {
+                                    putAll(runtimeEvidence)
+                                    put(
+                                        "diagnostics",
+                                        result.diagnostics
+                                            .minus("transfer")
+                                            .takeIf { it.isNotEmpty() },
+                                    )
+                                    put("transfer", transfer.takeIf { it.isNotEmpty() })
+                                },
                             )
                         }
-                        linkedMapOf<String, Any?>(
-                            "step_id" to stepId,
-                            "tool" to action,
-                            "executor" to FunctionSchema.EXECUTOR_FUNCTION,
-                            "model_free" to true,
-                            "success" to true,
-                            "summary" to stepTitle.takeIf { it.isNotBlank() }.orEmpty(),
-                            "diagnostics" to result.diagnostics.takeIf { it.isNotEmpty() },
-                        ).apply {
-                            putAll(evidence)
-                        }.filterValues { it != null }
                     } catch (e: kotlinx.coroutines.CancellationException) {
                         throw e
                     } catch (e: Exception) {
                         val executionError = e as? ReplayHelper.ExecutionException
                         val failReason = e.message ?: "Function step failed"
+                        val transfer = transferResult(executionError?.diagnostics.orEmpty())
                         runResultBuilder.failureStep(
                             stepId = stepId,
-                            tool = action,
+                            tool = actionName,
                             executor = FunctionSchema.EXECUTOR_FUNCTION,
                             summary = failReason,
                             errorCode = executionError?.errorCode ?: "OOB_FUNCTION_STEP_FAILED",
                             extras = linkedMapOf<String, Any?>().apply {
                                 putAll(evidence)
-                                put("diagnostics", executionError?.diagnostics?.takeIf { it.isNotEmpty() })
+                                put(
+                                    "diagnostics",
+                                    executionError?.diagnostics
+                                        ?.minus("transfer")
+                                        ?.takeIf { it.isNotEmpty() },
+                                )
+                                put("transfer", transfer.takeIf { it.isNotEmpty() })
                             },
                         )
                     }
@@ -530,7 +535,7 @@ class FunctionRun(
             val stepFinishedAtMs = System.currentTimeMillis()
             val timedStepResult = LinkedHashMap<String, Any?>().apply {
                 putAll(stepResult)
-                putIfAbsent("index", index)
+                putIfAbsent("step_index", index)
                 putIfAbsent("started_at_ms", stepStartedAtMs)
                 putIfAbsent("finished_at_ms", stepFinishedAtMs)
                 putIfAbsent("duration_ms", (stepFinishedAtMs - stepStartedAtMs).coerceAtLeast(0))
@@ -577,7 +582,7 @@ class FunctionRun(
             }
             frontendFinishMessage = helper.localized("任务已停止")
             frontendCloseAfterMs = FRONTEND_TERMINAL_POPUP_VISIBLE_MS
-            if (currentStepIndex >= 0 && stepResults.none { it["index"] == currentStepIndex }) {
+            if (currentStepIndex >= 0 && stepResults.none { it["step_index"] == currentStepIndex }) {
                 val stoppedAtMs = System.currentTimeMillis()
                 stepResults += LinkedHashMap<String, Any?>().apply {
                     putAll(
@@ -589,7 +594,7 @@ class FunctionRun(
                             errorCode = "OOB_FUNCTION_STOPPED",
                         )
                     )
-                    put("index", currentStepIndex)
+                    put("step_index", currentStepIndex)
                     put("started_at_ms", currentStepStartedAtMs.takeIf { it > 0L } ?: stoppedAtMs)
                     put("finished_at_ms", stoppedAtMs)
                     put(
@@ -622,7 +627,7 @@ class FunctionRun(
             if (frontendSession?.isStopRequested() == true || toolHandle?.isManualStopRequested() == true) {
                 frontendFinishMessage = helper.localized("任务已停止")
                 frontendCloseAfterMs = FRONTEND_TERMINAL_POPUP_VISIBLE_MS
-                if (currentStepIndex >= 0 && stepResults.none { it["index"] == currentStepIndex }) {
+                if (currentStepIndex >= 0 && stepResults.none { it["step_index"] == currentStepIndex }) {
                     val stoppedAtMs = System.currentTimeMillis()
                     stepResults += LinkedHashMap<String, Any?>().apply {
                         putAll(
@@ -634,7 +639,7 @@ class FunctionRun(
                                 errorCode = "OOB_FUNCTION_STOPPED",
                             )
                         )
-                        put("index", currentStepIndex)
+                        put("step_index", currentStepIndex)
                         put("started_at_ms", currentStepStartedAtMs.takeIf { it > 0L } ?: stoppedAtMs)
                         put("finished_at_ms", stoppedAtMs)
                         put(
@@ -700,7 +705,7 @@ class FunctionRun(
         env: cn.com.omnimind.bot.agent.AgentExecutionEnvironment?,
     ): Map<String, Any?> {
         val args = resolveStepArgs(step).toMutableMap()
-        if (firstNonBlank(args["tool_title"], args["toolTitle"]).isBlank()) {
+        if (firstNonBlank(args["tool_title"]).isBlank()) {
             args["tool_title"] = stepTitle.ifBlank { "浏览器操作" }
         }
         return try {
@@ -758,40 +763,19 @@ class FunctionRun(
         frontendParent: String = "",
     ): Map<String, Any?> {
         val args = resolveStepArgs(step)
-        val callTool = resolveCallRequest(args, step)
-        val targetTool = callTool.targetTool
-        val targetArgs = callTool.targetArgs
-        val functionId = callTool.functionId
-        if (functionId.isNotEmpty()) {
-            val functionStep = LinkedHashMap<String, Any?>().apply {
-                putAll(step)
-                put("args", LinkedHashMap<String, Any?>().apply {
-                    putAll(args); put("function_id", functionId); put("arguments", targetArgs)
-                })
-            }
-            return executeFunctionStepCall(
-                step = functionStep, stepId = stepId, stepTitle = stepTitle,
-                callableTool = callableTool.ifEmpty { OobActionSchema.TOOL_CALL_TOOL },
-                callback = callback, toolHandle = toolHandle, env = env,
-                parentToolCallId = parentToolCallId, toolName = toolName,
-                callStack = callStack,
-                frontendParent = frontendParent,
-            )
-        }
-        if (targetTool.isEmpty()) return runResultBuilder.failureStep(
+        val functionId = firstNonBlank(args["function_id"])
+        if (functionId.isEmpty()) return runResultBuilder.failureStep(
             stepId = stepId, tool = callableTool.ifEmpty { OobActionSchema.TOOL_CALL_TOOL },
             executor = FunctionSchema.EXECUTOR_TOOL,
-            summary = "$stepTitle missing tool_name or function_id", errorCode = "OOB_CALL_TOOL_TARGET_MISSING",
+            summary = "$stepTitle missing function_id", errorCode = "OOB_FUNCTION_ID_MISSING",
         )
-        if (FunctionSchema.isFunctionCallTool(targetTool)) return runResultBuilder.failureStep(
-            stepId = stepId, tool = callableTool.ifEmpty { OobActionSchema.TOOL_CALL_TOOL },
-            executor = FunctionSchema.EXECUTOR_TOOL,
-            summary = "$stepTitle recursive Function call is not allowed", errorCode = "OOB_CALL_TOOL_RECURSION",
-        )
-        return runResultBuilder.failureStep(
-            stepId = stepId, tool = targetTool, executor = FunctionSchema.EXECUTOR_TOOL,
-            summary = "Replay Function call only supports Function ids: $targetTool",
-            errorCode = "OOB_CALL_TOOL_TARGET_UNSUPPORTED",
+        return executeFunctionStepCall(
+            step = step, stepId = stepId, stepTitle = stepTitle,
+            callableTool = callableTool.ifEmpty { OobActionSchema.TOOL_CALL_TOOL },
+            callback = callback, toolHandle = toolHandle, env = env,
+            parentToolCallId = parentToolCallId, toolName = toolName,
+            callStack = callStack,
+            frontendParent = frontendParent,
         )
     }
 
@@ -809,12 +793,12 @@ class FunctionRun(
         frontendParent: String = "",
     ): Map<String, Any?> {
         val args = resolveStepArgs(step)
-        val functionId = firstNonBlank(args["function_id"], step["function_id"])
+        val functionId = firstNonBlank(args["function_id"])
         val functionArguments = mapArg(args["arguments"])
 
         suspend fun emitStarted() {
         }
-        suspend fun completeWithCard(result: Map<String, Any?>): Map<String, Any?> {
+        suspend fun completeWithStep(result: Map<String, Any?>): Map<String, Any?> {
             return result
         }
         fun failStep(errorCode: String, summary: String, extras: Map<String, Any?> = emptyMap()) =
@@ -822,9 +806,9 @@ class FunctionRun(
                 executor = FunctionSchema.EXECUTOR_FUNCTION, summary = summary, errorCode = errorCode, extras = extras)
 
         emitStarted()
-        if (functionId.isEmpty()) return completeWithCard(failStep("OOB_FUNCTION_ID_MISSING", "$stepTitle missing function_id"))
+        if (functionId.isEmpty()) return completeWithStep(failStep("OOB_FUNCTION_ID_MISSING", "$stepTitle missing function_id"))
         val calledFunctionSpec = getSpec(functionId)
-            ?: return completeWithCard(failStep("OOB_FUNCTION_NOT_FOUND", "Function not found: $functionId",
+            ?: return completeWithStep(failStep("OOB_FUNCTION_NOT_FOUND", "Function not found: $functionId",
                 mapOf("called_function_id" to functionId)))
         val materialization = OmniFlowPythonRuntime.materializeFunction(
             context,
@@ -835,7 +819,7 @@ class FunctionRun(
             .mapNotNull { it?.toString()?.trim()?.takeIf(String::isNotEmpty) }
         if (materialization["success"] != true) {
             val error = materialization["error"]?.toString().orEmpty()
-            return completeWithCard(failStep(
+            return completeWithStep(failStep(
                 if (missing.isNotEmpty()) "OOB_FUNCTION_ARGUMENTS_MISSING" else "OOB_FUNCTION_MATERIALIZE_FAILED",
                 if (missing.isNotEmpty()) {
                     "Missing required arguments: ${missing.joinToString(", ")}"
@@ -847,7 +831,7 @@ class FunctionRun(
         }
         val boundSpec = mapArg(materialization["function"])
         if (boundSpec.isEmpty()) {
-            return completeWithCard(failStep(
+            return completeWithStep(failStep(
                 "OOB_FUNCTION_MATERIALIZE_FAILED",
                 "OmniFlow returned an empty materialized Function",
                 mapOf("called_function_id" to functionId),
@@ -866,7 +850,7 @@ class FunctionRun(
         )
         val success = calledFunctionRun["success"] == true
         val calledFunctionModelRequired = calledFunctionRun["model_required"] == true
-        return completeWithCard(linkedMapOf<String, Any?>(
+        return completeWithStep(linkedMapOf<String, Any?>(
             "step_id" to stepId, "tool" to callableTool.ifEmpty { OobActionSchema.TOOL_CALL_TOOL },
             "executor" to FunctionSchema.EXECUTOR_FUNCTION, "model_free" to true, "success" to success,
             "model_required" to calledFunctionModelRequired.takeIf { it },
@@ -878,7 +862,6 @@ class FunctionRun(
             "called_function_model_required" to calledFunctionModelRequired,
             "called_function_failed_step_index" to calledFunctionRun["failed_step_index"],
             "called_function_resume_from_step" to calledFunctionRun["resume_from_step"],
-            "called_function_agent_prompt" to calledFunctionRun["agent_prompt"],
             "step_results" to calledFunctionRun["step_results"],
             "timing" to calledFunctionRun["timing"],
             "error_code" to calledFunctionRun["error_code"],
@@ -889,7 +872,7 @@ class FunctionRun(
     }
 
     private fun checkerRulesForSpec(spec: Map<String, Any?>): List<Map<String, Any?>> =
-        listArg(mapArg(spec["metadata"])["checker_rules"])
+        listArg(spec["checker_rules"])
             .mapNotNull { mapArg(it).takeIf(Map<String, Any?>::isNotEmpty) }
 
     private fun boundSteps(boundSpec: Map<String, Any?>): List<Map<String, Any?>> =
@@ -947,103 +930,58 @@ class FunctionRun(
         "error_code" to code,
         "error_message" to message,
         "function_id" to functionId,
-        "function_kind" to "oob_reusable_function",
-        "asset_state" to "native_local",
     )
-
-    private data class CallRequest(val targetTool: String, val targetArgs: Map<String, Any?>, val functionId: String)
 
     private fun replayStepEvidence(
         step: Map<String, Any?>,
         normalizedArgs: Map<String, Any?>,
-    ): Map<String, Any?> {
-        val sourceContext = mapArg(step["source_context"])
-            .ifEmpty { mapArg(mapArg(step["args"])["source_context"]) }
-        val before = mapArg(sourceContext["src_ctx"])
-            .ifEmpty { mapArg(sourceContext["before"]) }
-            .ifEmpty { mapArg(step["before"]) }
-        val after = mapArg(sourceContext["dst_ctx"])
-            .ifEmpty { mapArg(sourceContext["after"]) }
-            .ifEmpty { mapArg(step["after"]) }
-        return linkedMapOf<String, Any?>(
-            "args" to normalizedArgs.takeIf { it.isNotEmpty() },
-            "source_context" to sourceContext.takeIf { it.isNotEmpty() },
-            "before" to before.takeIf { it.isNotEmpty() },
-            "after" to after.takeIf { it.isNotEmpty() },
-            "screenshot_path" to screenshotPathFromObservation(before).takeIf { it.isNotBlank() },
-        ).filterValues { it != null }
-    }
+    ): Map<String, Any?> = linkedMapOf<String, Any?>(
+        "source_state_id" to firstNonBlank(step["source_state_id"]).takeIf(String::isNotBlank),
+        "args" to normalizedArgs.takeIf { it.isNotEmpty() },
+    ).filterValues { it != null }
 
-    private fun screenshotPathFromObservation(observation: Map<String, Any?>): String {
-        val screenshot = mapArg(observation["screenshot"])
-        return firstNonBlank(
-            observation["screenshot_path"],
-            observation["screenshotPath"],
-            observation["image_path"],
-            observation["imagePath"],
-            observation["path"],
-            screenshot["path"],
-            screenshot["screenshot_path"],
-            screenshot["screenshotPath"],
-            screenshot["absolute_path"],
-            screenshot["absolutePath"],
-            screenshot["relative_path"],
-            screenshot["relativePath"],
-        )
+    private fun replayStateEvidence(
+        before: State?,
+        after: State?,
+    ): Map<String, Any?> = linkedMapOf<String, Any?>(
+        "before_state" to before?.toRunLogMap(),
+        "after_state" to after?.toRunLogMap(),
+    ).filterValues { it != null }
+
+    private fun State.toRunLogMap(): Map<String, Any?> = linkedMapOf<String, Any?>(
+        "state_id" to stateId,
+        "xml" to xml,
+        "package_name" to packageName,
+        "activity_name" to activityName,
+        "display" to display?.let { linkedMapOf("width" to it.width, "height" to it.height) },
+    ).filterValues { it != null }
+
+    private fun transferResult(diagnostics: Map<String, Any?>): Map<String, Any?> {
+        val raw = firstNonBlank(diagnostics["transfer"])
+        if (raw.isEmpty()) return emptyMap()
+        return runCatching {
+            AgentToolJson.jsonObjectToMap(Json.parseToJsonElement(raw).jsonObject)
+        }.getOrDefault(emptyMap())
     }
 
     private fun resolveStepArgs(step: Map<String, Any?>): Map<String, Any?> {
-        val directArgs = mapArg(step["args"])
-        val agentCall = mapArg(step["agent_call"])
-        val agentArgs = mapArg(agentCall["args"])
-        val originalArgs = mapArg(directArgs["original_args"]).ifEmpty { mapArg(directArgs["originalArgs"]) }
-            .ifEmpty { mapArg(agentArgs["original_args"]) }.ifEmpty { mapArg(agentArgs["originalArgs"]) }
-        val executionArgKeys = setOf("function_id","tool_name","target_tool","node_id","target_node_id",
-            "edge_id","action_id","path","edges","utg","graph","arguments")
-        val topLevelArgs = buildMap { for (key in executionArgKeys) if (step.containsKey(key)) put(key, step[key]) }
-        return when {
-            directArgs.any { (k, v) -> k in executionArgKeys && v != null } -> directArgs
-            originalArgs.isNotEmpty() -> originalArgs
-            topLevelArgs.isNotEmpty() -> topLevelArgs
-            else -> directArgs
-        }
-    }
-
-    private fun resolveCallRequest(args: Map<String, Any?>, step: Map<String, Any?> = emptyMap()): CallRequest {
-        val targetTool = firstNonBlank(args["tool_name"], args["target_tool"], args["tool"], step["tool_name"], step["target_tool"])
-        val targetArgs = mapArg(args["arguments"])
-        val rawFunctionId = firstNonBlank(args["function_id"], step["function_id"])
-        val functionId = firstNonBlank(
-            rawFunctionId,
-            if (FunctionSchema.isFunctionCallTool(targetTool)) firstNonBlank(targetArgs["function_id"]) else null,
-            targetTool.takeIf { it.isNotEmpty() && getSpec(it) != null },
-        )
-        return CallRequest(targetTool = targetTool, targetArgs = targetArgs, functionId = functionId)
+        return FunctionSchema.actionArgs(step)
     }
 
     private fun functionExecutionToolForStep(step: Map<String, Any?>, callableTool: String): String {
-        val agentCall = mapArg(step["agent_call"])
-        val agentArgs = mapArg(agentCall["args"])
-        return listOf(callableTool, step["tool"], agentArgs["original_tool"], agentCall["original_tool"])
-            .asSequence().map { it?.toString()?.trim().orEmpty() }
-            .map { OobActionSchema.normalizeToolName(it) }
-            .firstOrNull { it.isNotEmpty() && FunctionSchema.isFunctionCallTool(it) }
-            .orEmpty()
+        return callableTool.takeIf(FunctionSchema::isFunctionCallTool).orEmpty()
     }
 
-    private fun isSkippedStep(step: Map<String, Any?>, callableTool: String = step["tool"]?.toString().orEmpty()): Boolean {
-        val names = listOf(callableTool, ReplayHelper.actionNameForStep(step))
-        return names.any { it.isNotBlank() && FunctionSchema.shouldSkipCapturedTool(it) }
+    private fun isSkippedStep(step: Map<String, Any?>, callableTool: String = FunctionSchema.actionTool(step)): Boolean {
+        return callableTool.isNotBlank() && FunctionSchema.shouldSkipCapturedTool(callableTool)
     }
 
     private fun isFunctionExecutionStep(step: Map<String, Any?>): Boolean {
-        val tool = functionExecutionToolForStep(step, step["tool"]?.toString()?.trim().orEmpty())
+        val tool = functionExecutionToolForStep(step, FunctionSchema.actionTool(step))
         return when {
             FunctionSchema.isFunctionCallTool(tool) -> {
                 val args = resolveStepArgs(step)
-                firstNonBlank(args["function_id"], step["function_id"],
-                    firstNonBlank(args["tool_name"], args["target_tool"]).takeIf { it.isNotEmpty() && getSpec(it) != null }
-                ).isNotEmpty()
+                firstNonBlank(args["function_id"]).isNotEmpty()
             }
             else -> false
         }
@@ -1059,7 +997,7 @@ class FunctionRun(
         private const val FRONTEND_TERMINAL_POPUP_VISIBLE_MS = 2500L
         private val CALL_PHASES = listOf("execute_function_ms")
         private val EXECUTION_PHASES = listOf(
-            "load_function_spec_ms",
+            "load_function_ms",
             "check_arguments_ms",
             "bind_function_args_ms",
             "bound_step_count_ms",

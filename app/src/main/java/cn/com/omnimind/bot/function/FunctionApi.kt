@@ -18,8 +18,6 @@ import kotlinx.serialization.json.putJsonObject
  */
 object FunctionApi {
     const val PROFILE = "function"
-    const val LEGACY_OMNIFLOW_PROFILE = "omniflow"
-    const val LEGACY_PROFILE = "function_management"
     const val SKILL_ID = "function"
     private const val MAX_PROMPT_FUNCTION_CANDIDATES = 50
 
@@ -36,8 +34,6 @@ object FunctionApi {
 
     const val FUNCTION_RECALL = "function.recall"
     const val FUNCTION_INGEST_RUN_LOG = "function.ingest_run_log"
-    const val LEGACY_FUNCTION_RECALL = "omniflow.recall"
-    const val LEGACY_FUNCTION_INGEST_RUN_LOG = "omniflow.ingest_run_log"
 
     val functionLifecycleTools: Set<String> = setOf(
         FUNCTION_LIST,
@@ -57,10 +53,7 @@ object FunctionApi {
     val profileTools: Set<String> = functionLifecycleTools + runLogTools
     val toolNames: Set<String> = profileTools
     val mcpToolNames: Set<String> = profileTools + setOf(FUNCTION_RECALL, FUNCTION_INGEST_RUN_LOG)
-    val acceptedMcpToolNames: Set<String> = mcpToolNames + setOf(
-        LEGACY_FUNCTION_RECALL,
-        LEGACY_FUNCTION_INGEST_RUN_LOG,
-    )
+    val acceptedMcpToolNames: Set<String> = mcpToolNames
 
     const val SCHEMA_RESOURCE_URI = "omniflow://schemas/function-management"
     private const val SCHEMA_EXPORT_VERSION = "oob.function_schema_export.v1"
@@ -72,7 +65,7 @@ object FunctionApi {
             "resource_uri" to SCHEMA_RESOURCE_URI,
             "canonical_actions_schema_version" to OobActionSchema.SCHEMA_VERSION,
             "schemas" to linkedMapOf(
-                "oob.reusable_function.v1" to reusableFunctionSchema,
+                "omniflow.function.v2" to reusableFunctionSchema,
                 "update_function.input" to updateFunctionInputSchema(),
                 "update_function.patch" to updateFunctionPatchSchema,
             ),
@@ -84,10 +77,7 @@ object FunctionApi {
 
     fun canonicalProfile(profile: String?): String {
         val normalized = normalizeProfile(profile)
-        return when (normalized) {
-            PROFILE, LEGACY_OMNIFLOW_PROFILE, LEGACY_PROFILE -> PROFILE
-            else -> normalized
-        }
+        return normalized
     }
 
     fun staticToolDefinitions(locale: PromptLocale): List<JsonObject> =
@@ -180,14 +170,7 @@ object FunctionApi {
             .replace(Regex("\\s+"), " ")
             .takeIf { it.isNotEmpty() }
             ?: name
-        val metadata = spec["metadata"] as? Map<*, *>
-        val agentReuse = (spec["agent_reuse"] as? Map<*, *>)
-            ?: (metadata?.get("agent_reuse") as? Map<*, *>)
-        val reuseWhen = agentReuse?.get("reuse_when")?.toString()?.trim().orEmpty()
-        val successSignal = agentReuse?.get("success_signal")?.toString()?.trim().orEmpty()
-        val inputSchema = FunctionJson.mapArg(callable["parameters"]).ifEmpty {
-            FunctionSchema.inputSchema(spec)
-        }
+        val inputSchema = FunctionJson.mapArg(callable["input_schema"])
         val params = ((inputSchema["properties"] as? Map<*, *>)?.keys ?: emptySet<Any?>())
             .mapNotNull { it?.toString()?.trim()?.takeIf(String::isNotEmpty) }
             .take(6)
@@ -202,17 +185,9 @@ object FunctionApi {
         return when (locale) {
             PromptLocale.ZH_CN -> buildString {
                 append("- $ordinal. `$functionId` — $name：$clippedDescription；参数: $params")
-                spec["score"]?.let { append("；匹配分: $it") }
-                spec["recall_scope"]?.toString()?.takeIf { it.isNotBlank() }?.let { append("；来源: $it") }
-                if (reuseWhen.isNotEmpty()) append("；适用: ${reuseWhen.take(120)}")
-                if (successSignal.isNotEmpty()) append("；成功标志: ${successSignal.take(120)}")
             }
             PromptLocale.EN_US -> buildString {
                 append("- $ordinal. `$functionId` — $name: $clippedDescription; params: $params")
-                spec["score"]?.let { append("; score: $it") }
-                spec["recall_scope"]?.toString()?.takeIf { it.isNotBlank() }?.let { append("; source: $it") }
-                if (reuseWhen.isNotEmpty()) append("; use when: ${reuseWhen.take(120)}")
-                if (successSignal.isNotEmpty()) append("; success: ${successSignal.take(120)}")
             }
         }
     }
@@ -246,8 +221,7 @@ object FunctionApi {
             "properties" to mapOf(
                 "run_id" to mapOf("type" to "string", "description" to "Existing RunLog id. Raw RunLog state stays in the RunLog store and is resolved by id."),
                 "register" to mapOf("type" to "boolean", "description" to "Persist the converted manual Function. Default false."),
-                "agent_visible" to mapOf("type" to "boolean", "description" to "Compatibility flag for older callers. Function recall/replay is runtime-owned and not exposed as model-callable tools."),
-                "auto_enrich" to mapOf("type" to "boolean", "description" to "Accepted for compatibility; Function import does deterministic local import.")
+                "agent_visible" to mapOf("type" to "boolean", "description" to "Publish the Function for runtime recall. Default false.")
             ),
             "required" to listOf("run_id")
         )
@@ -278,13 +252,13 @@ object FunctionApi {
 
     private val functionRegisterMcpTool = mapOf(
         "name" to FUNCTION_REGISTER,
-        "description" to "Register or update one canonical Function spec. Compilation belongs to OmniFlow; this tool only persists function_spec and never executes it.",
+        "description" to "Register or update one canonical Function. Compilation belongs to OmniFlow; this tool only persists function and never executes it.",
         "inputSchema" to mapOf(
             "type" to "object",
             "properties" to mapOf(
-                "function_spec" to reusableFunctionSchema,
+                "function" to reusableFunctionSchema,
             ),
-            "required" to listOf("function_spec"),
+            "required" to listOf("function"),
         )
     )
 
@@ -366,7 +340,7 @@ object FunctionApi {
     private val staticToolPresentations = mapOf(
         FUNCTION_LIST to ToolPresentation("列出复用指令", "列出本机已注册的复用指令；不会执行手机操作。"),
         FUNCTION_GET to ToolPresentation("查看复用指令", "读取一个复用指令的 Function spec；不会执行手机操作。"),
-        FUNCTION_REGISTER to ToolPresentation("注册复用指令", "保存一个由 OmniFlow 生成的完整 function_spec；不会执行手机操作。"),
+        FUNCTION_REGISTER to ToolPresentation("注册复用指令", "保存一个由 OmniFlow 生成的完整 Function；不会执行手机操作。"),
         FUNCTION_UPDATE to ToolPresentation("更新复用指令", "对已保存 Function 应用 delete 或 replace_args 动作编辑。"),
         FUNCTION_DELETE to ToolPresentation("删除复用指令", "删除一个复用指令。"),
         FUNCTION_CLEAR to ToolPresentation("清空复用指令", "清空所有复用指令，必须传 confirm=true。"),
@@ -438,73 +412,37 @@ object FunctionApi {
             required = listOf("op", "index"),
         )
 
-    private val cleanupAnnotationSchema: Map<String, Any?>
-        get() = obj(
-            description = "Optional annotation for cleanup/noise/checker candidate steps. Does not directly insert/delete executable steps.",
-            properties = linkedMapOf(
-                "schema_version" to string("Annotation schema version."),
-                "cleanup_action" to string("For optional runtime checker use optional_checker."),
-                "optional_condition" to string("When this checker candidate should run."),
-                "reason" to string("Why the annotation is safe/useful."),
-                "action_purpose" to string("What the original action was trying to do."),
-                "role" to string("Optional role such as checker_candidate."),
-            ),
-        )
-
-    private val agentReuseSchema: Map<String, Any?>
-        get() = obj(
-            properties = linkedMapOf(
-                "reuse_when" to array("When the Function should be reused.", string()),
-                "avoid_when" to array("When the Function should not be reused.", string()),
-                "success_signal" to string("How to know the Function succeeded."),
-                "key_actions" to array("Important user-visible actions.", obj()),
-                "checker_assets" to array("Links from optional checker annotations to runtime checker rules.", obj()),
-            ),
-        )
-
     private val reusableFunctionSchema: Map<String, Any?>
         get() = obj(
-            description = "Saved Function. update_function only applies explicit action edits.",
+            description = "The single Function contract shared by OOB and OmniFlow.",
             properties = linkedMapOf(
-                "schema_version" to constString("oob.reusable_function.v1"),
+                "schema_version" to constString("omniflow.function.v2"),
                 "function_id" to string("Stable Function id."),
                 "name" to string("Short user-visible Function name."),
-                "description" to string("Reusable description with app/page conditions, runtime inputs, and success signal."),
-                "package_name" to string("Optional Android package scope."),
-                "parameters" to array(
-                    "Runtime parameter descriptors.",
+                "description" to string("Reusable intent and success description."),
+                "input_schema" to obj(description = "Strict JSON Schema for call arguments."),
+                "bindings" to array("Argument-to-action bindings.", obj()),
+                "steps" to array(
+                    "Ordered steps with source_state_id and one canonical action.",
                     obj(
                         properties = linkedMapOf(
-                            "name" to string("Parameter name."),
-                            "type" to string("Parameter type."),
-                            "description" to string("User-visible parameter description."),
-                            "required" to boolean("Whether the caller must provide this value."),
-                            "default" to obj(description = "Optional default value."),
-                            "bindings" to array("JSONPath bindings under execution.steps[*].args.", string()),
-                        )
-                    ),
-                ),
-                "execution" to obj(
-                    properties = linkedMapOf(
-                        "steps" to array(
-                            "Ordered executable or agent-routed steps.",
-                            obj(
+                            "step_index" to integer("Zero-based step index."),
+                            "source_state_id" to string("Recorded source state reference."),
+                            "action" to obj(
                                 properties = linkedMapOf(
-                                    "id" to string("Step id."),
-                                    "tool" to string("Canonical action/tool name."),
-                                    "model_free" to boolean("Whether local replay can execute without model planning."),
-                                    "title" to string("Short step title."),
-                                    "description" to string("Visible action intent."),
-                                    "args" to obj(description = "Concrete replay arguments."),
-                                    "cleanup_annotation" to cleanupAnnotationSchema,
-                                    "source_context" to obj(description = "Minimal coordinate semantics and source action index. Raw page evidence remains in the RunLog."),
-                                )
+                                    "tool" to string("Canonical action name."),
+                                    "args" to obj(description = "Canonical action arguments."),
+                                ),
                             ),
                         ),
-                    )
+                    ),
                 ),
-                "agent_reuse" to agentReuseSchema,
-                "metadata" to obj(description = "Runtime metadata, checker rules, and diagnostics."),
+                "checker_rules" to array("Runtime checker rules.", obj()),
+                "agent_visible" to boolean("Whether recall may return this Function."),
+            ),
+            required = listOf(
+                "schema_version", "function_id", "name", "description", "input_schema",
+                "bindings", "steps", "checker_rules", "agent_visible",
             ),
         )
 

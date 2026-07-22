@@ -6,6 +6,7 @@ package cn.com.omnimind.assists.task.vlmserver
  */
 
 import cn.com.omnimind.baselib.util.OmniLog
+import cn.com.omnimind.baselib.runlog.CanonicalActionConverter
 import cn.com.omnimind.baselib.runlog.OobActionSchema
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.currentCoroutineContext
@@ -57,13 +58,14 @@ interface TargetedInputDeviceOperator : DeviceOperator {
 }
 
 fun interface FunctionRunExecutor {
-    suspend fun run(action: FunctionRunAction, context: VLMFunctionRunContext): OperationResult
+    suspend fun run(invocation: FunctionInvocation, context: VLMFunctionRunContext): OperationResult
 }
 
 class ActionExecutor(
     private val deviceOperator: DeviceOperator,
     private val contextManager: UIContextManager,
     private val functionRunExecutor: FunctionRunExecutor? = null,
+    private val controlActExecutor: ControlActExecutor? = null,
 ) {
     private val TAG = "ActionExecutor"
     private val json = Json { ignoreUnknownKeys = true }
@@ -84,109 +86,25 @@ class ActionExecutor(
 
         val actionStart = System.currentTimeMillis()
         ensureActionActive()
-        val actionBodyStart = System.currentTimeMillis()
-        val rawResult = when (val action = vlmStep.action) {
-            is ClickAction -> {
+        val rawResult = when (val command = vlmStep.action) {
+            is Action -> {
                 executeCanonicalAction(
-                    tool = OobActionSchema.TOOL_CLICK,
-                    args = linkedMapOf(
-                        "target_description" to action.targetDescription,
-                        "x" to action.x,
-                        "y" to action.y,
-                    ),
-                    source = "vlm_online",
-                    context = functionRunContext,
+                    tool = command.tool,
+                    args = command.argsMap(),
+                    state = vlmStep.beforeState,
                 )
             }
 
-            is LongPressAction -> {
-                executeCanonicalAction(
-                    tool = OobActionSchema.TOOL_LONG_PRESS,
-                    args = linkedMapOf(
-                        "target_description" to action.targetDescription,
-                        "x" to action.x,
-                        "y" to action.y,
-                    ),
-                    source = "vlm_online",
-                    context = functionRunContext,
-                )
-            }
-
-            is InputTextAction -> {
-                executeCanonicalAction(
-                    tool = OobActionSchema.TOOL_INPUT_TEXT,
-                    args = linkedMapOf(
-                        "target_description" to action.targetDescription,
-                        "text" to action.text,
-                        "x" to action.x,
-                        "y" to action.y,
-                        "node_id" to action.nodeId,
-                    ).filterValues { it != null },
-                    source = "vlm_online",
-                    context = functionRunContext,
-                )
-            }
-
-            is SwipeAction -> {
-                executeCanonicalAction(
-                    tool = OobActionSchema.TOOL_SWIPE,
-                    args = linkedMapOf(
-                        "target_description" to action.targetDescription,
-                        "x1" to action.x1,
-                        "y1" to action.y1,
-                        "x2" to action.x2,
-                        "y2" to action.y2,
-                        "duration_ms" to action.durationMs,
-                        "direction" to action.direction,
-                        "scrollable_index" to action.scrollableIndex,
-                    ).filterValues { it != null },
-                    source = "vlm_online",
-                    context = functionRunContext,
-                )
-            }
-
-            is OpenAppAction -> {
-                executeCanonicalAction(
-                    tool = OobActionSchema.TOOL_OPEN_APP,
-                    args = mapOf("package_name" to action.packageName),
-                    source = "vlm_online",
-                    context = functionRunContext,
-                )
-            }
-
-            is PressKeyAction -> {
-                executeCanonicalAction(
-                    tool = OobActionSchema.TOOL_PRESS_KEY,
-                    args = mapOf("key" to action.key),
-                    source = "vlm_online",
-                    context = functionRunContext,
-                )
-            }
-
-            is WaitAction -> {
-                val waitMs = action.durationMs
-                    ?: ((action.timeS ?: 1.0).coerceAtLeast(0.0) * 1000.0).toLong()
-                executeCanonicalAction(
-                    tool = OobActionSchema.TOOL_WAIT,
-                    args = linkedMapOf(
-                        "time_s" to action.timeS,
-                        "duration_ms" to waitMs,
-                    ).filterValues { it != null },
-                    source = "vlm_online",
-                    context = functionRunContext,
-                )
-            }
-
-            is GetStateAction -> {
+            is Observe -> {
                 OperationResult(
                     success = true,
-                    message = action.reason.ifBlank { "已重新获取当前页面状态" },
+                    message = command.reason.ifBlank { "已重新获取当前页面状态" },
                     data = null
                 )
             }
 
-            is FunctionRunAction -> {
-                functionRunExecutor?.run(action, functionRunContext)
+            is FunctionInvocation -> {
+                functionRunExecutor?.run(command, functionRunContext)
                     ?: OperationResult(
                         success = false,
                         message = "复用指令执行器未注册",
@@ -194,7 +112,7 @@ class ActionExecutor(
                     )
             }
 
-            is RecordAction -> {
+            is RecordMemory -> {
                 // 特殊处理：记录动作不调用设备，返回成功结果
                 OperationResult(
                     success = true,
@@ -203,49 +121,43 @@ class ActionExecutor(
                 )
             }
 
-            is FinishedAction -> {
+            is FinishedDecision -> {
                 OperationResult(
                     success = true,
-                    message = action.content.ifEmpty { "任务完成" },
+                    message = command.content.ifEmpty { "任务完成" },
                     data = null
                 )
             }
 
-            is InfoAction -> {
+            is InfoDecision -> {
                 OperationResult(
                     success = true,
-                    message = "Agent询问: ${action.value}",
+                    message = "Agent询问: ${command.value}",
                     data = null
                 )
             }
 
-            is AbortAction -> {
+            is AbortDecision -> {
                 OperationResult(
                     success = true,
-                    message = "任务终止: ${action.value}",
+                    message = "任务终止: ${command.value}",
                     data = null
                 )
             }
         }
 
-        val actionBodyMs = System.currentTimeMillis() - actionBodyStart
-        val postDelayMs = if (rawResult.success) postActionDelayMs(vlmStep.action) else 0L
-        if (postDelayMs > 0) {
-            ensureActionActive()
-            kotlinx.coroutines.delay(postDelayMs)
-        }
         val totalMs = System.currentTimeMillis() - actionStart
         val result = rawResult.copy(
             diagnostics = rawResult.diagnostics + linkedMapOf(
-                "action_executor_action_ms" to actionBodyMs.toString(),
-                "action_executor_post_delay_ms" to postDelayMs.toString(),
                 "action_executor_total_ms" to totalMs.toString(),
             )
         )
-        OmniLog.i(
-            "TimeRecord",
-            "VLM-actionExecutor ${vlmStep.action.name} took $totalMs ms (actionMs=$actionBodyMs postDelayMs=$postDelayMs)"
-        )
+        runCatching {
+            OmniLog.i(
+                "TimeRecord",
+                "VLM-actionExecutor ${vlmStep.action.name} took $totalMs ms"
+            )
+        }
 
         return UIStep(
             observation = vlmStep.observation,
@@ -254,6 +166,8 @@ class ActionExecutor(
             result = if (result.success) result.message else "执行失败: ${result.message}",
             actionResultData = result.data,
             pageDiagnostics = result.diagnostics,
+            beforeState = result.beforeState,
+            afterState = result.afterState,
         )
     }
 
@@ -275,9 +189,23 @@ class ActionExecutor(
         return try {
             throwIfStopRequested(stopRequested)
             val effectiveAction = resolveActionName(action) ?: OobActionSchema.normalizeToolName(action)
-            val effectiveArgs = canonicalActionArgs(effectiveAction, args)
-            val dispatchResult = dispatchCanonical(effectiveAction, effectiveArgs, stopRequested)
-            val mergedDiagnostics = diagnostics + mapOf("action_source" to source)
+            val dispatchResult = dispatchPhysical(
+                effectiveAction,
+                physicalArgs(effectiveAction, args),
+                stopRequested,
+            )
+            val settleDelayMs = if (dispatchResult.success) {
+                postActionDelayMs(effectiveAction)
+            } else {
+                0L
+            }
+            if (settleDelayMs > 0L) {
+                waitInterruptibly(settleDelayMs, stopRequested)
+            }
+            val mergedDiagnostics = diagnostics + mapOf(
+                "action_source" to source,
+                "action_executor_post_delay_ms" to settleDelayMs,
+            )
             if (mergedDiagnostics.isEmpty()) {
                 dispatchResult
             } else {
@@ -301,24 +229,16 @@ class ActionExecutor(
     private suspend fun executeCanonicalAction(
         tool: String,
         args: Map<String, Any?>,
-        source: String,
-        context: VLMFunctionRunContext,
+        state: State?,
     ): OperationResult {
         return try {
-            val enrichedArgs = linkedMapOf<String, Any?>().apply {
-                putAll(args)
-                if (context.taskId.isNotBlank()) put("task_id", context.taskId)
-                if (context.runId.isNotBlank()) put("run_id", context.runId)
-            }
-            val dispatchResult = act(
-                action = tool,
-                args = enrichedArgs,
-                source = source,
-            )
-            if (dispatchResult.success) {
-                dispatchResult.copy(message = actionSuccessMessage(tool, args))
+            val controlled = requireNotNull(controlActExecutor) {
+                "control_act_executor_not_registered"
+            }.act(tool, args, state)
+            if (controlled.success) {
+                controlled.copy(message = actionSuccessMessage(tool, args))
             } else {
-                dispatchResult
+                controlled
             }
         } catch (error: Exception) {
             val message = error.message.orEmpty().ifBlank { "action failed: $tool" }
@@ -331,7 +251,7 @@ class ActionExecutor(
         }
     }
 
-    private suspend fun dispatchCanonical(
+    private suspend fun dispatchPhysical(
         action: String,
         args: Map<String, Any?>,
         stopRequested: (() -> Boolean)? = null,
@@ -357,8 +277,6 @@ class ActionExecutor(
                     args,
                     OobActionSchema.ARG_NODE_RESOURCE_ID,
                     OobActionSchema.ARG_NODE_ID,
-                    "resource_id",
-                    "nodeResourceId",
                 )
                 if (deviceOperator is TargetedInputDeviceOperator) {
                     return deviceOperator.inputTextAtTarget(
@@ -383,8 +301,6 @@ class ActionExecutor(
                 val packageName = stringArg(
                     args,
                     OobActionSchema.ARG_PACKAGE_NAME,
-                    "packageName",
-                    "package",
                 )
                 if (packageName.isBlank()) {
                     OperationResult(false, "open_app requires package_name", null)
@@ -402,8 +318,6 @@ class ActionExecutor(
                     args,
                     OobActionSchema.ARG_NODE_RESOURCE_ID,
                     OobActionSchema.ARG_NODE_ID,
-                    "resource_id",
-                    "nodeResourceId",
                 )
                 when (key) {
                     "back" -> deviceOperator.goBack()
@@ -428,12 +342,12 @@ class ActionExecutor(
             OobActionSchema.TOOL_WAIT -> {
                 val waitMs = longArg(
                     args,
-                    OobActionSchema.ARG_TIME_MS,
                     OobActionSchema.ARG_DURATION_MS,
                     defaultValue = -1L,
-                ).takeIf { it >= 0L }
-                    ?: ((numberArg(args, OobActionSchema.ARG_TIME_S) ?: 1.0)
-                        .coerceAtLeast(0.0) * 1000.0).toLong()
+                )
+                if (waitMs < 0L) {
+                    return OperationResult(false, "wait requires duration_ms", null)
+                }
                 val clamped = waitMs.coerceIn(0L, MAX_CANONICAL_WAIT_MS)
                 waitInterruptibly(clamped, stopRequested)
                 OperationResult(true, "等待 ${clamped}ms 完成", null)
@@ -451,22 +365,31 @@ class ActionExecutor(
         val x2 = numberArg(args, OobActionSchema.ARG_X2)?.toFloat()
         val y2 = numberArg(args, OobActionSchema.ARG_Y2)?.toFloat()
         val durationMs = longArg(args, OobActionSchema.ARG_DURATION_MS, defaultValue = 300L)
-        if (x1 != null && y1 != null && x2 != null && y2 != null) {
-            return deviceOperator.slideCoordinate(x1, y1, x2, y2, durationMs)
+        if (x1 == null || y1 == null || x2 == null || y2 == null) {
+            return OperationResult(false, "swipe requires x1/y1/x2/y2", null)
         }
+        return deviceOperator.slideCoordinate(x1, y1, x2, y2, durationMs)
+    }
 
-        val direction = stringArg(args, OobActionSchema.ARG_DIRECTION).ifBlank { "down" }
-        val distance = floatArg(args, OobActionSchema.ARG_DISTANCE, defaultValue = 300f)
-        val x = floatArg(args, OobActionSchema.ARG_X, defaultValue = deviceOperator.getDisplayWidth() / 2f)
-        val y = floatArg(args, OobActionSchema.ARG_Y, defaultValue = deviceOperator.getDisplayHeight() / 2f)
-        val half = (distance / 2f).coerceAtLeast(1f)
-        val (startX, startY, endX, endY) = when (direction.lowercase()) {
-            "up" -> listOf(x, y + half, x, y - half)
-            "left" -> listOf(x + half, y, x - half, y)
-            "right" -> listOf(x - half, y, x + half, y)
-            else -> listOf(x, y - half, x, y + half)
+    private fun physicalArgs(
+        action: String,
+        args: Map<String, Any?>,
+    ): Map<String, Any?> {
+        val hasX = args.containsKey(OobActionSchema.ARG_X)
+        val hasY = args.containsKey(OobActionSchema.ARG_Y)
+        if (action == OobActionSchema.TOOL_INPUT_TEXT && !hasX && !hasY) return args
+        require(action != OobActionSchema.TOOL_INPUT_TEXT || hasX == hasY) {
+            "canonical_action_target_coordinates_incomplete"
         }
-        return deviceOperator.slideCoordinate(startX, startY, endX, endY, durationMs)
+        if (action !in OobActionSchema.coordinateToolNames) return args
+        return CanonicalActionConverter.toScreenPixels(
+            tool = action,
+            args = args,
+            displaySize = CanonicalActionConverter.DisplaySize(
+                width = deviceOperator.getDisplayWidth().toDouble(),
+                height = deviceOperator.getDisplayHeight().toDouble(),
+            ),
+        )
     }
 
     private suspend fun waitInterruptibly(
@@ -481,19 +404,6 @@ class ActionExecutor(
             remainingMs -= chunkMs
         }
         throwIfStopRequested(stopRequested)
-    }
-
-    private fun canonicalActionArgs(
-        action: String,
-        args: Map<String, Any?>,
-    ): Map<String, Any?> {
-        if (action != OobActionSchema.TOOL_OPEN_APP) return args
-        val packageName = firstNonBlank(args["package_name"], args["packageName"], args["package"])
-        if (packageName.isBlank()) return args
-        return linkedMapOf<String, Any?>().apply {
-            putAll(args)
-            put("package_name", packageName)
-        }
     }
 
     private fun throwIfStopRequested(stopRequested: (() -> Boolean)?) {
@@ -537,18 +447,9 @@ class ActionExecutor(
         private const val LONG_PRESS_POST_DELAY_MS = 650L
         private const val SWIPE_POST_DELAY_MS = 800L
         private const val OPEN_APP_POST_DELAY_MS = 1000L
-        private const val FUNCTION_RUN_POST_DELAY_MS = 500L
         private const val STOP_POLL_INTERVAL_MS = 100L
         fun resolveActionName(raw: String): String? =
             OobActionSchema.canonicalToolName(raw)?.takeIf { it in OobActionSchema.replayableToolNames }
-
-        fun firstNonBlank(vararg values: Any?): String {
-            for (value in values) {
-                val text = value?.toString()?.trim().orEmpty()
-                if (text.isNotEmpty()) return text
-            }
-            return ""
-        }
 
         fun numberArg(args: Map<String, Any?>, vararg keys: String): Double? {
             for (key in keys) {
@@ -577,17 +478,15 @@ class ActionExecutor(
             return ""
         }
 
-        fun postActionDelayMs(action: UIAction): Long =
-            when (action) {
-                is ClickAction -> CLICK_POST_DELAY_MS
-                is PressKeyAction -> KEY_POST_DELAY_MS
-                is InputTextAction -> INPUT_TEXT_POST_DELAY_MS
-                is LongPressAction -> LONG_PRESS_POST_DELAY_MS
-                is SwipeAction -> SWIPE_POST_DELAY_MS
-                is OpenAppAction -> OPEN_APP_POST_DELAY_MS
-                is FunctionRunAction -> FUNCTION_RUN_POST_DELAY_MS
-                else -> 0L
-            }
+        fun postActionDelayMs(tool: String): Long = when (tool) {
+            OobActionSchema.TOOL_CLICK -> CLICK_POST_DELAY_MS
+            OobActionSchema.TOOL_PRESS_KEY -> KEY_POST_DELAY_MS
+            OobActionSchema.TOOL_INPUT_TEXT -> INPUT_TEXT_POST_DELAY_MS
+            OobActionSchema.TOOL_LONG_PRESS -> LONG_PRESS_POST_DELAY_MS
+            OobActionSchema.TOOL_SWIPE -> SWIPE_POST_DELAY_MS
+            OobActionSchema.TOOL_OPEN_APP -> OPEN_APP_POST_DELAY_MS
+            else -> 0L
+        }
     }
 }
 

@@ -2,29 +2,52 @@ package cn.com.omnimind.baselib.runlog
 
 import android.content.Context
 import android.os.Trace
+import android.util.Base64
 import cn.com.omnimind.baselib.util.OmniLog
 import com.google.gson.GsonBuilder
+import com.google.gson.annotations.SerializedName
+import com.google.gson.ToNumberPolicy
 import com.google.gson.reflect.TypeToken
 import java.io.File
 import java.security.MessageDigest
-import java.text.SimpleDateFormat
-import java.util.Date
 import java.util.Locale
 
-data class InternalRunLogRecord(
+private const val CANONICAL_RUN_LOG_SCHEMA_VERSION = "omniflow.canonical_run_log.v1"
+
+data class CanonicalRunLogRecord(
+    @SerializedName("schema_version")
+    val schemaVersion: String = CANONICAL_RUN_LOG_SCHEMA_VERSION,
+    @SerializedName("run_id")
     val runId: String = "",
     val goal: String = "",
-    val source: String = "internal_oob",
-    val toolName: String = "",
-    val operationDescription: String = "",
+    val status: String = "running",
+    val success: Boolean = false,
+    val error: String? = null,
+    @SerializedName("started_at_ms")
     val startedAtMs: Long = System.currentTimeMillis(),
+    @SerializedName("finished_at_ms")
     val finishedAtMs: Long? = null,
-    val success: Boolean? = null,
-    val doneReason: String = "",
-    val errorMessage: String = "",
+    val steps: List<Map<String, Any?>> = emptyList(),
+    @SerializedName("final_state_id")
+    val finalStateId: String? = null,
     val diagnostics: Map<String, Any?> = emptyMap(),
-    val cards: List<Map<String, Any?>> = emptyList(),
-    val eventSeq: Long = 0L
+) {
+    val source: String get() = diagnostics["source"]?.toString()?.trim().orEmpty()
+    val toolName: String get() = diagnostics["tool_name"]?.toString()?.trim().orEmpty()
+    val operationDescription: String
+        get() = diagnostics["description"]?.toString()?.trim().orEmpty()
+    val doneReason: String get() = diagnostics["done_reason"]?.toString()?.trim().orEmpty()
+    val errorMessage: String get() = error.orEmpty()
+    val eventSeq: Long get() = when (val value = diagnostics["event_seq"]) {
+        is Number -> value.toLong()
+        is String -> value.toLongOrNull() ?: 0L
+        else -> 0L
+    }
+}
+
+data class RunLogStepRecord(
+    val step: Map<String, Any?>,
+    val states: List<Map<String, Any?>>,
 )
 
 data class InternalRunLogFinishEvent(
@@ -38,24 +61,26 @@ data class InternalRunLogFinishEvent(
     val success: Boolean,
     val doneReason: String,
     val errorMessage: String,
-    val cardCount: Int
+    val stepCount: Int
 )
 
 object InternalRunLogStore {
     private const val TAG = "InternalRunLogStore"
     private const val PROVIDER = "internal_oob"
-    private const val STORAGE_DIR_NAME = "internal_run_logs"
+    private const val STORAGE_DIR_NAME = "run_logs"
     private const val MAX_RUN_COUNT = 200
+    private const val MAX_STATE_COUNT = 2_000
     private const val RUN_LOG_EVENT_SCHEMA_VERSION = "oob.run_log_event.v1"
     private const val SNAPSHOT_MIN_INTERVAL_MS = 1_000L
-    private const val REGISTERED_FUNCTION_BINDING_LIMIT = 20
 
     private val gson = GsonBuilder()
         .disableHtmlEscaping()
         .setPrettyPrinting()
+        .setObjectToNumberStrategy(ToNumberPolicy.LONG_OR_DOUBLE)
         .create()
     private val compactGson = GsonBuilder()
         .disableHtmlEscaping()
+        .setObjectToNumberStrategy(ToNumberPolicy.LONG_OR_DOUBLE)
         .create()
     private val mapType = object : TypeToken<Map<String, Any?>>() {}.type
     private val lastEventSeqByRun = mutableMapOf<String, Long>()
@@ -65,6 +90,42 @@ object InternalRunLogStore {
 
     fun setFinishListener(listener: ((InternalRunLogFinishEvent) -> Unit)?) {
         finishListener = listener
+    }
+
+    @Synchronized
+    fun replaceRun(
+        context: Context,
+        runId: String,
+        goal: String,
+        source: String,
+        operationDescription: String,
+        steps: List<Map<String, Any?>>,
+        success: Boolean,
+        doneReason: String,
+        finalStateId: String? = null,
+    ) {
+        val normalizedRunId = runId.trim()
+        require(normalizedRunId.isNotEmpty()) { "run_id_required" }
+        val file = runFile(context, normalizedRunId)
+        runEventsFile(file).delete()
+        file.delete()
+        lastEventSeqByRun.remove(normalizedRunId)
+        lastSnapshotWriteMsByRun.remove(normalizedRunId)
+        beginRun(
+            context = context,
+            runId = normalizedRunId,
+            goal = goal,
+            source = source,
+            operationDescription = operationDescription,
+        )
+        appendSteps(context, normalizedRunId, steps)
+        finishRun(
+            context = context,
+            runId = normalizedRunId,
+            success = success,
+            doneReason = doneReason,
+            finalStateId = finalStateId,
+        )
     }
 
     @Synchronized
@@ -81,20 +142,28 @@ object InternalRunLogStore {
         if (normalizedRunId.isEmpty()) return
         val now = startedAtMs.takeIf { it > 0L } ?: System.currentTimeMillis()
         val existing = readRunLocked(context, normalizedRunId)
-        val record = (existing ?: InternalRunLogRecord(
+        val base = existing ?: CanonicalRunLogRecord(
             runId = normalizedRunId,
-            startedAtMs = now
-        )).copy(
+            startedAtMs = now,
+        )
+        val runDiagnostics = sanitizeMap(
+            base.diagnostics + linkedMapOf(
+                "source" to source.ifBlank { existing?.source ?: PROVIDER },
+                "tool_name" to toolName.ifBlank { existing?.toolName.orEmpty() },
+                "description" to operationDescription.ifBlank {
+                    existing?.operationDescription.orEmpty()
+                },
+            ),
+        )
+        val record = base.copy(
             goal = goal.ifBlank { existing?.goal.orEmpty() },
-            source = source.ifBlank { existing?.source ?: PROVIDER },
-            toolName = toolName.ifBlank { existing?.toolName.orEmpty() },
-            operationDescription = operationDescription.ifBlank {
-                existing?.operationDescription.orEmpty()
-            },
+            status = "running",
+            success = false,
+            error = null,
+            startedAtMs = now,
             finishedAtMs = null,
-            success = null,
-            doneReason = "",
-            errorMessage = ""
+            finalStateId = null,
+            diagnostics = runDiagnostics - "done_reason" - "event_seq",
         )
         val eventSeq = appendRunEventLocked(
             context = context,
@@ -108,49 +177,78 @@ object InternalRunLogStore {
                 "started_at_ms" to record.startedAtMs
             )
         )
-        saveRunLocked(context, record.copy(eventSeq = eventSeq))
+        saveRunLocked(context, record.withEventSeq(eventSeq))
         pruneLocked(context, preserveRunId = normalizedRunId)
     }
 
     @Synchronized
-    fun appendCard(context: Context, runId: String, card: Map<String, Any?>) {
+    fun appendStep(context: Context, runId: String, step: Map<String, Any?>) {
         val normalizedRunId = runId.trim()
         if (normalizedRunId.isEmpty()) return
         val record = readRunLocked(context, normalizedRunId)
-            ?: InternalRunLogRecord(runId = normalizedRunId)
-        val sanitizedCard = sanitizeMap(card)
+            ?: CanonicalRunLogRecord(runId = normalizedRunId)
+        val sanitizedStep = canonicalStepForStorage(sanitizeMap(step))
         val eventSeq = appendRunEventLocked(
             context = context,
             runId = normalizedRunId,
-            eventType = "card_appended",
-            payload = linkedMapOf("card" to sanitizedCard)
+            eventType = "step_appended",
+            payload = linkedMapOf("step" to sanitizedStep)
         )
-        saveRunLocked(context, record.copy(cards = record.cards + sanitizedCard, eventSeq = eventSeq))
+        saveRunLocked(
+            context,
+            record.copy(
+                steps = record.steps + sanitizedStep,
+            ).withEventSeq(eventSeq),
+        )
         pruneLocked(context, preserveRunId = normalizedRunId)
     }
 
     @Synchronized
-    fun appendCards(
+    fun appendRecordedStep(context: Context, runId: String, record: RunLogStepRecord) {
+        record.states.forEach { persistStateLocked(context, stateId(it), sanitizeMap(it)) }
+        appendStep(context, runId, record.step)
+    }
+
+    @Synchronized
+    fun appendSteps(
         context: Context,
         runId: String,
-        cards: List<Map<String, Any?>>,
+        steps: List<Map<String, Any?>>,
         saveSnapshot: Boolean = true
     ) {
         val normalizedRunId = runId.trim()
-        if (normalizedRunId.isEmpty() || cards.isEmpty()) return
+        if (normalizedRunId.isEmpty() || steps.isEmpty()) return
         val record = readRunLocked(context, normalizedRunId)
-            ?: InternalRunLogRecord(runId = normalizedRunId)
-        val sanitizedCards = cards.map(::sanitizeMap)
+            ?: CanonicalRunLogRecord(runId = normalizedRunId)
+        val sanitizedSteps = steps.map { step -> canonicalStepForStorage(sanitizeMap(step)) }
         val eventSeq = appendRunEventLocked(
             context = context,
             runId = normalizedRunId,
-            eventType = "cards_appended",
-            payload = linkedMapOf("cards" to sanitizedCards)
+            eventType = "steps_appended",
+            payload = linkedMapOf("steps" to sanitizedSteps)
         )
         if (saveSnapshot) {
-            saveRunLocked(context, record.copy(cards = record.cards + sanitizedCards, eventSeq = eventSeq))
+            saveRunLocked(
+                context,
+                record.copy(
+                    steps = record.steps + sanitizedSteps,
+                ).withEventSeq(eventSeq),
+            )
         }
         pruneLocked(context, preserveRunId = normalizedRunId)
+    }
+
+    @Synchronized
+    fun appendRecordedSteps(
+        context: Context,
+        runId: String,
+        records: List<RunLogStepRecord>,
+        saveSnapshot: Boolean = true,
+    ) {
+        records.flatMap(RunLogStepRecord::states).forEach { state ->
+            persistStateLocked(context, stateId(state), sanitizeMap(state))
+        }
+        appendSteps(context, runId, records.map(RunLogStepRecord::step), saveSnapshot)
     }
 
     @Synchronized
@@ -163,7 +261,7 @@ object InternalRunLogStore {
         val normalizedRunId = runId.trim()
         if (normalizedRunId.isEmpty() || diagnostics.isEmpty()) return
         val record = readRunLocked(context, normalizedRunId)
-            ?: InternalRunLogRecord(runId = normalizedRunId)
+            ?: CanonicalRunLogRecord(runId = normalizedRunId)
         val sanitizedDiagnostics = sanitizeMap(diagnostics)
         val mergedDiagnostics = sanitizeMap(record.diagnostics + sanitizedDiagnostics)
         val eventSeq = appendRunEventLocked(
@@ -173,98 +271,65 @@ object InternalRunLogStore {
             payload = linkedMapOf("diagnostics" to sanitizedDiagnostics)
         )
         if (saveSnapshot) {
-            saveRunLocked(context, record.copy(diagnostics = mergedDiagnostics, eventSeq = eventSeq))
+            saveRunLocked(
+                context,
+                record.copy(
+                    diagnostics = mergedDiagnostics,
+                ).withEventSeq(eventSeq),
+            )
         }
         pruneLocked(context, preserveRunId = normalizedRunId)
     }
 
     @Synchronized
-    fun bindRegisteredFunction(
+    fun upsertStep(
         context: Context,
         runId: String,
-        functionId: String,
-        functionSpec: Map<String, Any?> = emptyMap()
-    ): Map<String, Any?> {
-        val normalizedRunId = runId.trim()
-        val normalizedFunctionId = functionId.trim()
-        if (normalizedRunId.isEmpty() || normalizedFunctionId.isEmpty()) {
-            return emptyMap()
-        }
-        val record = readRunLocked(context, normalizedRunId)
-            ?: InternalRunLogRecord(runId = normalizedRunId)
-        val binding = registeredFunctionBindingRecord(
-            functionId = normalizedFunctionId,
-            functionSpec = functionSpec,
-            registeredAtMs = System.currentTimeMillis()
-        )
-        val mergedDiagnostics = upsertRegisteredFunctionBinding(
-            diagnostics = record.diagnostics,
-            binding = binding
-        )
-        val eventSeq = appendRunEventLocked(
-            context = context,
-            runId = normalizedRunId,
-            eventType = "registered_function_bound",
-            payload = linkedMapOf("binding" to binding)
-        )
-        val updatedRecord = record.copy(
-            diagnostics = mergedDiagnostics,
-            eventSeq = eventSeq
-        )
-        saveRunLocked(context, updatedRecord)
-        pruneLocked(context, preserveRunId = normalizedRunId)
-        return registeredFunctionBinding(updatedRecord)
-    }
-
-    @Synchronized
-    fun upsertCard(
-        context: Context,
-        runId: String,
-        cardId: String,
-        card: Map<String, Any?>
+        stepId: String,
+        step: Map<String, Any?>
     ) {
         val normalizedRunId = runId.trim()
-        val normalizedCardId = cardId.trim()
+        val normalizedStepId = stepId.trim()
         if (normalizedRunId.isEmpty()) return
         val record = readRunLocked(context, normalizedRunId)
-            ?: InternalRunLogRecord(runId = normalizedRunId)
-        val sanitizedCard = sanitizeMap(
-            if (normalizedCardId.isEmpty() || card.containsKey("card_id")) {
-                card
-            } else {
-                linkedMapOf<String, Any?>("card_id" to normalizedCardId).apply {
-                    putAll(card)
-                }
-            }
+            ?: CanonicalRunLogRecord(runId = normalizedRunId)
+        val sanitizedStep = canonicalStepForStorage(
+            sanitizeMap(stepWithStorageIdentity(normalizedStepId, step)),
         )
-        val updatedCards = record.cards.toMutableList()
-        val replaceIndex = if (normalizedCardId.isEmpty()) {
-            -1
-        } else {
-            updatedCards.indexOfFirst { existing ->
-                val existingId = existing["card_id"]?.toString()?.trim().orEmpty()
-                existingId == normalizedCardId
-            }
+        val updatedSteps = record.steps.toMutableList()
+        val stepIndex = numberToLong(sanitizedStep["step_index"])
+        val replaceIndex = updatedSteps.indexOfFirst { existing ->
+            numberToLong(existing["step_index"]) == stepIndex
         }
         if (replaceIndex >= 0) {
-            updatedCards[replaceIndex] = sanitizedCard
+            updatedSteps[replaceIndex] = sanitizedStep
         } else {
-            updatedCards += sanitizedCard
+            updatedSteps += sanitizedStep
         }
         val eventSeq = appendRunEventLocked(
             context = context,
             runId = normalizedRunId,
-            eventType = "card_upserted",
+            eventType = "step_upserted",
             payload = linkedMapOf(
-                "card_id" to normalizedCardId,
-                "card" to sanitizedCard
+                "step" to sanitizedStep
             )
         )
-        val updatedRecord = record.copy(cards = updatedCards, eventSeq = eventSeq)
-        if (shouldSaveSnapshotLocked(context, normalizedRunId, sanitizedCard)) {
-            saveRunLocked(context, updatedRecord)
-        }
+        val updatedRecord = record.copy(
+            steps = updatedSteps,
+        ).withEventSeq(eventSeq)
+        saveRunLocked(context, updatedRecord)
         pruneLocked(context, preserveRunId = normalizedRunId)
+    }
+
+    @Synchronized
+    fun upsertRecordedStep(
+        context: Context,
+        runId: String,
+        stepId: String,
+        record: RunLogStepRecord,
+    ) {
+        record.states.forEach { persistStateLocked(context, stateId(it), sanitizeMap(it)) }
+        upsertStep(context, runId, stepId, record.step)
     }
 
     @Synchronized
@@ -275,32 +340,42 @@ object InternalRunLogStore {
         doneReason: String,
         errorMessage: String? = null,
         saveSnapshot: Boolean = true,
-        finishedAtMs: Long = System.currentTimeMillis()
+        finishedAtMs: Long = System.currentTimeMillis(),
+        finalStateId: String? = null,
     ) {
         val normalizedRunId = runId.trim()
         if (normalizedRunId.isEmpty()) return
         val record = readRunLocked(context, normalizedRunId)
-            ?: InternalRunLogRecord(runId = normalizedRunId)
+            ?: CanonicalRunLogRecord(runId = normalizedRunId)
         val normalizedFinishedAtMs = finishedAtMs.takeIf { it > 0L } ?: System.currentTimeMillis()
+        val normalizedFinalStateId = finalStateId?.trim().orEmpty()
         val eventSeq = appendRunEventLocked(
             context = context,
             runId = normalizedRunId,
             eventType = "run_finished",
-            payload = linkedMapOf(
+            payload = linkedMapOf<String, Any?>(
                 "finished_at_ms" to normalizedFinishedAtMs,
                 "success" to success,
                 "done_reason" to doneReason,
-                "error_message" to errorMessage.orEmpty()
-            )
+                "error_message" to errorMessage.orEmpty(),
+                "final_state_id" to normalizedFinalStateId.takeIf { it.isNotEmpty() },
+            ).filterValues { it != null }
         )
         if (saveSnapshot) {
             val finishedRecord = record.copy(
-                finishedAtMs = normalizedFinishedAtMs,
+                status = when {
+                    doneReason == "cancelled" -> "cancelled"
+                    success -> "succeeded"
+                    else -> "failed"
+                },
                 success = success,
-                doneReason = doneReason,
-                errorMessage = errorMessage.orEmpty(),
-                eventSeq = eventSeq
-            )
+                error = errorMessage?.takeIf(String::isNotBlank),
+                finishedAtMs = normalizedFinishedAtMs,
+                finalStateId = normalizedFinalStateId.takeIf(String::isNotEmpty),
+                diagnostics = sanitizeMap(
+                    record.diagnostics + mapOf("done_reason" to doneReason),
+                ),
+            ).withEventSeq(eventSeq)
             saveRunLocked(context, finishedRecord)
         }
         pruneLocked(context, preserveRunId = normalizedRunId)
@@ -316,7 +391,7 @@ object InternalRunLogStore {
                 success = success,
                 doneReason = doneReason,
                 errorMessage = errorMessage.orEmpty(),
-                cardCount = record.cards.size
+                stepCount = record.steps.size
             )
         )
     }
@@ -328,31 +403,45 @@ object InternalRunLogStore {
     }
 
     @Synchronized
-    fun listRuns(context: Context, limit: Int = 50, offset: Int = 0): Map<String, Any?> {
+    fun listRuns(
+        context: Context,
+        limit: Int = 50,
+        offset: Int = 0,
+        source: String = "",
+        status: String = "",
+        model: String = "",
+        query: String = "",
+    ): Map<String, Any?> {
         val safeLimit = limit.coerceIn(1, MAX_RUN_COUNT)
         val safeOffset = offset.coerceAtLeast(0)
         val allRuns = readAllRunsLocked(context)
             .sortedByDescending { it.startedAtMs }
-        val runs = allRuns
+        val availableModels = allRuns
+            .flatMap(::modelNames)
+            .distinctBy { it.lowercase(Locale.US) }
+            .sortedBy { it.lowercase(Locale.US) }
+        val filteredRuns = allRuns.filter { record ->
+            matchesSourceFilter(record, source) &&
+                matchesStatusFilter(record, status) &&
+                matchesModelFilter(record, model) &&
+                matchesQuery(record, query)
+        }
+        val runs = filteredRuns
             .drop(safeOffset)
             .take(safeLimit)
-        val dir = storageDir(context)
-        return linkedMapOf(
+        return linkedMapOf<String, Any?>(
             "success" to true,
             "count" to runs.size,
-            "total_count" to allRuns.size,
+            "total_count" to filteredRuns.size,
             "limit" to safeLimit,
             "offset" to safeOffset,
             "next_offset" to (safeOffset + runs.size),
-            "has_more" to (safeOffset + runs.size < allRuns.size),
-            "provider" to PROVIDER,
-            "run_index_path" to File(dir, "index.json").absolutePath,
-            "run_storage_dir" to dir.absolutePath,
-            "event_schema_version" to RUN_LOG_EVENT_SCHEMA_VERSION,
+            "has_more" to (safeOffset + runs.size < filteredRuns.size),
+            "available_models" to availableModels,
             "runs" to runs.map { record ->
-                summaryMap(record, registeredFunctionBinding(record))
+                summaryMap(record)
             }
-        )
+        ).filterValues { it != null }
     }
 
     @Synchronized
@@ -360,7 +449,7 @@ object InternalRunLogStore {
         context: Context,
         limit: Int = 50,
         offset: Int = 0
-    ): List<InternalRunLogRecord> {
+    ): List<CanonicalRunLogRecord> {
         val safeLimit = limit.coerceIn(1, MAX_RUN_COUNT)
         val safeOffset = offset.coerceAtLeast(0)
         return readAllRunsLocked(context)
@@ -370,55 +459,10 @@ object InternalRunLogStore {
     }
 
     @Synchronized
-    fun getRun(context: Context, runId: String): InternalRunLogRecord? {
+    fun getRun(context: Context, runId: String): CanonicalRunLogRecord? {
         val normalizedRunId = runId.trim()
         if (normalizedRunId.isEmpty()) return null
         return readRunLocked(context, normalizedRunId)
-    }
-
-    @Synchronized
-    fun sourceRunSummariesForFunction(
-        context: Context,
-        functionId: String,
-        sourceRunIds: List<String> = emptyList()
-    ): Map<String, Any?> {
-        val normalizedFunctionId = functionId.trim()
-        if (normalizedFunctionId.isEmpty()) {
-            return linkedMapOf(
-                "success" to false,
-                "function_id" to normalizedFunctionId,
-                "source_run_ids" to emptyList<String>(),
-                "source_run_count" to 0,
-                "source_runs" to emptyList<Map<String, Any?>>(),
-                "missing_source_run_ids" to emptyList<String>(),
-                "error_code" to "FUNCTION_ID_EMPTY",
-                "error_message" to "function_id is required"
-            )
-        }
-        val normalizedSourceRunIds = sourceRunIds
-            .map { it.trim() }
-            .filter { it.isNotEmpty() }
-            .distinct()
-        val sourceRuns = normalizedSourceRunIds.mapNotNull { runId ->
-            readRunLocked(context, runId)?.let { record ->
-                summaryMap(record, registeredFunctionBinding(record))
-            }
-        }
-        val foundRunIds = sourceRuns.mapNotNull {
-            textValue(it["run_id"]).takeIf(String::isNotEmpty)
-        }.toSet()
-        val missingRunIds = normalizedSourceRunIds.filter { it !in foundRunIds }
-        return linkedMapOf(
-            "success" to true,
-            "function_id" to normalizedFunctionId,
-            "source_run_ids" to normalizedSourceRunIds,
-            "source_run_count" to normalizedSourceRunIds.size,
-            "source_runs" to sourceRuns,
-            "source_run_summary_count" to sourceRuns.size,
-            "missing_source_run_ids" to missingRunIds,
-            "missing_source_run_count" to missingRunIds.size,
-            "provider" to PROVIDER
-        )
     }
 
     @Synchronized
@@ -429,224 +473,280 @@ object InternalRunLogStore {
         }
         val record = readRunLocked(context, normalizedRunId)
             ?: return notFoundPayload(normalizedRunId)
-        val tokenUsage = tokenUsageSummary(record.cards)
-        val registeredBinding = registeredFunctionBinding(record)
-        return linkedMapOf(
-            "success" to true,
-            "provider" to PROVIDER,
-            "run_id" to record.runId,
-            "goal" to record.goal,
+        val steps = canonicalStepsForTimeline(record)
+        val tokenUsage = tokenUsageSummary(steps)
+        val diagnostics = linkedMapOf<String, Any?>().apply {
+            putAll(record.diagnostics - "event_seq")
+            putAll(linkedMapOf(
             "source" to record.source,
             "tool_name" to record.toolName,
-            "operation_description" to record.operationDescription,
-            "started_at_ms" to record.startedAtMs,
-            "finished_at_ms" to record.finishedAtMs,
-            "started_at" to formatTime(record.startedAtMs),
-            "finished_at" to record.finishedAtMs?.let(::formatTime).orEmpty(),
-            "run_finished" to (record.finishedAtMs != null),
-            "run_success" to (record.success == true),
-            "run_status" to runStatus(record),
+            "description" to record.operationDescription,
             "duration_ms" to durationMs(record),
-            "step_count" to record.cards.size,
-            "event_seq" to record.eventSeq,
-            "event_schema_version" to RUN_LOG_EVENT_SCHEMA_VERSION,
-            "event_log_path" to runEventsFile(runFile(context, normalizedRunId)).absolutePath,
             "done_reason" to record.doneReason,
-            "error_message" to record.errorMessage,
-            "diagnostics" to record.diagnostics.takeIf { it.isNotEmpty() },
-            "token_usage" to tokenUsage,
-            "token_usage_total" to tokenUsage["total_tokens"],
-            "token_usage_by_step" to tokenUsageByStep(record.cards),
-            "token_usage_by_call" to tokenUsageByCall(record.cards),
-            "cards" to record.cards
-        ).apply {
-            putAll(registeredBinding)
+            "token_usage" to tokenUsage.takeIf { it.isNotEmpty() },
+            "token_usage_by_step" to tokenUsageByStep(steps).takeIf { it.isNotEmpty() },
+            "token_usage_by_call" to tokenUsageByCall(steps).takeIf { it.isNotEmpty() },
+            ).filterValues { it != null })
         }
-    }
-
-    private fun summaryMap(
-        record: InternalRunLogRecord,
-        registeredBinding: Map<String, Any?> = emptyMap()
-    ): Map<String, Any?> {
-        val tokenUsage = tokenUsageSummary(record.cards)
         return linkedMapOf(
+            "schema_version" to CANONICAL_RUN_LOG_SCHEMA_VERSION,
             "run_id" to record.runId,
             "goal" to record.goal,
+            "status" to record.status,
             "success" to (record.success == true),
-            "run_finished" to (record.finishedAtMs != null),
-            "run_success" to (record.success == true),
-            "run_status" to runStatus(record),
-            "done_reason" to record.doneReason,
-            "step_count" to record.cards.size,
+            "error" to record.errorMessage.takeIf(String::isNotBlank),
             "started_at_ms" to record.startedAtMs,
             "finished_at_ms" to record.finishedAtMs,
-            "started_at" to formatTime(record.startedAtMs),
-            "finished_at" to record.finishedAtMs?.let(::formatTime).orEmpty(),
-            "duration_ms" to durationMs(record),
-            "event_seq" to record.eventSeq,
-            "tool_name" to record.toolName,
-            "source" to record.source,
-            "operation_description" to record.operationDescription,
-            "error_message" to record.errorMessage,
-            "diagnostics" to record.diagnostics.takeIf { it.isNotEmpty() },
-            "token_usage" to tokenUsage,
-            "token_usage_total" to tokenUsage["total_tokens"],
-            "raw_run" to linkedMapOf(
-                "run_id" to record.runId,
-                "provider" to PROVIDER,
-                "source" to record.source,
-                "goal" to record.goal
-            )
-        ).apply {
-            putAll(registeredBinding)
-        }
+            "steps" to steps,
+            "final_state_id" to record.finalStateId,
+            "diagnostics" to diagnostics.takeIf { it.isNotEmpty() },
+        ).filterValues { it != null }
     }
 
-    private fun registeredFunctionBinding(record: InternalRunLogRecord): Map<String, Any?> {
-        val persistedBindings = registeredFunctionBindings(record.diagnostics)
-        val persistedFunctionIds = persistedBindings.mapNotNull { binding ->
-            textValue(binding["function_id"]).takeIf { it.isNotEmpty() }
-        }.distinct()
-        val summariesById = linkedMapOf<String, Map<String, Any?>>()
-        persistedBindings.forEach { binding ->
-            val functionId = textValue(binding["function_id"])
-            if (functionId.isNotEmpty() && !summariesById.containsKey(functionId)) {
-                summariesById[functionId] = functionSummaryFromBinding(binding)
+    @Synchronized
+    fun statePayload(context: Context, stateId: String): Map<String, Any?> {
+        val normalizedStateId = stateId.trim()
+        if (normalizedStateId.isEmpty()) return emptyMap()
+        val file = stateFile(context, normalizedStateId)
+        if (!file.isFile) return emptyMap()
+        val state = runCatching {
+            @Suppress("UNCHECKED_CAST")
+            gson.fromJson(file.readText(), Map::class.java) as? Map<String, Any?>
+        }.getOrNull().orEmpty()
+        if (textValue(state["state_id"]) != normalizedStateId) return emptyMap()
+        val xmlPath = textValue(state["xml_path"])
+        val xml = File(xmlPath).takeIf(File::isFile)?.runCatching(File::readText)?.getOrNull()
+        return linkedMapOf<String, Any?>().apply {
+            put("state_id", normalizedStateId)
+            listOf("package_name", "activity_name", "display", "screenshot_path").forEach { key ->
+                state[key]?.let { put(key, it) }
             }
-        }
-        val functionIds = persistedFunctionIds
-        val summaries = functionIds.mapNotNull { summariesById[it] }
-        val firstSummary = summaries.firstOrNull()
-        return linkedMapOf(
-            "registered_as_function" to functionIds.isNotEmpty(),
-            "is_registered_function" to functionIds.isNotEmpty(),
-            "registered_function_count" to functionIds.size,
-            "registered_function_ids" to functionIds,
-            "registered_function_id" to functionIds.firstOrNull().orEmpty(),
-            "registered_function_summary" to firstSummary?.let(::sanitizeMap),
-            "registered_function_summaries" to summaries.map(::sanitizeMap),
-            "has_registered_function_binding" to persistedFunctionIds.isNotEmpty(),
-            "registered_function_binding_ids" to persistedFunctionIds,
-            "registered_function_bindings" to persistedBindings.map(::sanitizeMap),
-        )
-    }
-
-    private fun registeredFunctionBindingRecord(
-        functionId: String,
-        functionSpec: Map<String, Any?>,
-        registeredAtMs: Long
-    ): Map<String, Any?> {
-        return linkedMapOf(
-            "function_id" to functionId,
-            "name" to textValue(functionSpec["name"]),
-            "description" to textValue(functionSpec["description"]),
-            "source_run_ids" to sourceRunIds(functionSpec),
-            "registered_at_ms" to registeredAtMs,
-            "registered_at" to formatTime(registeredAtMs),
-            "source" to "oob_run_log_registration"
-        ).filterValues { value ->
-            when (value) {
-                is String -> value.isNotBlank()
-                is List<*> -> value.isNotEmpty()
-                else -> true
-            }
+            xml?.takeIf(String::isNotBlank)?.let { put("xml", it) }
         }
     }
 
-    private fun upsertRegisteredFunctionBinding(
-        diagnostics: Map<String, Any?>,
-        binding: Map<String, Any?>
-    ): Map<String, Any?> {
-        val functionId = textValue(binding["function_id"])
-        if (functionId.isEmpty()) return sanitizeMap(diagnostics)
-        val existing = registeredFunctionBindings(diagnostics)
-        val merged = (listOf(binding) + existing.filter {
-            textValue(it["function_id"]) != functionId
-        }).take(REGISTERED_FUNCTION_BINDING_LIMIT)
-        return sanitizeMap(
-            diagnostics + linkedMapOf(
-                "registered_function_id" to functionId,
-                "registered_function_ids" to merged.mapNotNull {
-                    textValue(it["function_id"]).takeIf(String::isNotEmpty)
-                }.distinct(),
-                "registered_function_bindings" to merged,
-                "registered_as_function" to true,
-                "registered_function_bound_at_ms" to binding["registered_at_ms"]
-            )
-        )
+    @Synchronized
+    fun persistState(context: Context, state: Map<String, Any?>): String {
+        val sanitized = sanitizeMap(state)
+        val stateId = stateId(sanitized)
+        persistStateLocked(context, stateId, sanitized)
+        return stateId
     }
 
-    private fun registeredFunctionBindings(
-        diagnostics: Map<String, Any?>
+    internal fun stepWithStorageIdentity(
+        stepId: String,
+        step: Map<String, Any?>,
+    ): Map<String, Any?> {
+        require(isCanonicalStep(step)) { "run_log_step_contract_invalid:$stepId" }
+        return step
+    }
+
+    internal fun isCanonicalStep(step: Map<String, Any?>): Boolean {
+        val allowed = setOf(
+            "step_id", "step_index", "status", "thinking", "summary",
+            "before_state_id", "action", "result", "after_state_id",
+            "diagnostics", "metadata",
+        )
+        if (!step.containsKey("step_index") || step.keys.any { it !in allowed }) return false
+        if (numberToLong(step["step_index"])?.let { it >= 0L } != true) return false
+        if (step.containsKey("before_state_id") && textValue(step["before_state_id"]).isEmpty()) return false
+        if (step.containsKey("after_state_id") && textValue(step["after_state_id"]).isEmpty()) return false
+        if (step.containsKey("action")) {
+            val action = stringMap(step["action"])
+            if (action.keys != setOf("tool", "args")) return false
+            if (textValue(action["tool"]).isEmpty() || action["args"] !is Map<*, *>) return false
+        }
+        if (step.containsKey("result")) {
+            val result = stringMap(step["result"])
+            if (result.keys.any { it !in setOf("success", "error") }) return false
+            if (result["success"] !is Boolean) return false
+            if (result.containsKey("error") && result["error"] !is String) return false
+        }
+        if (step.containsKey("status") && textValue(step["status"]) !in setOf(
+                "running", "succeeded", "failed", "waiting_user", "success", "error"
+            )) return false
+        if (step.containsKey("diagnostics") && step["diagnostics"] !is Map<*, *>) return false
+        if (step.containsKey("metadata") && step["metadata"] !is Map<*, *>) return false
+        return true
+    }
+
+    private fun canonicalStepForStorage(step: Map<String, Any?>): Map<String, Any?> {
+        require(isCanonicalStep(step)) { "run_log_step_contract_invalid" }
+        val index = numberToLong(step["step_index"])?.toInt()
+            ?: error("run_log_step_index_invalid")
+        val diagnostics = linkedMapOf<String, Any?>().apply {
+            putAll(stringMap(step["diagnostics"]))
+            putAll(stringMap(step["metadata"]))
+        }.takeIf { it.isNotEmpty() }
+        val result = stringMap(step["result"])
+        val rawStatus = textValue(step["status"]).ifBlank { textValue(diagnostics?.get("status")) }
+        val status = when {
+            rawStatus == "success" -> "succeeded"
+            rawStatus == "error" -> "failed"
+            rawStatus.isNotBlank() -> rawStatus
+            result.containsKey("success") -> if (result["success"] == true) "succeeded" else "failed"
+            else -> "running"
+        }
+        return linkedMapOf<String, Any?>(
+            "step_id" to textValue(step["step_id"])
+                .ifBlank { textValue(diagnostics?.get("step_id")) }
+                .ifBlank { "step-$index" },
+            "step_index" to index,
+            "status" to status,
+            "thinking" to step["thinking"],
+            "summary" to step["summary"],
+            "before_state_id" to step["before_state_id"],
+            "action" to step["action"],
+            "result" to step["result"],
+            "after_state_id" to step["after_state_id"],
+            "diagnostics" to diagnostics,
+        ).filterValues { it != null }
+    }
+
+    private fun canonicalStepsForTimeline(
+        record: CanonicalRunLogRecord,
     ): List<Map<String, Any?>> {
-        val multi = listOfMaps(diagnostics["registered_function_bindings"])
-        if (multi.isNotEmpty()) return multi
-        val single = stringMap(diagnostics["registered_function_binding"])
-        if (single.isNotEmpty()) return listOf(single)
-        val functionId = textValue(diagnostics["registered_function_id"])
-        if (functionId.isEmpty()) return emptyList()
-        return listOf(linkedMapOf("function_id" to functionId))
+        return record.steps.mapIndexed { index, step ->
+            canonicalStepForTimeline(index, step)
+        }
     }
 
-    private fun functionSummaryFromBinding(binding: Map<String, Any?>): Map<String, Any?> {
-        return linkedMapOf(
-            "function_id" to textValue(binding["function_id"]),
-            "name" to textValue(binding["name"]),
-            "description" to textValue(binding["description"]),
-            "source_run_ids" to ((binding["source_run_ids"] as? List<*>)?.mapNotNull {
-                it?.toString()?.trim()?.takeIf(String::isNotEmpty)
-            } ?: emptyList<String>()),
-            "registered_at_ms" to binding["registered_at_ms"],
-            "registered_at" to textValue(binding["registered_at"]),
-            "source" to textValue(binding["source"])
-        ).filterValues { value ->
-            when (value) {
-                is String -> value.isNotBlank()
-                is List<*> -> value.isNotEmpty()
-                null -> false
-                else -> true
+    private fun canonicalStepForTimeline(
+        expectedIndex: Int,
+        step: Map<String, Any?>,
+    ): Map<String, Any?> {
+        val normalized = canonicalStepForStorage(step)
+        require(numberToLong(normalized["step_index"])?.toInt() == expectedIndex) {
+            "run_log_step_index_invalid"
+        }
+        return linkedMapOf<String, Any?>(
+            "step_id" to normalized["step_id"],
+            "step_index" to normalized["step_index"],
+            "status" to normalized["status"],
+            "thinking" to normalized["thinking"],
+            "summary" to normalized["summary"],
+            "before_state_id" to normalized["before_state_id"],
+            "action" to normalized["action"],
+            "result" to normalized["result"],
+            "after_state_id" to normalized["after_state_id"],
+        ).apply {
+            stringMap(normalized["diagnostics"]).takeIf { it.isNotEmpty() }?.let {
+                put("diagnostics", it)
+            }
+        }.filterValues { it != null }
+    }
+
+    private fun persistStateLocked(
+        context: Context,
+        stateId: String,
+        state: Map<String, Any?>,
+    ): Map<String, Any?> {
+        val allowed = setOf(
+            "state_id",
+            "package_name",
+            "activity_name",
+            "display",
+            "xml",
+            "screenshot_path",
+            "screenshot_base64",
+        )
+        require(state.keys.all(allowed::contains)) { "state_contract_fields_invalid" }
+        require(textValue(state["state_id"]) == stateId) { "state_id_mismatch" }
+        val stateJsonFile = stateFile(context, stateId)
+        val existing = stateJsonFile.takeIf(File::isFile)?.runCatching {
+            @Suppress("UNCHECKED_CAST")
+            gson.fromJson(readText(), Map::class.java) as? Map<String, Any?>
+        }?.getOrNull().orEmpty().takeIf {
+            textValue(it["state_id"]) == stateId
+        }.orEmpty()
+        val incomingXml = textValue(state["xml"])
+        val xmlFile = stateXmlFile(context, stateId)
+        val sourceXml = incomingXml.ifBlank {
+            val existingPath = textValue(existing["xml_path"])
+            File(existingPath).takeIf(File::isFile)?.runCatching(File::readText)?.getOrNull()
+                ?: xmlFile.takeIf(File::isFile)?.runCatching(File::readText)?.getOrNull().orEmpty()
+        }
+        val stored = linkedMapOf<String, Any?>("state_id" to stateId).apply {
+            listOf("screenshot_path", "package_name", "activity_name", "display").forEach { key ->
+                existing[key]?.let { put(key, it) }
             }
         }
+        listOf(
+            "screenshot_path",
+            "package_name",
+            "activity_name",
+        ).forEach { key -> state[key]?.let { stored[key] = it } }
+        stringMap(state["display"])
+            .takeIf { display ->
+                numberToLong(display["width"])?.let { it > 0L } == true &&
+                    numberToLong(display["height"])?.let { it > 0L } == true
+            }
+            ?.let { display ->
+                stored["display"] = linkedMapOf(
+                    "width" to numberToLong(display["width"]),
+                    "height" to numberToLong(display["height"]),
+                )
+            }
+        if (sourceXml.isNotBlank()) {
+            if (incomingXml.isNotBlank() || !xmlFile.isFile) {
+                val temporary = File(xmlFile.parentFile, "${xmlFile.name}.tmp")
+                temporary.writeText(sourceXml)
+                if (!temporary.renameTo(xmlFile)) {
+                    xmlFile.writeText(sourceXml)
+                    temporary.delete()
+                }
+            }
+            stored["xml_path"] = xmlFile.absolutePath
+            stored["xml_sha256"] = sha256(sourceXml)
+            stored["xml_chars"] = sourceXml.length
+            stored["xml_bytes"] = xmlFile.length()
+        }
+        val screenshotBase64 = textValue(state["screenshot_base64"])
+        if (screenshotBase64.isNotBlank()) {
+            runCatching {
+                val encoded = screenshotBase64.substringAfter(",", screenshotBase64)
+                val bytes = Base64.decode(encoded, Base64.DEFAULT)
+                val screenshotFile = File(
+                    statesDir(context),
+                    "${sha256(stateId).take(16)}_${safeFilePart(stateId)}.jpg",
+                )
+                screenshotFile.writeBytes(bytes)
+                stored["screenshot_path"] = screenshotFile.absolutePath
+            }.onFailure {
+                OmniLog.w(TAG, "persist screenshot failed for $stateId: ${it.message}")
+            }
+        }
+        val temporary = File(stateJsonFile.parentFile, "${stateJsonFile.name}.tmp")
+        temporary.writeText(gson.toJson(stored))
+        if (!temporary.renameTo(stateJsonFile)) {
+            stateJsonFile.writeText(gson.toJson(stored))
+            temporary.delete()
+        }
+        pruneStatesLocked(context, preserveStateId = stateId)
+        return stored
     }
 
-    private fun sourceRunIds(spec: Map<String, Any?>): List<String> {
-        fun MutableList<String>.addText(value: Any?) {
-            val text = value?.toString()?.trim().orEmpty()
-            if (text.isNotEmpty() && text !in this) add(text)
-        }
+    private fun stateId(state: Map<String, Any?>): String =
+        textValue(state["state_id"]).also { require(it.isNotEmpty()) { "state_id_required" } }
 
-        fun MutableList<String>.addList(value: Any?) {
-            when (value) {
-                is List<*> -> value
-                is Array<*> -> value.toList()
-                else -> emptyList<Any?>()
-            }.forEach { addText(it) }
+    private fun summaryMap(record: CanonicalRunLogRecord): Map<String, Any?> {
+        val tokenUsage = tokenUsageSummary(record.steps)
+        val diagnostics = linkedMapOf<String, Any?>().apply {
+            putAll(record.diagnostics - "event_seq")
+            if (tokenUsage.isNotEmpty()) put("token_usage", tokenUsage)
         }
-
-        val source = stringMap(spec["source"])
-        val metadata = stringMap(spec["metadata"])
-        val evidence = stringMap(metadata["oob_function_evidence"])
-        val asset = stringMap(metadata["omniflow_asset"])
-        return mutableListOf<String>().apply {
-            addList(spec["source_run_ids"])
-            addText(spec["source_run_id"])
-            addList(metadata["source_run_ids"])
-            addText(source["run_id"])
-            addText(source["run_log_id"])
-            addText(source["source_run_id"])
-            addList(evidence["source_run_ids"])
-            addList(asset["source_run_ids"])
-            addText(metadata["run_id"])
-            addText(metadata["run_log_id"])
-            addText(metadata["source_run_id"])
-            addText(evidence["latest_run_id"])
-            addText(asset["source_run_id"])
-        }
-    }
-
-    private fun runStatus(record: InternalRunLogRecord): String {
-        if (record.finishedAtMs == null) return "running"
-        return if (record.success == true) "success" else "failed"
+        return linkedMapOf(
+            "schema_version" to CANONICAL_RUN_LOG_SCHEMA_VERSION,
+            "run_id" to record.runId,
+            "goal" to record.goal,
+            "status" to record.status,
+            "success" to record.success,
+            "error" to record.error,
+            "started_at_ms" to record.startedAtMs,
+            "finished_at_ms" to record.finishedAtMs,
+            "step_count" to record.steps.size,
+            "diagnostics" to diagnostics.takeIf { it.isNotEmpty() },
+        ).filterValues { it != null }
     }
 
     private fun notFoundPayload(runId: String): Map<String, Any?> {
@@ -659,13 +759,13 @@ object InternalRunLogStore {
         )
     }
 
-    private fun durationMs(record: InternalRunLogRecord): Long? {
+    private fun durationMs(record: CanonicalRunLogRecord): Long? {
         val finishedAt = record.finishedAtMs ?: return null
         return (finishedAt - record.startedAtMs).coerceAtLeast(0L)
     }
 
-    private fun tokenUsageSummary(cards: List<Map<String, Any?>>): Map<String, Any?> {
-        val usages = cards.mapNotNull(::extractTokenUsage)
+    private fun tokenUsageSummary(steps: List<Map<String, Any?>>): Map<String, Any?> {
+        val usages = steps.mapNotNull(::extractTokenUsage)
         if (usages.isEmpty()) return emptyMap()
         val summary = linkedMapOf<String, Any?>()
         putSum(summary, "prompt_tokens", usages)
@@ -683,38 +783,56 @@ object InternalRunLogStore {
         putSum(summary, "cached_tokens", usages)
         putSum(summary, "attempt_count", usages)
         summary["step_count"] = usages.size
-        val callCount = tokenUsageCallCount(cards)
+        val callCount = tokenUsageCallCount(steps)
         if (callCount > 0) {
             summary["call_count"] = callCount
+        }
+        val resolvedModels = usageValues(steps, "resolved_model")
+        val routes = usageValues(steps, "route")
+        if (resolvedModels.isNotEmpty()) {
+            summary["resolved_models"] = resolvedModels
+            if (resolvedModels.size == 1) summary["resolved_model"] = resolvedModels.first()
+        }
+        if (routes.isNotEmpty()) {
+            summary["routes"] = routes
+            if (routes.size == 1) summary["route"] = routes.first()
         }
         return summary
     }
 
-    private fun tokenUsageByStep(cards: List<Map<String, Any?>>): List<Map<String, Any?>> {
-        return cards.mapIndexedNotNull { index, card ->
-            val usage = extractTokenUsage(card) ?: return@mapIndexedNotNull null
+    private fun tokenUsageByStep(steps: List<Map<String, Any?>>): List<Map<String, Any?>> {
+        return steps.mapIndexedNotNull { index, step ->
+            val usage = extractTokenUsage(step) ?: return@mapIndexedNotNull null
+            val diagnostics = stringMap(step["diagnostics"])
+            val action = stringMap(step["action"])
             linkedMapOf<String, Any?>(
-                "step_index" to (numberToLong(card["step_index"]) ?: index.toLong()).toInt(),
-                "card_id" to textValue(card["card_id"]),
-                "tool_name" to textValue(card["tool_name"]),
+                "step_index" to (numberToLong(step["step_index"]) ?: index.toLong()).toInt(),
+                "step_id" to textValue(step["step_id"]).ifBlank {
+                    textValue(diagnostics["step_id"])
+                },
+                "tool" to textValue(action["tool"]),
                 "token_usage" to usage
             )
         }
     }
 
-    private fun tokenUsageByCall(cards: List<Map<String, Any?>>): List<Map<String, Any?>> {
+    private fun tokenUsageByCall(steps: List<Map<String, Any?>>): List<Map<String, Any?>> {
         val calls = mutableListOf<Map<String, Any?>>()
-        cards.forEachIndexed { index, card ->
-            val attempts = extractTokenUsageAttempts(card)
+        steps.forEachIndexed { index, step ->
+            val attempts = extractTokenUsageAttempts(step)
+            val diagnostics = stringMap(step["diagnostics"])
+            val action = stringMap(step["action"])
             val usages = attempts.ifEmpty {
-                extractTokenUsage(card)?.let { listOf(it) } ?: emptyList()
+                extractTokenUsage(step)?.let { listOf(it) } ?: emptyList()
             }
             usages.forEach { usage ->
                 calls += linkedMapOf(
                     "call_index" to calls.size,
-                    "step_index" to (numberToLong(card["step_index"]) ?: index.toLong()).toInt(),
-                    "card_id" to textValue(card["card_id"]),
-                    "tool_name" to textValue(card["tool_name"]),
+                    "step_index" to (numberToLong(step["step_index"]) ?: index.toLong()).toInt(),
+                    "step_id" to textValue(step["step_id"]).ifBlank {
+                        textValue(diagnostics["step_id"])
+                    },
+                    "tool" to textValue(action["tool"]),
                     "attempt_index" to numberToLong(usage["attempt_index"])?.toInt(),
                     "stability_attempt" to numberToLong(usage["stability_attempt"])?.toInt(),
                     "tool_retry_index" to numberToLong(usage["tool_retry_index"])?.toInt(),
@@ -725,10 +843,10 @@ object InternalRunLogStore {
         return calls
     }
 
-    private fun tokenUsageCallCount(cards: List<Map<String, Any?>>): Int {
-        return cards.sumOf { card ->
-            val attempts = extractTokenUsageAttempts(card)
-            val usage = extractTokenUsage(card)
+    private fun tokenUsageCallCount(steps: List<Map<String, Any?>>): Int {
+        return steps.sumOf { step ->
+            val attempts = extractTokenUsageAttempts(step)
+            val usage = extractTokenUsage(step)
             when {
                 attempts.isNotEmpty() -> attempts.size
                 usage != null -> (numberToLong(usage["attempt_count"]) ?: 1L).coerceAtLeast(1L).toInt()
@@ -737,19 +855,73 @@ object InternalRunLogStore {
         }
     }
 
-    private fun extractTokenUsage(card: Map<String, Any?>): Map<String, Any?>? {
-        val direct = stringMap(card["token_usage"]).takeIf { it.isNotEmpty() }
-        if (direct != null) return direct
-        val header = stringMap(card["header"])
-        return stringMap(header["token_usage"]).takeIf { it.isNotEmpty() }
+    private fun extractTokenUsage(step: Map<String, Any?>): Map<String, Any?>? {
+        val diagnostics = stringMap(step["diagnostics"])
+        return stringMap(diagnostics["token_usage"]).takeIf { it.isNotEmpty() }
     }
 
-    private fun extractTokenUsageAttempts(card: Map<String, Any?>): List<Map<String, Any?>> {
-        val direct = listOfMaps(card["token_usage_attempts"]).takeIf { it.isNotEmpty() }
-        if (direct != null) return direct
-        val header = stringMap(card["header"])
-        return listOfMaps(header["token_usage_attempts"]).takeIf { it.isNotEmpty() }
-            ?: emptyList()
+    private fun extractTokenUsageAttempts(step: Map<String, Any?>): List<Map<String, Any?>> {
+        val diagnostics = stringMap(step["diagnostics"])
+        return listOfMaps(diagnostics["token_usage_attempts"])
+    }
+
+    private fun modelNames(record: CanonicalRunLogRecord): List<String> {
+        return usageValues(record.steps, "resolved_model")
+    }
+
+    private fun usageValues(steps: List<Map<String, Any?>>, key: String): List<String> {
+        return steps.flatMap { step ->
+            val usages = extractTokenUsageAttempts(step).ifEmpty {
+                extractTokenUsage(step)?.let(::listOf).orEmpty()
+            }
+            usages.mapNotNull { usage ->
+                textValue(usage[key])
+                    .takeIf { it.isNotBlank() && it != "multiple" }
+            }
+        }.distinctBy { it.lowercase(Locale.US) }
+    }
+
+    private fun matchesSourceFilter(record: CanonicalRunLogRecord, filter: String): Boolean {
+        return when (filter.trim().lowercase(Locale.US)) {
+            "", "all" -> true
+            "vlm" -> record.source.lowercase(Locale.US) == "vlm"
+            "manual" -> record.source.lowercase(Locale.US) in setOf(
+                "manual_recording",
+                "human_trajectory",
+                "human_takeover",
+            )
+            else -> record.source.equals(filter.trim(), ignoreCase = true)
+        }
+    }
+
+    private fun matchesStatusFilter(record: CanonicalRunLogRecord, filter: String): Boolean {
+        return when (filter.trim().lowercase(Locale.US)) {
+            "", "all" -> true
+            "success", "succeeded" -> record.status == "succeeded"
+            "failure", "failed" -> record.status in setOf("failed", "cancelled")
+            else -> record.status.equals(filter.trim(), ignoreCase = true)
+        }
+    }
+
+    private fun matchesModelFilter(record: CanonicalRunLogRecord, filter: String): Boolean {
+        val normalized = filter.trim()
+        return normalized.isEmpty() || normalized == "all" ||
+            modelNames(record).any { it.equals(normalized, ignoreCase = true) }
+    }
+
+    private fun matchesQuery(record: CanonicalRunLogRecord, query: String): Boolean {
+        val normalized = query.trim().lowercase(Locale.US)
+        if (normalized.isEmpty()) return true
+        return listOf(
+            record.runId,
+            record.goal,
+            record.operationDescription,
+            record.toolName,
+            record.source,
+            record.status,
+        ).plus(modelNames(record)).any { value ->
+            value.lowercase(Locale.US).contains(normalized)
+        }
     }
 
     private fun putSum(
@@ -771,21 +943,21 @@ object InternalRunLogStore {
         }
     }
 
-    private fun readAllRunsLocked(context: Context): List<InternalRunLogRecord> {
+    private fun readAllRunsLocked(context: Context): List<CanonicalRunLogRecord> {
         val dir = storageDir(context)
         return dir.listFiles { file -> file.isFile && file.extension == "json" }
-            ?.mapNotNull { file -> readRunFileLocked(file) }
+            ?.mapNotNull { file -> readRunFileLocked(context, file) }
             .orEmpty()
     }
 
-    private fun readRunLocked(context: Context, runId: String): InternalRunLogRecord? {
-        return readRunFileLocked(runFile(context, runId))
+    private fun readRunLocked(context: Context, runId: String): CanonicalRunLogRecord? {
+        return readRunFileLocked(context, runFile(context, runId))
     }
 
-    private fun readRunFileLocked(file: File): InternalRunLogRecord? {
+    private fun readRunFileLocked(context: Context, file: File): CanonicalRunLogRecord? {
         val snapshot = if (file.exists()) {
             runCatching {
-                gson.fromJson(file.readText(), InternalRunLogRecord::class.java)
+                parseRunSnapshot(file.readText())
             }.getOrElse {
                 OmniLog.w(TAG, "read run log failed: ${file.absolutePath}, ${it.message}")
                 null
@@ -801,7 +973,7 @@ object InternalRunLogStore {
         if (snapshot == null && events.isEmpty()) return null
         return runCatching {
             applyRunEventsLocked(
-                base = snapshot ?: InternalRunLogRecord(runId = runId),
+                base = snapshot ?: CanonicalRunLogRecord(runId = runId),
                 events = events
             )
         }.getOrElse {
@@ -810,7 +982,42 @@ object InternalRunLogStore {
         }
     }
 
-    private fun saveRunLocked(context: Context, record: InternalRunLogRecord) {
+    private fun parseRunSnapshot(json: String): CanonicalRunLogRecord {
+        @Suppress("UNCHECKED_CAST")
+        val value = gson.fromJson(json, Map::class.java) as? Map<String, Any?> ?: emptyMap()
+        require(textValue(value["schema_version"]) == CANONICAL_RUN_LOG_SCHEMA_VERSION) {
+            "run_log_schema_version_invalid"
+        }
+        val runId = textValue(value["run_id"])
+        require(runId.isNotEmpty()) { "run_id_required" }
+        val success = booleanValue(value["success"])
+            ?: error("run_log_success_required")
+        val status = textValue(value["status"])
+        require(status in setOf("running", "succeeded", "failed", "cancelled")) {
+            "run_log_status_invalid"
+        }
+        require((status == "succeeded") == success) {
+            "run_log_status_success_mismatch"
+        }
+        val diagnostics = sanitizeMap(stringMap(value["diagnostics"]))
+        val steps = listOfMaps(value["steps"]).mapIndexed { index, step ->
+            canonicalStepForTimeline(index, sanitizeMap(step))
+        }
+        return CanonicalRunLogRecord(
+            runId = runId,
+            goal = textValue(value["goal"]),
+            status = status,
+            success = success,
+            error = textValue(value["error"]).takeIf(String::isNotEmpty),
+            startedAtMs = numberToLong(value["started_at_ms"]) ?: System.currentTimeMillis(),
+            finishedAtMs = numberToLong(value["finished_at_ms"]),
+            steps = steps,
+            finalStateId = textValue(value["final_state_id"]).takeIf(String::isNotEmpty),
+            diagnostics = diagnostics,
+        )
+    }
+
+    private fun saveRunLocked(context: Context, record: CanonicalRunLogRecord) {
         val file = runFile(context, record.runId)
         val tmp = File(file.parentFile, "${file.name}.tmp")
         runCatching {
@@ -862,6 +1069,29 @@ object InternalRunLogStore {
         return File(context.applicationContext.filesDir, STORAGE_DIR_NAME).apply {
             if (!exists()) mkdirs()
         }
+    }
+
+    private fun statesDir(context: Context): File =
+        File(storageDir(context), "states").apply { mkdirs() }
+
+    private fun stateFile(context: Context, stateId: String): File =
+        File(statesDir(context), "${sha256(stateId).take(16)}_${safeFilePart(stateId)}.json")
+
+    private fun stateXmlFile(context: Context, stateId: String): File =
+        File(statesDir(context), "${sha256(stateId).take(16)}_${safeFilePart(stateId)}.xml")
+
+    private fun pruneStatesLocked(context: Context, preserveStateId: String) {
+        val preserved = stateFile(context, preserveStateId)
+        statesDir(context)
+            .listFiles { file -> file.isFile && file.extension == "json" }
+            .orEmpty()
+            .sortedByDescending(File::lastModified)
+            .filter { it != preserved }
+            .drop((MAX_STATE_COUNT - 1).coerceAtLeast(0))
+            .forEach { file ->
+                File(file.parentFile, "${file.nameWithoutExtension}.xml").delete()
+                file.delete()
+            }
     }
 
     private fun runFile(context: Context, runId: String): File {
@@ -967,9 +1197,9 @@ object InternalRunLogStore {
     }
 
     private fun applyRunEventsLocked(
-        base: InternalRunLogRecord,
+        base: CanonicalRunLogRecord,
         events: List<Map<String, Any?>>
-    ): InternalRunLogRecord {
+    ): CanonicalRunLogRecord {
         var record = base
         var maxEventSeq = base.eventSeq
         for (event in events) {
@@ -979,89 +1209,84 @@ object InternalRunLogStore {
             record = when (event["event_type"]?.toString()) {
                 "run_started" -> record.copy(
                     goal = textValue(payload["goal"]).ifBlank { record.goal },
-                    source = textValue(payload["source"]).ifBlank { record.source },
-                    toolName = textValue(payload["tool_name"]).ifBlank { record.toolName },
-                    operationDescription = textValue(payload["operation_description"])
-                        .ifBlank { record.operationDescription },
+                    status = "running",
+                    success = false,
+                    error = null,
                     startedAtMs = numberToLong(payload["started_at_ms"]) ?: record.startedAtMs,
                     finishedAtMs = null,
-                    success = null,
-                    doneReason = "",
-                    errorMessage = ""
+                    finalStateId = null,
+                    diagnostics = sanitizeMap(
+                        (record.diagnostics - "done_reason") + linkedMapOf(
+                            "source" to textValue(payload["source"]).ifBlank { record.source },
+                            "tool_name" to textValue(payload["tool_name"])
+                                .ifBlank { record.toolName },
+                            "description" to textValue(payload["operation_description"])
+                                .ifBlank { record.operationDescription },
+                        ),
+                    ),
                 )
-                "card_appended" -> record.copy(
-                    cards = record.cards + sanitizeMap(stringMap(payload["card"]))
+                "step_appended" -> record.copy(
+                    steps = record.steps + sanitizeMap(stringMap(payload["step"]))
                 )
-                "cards_appended" -> record.copy(
-                    cards = record.cards + listOfMaps(payload["cards"]).map(::sanitizeMap)
+                "steps_appended" -> record.copy(
+                    steps = record.steps + listOfMaps(payload["steps"]).map(::sanitizeMap)
                 )
-                "card_upserted" -> record.copy(
-                    cards = upsertCardList(
-                        cards = record.cards,
-                        cardId = textValue(payload["card_id"]),
-                        card = sanitizeMap(stringMap(payload["card"]))
+                "step_upserted" -> record.copy(
+                    steps = upsertStepList(
+                        steps = record.steps,
+                        step = sanitizeMap(stringMap(payload["step"]))
                     )
                 )
                 "run_finished" -> record.copy(
+                    status = when {
+                        textValue(payload["done_reason"]) == "cancelled" -> "cancelled"
+                        booleanValue(payload["success"]) == true -> "succeeded"
+                        else -> "failed"
+                    },
+                    success = booleanValue(payload["success"]) ?: false,
+                    error = textValue(payload["error_message"]).takeIf(String::isNotEmpty),
                     finishedAtMs = numberToLong(payload["finished_at_ms"]),
-                    success = booleanValue(payload["success"]),
-                    doneReason = textValue(payload["done_reason"]),
-                    errorMessage = textValue(payload["error_message"])
+                    finalStateId = textValue(payload["final_state_id"]).takeIf(String::isNotEmpty),
+                    diagnostics = sanitizeMap(
+                        record.diagnostics + mapOf(
+                            "done_reason" to textValue(payload["done_reason"]),
+                        ),
+                    ),
                 )
                 "diagnostics_updated" -> record.copy(
                     diagnostics = sanitizeMap(
-                        record.diagnostics + stringMap(payload["diagnostics"])
-                    )
-                )
-                "registered_function_bound" -> record.copy(
-                    diagnostics = upsertRegisteredFunctionBinding(
-                        diagnostics = record.diagnostics,
-                        binding = stringMap(payload["binding"])
-                    )
+                        record.diagnostics + stringMap(payload["diagnostics"]),
+                    ),
                 )
                 else -> record
-            }.copy(eventSeq = eventSeq)
+            }.let { updated ->
+                updated.withEventSeq(eventSeq)
+            }
             maxEventSeq = eventSeq
         }
         return record
     }
 
-    private fun upsertCardList(
-        cards: List<Map<String, Any?>>,
-        cardId: String,
-        card: Map<String, Any?>
+    private fun upsertStepList(
+        steps: List<Map<String, Any?>>,
+        step: Map<String, Any?>
     ): List<Map<String, Any?>> {
-        if (cardId.isBlank()) {
-            return cards + card
-        }
-        val updatedCards = cards.toMutableList()
-        val replaceIndex = updatedCards.indexOfFirst { existing ->
-            existing["card_id"]?.toString()?.trim() == cardId
+        val stepIndex = numberToLong(step["step_index"])
+            ?: error("run_log_step_index_invalid")
+        val updatedSteps = steps.toMutableList()
+        val replaceIndex = updatedSteps.indexOfFirst { existing ->
+            numberToLong(existing["step_index"]) == stepIndex
         }
         if (replaceIndex >= 0) {
-            updatedCards[replaceIndex] = card
+            updatedSteps[replaceIndex] = step
         } else {
-            updatedCards += card
+            updatedSteps += step
         }
-        return updatedCards
+        return updatedSteps
     }
 
-    private fun shouldSaveSnapshotLocked(
-        context: Context,
-        runId: String,
-        card: Map<String, Any?>
-    ): Boolean {
-        val status = textValue(card["status"]).ifBlank {
-            textValue(stringMap(card["header"])["status"])
-        }.lowercase(Locale.US)
-        if (status.isNotEmpty() && status != "running") {
-            return true
-        }
-        val now = System.currentTimeMillis()
-        val lastWrite = lastSnapshotWriteMsByRun[runId]
-            ?: runFile(context, runId).lastModified()
-        return now - lastWrite >= SNAPSHOT_MIN_INTERVAL_MS
-    }
+    private fun CanonicalRunLogRecord.withEventSeq(eventSeq: Long): CanonicalRunLogRecord =
+        copy(diagnostics = sanitizeMap(diagnostics + mapOf("event_seq" to eventSeq)))
 
     private fun safeFilePart(value: String): String {
         return value.replace(Regex("[^A-Za-z0-9._-]"), "_")
@@ -1118,7 +1343,7 @@ object InternalRunLogStore {
         }
     }
 
-    private fun sanitizeMap(value: Map<String, Any?>): Map<String, Any?> {
+    internal fun sanitizeMap(value: Map<String, Any?>): Map<String, Any?> {
         return linkedMapOf<String, Any?>().apply {
             value.forEach { (key, item) ->
                 put(key, sanitizeValue(item))
@@ -1129,6 +1354,8 @@ object InternalRunLogStore {
     private fun sanitizeValue(value: Any?): Any? {
         return when (value) {
             null -> null
+            is Double -> if (value.isFinite() && value % 1.0 == 0.0) value.toLong() else value
+            is Float -> if (value.isFinite() && value % 1f == 0f) value.toLong() else value
             is String, is Number, is Boolean -> value
             is Map<*, *> -> linkedMapOf<String, Any?>().apply {
                 value.forEach { (key, item) ->
@@ -1142,8 +1369,4 @@ object InternalRunLogStore {
         }
     }
 
-    private fun formatTime(ms: Long): String {
-        val formatter = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSSZ", Locale.US)
-        return formatter.format(Date(ms))
-    }
 }

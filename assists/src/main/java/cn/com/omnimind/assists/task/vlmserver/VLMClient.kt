@@ -83,7 +83,7 @@ class VLMClient(
 
         OmniLog.i(
             TAG,
-            "buildUIOperationRequest scene=$model historyRounds=${conversationState.roundCount()} historyMessages=${historyMessages.size} totalMessages=${messages.size} currentImages=$imageCount visualPolicy=screenshot+compact_indexed_evidence marked=${includeMarkedScreenshot && !markedScreenshot.isNullOrBlank()} retry=${retryState?.retryIndex ?: 0} tools=${tools.size}/$defaultToolCount recalledTools=${dynamicFunctionToolNames.size}"
+            "buildUIOperationRequest scene=$model historyRounds=${conversationState.roundCount()} historyMessages=${historyMessages.size} totalMessages=${messages.size} currentImages=$imageCount visualPolicy=screenshot+compact_page_state marked=${includeMarkedScreenshot && !markedScreenshot.isNullOrBlank()} retry=${retryState?.retryIndex ?: 0} tools=${tools.size}/$defaultToolCount recalledTools=${dynamicFunctionToolNames.size}"
         )
 
         return VLMRequestEnvelope(
@@ -259,20 +259,14 @@ class VLMClient(
 
     internal fun buildCompactHistoryUserMessage(currentUserText: String, executedStep: UIStep): String {
         val runtimeConfig = runtimeConfig()
-        val actionSummary = when (val action = executedStep.action) {
-            is ClickAction -> "click ${action.targetDescription} @(${action.x},${action.y})"
-            is InputTextAction -> "input_text ${action.targetDescription} @(${action.x},${action.y})"
-            is SwipeAction -> "swipe ${action.targetDescription} ${action.direction.orEmpty()} @(${action.x1},${action.y1})->(${action.x2},${action.y2})"
-            is LongPressAction -> "long_press ${action.targetDescription} @(${action.x},${action.y})"
-            is OpenAppAction -> "open_app ${action.packageName}"
-            is PressKeyAction -> "press_key ${action.key}"
-            is GetStateAction -> "get_state ${action.reason.take(runtimeConfig.maxHistoryActionChars)}"
-            is FunctionRunAction -> "${action.functionId} ${action.arguments.toString().take(runtimeConfig.maxHistoryActionChars)}"
-            is FinishedAction -> "finished"
-            is InfoAction -> "info"
-            is AbortAction -> "abort"
-            is WaitAction -> "wait"
-            is RecordAction -> "record"
+        val actionSummary = when (val command = executedStep.action) {
+            is Action -> "${command.tool} ${command.args}"
+            is Observe -> "get_state ${command.reason.take(runtimeConfig.maxHistoryActionChars)}"
+            is FunctionInvocation -> "${command.functionId} ${command.arguments.toString().take(runtimeConfig.maxHistoryActionChars)}"
+            is FinishedDecision -> "finished"
+            is InfoDecision -> "info"
+            is AbortDecision -> "abort"
+            is RecordMemory -> "record"
         }.take(runtimeConfig.maxHistoryActionChars)
         return buildString {
             append("Previous turn compact context. ")
@@ -305,18 +299,33 @@ class VLMClient(
         )
         val toolCalls = response.turn.message.toolCalls.orEmpty()
         if (toolCalls.isEmpty()) {
+            val error = buildMissingToolCallMessage(response.turn.finishReason, thinking)
             return VLMResult(
                 success = false,
                 step = null,
-                error = buildMissingToolCallMessage(response.turn.finishReason, thinking),
-                thinking = thinking
+                error = error,
+                thinking = thinking,
+                shouldRetryForToolCall = true,
+                toolCallFailure = VLMToolCallFailure(
+                    code = "missing_tool_call",
+                    message = error,
+                ),
             )
         }
         if (toolCalls.size > 1) {
+            val error = "主 VLM 每轮只能返回一个 tool_call，实际收到 ${toolCalls.size} 个"
             return VLMResult(
                 success = false,
                 step = null,
-                error = "主 VLM 每轮只能返回一个 tool_call，实际收到 ${toolCalls.size} 个"
+                error = error,
+                thinking = thinking,
+                shouldRetryForToolCall = true,
+                toolCallFailure = VLMToolCallFailure(
+                    code = "multiple_tool_calls",
+                    providedFields = toolCalls.map { it.function.name.trim() },
+                    safeArgumentsPreview = VLMToolDefinitions.safeToolCallSummary(toolCalls),
+                    message = error,
+                ),
             )
         }
 
@@ -363,12 +372,26 @@ class VLMClient(
                 thinking = thinking
             )
         } catch (e: Exception) {
+            val rawToolName = toolCall.function.name.trim()
+            val describedFailure = VLMToolDefinitions.describeInvalidToolCall(
+                toolCall = toolCall,
+                message = "",
+                requiredFieldsOverride = dynamicFunctionRequiredArguments[rawToolName],
+            )
+            val failureDetail = if (describedFailure.code == "invalid_arguments_json") {
+                "Invalid tool arguments JSON for ${rawToolName.ifBlank { "<missing>" }}: malformed JSON object"
+            } else {
+                VLMToolDefinitions.sanitizeToolCallFailureMessage(e.message.orEmpty())
+            }
+            val error = "Failed to parse native tool_call response: $failureDetail"
             VLMResult(
                 success = false,
                 step = null,
-                error = "Failed to parse native tool_call response: ${e.message}",
+                error = error,
                 thinking = thinking,
-                shouldRetryForToolCall = true
+                shouldRetryForToolCall = true,
+                previousToolCall = toolCall,
+                toolCallFailure = describedFailure.copy(message = error),
             )
         }
     }
@@ -401,18 +424,39 @@ class VLMClient(
         messages += historyMessages
         messages += buildCurrentUserMessage(currentUserText, screenshot, markedScreenshot)
 
-        if (retryState != null) {
+        retryState?.let { messages += buildRetryMessages(context, it) }
+        return messages
+    }
+
+    internal fun buildRetryMessages(
+        context: UIContext,
+        retryState: VLMToolCallRetryState,
+    ): List<ChatCompletionMessage> {
+        val messages = mutableListOf<ChatCompletionMessage>()
+        val previousToolCall = retryState.previousToolCall
+        if (previousToolCall != null) {
+            messages += ChatCompletionMessage(
+                role = "assistant",
+                content = buildRetryAssistantContent(retryState.thinking)?.let(::JsonPrimitive),
+                toolCalls = listOf(previousToolCall),
+            )
+            messages += ChatCompletionMessage(
+                role = "tool",
+                content = JsonPrimitive(buildRetryToolResult(retryState)),
+                toolCallId = previousToolCall.id,
+            )
+        } else {
             buildRetryAssistantContent(retryState.thinking)?.let { assistantContent ->
                 messages += ChatCompletionMessage(
                     role = "assistant",
                     content = JsonPrimitive(assistantContent)
                 )
             }
-            messages += ChatCompletionMessage(
-                role = "user",
-                content = JsonPrimitive(PromptTemplate.buildToolCallRetryPrompt(context, retryState))
-            )
         }
+        messages += ChatCompletionMessage(
+            role = "user",
+            content = JsonPrimitive(PromptTemplate.buildToolCallRetryPrompt(context, retryState))
+        )
         return messages
     }
 
@@ -443,7 +487,7 @@ class VLMClient(
                     add(
                         buildJsonObject {
                             put("type", JsonPrimitive("text"))
-                            put("text", JsonPrimitive("Marked screenshot with indexes matching OOB indexed page evidence."))
+                            put("text", JsonPrimitive("Screenshot with visible action targets highlighted."))
                         }
                     )
                     add(buildImageContent(markedScreenshot))
@@ -465,6 +509,27 @@ class VLMClient(
         }.joinToString(separator = "\n")
 
         return fallback.takeIf { it.isNotBlank() }
+    }
+
+    private fun buildRetryToolResult(retryState: VLMToolCallRetryState): String {
+        val failure = retryState.toolCallFailure
+        return buildJsonObject {
+            put("success", JsonPrimitive(false))
+            put("error", JsonPrimitive("tool_call_schema_validation_failed"))
+            retryState.failureReason?.takeIf(String::isNotBlank)?.let {
+                put("message", JsonPrimitive(it.take(1000)))
+            }
+            failure?.let {
+                put("tool_name", JsonPrimitive(it.toolName.orEmpty()))
+                put("required_fields", JsonArray(it.requiredFields.map(::JsonPrimitive)))
+                put("provided_fields", JsonArray(it.providedFields.map(::JsonPrimitive)))
+                put("missing_fields", JsonArray(it.missingFields.map(::JsonPrimitive)))
+                put(
+                    "argument_types",
+                    JsonObject(it.argumentTypes.mapValues { (_, type) -> JsonPrimitive(type) })
+                )
+            }
+        }.toString()
     }
 
     private fun buildThinkingContext(
@@ -521,7 +586,7 @@ class VLMClient(
         dynamicFunctionToolNames: Set<String>,
         dynamicFunctionToolMappings: Map<String, String>,
         dynamicFunctionRequiredArguments: Map<String, Set<String>>,
-    ): UIAction {
+    ): VLMCommand {
         val dynamicAction = functionActionFromDynamicToolCall(
             toolCall = toolCall,
             dynamicFunctionToolMappings = dynamicFunctionToolMappings,
@@ -534,7 +599,7 @@ class VLMClient(
     private fun parseToolCall(
         toolCall: AssistantToolCall,
         dynamicFunctionToolNames: Set<String>
-    ): UIAction {
+    ): VLMCommand {
         val rawToolName = toolCall.function.name.trim()
         if (rawToolName.isBlank()) {
             throw IllegalArgumentException("Missing tool_call function name")
@@ -551,62 +616,30 @@ class VLMClient(
         val toolName = rawToolName
         val args = VLMToolDefinitions.parseArguments(toolName, toolCall.function.arguments)
         return when (toolName) {
-            OobActionSchema.TOOL_CLICK -> ClickAction(
-                targetDescription = requireString(args, OobActionSchema.ARG_TARGET_DESCRIPTION),
-                x = requireFloat(args, OobActionSchema.ARG_X),
-                y = requireFloat(args, OobActionSchema.ARG_Y),
-                nodeId = optionalString(args, OobActionSchema.ARG_NODE_ID)
-            )
-            OobActionSchema.TOOL_INPUT_TEXT -> InputTextAction(
-                targetDescription = requireString(args, OobActionSchema.ARG_TARGET_DESCRIPTION),
-                text = requireString(args, OobActionSchema.ARG_TEXT),
-                x = requireFloat(args, OobActionSchema.ARG_X),
-                y = requireFloat(args, OobActionSchema.ARG_Y),
-                nodeId = optionalString(args, OobActionSchema.ARG_NODE_ID)
-            )
-            OobActionSchema.TOOL_SWIPE -> SwipeAction(
-                targetDescription = requireString(args, OobActionSchema.ARG_TARGET_DESCRIPTION),
-                x1 = requireFloat(args, OobActionSchema.ARG_X1),
-                y1 = requireFloat(args, OobActionSchema.ARG_Y1),
-                x2 = requireFloat(args, OobActionSchema.ARG_X2),
-                y2 = requireFloat(args, OobActionSchema.ARG_Y2),
-                durationMs = optionalLong(args, OobActionSchema.ARG_DURATION_MS) ?: 1500L,
-                scrollableIndex = optionalInt(args, OobActionSchema.ARG_SCROLLABLE_INDEX),
-                direction = optionalString(args, OobActionSchema.ARG_DIRECTION)?.lowercase()
-            )
-            OobActionSchema.TOOL_LONG_PRESS -> LongPressAction(
-                targetDescription = requireString(args, OobActionSchema.ARG_TARGET_DESCRIPTION),
-                x = requireFloat(args, OobActionSchema.ARG_X),
-                y = requireFloat(args, OobActionSchema.ARG_Y),
-                nodeId = optionalString(args, OobActionSchema.ARG_NODE_ID)
-            )
-            OobActionSchema.TOOL_OPEN_APP -> OpenAppAction(
-                packageName = requireString(args, OobActionSchema.ARG_PACKAGE_NAME)
-            )
-            OobActionSchema.TOOL_PRESS_KEY -> PressKeyAction(
-                key = requireString(args, OobActionSchema.ARG_KEY).lowercase()
-            )
-            OobActionSchema.TOOL_WAIT -> WaitAction(
-                timeS = optionalDouble(args, OobActionSchema.ARG_TIME_S),
-                durationMs = optionalLong(args, OobActionSchema.ARG_DURATION_MS)
-            )
-            OobActionSchema.TOOL_GET_STATE -> GetStateAction(
+            OobActionSchema.TOOL_CLICK,
+            OobActionSchema.TOOL_INPUT_TEXT,
+            OobActionSchema.TOOL_SWIPE,
+            OobActionSchema.TOOL_LONG_PRESS,
+            OobActionSchema.TOOL_OPEN_APP,
+            OobActionSchema.TOOL_PRESS_KEY,
+            OobActionSchema.TOOL_WAIT -> Action(tool = toolName, args = args)
+            OobActionSchema.TOOL_GET_STATE -> Observe(
                 reason = optionalString(args, OobActionSchema.ARG_REASON).orEmpty()
             )
             OobActionSchema.TOOL_CALL_TOOL -> throw IllegalArgumentException(INTERNAL_CALL_TOOL_ERROR)
-            OobActionSchema.TOOL_FINISHED -> FinishedAction(
+            OobActionSchema.TOOL_FINISHED -> FinishedDecision(
                 content = optionalString(args, OobActionSchema.ARG_CONTENT).orEmpty()
             )
-            OobActionSchema.TOOL_INFO -> InfoAction(
+            OobActionSchema.TOOL_INFO -> InfoDecision(
                 value = requireString(args, OobActionSchema.ARG_VALUE)
             )
-            OobActionSchema.TOOL_FEEDBACK -> AbortAction(
+            OobActionSchema.TOOL_FEEDBACK -> AbortDecision(
                 value = optionalString(args, OobActionSchema.ARG_VALUE).orEmpty()
             )
-            OobActionSchema.TOOL_ABORT -> AbortAction(
+            OobActionSchema.TOOL_ABORT -> AbortDecision(
                 value = optionalString(args, OobActionSchema.ARG_VALUE).orEmpty()
             )
-            OobActionSchema.TOOL_REQUIRE_USER_CHOICE -> InfoAction(
+            OobActionSchema.TOOL_REQUIRE_USER_CHOICE -> InfoDecision(
                 value = buildString {
                     val prompt = optionalString(args, OobActionSchema.ARG_PROMPT).orEmpty()
                     val options = (args[OobActionSchema.ARG_OPTIONS] as? JsonArray)
@@ -616,7 +649,7 @@ class VLMClient(
                     if (options.isNotEmpty()) append("\n可选项：${options.joinToString(" / ")}")
                 }
             )
-            OobActionSchema.TOOL_REQUIRE_USER_CONFIRMATION -> InfoAction(
+            OobActionSchema.TOOL_REQUIRE_USER_CONFIRMATION -> InfoDecision(
                 value = optionalString(args, OobActionSchema.ARG_PROMPT).orEmpty()
             )
             else -> throw IllegalArgumentException("Unsupported canonical action: $toolName")
@@ -627,7 +660,7 @@ class VLMClient(
         toolCall: AssistantToolCall,
         dynamicFunctionToolMappings: Map<String, String>,
         dynamicFunctionRequiredArguments: Map<String, Set<String>>,
-    ): FunctionRunAction? {
+    ): FunctionInvocation? {
         val rawToolName = toolCall.function.name.trim()
         val functionId = dynamicFunctionToolMappings[rawToolName] ?: return null
         val arguments = parseDynamicFunctionArguments(rawToolName, toolCall.function.arguments)
@@ -636,9 +669,8 @@ class VLMClient(
                 throw IllegalArgumentException("Recalled workflow $rawToolName missing required argument: $field")
             }
         }
-        return FunctionRunAction(
+        return FunctionInvocation(
             functionId = functionId,
-            toolName = rawToolName,
             arguments = arguments,
         )
     }
@@ -649,12 +681,15 @@ class VLMClient(
             rawArguments = rawArguments,
             allowEmpty = true,
         )
-        return JsonObject(parsed.filterKeys { key ->
-            !key.equals("tool_title", ignoreCase = true) &&
-                !key.equals("toolTitle", ignoreCase = true) &&
-                !key.equals("function_id", ignoreCase = true) &&
-                !key.equals("functionId", ignoreCase = true)
-        })
+        val reserved = parsed.keys.firstOrNull { key ->
+            key.equals("tool_title", ignoreCase = true) ||
+                key.equals("toolTitle", ignoreCase = true) ||
+                key == "function_id"
+        }
+        require(reserved == null) {
+            "Recalled workflow $toolName has reserved argument: $reserved"
+        }
+        return parsed
     }
 
     private fun isInternalRuntimeToolName(name: String): Boolean {

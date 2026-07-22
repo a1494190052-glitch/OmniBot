@@ -6,7 +6,10 @@ import cn.com.omnimind.baselib.llm.ChatCompletionTurn
 import cn.com.omnimind.baselib.llm.ModelSceneRegistry
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.Transient
 import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
@@ -15,155 +18,159 @@ import okhttp3.sse.EventSource
 
 const val ACTION_FAILURE_PREFIX = "执行失败"
 
-// ==================== UI操作动作 ====================
-
 @Serializable
-sealed class UIAction {
+sealed class VLMCommand {
     abstract val name: String
 }
 
 @Serializable
-@SerialName("click")
-data class ClickAction(
-    override val name: String = "click",
-    @SerialName("target_description")
-    val targetDescription: String,
-    var x: Float,
-    var y: Float,
-    @SerialName("node_id")
-    val nodeId: String? = null
-) : UIAction()
+@SerialName("action")
+data class Action(
+    val tool: String,
+    val args: JsonObject = buildJsonObject {},
+) : VLMCommand() {
+    override val name: String get() = tool
+}
 
 @Serializable
-@SerialName("input_text")
-data class InputTextAction(
-    override val name: String = "input_text",
-    @SerialName("target_description")
-    val targetDescription: String,
-    val text: String,
-    var x: Float,
-    var y: Float,
-    @SerialName("node_id")
-    val nodeId: String? = null
-) : UIAction()
+@SerialName("observe")
+data class Observe(
+    val reason: String = "",
+) : VLMCommand() {
+    override val name: String = "get_state"
+}
 
 @Serializable
-@SerialName("swipe")
-data class SwipeAction(
-    override val name: String = "swipe",
-    @SerialName("target_description")
-    val targetDescription: String,
-    var x1: Float,  // 起始点x
-    var y1: Float,  // 起始点y
-    var x2: Float,  // 结束点x
-    var y2: Float,  // 结束点y
-    @SerialName("duration_ms")
-    val durationMs: Long = 1500L,
-    @SerialName("scrollable_index")
-    val scrollableIndex: Int? = null,
-    val direction: String? = null
-) : UIAction()
-
-@Serializable
-@SerialName("long_press")
-data class LongPressAction(
-    override val name: String = "long_press",
-    @SerialName("target_description")
-    val targetDescription: String,
-    var x: Float,
-    var y: Float,
-    @SerialName("node_id")
-    val nodeId: String? = null
-) : UIAction()
-
-@Serializable
-@SerialName("open_app")
-data class OpenAppAction(
-    override val name: String = "open_app",
-    @SerialName("package_name")
-    val packageName: String
-) : UIAction()
-
-@Serializable
-@SerialName("press_key")
-data class PressKeyAction(
-    override val name: String = "press_key",
-    val key: String
-) : UIAction()
-
-@Serializable
-@SerialName("wait")
-data class WaitAction(
-    override val name: String = "wait",
-    @SerialName("time_s")
-    val timeS: Double? = null,
-    @SerialName("duration_ms")
-    val durationMs: Long? = null
-) : UIAction()
-
-@Serializable
-@SerialName("get_state")
-data class GetStateAction(
-    override val name: String = "get_state",
-    val reason: String = ""
-) : UIAction()
-
-@Serializable
-@SerialName("call_tool")
-data class FunctionRunAction(
-    override val name: String = "call_tool",
+@SerialName("function_invocation")
+data class FunctionInvocation(
     @SerialName("function_id")
     val functionId: String,
-    @SerialName("tool_name")
-    val toolName: String? = null,
     val arguments: JsonObject = buildJsonObject {}
-) : UIAction()
+) : VLMCommand() {
+    override val name: String = "call_tool"
+}
 
 @Serializable
 @SerialName("record")
-data class RecordAction(
-    override val name: String = "record",
+data class RecordMemory(
     val content: String
-) : UIAction()
+) : VLMCommand() {
+    override val name: String = "record"
+}
+
+@Serializable
+sealed class AgentDecision : VLMCommand()
 
 @Serializable
 @SerialName("finished")
-data class FinishedAction(
-    override val name: String = "finished",
+data class FinishedDecision(
     val content: String = ""
-) : UIAction()
+) : AgentDecision() {
+    override val name: String = "finished"
+}
 
 @Serializable
 @SerialName("info")
-data class InfoAction(
-    override val name: String = "info",
+data class InfoDecision(
     val value: String
-) : UIAction()
+) : AgentDecision() {
+    override val name: String = "info"
+}
 
 @Serializable
 @SerialName("abort")
-data class AbortAction(
-    override val name: String = "abort",
+data class AbortDecision(
     val value: String = ""
-) : UIAction()
+) : AgentDecision() {
+    override val name: String = "abort"
+}
+
+fun actionOf(tool: String, args: Map<String, Any?> = emptyMap()): Action = Action(
+    tool = tool,
+    args = JsonObject(args.mapValues { (_, value) -> value.toJsonElement() }),
+)
+
+fun Action.toCanonicalMap(): Map<String, Any?> = linkedMapOf(
+    "tool" to tool,
+    "args" to args.toValueMap(),
+)
+
+fun Action.argsMap(): Map<String, Any?> = args.toValueMap()
+
+internal fun Action.stringArg(name: String): String =
+    args[name]?.let(JsonElement::toValue)?.toString()?.trim().orEmpty()
+
+internal fun Action.floatArg(name: String): Float =
+    args[name]?.let(JsonElement::toValue)?.toString()?.toFloatOrNull() ?: 0f
+
+internal fun Action.longArg(name: String, defaultValue: Long = 0L): Long =
+    args[name]?.let(JsonElement::toValue)?.toString()?.toDoubleOrNull()?.toLong() ?: defaultValue
+
+internal fun Action.withArgs(values: Map<String, Any?>): Action = actionOf(tool, values)
+
+private fun Any?.toJsonElement(): JsonElement = when (this) {
+    null -> JsonNull
+    is JsonElement -> this
+    is String -> JsonPrimitive(this)
+    is Boolean -> JsonPrimitive(this)
+    is Number -> JsonPrimitive(this)
+    is Map<*, *> -> JsonObject(entries.associate { (key, value) ->
+        require(key is String) { "canonical_action_arg_key_invalid" }
+        key to value.toJsonElement()
+    })
+    is Iterable<*> -> JsonArray(map { it.toJsonElement() })
+    is Array<*> -> JsonArray(map { it.toJsonElement() })
+    else -> error("canonical_action_arg_type_invalid:${this::class.java.simpleName}")
+}
+
+private fun JsonObject.toValueMap(): Map<String, Any?> =
+    entries.associateTo(linkedMapOf()) { (key, value) -> key to value.toValue() }
+
+private fun JsonElement.toValue(): Any? = when (this) {
+    JsonNull -> null
+    is JsonObject -> toValueMap()
+    is JsonArray -> map(JsonElement::toValue)
+    is JsonPrimitive -> when {
+        isString -> content
+        content == "true" -> true
+        content == "false" -> false
+        else -> content.toLongOrNull() ?: content.toDoubleOrNull() ?: content
+    }
+}
 
 // ==================== 步骤和上下文 ====================
+
+@Serializable
+data class StateDisplay(
+    val width: Int,
+    val height: Int,
+)
+
+@Serializable
+data class State(
+    @SerialName("state_id")
+    val stateId: String,
+    val xml: String? = null,
+    @SerialName("package_name")
+    val packageName: String? = null,
+    @SerialName("activity_name")
+    val activityName: String? = null,
+    val display: StateDisplay? = null,
+    @Transient
+    val screenshotBase64: String? = null,
+)
 
 @Serializable
 data class UIStep(
     val observation: String,
     val thought: String,
-    val action: UIAction,
+    val action: VLMCommand,
     val result: String? = null,
     val summary: String = "",  // 添加summary字段用于历史总结
-    @SerialName("observation_xml")
-    val observationXml: String? = null,
-    @SerialName("after_observation_xml")
-    val afterObservationXml: String? = null,
-    @SerialName("package_name")
-    val packageName: String? = null,
-    @SerialName("after_package_name")
-    val afterPackageName: String? = null,
+    @SerialName("before_state")
+    val beforeState: State? = null,
+    @SerialName("after_state")
+    val afterState: State? = null,
     @SerialName("action_result_data")
     val actionResultData: JsonElement? = null,
     @SerialName("started_at_ms")
@@ -175,7 +182,8 @@ data class UIStep(
     @SerialName("token_usage_attempts")
     val tokenUsageAttempts: List<VLMTokenUsage> = emptyList(),
     @SerialName("page_diagnostics")
-    val pageDiagnostics: Map<String, String> = emptyMap()
+    val pageDiagnostics: Map<String, String> = emptyMap(),
+    val failure: VLMFailureDiagnostics? = null
 )
 
 @Serializable
@@ -313,10 +321,38 @@ data class VLMThinkingContext(
     val finishReason: String? = null
 )
 
+@Serializable
+data class VLMToolCallFailure(
+    val code: String,
+    @SerialName("tool_name")
+    val toolName: String? = null,
+    @SerialName("required_fields")
+    val requiredFields: List<String> = emptyList(),
+    @SerialName("provided_fields")
+    val providedFields: List<String> = emptyList(),
+    @SerialName("argument_types")
+    val argumentTypes: Map<String, String> = emptyMap(),
+    @SerialName("missing_fields")
+    val missingFields: List<String> = emptyList(),
+    @SerialName("safe_arguments_preview")
+    val safeArgumentsPreview: String? = null,
+    val message: String
+)
+
+@Serializable
+data class VLMFailureDiagnostics(
+    val kind: String,
+    val message: String,
+    @SerialName("tool_call_failures")
+    val toolCallFailures: List<VLMToolCallFailure> = emptyList()
+)
+
 data class VLMToolCallRetryState(
     val retryIndex: Int,
     val thinking: VLMThinkingContext,
-    val failureReason: String? = null
+    val failureReason: String? = null,
+    val previousToolCall: AssistantToolCall? = null,
+    val toolCallFailure: VLMToolCallFailure? = null
 )
 
 data class VLMConversationRound(
@@ -395,6 +431,8 @@ data class OperationResult(
     val providerRunLogPath: String? = null,
     val canonicalRunLogPath: String? = null,
     val diagnostics: Map<String, String> = emptyMap(),
+    val beforeState: State? = null,
+    val afterState: State? = null,
 )
 
 @Serializable
@@ -403,7 +441,9 @@ data class VLMResult(
     val step: UIStep? = null,
     val error: String? = null,
     val thinking: VLMThinkingContext? = null,
-    val shouldRetryForToolCall: Boolean = false
+    val shouldRetryForToolCall: Boolean = false,
+    val previousToolCall: AssistantToolCall? = null,
+    val toolCallFailure: VLMToolCallFailure? = null
 )
 
 fun UIContext.budgetDiagnostics(): Map<String, String> = linkedMapOf(

@@ -33,7 +33,6 @@ class DebugGetStateReceiver : BroadcastReceiver() {
                         "include_indexed_context" to (intent?.getBooleanExtra("includeIndexedContext", true) ?: true),
                         "include_marked_screenshot" to (intent?.getBooleanExtra("includeMarkedScreenshot", false) ?: false),
                         "include_image_content" to (intent?.getBooleanExtra("includeImageContent", false) ?: false),
-                        "max_xml_chars" to (intent?.getIntExtra("maxXmlChars", 0) ?: 0),
                     )
                 )
             }.getOrElse { error ->

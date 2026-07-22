@@ -15,6 +15,28 @@ internal data class NormalizedAgentRunPayload(
 )
 
 internal object AgentRunRequestNormalizer {
+    fun buildCreateAgentTaskArguments(
+        taskId: String,
+        conversationId: Long,
+        request: Map<String, Any?>
+    ): Map<String, Any?> {
+        val normalizedPayload = normalize(request)
+        return linkedMapOf(
+            "taskId" to taskId,
+            "conversationId" to conversationId,
+            "conversationMode" to normalizeConversationMode(
+                request["conversationMode"]?.toString()
+            ),
+            "userMessage" to normalizedPayload.userMessage,
+            "userMessageCreatedAt" to (request["userMessageCreatedAt"] as? Number)?.toLong(),
+            "attachments" to normalizedPayload.attachments,
+            "terminalEnvironment" to normalizeMap(request["terminalEnvironment"]),
+            "modelOverride" to normalizeMap(request["modelOverride"]),
+            "toolProfile" to firstString(request["toolProfile"], request["tool_profile"]),
+            "allowedTools" to normalizeList(request["allowedTools"] ?: request["allowed_tools"]),
+        )
+    }
+
     fun normalize(request: Map<String, Any?>): NormalizedAgentRunPayload {
         val explicitUserMessage = request["userMessage"]?.toString().orEmpty()
         val explicitAttachments = normalizeListOfMaps(request["attachments"])
@@ -288,6 +310,19 @@ internal object AgentRunRequestNormalizer {
         } ?: emptyList()
     }
 
+    private fun normalizeList(value: Any?): List<Any?>? =
+        (value as? List<*>)?.map(::normalizeValue)
+
+    private fun firstString(vararg values: Any?): String? =
+        values.firstNotNullOfOrNull { value ->
+            value?.toString()?.trim()?.takeIf(String::isNotEmpty)
+        }
+
+    private fun normalizeConversationMode(rawMode: String?): String {
+        val normalized = rawMode?.trim()?.lowercase().orEmpty()
+        return normalized.ifEmpty { "normal" }
+    }
+
     private fun normalizeValue(value: Any?): Any? {
         return when (value) {
             is Map<*, *> -> normalizeMap(value)
@@ -310,18 +345,10 @@ class AgentRunService(
         }
         val taskId = request["taskId"]?.toString()?.trim()?.ifEmpty { null }
             ?: UUID.randomUUID().toString()
-        val normalizedPayload = AgentRunRequestNormalizer.normalize(request)
-        val arguments = linkedMapOf<String, Any?>(
-            "taskId" to taskId,
-            "conversationId" to conversationId,
-            "conversationMode" to normalizeConversationMode(
-                request["conversationMode"]?.toString()
-            ),
-            "userMessage" to normalizedPayload.userMessage,
-            "userMessageCreatedAt" to (request["userMessageCreatedAt"] as? Number)?.toLong(),
-            "attachments" to normalizedPayload.attachments,
-            "terminalEnvironment" to AgentRunRequestNormalizer.normalizeMap(request["terminalEnvironment"]),
-            "modelOverride" to AgentRunRequestNormalizer.normalizeMap(request["modelOverride"])
+        val arguments = AgentRunRequestNormalizer.buildCreateAgentTaskArguments(
+            taskId = taskId,
+            conversationId = conversationId,
+            request = request,
         )
         invokeManager("createAgentTask", arguments) {
             manager.createAgentTask(it, this)
@@ -400,8 +427,4 @@ class AgentRunService(
         }
     }
 
-    private fun normalizeConversationMode(rawMode: String?): String {
-        val normalized = rawMode?.trim()?.lowercase().orEmpty()
-        return if (normalized.isEmpty()) "normal" else normalized
-    }
 }

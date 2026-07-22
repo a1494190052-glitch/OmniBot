@@ -130,6 +130,9 @@ class AssistsCoreChannel {
                 "getInternalRunLogTimeline" -> {
                     assistsCoreManager!!.getInternalRunLogTimeline(call, result)
                 }
+                "getInternalRunLogState" -> {
+                    assistsCoreManager!!.getInternalRunLogState(call, result)
+                }
                 "convertInternalRunLogToFunction" -> {
                     assistsCoreManager!!.convertInternalRunLogToFunction(call, result)
                 }

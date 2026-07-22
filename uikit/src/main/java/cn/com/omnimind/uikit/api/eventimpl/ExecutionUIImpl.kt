@@ -25,14 +25,6 @@ class ExecutionUIImpl(
         taskType = ExecutingTaskType.VLM
         vlmTask = task
         uiTaskEvent.readyDoingTask("小万即将为您执行任务...")
-        
-        // 可取消的延迟：每100ms检查一次取消状态，共检查20次（2秒）
-        repeat(20) {
-             if (task.isCancellationRequested) {
-                throw kotlinx.coroutines.CancellationException("Task cancelled during pre-execution delay")
-             }
-            delay(100)
-        }
     }
 
     override suspend fun onStartVLMTask(isCompanionRunning: Boolean) {

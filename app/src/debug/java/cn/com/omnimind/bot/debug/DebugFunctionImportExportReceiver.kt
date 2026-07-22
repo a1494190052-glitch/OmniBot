@@ -55,23 +55,23 @@ class DebugFunctionImportExportReceiver : BroadcastReceiver() {
     }
 
     private fun importFunction(context: Context, intent: Intent): Map<String, Any?> {
-        val functionSpec = readFunctionSpec(context, intent)
-        if (functionSpec.isEmpty()) {
+        val function = readFunction(context, intent)
+        if (function.isEmpty()) {
             return linkedMapOf<String, Any?>(
                 "success" to false,
                 "error_code" to "OOB_FUNCTION_IMPORT_SPEC_EMPTY",
-                "error_message" to "functionPath or functionSpecBase64 must contain a Function JSON object",
+                "error_message" to "functionPath or functionBase64 must contain a Function JSON object",
                 "source" to "debug_oob_function_import_export_receiver",
             )
         }
 
         val service = FunctionService(context)
         val startedAtMs = System.currentTimeMillis()
-        val register = service.registerFunction(linkedMapOf("function_spec" to functionSpec))
+        val register = service.registerFunction(linkedMapOf("function" to function))
         val endedAtMs = System.currentTimeMillis()
         return linkedMapOf<String, Any?>(
             "success" to (register["success"] == true),
-            "function_id" to firstNonBlank(register["function_id"], functionSpec["function_id"], functionSpec["id"]),
+            "function_id" to firstNonBlank(register["function_id"], function["function_id"]),
             "source_path" to intent.firstStringExtra("functionPath", "function_path", "inputPath", "input_path"),
             "duration_ms" to (endedAtMs - startedAtMs).coerceAtLeast(0L),
             "register" to register,
@@ -114,10 +114,8 @@ class DebugFunctionImportExportReceiver : BroadcastReceiver() {
         )
     }
 
-    private fun readFunctionSpec(context: Context, intent: Intent): Map<String, Any?> {
-        val fromBase64 = intent.decodeJsonMapBase64Extra("functionSpecBase64")
-            ?: intent.decodeJsonMapBase64Extra("function_spec_base64")
-            ?: intent.decodeJsonMapBase64Extra("specBase64")
+    private fun readFunction(context: Context, intent: Intent): Map<String, Any?> {
+        val fromBase64 = intent.decodeJsonMapBase64Extra("functionBase64")
         if (!fromBase64.isNullOrEmpty()) return fromBase64
 
         val rawPath = intent.firstStringExtra("functionPath", "function_path", "inputPath", "input_path")

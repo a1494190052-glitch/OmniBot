@@ -1,56 +1,58 @@
 package cn.com.omnimind.bot.function
 
+import cn.com.omnimind.baselib.runlog.CanonicalActionConverter
+import cn.com.omnimind.baselib.runlog.OobActionSchema
+
 internal object FunctionActionEdits {
     fun apply(
         spec: MutableMap<String, Any?>,
         edits: List<Map<String, Any?>>,
     ): List<Map<String, Any?>> {
-        val target = actionList(spec) ?: return emptyList()
-        val actions = target.actions
+        val steps = FunctionJson.mutableJsonList(FunctionJson.listArg(spec["steps"]))
+        if (steps.isEmpty()) return emptyList()
         val changes = mutableListOf<Map<String, Any?>>()
         val deletes = linkedSetOf<Int>()
         edits.forEach { edit ->
             val index = FunctionJson.intArg(
                 edit["index"],
-                edit["action_index"],
-                edit["actionIndex"],
                 defaultValue = -1,
             )
-            if (index !in actions.indices) return@forEach
-            val current = FunctionJson.mutableJsonMap(FunctionJson.mapArg(actions[index]))
-            val tool = FunctionJson.firstNonBlank(current["tool"], current["type"], current["action"])
-            val expectedTool = FunctionJson.firstNonBlank(edit["expected_tool"], edit["expectedTool"])
+            if (index !in steps.indices) return@forEach
+            val currentStep = FunctionJson.mutableJsonMap(FunctionJson.mapArg(steps[index]))
+            val current = FunctionJson.mutableJsonMap(FunctionJson.mapArg(currentStep["action"]))
+            val tool = FunctionJson.firstNonBlank(current["tool"])
+            val expectedTool = FunctionJson.firstNonBlank(edit["expected_tool"])
             if (expectedTool.isNotBlank() && expectedTool != tool) return@forEach
             when (FunctionJson.firstNonBlank(edit["op"]).lowercase()) {
                 "delete" -> deletes += index
                 "replace_args" -> {
                     val argsPatch = FunctionJson.mapArg(edit["args"])
                     if (argsPatch.isEmpty()) return@forEach
-                    val sanitizedPatch = FunctionJson.mapArg(
-                        FunctionContract.sanitize(mapOf("args" to argsPatch))["args"],
-                    )
                     val oldArgs = FunctionJson.mapArg(current["args"])
-                        .ifEmpty { FunctionJson.mapArg(current["params"]) }
-                    val newArgs = linkedMapOf<String, Any?>().apply {
-                        putAll(oldArgs)
-                        putAll(sanitizedPatch)
-                    }
+                    val mergedArgs = oldArgs + argsPatch
+                    val canonical = CanonicalActionConverter.convert(
+                        tool = tool,
+                        args = mergedArgs,
+                        replayableOnly = true,
+                        persistedOnly = true,
+                    )
+                    val newArgs = FunctionJson.mapArg(canonical[OobActionSchema.ROOT_ARGS])
                     if (newArgs == oldArgs) return@forEach
                     current["args"] = newArgs
-                    current.remove("params")
-                    actions[index] = current
+                    currentStep["action"] = current
+                    steps[index] = currentStep
                     changes += change("replace_args", index, tool, edit["reason"])
                 }
             }
         }
-        if (deletes.size >= actions.size) return emptyList()
+        if (deletes.size >= steps.size || (deletes.isNotEmpty() && FunctionJson.listArg(spec["bindings"]).isNotEmpty())) {
+            return emptyList()
+        }
         deletes.sortedDescending().forEach { index ->
             val tool = FunctionJson.firstNonBlank(
-                FunctionJson.mapArg(actions[index])["tool"],
-                FunctionJson.mapArg(actions[index])["type"],
-                FunctionJson.mapArg(actions[index])["action"],
+                FunctionJson.mapArg(FunctionJson.mapArg(steps[index])["action"])["tool"],
             )
-            actions.removeAt(index)
+            steps.removeAt(index)
             changes += change(
                 "delete",
                 index,
@@ -61,23 +63,13 @@ internal object FunctionActionEdits {
                 }?.get("reason"),
             )
         }
-        target.write(actions)
-        return changes
-    }
-
-    private fun actionList(spec: MutableMap<String, Any?>): ActionList? {
-        val execution = FunctionJson.mutableJsonMap(FunctionJson.mapArg(spec["execution"]))
-        val executionSteps = FunctionJson.mutableJsonList(FunctionJson.listArg(execution["steps"]))
-        if (executionSteps.isNotEmpty()) {
-            return ActionList(executionSteps) { updated ->
-                execution["steps"] = updated
-                spec["execution"] = execution
-            }
+        steps.forEachIndexed { index, raw ->
+            val step = FunctionJson.mutableJsonMap(FunctionJson.mapArg(raw))
+            step["step_index"] = index
+            steps[index] = step
         }
-        val steps = FunctionJson.mutableJsonList(FunctionJson.listArg(spec["steps"]))
-        if (steps.isNotEmpty()) return ActionList(steps) { updated -> spec["steps"] = updated }
-        val actions = FunctionJson.mutableJsonList(FunctionJson.listArg(spec["actions"]))
-        return actions.takeIf { it.isNotEmpty() }?.let { ActionList(it) { updated -> spec["actions"] = updated } }
+        spec["steps"] = steps
+        return changes
     }
 
     private fun change(op: String, index: Int, tool: String, reason: Any?): Map<String, Any?> =
@@ -89,9 +81,4 @@ internal object FunctionActionEdits {
             "tool" to tool,
             "reason" to reason?.toString()?.trim()?.takeIf { it.isNotEmpty() },
         ).filterValues { it != null }
-
-    private data class ActionList(
-        val actions: MutableList<Any?>,
-        val write: (MutableList<Any?>) -> Unit,
-    )
 }

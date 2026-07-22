@@ -1,6 +1,7 @@
 package cn.com.omnimind.bot.omniflow
 
 import kotlinx.coroutines.runBlocking
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -13,6 +14,17 @@ import java.io.PipedOutputStream
 import java.util.concurrent.TimeUnit
 
 class OmniFlowPythonClientTest {
+    @Test
+    fun `embedded bridge command uses the versioned site packages`() {
+        val command = OmniFlowPythonClient.bridgeCommand(
+            "/workspace/.omnibot/runtime/omniflow/2026.07.19.1/site-packages"
+        )
+
+        assertTrue(command.contains("export PYTHONPATH='/workspace/.omnibot/runtime/omniflow/2026.07.19.1/site-packages'"))
+        assertTrue(command.contains("-m oob_omniflow_bridge"))
+        assertTrue(!command.contains("/workspace/.venv"))
+    }
+
     @Test
     fun `calls reuse one process until client closes`() = runBlocking {
         val process = FakeProcess(
@@ -35,8 +47,8 @@ class OmniFlowPythonClientTest {
         val first = client.call("health")
         val second = client.call("health")
 
-        assertEquals(1.0, first["call"])
-        assertEquals(2.0, second["call"])
+        assertEquals(1L, first["call"])
+        assertEquals(2L, second["call"])
         assertEquals(1, starts)
         assertEquals(false, process.destroyed)
 
@@ -48,6 +60,33 @@ class OmniFlowPythonClientTest {
         assertTrue(written[0].contains("\"op\":\"health\""))
         assertTrue(written[1].contains("\"op\":\"health\""))
         assertTrue(written[2].contains("\"op\":\"shutdown\""))
+    }
+
+    @Test
+    fun `integral bridge numbers stay integral in nested actions`() = runBlocking {
+        val process = FakeProcess(
+            stdout = listOf(
+                """{"id":"request-1","ok":true,"result":{"function":{"steps":[{"step_index":0,"action":{"tool":"wait","args":{"duration_ms":500}}}]}}}""",
+                """{"id":"request-2","ok":true,"result":{"stopped":true}}""",
+            ).joinToString("\n", postfix = "\n")
+        )
+        val requestIds = ArrayDeque(listOf("request-1", "request-2"))
+        val client = OmniFlowPythonClient(
+            processStarter = { _, _ -> process },
+            requestIdFactory = { requestIds.removeFirst() },
+        )
+
+        val result = client.call("compile")
+        val function = result["function"] as Map<*, *>
+        val step = (function["steps"] as List<*>).single() as Map<*, *>
+        val action = step["action"] as Map<*, *>
+        val args = action["args"] as Map<*, *>
+
+        assertEquals(0L, step["step_index"])
+        assertEquals(500L, args["duration_ms"])
+        assertFalse(step["step_index"] is Double)
+        assertFalse(args["duration_ms"] is Double)
+        client.close()
     }
 
     @Test

@@ -1,6 +1,6 @@
 package cn.com.omnimind.assists
 
-import cn.com.omnimind.baselib.runlog.InternalRunLogRecord
+import cn.com.omnimind.baselib.runlog.CanonicalRunLogRecord
 import cn.com.omnimind.baselib.runlog.OobActionSchema
 
 data class ManualRecordingRunLogRecoveryDecision(
@@ -27,12 +27,12 @@ object ManualRecordingRunLogRecovery {
         OobActionSchema.TOOL_WAIT,
     )
 
-    fun decisionFor(record: InternalRunLogRecord): ManualRecordingRunLogRecoveryDecision? {
+    fun decisionFor(record: CanonicalRunLogRecord): ManualRecordingRunLogRecoveryDecision? {
         if (record.source != HUMAN_TRAJECTORY_SOURCE || record.finishedAtMs != null) {
             return null
         }
-        val actionCards = record.cards.filter(::isManualReplayActionCard)
-        val success = actionCards.isNotEmpty()
+        val actionSteps = record.steps.filter(::isManualReplayActionStep)
+        val success = actionSteps.isNotEmpty()
         return ManualRecordingRunLogRecoveryDecision(
             success = success,
             doneReason = if (success) {
@@ -41,37 +41,26 @@ object ManualRecordingRunLogRecovery {
                 DONE_REASON_EMPTY_AFTER_RESTART
             },
             errorMessage = if (success) null else EMPTY_RECORDING_ERROR,
-            replayableActionCount = actionCards.size,
-            diagnostics = recoveredManualRecordingDiagnostics(record.cards)
+            replayableActionCount = actionSteps.size,
+            diagnostics = recoveredManualRecordingDiagnostics(record.steps)
         )
     }
 
-    fun isManualReplayActionCard(card: Map<String, Any?>): Boolean {
-        val compileKind = firstNonBlank(
-            card["recall_kind"],
-            card["recallKind"],
-            card["compile_kind"],
-            card["compileKind"]
-        ).lowercase()
-        val toolType = firstNonBlank(card["tool_type"], card["toolType"]).lowercase()
-        if (compileKind != "manual_recording" && toolType != "manual_recording") {
+    fun isManualReplayActionStep(step: Map<String, Any?>): Boolean {
+        val diagnostics = step["diagnostics"] as? Map<*, *>
+        val source = firstNonBlank(diagnostics?.get("source")).lowercase()
+        if (source !in setOf("human_trajectory", "human_takeover")) {
             return false
         }
-        val action = firstNonBlank(
-            card["action_type"],
-            card["tool_name"],
-            card["toolName"],
-            (card["header"] as? Map<*, *>)?.get("tool_name"),
-            (card["tool_call"] as? Map<*, *>)?.get("name"),
-            ((card["source_context"] as? Map<*, *>)?.get("action") as? Map<*, *>)?.get("tool")
-        ).lowercase()
+        val canonicalAction = step["action"] as? Map<*, *>
+        val action = firstNonBlank(canonicalAction?.get("tool")).lowercase()
         return action in replayableManualActions
     }
 
-    fun recoveredManualRecordingDiagnostics(cards: List<Map<String, Any?>>): Map<String, Any?> {
-        val actionCards = cards.filter(::isManualReplayActionCard)
-        val backends = actionCards.mapNotNull(::recordingBackend)
-        if (actionCards.isEmpty()) {
+    fun recoveredManualRecordingDiagnostics(steps: List<Map<String, Any?>>): Map<String, Any?> {
+        val actionSteps = steps.filter(::isManualReplayActionStep)
+        val backends = actionSteps.mapNotNull(::recordingBackend)
+        if (actionSteps.isEmpty()) {
             return linkedMapOf(
                 "manual_recording" to linkedMapOf(
                     "schema_version" to "oob.manual_recording.diagnostics.v1",
@@ -114,21 +103,15 @@ object ManualRecordingRunLogRecovery {
                 },
                 "guarantees_no_missing_clicks" to syntheticComplete,
                 "a11_replay_actions_enabled" to false,
-                "replayable_action_count" to actionCards.size,
+                "replayable_action_count" to actionSteps.size,
                 "recording_backend_counts" to backends.groupingBy { it }.eachCount()
             )
         )
     }
 
-    private fun recordingBackend(card: Map<String, Any?>): String? {
-        val params = card["params"] as? Map<*, *>
-        val eventContext = card["event_context"] as? Map<*, *>
-        val meta = (card["source_context"] as? Map<*, *>)?.get("_oob_meta") as? Map<*, *>
-        return firstNonBlank(
-            params?.get("recording_backend"),
-            eventContext?.get("recording_backend"),
-            meta?.get("recording_backend")
-        ).takeIf { it.isNotBlank() }
+    private fun recordingBackend(step: Map<String, Any?>): String? {
+        val diagnostics = step["diagnostics"] as? Map<*, *>
+        return firstNonBlank(diagnostics?.get("recording_backend")).takeIf { it.isNotBlank() }
     }
 
     private fun firstNonBlank(vararg values: Any?): String {

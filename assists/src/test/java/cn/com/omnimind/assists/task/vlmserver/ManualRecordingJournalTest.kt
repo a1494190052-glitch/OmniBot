@@ -10,7 +10,7 @@ class ManualRecordingJournalTest {
 
         assertEquals(1, journal.append(action("click", "点击搜索")))
         assertEquals(2, journal.append(action("swipe", "向上滑动")))
-        assertEquals(listOf("click", "swipe"), journal.snapshot().map { it.actionName })
+        assertEquals(listOf("click", "swipe"), journal.snapshot().map { it.action.tool })
     }
 
     @Test
@@ -26,10 +26,10 @@ class ManualRecordingJournalTest {
     }
 
     private fun action(name: String, summary: String) = ManualVlmRecordedAction(
-        actionName = name,
+        action = actionOf(name),
         title = summary,
-        params = emptyMap(),
-        packageName = null,
+        beforePackageName = null,
+        afterPackageName = null,
         beforeXml = null,
         afterXml = null,
         startedAtMs = 1L,

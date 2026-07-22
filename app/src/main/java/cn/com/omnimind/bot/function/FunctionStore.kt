@@ -1,8 +1,8 @@
 package cn.com.omnimind.bot.function
 
-import cn.com.omnimind.baselib.runlog.InternalRunLogRecord
 import cn.com.omnimind.baselib.util.OmniLog
 import com.google.gson.GsonBuilder
+import com.google.gson.ToNumberPolicy
 import java.io.File
 
 /**
@@ -15,6 +15,7 @@ class FunctionStore(private val workspaceRoot: File) {
     private val gson = GsonBuilder()
         .disableHtmlEscaping()
         .setPrettyPrinting()
+        .setObjectToNumberStrategy(ToNumberPolicy.LONG_OR_DOUBLE)
         .create()
 
     private val omniflowRootDir: File
@@ -23,49 +24,18 @@ class FunctionStore(private val workspaceRoot: File) {
     private val functionsDir: File
         get() = File(omniflowRootDir, "functions").apply { mkdirs() }
 
-    private val runLogsDir: File
-        get() = File(omniflowRootDir, "run_logs").apply { mkdirs() }
+    private val statsDir: File
+        get() = File(omniflowRootDir, "stats").apply { mkdirs() }
 
     fun register(spec: Map<String, Any?>): Map<String, Any?> {
-        val safeSpec = FunctionContract.sanitize(spec)
-        val functionId = FunctionSchema.functionId(safeSpec).takeIf { it.isNotEmpty() }
-            ?: return mapOf("success" to false, "errorMessage" to "function_id required")
-        val existing = get(functionId)
-        val sourceRunIds = (existing?.let(FunctionSchema::sourceRunIds).orEmpty() +
-            FunctionSchema.sourceRunIds(safeSpec)).distinct()
-        val now = System.currentTimeMillis().toString()
-        val existingRegistry = FunctionJson.mapArg(existing?.get("_oob_registry"))
-        val incomingRegistry = FunctionJson.mapArg(safeSpec["_oob_registry"])
-        val storedSpec = linkedMapOf<String, Any?>().apply {
-            putAll(safeSpec)
-            put("function_id", functionId)
-            putIfAbsent("name", functionId)
-            put(
-                "_oob_registry",
-                linkedMapOf<String, Any?>().apply {
-                    putAll(existingRegistry)
-                    putAll(incomingRegistry)
-                    put(
-                        "registered_at",
-                        existingRegistry["registered_at"]
-                            ?: incomingRegistry["registered_at"]
-                            ?: now
-                    )
-                    put("updated_at", now)
-                    put("runner", incomingRegistry["runner"] ?: existingRegistry["runner"] ?: RUNNER)
-                }
-            )
-            if (sourceRunIds.isNotEmpty()) {
-                put(
-                    "metadata",
-                    linkedMapOf<String, Any?>().apply {
-                        putAll(FunctionJson.mapArg(existing?.get("metadata")))
-                        putAll(FunctionJson.mapArg(safeSpec["metadata"]))
-                        put("source_run_ids", sourceRunIds)
-                    }
+        val storedSpec = runCatching { FunctionContract.canonical(spec) }
+            .getOrElse { error ->
+                return mapOf(
+                    "success" to false,
+                    "error_message" to (error.message ?: "invalid Function"),
                 )
             }
-        }
+        val functionId = FunctionSchema.functionId(storedSpec)
         val file = functionFile(functionId)
         val tmp = File(file.parentFile, "${file.name}.tmp")
         return runCatching {
@@ -74,11 +44,11 @@ class FunctionStore(private val workspaceRoot: File) {
                 file.writeText(gson.toJson(storedSpec))
                 tmp.delete()
             }
-            mapOf("success" to true, "function_id" to functionId, "path" to file.absolutePath)
+            mapOf("success" to true, "function_id" to functionId)
         }.onFailure {
             tmp.delete()
             OmniLog.w(TAG, "register function failed: $functionId, ${it.message}")
-        }.getOrElse { mapOf("success" to false, "errorMessage" to it.message) }
+        }.getOrElse { mapOf("success" to false, "error_message" to it.message) }
     }
 
     fun get(functionId: String): Map<String, Any?>? {
@@ -86,7 +56,8 @@ class FunctionStore(private val workspaceRoot: File) {
         if (!file.exists()) return null
         return runCatching {
             @Suppress("UNCHECKED_CAST")
-            gson.fromJson(file.readText(), Map::class.java) as? Map<String, Any?>
+            val value = gson.fromJson(file.readText(), Map::class.java) as? Map<String, Any?>
+            value?.let(FunctionContract::canonical)
         }.getOrNull()
     }
 
@@ -98,7 +69,8 @@ class FunctionStore(private val workspaceRoot: File) {
             ?.mapNotNull { file ->
                 runCatching {
                     @Suppress("UNCHECKED_CAST")
-                    gson.fromJson(file.readText(), Map::class.java) as? Map<String, Any?>
+                    val value = gson.fromJson(file.readText(), Map::class.java) as? Map<String, Any?>
+                    value?.let(FunctionContract::canonical)
                 }.getOrNull()
             }
             .orEmpty()
@@ -124,7 +96,6 @@ class FunctionStore(private val workspaceRoot: File) {
         return mapOf(
             "success" to true,
             "deleted_count" to deleted,
-            "path" to dir.absolutePath,
         )
     }
 
@@ -142,15 +113,18 @@ class FunctionStore(private val workspaceRoot: File) {
         if (normalized.isEmpty()) {
             return linkedMapOf("success" to false, "error_message" to "function_id is empty")
         }
-        val existing = get(normalized)
+        get(normalized)
             ?: return linkedMapOf(
                 "success" to false,
                 "function_id" to normalized,
                 "error_message" to "function not found"
             )
         val now = System.currentTimeMillis().toString()
-        val existingRegistry = FunctionJson.mapArg(existing["_oob_registry"])
-        val existingStats = FunctionJson.mapArg(existingRegistry["run_stats"])
+        val statsFile = statsFile(normalized)
+        val existingStats = runCatching {
+            @Suppress("UNCHECKED_CAST")
+            gson.fromJson(statsFile.readText(), Map::class.java) as? Map<String, Any?>
+        }.getOrNull().orEmpty()
         val runCount = intValue(existingStats["run_count"]) + 1
         val successCount = intValue(existingStats["success_count"]) + if (success) 1 else 0
         val failCount = intValue(existingStats["fail_count"]) + if (success) 0 else 1
@@ -170,19 +144,7 @@ class FunctionStore(private val workspaceRoot: File) {
             "last_success" to success,
             "last_run" to lastRun
         )
-        val updated = linkedMapOf<String, Any?>().apply {
-            putAll(existing)
-            put(
-                "_oob_registry",
-                linkedMapOf<String, Any?>().apply {
-                    putAll(existingRegistry)
-                    put("updated_at", now)
-                    put("runner", existingRegistry["runner"] ?: RUNNER)
-                    put("run_stats", runStats)
-                }
-            )
-        }
-        register(updated)
+        statsFile.writeText(gson.toJson(runStats))
         return linkedMapOf(
             "success" to true,
             "function_id" to normalized,
@@ -191,25 +153,18 @@ class FunctionStore(private val workspaceRoot: File) {
         )
     }
 
-    fun mirrorRunLog(record: InternalRunLogRecord) {
-        val safeId = record.runId.replace(Regex("[^A-Za-z0-9._-]"), "_").take(80)
-        val file = File(runLogsDir, "$safeId.json")
-        runCatching {
-            file.writeText(gson.toJson(record))
-        }.onFailure {
-            OmniLog.w(TAG, "mirror run log failed: ${record.runId}, ${it.message}")
-        }
-    }
-
     private fun functionFile(functionId: String): File {
         val safe = functionId.replace(Regex("[^A-Za-z0-9._-]"), "_").take(120)
         return File(functionsDir, "$safe.json")
     }
 
+    private fun statsFile(functionId: String): File {
+        val safe = functionId.replace(Regex("[^A-Za-z0-9._-]"), "_").take(120)
+        return File(statsDir, "$safe.json")
+    }
+
     companion object {
         private const val TAG = "FunctionStore"
-        private const val RUNNER = "oob_agent_reusable_function"
-
         private fun intValue(value: Any?): Int {
             return when (value) {
                 is Number -> value.toInt()

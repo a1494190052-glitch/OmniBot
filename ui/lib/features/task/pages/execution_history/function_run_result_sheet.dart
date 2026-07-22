@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -104,7 +105,7 @@ class FunctionRunResultInlinePanel extends StatelessWidget {
           const SizedBox(height: 10),
           FunctionRunStepList(
             steps: steps,
-            initiallyExpanded: stepsInitiallyExpanded,
+            initiallyExpanded: stepsInitiallyExpanded || result.failed,
           ),
         ],
         if (showRawJson) ...[
@@ -298,7 +299,7 @@ class _RunResultMetrics extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final status = result.terminalState['status']?.toString().trim() ?? '';
+    final status = result.executionStatus;
     final steps = result.stepResults;
     final stepCount = result.stepCount > 0 ? result.stepCount : steps.length;
     final successCount = result.successStepCount > 0
@@ -412,6 +413,7 @@ class _StepResultTile extends StatelessWidget {
     final skipped = step['skipped'] == true;
     final success = step['success'] != false;
     final modelFree = step['model_free'] == true;
+    final transfer = _stringMap(step['transfer']);
     final color = skipped
         ? palette.textTertiary
         : success
@@ -425,7 +427,6 @@ class _StepResultTile extends StatelessWidget {
     ]);
     final errorText = _firstNonBlank([
       step['error_message'],
-      step['errorMessage'],
       step['error'],
       step['reason'],
       step['fallback_reason'],
@@ -511,6 +512,10 @@ class _StepResultTile extends StatelessWidget {
                     ),
                   ),
                 ],
+                if (!success && transfer.isNotEmpty) ...[
+                  const SizedBox(height: 8),
+                  _TransferDiagnostics(transfer: transfer),
+                ],
               ],
             ),
           ),
@@ -532,6 +537,302 @@ class _StepResultTile extends StatelessWidget {
     );
   }
 }
+
+class _TransferDiagnostics extends StatelessWidget {
+  const _TransferDiagnostics({required this.transfer});
+
+  final Map<String, dynamic> transfer;
+
+  @override
+  Widget build(BuildContext context) {
+    final source = _stringMap(transfer['source']);
+    final target = _stringMap(transfer['target']);
+    final candidates = _mapList(transfer['candidates']).take(3).toList();
+    final sourceBounds = _numberList(source['bounds']);
+    return _ExpandableResultSection(
+      title: _text(
+        context,
+        '定位对比 · Top ${candidates.length}',
+        'Target matching · Top ${candidates.length}',
+      ),
+      initiallyExpanded: true,
+      copyValue: _prettyJson(transfer),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _TransferImage(
+            title: _text(context, '录制目标', 'Recorded target'),
+            page: source,
+            boxes: sourceBounds.length == 4
+                ? [
+                    _TransferBox(
+                      rank: 0,
+                      bounds: sourceBounds,
+                      color: const Color(0xFF2C7FEB),
+                    ),
+                  ]
+                : const [],
+          ),
+          const SizedBox(height: 10),
+          _TransferImage(
+            title: _text(context, '当前页面', 'Current page'),
+            page: target,
+            boxes: candidates
+                .asMap()
+                .entries
+                .map(
+                  (entry) => _TransferBox(
+                    rank: entry.key + 1,
+                    bounds: _numberList(entry.value['bounds']),
+                    color: _candidateColor(entry.key),
+                  ),
+                )
+                .where((item) => item.bounds.length == 4)
+                .toList(growable: false),
+          ),
+          if (candidates.isNotEmpty) ...[
+            const SizedBox(height: 10),
+            ...candidates.asMap().entries.map(
+              (entry) => _TransferCandidateRow(
+                rank: entry.key + 1,
+                candidate: entry.value,
+                color: _candidateColor(entry.key),
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _TransferImage extends StatelessWidget {
+  const _TransferImage({
+    required this.title,
+    required this.page,
+    required this.boxes,
+  });
+
+  final String title;
+  final Map<String, dynamic> page;
+  final List<_TransferBox> boxes;
+
+  @override
+  Widget build(BuildContext context) {
+    final palette = context.omniPalette;
+    final path = (page['screenshot_path'] ?? '').toString().trim();
+    final display = _stringMap(page['display']);
+    final width = _number(display['width']);
+    final height = _number(display['height']);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          title,
+          style: TextStyle(
+            fontSize: 12,
+            fontWeight: FontWeight.w700,
+            color: palette.textPrimary,
+          ),
+        ),
+        const SizedBox(height: 6),
+        if (path.isEmpty)
+          Text(
+            _text(context, '没有可用截图', 'Screenshot unavailable'),
+            style: TextStyle(fontSize: 11, color: palette.textTertiary),
+          )
+        else
+          Container(
+            height: 240,
+            width: double.infinity,
+            clipBehavior: Clip.antiAlias,
+            decoration: BoxDecoration(
+              color: Colors.black,
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: palette.borderSubtle),
+            ),
+            child: LayoutBuilder(
+              builder: (context, constraints) {
+                final imageRect = width > 0 && height > 0
+                    ? Alignment.center.inscribe(
+                        applyBoxFit(
+                          BoxFit.contain,
+                          Size(width, height),
+                          constraints.biggest,
+                        ).destination,
+                        Offset.zero & constraints.biggest,
+                      )
+                    : Offset.zero & constraints.biggest;
+                return Stack(
+                  fit: StackFit.expand,
+                  children: [
+                    Image.file(
+                      File(path),
+                      fit: BoxFit.contain,
+                      errorBuilder: (_, _, _) => Center(
+                        child: Text(
+                          _text(
+                            context,
+                            '截图文件不可用',
+                            'Screenshot file unavailable',
+                          ),
+                          style: TextStyle(
+                            fontSize: 11,
+                            color: palette.textTertiary,
+                          ),
+                        ),
+                      ),
+                    ),
+                    if (width > 0 && height > 0)
+                      ...boxes.map(
+                        (box) => _positionedTransferBox(
+                          box,
+                          imageRect: imageRect,
+                          displayWidth: width,
+                          displayHeight: height,
+                        ),
+                      ),
+                  ],
+                );
+              },
+            ),
+          ),
+      ],
+    );
+  }
+}
+
+class _TransferCandidateRow extends StatelessWidget {
+  const _TransferCandidateRow({
+    required this.rank,
+    required this.candidate,
+    required this.color,
+  });
+
+  final int rank;
+  final Map<String, dynamic> candidate;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    final palette = context.omniPalette;
+    final identity = _firstNonBlank([
+      candidate['text'],
+      candidate['content_desc'],
+      candidate['resource_id'],
+      candidate['class'],
+      _text(context, '无文本控件', 'Unlabeled control'),
+    ]);
+    final score = _number(candidate['score']);
+    final bounds = _numberList(candidate['bounds']);
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 6),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            width: 22,
+            height: 22,
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              color: color,
+              borderRadius: BorderRadius.circular(6),
+            ),
+            child: Text(
+              '$rank',
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 11,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              '$identity · score ${score.toStringAsFixed(2)}'
+              '${bounds.length == 4 ? ' · ${bounds.map((value) => value.round()).join(', ')}' : ''}',
+              style: TextStyle(
+                fontSize: 11,
+                height: 1.35,
+                color: palette.textSecondary,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _TransferBox {
+  const _TransferBox({
+    required this.rank,
+    required this.bounds,
+    required this.color,
+  });
+
+  final int rank;
+  final List<double> bounds;
+  final Color color;
+}
+
+Widget _positionedTransferBox(
+  _TransferBox box, {
+  required Rect imageRect,
+  required double displayWidth,
+  required double displayHeight,
+}) {
+  final left = (imageRect.left + box.bounds[0] / displayWidth * imageRect.width)
+      .clamp(imageRect.left, imageRect.right)
+      .toDouble();
+  final top = (imageRect.top + box.bounds[1] / displayHeight * imageRect.height)
+      .clamp(imageRect.top, imageRect.bottom)
+      .toDouble();
+  final right =
+      (imageRect.left + box.bounds[2] / displayWidth * imageRect.width)
+          .clamp(imageRect.left, imageRect.right)
+          .toDouble();
+  final bottom =
+      (imageRect.top + box.bounds[3] / displayHeight * imageRect.height)
+          .clamp(imageRect.top, imageRect.bottom)
+          .toDouble();
+  return Positioned(
+    left: left,
+    top: top,
+    width: (right - left).clamp(2.0, imageRect.width).toDouble(),
+    height: (bottom - top).clamp(2.0, imageRect.height).toDouble(),
+    child: IgnorePointer(
+      child: Container(
+        decoration: BoxDecoration(
+          border: Border.all(color: box.color, width: 2.5),
+          color: box.color.withValues(alpha: 0.08),
+        ),
+        alignment: Alignment.topLeft,
+        child: box.rank > 0
+            ? Container(
+                color: box.color,
+                padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+                child: Text(
+                  '${box.rank}',
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 10,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              )
+            : null,
+      ),
+    ),
+  );
+}
+
+Color _candidateColor(int index) => const [
+  Color(0xFFE53935),
+  Color(0xFFFF9800),
+  Color(0xFF7E57C2),
+][index.clamp(0, 2).toInt()];
 
 class _MetricPill extends StatelessWidget {
   const _MetricPill({required this.label, required this.value});
@@ -872,11 +1173,7 @@ String _resultErrorText(UtgManualRunResult result) {
   return _firstNonBlank([
     result.errorMessage,
     result.errorCode,
-    result.terminalState['error_message'],
-    result.terminalState['errorMessage'],
-    result.terminalState['error'],
     result.rawJson['error_message'],
-    result.rawJson['errorMessage'],
     result.rawJson['error'],
   ]);
 }
@@ -892,9 +1189,6 @@ List<MapEntry<String, String>> _runArtifactEntries(
   }
 
   add('run_id', _firstNonBlank([result.rawJson['run_id']]));
-  add('run_file', result.runFilePath);
-  add('run_index', result.runIndexPath);
-  add('run_store', result.runStorageDir);
   add(
     _text(context, '目标', 'goal'),
     _firstNonBlank([result.goal, result.rawJson['goal']]),
@@ -910,19 +1204,34 @@ String _firstNonBlank(Iterable<dynamic> values) {
   return '';
 }
 
+Map<String, dynamic> _stringMap(dynamic value) {
+  if (value is! Map) return const {};
+  return value.map((key, item) => MapEntry(key.toString(), item));
+}
+
+List<Map<String, dynamic>> _mapList(dynamic value) {
+  if (value is! List) return const [];
+  return value.whereType<Map>().map(_stringMap).toList(growable: false);
+}
+
+double _number(dynamic value) {
+  if (value is num) return value.toDouble();
+  return double.tryParse(value?.toString() ?? '') ?? 0;
+}
+
+List<double> _numberList(dynamic value) {
+  if (value is! List) return const [];
+  return value.map(_number).toList(growable: false);
+}
+
 dynamic _stripInternalTiming(dynamic value) {
   const blockedKeys = <String>{
     'duration_ms',
-    'durationMs',
     'started_at_ms',
-    'startedAtMs',
     'finished_at_ms',
-    'finishedAtMs',
     'phase_ms',
-    'phaseMs',
     'timing',
     'runner_duration_ms',
-    'runnerDurationMs',
   };
   if (value is Map<String, dynamic>) {
     return value.map((key, item) {

@@ -2,12 +2,13 @@ package cn.com.omnimind.assists
 
 import android.content.Context
 import cn.com.omnimind.baselib.runlog.InternalRunLogStore
+import cn.com.omnimind.baselib.runlog.RunLogStepRecord
 import cn.com.omnimind.baselib.util.OmniLog
+import cn.com.omnimind.assists.runlog.OmniFlowRecordStepExecutor
 import cn.com.omnimind.assists.task.vlmserver.ManualVlmRecordedAction
+import cn.com.omnimind.assists.task.vlmserver.ManualRunLogStepRecorder
 import cn.com.omnimind.assists.task.vlmserver.ManualVlmTraceRecorder
 import kotlinx.coroutines.CompletableDeferred
-import java.io.File
-import java.security.MessageDigest
 import java.util.UUID
 
 data class HumanTrajectoryLearningResult(
@@ -75,8 +76,6 @@ data class HumanTrajectoryLearningStatus(
  */
 object HumanTrajectoryLearningSession {
     private const val TAG = "HumanTrajectoryLearningSession"
-    private const val SOURCE_CONTEXT_MODE_COORDINATE_ONLY_NO_XML = "coordinate_only_no_xml"
-    private const val MANUAL_ACTION_ARTIFACT_DIR = "internal_run_logs/manual_action_artifacts"
 
     private data class ActiveSession(
         val context: Context,
@@ -147,6 +146,7 @@ object HumanTrajectoryLearningSession {
         context: Context,
         name: String,
         description: String,
+        recordStepExecutor: OmniFlowRecordStepExecutor,
         enableRawTouch: Boolean = false,
         enableDebugScreenshots: Boolean = false
     ): CompletableDeferred<HumanTrajectoryLearningResult> {
@@ -161,6 +161,15 @@ object HumanTrajectoryLearningSession {
             sessionLabel = "human_trajectory:$runId",
             enableRawTouch = enableRawTouch,
             enableDebugScreenshots = enableDebugScreenshots,
+            onActionRecorded = { index, action ->
+                persistAction(
+                    context = appContext,
+                    runId = runId,
+                    index = index,
+                    action = action,
+                    recordStepExecutor = recordStepExecutor,
+                )
+            },
         )
         synchronized(lock) {
             // Auto-cancel any stale session whose coroutine was cancelled without
@@ -302,12 +311,22 @@ object HumanTrajectoryLearningSession {
             }
     }
 
-    fun completeActive(): Boolean {
+    suspend fun completeActive(expectedRunId: String): Boolean {
         val completeStartedAtMs = System.currentTimeMillis()
         val session = synchronized(lock) {
-            activePaused = false
-            activeSession.also { activeSession = null }
-        } ?: return false
+            activeSession
+                ?.takeIf { it.runId == expectedRunId }
+                ?.also {
+                    activePaused = false
+                    activeSession = null
+                }
+        } ?: run {
+            OmniLog.w(
+                TAG,
+                "complete ignored for stale session expected=$expectedRunId active=${activeRunId().orEmpty()}"
+            )
+            return false
+        }
         var stopMs = 0L
         val trace = runCatching {
             val startedAtMs = System.currentTimeMillis()
@@ -339,30 +358,15 @@ object HumanTrajectoryLearningSession {
                 return true
             }
 
-        var buildCardsMs = 0L
-        var appendCardsMs = 0L
         var diagnosticsMs = 0L
         var finishRunMs = 0L
         val persisted = runCatching {
-            val buildStartedAtMs = System.currentTimeMillis()
-            val cards = trace.actions.mapIndexed { index, action ->
-                buildRunLogCard(session.context, session.runId, index + 1, action)
-            }
-            buildCardsMs = System.currentTimeMillis() - buildStartedAtMs
-            if (cards.isNotEmpty()) {
-                val appendStartedAtMs = System.currentTimeMillis()
-                cards.forEachIndexed { index, card ->
-                    val cardId = card["card_id"]?.toString()?.trim()
-                        ?.takeIf { it.isNotEmpty() }
-                        ?: "${session.runId}-human-${index + 1}"
-                    InternalRunLogStore.upsertCard(
-                        context = session.context,
-                        runId = session.runId,
-                        cardId = cardId,
-                        card = card
-                    )
-                }
-                appendCardsMs = System.currentTimeMillis() - appendStartedAtMs
+            val persistedCount = InternalRunLogStore.getRun(session.context, session.runId)
+                ?.steps
+                ?.size
+                ?: 0
+            require(persistedCount == trace.actionCount) {
+                "manual_recording_step_count_mismatch:${trace.actionCount}:$persistedCount"
             }
             if (trace.diagnostics.isNotEmpty()) {
                 val diagnosticsStartedAtMs = System.currentTimeMillis()
@@ -373,28 +377,37 @@ object HumanTrajectoryLearningSession {
                 )
                 diagnosticsMs = System.currentTimeMillis() - diagnosticsStartedAtMs
             }
-            cards.size
+            persistedCount
         }
         val hasActions = trace.actions.isNotEmpty()
-        val success = hasActions && persisted.isSuccess
+        val evidenceComplete = trace.actions.all(ManualVlmRecordedAction::evidenceComplete)
+        val success = hasActions && evidenceComplete && persisted.isSuccess
         val doneReason = when {
             persisted.isFailure -> "runlog_persist_failed"
+            !evidenceComplete -> "state_capture_incomplete"
             success -> "user_completed"
             else -> "empty_recording"
         }
         val errorMessage = when {
             persisted.isFailure -> "RunLog 保存失败：${persisted.exceptionOrNull()?.message.orEmpty()}"
+            !evidenceComplete -> "页面状态采集失败，本次轨迹已保存但不能安全重放"
             !hasActions -> "未记录到可复用的人类操作"
             else -> null
         }
         val finishStartedAtMs = System.currentTimeMillis()
+        val finalStateId = InternalRunLogStore.getRun(session.context, session.runId)
+            ?.steps
+            ?.lastOrNull()
+            ?.get("after_state_id")
+            ?.toString()
         runCatching {
             InternalRunLogStore.finishRun(
                 context = session.context,
                 runId = session.runId,
                 success = success,
                 doneReason = doneReason,
-                errorMessage = errorMessage
+                errorMessage = errorMessage,
+                finalStateId = finalStateId,
             )
         }.onFailure { error ->
             OmniLog.w(TAG, "finish human trajectory run failed: ${session.runId}, ${error.message}")
@@ -403,8 +416,6 @@ object HumanTrajectoryLearningSession {
         val persistenceTiming = linkedMapOf<String, Any?>(
             "schema_version" to "oob.manual_recording.persist_timing.v1",
             "stop_ms" to stopMs,
-            "build_cards_ms" to buildCardsMs,
-            "append_cards_ms" to appendCardsMs,
             "diagnostics_ms" to diagnosticsMs,
             "finish_run_ms" to finishRunMs,
             "total_ms" to (System.currentTimeMillis() - completeStartedAtMs).coerceAtLeast(0L)
@@ -446,27 +457,40 @@ object HumanTrajectoryLearningSession {
             OmniLog.d(
                 TAG,
                 "human trajectory learning completed: ${session.runId} actions=${trace.actionCount} " +
-                    "cards=${persisted.getOrNull()} stop_ms=$stopMs build_cards_ms=$buildCardsMs " +
-                    "append_cards_ms=$appendCardsMs diagnostics_ms=$diagnosticsMs finish_run_ms=$finishRunMs " +
+                    "steps=${persisted.getOrNull()} stop_ms=$stopMs diagnostics_ms=$diagnosticsMs " +
+                    "finish_run_ms=$finishRunMs " +
                     "total_ms=${System.currentTimeMillis() - completeStartedAtMs}"
             )
         } else {
             OmniLog.w(
                 TAG,
                 "human trajectory learning completed with failure: ${session.runId} actions=${trace.actionCount} " +
-                    "reason=$doneReason error=${errorMessage.orEmpty()} stop_ms=$stopMs build_cards_ms=$buildCardsMs " +
-                    "append_cards_ms=$appendCardsMs diagnostics_ms=$diagnosticsMs finish_run_ms=$finishRunMs " +
+                    "reason=$doneReason error=${errorMessage.orEmpty()} stop_ms=$stopMs " +
+                    "diagnostics_ms=$diagnosticsMs finish_run_ms=$finishRunMs " +
                     "total_ms=${System.currentTimeMillis() - completeStartedAtMs}"
             )
         }
         return true
     }
 
-    fun cancelActive(message: String = "人工轨迹学习已取消"): Boolean {
+    fun cancelActive(
+        expectedRunId: String,
+        message: String = "人工轨迹学习已取消"
+    ): Boolean {
         val session = synchronized(lock) {
-            activePaused = false
-            activeSession.also { activeSession = null }
-        } ?: return false
+            activeSession
+                ?.takeIf { it.runId == expectedRunId }
+                ?.also {
+                    activePaused = false
+                    activeSession = null
+                }
+        } ?: run {
+            OmniLog.w(
+                TAG,
+                "cancel ignored for stale session expected=$expectedRunId active=${activeRunId().orEmpty()}"
+            )
+            return false
+        }
         runCatching { session.recorder.stop() }
         InternalRunLogStore.finishRun(
             context = session.context,
@@ -490,234 +514,61 @@ object HumanTrajectoryLearningSession {
         return true
     }
 
-    private fun buildRunLogCard(
+    internal suspend fun buildRunLogStep(
         runId: String,
         index: Int,
-        action: ManualVlmRecordedAction
-    ): Map<String, Any?> = buildRunLogCard(
-        context = null,
-        runId = runId,
-        index = index,
-        action = action
-    )
-
-    private fun buildRunLogCard(
-        context: Context?,
-        runId: String,
-        index: Int,
-        action: ManualVlmRecordedAction
-    ): Map<String, Any?> {
-        val cardId = "$runId-human-$index"
-        val durationMs = (action.finishedAtMs - action.startedAtMs).coerceAtLeast(0L)
-        val beforeXmlArtifact = saveManualXmlArtifact(
-            context = context,
-            runId = runId,
-            cardId = cardId,
-            stage = "before",
-            xml = action.beforeXml
-        )
-        val afterXmlArtifact = saveManualXmlArtifact(
-            context = context,
-            runId = runId,
-            cardId = cardId,
-            stage = "after",
-            xml = action.afterXml
-        )
-        val sourceContext = sourceContextForAction(
-            action = action,
-            beforeXmlArtifact = beforeXmlArtifact,
-            afterXmlArtifact = afterXmlArtifact
-        )
-        return linkedMapOf(
-            "card_id" to cardId,
-            "tool_call_id" to cardId,
-            "header" to linkedMapOf<String, Any?>(
-                "step_index" to index,
-                "title" to action.title,
-                "tool_name" to action.actionName,
-                "status" to "success",
-                "success" to true,
-                "duration_ms" to durationMs
-            ),
-            "step_index" to index,
-            "title" to action.title,
-            "summary" to action.summary,
-            "tool_name" to action.actionName,
-            "toolName" to action.actionName,
-            "tool_type" to "manual_recording",
-            "toolType" to "manual_recording",
-            "status" to "success",
-            "action_type" to action.actionName,
-            "success" to true,
-            "duration_ms" to durationMs,
-            "started_at_ms" to action.startedAtMs,
-            "finished_at_ms" to action.finishedAtMs,
-            "package_name" to action.packageName,
-            "recall_kind" to "manual_recording",
-            "source" to "human_trajectory",
-            "event_context" to action.eventContext.takeIf { it.isNotEmpty() },
-            "source_context" to sourceContext.takeIf { it.isNotEmpty() },
-            "tool_call" to linkedMapOf(
-                "id" to cardId,
-                "name" to action.actionName,
-                "arguments" to action.params
-            ),
-            "params" to action.params,
-            "result" to linkedMapOf(
-                "message" to action.summary,
-                "summary" to action.summary,
-                "source" to "human_trajectory"
-            ),
-            "before" to linkedMapOf(
-                "observation_xml" to action.beforeXml.takeIf { beforeXmlArtifact == null },
-                "observation_xml_path" to beforeXmlArtifact?.path,
-                "observation_xml_relative_path" to beforeXmlArtifact?.relativePath,
-                "observation_xml_sha256" to beforeXmlArtifact?.sha256,
-                "observation_xml_chars" to beforeXmlArtifact?.chars,
-                "observation_xml_bytes" to beforeXmlArtifact?.bytes,
-                "xml_path" to beforeXmlArtifact?.path,
-                "screenshot" to action.beforeScreenshot?.asMap(),
-                "screenshot_path" to action.beforeScreenshot?.path,
-                "package_name" to action.packageName
-            ).filterValues { it != null },
-            "after" to linkedMapOf(
-                "observation_xml" to action.afterXml.takeIf { afterXmlArtifact == null },
-                "observation_xml_path" to afterXmlArtifact?.path,
-                "observation_xml_relative_path" to afterXmlArtifact?.relativePath,
-                "observation_xml_sha256" to afterXmlArtifact?.sha256,
-                "observation_xml_chars" to afterXmlArtifact?.chars,
-                "observation_xml_bytes" to afterXmlArtifact?.bytes,
-                "xml_path" to afterXmlArtifact?.path,
-                "screenshot" to action.afterScreenshot?.asMap(),
-                "screenshot_path" to action.afterScreenshot?.path,
-                "summary" to action.summary,
-                "package_name" to action.packageName
-            ).filterValues { it != null }
-        ).filterValues { it != null }
-    }
-
-    private fun sourceContextForAction(
         action: ManualVlmRecordedAction,
-        beforeXmlArtifact: ManualXmlArtifact? = null,
-        afterXmlArtifact: ManualXmlArtifact? = null
-    ): Map<String, Any?> {
-        val beforeXml = action.beforeXml?.takeIf { it.isNotBlank() }
-        val recordingBackend = action.params["recording_backend"]?.toString()
-            ?.takeIf { it.isNotBlank() }
-            ?: "unknown"
-        val actionMap = linkedMapOf<String, Any?>("tool" to action.actionName)
-        action.params.forEach { (key, value) ->
-            if (value != null) actionMap[key] = value
-        }
-        val dstCtx = linkedMapOf<String, Any?>(
-            "page" to action.afterXml?.takeIf { afterXmlArtifact == null && it.isNotBlank() },
-            "page_path" to afterXmlArtifact?.path,
-            "xml_path" to afterXmlArtifact?.path,
-            "page_sha256" to afterXmlArtifact?.sha256,
-            "page_chars" to afterXmlArtifact?.chars,
-            "page_bytes" to afterXmlArtifact?.bytes,
-            "screenshot" to action.afterScreenshot?.asMap(),
-            "screenshot_path" to action.afterScreenshot?.path,
-            "package_name" to action.packageName
-        ).filterValues { it != null && it.toString().isNotBlank() }
-        val coordinateOnlyWithoutXml = beforeXml.isNullOrBlank() && hasCoordinateEvidence(actionMap)
-        return linkedMapOf(
-            "src_ctx" to linkedMapOf(
-                "page" to beforeXml.takeIf { beforeXmlArtifact == null },
-                "page_path" to beforeXmlArtifact?.path,
-                "xml_path" to beforeXmlArtifact?.path,
-                "page_sha256" to beforeXmlArtifact?.sha256,
-                "page_chars" to beforeXmlArtifact?.chars,
-                "page_bytes" to beforeXmlArtifact?.bytes,
-                "screenshot" to action.beforeScreenshot?.asMap(),
-                "screenshot_path" to action.beforeScreenshot?.path,
-                "package_name" to action.packageName,
-                "require_unique_action_signature" to false
-            ).filterValues { it != null && it.toString().isNotBlank() },
-            "dst_ctx" to dstCtx.takeIf { it.isNotEmpty() },
-            "action" to actionMap,
-            "_oob_meta" to linkedMapOf(
-                "mode" to "manual_operation_recording",
-                "recording_backend" to recordingBackend,
-                "action_source" to recordingBackend,
-                "xml_artifact_mode" to "file_ref".takeIf {
-                    beforeXmlArtifact != null || afterXmlArtifact != null
-                },
-                "source_context_mode" to SOURCE_CONTEXT_MODE_COORDINATE_ONLY_NO_XML.takeIf {
-                    coordinateOnlyWithoutXml
-                },
-                "missing_source_xml" to true.takeIf { coordinateOnlyWithoutXml },
-                "event_context" to action.eventContext.takeIf { it.isNotEmpty() }
-            ).filterValues { it != null }
-        ).filterValues { it != null }
+        recordStepExecutor: OmniFlowRecordStepExecutor,
+    ): RunLogStepRecord {
+        val stepId = "$runId-human-$index"
+        return ManualRunLogStepRecorder.record(
+            index = index,
+            stepId = stepId,
+            action = action,
+            source = "human_trajectory",
+            executor = recordStepExecutor,
+        )
     }
 
-    private data class ManualXmlArtifact(
-        val path: String,
-        val relativePath: String,
-        val chars: Int,
-        val bytes: Long,
-        val sha256: String
-    )
-
-    private fun saveManualXmlArtifact(
-        context: Context?,
+    private suspend fun persistAction(
+        context: Context,
         runId: String,
-        cardId: String,
-        stage: String,
-        xml: String?
-    ): ManualXmlArtifact? {
-        val content = xml?.takeIf { it.isNotBlank() } ?: return null
-        val appContext = context?.applicationContext ?: context ?: return null
-        return runCatching {
-            val rootDir = File(appContext.filesDir, MANUAL_ACTION_ARTIFACT_DIR)
-            val actionDir = File(
-                File(rootDir, safeFilePart(runId)),
-                safeFilePart(cardId)
-            ).apply {
-                if (!exists()) mkdirs()
+        index: Int,
+        action: ManualVlmRecordedAction,
+        recordStepExecutor: OmniFlowRecordStepExecutor,
+    ) {
+        val stepId = "$runId-human-$index"
+        val staged = ManualRunLogStepRecorder.build(
+            index = index,
+            stepId = stepId,
+            action = action,
+            source = "human_trajectory",
+        )
+        InternalRunLogStore.upsertRecordedStep(
+            context = context,
+            runId = runId,
+            stepId = stepId,
+            record = staged,
+        )
+        runCatching { recordStepExecutor.recordStep(staged) }
+            .onSuccess { canonical ->
+                InternalRunLogStore.upsertRecordedStep(
+                    context = context,
+                    runId = runId,
+                    stepId = stepId,
+                    record = canonical,
+                )
             }
-            val file = File(actionDir, "${safeFilePart(stage)}.xml")
-            val tmp = File(actionDir, "${file.name}.tmp")
-            tmp.writeText(content)
-            if (!tmp.renameTo(file)) {
-                file.writeText(content)
-                tmp.delete()
+            .onFailure { error ->
+                InternalRunLogStore.updateDiagnostics(
+                    context = context,
+                    runId = runId,
+                    diagnostics = mapOf(
+                        "record_step_error" to error.message.orEmpty(),
+                        "record_step_error_index" to index,
+                    ),
+                )
             }
-            ManualXmlArtifact(
-                path = file.absolutePath,
-                relativePath = file.relativeToOrSelf(appContext.filesDir).path,
-                chars = content.length,
-                bytes = file.length(),
-                sha256 = sha256(content)
-            )
-        }.getOrElse { error ->
-            OmniLog.w(TAG, "save manual XML artifact failed: run=$runId card=$cardId stage=$stage ${error.message}")
-            null
-        }
-    }
-
-    private fun hasCoordinateEvidence(action: Map<String, Any?>): Boolean {
-        val hasPoint = action["x"].isPresent() && action["y"].isPresent()
-        val hasSwipe = action["x1"].isPresent() &&
-            action["y1"].isPresent() &&
-            action["x2"].isPresent() &&
-            action["y2"].isPresent()
-        return hasPoint || hasSwipe
-    }
-
-    private fun Any?.isPresent(): Boolean =
-        this != null && this.toString().trim().isNotEmpty()
-
-    private fun safeFilePart(value: String): String {
-        return value.replace(Regex("[^A-Za-z0-9._-]"), "_")
-            .take(96)
-            .ifBlank { "artifact" }
-    }
-
-    private fun sha256(value: String): String {
-        val digest = MessageDigest.getInstance("SHA-256").digest(value.toByteArray())
-        return digest.joinToString("") { "%02x".format(it) }
     }
 
 }

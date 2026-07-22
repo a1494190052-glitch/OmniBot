@@ -33,12 +33,9 @@ class FunctionSpec {
     FunctionEnhancementStatus? enhancementStatus,
     String? enhancementMessage,
     Map<String, dynamic>? enhancementReport,
-  }) : enhancementStatus =
-           enhancementStatus ?? _enhancementStatusFromFunctionJson(json),
-       enhancementMessage =
-           enhancementMessage ?? _enhancementMessageFromFunctionJson(json),
-       enhancementReport =
-           enhancementReport ?? _enhancementReportFromFunctionJson(json);
+  }) : enhancementStatus = enhancementStatus ?? FunctionEnhancementStatus.none,
+       enhancementMessage = enhancementMessage,
+       enhancementReport = enhancementReport;
 
   final Map<String, dynamic> json;
   final String agentPrompt;
@@ -75,78 +72,21 @@ class FunctionSpec {
   }
 
   int get stepCount {
-    final execution = _asStringKeyMap(json['execution']);
-    final steps = execution['steps'];
+    final steps = json['steps'];
     return steps is List ? steps.length : 0;
   }
 
   int get parameterCount {
-    final parameters = json['parameters'];
-    return parameters is List ? parameters.length : 0;
+    final inputSchema = _asStringKeyMap(json['input_schema']);
+    final properties = _asStringKeyMap(inputSchema['properties']);
+    return properties.length;
   }
 
   String get prettyJson => const JsonEncoder.withIndent('  ').convert(json);
 }
 
 String functionAgentPrompt(Map<String, dynamic> json) {
-  final metadata = _asStringKeyMap(json['metadata']);
-  return _firstNonBlank([
-    json['agent_prompt'],
-    json['display_prompt'],
-    metadata['agent_prompt'],
-    metadata['display_prompt'],
-  ]);
-}
-
-FunctionEnhancementStatus _enhancementStatusFromFunctionJson(
-  Map<String, dynamic> functionJson,
-) {
-  final report = _enhancementReportFromFunctionJson(functionJson);
-  final rawStatus = _firstNonBlank([
-    report?['status'],
-    _asStringKeyMap(functionJson['metadata'])['enhancement_status'],
-    functionJson['enhancement_status'],
-  ]).trim().toLowerCase();
-  switch (rawStatus) {
-    case 'enhanced':
-    case 'applied':
-      return FunctionEnhancementStatus.enhanced;
-    case 'partial':
-    case 'partially_enhanced':
-      return FunctionEnhancementStatus.partial;
-    case 'unchanged':
-    case 'checked':
-    case 'no_change':
-      return FunctionEnhancementStatus.unchanged;
-    case 'failed':
-    case 'error':
-      return FunctionEnhancementStatus.failed;
-    case 'enhancing':
-      return FunctionEnhancementStatus.enhancing;
-  }
-  return FunctionEnhancementStatus.none;
-}
-
-String? _enhancementMessageFromFunctionJson(Map<String, dynamic> functionJson) {
-  final report = _enhancementReportFromFunctionJson(functionJson);
-  final message = _firstNonBlank([
-    report?['message'],
-    _asStringKeyMap(functionJson['metadata'])['enhancement_message'],
-    functionJson['enhancement_message'],
-  ]);
-  return message.isEmpty ? null : message;
-}
-
-Map<String, dynamic>? _enhancementReportFromFunctionJson(
-  Map<String, dynamic> functionJson,
-) {
-  final metadata = _asStringKeyMap(functionJson['metadata']);
-  final report = _asStringKeyMap(
-    metadata['oob_enhancement'] ??
-        metadata['enhancement'] ??
-        functionJson['oob_enhancement'],
-  );
-  return report.isEmpty ? null : report;
+  return _firstNonBlank([json['description'], json['name']]);
 }
 
 Map<String, dynamic> _asStringKeyMap(dynamic value) {

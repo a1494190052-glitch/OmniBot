@@ -14,6 +14,8 @@ import cn.com.omnimind.baselib.runlog.OobActionSchema
 import cn.com.omnimind.baselib.runlog.InternalRunLogStore
 import cn.com.omnimind.baselib.util.OmniLog
 import cn.com.omnimind.bot.function.FunctionService
+import cn.com.omnimind.bot.manager.buildManualRecordingFinalizedPayload
+import cn.com.omnimind.bot.omniflow.omniFlowRecordStepExecutor
 import cn.com.omnimind.bot.util.AssistsUtil
 import com.google.gson.GsonBuilder
 import kotlinx.coroutines.CompletableDeferred
@@ -103,10 +105,12 @@ class DebugHumanRunRecordingReceiver : BroadcastReceiver() {
             context = context,
             name = name,
             description = description.ifBlank { name },
+            recordStepExecutor = omniFlowRecordStepExecutor(context),
             enableRawTouch = enableRawTouch,
             enableDebugScreenshots = enableDebugScreenshots
         )
         activeResult = result
+        activeRunId = HumanTrajectoryLearningSession.activeRunId().orEmpty()
         activeStartedAtMs = startedAtMs
         activeName = name
         activeDescription = description.ifBlank { name }
@@ -129,7 +133,9 @@ class DebugHumanRunRecordingReceiver : BroadcastReceiver() {
     private suspend fun finishRecording(context: Context): Map<String, Any?> {
         val result = activeResult
             ?: return errorPayload("NO_ACTIVE_RECORDING", "No active human recording session")
-        val completed = HumanTrajectoryLearningSession.completeActive()
+        val runId = activeRunId.takeIf { it.isNotBlank() }
+            ?: return errorPayload("NO_ACTIVE_RECORDING", "No active human recording session")
+        val completed = HumanTrajectoryLearningSession.completeActive(runId)
         if (!completed) {
             activeResult = null
             return errorPayload("NO_ACTIVE_RECORDING", "No active human recording session")
@@ -294,7 +300,11 @@ class DebugHumanRunRecordingReceiver : BroadcastReceiver() {
 
     private suspend fun cancelRecording(context: Context): Map<String, Any?> {
         val result = activeResult
-        val cancelled = HumanTrajectoryLearningSession.cancelActive("人工轨迹学习已取消")
+        val runId = activeRunId.takeIf { it.isNotBlank() }
+        val cancelled = runId != null && HumanTrajectoryLearningSession.cancelActive(
+            expectedRunId = runId,
+            message = "人工轨迹学习已取消"
+        )
         if (!cancelled || result == null) {
             activeResult = null
             return errorPayload("NO_ACTIVE_RECORDING", "No active human recording session")
@@ -344,7 +354,6 @@ class DebugHumanRunRecordingReceiver : BroadcastReceiver() {
             name = record.operationDescription,
             description = record.goal,
             actionCount = recovery.replayableActionCount,
-            summary = "Recovered unfinished human recording RunLog after app restart",
             diagnostics = diagnostics,
             errorMessage = recovery.errorMessage,
             runLog = runLog
@@ -360,9 +369,11 @@ class DebugHumanRunRecordingReceiver : BroadcastReceiver() {
             result.await()
         } ?: run {
             activeResult = null
+            activeRunId = ""
             return errorPayload("RESULT_TIMEOUT", "Timed out waiting for human recording result")
         }
         activeResult = null
+        activeRunId = ""
         activeStartedAtMs = 0L
         activeName = ""
         activeDescription = ""
@@ -375,7 +386,6 @@ class DebugHumanRunRecordingReceiver : BroadcastReceiver() {
             name = learningResult.name,
             description = learningResult.description,
             actionCount = learningResult.actionCount,
-            summary = learningResult.summary,
             diagnostics = learningResult.diagnostics,
             errorMessage = learningResult.errorMessage,
             runLog = runLog
@@ -390,7 +400,6 @@ class DebugHumanRunRecordingReceiver : BroadcastReceiver() {
         name: String,
         description: String,
         actionCount: Int,
-        summary: String,
         diagnostics: Map<String, Any?>,
         errorMessage: String?,
         runLog: Map<String, Any?>
@@ -405,37 +414,14 @@ class DebugHumanRunRecordingReceiver : BroadcastReceiver() {
         } else {
             null
         }
-        val conversionSuccess = conversion?.get("success") == true
-        return linkedMapOf<String, Any?>(
-            "success" to if (success) conversionSuccess else false,
-            "recording_success" to success,
-            "conversion_success" to conversionSuccess,
-            "function_registered" to (conversion?.get("registered") == true),
-            "agent_visible" to (conversion?.get("agent_visible") == true),
-            "phase" to phase,
-            "recording_active" to false,
-            "run_id" to runId,
-            "name" to name,
-            "description" to description,
-            "action_count" to actionCount,
-            "summary" to summary,
-            "diagnostics" to diagnostics.takeIf { it.isNotEmpty() },
-            "error_code" to if (!success) null else if (conversionSuccess) null else {
-                conversion?.get("error_code") ?: "HUMAN_TRAJECTORY_CONVERT_FAILED"
-            },
-            "error_message" to if (!success) errorMessage else if (conversionSuccess) null else {
-                conversion?.get("error_message") ?: "Recording finished but Function conversion failed"
-            },
-            "run_log" to runLog,
-            "function_id" to conversion?.get("function_id"),
-            "created_function_id" to conversion?.get("created_function_id"),
-            "function_spec" to conversion?.get("function_spec"),
-            "conversion" to conversion,
-            "function_kind" to "oob_reusable_function",
-            "asset_state" to "native_local",
-            "token_usage_total" to 0,
-            "source" to "oob_debug_human_run_recording"
-        ).filterValues { it != null }
+        return buildManualRecordingFinalizedPayload(
+            recordingSuccess = success,
+            phase = phase,
+            diagnostics = diagnostics,
+            recordingErrorMessage = errorMessage,
+            runLog = runLog,
+            conversion = conversion,
+        )
     }
 
     private suspend fun convertFinishedRunLog(
@@ -463,9 +449,6 @@ class DebugHumanRunRecordingReceiver : BroadcastReceiver() {
                 "error_type" to error.javaClass.name,
                 "error_cause_chain" to error.causeChain(),
                 "run_id" to runId,
-                "function_kind" to "oob_reusable_function",
-                "asset_state" to "native_local",
-                "source" to "oob_debug_human_run_recording"
             )
         }
 
@@ -545,7 +528,7 @@ class DebugHumanRunRecordingReceiver : BroadcastReceiver() {
     }
 
     private fun stringExtra(intent: Intent?, key: String): String? =
-        intent?.getStringExtra(key)?.trim()?.takeIf { it.isNotEmpty() }
+        (intent?.extras?.get(key) as? String)?.trim()?.takeIf { it.isNotEmpty() }
 
     private fun decodeBase64Extra(intent: Intent?, key: String): String? {
         val raw = stringExtra(intent, key) ?: return null
@@ -557,13 +540,25 @@ class DebugHumanRunRecordingReceiver : BroadcastReceiver() {
     }
 
     private fun floatExtra(intent: Intent?, key: String): Float? =
-        stringExtra(intent, key)?.toFloatOrNull()
+        when (val value = intent?.extras?.get(key)) {
+            is Number -> value.toFloat()
+            is String -> value.trim().toFloatOrNull()
+            else -> null
+        }
 
     private fun longExtra(intent: Intent?, key: String): Long? =
-        stringExtra(intent, key)?.toLongOrNull()
+        when (val value = intent?.extras?.get(key)) {
+            is Number -> value.toLong()
+            is String -> value.trim().toLongOrNull()
+            else -> null
+        }
 
     private fun intExtra(intent: Intent?, key: String): Int? =
-        stringExtra(intent, key)?.toIntOrNull()
+        when (val value = intent?.extras?.get(key)) {
+            is Number -> value.toInt()
+            is String -> value.trim().toIntOrNull()
+            else -> null
+        }
 
     private fun debugScreenshotsEnabled(intent: Intent?): Boolean {
         if (intent?.getBooleanExtra("disableDebugScreenshots", false) == true ||
@@ -620,6 +615,7 @@ class DebugHumanRunRecordingReceiver : BroadcastReceiver() {
         private val gson = GsonBuilder().disableHtmlEscaping().create()
         private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
         @Volatile private var activeResult: CompletableDeferred<HumanTrajectoryLearningResult>? = null
+        @Volatile private var activeRunId: String = ""
         @Volatile private var activeStartedAtMs: Long = 0L
         @Volatile private var activeName: String = ""
         @Volatile private var activeDescription: String = ""

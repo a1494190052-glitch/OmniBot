@@ -10,6 +10,7 @@ import cn.com.omnimind.accessibility.service.AssistsService
 import cn.com.omnimind.accessibility.service.AssistsServiceListener
 import cn.com.omnimind.assists.controller.accessibility.AccessibilityController
 import cn.com.omnimind.assists.task.vlmserver.ManualVlmTraceRecorder
+import cn.com.omnimind.assists.task.vlmserver.argsMap
 import cn.com.omnimind.baselib.util.OmniLog
 import cn.com.omnimind.bot.util.AssistsUtil
 import com.google.gson.GsonBuilder
@@ -52,7 +53,6 @@ class DebugManualTraceReceiver : BroadcastReceiver() {
                         "phase" to "exception",
                         "error_message" to error.message.orEmpty(),
                         "error_type" to error.javaClass.name,
-                        "token_usage_total" to 0,
                     )
                 }
                 val json = gson.toJson(result)
@@ -113,7 +113,6 @@ class DebugManualTraceReceiver : BroadcastReceiver() {
                 "debug_screenshots_enabled" to enableDebugScreenshots,
                 "action_count" to 0,
                 "actions" to emptyList<Map<String, Any?>>(),
-                "token_usage_total" to 0,
                 "timing" to timing.finish(),
                 "event_probe" to eventProbe.snapshot(),
                 "source" to "debug_manual_trace",
@@ -129,7 +128,7 @@ class DebugManualTraceReceiver : BroadcastReceiver() {
                 AssistsService.removeListener(eventProbe.listener)
             }
         }
-        val actionNames = traceResult.actions.map { it.actionName }
+        val actionNames = traceResult.actions.map { it.action.tool }
         val swipeCount = actionNames.count { it == "swipe" }
         return linkedMapOf<String, Any?>(
             "success" to traceResult.actions.isNotEmpty(),
@@ -144,10 +143,13 @@ class DebugManualTraceReceiver : BroadcastReceiver() {
             "diagnostics" to traceResult.diagnostics.takeIf { it.isNotEmpty() },
             "actions" to traceResult.actions.map { action ->
                 linkedMapOf<String, Any?>(
-                    "action_name" to action.actionName,
+                    "action" to linkedMapOf(
+                        "tool" to action.action.tool,
+                        "args" to action.action.argsMap(),
+                    ),
                     "title" to action.title,
-                    "params" to action.params,
-                    "package_name" to action.packageName,
+                    "before_package_name" to action.beforePackageName,
+                    "after_package_name" to action.afterPackageName,
                     "started_at_ms" to action.startedAtMs,
                     "finished_at_ms" to action.finishedAtMs,
                     "duration_ms" to (action.finishedAtMs - action.startedAtMs).coerceAtLeast(0L),
@@ -157,7 +159,6 @@ class DebugManualTraceReceiver : BroadcastReceiver() {
                     "summary" to action.summary,
                 ).filterValues { it != null }
             },
-            "token_usage_total" to 0,
             "timing" to timing.finish(
                 counts = mapOf(
                     "action_count" to traceResult.actionCount,

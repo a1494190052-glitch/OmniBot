@@ -91,18 +91,16 @@ class DebugFunctionSegmentReceiver : BroadcastReceiver() {
         val registerChild = timing.measure("register_child_ms") {
             managementService.registerFunction(
                 mapOf(
-                    "function_spec" to openSettingsChildSpec(
+                    "function" to openSettingsChildSpec(
                         functionId = childFunctionId,
                         packageName = packageName,
-                        sourcePageXml = beforeXml,
-                        sourcePackageName = beforePackage,
                     )
                 )
             )
         }
         val registerParent = timing.measure("register_parent_ms") {
             managementService.registerFunction(
-                mapOf("function_spec" to parentCallsChildSpec(parentFunctionId, childFunctionId))
+                mapOf("function" to parentCallsChildSpec(parentFunctionId, childFunctionId))
             )
         }
         val storedChild = timing.measure("load_child_ms") {
@@ -271,94 +269,62 @@ class DebugFunctionSegmentReceiver : BroadcastReceiver() {
     private fun openSettingsChildSpec(
         functionId: String,
         packageName: String,
-        sourcePageXml: String?,
-        sourcePackageName: String,
-    ): Map<String, Any?> =
-        reusableFunctionSpec(
-            functionId = functionId,
-            name = "Open Settings segment",
-            description = "Open Android Settings from the current UDEG-matched screen.",
-            steps = listOf(
-                linkedMapOf<String, Any?>(
-                    "id" to "open_settings",
-                    "index" to 0,
-                    "title" to "Open Settings",
-                    "kind" to "omniflow_action",
-                    "executor" to "omniflow",
-                    "omniflow_action" to "open_app",
-                    "local_action" to "open_app",
+    ): Map<String, Any?> = reusableFunction(
+        functionId = functionId,
+        name = "Open Settings segment",
+        description = "Open Android Settings.",
+        steps = listOf(
+            mapOf(
+                "step_index" to 0,
+                "state_id" to "debug_state_0",
+                "action" to mapOf(
                     "tool" to "open_app",
-                    "callable_tool" to "open_app",
-                    "model_free" to true,
-                    "scriptable" to true,
                     "args" to mapOf("package_name" to packageName),
-                    "source_context" to sourcePageXml?.trim()?.takeIf { it.isNotEmpty() }?.let { xml ->
-                        mapOf(
-                            "src_ctx" to mapOf(
-                                "page" to xml,
-                                "package_name" to sourcePackageName,
-                            )
-                        )
-                    },
-                ).filterValues { it != null }
-            ),
-        )
+                ),
+            )
+        ),
+    )
 
     private fun parentCallsChildSpec(parentFunctionId: String, childFunctionId: String): Map<String, Any?> =
-        reusableFunctionSpec(
+        reusableFunction(
             functionId = parentFunctionId,
             name = "Call open Settings segment",
             description = "Parent Function that loads and calls the reusable open Settings segment.",
             steps = listOf(
                 mapOf(
-                    "id" to "call_open_settings_segment",
-                    "index" to 0,
-                    "title" to "Call open Settings segment",
-                    "kind" to "omniflow_function",
-                    "executor" to "omniflow",
-                    "tool" to "call_tool",
-                    "callable_tool" to "call_tool",
-                    "model_free" to true,
-                    "scriptable" to true,
-                    "args" to mapOf(
-                        "function_id" to childFunctionId,
-                        "arguments" to emptyMap<String, Any?>(),
+                    "step_index" to 0,
+                    "state_id" to "debug_state_0",
+                    "action" to mapOf(
+                        "tool" to "call_tool",
+                        "args" to mapOf(
+                            "function_id" to childFunctionId,
+                            "arguments" to emptyMap<String, Any?>(),
+                        ),
                     ),
                 )
             ),
         )
 
-    private fun reusableFunctionSpec(
+    private fun reusableFunction(
         functionId: String,
         name: String,
         description: String,
         steps: List<Map<String, Any?>>,
     ): Map<String, Any?> = linkedMapOf(
-        "schema_version" to "oob.reusable_function.v1",
+        "schema_version" to "omniflow.function.v2",
         "function_id" to functionId,
         "name" to name,
         "description" to description,
-        "parameters" to emptyList<Map<String, Any?>>(),
-        "source" to mapOf(
-            "source" to "debug_oob_function_segment_validation",
-            "goal" to description,
-            "tool_name" to "debug_oob_function_segment",
+        "input_schema" to mapOf(
+            "type" to "object",
+            "properties" to emptyMap<String, Any?>(),
+            "required" to emptyList<String>(),
+            "additionalProperties" to false,
         ),
-        "execution" to mapOf(
-            "kind" to "tool_sequence",
-            "runner" to "oob_tool_sequence",
-            "entrypoint" to "execute",
-            "capabilities" to mapOf(
-                "scriptable_step_count" to steps.size,
-                "model_free_step_count" to steps.size,
-                "omniflow_step_count" to steps.size,
-                "agent_step_count" to 0,
-            ),
-            "steps" to steps,
-            "step_count" to steps.size,
-            "omniflow_step_count" to steps.size,
-            "agent_step_count" to 0,
-        ),
+        "bindings" to emptyList<Map<String, String>>(),
+        "steps" to steps,
+        "checker_rules" to emptyList<Map<String, Any?>>(),
+        "agent_visible" to true,
     )
 
     private suspend fun waitForPageObservation(

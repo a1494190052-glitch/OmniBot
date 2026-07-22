@@ -37,7 +37,6 @@ class _FunctionLibraryPageState extends State<FunctionLibraryPage> {
   String? _error;
   final Set<String> _deletingIds = {};
   final Set<String> _runningIds = {};
-  final Set<String> _openingRunLogIds = {};
   bool _isLearning = false;
 
   @override
@@ -62,11 +61,10 @@ class _FunctionLibraryPageState extends State<FunctionLibraryPage> {
       setState(() {
         _functionSummaries = list;
         _functions = _groupFunctions(list);
-        _hasMore = _boolFromResult(result, 'has_more', 'hasMore');
+        _hasMore = _boolFromResult(result, 'has_more');
         _nextOffset = _intFromResult(
           result,
           'next_offset',
-          'nextOffset',
         ).takeIfPositive(list.length);
         _isLoading = false;
       });
@@ -94,11 +92,10 @@ class _FunctionLibraryPageState extends State<FunctionLibraryPage> {
       setState(() {
         _functionSummaries = merged;
         _functions = _groupFunctions(merged);
-        _hasMore = _boolFromResult(result, 'has_more', 'hasMore');
+        _hasMore = _boolFromResult(result, 'has_more');
         _nextOffset = _intFromResult(
           result,
           'next_offset',
-          'nextOffset',
         ).takeIfPositive(merged.length);
         _isLoadingMore = false;
       });
@@ -251,24 +248,6 @@ class _FunctionLibraryPageState extends State<FunctionLibraryPage> {
     await _showFunctionSpecDetails(context, group: group, onClosed: _load);
   }
 
-  Future<void> _openRunLogs(_FunctionGroup group) async {
-    await _openRunLogsForGroup(
-      context: context,
-      group: group,
-      isOpening: () => _openingRunLogIds.contains(group.signature),
-      setOpening: (value) {
-        if (!mounted) return;
-        setState(() {
-          if (value) {
-            _openingRunLogIds.add(group.signature);
-          } else {
-            _openingRunLogIds.remove(group.signature);
-          }
-        });
-      },
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
     final palette = context.omniPalette;
@@ -354,11 +333,9 @@ class _FunctionLibraryPageState extends State<FunctionLibraryPage> {
             group: group,
             isDeleting: _deletingIds.contains(group.signature),
             isRunning: _runningIds.contains(group.signature),
-            isOpeningRunLog: _openingRunLogIds.contains(group.signature),
             onRun: () => _run(group),
             onDelete: () => _delete(group),
             onOpenDetails: () => _openDetails(group),
-            onOpenRunLogs: () => _openRunLogs(group),
           );
         },
       ),
@@ -372,21 +349,17 @@ class _FunctionCard extends StatelessWidget {
     required this.group,
     required this.isDeleting,
     required this.isRunning,
-    required this.isOpeningRunLog,
     required this.onRun,
     required this.onDelete,
     required this.onOpenDetails,
-    required this.onOpenRunLogs,
   });
 
   final _FunctionGroup group;
   final bool isDeleting;
   final bool isRunning;
-  final bool isOpeningRunLog;
   final VoidCallback onRun;
   final VoidCallback onDelete;
   final VoidCallback onOpenDetails;
-  final VoidCallback onOpenRunLogs;
 
   @override
   Widget build(BuildContext context) {
@@ -408,16 +381,10 @@ class _FunctionCard extends StatelessWidget {
           .toList(growable: false),
       stepCount: function.stepCount,
       parameterCount: function.parameterNames.length,
-      sourceRunCount: group.sourceRunIds.length,
-      runCount: group.runCount,
-      successCount: group.successCount,
-      failCount: group.failCount,
-      lastRunSuccess: group.lastRunSuccess,
       agentVisible: group.isAgentVisible,
       isRunning: isRunning,
       onRun: onRun,
-      onRunLogsTap: group.runLogIds.isEmpty ? null : onOpenRunLogs,
-      isBusy: isDeleting || isOpeningRunLog,
+      isBusy: isDeleting,
       actions: [
         ReusableFunctionCardAction(
           icon: Icons.info_outline_rounded,
@@ -473,20 +440,12 @@ List<_FunctionSummary> _functionSummariesFromResult(
       .toList(growable: false);
 }
 
-bool _boolFromResult(
-  Map<String, dynamic> result,
-  String snakeKey,
-  String camelKey,
-) {
-  return result[snakeKey] == true || result[camelKey] == true;
+bool _boolFromResult(Map<String, dynamic> result, String key) {
+  return result[key] == true;
 }
 
-int _intFromResult(
-  Map<String, dynamic> result,
-  String snakeKey,
-  String camelKey,
-) {
-  final raw = result[snakeKey] ?? result[camelKey];
+int _intFromResult(Map<String, dynamic> result, String key) {
+  final raw = result[key];
   if (raw is num) return raw.toInt();
   return int.tryParse((raw ?? '').toString()) ?? 0;
 }
@@ -513,18 +472,13 @@ Future<void> _showFunctionSpecDetails(
       );
       return;
     }
-    final metadata = _FunctionSummary._asMap(specJson['metadata']);
     final spec = FunctionSpec(
       json: specJson,
       agentPrompt: functionAgentPrompt(specJson),
-      aiEnhanced:
-          _asBool(specJson['ai_enhanced']) ||
-          _asBool(specJson['aiEnhanced']) ||
-          _asBool(metadata['ai_enhanced']) ||
-          _asBool(metadata['aiEnhanced']),
+      aiEnhanced: false,
     );
-    final runId = _functionSpecSheetRunId(group, specJson);
-    final importResult = _functionSpecSheetImportResult(group, specJson, runId);
+    const runId = '';
+    final importResult = _functionSpecSheetImportResult(specJson, runId);
     await showReusableFunctionSpecSheet(
       context,
       spec: spec,
@@ -537,486 +491,27 @@ Future<void> _showFunctionSpecDetails(
   }
 }
 
-Future<void> _openRunLogsForGroup({
-  required BuildContext context,
-  required _FunctionGroup group,
-  required bool Function() isOpening,
-  required ValueChanged<bool> setOpening,
-}) async {
-  if (isOpening()) return;
-  setOpening(true);
-  List<_FunctionRunLogEntry> entries = const [];
-  try {
-    entries = await _loadFunctionRunLogEntries(group);
-    if (!context.mounted) return;
-    if (entries.isEmpty) {
-      showToast(
-        _text(context, '暂无可查看的执行记录', 'No execution records available'),
-        type: ToastType.error,
-      );
-    }
-  } catch (error) {
-    if (context.mounted) showToast(error.toString(), type: ToastType.error);
-  } finally {
-    if (context.mounted) setOpening(false);
-  }
-  if (entries.isEmpty || !context.mounted) return;
-  final selected = await showModalBottomSheet<_FunctionRunLogEntry>(
-    context: context,
-    useRootNavigator: true,
-    isScrollControlled: true,
-    backgroundColor: Colors.transparent,
-    barrierColor: Colors.black.withValues(alpha: 0.28),
-    builder: (_) =>
-        _FunctionRunLogPickerSheet(title: group.displayName, entries: entries),
-  );
-  if (selected == null || !context.mounted) return;
-  await showRunLogTimelineSheet(
-    context,
-    runId: selected.runId,
-    title: _functionRunLogTitle(context, selected),
-  );
-}
-
-Future<List<_FunctionRunLogEntry>> _loadFunctionRunLogEntries(
-  _FunctionGroup group,
-) async {
-  final ids = group.runLogIds.toList(growable: true);
-  if (ids.isEmpty && group.hasLastRun) {
-    final lastRun = await RunLogFunctionService.getFunctionLastRunLog(
-      group.lastRunFunctionId,
-    );
-    final lastRunId = lastRun.runId.trim();
-    if (lastRunId.isNotEmpty) ids.add(lastRunId);
-  }
-  if (ids.isEmpty) return const [];
-
-  final limit = (ids.length * 4).clamp(50, 500).toInt();
-  final runsById = <String, UtgRunLogSummary>{};
-  try {
-    final snapshot = await RunLogFunctionService.getInternalRunLogs(
-      limit: limit,
-    );
-    for (final run in snapshot.runs) {
-      final id = run.runId.trim();
-      if (id.isNotEmpty) runsById[id] = run;
-    }
-  } catch (_) {
-    // Source RunLog ids are still usable even when summary lookup is absent.
-  }
-  return ids
-      .where((id) => id.trim().isNotEmpty)
-      .map((id) => _FunctionRunLogEntry(id.trim(), runsById[id.trim()]))
-      .toList(growable: false);
-}
-
-class _FunctionRunLogEntry {
-  const _FunctionRunLogEntry(this.runId, this.run);
-
-  final String runId;
-  final UtgRunLogSummary? run;
-}
-
-class _FunctionRunLogPickerSheet extends StatelessWidget {
-  const _FunctionRunLogPickerSheet({
-    required this.title,
-    required this.entries,
-  });
-
-  final String title;
-  final List<_FunctionRunLogEntry> entries;
-
-  @override
-  Widget build(BuildContext context) {
-    final palette = context.omniPalette;
-    final maxHeight = MediaQuery.sizeOf(context).height * 0.72;
-    return SafeArea(
-      top: false,
-      child: Align(
-        alignment: Alignment.bottomCenter,
-        child: ConstrainedBox(
-          constraints: BoxConstraints(maxHeight: maxHeight),
-          child: DecoratedBox(
-            decoration: BoxDecoration(
-              color: palette.surfacePrimary,
-              borderRadius: const BorderRadius.vertical(
-                top: Radius.circular(18),
-              ),
-              border: Border(top: BorderSide(color: palette.borderSubtle)),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withValues(alpha: 0.16),
-                  blurRadius: 22,
-                  offset: const Offset(0, -8),
-                ),
-              ],
-            ),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(18, 16, 10, 10),
-                  child: Row(
-                    children: [
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Text(
-                              title.trim().isEmpty
-                                  ? _text(context, '执行记录', 'Execution records')
-                                  : title.trim(),
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: TextStyle(
-                                color: palette.textPrimary,
-                                fontSize: 18,
-                                fontWeight: FontWeight.w800,
-                                height: 1.2,
-                              ),
-                            ),
-                            const SizedBox(height: 4),
-                            Text(
-                              _text(
-                                context,
-                                '执行记录 · ${entries.length}',
-                                'Execution records · ${entries.length}',
-                              ),
-                              style: TextStyle(
-                                color: palette.textSecondary,
-                                fontSize: 12,
-                                fontWeight: FontWeight.w600,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      IconButton(
-                        tooltip: _text(context, '关闭', 'Close'),
-                        icon: const Icon(Icons.close_rounded),
-                        onPressed: () => Navigator.of(context).pop(),
-                      ),
-                    ],
-                  ),
-                ),
-                Flexible(
-                  child: ListView.separated(
-                    shrinkWrap: true,
-                    padding: const EdgeInsets.fromLTRB(14, 0, 14, 16),
-                    itemCount: entries.length,
-                    separatorBuilder: (_, __) => const SizedBox(height: 8),
-                    itemBuilder: (context, index) {
-                      final entry = entries[index];
-                      return _FunctionRunLogTile(
-                        entry: entry,
-                        onTap: () => Navigator.of(context).pop(entry),
-                      );
-                    },
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _FunctionRunLogTile extends StatelessWidget {
-  const _FunctionRunLogTile({required this.entry, required this.onTap});
-
-  final _FunctionRunLogEntry entry;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final palette = context.omniPalette;
-    final status = _functionRunLogStatus(context, entry);
-    final meta = _functionRunLogMeta(context, entry);
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        borderRadius: BorderRadius.circular(8),
-        onTap: onTap,
-        child: Ink(
-          padding: const EdgeInsets.all(12),
-          decoration: BoxDecoration(
-            color: context.isDarkTheme
-                ? palette.surfaceSecondary
-                : palette.pageBackground,
-            borderRadius: BorderRadius.circular(8),
-            border: Border.all(color: palette.borderSubtle),
-          ),
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Container(
-                width: 30,
-                height: 30,
-                decoration: BoxDecoration(
-                  color: status.color.withValues(alpha: 0.12),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Icon(status.icon, size: 17, color: status.color),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(
-                      _functionRunLogTitle(context, entry),
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        color: palette.textPrimary,
-                        fontSize: 14,
-                        fontWeight: FontWeight.w700,
-                        height: 1.25,
-                      ),
-                    ),
-                    if (meta.isNotEmpty) ...[
-                      const SizedBox(height: 5),
-                      Text(
-                        meta,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                          color: palette.textSecondary,
-                          fontSize: 12,
-                          fontWeight: FontWeight.w500,
-                        ),
-                      ),
-                    ],
-                    const SizedBox(height: 5),
-                    Text(
-                      entry.runId,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        color: palette.textTertiary,
-                        fontSize: 11,
-                        fontFamily: 'monospace',
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(width: 8),
-              Icon(
-                Icons.chevron_right_rounded,
-                color: palette.textTertiary,
-                size: 20,
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _FunctionRunLogStatus {
-  const _FunctionRunLogStatus({
-    required this.icon,
-    required this.color,
-    required this.label,
-  });
-
-  final IconData icon;
-  final Color color;
-  final String label;
-}
-
-String _functionRunLogTitle(BuildContext context, _FunctionRunLogEntry entry) {
-  final run = entry.run;
-  final title = _firstNonBlankValue([
-    run?.goal,
-    run?.operationDescription,
-    run?.executionSummary,
-    run?.selectorLabel,
-  ]);
-  if (title.isNotEmpty) return title;
-  final id = entry.runId.trim();
-  final traceLabel = _text(context, '轨迹', 'Trace');
-  if (id.length > 14) return '$traceLabel ${id.substring(0, 14)}';
-  return id.isEmpty
-      ? _text(context, '执行记录', 'Execution record')
-      : '$traceLabel $id';
-}
-
-String _functionRunLogMeta(BuildContext context, _FunctionRunLogEntry entry) {
-  final run = entry.run;
-  if (run == null) {
-    return _text(context, '点击查看该次结果', 'Tap to view this result');
-  }
-  final status = _functionRunLogStatus(context, entry).label;
-  final parts = <String>[
-    status,
-    if (run.stepCount > 0)
-      _text(context, '${run.stepCount} 步', '${run.stepCount} steps'),
-    _functionRunLogTimeLabel(run),
-  ].where((value) => value.trim().isNotEmpty).toList(growable: false);
-  return parts.join(' · ');
-}
-
-String _functionRunLogTimeLabel(UtgRunLogSummary run) {
-  final millis = run.startedAtMs ?? run.finishedAtMs;
-  DateTime? time;
-  if (millis != null && millis > 0) {
-    time = DateTime.fromMillisecondsSinceEpoch(millis).toLocal();
-  } else {
-    time = DateTime.tryParse(
-      _firstNonBlankValue([run.startedAt, run.finishedAt]),
-    )?.toLocal();
-  }
-  if (time == null) return '';
-  String two(int value) => value.toString().padLeft(2, '0');
-  return '${time.year}/${two(time.month)}/${two(time.day)} ${two(time.hour)}:${two(time.minute)}';
-}
-
-_FunctionRunLogStatus _functionRunLogStatus(
-  BuildContext context,
-  _FunctionRunLogEntry entry,
-) {
-  final run = entry.run;
-  if (run == null) {
-    return _FunctionRunLogStatus(
-      icon: Icons.receipt_long_outlined,
-      color: context.omniPalette.textTertiary,
-      label: _text(context, '执行记录', 'Execution record'),
-    );
-  }
-  final rawStatus = run.runStatus.trim().toLowerCase();
-  if (!run.runFinished ||
-      rawStatus == 'running' ||
-      rawStatus == 'in_progress') {
-    return _FunctionRunLogStatus(
-      icon: Icons.timelapse_rounded,
-      color: context.isDarkTheme
-          ? const Color(0xFFFFD166)
-          : const Color(0xFFE6A700),
-      label: _text(context, '运行中', 'Running'),
-    );
-  }
-  final success = run.runSuccess ?? run.success;
-  if (success) {
-    return _FunctionRunLogStatus(
-      icon: Icons.check_circle_outline_rounded,
-      color: context.isDarkTheme
-          ? const Color(0xFF63D98A)
-          : const Color(0xFF19A974),
-      label: _text(context, '已完成', 'Done'),
-    );
-  }
-  return _FunctionRunLogStatus(
-    icon: Icons.error_outline_rounded,
-    color: context.isDarkTheme
-        ? const Color(0xFFFF7A7A)
-        : const Color(0xFFE14C4C),
-    label: _text(context, '失败', 'Failed'),
-  );
-}
-
 Map<String, dynamic> _functionSpecJsonFromDetail(
   Map<String, dynamic>? rawSpec,
 ) {
   if (rawSpec == null || rawSpec.isEmpty) return const {};
-  final wrapped = rawSpec['function_spec'] ?? rawSpec['spec'];
-  if (wrapped is Map) return _deepStringKeyMap(wrapped);
-  return _deepStringKeyMap(rawSpec);
+  return rawSpec['schema_version'] == 'omniflow.function.v2'
+      ? _deepStringKeyMap(rawSpec)
+      : const {};
 }
 
 UtgRunLogImportResult _functionSpecSheetImportResult(
-  _FunctionGroup group,
   Map<String, dynamic> specJson,
   String runId,
 ) {
-  final functionId = _firstNonBlankValue([
-    specJson['function_id'],
-    specJson['functionId'],
-    group.primary.functionId,
-  ]);
-  final sourceRunIds = _functionSourceRunIds(group, specJson);
-  final metadata = _FunctionSummary._asMap(specJson['metadata']);
-  final visibility = _firstNonBlankValue([
-    specJson['visibility'],
-    metadata['visibility'],
-    group.primary.visibility,
-  ]);
-  final agentVisible =
-      _asNullableBool(specJson['agent_visible']) ??
-      _asNullableBool(specJson['agentVisible']) ??
-      _asNullableBool(metadata['agent_visible']) ??
-      group.isAgentVisible;
+  final functionId = (specJson['function_id'] ?? '').toString();
+  final agentVisible = specJson['agent_visible'] == true;
   return UtgRunLogImportResult.fromMap({
     'success': true,
     'run_id': runId,
     'function_id': functionId,
-    'created_function_id': functionId,
-    'functions_created': 0,
-    'asset_kind': 'reusable_function',
-    'asset_state': 'native_local',
-    'hit_function_ids': <String>[if (functionId.isNotEmpty) functionId],
-    'source_run_ids': sourceRunIds,
     'agent_visible': agentVisible,
-    if (visibility.isNotEmpty) 'visibility': visibility,
   });
-}
-
-String _functionSpecSheetRunId(
-  _FunctionGroup group,
-  Map<String, dynamic> specJson,
-) {
-  return _firstNonBlankValue(_functionSourceRunIds(group, specJson));
-}
-
-List<String> _functionSourceRunIds(
-  _FunctionGroup group,
-  Map<String, dynamic> specJson,
-) {
-  final ids = <String>[];
-  void add(dynamic value) {
-    final text = value?.toString().trim() ?? '';
-    if (text.isNotEmpty && !ids.contains(text)) ids.add(text);
-  }
-
-  void addMany(dynamic value) {
-    if (value is Iterable) {
-      for (final item in value) {
-        add(item);
-      }
-    }
-  }
-
-  for (final id in group.sourceRunIds) {
-    add(id);
-  }
-  final source = _FunctionSummary._asMap(specJson['source']);
-  final metadata = _FunctionSummary._asMap(specJson['metadata']);
-  add(specJson['source_run_id']);
-  add(specJson['sourceRunId']);
-  add(specJson['run_id']);
-  add(specJson['runId']);
-  add(source['source_run_id']);
-  add(source['sourceRunId']);
-  add(source['run_id']);
-  add(source['runId']);
-  add(metadata['source_run_id']);
-  add(metadata['sourceRunId']);
-  addMany(specJson['source_run_ids']);
-  addMany(specJson['sourceRunIds']);
-  addMany(source['source_run_ids']);
-  addMany(source['sourceRunIds']);
-  addMany(source['run_ids']);
-  addMany(source['runIds']);
-  addMany(metadata['source_run_ids']);
-  addMany(metadata['sourceRunIds']);
-  return ids;
 }
 
 Map<String, dynamic> _deepStringKeyMap(dynamic value) {
@@ -1031,14 +526,6 @@ Map<String, dynamic> _deepStringKeyMap(dynamic value) {
     }
   }
   return const {};
-}
-
-String _firstNonBlankValue(Iterable<dynamic> values) {
-  for (final value in values) {
-    final text = value?.toString().trim() ?? '';
-    if (text.isNotEmpty) return text;
-  }
-  return '';
 }
 
 class _EmptyState extends StatelessWidget {
@@ -1131,105 +618,41 @@ class _FunctionSummary {
     required this.functionId,
     required this.name,
     required this.description,
-    required this.cardCount,
     required this.stepCount,
     required this.parameterNames,
-    required this.createdAt,
-    required this.updatedAt,
-    required this.runCount,
-    required this.successCount,
-    required this.failCount,
-    required this.lastRunAt,
-    required this.lastRunId,
-    required this.lastRunSuccess,
-    required this.sourceRunIds,
     required this.stepSummaries,
     required this.agentVisible,
-    required this.visibility,
   });
 
   factory _FunctionSummary.fromMap(Map<String, dynamic> map) {
-    final params = map['parameter_names'];
-    final runStats = _asMap(map['run_stats']);
-    final lastRun = _asMap(map['last_run'] ?? runStats['last_run']);
-    final sourceRunIds = map['source_run_ids'];
-    final stepSummaries = map['step_summaries'];
-    final stepCount = _asInt(map['step_count']);
-    final cardCount = _asInt(map['card_count']);
+    final inputSchema = _asMap(map['input_schema']);
+    final properties = _asMap(inputSchema['properties']);
+    final steps = (map['steps'] as List<dynamic>?) ?? const <dynamic>[];
     return _FunctionSummary(
       functionId: (map['function_id'] ?? '').toString(),
       name: (map['name'] ?? '').toString(),
       description: (map['description'] ?? '').toString(),
-      cardCount: cardCount > 0 ? cardCount : stepCount,
-      stepCount: stepCount,
-      parameterNames: params is List
-          ? params.map((e) => e.toString()).toList(growable: false)
-          : const [],
-      createdAt: (map['registered_at'] ?? map['created_at'] ?? '').toString(),
-      updatedAt: (map['updated_at'] ?? '').toString(),
-      runCount: _asInt(runStats['run_count'] ?? map['run_count']),
-      successCount: _asInt(runStats['success_count'] ?? map['success_count']),
-      failCount: _asInt(runStats['fail_count'] ?? map['fail_count']),
-      lastRunAt:
-          (runStats['last_run_at'] ??
-                  lastRun['created_at'] ??
-                  map['last_run_at'] ??
-                  '')
-              .toString(),
-      lastRunId: _firstNonBlankValue([
-        lastRun['run_id'],
-        lastRun['runId'],
-        runStats['last_run_id'],
-        runStats['lastRunId'],
-        map['last_run_id'],
-        map['lastRunId'],
-      ]),
-      lastRunSuccess: _asNullableBool(
-        lastRun['success'] ?? runStats['last_success'] ?? map['last_success'],
-      ),
-      sourceRunIds: sourceRunIds is List
-          ? sourceRunIds.map((e) => e.toString()).toList(growable: false)
-          : const [],
-      stepSummaries: stepSummaries is List
-          ? stepSummaries
-                .whereType<Map>()
-                .map(
-                  (item) => _StepSummary.fromMap(
-                    Map<String, dynamic>.from(
-                      item.map((k, v) => MapEntry(k.toString(), v)),
-                    ),
-                  ),
-                )
-                .toList(growable: false)
-          : const [],
-      agentVisible:
-          _asNullableBool(map['agent_visible']) ??
-          _asNullableBool(_asMap(map['metadata'])['agent_visible']) ??
-          false,
-      visibility:
-          (map['visibility'] ?? _asMap(map['metadata'])['visibility'] ?? '')
-              .toString(),
+      stepCount: steps.length,
+      parameterNames: properties.keys.toList(growable: false),
+      stepSummaries: steps
+          .whereType<Map>()
+          .map((item) {
+            return _StepSummary.fromMap(
+              item.map((key, value) => MapEntry(key.toString(), value)),
+            );
+          })
+          .toList(growable: false),
+      agentVisible: map['agent_visible'] == true,
     );
   }
 
   final String functionId;
   final String name;
   final String description;
-  final int cardCount;
   final int stepCount;
   final List<String> parameterNames;
-  final String createdAt;
-  final String updatedAt;
-  final int runCount;
-  final int successCount;
-  final int failCount;
-  final String lastRunAt;
-  final String lastRunId;
-  final bool? lastRunSuccess;
-  final List<String> sourceRunIds;
   final List<_StepSummary> stepSummaries;
   final bool agentVisible;
-  final String visibility;
 
   String get displayName {
     final trimmedName = name.trim();
@@ -1272,12 +695,7 @@ class _FunctionSummary {
         .map(_normalizeSignatureText)
         .where((value) => value.isNotEmpty)
         .join('|');
-    return [
-      cardCount.toString(),
-      stepCount.toString(),
-      paramKey,
-      stepKey,
-    ].join('||');
+    return [stepCount.toString(), paramKey, stepKey].join('||');
   }
 
   static int _asInt(dynamic value) {
@@ -1330,7 +748,6 @@ class _FunctionSummary {
 class _StepSummary {
   const _StepSummary({
     required this.index,
-    required this.id,
     required this.title,
     required this.kind,
     required this.executor,
@@ -1339,31 +756,22 @@ class _StepSummary {
   });
 
   factory _StepSummary.fromMap(Map<String, dynamic> map, {int? fallbackIndex}) {
-    final index = map.containsKey('index')
-        ? _FunctionSummary._asInt(map['index'])
+    final index = map.containsKey('step_index')
+        ? _FunctionSummary._asInt(map['step_index'])
         : (fallbackIndex ?? 0);
-    final normalized = Map<String, dynamic>.from(map);
-    normalized.putIfAbsent('index', () => index);
-    normalized.putIfAbsent('step_id', () => map['id'] ?? 'step_${index + 1}');
-    normalized.putIfAbsent(
-      'summary',
-      () => [map['summary'], map['title'], map['tool'], map['step_id']]
-          .map((value) => value?.toString().trim() ?? '')
-          .firstWhere((value) => value.isNotEmpty, orElse: () => ''),
-    );
+    final action = _FunctionSummary._asMap(map['action']);
+    final tool = (action['tool'] ?? '').toString();
     return _StepSummary(
       index: index,
-      id: (map['id'] ?? '').toString(),
-      title: (map['title'] ?? '').toString(),
-      kind: (map['kind'] ?? '').toString(),
-      executor: (map['executor'] ?? '').toString(),
-      tool: (map['tool'] ?? '').toString(),
-      raw: normalized,
+      title: tool,
+      kind: 'action',
+      executor: '',
+      tool: tool,
+      raw: Map<String, dynamic>.from(map),
     );
   }
 
   final int index;
-  final String id;
   final String title;
   final String kind;
   final String executor;
@@ -1408,75 +816,6 @@ class _FunctionGroup {
 
   int get variantCount => items.length;
 
-  int get runCount => items.fold<int>(0, (sum, item) => sum + item.runCount);
-
-  int get successCount =>
-      items.fold<int>(0, (sum, item) => sum + item.successCount);
-
-  int get failCount => items.fold<int>(0, (sum, item) => sum + item.failCount);
-
-  _FunctionSummary? get latestRunFunction {
-    _FunctionSummary? latest;
-    DateTime? latestTime;
-    for (final item in items) {
-      final hasLastRun =
-          item.lastRunId.trim().isNotEmpty ||
-          item.lastRunAt.trim().isNotEmpty ||
-          item.lastRunSuccess != null;
-      if (!hasLastRun) continue;
-      final time = _parseTimestamp(item.lastRunAt);
-      if (latest == null) {
-        latest = item;
-        latestTime = time;
-        continue;
-      }
-      if (time != null && (latestTime == null || time.isAfter(latestTime))) {
-        latest = item;
-        latestTime = time;
-      }
-    }
-    return latest;
-  }
-
-  bool get hasLastRun => runCount > 0 || latestRunFunction != null;
-
-  String get lastRunId => latestRunFunction?.lastRunId.trim() ?? '';
-
-  String get lastRunFunctionId =>
-      latestRunFunction?.functionId.trim().isNotEmpty == true
-      ? latestRunFunction!.functionId.trim()
-      : primary.functionId;
-
-  List<String> get runLogIds {
-    final ids = <String>{};
-    for (final id in sourceRunIds) {
-      final normalized = id.trim();
-      if (normalized.isNotEmpty) ids.add(normalized);
-    }
-    final latestId = lastRunId.trim();
-    if (ids.isEmpty && latestId.isNotEmpty) ids.add(latestId);
-    return ids.toList(growable: false);
-  }
-
-  bool? get lastRunSuccess {
-    _FunctionSummary? latest;
-    DateTime? latestTime;
-    for (final item in items) {
-      if (item.lastRunSuccess == null) continue;
-      final time = _parseTimestamp(item.lastRunAt);
-      if (latest == null) {
-        latest = item;
-        latestTime = time;
-        continue;
-      }
-      if (time != null && (latestTime == null || time.isAfter(latestTime))) {
-        latest = item;
-        latestTime = time;
-      }
-    }
-    return latest?.lastRunSuccess;
-  }
-
   String get displayName {
     for (final item in items) {
       final name = item.displayName.trim();
@@ -1494,24 +833,6 @@ class _FunctionGroup {
       if (description.isNotEmpty) return description;
     }
     return primary.semanticDescription;
-  }
-
-  String get createdAt {
-    final parsed = items
-        .map((item) => _parseTimestamp(item.createdAt))
-        .whereType<DateTime>()
-        .toList(growable: false);
-    if (parsed.isEmpty) return primary.createdAt;
-    parsed.sort();
-    return parsed.first.millisecondsSinceEpoch.toString();
-  }
-
-  List<String> get sourceRunIds {
-    final ids = <String>{};
-    for (final item in items) {
-      ids.addAll(item.sourceRunIds);
-    }
-    return ids.toList(growable: false);
   }
 }
 
@@ -1562,11 +883,11 @@ Future<void> _startHumanTrajectoryLearningFlow({
     final result = await RunLogFunctionService.startHumanTrajectoryLearning();
     if (!context.mounted) return;
     if (result['success'] == true) {
-      final functionId = (result['function_id'] ?? '').toString();
-      final conversionSuccess =
-          result['conversion_success'] == true ||
-          result['conversionSuccess'] == true ||
-          functionId.isNotEmpty;
+      final function = result['function'];
+      final functionId = function is Map
+          ? (function['function_id'] ?? '').toString().trim()
+          : '';
+      final conversionSuccess = functionId.isNotEmpty;
       showToast(
         !conversionSuccess
             ? _text(
@@ -1619,16 +940,15 @@ Future<Map<String, dynamic>?> _resolveRunArguments(
 Map<String, dynamic> _defaultArgumentsForFunctionSpec(
   Map<String, dynamic>? spec,
 ) {
-  final rawParameters = spec?['parameters'];
-  if (rawParameters is! List) return const {};
+  final inputSchema = _FunctionSummary._asMap(spec?['input_schema']);
+  final properties = _FunctionSummary._asMap(inputSchema['properties']);
   final arguments = <String, dynamic>{};
-  for (final item in rawParameters) {
-    if (item is! Map) continue;
-    final name = (item['name'] ?? '').toString().trim();
-    if (name.isEmpty || !item.containsKey('default')) continue;
-    final value = item['default'];
+  for (final entry in properties.entries) {
+    final property = _FunctionSummary._asMap(entry.value);
+    if (!property.containsKey('default')) continue;
+    final value = property['default'];
     if (value != null) {
-      arguments[name] = value;
+      arguments[entry.key] = value;
     }
   }
   return arguments;
@@ -1638,14 +958,21 @@ List<_ParameterSummary> _missingRequiredRunParameters(
   Map<String, dynamic>? spec,
   Map<String, dynamic> arguments,
 ) {
-  final rawParameters = spec?['parameters'];
-  if (rawParameters is! List) return const [];
+  final inputSchema = _FunctionSummary._asMap(spec?['input_schema']);
+  final properties = _FunctionSummary._asMap(inputSchema['properties']);
+  final required = inputSchema['required'] is List
+      ? (inputSchema['required'] as List)
+            .map((value) => value.toString())
+            .toSet()
+      : const <String>{};
   final missing = <_ParameterSummary>[];
-  for (final item in rawParameters) {
-    if (item is! Map) continue;
-    final parameter = _ParameterSummary.fromMap(
-      Map<String, dynamic>.from(item.map((k, v) => MapEntry(k.toString(), v))),
-    );
+  for (final entry in properties.entries) {
+    final item = _FunctionSummary._asMap(entry.value);
+    final parameter = _ParameterSummary.fromMap(<String, dynamic>{
+      ...item,
+      'name': entry.key,
+      'required': required.contains(entry.key),
+    });
     if (!parameter.required || parameter.name.trim().isEmpty) continue;
     final current = arguments[parameter.name];
     final hasValue = current != null && current.toString().trim().isNotEmpty;
@@ -1832,26 +1159,11 @@ List<_FunctionGroup> _groupFunctions(List<_FunctionSummary> summaries) {
 }
 
 int _compareFunctionSummaries(_FunctionSummary a, _FunctionSummary b) {
-  final dateCompare = _compareDateTimeDesc(a.createdAt, b.createdAt);
-  if (dateCompare != null) return dateCompare;
-  final runCompare = b.runCount.compareTo(a.runCount);
-  if (runCompare != 0) return runCompare;
   return a.displayName.compareTo(b.displayName);
 }
 
 int _compareFunctionGroups(_FunctionGroup a, _FunctionGroup b) {
-  final dateCompare = _compareDateTimeDesc(a.createdAt, b.createdAt);
-  if (dateCompare != null) return dateCompare;
-  final runCompare = b.runCount.compareTo(a.runCount);
-  if (runCompare != 0) return runCompare;
   return a.displayName.compareTo(b.displayName);
-}
-
-int? _compareDateTimeDesc(String a, String b) {
-  final left = _parseTimestamp(a);
-  final right = _parseTimestamp(b);
-  if (left == null || right == null) return null;
-  return right.compareTo(left);
 }
 
 String _normalizeSignatureText(String value) {
@@ -1897,16 +1209,6 @@ bool? _asNullableBool(dynamic value) {
     }
   }
   return null;
-}
-
-DateTime? _parseTimestamp(String raw) {
-  final text = raw.trim();
-  if (text.isEmpty) return null;
-  final millis = int.tryParse(text);
-  if (millis != null && millis > 0) {
-    return DateTime.fromMillisecondsSinceEpoch(millis);
-  }
-  return DateTime.tryParse(text);
 }
 
 String _text(BuildContext context, String zh, String en) {

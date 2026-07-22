@@ -26,7 +26,7 @@ internal data class ManualObservationStats(
     val screenshotSkippedCount: Int,
     val xmlCaptureCount: Int,
     val xmlCaptureSuccessCount: Int,
-    val xmlCaptureTimeoutOrEmptyCount: Int,
+    val xmlCaptureEmptyCount: Int,
     val xmlCaptureTotalMs: Long,
     val xmlCaptureMaxMs: Long,
     val xmlCaptureLastMs: Long,
@@ -40,16 +40,21 @@ internal data class ManualScreenshotAnnotation(
     val endX: Float? = null,
     val endY: Float? = null,
 ) {
-    fun asMap(appliedScale: Float): Map<String, Any?> = linkedMapOf(
+    fun asMap(appliedScale: Float): Map<String, Any?> = linkedMapOf<String, Any?>(
         "kind" to "actual_touch_position",
         "action_name" to actionName,
-        "x" to x,
-        "y" to y,
-        "end_x" to endX,
-        "end_y" to endY,
-        "coordinate_space" to "screen_absolute_px",
-        "applied_scale" to appliedScale,
-    ).filterValues { it != null }
+    ).apply {
+        if (endX != null && endY != null) {
+            put("x1", x)
+            put("y1", y)
+            put("x2", endX)
+            put("y2", endY)
+        } else {
+            put("x", x)
+            put("y", y)
+        }
+        put("applied_scale", appliedScale)
+    }
 
     companion object {
         fun point(actionName: String, x: Float, y: Float): ManualScreenshotAnnotation =
@@ -78,7 +83,7 @@ internal class ManualObservationCapture(
     private var screenshotSequence = 0
     private var xmlCaptureCount = 0
     private var xmlCaptureSuccessCount = 0
-    private var xmlCaptureTimeoutOrEmptyCount = 0
+    private var xmlCaptureEmptyCount = 0
     private var xmlCaptureTotalMs = 0L
     private var xmlCaptureMaxMs = 0L
     private var xmlCaptureLastMs = 0L
@@ -87,14 +92,12 @@ internal class ManualObservationCapture(
     fun captureXml(reason: String): ManualTimedXmlCapture {
         val startedAtMs = elapsedRealtimeMs()
         val xml = runBlocking {
-            withTimeoutOrNull(XML_CAPTURE_TIMEOUT_MS) {
-                withContext(Dispatchers.IO) { xmlProvider() }
-            }
-        }?.takeIf { it.isNotBlank() }
+            withContext(Dispatchers.IO) { xmlProvider() }
+        }?.takeIf { AccessibilityXml.health(it).isUsable }
         val durationMs = (elapsedRealtimeMs() - startedAtMs).coerceAtLeast(0L)
         synchronized(lock) {
             xmlCaptureCount += 1
-            if (xml == null) xmlCaptureTimeoutOrEmptyCount += 1 else xmlCaptureSuccessCount += 1
+            if (xml == null) xmlCaptureEmptyCount += 1 else xmlCaptureSuccessCount += 1
             xmlCaptureTotalMs += durationMs
             xmlCaptureMaxMs = maxOf(xmlCaptureMaxMs, durationMs)
             xmlCaptureLastMs = durationMs
@@ -199,7 +202,7 @@ internal class ManualObservationCapture(
             screenshotSkippedCount = screenshotSkippedCount,
             xmlCaptureCount = xmlCaptureCount,
             xmlCaptureSuccessCount = xmlCaptureSuccessCount,
-            xmlCaptureTimeoutOrEmptyCount = xmlCaptureTimeoutOrEmptyCount,
+            xmlCaptureEmptyCount = xmlCaptureEmptyCount,
             xmlCaptureTotalMs = xmlCaptureTotalMs,
             xmlCaptureMaxMs = xmlCaptureMaxMs,
             xmlCaptureLastMs = xmlCaptureLastMs,
@@ -237,7 +240,7 @@ internal class ManualObservationCapture(
             "schema_version" to "oob.manual_recording.xml_capture_timing.v1",
             "capture_count" to stats.xmlCaptureCount,
             "success_count" to stats.xmlCaptureSuccessCount,
-            "timeout_or_empty_count" to stats.xmlCaptureTimeoutOrEmptyCount,
+            "empty_count" to stats.xmlCaptureEmptyCount,
             "total_ms" to stats.xmlCaptureTotalMs,
             "avg_ms" to if (stats.xmlCaptureCount > 0) {
                 stats.xmlCaptureTotalMs / stats.xmlCaptureCount
@@ -247,7 +250,6 @@ internal class ManualObservationCapture(
             "max_ms" to stats.xmlCaptureMaxMs,
             "last_ms" to stats.xmlCaptureLastMs,
             "last_reason" to stats.xmlCaptureLastReason.takeIf { it.isNotBlank() },
-            "timeout_ms" to XML_CAPTURE_TIMEOUT_MS,
         ).filterValues { it != null }
     }
 
@@ -293,7 +295,6 @@ internal class ManualObservationCapture(
 
     private companion object {
         private const val TAG = "ManualObservationCapture"
-        private const val XML_CAPTURE_TIMEOUT_MS = 300L
         private const val SCREENSHOT_CAPTURE_TIMEOUT_MS = 2_800L
         private const val SCREENSHOT_JPEG_QUALITY = 90
         private val SCREENSHOT_QUALITY = ImageQuality.MEDIUM

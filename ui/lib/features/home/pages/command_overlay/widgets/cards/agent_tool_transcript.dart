@@ -9,6 +9,7 @@ import 'package:ui/features/home/pages/command_overlay/widgets/cards/codex_diff_
 import 'package:ui/features/home/pages/command_overlay/widgets/cards/terminal_output_utils.dart';
 import 'package:ui/services/chat_detail_sheet_preferences.dart';
 import 'package:ui/services/codex_diff_parser.dart';
+import 'package:ui/core/router/go_router_manager.dart';
 import 'package:ui/theme/app_colors.dart';
 import 'package:ui/widgets/omni_glass.dart';
 
@@ -298,6 +299,30 @@ String _buildStructuredOutputText(
       status == 'error' ||
       status == 'interrupted') {
     _appendUniqueLine(lines, summary);
+  }
+
+  final vlmThinking = (cardData['vlmStepThinking'] ?? '').toString().trim();
+  if (vlmThinking.isNotEmpty) {
+    _appendUniqueLine(lines, '思考：$vlmThinking');
+  }
+  final rawVlmAction = cardData['vlmStepAction'];
+  final vlmAction = rawVlmAction is Map
+      ? jsonEncode(rawVlmAction)
+      : (rawVlmAction ?? '').toString().trim();
+  final vlmArgs = cardData['vlmStepArgs'];
+  if (vlmAction.isNotEmpty) {
+    _appendUniqueLine(lines, '动作：$vlmAction');
+  }
+  if (vlmArgs is Map && vlmArgs.isNotEmpty) {
+    _appendUniqueLine(lines, '参数：${jsonEncode(vlmArgs)}');
+  }
+  final vlmResult = cardData['vlmStepResult'];
+  if (vlmResult is Map && vlmResult.isNotEmpty) {
+    _appendUniqueLine(lines, '结果：${jsonEncode(vlmResult)}');
+  }
+  final vlmError = (cardData['vlmStepError'] ?? '').toString().trim();
+  if (vlmError.isNotEmpty) {
+    _appendUniqueLine(lines, '错误：$vlmError');
   }
 
   final structuredPreview = _buildStructuredLines(
@@ -949,6 +974,27 @@ class _AgentToolDetailContent extends StatelessWidget {
               _DialogMetaTag(label: typeLabel),
               const SizedBox(width: 6),
               _DialogStatusTag(status: status, label: statusLabel),
+              if (_resolveChildRunId(cardData).isNotEmpty) ...[
+                const SizedBox(width: 8),
+                IconButton(
+                  key: const ValueKey('vlm-open-runlog'),
+                  tooltip: '查看轨迹',
+                  onPressed: () {
+                    GoRouterManager.push(
+                      '/task/run_log_timeline',
+                      extra: <String, dynamic>{
+                        'runId': _resolveChildRunId(cardData),
+                        'title': title,
+                      },
+                    );
+                  },
+                  icon: const Icon(
+                    Icons.timeline_rounded,
+                    size: 18,
+                    color: Color(0xFFB9D7FF),
+                  ),
+                ),
+              ],
             ],
           ),
         ),
@@ -963,6 +1009,12 @@ class _AgentToolDetailContent extends StatelessWidget {
       ],
     );
   }
+}
+
+String _resolveChildRunId(Map<String, dynamic> cardData) {
+  return (cardData['childRunId'] ?? cardData['child_run_id'] ?? '')
+      .toString()
+      .trim();
 }
 
 CodexDiffSummary? _resolveDiffSummary(Map<String, dynamic> cardData) {

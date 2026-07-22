@@ -57,6 +57,29 @@ typedef AgentStreamEventCallback = void Function(AgentStreamEvent event);
 typedef ScheduledTaskCancelledCallBack = void Function(String taskId);
 typedef ScheduledTaskExecuteNowCallBack = void Function(String taskId);
 
+class RunLogFinishedEvent {
+  const RunLogFinishedEvent({
+    required this.runId,
+    required this.source,
+    required this.toolName,
+    required this.success,
+  });
+
+  final String runId;
+  final String source;
+  final String toolName;
+  final bool success;
+
+  factory RunLogFinishedEvent.fromMap(Map<dynamic, dynamic>? map) {
+    return RunLogFinishedEvent(
+      runId: (map?['run_id'] ?? '').toString().trim(),
+      source: (map?['source'] ?? '').toString().trim(),
+      toolName: (map?['tool_name'] ?? '').toString().trim(),
+      success: map?['success'] == true,
+    );
+  }
+}
+
 class ModelAvailabilityCheckResult {
   final bool available;
   final int? code;
@@ -103,8 +126,6 @@ class UtgBridgeConfig {
   final String? providerWorkingDirectory;
   final bool providerHealthy;
   final String providerHealthStatus;
-  final String runIndexPath;
-  final String runStorageDir;
   final bool useEmbeddedProvider; // 是否使用内置 Provider
   final String providerConnectionMode;
   final OmniFlowPackageStatus devicePackageStatus;
@@ -122,8 +143,6 @@ class UtgBridgeConfig {
     required this.providerWorkingDirectory,
     required this.providerHealthy,
     required this.providerHealthStatus,
-    required this.runIndexPath,
-    required this.runStorageDir,
     required this.useEmbeddedProvider,
     required this.providerConnectionMode,
     required this.devicePackageStatus,
@@ -149,8 +168,6 @@ class UtgBridgeConfig {
       providerHealthy: raw['providerHealthy'] == true,
       providerHealthStatus:
           (raw['providerHealthStatus'] ?? health['status'] ?? '').toString(),
-      runIndexPath: (raw['runIndexPath'] ?? '').toString(),
-      runStorageDir: (raw['runStorageDir'] ?? '').toString(),
       useEmbeddedProvider: raw['useEmbeddedProvider'] == true,
       providerConnectionMode:
           (raw['providerConnectionMode'] ??
@@ -746,6 +763,8 @@ class AssistsMessageService {
   static final StreamController<Map<String, dynamic>>
   _workbenchProjectUpdatedController =
       StreamController<Map<String, dynamic>>.broadcast();
+  static final StreamController<RunLogFinishedEvent> _runLogFinishedController =
+      StreamController<RunLogFinishedEvent>.broadcast();
   // IM/WeChat/Telegram 等外部入口直推的用户消息：
   // 原生侧在写库后立刻 invokeMethod 发过来，runtime 直接插入气泡，
   // 不依赖 messagesChanged + DB reload 的事件链。
@@ -771,6 +790,8 @@ class AssistsMessageService {
       _browserSessionSnapshotChangedController.stream;
   static Stream<Map<String, dynamic>> get workbenchProjectUpdatedStream =>
       _workbenchProjectUpdatedController.stream;
+  static Stream<RunLogFinishedEvent> get runLogFinishedStream =>
+      _runLogFinishedController.stream;
 
   static void initialize() {
     assistCore.setMethodCallHandler(_handleMethod);
@@ -894,6 +915,12 @@ class AssistsMessageService {
           // 通知所有注册的回调
           for (final callback in _onVLMTaskFinishCallBacks) {
             callback((call.arguments as Map?)?['taskId']?.toString());
+          }
+          break;
+        case 'onRunLogFinished':
+          final event = RunLogFinishedEvent.fromMap(call.arguments as Map?);
+          if (event.runId.isNotEmpty) {
+            _runLogFinishedController.add(event);
           }
           break;
         case 'onCommonTaskFinish':

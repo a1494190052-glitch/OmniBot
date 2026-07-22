@@ -59,7 +59,6 @@ class DebugOobRecallReceiver : BroadcastReceiver() {
         val recallResult = runCatching {
             val service = FunctionService(appContext)
             OmniFlowFunctionRecallAdapter(
-                enabled = OmniFlowPythonRuntime::isReady,
                 bridgeCall = { operation, payload ->
                     OmniFlowPythonRuntime.call(appContext, operation, payload)
                 },

@@ -7,14 +7,17 @@ import cn.com.omnimind.assists.api.bean.VlmTaskTerminalStatus
 import cn.com.omnimind.assists.api.enums.TaskFinishType
 import cn.com.omnimind.assists.api.enums.TaskType
 import cn.com.omnimind.assists.api.interfaces.OnMessagePushListener
+import cn.com.omnimind.assists.api.interfaces.VlmStepProgress
 import cn.com.omnimind.assists.api.interfaces.TaskChangeListener
 import cn.com.omnimind.assists.controller.accessibility.AccessibilityController
 import cn.com.omnimind.assists.controller.http.HttpController
+import cn.com.omnimind.assists.runlog.OmniFlowRecordStepExecutor
 import cn.com.omnimind.assists.task.Task
 import cn.com.omnimind.assists.api.eventapi.ExecutionTaskEventApi
 import cn.com.omnimind.baselib.database.DatabaseHelper
 import cn.com.omnimind.baselib.http.Http429Exception
 import cn.com.omnimind.baselib.runlog.InternalRunLogStore
+import cn.com.omnimind.baselib.runlog.RunLogStepRecord
 import cn.com.omnimind.baselib.util.OmniLog
 import cn.com.omnimind.baselib.util.exception.PrivacyBlockedException
 import cn.com.omnimind.omniintelligence.models.AgentRequest
@@ -46,6 +49,8 @@ open class VLMOperationTask(
     private val needSummary: Boolean = false,
     override val taskManager: TaskManager,
     private val functionRunExecutor: FunctionRunExecutor? = null,
+    private val controlActExecutorFactory: ControlActExecutorFactory,
+    private val recordStepExecutor: OmniFlowRecordStepExecutor,
 ) : Task(taskChangeListener,taskManager), DeviceOperator {
     private val Tag = "VLMOperationTask"
     private companion object {
@@ -73,11 +78,10 @@ open class VLMOperationTask(
 
     private var taskContext: Context? = null
     private val terminalFinalized = AtomicBoolean(false)
-    private val completedVlmStepCardIds = mutableSetOf<String>()
+    private val pendingVlmRunLogSteps = linkedMapOf<String, PendingVlmRunLogStep>()
 
     private val userInputChannel = Channel<String>(Channel.Factory.UNLIMITED)
     private val userPauseChannel = Channel<Unit>(Channel.Factory.CONFLATED)
-    private var manualTraceCardSeq: Int = 0
     private val summarySheetReadyChannel = Channel<Unit>(Channel.Factory.CONFLATED)
 
     private var goal: String? = null
@@ -120,6 +124,9 @@ open class VLMOperationTask(
             onStepStarted = { stepIndex, step ->
                 handleVlmStepStarted(stepIndex, step)
             },
+            onStepWaitingUser = { stepIndex, step ->
+                handleVlmStepWaitingUser(stepIndex, step)
+            },
             onStepCompleted = { stepIndex, step, success, error ->
                 handleVlmStepCompleted(stepIndex, step, success, error)
             },
@@ -128,6 +135,7 @@ open class VLMOperationTask(
             runId = id,
             taskScope = taskScope,
             functionRunExecutor = functionRunExecutor,
+            controlActExecutor = controlActExecutorFactory.create(this),
         )
         androidDeviceOperator = AndroidDeviceOperator(executionTaskEventApi, taskContext)
     }
@@ -345,11 +353,11 @@ open class VLMOperationTask(
     }
 
     private fun extractFinishedContent(report: TaskExecutionReport): String {
-        val finishedStep = report.executionTrace.lastOrNull { it.action is FinishedAction }
+        val finishedStep = report.executionTrace.lastOrNull { it.action is FinishedDecision }
         val fromResult = finishedStep?.result?.trim().orEmpty()
         if (fromResult.isNotEmpty()) return fromResult
 
-        val fromAction = (finishedStep?.action as? FinishedAction)?.content?.trim().orEmpty()
+        val fromAction = (finishedStep?.action as? FinishedDecision)?.content?.trim().orEmpty()
         if (fromAction.isNotEmpty()) return fromAction
 
         val lastResult = report.executionTrace.asReversed()
@@ -360,42 +368,61 @@ open class VLMOperationTask(
         return "任务完成"
     }
 
-    private fun appendInternalRunLog(context: Context, report: TaskExecutionReport) {
-        report.executionTrace.forEachIndexed { index, step ->
-            val cardId = vlmStepCardId(index)
-            val stepSuccess = isReplayableStepSuccess(step)
-            val card = buildInternalRunLogCard(
-                index = index,
-                step = step,
-                status = if (stepSuccess) "success" else "error",
-                successOverride = stepSuccess,
-                errorMessage = if (stepSuccess) null else step.result
-            )
-            InternalRunLogStore.upsertCard(
-                context = context,
-                runId = id,
-                cardId = cardId,
-                card = card
-            )
-            completedVlmStepCardIds.add(cardId)
+    private suspend fun appendInternalRunLog(context: Context, report: TaskExecutionReport) {
+        val pending = pendingVlmRunLogSteps.values.toList()
+        for (entry in pending) {
+            try {
+                val runLogStep = buildInternalRunLogStep(
+                    index = runLogStepIndex(context, entry.stepId),
+                    step = entry.step,
+                    status = if (entry.success) "succeeded" else "failed",
+                    successOverride = entry.success,
+                    errorMessage = entry.errorMessage,
+                )
+                InternalRunLogStore.upsertRecordedStep(
+                    context = context,
+                    runId = id,
+                    stepId = entry.stepId,
+                    record = runLogStep,
+                )
+                pendingVlmRunLogSteps.remove(entry.stepId)
+            } catch (error: Exception) {
+                OmniLog.e(Tag, "VLM RunLog final retry failed for ${entry.stepId}: ${error.message}")
+                break
+            }
         }
+        val finalStateId = report.executionTrace.lastOrNull()?.let { step ->
+            (step.afterState ?: step.beforeState)?.toRunLogMap()
+        }?.let { state -> InternalRunLogStore.persistState(context, state) }
         InternalRunLogStore.finishRun(
             context = context,
             runId = id,
             success = report.success,
             doneReason = report.doneReason ?: if (report.success) "finished" else "error",
-            errorMessage = report.error
+            errorMessage = report.error,
+            finalStateId = finalStateId,
         )
     }
 
-    private fun appendManualTrace(result: ManualVlmTraceResult) {
+    private suspend fun appendManualTrace(result: ManualVlmTraceResult) {
         if (result.actions.isEmpty()) return
         val context = taskContext ?: return
-        val cards = result.actions.map { action ->
-            manualTraceCardSeq += 1
-            buildManualRunLogCard(manualTraceCardSeq, action)
+        val firstStepIndex = InternalRunLogStore.getRun(context, id)?.steps?.size ?: 0
+        val steps = buildList {
+            result.actions.forEachIndexed { offset, action ->
+                val index = firstStepIndex + offset
+                add(
+                    ManualRunLogStepRecorder.record(
+                        index = index,
+                        stepId = "$id-manual-$index",
+                        action = action,
+                        source = "human_takeover",
+                        executor = recordStepExecutor,
+                    )
+                )
+            }
         }
-        InternalRunLogStore.appendCards(context, id, cards)
+        InternalRunLogStore.appendRecordedSteps(context, id, steps)
         if (this::vlmOperationService.isInitialized) {
             val memory = buildManualTraceMemory(result)
             if (memory.isNotBlank()) {
@@ -414,14 +441,15 @@ open class VLMOperationTask(
         if (result.actions.isEmpty()) return result.summary
         val actions = result.actions.take(MAX_MANUAL_TRACE_MEMORY_ACTIONS)
         val actionLines = actions.mapIndexed { index, action ->
-            val params = action.params.entries
+            val params = action.action.argsMap().entries
                 .joinToString(", ") { (key, value) -> "$key=$value" }
                 .take(MAX_MANUAL_TRACE_PARAM_CHARS)
             buildString {
-                append("${index + 1}. ${action.actionName}: ")
+                append("${index + 1}. ${action.action.tool}: ")
                 append(action.summary.ifBlank { action.title })
                 if (params.isNotBlank()) append(" ($params)")
-                action.packageName?.takeIf { it.isNotBlank() }?.let { append(" package=$it") }
+                action.afterPackageName?.takeIf { it.isNotBlank() }
+                    ?.let { append(" package=$it") }
             }
         }
         val omitted = result.actions.size - actions.size
@@ -434,7 +462,7 @@ open class VLMOperationTask(
             appendLine("人工接管动作明细：")
             actionLines.forEach { appendLine(it) }
             if (omitted > 0) appendLine("... 另有 $omitted 步人工动作已记录在 RunLog。")
-            finalAction?.packageName?.takeIf { it.isNotBlank() }?.let {
+            finalAction?.afterPackageName?.takeIf { it.isNotBlank() }?.let {
                 appendLine("接管结束包名：$it")
             }
             if (finalPage.isNotBlank()) {
@@ -445,166 +473,106 @@ open class VLMOperationTask(
         }.trim()
     }
 
-    private fun isReplayableStepSuccess(step: UIStep): Boolean {
-        if (step.action is AbortAction) return false
-        return step.result?.startsWith("执行失败") != true
-    }
-
-    private fun buildManualRunLogCard(
-        index: Int,
-        action: ManualVlmRecordedAction
-    ): Map<String, Any?> {
-        val cardId = "$id-manual-$index"
-        val durationMs = (action.finishedAtMs - action.startedAtMs).coerceAtLeast(0L)
-        val sourceContext = sourceContextForManualAction(action)
-        return linkedMapOf(
-            "card_id" to cardId,
-            "tool_call_id" to cardId,
-            "header" to linkedMapOf<String, Any?>(
-                "step_index" to index,
-                "title" to action.title,
-                "tool_name" to action.actionName,
-                "status" to "success",
-                "success" to true,
-                "duration_ms" to durationMs
-            ),
-            "step_index" to index,
-            "title" to action.title,
-            "summary" to action.summary,
-            "tool_name" to action.actionName,
-            "toolName" to action.actionName,
-            "tool_type" to "manual_recording",
-            "toolType" to "manual_recording",
-            "status" to "success",
-            "action_type" to action.actionName,
-            "success" to true,
-            "duration_ms" to durationMs,
-            "started_at_ms" to action.startedAtMs,
-            "finished_at_ms" to action.finishedAtMs,
-            "package_name" to action.packageName,
-            "recall_kind" to "manual_recording",
-            "source" to "human_takeover",
-            "event_context" to action.eventContext.takeIf { it.isNotEmpty() },
-            "source_context" to sourceContext.takeIf { it.isNotEmpty() },
-            "tool_call" to linkedMapOf(
-                "id" to cardId,
-                "name" to action.actionName,
-                "arguments" to action.params
-            ),
-            "params" to action.params,
-            "result" to linkedMapOf(
-                "message" to action.summary,
-                "summary" to action.summary,
-                "source" to "human_takeover",
-                "source_context" to sourceContext.takeIf { it.isNotEmpty() }
-            ),
-            "before" to linkedMapOf(
-                "observation_xml" to action.beforeXml,
-                "screenshot" to action.beforeScreenshot?.asMap(),
-                "screenshot_path" to action.beforeScreenshot?.path,
-                "package_name" to action.packageName
-            ).filterValues { it != null },
-            "after" to linkedMapOf(
-                "observation_xml" to action.afterXml,
-                "screenshot" to action.afterScreenshot?.asMap(),
-                "screenshot_path" to action.afterScreenshot?.path,
-                "summary" to action.summary,
-                "package_name" to action.packageName
-            ).filterValues { it != null }
-        ).filterValues { it != null }
-    }
-
-    private fun sourceContextForManualAction(action: ManualVlmRecordedAction): Map<String, Any?> {
-        val beforeXml = action.beforeXml?.takeIf { it.isNotBlank() } ?: return emptyMap()
-        val recordingBackend = action.params["recording_backend"]?.toString()
-            ?.takeIf { it.isNotBlank() }
-            ?: "accessibility_event"
-        val actionMap = linkedMapOf<String, Any?>("tool" to action.actionName)
-        action.params.forEach { (key, value) ->
-            if (value != null) actionMap[key] = value
-        }
-        val dstCtx = linkedMapOf<String, Any?>(
-            "page" to action.afterXml?.takeIf { it.isNotBlank() },
-            "screenshot" to action.afterScreenshot?.asMap(),
-            "screenshot_path" to action.afterScreenshot?.path,
-            "package_name" to action.packageName
-        ).filterValues { it != null && it.toString().isNotBlank() }
-        return linkedMapOf(
-            "src_ctx" to linkedMapOf(
-                "page" to beforeXml,
-                "screenshot" to action.beforeScreenshot?.asMap(),
-                "screenshot_path" to action.beforeScreenshot?.path,
-                "package_name" to action.packageName,
-                "require_unique_action_signature" to false
-            ).filterValues { it != null && it.toString().isNotBlank() },
-            "dst_ctx" to dstCtx.takeIf { it.isNotEmpty() },
-            "action" to actionMap,
-            "_oob_meta" to linkedMapOf(
-                "mode" to "manual_operation_recording",
-                "recording_backend" to recordingBackend,
-                "event_context" to action.eventContext.takeIf { it.isNotEmpty() }
-            ).filterValues { it != null }
-        ).filterValues { it != null }
-    }
-
-    private fun handleVlmStepStarted(index: Int, step: UIStep) {
-        val context = taskContext ?: return
-        val cardId = vlmStepCardId(index)
-        val card = buildInternalRunLogCard(
-            index = index,
-            step = step,
-            status = "running",
-            successOverride = null
-        )
-        InternalRunLogStore.upsertCard(
-            context = context,
-            runId = id,
-            cardId = cardId,
-            card = card
-        )
-    }
-
-    private fun handleVlmStepCompleted(
+    private suspend fun handleVlmStepCompleted(
         index: Int,
         step: UIStep,
         success: Boolean,
         errorMessage: String?
     ) {
         val context = taskContext ?: return
-        val status = if (success) "success" else "error"
-        val cardId = vlmStepCardId(index)
-        val card = buildInternalRunLogCard(
-            index = index,
+        val status = if (success) "succeeded" else "failed"
+        val stepId = vlmStepId(index)
+        val pending = PendingVlmRunLogStep(
+            stepId = stepId,
             step = step,
-            status = status,
-            successOverride = success,
-            errorMessage = errorMessage
+            success = success,
+            errorMessage = errorMessage,
         )
-        InternalRunLogStore.upsertCard(
-            context = context,
-            runId = id,
-            cardId = cardId,
-            card = card
-        )
-        completedVlmStepCardIds.add(cardId)
+        val runLogIndex = runLogStepIndex(context, stepId)
+        try {
+            val runLogStep = buildInternalRunLogStep(
+                index = runLogIndex,
+                step = step,
+                status = status,
+                successOverride = success,
+                errorMessage = errorMessage
+            )
+            InternalRunLogStore.upsertRecordedStep(
+                context = context,
+                runId = id,
+                stepId = stepId,
+                record = runLogStep,
+            )
+            pendingVlmRunLogSteps.remove(stepId)
+            publishVlmStepProgress(index, step, status, errorMessage)
+        } catch (error: Exception) {
+            pendingVlmRunLogSteps[stepId] = pending
+            OmniLog.e(Tag, "VLM RunLog write failed for $stepId: ${error.message}")
+        }
     }
 
-    private fun buildInternalRunLogCard(
+    private suspend fun handleVlmStepStarted(index: Int, step: UIStep) {
+        val context = taskContext ?: return
+        val stepId = vlmStepId(index)
+        runCatching {
+            val record = buildInternalRunLogStep(
+                index = runLogStepIndex(context, stepId),
+                step = step,
+                status = "running",
+                successOverride = null,
+                errorMessage = null,
+            )
+            InternalRunLogStore.upsertRecordedStep(
+                context = context,
+                runId = id,
+                stepId = stepId,
+                record = record,
+            )
+            publishVlmStepProgress(index, step, "running", null)
+        }.onFailure { error ->
+            OmniLog.e(Tag, "VLM RunLog running step write failed for $stepId: ${error.message}")
+        }
+    }
+
+    private suspend fun handleVlmStepWaitingUser(index: Int, step: UIStep) {
+        val context = taskContext ?: return
+        val stepId = vlmStepId(index)
+        try {
+            val record = buildInternalRunLogStep(
+                index = runLogStepIndex(context, stepId),
+                step = step,
+                status = "waiting_user",
+                successOverride = null,
+                errorMessage = null,
+            )
+            InternalRunLogStore.upsertRecordedStep(
+                context = context,
+                runId = id,
+                stepId = stepId,
+                record = record,
+            )
+            publishVlmStepProgress(index, step, "waiting_user", null)
+        } catch (error: Exception) {
+            OmniLog.e(Tag, "VLM RunLog waiting step write failed for $stepId: ${error.message}")
+        }
+    }
+
+    private suspend fun buildInternalRunLogStep(
         index: Int,
         step: UIStep,
         status: String = "success",
         successOverride: Boolean? = null,
         errorMessage: String? = null
-    ): Map<String, Any?> {
-        val actionParams = actionParams(step.action)
+    ): RunLogStepRecord {
+        val semantics = resolveVlmRunLogStepSemantics(step, successOverride)
+        val action = step.action.toRunLogAction()
         val durationMs = if (step.startedAtMs != null && step.finishedAtMs != null) {
             (step.finishedAtMs - step.startedAtMs).coerceAtLeast(0L)
         } else {
             null
         }
-        val title = step.thought.trim().ifEmpty { actionTitle(step.action) }
-        val success = successOverride ?: (step.action !is AbortAction)
-        val cardId = vlmStepCardId(index)
+        val success = semantics.success
+        val stepId = vlmStepId(index)
         val tokenUsage = step.tokenUsage?.let(VLMTokenUsageMapper::toRunLogMap)
             ?.takeIf { it.isNotEmpty() }
         val tokenUsageAttempts = step.tokenUsageAttempts
@@ -614,80 +582,106 @@ open class VLMOperationTask(
         val postActionObservation = VLMPostActionObservation.summarize(step)
         val postActionObservationMap = postActionObservation?.toRunLogMap()
         val actionResultData = step.actionResultData?.toRunLogAny()
-        val header = linkedMapOf<String, Any?>(
-            "step_index" to index,
-            "title" to title,
-            "tool_name" to step.action.name,
-            "status" to status,
-            "success" to success
-        )
-        durationMs?.let { header["duration_ms"] = it }
-        tokenUsage?.let {
-            header["token_usage"] = it
-            header["token_usage_total"] = it["total_tokens"]
+        val beforeState = step.beforeState
+        val afterState = step.afterState
+        val states = listOfNotNull(beforeState, afterState)
+            .distinctBy(State::stateId)
+            .map { state -> state.toRunLogMap() }
+        val result = when {
+            status == "running" || status == "waiting_user" -> null
+            else -> linkedMapOf<String, Any?>(
+                "success" to success,
+                "error" to errorMessage?.takeIf(String::isNotBlank),
+            ).filterValues { it != null }
         }
-        return linkedMapOf(
-            "card_id" to cardId,
-            "tool_call_id" to cardId,
-            "header" to header,
-            "step_index" to index,
-            "title" to title,
-            "summary" to step.summary,
-            "tool_name" to step.action.name,
-            "toolName" to step.action.name,
-            "tool_type" to "vlm",
-            "toolType" to "vlm",
-            "status" to status,
-            "action_type" to step.action.name,
-            "success" to success,
-            "error_message" to errorMessage,
-            "duration_ms" to durationMs,
-            "started_at_ms" to step.startedAtMs,
-            "finished_at_ms" to step.finishedAtMs,
-            "package_name" to step.packageName,
-            "page_diagnostics" to pageDiagnostics,
-            "action_result_data" to actionResultData,
-            "function_result" to actionResultData.takeIf { step.action is FunctionRunAction },
-            "token_usage" to tokenUsage,
-            "token_usage_attempts" to tokenUsageAttempts.takeIf { it.isNotEmpty() },
-            "recall_kind" to "vlm_step",
-            "tool_call" to linkedMapOf(
-                "id" to cardId,
-                "name" to step.action.name,
-                "arguments" to actionParams
+        return recordStepExecutor.recordStep(
+            RunLogStepRecord(
+                step = linkedMapOf(
+                "step_id" to stepId,
+                "step_index" to index,
+                "status" to status,
+                "thinking" to step.thought.trim().takeIf { it.isNotEmpty() },
+                "summary" to step.summary.trim().takeIf { it.isNotEmpty() },
+                "before_state_id" to beforeState?.stateId,
+                "action" to action,
+                "result" to result,
+                "after_state_id" to afterState?.stateId,
+                "diagnostics" to linkedMapOf(
+                    "duration_ms" to durationMs,
+                    "started_at_ms" to step.startedAtMs,
+                    "finished_at_ms" to step.finishedAtMs,
+                    "source" to "vlm",
+                    "message" to step.result,
+                    "summary" to step.summary.takeIf(String::isNotBlank),
+                    "thinking" to step.thought.trim().takeIf { it.isNotEmpty() },
+                    "page_diagnostics" to pageDiagnostics,
+                    "token_usage" to tokenUsage,
+                    "token_usage_attempts" to tokenUsageAttempts.takeIf { it.isNotEmpty() },
+                    "post_action_observation" to postActionObservationMap,
+                    "action_result_data" to actionResultData,
+                    "failure" to step.failure?.toRunLogMap(),
+                ).filterValues { it != null },
+                ).filterValues { it != null },
+                states = states,
             ),
-            "params" to actionParams,
-            "result" to linkedMapOf<String, Any?>(
-                "message" to step.result,
-                "summary" to step.summary,
-                "post_action_observation" to postActionObservationMap,
-                "screen_changed" to postActionObservation?.screenChanged,
-                "package_changed" to postActionObservation?.packageChanged,
-                "after_visible_texts" to postActionObservation?.afterVisibleTexts?.takeIf { it.isNotEmpty() },
-                "appeared_texts" to postActionObservation?.appearedTexts?.takeIf { it.isNotEmpty() },
-                "disappeared_texts" to postActionObservation?.disappearedTexts?.takeIf { it.isNotEmpty() },
-                "after_focused_editable" to postActionObservation?.afterFocusedEditable,
-                "observation_summary" to postActionObservation?.summaryText,
-                "data" to actionResultData,
-                "action_result_data" to actionResultData,
-                "function_result" to actionResultData.takeIf { step.action is FunctionRunAction },
-                "page_diagnostics" to pageDiagnostics
-            ).filterValues { it != null },
-            "before" to linkedMapOf(
-                "observation" to step.observation,
-                "observation_xml" to step.observationXml,
-                "package_name" to step.packageName
-            ),
-            "after" to linkedMapOf(
-                "summary" to step.summary,
-                "result" to step.result,
-                "observation_xml" to step.afterObservationXml,
-                "package_name" to (step.afterPackageName?.takeIf { it.isNotBlank() } ?: step.packageName)
-            )
         )
     }
 
-    private fun vlmStepCardId(index: Int): String = "$id-vlm-${index + 1}"
+    private fun VLMCommand.toRunLogAction(): Map<String, Any?>? = when (this) {
+        is Action -> linkedMapOf("tool" to tool, "args" to argsMap())
+        is Observe -> linkedMapOf("tool" to "get_state", "args" to mapOf("reason" to reason))
+        is FunctionInvocation -> linkedMapOf(
+            "tool" to "call_tool",
+            "args" to linkedMapOf(
+                "function_id" to functionId,
+                "arguments" to arguments.toRunLogAny(),
+            ),
+        )
+        is FinishedDecision -> linkedMapOf("tool" to "finished", "args" to mapOf("content" to content))
+        is InfoDecision -> linkedMapOf("tool" to "info", "args" to mapOf("value" to value))
+        is AbortDecision -> linkedMapOf("tool" to "abort", "args" to mapOf("value" to value))
+        is RecordMemory -> null
+    }
+
+    private suspend fun publishVlmStepProgress(
+        index: Int,
+        step: UIStep,
+        status: String,
+        errorMessage: String?,
+    ) {
+        try {
+            onMessagePushListener?.onVlmStepProgress(
+                VlmStepProgress(
+                    runId = id,
+                    stepIndex = index,
+                    status = status,
+                    thinking = step.thought.trim(),
+                    summary = step.summary.trim(),
+                    action = step.action.toRunLogAction(),
+                    result = if (status == "running") null else {
+                        linkedMapOf<String, Any?>(
+                            "success" to (status == "succeeded"),
+                            "error" to errorMessage?.takeIf(String::isNotBlank),
+                        ).filterValues { it != null }
+                    },
+                    error = errorMessage,
+                ),
+            )
+        } catch (error: Exception) {
+            OmniLog.w(Tag, "VLM step progress notification failed: ${error.message}")
+        }
+    }
+
+    private fun runLogStepIndex(context: Context, stepId: String): Int {
+        val steps = InternalRunLogStore.getRun(context, id)?.steps.orEmpty()
+        val existing = steps.indexOfFirst { step ->
+            val diagnostics = step["diagnostics"] as? Map<*, *>
+            step["step_id"]?.toString() == stepId || diagnostics?.get("step_id")?.toString() == stepId
+        }
+        return existing.takeIf { it >= 0 } ?: steps.size
+    }
+
+    private fun vlmStepId(index: Int): String = "$id-vlm-${index + 1}"
 
     private fun VLMPostActionObservation.Summary.toRunLogMap(): Map<String, Any?> =
         linkedMapOf<String, Any?>(
@@ -702,72 +696,34 @@ open class VLMOperationTask(
             "after_focused_editable" to afterFocusedEditable
         ).filterValues { it != null }
 
-    private fun actionTitle(action: UIAction): String {
-        return when (action) {
-            is ClickAction -> "点击 ${action.targetDescription}"
-            is InputTextAction -> "输入文本 ${action.targetDescription}"
-            is SwipeAction -> "滚动 ${action.targetDescription}"
-            is LongPressAction -> "长按 ${action.targetDescription}"
-            is OpenAppAction -> "打开应用"
-            is PressKeyAction -> when (action.key.lowercase()) {
-                "home" -> "返回桌面"
-                "back" -> "返回"
-                "enter" -> "确认"
-                else -> "按键 ${action.key}"
-            }
-            is WaitAction -> "等待"
-            is GetStateAction -> "刷新页面状态"
-            is FunctionRunAction -> "执行工具 ${action.functionId}"
-            is RecordAction -> "记录信息"
-            is FinishedAction -> "完成任务"
-            is InfoAction -> "请求用户协助"
-            is AbortAction -> "中止任务"
-        }
-    }
+    private fun State.toRunLogMap(): Map<String, Any?> = linkedMapOf<String, Any?>(
+        "state_id" to stateId,
+        "xml" to xml,
+        "package_name" to packageName,
+        "activity_name" to activityName,
+        "screenshot_base64" to screenshotBase64,
+        "display" to display?.let {
+            linkedMapOf("width" to it.width, "height" to it.height)
+        },
+    ).filterValues { it != null }
 
-    private fun actionParams(action: UIAction): Map<String, Any?> {
-        return when (action) {
-            is ClickAction -> linkedMapOf(
-                "target_description" to action.targetDescription,
-                "x" to action.x,
-                "y" to action.y
-            )
-            is InputTextAction -> linkedMapOf(
-                "target_description" to action.targetDescription,
-                "text" to action.text,
-                "x" to action.x,
-                "y" to action.y
-            )
-            is SwipeAction -> linkedMapOf(
-                "target_description" to action.targetDescription,
-                "x1" to action.x1,
-                "y1" to action.y1,
-                "x2" to action.x2,
-                "y2" to action.y2,
-                "duration_ms" to action.durationMs
-            )
-            is LongPressAction -> linkedMapOf(
-                "target_description" to action.targetDescription,
-                "x" to action.x,
-                "y" to action.y
-            )
-            is OpenAppAction -> linkedMapOf("package_name" to action.packageName)
-            is PressKeyAction -> linkedMapOf("key" to action.key)
-            is WaitAction -> linkedMapOf(
-                "time_s" to action.timeS,
-                "duration_ms" to action.durationMs
-            )
-            is GetStateAction -> linkedMapOf("reason" to action.reason)
-            is FunctionRunAction -> linkedMapOf(
-                "function_id" to action.functionId,
-                "arguments" to action.arguments.toRunLogAny()
-            )
-            is RecordAction -> linkedMapOf("content" to action.content)
-            is FinishedAction -> linkedMapOf("content" to action.content)
-            is InfoAction -> linkedMapOf("value" to action.value)
-            is AbortAction -> linkedMapOf("value" to action.value)
-        }
-    }
+    private fun VLMFailureDiagnostics.toRunLogMap(): Map<String, Any?> =
+        linkedMapOf(
+            "kind" to kind,
+            "message" to message,
+            "tool_call_failures" to toolCallFailures.map { failure ->
+                linkedMapOf(
+                    "code" to failure.code,
+                    "tool_name" to failure.toolName,
+                    "required_fields" to failure.requiredFields,
+                    "provided_fields" to failure.providedFields,
+                    "argument_types" to failure.argumentTypes,
+                    "missing_fields" to failure.missingFields,
+                    "safe_arguments_preview" to failure.safeArgumentsPreview,
+                    "message" to failure.message,
+                ).filterValues { it != null }
+            },
+        )
 
     private fun JsonElement.toRunLogAny(): Any? =
         when (this) {
@@ -862,7 +818,7 @@ open class VLMOperationTask(
                             )
                         )
                         val executedFunctionId = taskExecutionReport.executionTrace
-                            .mapNotNull { (it.action as? FunctionRunAction)?.functionId }
+                            .mapNotNull { (it.action as? FunctionInvocation)?.functionId }
                             .lastOrNull()
                         cancelScope.launch {
                             kotlinx.coroutines.withTimeoutOrNull(30_000L) {
@@ -1060,7 +1016,7 @@ open class VLMOperationTask(
         try {
             val finishedFromTrace = report.executionTrace.lastOrNull { it.action.name == "finished" }
             val traceSummary = finishedFromTrace?.result
-                ?: (finishedFromTrace?.action as? FinishedAction)?.content.orEmpty()
+                ?: (finishedFromTrace?.action as? FinishedDecision)?.content.orEmpty()
             val prompt = PromptTemplate.summaryPrompt(goal)
 
             val modelToUse = "scene.compactor.context"
@@ -1285,4 +1241,52 @@ open class VLMOperationTask(
     override fun getTaskType(): TaskType {
         return TaskType.VLM_OPERATION_EXECUTION
     }
+}
+
+internal data class VLMRunLogStepSemantics(
+    val success: Boolean,
+    val toolName: String,
+    val toolType: String,
+    val actionType: String?,
+    val recallKind: String,
+    val hasNativeToolCall: Boolean,
+)
+
+private data class PendingVlmRunLogStep(
+    val stepId: String,
+    val step: UIStep,
+    val success: Boolean,
+    val errorMessage: String?,
+)
+
+internal fun resolveVlmRunLogStepSemantics(
+    step: UIStep,
+    successOverride: Boolean? = null,
+): VLMRunLogStepSemantics {
+    val isMemoryRecord = step.action is RecordMemory
+    val isDiagnosticFailure = step.failure != null
+    val intrinsicSuccess = !isDiagnosticFailure &&
+        step.action !is AbortDecision &&
+        step.result?.startsWith(ACTION_FAILURE_PREFIX) != true
+    val success = if (isDiagnosticFailure) false else successOverride ?: intrinsicSuccess
+    return VLMRunLogStepSemantics(
+        success = success,
+        toolName = when {
+            isDiagnosticFailure -> step.failure.kind.ifBlank { "vlm_failure" }
+            isMemoryRecord -> "memory_record"
+            else -> step.action.name
+        },
+        toolType = when {
+            isDiagnosticFailure -> "vlm_diagnostic"
+            isMemoryRecord -> "vlm_memory"
+            else -> "vlm"
+        },
+        actionType = step.action.name.takeUnless { isMemoryRecord || isDiagnosticFailure },
+        recallKind = when {
+            isDiagnosticFailure -> "vlm_diagnostic"
+            isMemoryRecord -> "vlm_memory"
+            else -> "vlm_step"
+        },
+        hasNativeToolCall = !isMemoryRecord && !isDiagnosticFailure,
+    )
 }

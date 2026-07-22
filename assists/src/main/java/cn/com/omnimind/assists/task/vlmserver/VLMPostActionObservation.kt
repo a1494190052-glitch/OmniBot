@@ -19,9 +19,10 @@ object VLMPostActionObservation {
     )
 
     fun summarize(step: UIStep): Summary? {
-        val beforeXml = step.observationXml.orEmpty()
-        val afterXml = step.afterObservationXml.orEmpty()
-        if (afterXml.isBlank() && step.afterPackageName.isNullOrBlank()) return null
+        val beforeXml = step.beforeState?.xml.orEmpty()
+        val afterXml = step.afterState?.xml.orEmpty()
+        val afterPackageName = step.afterState?.packageName
+        if (afterXml.isBlank() && afterPackageName.isNullOrBlank()) return null
 
         val beforeTexts = visibleTexts(beforeXml)
         val afterTexts = visibleTexts(afterXml)
@@ -32,14 +33,14 @@ object VLMPostActionObservation {
             afterTexts.any { after -> after.equals(before, ignoreCase = true) }
         }.take(POST_TEXT_COUNT)
         val focused = focusedEditable(afterXml)
-        val packageChanged = !step.packageName.isNullOrBlank() &&
-            !step.afterPackageName.isNullOrBlank() &&
-            step.packageName != step.afterPackageName
+        val packageChanged = !step.beforeState?.packageName.isNullOrBlank() &&
+            !afterPackageName.isNullOrBlank() &&
+            step.beforeState?.packageName != afterPackageName
         val screenChanged = packageChanged || beforeTexts != afterTexts
         val summaryText = buildString {
             append(if (screenChanged) "after action screen changed" else "after action screen appears unchanged")
-            if (!step.afterPackageName.isNullOrBlank()) {
-                append("; package=").append(step.afterPackageName)
+            if (!afterPackageName.isNullOrBlank()) {
+                append("; package=").append(afterPackageName)
             }
             if (afterTexts.isNotEmpty()) {
                 append("; visible=").append(afterTexts.take(POST_TEXT_COUNT).joinToString(" / "))
@@ -58,8 +59,8 @@ object VLMPostActionObservation {
         return Summary(
             screenChanged = screenChanged,
             packageChanged = packageChanged,
-            beforePackageName = step.packageName,
-            afterPackageName = step.afterPackageName,
+            beforePackageName = step.beforeState?.packageName,
+            afterPackageName = afterPackageName,
             afterVisibleTexts = afterTexts.take(POST_TEXT_COUNT),
             appearedTexts = appearedTexts,
             disappearedTexts = disappearedTexts,

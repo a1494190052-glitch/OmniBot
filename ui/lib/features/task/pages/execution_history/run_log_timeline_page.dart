@@ -37,12 +37,12 @@ Future<void> showRunLogTimelineSheet(
   );
 }
 
-/// 通过 runId + cardId 直接跳到单步 detail sheet。
-/// 找不到匹配的 card 时 fallback 到完整 timeline。
+/// 通过 runId + stepId 直接跳到单步 detail sheet。
+/// 找不到匹配的 step 时 fallback 到完整 timeline。
 Future<void> showRunLogStepDetailSheet(
   BuildContext context, {
   required String runId,
-  required String cardId,
+  required String stepId,
   String title = '',
   String? baseUrl,
 }) {
@@ -54,7 +54,7 @@ Future<void> showRunLogStepDetailSheet(
     barrierColor: Colors.black.withValues(alpha: 0.28),
     builder: (_) => _StepDetailLoader(
       runId: runId,
-      cardId: cardId,
+      stepId: stepId,
       title: title,
       baseUrl: baseUrl,
     ),
@@ -83,17 +83,17 @@ Future<void> showReusableFunctionSpecSheet(
   );
 }
 
-/// 内部 widget：先拉 payload，再定位到目标 card 并展示单步 detail。
+/// 内部 widget：先拉 canonical RunLog，再定位到目标 step 并展示单步 detail。
 class _StepDetailLoader extends StatefulWidget {
   const _StepDetailLoader({
     required this.runId,
-    required this.cardId,
+    required this.stepId,
     required this.title,
     this.baseUrl,
   });
 
   final String runId;
-  final String cardId;
+  final String stepId;
   final String title;
   final String? baseUrl;
 
@@ -103,8 +103,8 @@ class _StepDetailLoader extends StatefulWidget {
 
 class _StepDetailLoaderState extends State<_StepDetailLoader> {
   bool _loading = true;
-  Map<String, dynamic>? _card;
-  int _cardIndex = 0;
+  Map<String, dynamic>? _step;
+  int _stepIndex = 0;
   Map<String, dynamic> _payload = const {};
 
   @override
@@ -119,22 +119,22 @@ class _StepDetailLoaderState extends State<_StepDetailLoader> {
         runId: widget.runId,
       );
       if (!mounted) return;
-      final cards = _extractTimelineCards(payload);
-      final targetId = widget.cardId.trim().toLowerCase();
+      final steps = _extractTimelineSteps(payload);
+      final targetId = widget.stepId.trim().toLowerCase();
       Map<String, dynamic>? matched;
       int matchedIndex = 0;
-      for (int i = 0; i < cards.length; i++) {
-        final c = cards[i];
-        if (_timelineCardMatchesId(c, targetId)) {
-          matched = c;
+      for (int i = 0; i < steps.length; i++) {
+        final step = steps[i];
+        if (_timelineStepMatchesId(step, targetId)) {
+          matched = step;
           matchedIndex = i;
           break;
         }
       }
       setState(() {
         _payload = payload;
-        _card = matched ?? (cards.isNotEmpty ? cards.first : null);
-        _cardIndex = matched != null ? matchedIndex : 0;
+        _step = matched ?? (steps.isNotEmpty ? steps.first : null);
+        _stepIndex = matched != null ? matchedIndex : 0;
         _loading = false;
       });
     } catch (_) {
@@ -176,9 +176,9 @@ class _StepDetailLoaderState extends State<_StepDetailLoader> {
         ),
       );
     }
-    final card = _card;
-    if (card == null) {
-      // 没找到任何 card，fallback 到完整 timeline
+    final step = _step;
+    if (step == null) {
+      // 没找到任何 step，fallback 到完整 timeline
       return _RunLogTimelineSheetFrame(
         runId: widget.runId,
         title: widget.title,
@@ -186,8 +186,8 @@ class _StepDetailLoaderState extends State<_StepDetailLoader> {
       );
     }
     return _StepDetailSheet(
-      card: card,
-      fallbackIndex: _cardIndex,
+      step: step,
+      fallbackIndex: _stepIndex,
       runId: widget.runId,
       title: widget.title,
       payload: _payload,
@@ -215,11 +215,14 @@ class RunLogTimelinePage extends StatefulWidget {
 }
 
 class _RunLogTimelinePageState extends State<RunLogTimelinePage> {
+  static const _refreshInterval = Duration(seconds: 2);
+
   Map<String, dynamic> _payload = const {};
-  List<Map<String, dynamic>> _cards = [];
-  List<_RunLogCardGroup> _cardGroups = const [];
+  List<Map<String, dynamic>> _steps = [];
+  List<_RunLogStepGroup> _stepGroups = const [];
   bool _isLoading = true;
   bool _isConvertingFunction = false;
+  bool _isEnhancingFunction = false;
   bool _isReplayingRunLog = false;
   FunctionSpec? _savedFunctionSpec;
   UtgRunLogImportResult? _savedFunctionImportResult;
@@ -228,6 +231,7 @@ class _RunLogTimelinePageState extends State<RunLogTimelinePage> {
   String? _functionPanelMessage;
   String? _functionPanelError;
   String? _error;
+  Timer? _refreshTimer;
 
   @override
   void initState() {
@@ -235,90 +239,65 @@ class _RunLogTimelinePageState extends State<RunLogTimelinePage> {
     _load();
   }
 
-  Future<void> _load() async {
-    setState(() {
-      _isLoading = true;
-      _error = null;
-    });
+  Future<void> _load({bool showLoading = true}) async {
+    if (showLoading) {
+      setState(() {
+        _isLoading = true;
+        _error = null;
+      });
+    }
     try {
       final payload = await RunLogFunctionService.getInternalRunLogTimeline(
         runId: widget.runId,
       );
-      final cards = _extractTimelineCards(payload);
-      final cardGroups = _groupTimelineCards(cards);
-      final restoredBinding = await _restoreRegisteredFunctionBinding(payload);
+      final steps = _extractTimelineSteps(payload);
+      final stepGroups = _groupTimelineSteps(steps);
       if (!mounted) return;
       setState(() {
         _payload = payload;
-        _cards = cards;
-        _cardGroups = cardGroups;
+        _steps = steps;
+        _stepGroups = stepGroups;
         final error = _runLogPayloadError(context, payload);
         _error = error;
-        _savedFunctionSpec = restoredBinding?.spec;
-        _savedFunctionImportResult = restoredBinding?.importResult;
-        if (restoredBinding != null) {
-          _functionPanelStatus = _RunLogFunctionPanelStatus.saved;
-          _functionPanelMessage = _text(context, '已保存为复用指令', 'Function saved');
-          _functionPanelError = null;
-        } else if (_functionPanelStatus == _RunLogFunctionPanelStatus.saved) {
+        if (_functionPanelStatus == _RunLogFunctionPanelStatus.saved) {
           _functionPanelStatus = _RunLogFunctionPanelStatus.idle;
           _functionPanelMessage = null;
           _functionPanelError = null;
         }
         _isLoading = false;
       });
+      _scheduleRefreshIfRunning(payload);
     } catch (e) {
       if (!mounted) return;
       setState(() {
         _error = context.l10n.omniflowAssetRunLogNotReady;
         _isLoading = false;
       });
+      _refreshTimer?.cancel();
     }
   }
 
-  Future<_RunLogRegisteredFunctionBinding?> _restoreRegisteredFunctionBinding(
-    Map<String, dynamic> payload,
-  ) async {
-    final functionId = _registeredFunctionIdFromPayload(payload);
-    if (functionId.isEmpty) return null;
-
-    var specJson = _registeredFunctionSpecFromPayload(payload);
-    if (specJson.isEmpty) {
-      final fetched = await RunLogFunctionService.getFunction(
-        functionId,
-      ).catchError((_) => null);
-      specJson = _asStringKeyMap(fetched);
-    }
-    if (specJson.isEmpty) {
-      specJson = _minimalRegisteredFunctionSpecFromPayload(payload, functionId);
-    }
-    if (!mounted) return null;
-    final spec = FunctionSpec(
-      json: specJson,
-      agentPrompt: functionAgentPrompt(specJson),
-      aiEnhanced: false,
-    );
-    final importResult = UtgRunLogImportResult.fromMap({
-      'success': true,
-      'run_id': widget.runId,
-      'function_id': functionId,
-      'created_function_id': functionId,
-      'functions_created': 0,
-      'asset_kind': 'reusable_function',
-      'asset_state': 'native_local',
-      'source_run_ids': <String>[widget.runId],
+  void _scheduleRefreshIfRunning(Map<String, dynamic> payload) {
+    _refreshTimer?.cancel();
+    if (!mounted || _isRunLogFinished(payload)) return;
+    _refreshTimer = Timer(_refreshInterval, () {
+      if (mounted) {
+        unawaited(_load(showLoading: false));
+      }
     });
-    return _RunLogRegisteredFunctionBinding(
-      spec: spec,
-      importResult: importResult,
-    );
+  }
+
+  @override
+  void dispose() {
+    _refreshTimer?.cancel();
+    super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
     final palette = context.omniPalette;
     final l10n = context.l10n;
-    final stepCount = _cards.length;
+    final stepCount = _steps.length;
     final subtitleParts = <String>[
       if (_payload.isNotEmpty) _runLogStatusInfo(context, _payload).label,
       if (stepCount > 0) l10n.runLogTimelineStepCount(stepCount),
@@ -330,7 +309,7 @@ class _RunLogTimelinePageState extends State<RunLogTimelinePage> {
     final convertEligibility = _runLogConvertEligibility(
       context,
       _payload,
-      _cards,
+      _steps,
     );
     final savedSpec = _savedFunctionSpec;
     final List<Widget> actions = <Widget>[
@@ -350,7 +329,7 @@ class _RunLogTimelinePageState extends State<RunLogTimelinePage> {
               : const Icon(Icons.play_arrow_rounded),
           color: palette.textPrimary,
           onPressed:
-              _cards.isEmpty || _isConvertingFunction || _isReplayingRunLog
+              _steps.isEmpty || _isConvertingFunction || _isReplayingRunLog
               ? null
               : _executeCurrentRunLog,
         ),
@@ -392,7 +371,7 @@ class _RunLogTimelinePageState extends State<RunLogTimelinePage> {
           key: const ValueKey('run-log-action-debug'),
           icon: const Icon(Icons.data_object_rounded),
           color: palette.textPrimary,
-          onPressed: _payload.isEmpty && _cards.isEmpty
+          onPressed: _payload.isEmpty && _steps.isEmpty
               ? null
               : _showRunLogDebugSheet,
         ),
@@ -403,7 +382,7 @@ class _RunLogTimelinePageState extends State<RunLogTimelinePage> {
           key: const ValueKey('run-log-action-copy'),
           icon: const Icon(Icons.copy_all_rounded),
           color: palette.textPrimary,
-          onPressed: _cards.isEmpty ? null : _copyAllText,
+          onPressed: _steps.isEmpty ? null : _copyAllText,
         ),
       ),
     ];
@@ -451,7 +430,7 @@ class _RunLogTimelinePageState extends State<RunLogTimelinePage> {
         message: _error!,
       );
     }
-    if (_cards.isEmpty) {
+    if (_steps.isEmpty) {
       return ListView(
         padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 16),
         children: [
@@ -465,7 +444,7 @@ class _RunLogTimelinePageState extends State<RunLogTimelinePage> {
         ],
       );
     }
-    final cardGroups = _cardGroups;
+    final stepGroups = _stepGroups;
     final functionStatusStrip = _buildFunctionStatusStrip(context);
     return CustomScrollView(
       slivers: [
@@ -474,7 +453,7 @@ class _RunLogTimelinePageState extends State<RunLogTimelinePage> {
           sliver: SliverToBoxAdapter(
             child: _RunLogOverviewCard(
               payload: _payload,
-              stepCount: _cards.length,
+              stepCount: _steps.length,
             ),
           ),
         ),
@@ -488,19 +467,14 @@ class _RunLogTimelinePageState extends State<RunLogTimelinePage> {
           padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
           sliver: SliverList(
             delegate: SliverChildBuilderDelegate((context, index) {
-              final group = cardGroups[index];
+              final group = stepGroups[index];
               return _StepCard(
-                card: group.card,
+                step: group.step,
                 fallbackIndex: group.fallbackIndex,
-                isLast: index == cardGroups.length - 1,
-                nestedCards: group.nestedCards,
-                onTap: () => _showStepDetail(
-                  group.card,
-                  group.fallbackIndex,
-                  nestedCards: group.nestedCards,
-                ),
+                isLast: index == stepGroups.length - 1,
+                onTap: () => _showStepDetail(group.step, group.fallbackIndex),
               );
-            }, childCount: cardGroups.length),
+            }, childCount: stepGroups.length),
           ),
         ),
       ],
@@ -525,13 +499,13 @@ class _RunLogTimelinePageState extends State<RunLogTimelinePage> {
   }
 
   Future<void> _registerCurrentRunLog() async {
-    if (_cards.isEmpty || _isConvertingFunction) {
+    if (_steps.isEmpty || _isConvertingFunction) {
       return;
     }
     final convertEligibility = _runLogConvertEligibility(
       context,
       _payload,
-      _cards,
+      _steps,
     );
     if (!convertEligibility.canConvert) {
       setState(() {
@@ -558,34 +532,18 @@ class _RunLogTimelinePageState extends State<RunLogTimelinePage> {
             runId: widget.runId,
             register: true,
           );
-      final functionId = _firstNonBlank([
-        result['created_function_id'],
-        result['function_id'],
-      ]);
+      final functionId = _firstNonBlank([result['function_id']]);
       if (result['success'] != true || functionId.isEmpty) {
         final error = result['error_message']?.toString().trim();
         throw Exception(
           error?.isNotEmpty == true ? error : registrationFailedText,
         );
       }
-      final functionSpec = _asStringKeyMap(result['function_spec']);
-      final specJson = functionSpec.isNotEmpty
-          ? functionSpec
-          : <String, dynamic>{
-              'schema_version': 'oob.reusable_function.v1',
-              'function_id': functionId,
-              'name': functionId,
-              'description': _firstNonBlank([
-                _payload['goal'],
-                _payload['operation_description'],
-                widget.title,
-              ]),
-              'parameters': const <dynamic>[],
-              'execution': const <String, dynamic>{
-                'kind': 'tool_sequence',
-                'steps': <dynamic>[],
-              },
-            };
+      final functionSpec = _asStringKeyMap(result['function']);
+      if (functionSpec.isEmpty) {
+        throw Exception('Function conversion returned no Function');
+      }
+      final specJson = functionSpec;
       final spec = FunctionSpec(
         json: specJson,
         agentPrompt: functionAgentPrompt(specJson),
@@ -614,7 +572,7 @@ class _RunLogTimelinePageState extends State<RunLogTimelinePage> {
   }
 
   Future<void> _executeCurrentRunLog() async {
-    if (_cards.isEmpty || _isConvertingFunction || _isReplayingRunLog) {
+    if (_steps.isEmpty || _isConvertingFunction || _isReplayingRunLog) {
       return;
     }
     setState(() {
@@ -637,19 +595,16 @@ class _RunLogTimelinePageState extends State<RunLogTimelinePage> {
             runId: widget.runId,
             register: true,
           );
-      final functionId = _firstNonBlank([
-        convertResult['created_function_id'],
-        convertResult['function_id'],
-      ]);
+      final functionId = _firstNonBlank([convertResult['function_id']]);
       if (convertResult['success'] != true || functionId.isEmpty) {
         final message = convertResult['error_message']?.toString().trim();
         throw Exception(
           message?.isNotEmpty == true ? message : conversionFailedText,
         );
       }
-      final spec = convertResult['function_spec'] is Map
+      final spec = convertResult['function'] is Map
           ? Map<String, dynamic>.from(
-              (convertResult['function_spec'] as Map).map(
+              (convertResult['function'] as Map).map(
                 (key, value) => MapEntry(key.toString(), value),
               ),
             )
@@ -691,8 +646,13 @@ class _RunLogTimelinePageState extends State<RunLogTimelinePage> {
         _functionPanelError?.trim().isNotEmpty == true;
     if (!shouldShow) return null;
     final savedSpec = _savedFunctionSpec;
-    final isBusy = _isConvertingFunction;
+    final isBusy = _isConvertingFunction || _isEnhancingFunction;
     final canView = savedSpec != null && !isBusy;
+    final canEnhance =
+        savedSpec != null &&
+        !isBusy &&
+        (_functionPanelStatus == _RunLogFunctionPanelStatus.saved ||
+            _functionPanelStatus == _RunLogFunctionPanelStatus.failed);
     final canRetrySave =
         savedSpec == null &&
         !isBusy &&
@@ -704,10 +664,10 @@ class _RunLogTimelinePageState extends State<RunLogTimelinePage> {
       message: _functionPanelMessage,
       error: _functionPanelError,
       canView: canView,
-      canEnhance: false,
+      canEnhance: canEnhance,
       canRetrySave: canRetrySave,
       onView: canView ? _openSavedFunctionSheet : null,
-      onEnhance: null,
+      onEnhance: canEnhance ? _enhanceSavedRunLogFunction : null,
       onRetrySave: canRetrySave ? _registerCurrentRunLog : null,
     );
   }
@@ -721,6 +681,55 @@ class _RunLogTimelinePageState extends State<RunLogTimelinePage> {
     );
   }
 
+  Future<void> _enhanceSavedRunLogFunction() async {
+    final currentSpec = _savedFunctionSpec;
+    if (currentSpec == null ||
+        _isConvertingFunction ||
+        _isEnhancingFunction ||
+        _isReplayingRunLog) {
+      return;
+    }
+    setState(() {
+      _isEnhancingFunction = true;
+      _functionPanelStatus = _RunLogFunctionPanelStatus.enhancing;
+      _functionPanelMessage = _text(context, '正在增强复用指令', 'Enhancing Function');
+      _functionPanelError = null;
+    });
+    try {
+      final result = await RunLogFunctionService.enhanceFunction(
+        functionId: currentSpec.functionId,
+        runId: widget.runId,
+      );
+      final updatedSpec = _functionSpecFromEnhancementResult(
+        result,
+        fallback: currentSpec,
+      );
+      if (!mounted) return;
+      setState(() {
+        _isEnhancingFunction = false;
+        _savedFunctionSpec = updatedSpec;
+        _functionPanelStatus = _panelStatusFromFunctionSpec(updatedSpec);
+        _functionPanelMessage = _firstNonBlank([
+          result['message'],
+          updatedSpec.enhancementMessage,
+        ]);
+        _functionPanelError = null;
+      });
+    } catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _isEnhancingFunction = false;
+        _functionPanelStatus = _RunLogFunctionPanelStatus.failed;
+        _functionPanelMessage = _text(
+          context,
+          '增强失败，当前复用指令保持不变',
+          'Enhancement failed. The Function is unchanged.',
+        );
+        _functionPanelError = error.toString();
+      });
+    }
+  }
+
   String _buildRunLogTranscript() {
     final l10n = context.l10n;
     final transcriptTitle = widget.title.trim().isEmpty
@@ -730,14 +739,12 @@ class _RunLogTimelinePageState extends State<RunLogTimelinePage> {
       '# $transcriptTitle',
       '',
       'Run ID: ${widget.runId}',
-      l10n.runLogTimelineStepCount(_cards.length),
+      l10n.runLogTimelineStepCount(_steps.length),
     ];
 
     final goal = _firstNonBlank([
       _payload['goal'],
-      _payload['task_goal'],
-      _payload['operation_description'],
-      _payload['operationDescription'],
+      _runLogDiagnostics(_payload)['description'],
     ]);
     if (goal.isNotEmpty) {
       lines.add('${l10n.omniflowAssetGoal}: $goal');
@@ -745,13 +752,13 @@ class _RunLogTimelinePageState extends State<RunLogTimelinePage> {
 
     lines.add('');
     lines.add('## ${_text(context, '执行步骤', 'Execution steps')}');
-    for (var index = 0; index < _cards.length; index++) {
+    for (var index = 0; index < _steps.length; index++) {
       if (index > 0) {
         lines.add('');
       }
       lines.add(
-        _RunLogStepSnapshot.fromCard(
-          _cards[index],
+        _RunLogStepSnapshot.fromStep(
+          _steps[index],
           fallbackIndex: index,
         ).toTranscript(),
       );
@@ -766,11 +773,7 @@ class _RunLogTimelinePageState extends State<RunLogTimelinePage> {
     return lines.join('\n').trimRight();
   }
 
-  Future<void> _showStepDetail(
-    Map<String, dynamic> card,
-    int index, {
-    List<Map<String, dynamic>> nestedCards = const <Map<String, dynamic>>[],
-  }) {
+  Future<void> _showStepDetail(Map<String, dynamic> step, int index) {
     return showModalBottomSheet<void>(
       context: context,
       useRootNavigator: true,
@@ -778,9 +781,8 @@ class _RunLogTimelinePageState extends State<RunLogTimelinePage> {
       backgroundColor: Colors.transparent,
       barrierColor: Colors.black.withValues(alpha: 0.28),
       builder: (sheetContext) => _StepDetailSheet(
-        card: card,
+        step: step,
         fallbackIndex: index,
-        nestedCards: nestedCards,
         runId: widget.runId,
         title: widget.title,
         payload: _payload,
@@ -799,7 +801,7 @@ class _RunLogTimelinePageState extends State<RunLogTimelinePage> {
       builder: (sheetContext) => _RunLogDebugSheet(
         runId: widget.runId,
         payload: _payload,
-        cards: _cards,
+        steps: _steps,
       ),
     );
   }
@@ -821,68 +823,51 @@ class _RunLogTimelinePageState extends State<RunLogTimelinePage> {
 enum _RunLogFunctionPanelStatus {
   idle,
   saving,
+  enhancing,
   saved,
+  enhanced,
+  unchanged,
   failed,
 }
 
-class _RunLogRegisteredFunctionBinding {
-  const _RunLogRegisteredFunctionBinding({
-    required this.spec,
-    required this.importResult,
-  });
-
-  final FunctionSpec spec;
-  final UtgRunLogImportResult importResult;
+_RunLogFunctionPanelStatus _panelStatusFromFunctionSpec(FunctionSpec spec) {
+  switch (spec.enhancementStatus) {
+    case FunctionEnhancementStatus.enhancing:
+      return _RunLogFunctionPanelStatus.enhancing;
+    case FunctionEnhancementStatus.enhanced:
+    case FunctionEnhancementStatus.partial:
+      return _RunLogFunctionPanelStatus.enhanced;
+    case FunctionEnhancementStatus.unchanged:
+      return _RunLogFunctionPanelStatus.unchanged;
+    case FunctionEnhancementStatus.failed:
+      return _RunLogFunctionPanelStatus.failed;
+    case FunctionEnhancementStatus.none:
+      return _RunLogFunctionPanelStatus.saved;
+  }
 }
 
-String _registeredFunctionIdFromPayload(Map<String, dynamic> payload) {
-  final ids = payload['registered_function_ids'];
-  return _firstNonBlank([
-    payload['registered_function_id'],
-    payload['registeredFunctionId'],
-    if (ids is List && ids.isNotEmpty) ids.first,
-    _asStringKeyMap(payload['registered_function_summary'])['function_id'],
-    _asStringKeyMap(payload['registeredFunctionSummary'])['function_id'],
-  ]);
-}
-
-Map<String, dynamic> _registeredFunctionSpecFromPayload(
-  Map<String, dynamic> payload,
-) {
-  return _asStringKeyMap(
-    payload['registered_function_spec'] ?? payload['registeredFunctionSpec'],
+FunctionSpec _functionSpecFromEnhancementResult(
+  Map<String, dynamic> result, {
+  required FunctionSpec fallback,
+}) {
+  if (result['success'] != true) {
+    final message = _firstNonBlank([
+      result['error_message'],
+      result['message'],
+    ]);
+    throw Exception(message.isEmpty ? 'Function enhancement failed' : message);
+  }
+  final updatedJson = _asStringKeyMap(result['updated_function']);
+  if (updatedJson.isEmpty) {
+    throw Exception('Function enhancement returned no updated Function');
+  }
+  final status = _firstNonBlank([result['enhancement_status']]).toLowerCase();
+  return FunctionSpec(
+    json: updatedJson,
+    agentPrompt: functionAgentPrompt(updatedJson),
+    aiEnhanced:
+        fallback.aiEnhanced || status == 'enhanced' || status == 'partial',
   );
-}
-
-Map<String, dynamic> _minimalRegisteredFunctionSpecFromPayload(
-  Map<String, dynamic> payload,
-  String functionId,
-) {
-  final summary = _asStringKeyMap(
-    payload['registered_function_summary'] ??
-        payload['registeredFunctionSummary'],
-  );
-  return <String, dynamic>{
-    'schema_version': 'oob.reusable_function.v1',
-    'function_id': functionId,
-    'name': _firstNonBlank([
-      summary['name'],
-      payload['goal'],
-      payload['operation_description'],
-      functionId,
-    ]),
-    'description': _firstNonBlank([
-      summary['description'],
-      payload['operation_description'],
-      payload['goal'],
-    ]),
-    'source': <String, dynamic>{'kind': 'run_log', 'run_id': payload['run_id']},
-    'parameters': const <dynamic>[],
-    'execution': <String, dynamic>{
-      'kind': 'tool_sequence',
-      'steps': const <dynamic>[],
-    },
-  };
 }
 
 class _RunLogFunctionStatusStrip extends StatelessWidget {
@@ -915,7 +900,9 @@ class _RunLogFunctionStatusStrip extends StatelessWidget {
   Widget build(BuildContext context) {
     final palette = context.omniPalette;
     final color = _color(context);
-    final busy = status == _RunLogFunctionPanelStatus.saving;
+    final busy =
+        status == _RunLogFunctionPanelStatus.saving ||
+        status == _RunLogFunctionPanelStatus.enhancing;
     final title = _title(context);
     final detail = _firstNonBlank([
       error,
@@ -1006,10 +993,15 @@ class _RunLogFunctionStatusStrip extends StatelessWidget {
     switch (status) {
       case _RunLogFunctionPanelStatus.saved:
         return Icons.cloud_done_outlined;
+      case _RunLogFunctionPanelStatus.enhanced:
+        return Icons.auto_awesome_rounded;
+      case _RunLogFunctionPanelStatus.unchanged:
+        return Icons.fact_check_outlined;
       case _RunLogFunctionPanelStatus.failed:
         return Icons.error_outline_rounded;
       case _RunLogFunctionPanelStatus.idle:
       case _RunLogFunctionPanelStatus.saving:
+      case _RunLogFunctionPanelStatus.enhancing:
         return Icons.info_outline_rounded;
     }
   }
@@ -1017,11 +1009,14 @@ class _RunLogFunctionStatusStrip extends StatelessWidget {
   Color _color(BuildContext context) {
     switch (status) {
       case _RunLogFunctionPanelStatus.saved:
+      case _RunLogFunctionPanelStatus.enhanced:
+      case _RunLogFunctionPanelStatus.unchanged:
         return _successColor(context);
       case _RunLogFunctionPanelStatus.failed:
         return _errorColor(context);
       case _RunLogFunctionPanelStatus.idle:
       case _RunLogFunctionPanelStatus.saving:
+      case _RunLogFunctionPanelStatus.enhancing:
         return _routeColor(context);
     }
   }
@@ -1030,8 +1025,14 @@ class _RunLogFunctionStatusStrip extends StatelessWidget {
     switch (status) {
       case _RunLogFunctionPanelStatus.saving:
         return _text(context, '正在保存复用指令', 'Saving Function');
+      case _RunLogFunctionPanelStatus.enhancing:
+        return _text(context, '正在增强复用指令', 'Enhancing Function');
       case _RunLogFunctionPanelStatus.saved:
         return _text(context, '已保存为复用指令', 'Function saved');
+      case _RunLogFunctionPanelStatus.enhanced:
+        return _text(context, '复用指令已增强', 'Function enhanced');
+      case _RunLogFunctionPanelStatus.unchanged:
+        return _text(context, '已检查，无需修改', 'Checked, no change');
       case _RunLogFunctionPanelStatus.failed:
         return _text(context, '处理失败', 'Action failed');
       case _RunLogFunctionPanelStatus.idle:
@@ -1098,21 +1099,17 @@ class _RunLogOverviewCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final palette = context.omniPalette;
     final isDark = context.isDarkTheme;
+    final diagnostics = _runLogDiagnostics(payload);
     final status = _runLogStatusInfo(context, payload);
-    final goal = _firstNonBlank([
-      payload['goal'],
-      payload['task_goal'],
-      payload['operation_description'],
-      payload['operationDescription'],
-    ]);
+    final goal = payload['goal']?.toString().trim() ?? '';
     final error = _firstNonBlank([
-      payload['error_message'],
-      payload['errorMessage'],
-      status.kind == _RunLogStatusKind.failed ? payload['done_reason'] : null,
-      status.kind == _RunLogStatusKind.failed ? payload['doneReason'] : null,
+      payload['error'],
+      status.kind == _RunLogStatusKind.failed
+          ? diagnostics['done_reason']
+          : null,
     ]);
     final tokenSummary = _RunLogTokenUsageAggregate.fromPayload(payload);
-    final durationMs = _asInt(payload['duration_ms'] ?? payload['durationMs']);
+    final durationMs = _asInt(diagnostics['duration_ms']);
     final chips = <MapEntry<String, String>>[
       MapEntry(_text(context, '步骤', 'Steps'), stepCount.toString()),
       if (durationMs != null)
@@ -1393,21 +1390,21 @@ class _RunLogDebugSheet extends StatelessWidget {
   const _RunLogDebugSheet({
     required this.runId,
     required this.payload,
-    required this.cards,
+    required this.steps,
   });
 
   final String runId;
   final Map<String, dynamic> payload;
-  final List<Map<String, dynamic>> cards;
+  final List<Map<String, dynamic>> steps;
 
   @override
   Widget build(BuildContext context) {
     final palette = context.omniPalette;
-    final thinkingEntries = _collectRunLogThinkingEntries(payload, cards);
+    final thinkingEntries = _collectRunLogThinkingEntries(payload, steps);
     final rawJson = <String, dynamic>{
       'run_id': runId,
       'payload': payload,
-      'cards': cards,
+      'steps': steps,
     };
     final copyValue = _prettyJson(rawJson);
     return DraggableScrollableSheet(
@@ -1641,18 +1638,16 @@ class _RunLogTimelineHeaderTitle extends StatelessWidget {
 
 class _StepCard extends StatelessWidget {
   const _StepCard({
-    required this.card,
+    required this.step,
     required this.fallbackIndex,
     required this.isLast,
     required this.onTap,
-    this.nestedCards = const <Map<String, dynamic>>[],
   });
 
-  final Map<String, dynamic> card;
+  final Map<String, dynamic> step;
   final int fallbackIndex;
   final bool isLast;
   final VoidCallback onTap;
-  final List<Map<String, dynamic>> nestedCards;
 
   @override
   Widget build(BuildContext context) {
@@ -1660,11 +1655,12 @@ class _StepCard extends StatelessWidget {
     final isDark = context.isDarkTheme;
     final l10n = context.l10n;
 
-    final snapshot = _RunLogStepSnapshot.fromCard(
-      card,
+    final snapshot = _RunLogStepSnapshot.fromStep(
+      step,
       fallbackIndex: fallbackIndex,
     );
     final success = snapshot.success ?? true;
+    final isPending = snapshot.isPending;
     final compileKind = snapshot.compileKind;
     final source = _runLogStepSource(snapshot);
     final sourceColor = _runLogStepSourceColor(context, source);
@@ -1672,7 +1668,9 @@ class _StepCard extends StatelessWidget {
     final displayTitle = _runLogStepDisplayTitle(context, snapshot);
 
     final isHit = compileKind == 'hit';
-    final dotColor = success
+    final dotColor = isPending
+        ? _runningColor(context)
+        : success
         ? (hasSourceBadge
               ? sourceColor
               : (isHit ? _successColor(context) : _routeColor(context)))
@@ -1781,11 +1779,15 @@ class _StepCard extends StatelessWidget {
                             ],
                             const SizedBox(width: 6),
                             Icon(
-                              success
+                              isPending
+                                  ? Icons.timelapse_rounded
+                                  : success
                                   ? Icons.check_circle_outline
                                   : Icons.cancel_outlined,
                               size: 14,
-                              color: success
+                              color: isPending
+                                  ? _runningColor(context)
+                                  : success
                                   ? _successColor(context)
                                   : _errorColor(context),
                             ),
@@ -1823,7 +1825,32 @@ class _StepCard extends StatelessWidget {
                             ),
                           ),
                         ],
-                        if (preview.isNotEmpty) ...[
+                        if (snapshot.isVlmStep &&
+                            snapshot.thinking.isNotEmpty) ...[
+                          const SizedBox(height: 8),
+                          _StepTracePreview(
+                            key: ValueKey(
+                              'run-log-step-thinking-${snapshot.stepNumber}',
+                            ),
+                            label: _text(context, '思考过程', 'Reasoning'),
+                            text: snapshot.thinking,
+                            maxLines: 4,
+                          ),
+                        ],
+                        if (snapshot.isVlmStep &&
+                            !_isEmptyJsonValue(snapshot.args)) ...[
+                          const SizedBox(height: 8),
+                          _StepTracePreview(
+                            key: ValueKey(
+                              'run-log-step-arguments-${snapshot.stepNumber}',
+                            ),
+                            label: _text(context, '参数', 'Arguments'),
+                            text: _compactUserJson(snapshot.args),
+                            maxLines: 4,
+                            monospace: true,
+                          ),
+                        ],
+                        if (preview.isNotEmpty && !snapshot.isVlmStep) ...[
                           const SizedBox(height: 4),
                           Text(
                             preview,
@@ -1847,10 +1874,6 @@ class _StepCard extends StatelessWidget {
                             ),
                           ),
                         ],
-                        if (nestedCards.isNotEmpty) ...[
-                          const SizedBox(height: 10),
-                          _NestedVlmStepsPreview(cards: nestedCards),
-                        ],
                       ],
                     ),
                   ),
@@ -1864,172 +1887,47 @@ class _StepCard extends StatelessWidget {
   }
 }
 
-class _NestedVlmStepsPreview extends StatelessWidget {
-  const _NestedVlmStepsPreview({required this.cards, this.onStepTap});
+class _StepTracePreview extends StatelessWidget {
+  const _StepTracePreview({
+    super.key,
+    required this.label,
+    required this.text,
+    required this.maxLines,
+    this.monospace = false,
+  });
 
-  final List<Map<String, dynamic>> cards;
-  final void Function(Map<String, dynamic> card, int index)? onStepTap;
+  final String label;
+  final String text;
+  final int maxLines;
+  final bool monospace;
 
   @override
   Widget build(BuildContext context) {
     final palette = context.omniPalette;
-    final visible = cards.take(5).toList(growable: false);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Divider(height: 1, color: palette.borderSubtle),
-        const SizedBox(height: 8),
-        Row(
-          children: [
-            Icon(
-              Icons.account_tree_outlined,
-              size: 14,
-              color: palette.textSecondary,
-            ),
-            const SizedBox(width: 5),
-            Text(
-              _text(context, '内部自动执行动作', 'Internal automatic actions'),
-              style: TextStyle(
-                color: palette.textSecondary,
-                fontSize: 11,
-                fontWeight: FontWeight.w700,
-                letterSpacing: 0,
-              ),
-            ),
-            const SizedBox(width: 6),
-            Text(
-              '${cards.length} ${_text(context, '步', 'steps')}',
-              style: TextStyle(
-                color: palette.textTertiary,
-                fontSize: 11,
-                fontWeight: FontWeight.w600,
-                letterSpacing: 0,
-              ),
-            ),
-          ],
+        Text(
+          label,
+          style: TextStyle(
+            fontSize: 11,
+            color: palette.textTertiary,
+            fontWeight: FontWeight.w600,
+          ),
         ),
-        const SizedBox(height: 7),
-        for (var index = 0; index < visible.length; index++)
-          _NestedVlmStepRow(
-            card: visible[index],
-            fallbackIndex: index,
-            onTap: onStepTap == null
-                ? null
-                : () => onStepTap!(visible[index], index),
+        const SizedBox(height: 3),
+        Text(
+          text,
+          maxLines: maxLines,
+          overflow: TextOverflow.ellipsis,
+          style: TextStyle(
+            fontSize: 12,
+            color: palette.textSecondary,
+            height: 1.3,
+            fontFamily: monospace ? 'monospace' : null,
           ),
-        if (cards.length > visible.length)
-          Padding(
-            padding: const EdgeInsets.only(top: 3, left: 22),
-            child: Text(
-              _text(
-                context,
-                '另有 ${cards.length - visible.length} 步',
-                '${cards.length - visible.length} more steps',
-              ),
-              style: TextStyle(
-                color: palette.textTertiary,
-                fontSize: 11,
-                fontWeight: FontWeight.w500,
-                letterSpacing: 0,
-              ),
-            ),
-          ),
+        ),
       ],
-    );
-  }
-}
-
-class _NestedVlmStepRow extends StatelessWidget {
-  const _NestedVlmStepRow({
-    required this.card,
-    required this.fallbackIndex,
-    this.onTap,
-  });
-
-  final Map<String, dynamic> card;
-  final int fallbackIndex;
-  final VoidCallback? onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final palette = context.omniPalette;
-    final snapshot = _RunLogStepSnapshot.fromCard(
-      card,
-      fallbackIndex: fallbackIndex,
-    );
-    final title = _runLogStepDisplayTitle(context, snapshot);
-    final success = snapshot.success ?? true;
-    final color = success ? _successColor(context) : _errorColor(context);
-    final row = Padding(
-      padding: const EdgeInsets.symmetric(vertical: 3),
-      child: Row(
-        children: [
-          Container(
-            width: 16,
-            height: 16,
-            alignment: Alignment.center,
-            decoration: BoxDecoration(
-              color: color.withValues(alpha: context.isDarkTheme ? 0.18 : 0.10),
-              borderRadius: BorderRadius.circular(5),
-            ),
-            child: Text(
-              '${fallbackIndex + 1}',
-              style: TextStyle(
-                color: color,
-                fontSize: 9,
-                fontWeight: FontWeight.w700,
-                letterSpacing: 0,
-              ),
-            ),
-          ),
-          const SizedBox(width: 7),
-          Expanded(
-            child: Text(
-              title.isEmpty ? snapshot.toolName : title,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                color: palette.textPrimary,
-                fontSize: 12,
-                fontWeight: FontWeight.w600,
-                letterSpacing: 0,
-                height: 1.2,
-              ),
-            ),
-          ),
-          if (snapshot.durationMs != null) ...[
-            const SizedBox(width: 8),
-            Text(
-              _formatMs(snapshot.durationMs!),
-              style: TextStyle(
-                color: palette.textSecondary,
-                fontSize: 11,
-                fontWeight: FontWeight.w500,
-                letterSpacing: 0,
-              ),
-            ),
-          ],
-          if (onTap != null) ...[
-            const SizedBox(width: 3),
-            Icon(
-              Icons.chevron_right_rounded,
-              size: 15,
-              color: palette.textTertiary,
-            ),
-          ],
-        ],
-      ),
-    );
-    if (onTap == null) {
-      return row;
-    }
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(6),
-        child: row,
-      ),
     );
   }
 }
@@ -2094,13 +1992,15 @@ class _RunLogStyleFunctionStepTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final palette = context.omniPalette;
-    final card = _runLogCardFromFunctionStep(step, index);
-    final snapshot = _RunLogStepSnapshot.fromCard(card, fallbackIndex: index);
+    final displayStep = _functionStepAsRunLogStep(step, index);
+    final snapshot = _RunLogStepSnapshot.fromStep(
+      displayStep,
+      fallbackIndex: index,
+    );
     final success = snapshot.success ?? true;
     final source = _runLogStepSource(snapshot);
     final sourceColor = _runLogStepSourceColor(context, source);
     final hasSourceBadge = _hasRunLogSourceBadge(source);
-    final cleanupInfo = _functionStepCleanupInfo(context, step);
     final displayTitle = _runLogStepDisplayTitle(context, snapshot);
     final preview = snapshot.previewText(context);
     final statusColor = success ? _successColor(context) : _errorColor(context);
@@ -2123,7 +2023,7 @@ class _RunLogStyleFunctionStepTile extends StatelessWidget {
       borderRadius: BorderRadius.circular(10),
       clipBehavior: Clip.antiAlias,
       child: InkWell(
-        onTap: () => _showFunctionStepDetail(context, card, index),
+        onTap: () => _showFunctionStepDetail(context, displayStep, index),
         child: Container(
           width: double.infinity,
           padding: const EdgeInsets.fromLTRB(11, 10, 11, 10),
@@ -2154,10 +2054,6 @@ class _RunLogStyleFunctionStepTile extends StatelessWidget {
                       compileKind: snapshot.compileKind,
                       l10n: context.l10n,
                     ),
-                  if (cleanupInfo != null) ...[
-                    const SizedBox(width: 4),
-                    _FunctionStepCleanupBadge(info: cleanupInfo),
-                  ],
                   const Spacer(),
                   if (snapshot.durationMs != null) ...[
                     Text(
@@ -2240,7 +2136,7 @@ class _RunLogStyleFunctionStepTile extends StatelessWidget {
 
 Future<void> _showFunctionStepDetail(
   BuildContext context,
-  Map<String, dynamic> card,
+  Map<String, dynamic> step,
   int index,
 ) {
   return showModalBottomSheet<void>(
@@ -2250,34 +2146,27 @@ Future<void> _showFunctionStepDetail(
     backgroundColor: Colors.transparent,
     barrierColor: Colors.black.withValues(alpha: 0.28),
     builder: (_) => _StepDetailSheet(
-      card: card,
+      step: step,
       fallbackIndex: index,
-      runId: _firstNonBlank([
-        card['source_run_id'],
-        card['sourceRunId'],
-        _asStringKeyMap(card['source'])['run_id'],
-        _asStringKeyMap(card['source'])['runId'],
-      ]),
-      title: _firstNonBlank([card['title'], card['summary']]),
-      payload: <String, dynamic>{'source': 'function_step', 'card': card},
+      runId: '',
+      title: _asStringKeyMap(step['action'])['tool']?.toString() ?? '',
+      payload: const <String, dynamic>{},
     ),
   );
 }
 
 class _StepDetailSheet extends StatefulWidget {
   const _StepDetailSheet({
-    required this.card,
+    required this.step,
     required this.fallbackIndex,
-    this.nestedCards = const <Map<String, dynamic>>[],
     required this.runId,
     required this.title,
     required this.payload,
     this.baseUrl,
   });
 
-  final Map<String, dynamic> card;
+  final Map<String, dynamic> step;
   final int fallbackIndex;
-  final List<Map<String, dynamic>> nestedCards;
   final String runId;
   final String title;
   final Map<String, dynamic> payload;
@@ -2288,19 +2177,71 @@ class _StepDetailSheet extends StatefulWidget {
 }
 
 class _StepDetailSheetState extends State<_StepDetailSheet> {
+  Map<String, dynamic> _beforeState = const {};
+  Map<String, dynamic> _afterState = const {};
+  bool _isLoadingStates = false;
+
+  @override
+  void initState() {
+    super.initState();
+    unawaited(_loadStates());
+  }
+
+  Future<void> _loadStates() async {
+    final beforeStateId =
+        widget.step['before_state_id']?.toString().trim() ?? '';
+    final afterStateId = widget.step['after_state_id']?.toString().trim() ?? '';
+    if (beforeStateId.isEmpty && afterStateId.isEmpty) return;
+    setState(() => _isLoadingStates = true);
+    final states = await Future.wait(
+      [
+        if (beforeStateId.isNotEmpty)
+          RunLogFunctionService.getInternalRunLogState(stateId: beforeStateId)
+        else
+          Future.value(const <String, dynamic>{}),
+        if (afterStateId.isNotEmpty)
+          RunLogFunctionService.getInternalRunLogState(stateId: afterStateId)
+        else
+          Future.value(const <String, dynamic>{}),
+      ].map((future) async {
+        try {
+          final state = await future;
+          return state['success'] == false ? const <String, dynamic>{} : state;
+        } catch (_) {
+          return const <String, dynamic>{};
+        }
+      }),
+    );
+    if (!mounted) return;
+    setState(() {
+      _beforeState = states[0];
+      _afterState = states[1];
+      _isLoadingStates = false;
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     final palette = context.omniPalette;
     final isDark = context.isDarkTheme;
-    final snapshot = _RunLogStepSnapshot.fromCard(
-      widget.card,
+    final snapshot = _RunLogStepSnapshot.fromStep(
+      widget.step,
       fallbackIndex: widget.fallbackIndex,
     );
     final success = snapshot.success ?? true;
-    final statusColor = success ? _successColor(context) : _errorColor(context);
+    final isPending = snapshot.isPending;
+    final statusColor = isPending
+        ? _runningColor(context)
+        : success
+        ? _successColor(context)
+        : _errorColor(context);
     final sheetHeight = MediaQuery.of(context).size.height * 0.55;
     final source = _runLogStepSource(snapshot);
     final displayTitle = _runLogStepDisplayTitle(context, snapshot);
+    final beforeState = _beforeState.isNotEmpty
+        ? _beforeState
+        : snapshot.before;
+    final afterState = _afterState.isNotEmpty ? _afterState : snapshot.after;
 
     return GestureDetector(
       onTap: () => Navigator.of(context, rootNavigator: true).maybePop(),
@@ -2353,7 +2294,9 @@ class _StepDetailSheetState extends State<_StepDetailSheet> {
                               shape: BoxShape.circle,
                             ),
                             child: Icon(
-                              success
+                              isPending
+                                  ? Icons.timelapse_rounded
+                                  : success
                                   ? Icons.check_circle_outline_rounded
                                   : Icons.error_outline_rounded,
                               size: 16,
@@ -2404,80 +2347,36 @@ class _StepDetailSheetState extends State<_StepDetailSheet> {
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            if (widget.nestedCards.isNotEmpty) ...[
-                              _NestedVlmStepsPreview(
-                                cards: widget.nestedCards,
-                                onStepTap: (card, index) {
-                                  final childSnapshot =
-                                      _RunLogStepSnapshot.fromCard(
-                                        card,
-                                        fallbackIndex: index,
-                                      );
-                                  final childCardId = _firstNonBlank([
-                                    childSnapshot.toolCallId,
-                                    card['card_id'],
-                                    card['cardId'],
-                                  ]);
-                                  if (childCardId.isEmpty) return;
-                                  showRunLogStepDetailSheet(
-                                    context,
-                                    runId: widget.runId,
-                                    cardId: childCardId,
-                                    title: childSnapshot.title,
-                                    baseUrl: widget.baseUrl,
-                                  );
-                                },
-                              ),
-                              const SizedBox(height: 12),
-                            ],
-                            // Tool name chip + call ID inline (no card)
-                            if (snapshot.toolName.isNotEmpty ||
-                                snapshot.toolCallId.isNotEmpty)
+                            // Canonical action tool.
+                            if (snapshot.toolName.isNotEmpty)
                               Row(
                                 children: [
-                                  if (snapshot.toolName.isNotEmpty)
-                                    Container(
-                                      padding: const EdgeInsets.symmetric(
-                                        horizontal: 8,
-                                        vertical: 4,
-                                      ),
-                                      decoration: BoxDecoration(
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 8,
+                                      vertical: 4,
+                                    ),
+                                    decoration: BoxDecoration(
+                                      color: _routeColor(
+                                        context,
+                                      ).withValues(alpha: isDark ? 0.15 : 0.09),
+                                      borderRadius: BorderRadius.circular(6),
+                                      border: Border.all(
                                         color: _routeColor(context).withValues(
-                                          alpha: isDark ? 0.15 : 0.09,
-                                        ),
-                                        borderRadius: BorderRadius.circular(6),
-                                        border: Border.all(
-                                          color: _routeColor(context)
-                                              .withValues(
-                                                alpha: isDark ? 0.30 : 0.18,
-                                              ),
-                                        ),
-                                      ),
-                                      child: Text(
-                                        snapshot.toolName,
-                                        style: TextStyle(
-                                          fontSize: 12,
-                                          fontFamily: 'monospace',
-                                          fontWeight: FontWeight.w600,
-                                          color: _routeColor(context),
+                                          alpha: isDark ? 0.30 : 0.18,
                                         ),
                                       ),
                                     ),
-                                  if (snapshot.toolCallId.isNotEmpty) ...[
-                                    const SizedBox(width: 8),
-                                    Expanded(
-                                      child: Text(
-                                        snapshot.toolCallId,
-                                        maxLines: 1,
-                                        overflow: TextOverflow.ellipsis,
-                                        style: TextStyle(
-                                          fontSize: 11,
-                                          fontFamily: 'monospace',
-                                          color: palette.textTertiary,
-                                        ),
+                                    child: Text(
+                                      snapshot.toolName,
+                                      style: TextStyle(
+                                        fontSize: 12,
+                                        fontFamily: 'monospace',
+                                        fontWeight: FontWeight.w600,
+                                        color: _routeColor(context),
                                       ),
                                     ),
-                                  ],
+                                  ),
                                 ],
                               ),
                             const SizedBox(height: 10),
@@ -2515,13 +2414,6 @@ class _StepDetailSheetState extends State<_StepDetailSheet> {
                                 source: source,
                               ),
                             ],
-                            if (snapshot.prompt.isNotEmpty) ...[
-                              const SizedBox(height: 8),
-                              _PromptHighlightBox(
-                                text: snapshot.prompt,
-                                source: snapshot.promptSource,
-                              ),
-                            ],
                             // Key param highlight row
                             if (snapshot.previewText(context).isNotEmpty) ...[
                               const SizedBox(height: 8),
@@ -2552,15 +2444,34 @@ class _StepDetailSheetState extends State<_StepDetailSheet> {
                                 ),
                               ),
                             ],
+                            if (snapshot.thinking.isNotEmpty) ...[
+                              const SizedBox(height: 12),
+                              _CollapsibleSection(
+                                title: _text(context, '思考过程', 'Reasoning'),
+                                copyValue: snapshot.thinking,
+                                initiallyExpanded: true,
+                                child: SelectableText(
+                                  snapshot.thinking,
+                                  key: const ValueKey(
+                                    'run-log-step-detail-thinking',
+                                  ),
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    color: palette.textPrimary,
+                                    height: 1.45,
+                                  ),
+                                ),
+                              ),
+                            ],
                             // Arguments — expanded by default
-                            if (!_isEmptyJsonValue(snapshot.params)) ...[
+                            if (!_isEmptyJsonValue(snapshot.args)) ...[
                               const SizedBox(height: 12),
                               _CollapsibleSection(
                                 title: _text(context, '参数', 'Arguments'),
-                                copyValue: _prettyUserJson(snapshot.params),
+                                copyValue: _prettyUserJson(snapshot.args),
                                 initiallyExpanded: true,
                                 child: _JsonBlock(
-                                  value: _userVisibleJson(snapshot.params),
+                                  value: _userVisibleJson(snapshot.args),
                                 ),
                               ),
                             ],
@@ -2576,49 +2487,42 @@ class _StepDetailSheetState extends State<_StepDetailSheet> {
                                 ),
                               ),
                             ],
-                            // Execution metadata — collapsed by default
-                            if (!_isEmptyJsonValue(snapshot.compileResult)) ...[
-                              const SizedBox(height: 8),
-                              _CollapsibleSection(
-                                title: _text(context, '执行信息', 'Execution info'),
-                                copyValue: _prettyUserJson(
-                                  snapshot.compileResult,
-                                ),
-                                initiallyExpanded: false,
-                                child: _JsonBlock(
-                                  value: _userVisibleJson(
-                                    snapshot.compileResult,
-                                  ),
-                                ),
-                              ),
-                            ],
                             // Before / after — collapsed by default
-                            if (snapshot.before.isNotEmpty ||
-                                snapshot.after.isNotEmpty) ...[
+                            if (beforeState.isNotEmpty ||
+                                afterState.isNotEmpty) ...[
                               const SizedBox(height: 8),
                               _CollapsibleSection(
                                 title: _text(context, '前后状态', 'Before / after'),
                                 copyValue: _prettyUserJson({
-                                  if (snapshot.before.isNotEmpty)
-                                    'before': snapshot.before,
-                                  if (snapshot.after.isNotEmpty)
-                                    'after': snapshot.after,
+                                  if (beforeState.isNotEmpty)
+                                    'before': beforeState,
+                                  if (afterState.isNotEmpty)
+                                    'after': afterState,
                                 }),
                                 initiallyExpanded: false,
-                                child: _BeforeAfterStateView(
-                                  before: snapshot.before,
-                                  after: snapshot.after,
-                                ),
+                                child: _isLoadingStates
+                                    ? const Center(
+                                        child: Padding(
+                                          padding: EdgeInsets.all(12),
+                                          child: CircularProgressIndicator(
+                                            strokeWidth: 2,
+                                          ),
+                                        ),
+                                      )
+                                    : _BeforeAfterStateView(
+                                        before: beforeState,
+                                        after: afterState,
+                                      ),
                               ),
                             ],
                             // Raw JSON — collapsed by default
                             const SizedBox(height: 8),
                             _CollapsibleSection(
                               title: _text(context, '原始 JSON', 'Raw JSON'),
-                              copyValue: _prettyUserJson(widget.card),
+                              copyValue: _prettyUserJson(widget.step),
                               initiallyExpanded: false,
                               child: _JsonBlock(
-                                value: _userVisibleJson(widget.card),
+                                value: _userVisibleJson(widget.step),
                               ),
                             ),
                           ],
@@ -2662,19 +2566,26 @@ class _ReusableFunctionSpecSheetState
   late UtgRunLogImportResult? _importResult;
   UtgManualRunResult? _runResult;
   bool _isImporting = false;
+  bool _isEnhancing = false;
   bool _isExecuting = false;
   bool _isScheduling = false;
   bool _hasStructuralEdits = false;
+  FunctionEnhancementStatus _enhancementStatus = FunctionEnhancementStatus.none;
+  String? _enhancementMessage;
   late String _lastSavedSpecFingerprint;
   String? _apiError;
 
   FunctionSpec get spec =>
       _draftSpec.copyWith(json: _functionJsonWithHeaderEdits(_draftSpec.json));
 
-  FunctionEnhancementStatus get _visibleEnhancementStatus =>
-      spec.enhancementStatus;
+  FunctionEnhancementStatus get _visibleEnhancementStatus => _isEnhancing
+      ? FunctionEnhancementStatus.enhancing
+      : _enhancementStatus != FunctionEnhancementStatus.none
+      ? _enhancementStatus
+      : spec.enhancementStatus;
 
-  String? get _visibleEnhancementMessage => spec.enhancementMessage;
+  String? get _visibleEnhancementMessage =>
+      _enhancementMessage ?? spec.enhancementMessage;
 
   @override
   void initState() {
@@ -2685,6 +2596,8 @@ class _ReusableFunctionSpecSheetState
       text: (widget.spec.json['description'] ?? '').toString(),
     );
     _importResult = widget.initialImportResult;
+    _enhancementStatus = widget.spec.enhancementStatus;
+    _enhancementMessage = widget.spec.enhancementMessage;
     _lastSavedSpecFingerprint = _specFingerprint(spec.json);
     _nameController.addListener(_onHeaderFieldChanged);
     _descriptionController.addListener(_onHeaderFieldChanged);
@@ -2716,10 +2629,12 @@ class _ReusableFunctionSpecSheetState
     final enhancementStatus = _visibleEnhancementStatus;
     final isAgentVisible = _isAgentVisible;
     final hasAgentEnhanced = spec.aiEnhanced || enhancementStatus.isApplied;
-    final showOfflineEnhancementHint =
-        _hasOfflineEnhancementPolicy &&
-        enhancementStatus == FunctionEnhancementStatus.none;
-
+    final canEnhance =
+        hasRegisteredFunction &&
+        !hasUnsavedEdits &&
+        !_isEnhancing &&
+        (enhancementStatus == FunctionEnhancementStatus.none ||
+            enhancementStatus == FunctionEnhancementStatus.failed);
     return GestureDetector(
       onTap: () => Navigator.of(context, rootNavigator: true).maybePop(),
       behavior: HitTestBehavior.opaque,
@@ -2883,19 +2798,14 @@ class _ReusableFunctionSpecSheetState
                                     (step) => ReusableFunctionStepPreview(
                                       index: step.index,
                                       title: step.displayTitle,
-                                      tool: (step.raw['tool'] ?? '').toString(),
-                                      executor: (step.raw['executor'] ?? '')
-                                          .toString(),
-                                      kind: (step.raw['kind'] ?? '').toString(),
+                                      tool: step.tool,
+                                      executor: '',
+                                      kind: 'function',
                                     ),
                                   )
                                   .toList(growable: false),
                               stepCount: detail.steps.length,
                               parameterCount: detail.parameters.length,
-                              sourceRunCount: _sourceRunCount,
-                              runCount: 0,
-                              successCount: 0,
-                              failCount: 0,
                               isRunning: _isExecuting,
                               runButtonKey: const ValueKey(
                                 'run-log-reusable-run-action',
@@ -2924,14 +2834,6 @@ class _ReusableFunctionSpecSheetState
                                 isSaved: !hasUnsavedEdits,
                               ),
                             ],
-                            if (showOfflineEnhancementHint) ...[
-                              const SizedBox(height: 12),
-                              _WarningBox(
-                                text: context
-                                    .l10n
-                                    .functionLibraryEnhanceOfflineHint,
-                              ),
-                            ],
                             const SizedBox(height: 14),
                             Row(
                               children: [
@@ -2942,21 +2844,42 @@ class _ReusableFunctionSpecSheetState
                                     ),
                                     icon: hasUnsavedEdits
                                         ? Icons.cloud_upload_outlined
-                                        : Icons.check_circle_outline_rounded,
+                                        : enhancementStatus ==
+                                              FunctionEnhancementStatus.failed
+                                        ? Icons.refresh_rounded
+                                        : hasAgentEnhanced
+                                        ? Icons.check_circle_outline_rounded
+                                        : Icons.auto_awesome_rounded,
                                     label: _isImporting
                                         ? _text(context, '保存中', 'Saving')
                                         : hasUnsavedEdits
                                         ? _text(context, '保存修改', 'Save changes')
+                                        : _isEnhancing
+                                        ? _text(context, '后台增强中', 'Enhancing')
+                                        : enhancementStatus ==
+                                              FunctionEnhancementStatus.failed
+                                        ? _text(
+                                            context,
+                                            '重试增强',
+                                            'Retry enhance',
+                                          )
+                                        : enhancementStatus ==
+                                              FunctionEnhancementStatus
+                                                  .unchanged
+                                        ? _text(context, '已检查', 'Checked')
                                         : hasAgentEnhanced
                                         ? _text(context, '已增强', 'Enhanced')
-                                        : _text(context, '已保存', 'Saved'),
+                                        : _text(context, '增强', 'Enhance'),
                                     onTap:
                                         _isImporting ||
+                                            _isEnhancing ||
                                             _isExecuting ||
                                             _isScheduling
                                         ? null
                                         : hasUnsavedEdits
                                         ? _registerFunction
+                                        : canEnhance
+                                        ? _enhanceWithAgent
                                         : null,
                                   ),
                                 ),
@@ -3021,20 +2944,6 @@ class _ReusableFunctionSpecSheetState
                                       '动作步骤',
                                       'Action steps',
                                     ),
-                                  ),
-                                ),
-                                Tooltip(
-                                  message: _text(context, '添加步骤', 'Add step'),
-                                  child: IconButton(
-                                    icon: const Icon(
-                                      Icons.add_circle_outline_rounded,
-                                      size: 20,
-                                    ),
-                                    visualDensity: VisualDensity.compact,
-                                    color: palette.textSecondary,
-                                    onPressed: _isImporting || _isExecuting
-                                        ? null
-                                        : _addStep,
                                   ),
                                 ),
                               ],
@@ -3195,33 +3104,6 @@ class _ReusableFunctionSpecSheetState
     );
   }
 
-  Future<void> _addStep() async {
-    if (_isImporting || _isExecuting) {
-      return;
-    }
-    final detail = _ReusableFunctionDraftSnapshot.fromSpec(spec.json);
-    final newStep = await _showReusableFunctionStepEditorDialog(
-      context,
-      _newReusableFunctionStepTemplate(detail.steps.length),
-      isNew: true,
-    );
-    if (newStep == null || !mounted) return;
-    final updatedJson = _appendReusableFunctionStep(spec.json, newStep);
-    if (updatedJson == null) {
-      showToast(
-        context.l10n.functionLibraryStepSaveFailed,
-        type: ToastType.error,
-      );
-      return;
-    }
-    await _updateDraftJson(updatedJson, structuralEdit: true);
-    if (!mounted) return;
-    showToast(
-      _text(context, '步骤已添加，保存后生效', 'Step added. Save to apply.'),
-      type: ToastType.success,
-    );
-  }
-
   Future<void> _editStep(_ReusableFunctionStepSummary step) async {
     if (_isImporting || _isExecuting) {
       return;
@@ -3316,6 +3198,74 @@ class _ReusableFunctionSpecSheetState
     });
   }
 
+  Future<void> _enhanceWithAgent() async {
+    final functionId = _registeredFunctionId;
+    if (functionId.isEmpty ||
+        _isImporting ||
+        _isEnhancing ||
+        _isExecuting ||
+        _isScheduling ||
+        _hasUnsavedEdits) {
+      return;
+    }
+    final currentSpec = spec;
+    setState(() {
+      _isEnhancing = true;
+      _enhancementStatus = FunctionEnhancementStatus.enhancing;
+      _enhancementMessage = _text(
+        context,
+        '正在后台增强复用指令',
+        'Enhancing Function in the background',
+      );
+      _apiError = null;
+    });
+    try {
+      final result = await RunLogFunctionService.enhanceFunction(
+        functionId: functionId,
+        runId: widget.runId,
+      );
+      final updatedSpec = _functionSpecFromEnhancementResult(
+        result,
+        fallback: currentSpec,
+      );
+      if (!mounted) return;
+      _nameController.text = updatedSpec.name;
+      _descriptionController.text = (updatedSpec.json['description'] ?? '')
+          .toString();
+      setState(() {
+        _isEnhancing = false;
+        _draftSpec = updatedSpec;
+        _enhancementStatus = updatedSpec.enhancementStatus;
+        _enhancementMessage = _firstNonBlank([
+          result['message'],
+          updatedSpec.enhancementMessage,
+        ]);
+        _lastSavedSpecFingerprint = _specFingerprint(updatedSpec.json);
+        _hasStructuralEdits = false;
+        _runResult = null;
+        _apiError = null;
+      });
+      showToast(
+        updatedSpec.enhancementStatus == FunctionEnhancementStatus.unchanged
+            ? _text(context, '已检查，无需修改', 'Checked, no change')
+            : _text(context, '复用指令已增强', 'Function enhanced'),
+        type: ToastType.success,
+      );
+    } catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _isEnhancing = false;
+        _enhancementStatus = FunctionEnhancementStatus.failed;
+        _enhancementMessage = _text(
+          context,
+          '增强失败，当前复用指令保持不变',
+          'Enhancement failed. The Function is unchanged.',
+        );
+        _apiError = error.toString();
+      });
+    }
+  }
+
   Future<bool> _registerFunction({
     String? successMessage,
     bool agentVisible = false,
@@ -3340,14 +3290,10 @@ class _ReusableFunctionSpecSheetState
               agentVisible: agentVisible,
             );
         if (!mounted) return false;
-        final registeredId = _firstNonBlank([
-          result['created_function_id'],
-          result['function_id'],
-        ]);
+        final registeredId = _firstNonBlank([result['function_id']]);
         if (result['success'] != true || registeredId.isEmpty) {
           final message = _firstNonBlank([
             result['error_message'],
-            result['errorMessage'],
             _text(context, '注册失败', 'Registration failed'),
           ]);
           setState(() {
@@ -3373,16 +3319,13 @@ class _ReusableFunctionSpecSheetState
       }
 
       final result = await RunLogFunctionService.registerFunction(
-        functionSpec: _functionJsonForAgentVisibility(
+        function: _functionJsonForAgentVisibility(
           spec.json,
           agentVisible: agentVisible,
         ),
       );
       if (!mounted) return false;
-      final registeredId = _firstNonBlank([
-        result.createdFunctionId,
-        result.functionId,
-      ]);
+      final registeredId = result.functionId.trim();
       if (result.success && registeredId.isEmpty) {
         final message = _text(
           context,
@@ -3402,12 +3345,7 @@ class _ReusableFunctionSpecSheetState
           'success': result.success,
           'run_id': widget.runId,
           'function_id': registeredId,
-          'created_function_id': registeredId,
-          'functions_created': result.alreadyExists ? 0 : 1,
-          'asset_kind': result.assetKind,
-          'asset_state': result.assetState,
-          'function_recall_enabled':
-              result.rawJson['functionRecallEnabled'] == true,
+          'agent_visible': result.rawJson['agent_visible'] == true,
         });
         if (result.success) {
           _draftSpec = savedSpec;
@@ -3587,13 +3525,9 @@ class _ReusableFunctionSpecSheetState
   ) {
     final savedJson = _functionSpecJsonFromSavePayload(payload);
     if (savedJson.isEmpty) return current;
-    final prompt = _firstNonBlank([
-      savedJson['agent_prompt'],
-      savedJson['display_prompt'],
-    ]);
     return current.copyWith(
       json: savedJson,
-      agentPrompt: prompt.isNotEmpty ? prompt : functionAgentPrompt(savedJson),
+      agentPrompt: functionAgentPrompt(savedJson),
     );
   }
 
@@ -3616,13 +3550,6 @@ class _ReusableFunctionSpecSheetState
   }) {
     final cloned = _deepCopyStringMap(rawJson);
     cloned['agent_visible'] = agentVisible;
-    cloned['visibility'] = agentVisible ? 'agent_reusable' : 'manual_function';
-    final metadata = _asStringKeyMap(cloned['metadata']);
-    cloned['metadata'] = <String, dynamic>{
-      ...metadata,
-      'agent_visible': agentVisible,
-      'visibility': agentVisible ? 'agent_reusable' : 'manual_function',
-    };
     return cloned;
   }
 
@@ -3636,33 +3563,9 @@ class _ReusableFunctionSpecSheetState
     }
 
     final raw = _importResult?.rawJson ?? const <String, dynamic>{};
-    final metadata = _asStringKeyMap(spec.json['metadata']);
-    final visibility = _firstNonBlank([
-      raw['visibility'],
-      spec.json['visibility'],
-      metadata['visibility'],
-    ]).toLowerCase();
     return readFlag(raw['agent_visible']) ??
-        readFlag(raw['agentVisible']) ??
         readFlag(spec.json['agent_visible']) ??
-        readFlag(spec.json['agentVisible']) ??
-        readFlag(metadata['agent_visible']) ??
-        (visibility.isEmpty || visibility == 'agent_reusable');
-  }
-
-  bool get _hasOfflineEnhancementPolicy {
-    final metadata = _asStringKeyMap(spec.json['metadata']);
-    final source = _asStringKeyMap(spec.json['source']);
-    final sourceMetadata = _asStringKeyMap(source['metadata']);
-    final policy = _firstNonBlank([
-      metadata['enhancement_policy'],
-      metadata['enhancementPolicy'],
-      sourceMetadata['enhancement_policy'],
-      sourceMetadata['enhancementPolicy'],
-      spec.json['enhancement_policy'],
-      spec.json['enhancementPolicy'],
-    ]).trim().toLowerCase();
-    return policy == 'offline_only' || policy == 'offline-only';
+        true;
   }
 
   String get _registeredFunctionId {
@@ -3671,60 +3574,17 @@ class _ReusableFunctionSpecSheetState
     }
     final importResult = _importResult;
     return _firstNonBlank([
-      if (importResult?.success == true) importResult?.createdFunctionId,
-      if (importResult?.success == true) _firstHitFunctionId,
+      if (importResult?.success == true) importResult?.functionId,
       if (_runResult?.success == true) _runResult?.functionId,
     ]);
   }
 
   String get _nativeRunLogRegistrationRunId {
-    final source = _asStringKeyMap(spec.json['source']);
-    final sourceKind = (source['kind'] ?? '').toString().trim();
-    final converter = (source['converter'] ?? '').toString().trim();
-    if (sourceKind != 'run_log' ||
-        converter != 'native_run_log_reusable_function_builder') {
-      return '';
-    }
-    return _firstNonBlank([source['run_id'], source['runId'], widget.runId]);
-  }
-
-  String get _firstHitFunctionId {
-    final ids = _importResult?.hitFunctionIds ?? const <String>[];
-    for (final id in ids) {
-      final value = id.trim();
-      if (value.isNotEmpty) {
-        return value;
-      }
-    }
-    return '';
+    return widget.runId.trim();
   }
 
   Map<String, dynamic> get _defaultArguments {
     return _defaultArgumentsForFunctionSpec(spec.json);
-  }
-
-  int get _sourceRunCount {
-    final ids = <String>{};
-    final source = _asStringKeyMap(spec.json['source']);
-    final runId = _firstNonBlank([
-      source['run_id'],
-      source['runId'],
-      widget.runId,
-    ]);
-    if (runId.isNotEmpty) {
-      ids.add(runId);
-    }
-    final rawIds =
-        source['run_ids'] ?? source['runIds'] ?? source['source_run_ids'];
-    if (rawIds is Iterable) {
-      for (final value in rawIds) {
-        final id = value.toString().trim();
-        if (id.isNotEmpty) {
-          ids.add(id);
-        }
-      }
-    }
-    return ids.length;
   }
 
   String get _functionJsonForUser => _prettyUserJson(spec.json);
@@ -3744,16 +3604,7 @@ class _ReusableFunctionSpecSheetState
   }
 
   String get _packageNameForSchedule {
-    final constraints = _asStringKeyMap(spec.json['constraints']);
-    final execution = _asStringKeyMap(spec.json['execution']);
-    final steps = execution['steps'];
-    final stepPackages = <dynamic>[];
-    if (steps is List) {
-      for (final step in steps) {
-        stepPackages.add(_asStringKeyMap(step)['package_name']);
-      }
-    }
-    return _firstNonBlank([constraints['package_name'], ...stepPackages]);
+    return '';
   }
 
   String get _apiCallJson {
@@ -3765,7 +3616,6 @@ class _ReusableFunctionSpecSheetState
       'action': 'run_reusable_function',
       'function_id': functionId,
       'arguments': _defaultArguments,
-      'context': {'source': 'reusable_function', 'source_run_id': widget.runId},
     });
   }
 }
@@ -3924,8 +3774,7 @@ class _ReusableFunctionDraftSnapshot {
   factory _ReusableFunctionDraftSnapshot.fromSpec(
     Map<String, dynamic> functionSpec,
   ) {
-    final execution = _asStringKeyMap(functionSpec['execution']);
-    final rawSteps = execution['steps'];
+    final rawSteps = functionSpec['steps'];
     final steps = rawSteps is List
         ? rawSteps
               .asMap()
@@ -3940,7 +3789,7 @@ class _ReusableFunctionDraftSnapshot {
               .toList(growable: false)
         : const <_ReusableFunctionStepSummary>[];
     return _ReusableFunctionDraftSnapshot(
-      parameters: _reusableFunctionParameters(functionSpec['parameters']),
+      parameters: _reusableFunctionParameters(functionSpec['input_schema']),
       steps: steps,
     );
   }
@@ -3957,17 +3806,12 @@ class _ReusableFunctionStepSummary {
     Map<String, dynamic> raw, {
     required int fallbackIndex,
   }) {
-    final index = _asInt(raw['index']) ?? fallbackIndex;
+    final index = _asInt(raw['step_index']) ?? fallbackIndex;
     final normalized = Map<String, dynamic>.from(raw);
-    normalized.putIfAbsent('index', () => index);
-    normalized.putIfAbsent('step_id', () => raw['id'] ?? 'step_${index + 1}');
-    normalized.putIfAbsent(
-      'summary',
-      () => _firstNonBlank([raw['summary'], raw['title'], raw['tool']]),
-    );
+    normalized['step_index'] = index;
     return _ReusableFunctionStepSummary(
       index: index,
-      id: (raw['id'] ?? '').toString(),
+      id: (raw['source_state_id'] ?? '').toString(),
       raw: normalized,
     );
   }
@@ -3977,13 +3821,10 @@ class _ReusableFunctionStepSummary {
   final Map<String, dynamic> raw;
 
   String get displayTitle {
-    return _firstNonBlank([
-      raw['summary'],
-      raw['title'],
-      raw['tool'],
-      raw['step_id'],
-    ]);
+    return tool;
   }
+
+  String get tool => (_asStringKeyMap(raw['action'])['tool'] ?? '').toString();
 }
 
 class _ReusableFunctionParameterSummary {
@@ -4103,12 +3944,6 @@ String? _replayableActionForToolName(String tool) {
       : null;
 }
 
-bool _isReplayCoordinateAction(String tool) {
-  final action = _replayableActionForToolName(tool);
-  return action != null &&
-      OobCanonicalActionSchema.coordinateToolNames.contains(action);
-}
-
 Future<Map<String, dynamic>?> _showReusableFunctionStepEditorDialog(
   BuildContext context,
   Map<String, dynamic> rawStep, {
@@ -4137,7 +3972,6 @@ class _ReusableFunctionStepEditorDialog extends StatefulWidget {
 
 class _ReusableFunctionStepEditorDialogState
     extends State<_ReusableFunctionStepEditorDialog> {
-  late final TextEditingController _titleController;
   late final TextEditingController _customToolController;
   late final TextEditingController _argsController;
   final Map<String, TextEditingController> _argControllers = {};
@@ -4147,20 +3981,17 @@ class _ReusableFunctionStepEditorDialogState
   @override
   void initState() {
     super.initState();
-    final rawTool = (widget.rawStep['tool'] ?? '').toString().trim();
+    final action = _asStringKeyMap(widget.rawStep['action']);
+    final rawTool = (action['tool'] ?? '').toString().trim();
     final operation = _reusableOperationDefinitionForTool(rawTool);
     _selectedTool = operation?.value ?? _customReusableStepToolValue;
-    _titleController = TextEditingController(
-      text: (widget.rawStep['title'] ?? widget.rawStep['summary'] ?? '')
-          .toString(),
-    );
     _customToolController = TextEditingController(
       text: operation == null ? rawTool : '',
     );
     _argsController = TextEditingController(
       text: const JsonEncoder.withIndent('  ').convert(
-        widget.rawStep['args'] is Map
-            ? _deepCopyStringMap(_asStringKeyMap(widget.rawStep['args']))
+        action['args'] is Map
+            ? _deepCopyStringMap(_asStringKeyMap(action['args']))
             : _selectedOperation?.argsTemplate ?? const {},
       ),
     );
@@ -4169,7 +4000,6 @@ class _ReusableFunctionStepEditorDialogState
 
   @override
   void dispose() {
-    _titleController.dispose();
     _customToolController.dispose();
     _argsController.dispose();
     for (final controller in _argControllers.values) {
@@ -4284,7 +4114,6 @@ class _ReusableFunctionStepEditorDialogState
     Navigator.of(context).pop(
       _buildReusableFunctionStepFromEdit(
         rawStep: widget.rawStep,
-        title: _titleController.text.trim(),
         tool: enteredTool,
         args: _asStringKeyMap(decodedArgs),
       ),
@@ -4310,15 +4139,6 @@ class _ReusableFunctionStepEditorDialogState
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              TextField(
-                controller: _titleController,
-                decoration: InputDecoration(
-                  labelText: context.l10n.functionLibraryStepTitleLabel,
-                  border: const OutlineInputBorder(),
-                  isDense: true,
-                ),
-              ),
-              const SizedBox(height: 10),
               DropdownButtonFormField<String>(
                 initialValue: _selectedTool,
                 isExpanded: true,
@@ -4600,118 +4420,28 @@ double _reusableArgFieldWidth(_ReusableFunctionStepArgField field) {
 
 Map<String, dynamic> _buildReusableFunctionStepFromEdit({
   required Map<String, dynamic> rawStep,
-  required String title,
   required String tool,
   required Map<String, dynamic> args,
 }) {
-  final updated = _deepCopyStringMap(rawStep);
   final normalizedTool = _normalizeReplayToolName(tool);
   final action = _replayableActionForToolName(tool);
   final effectiveTool = action ?? normalizedTool;
-  final effectiveTitle = title.isNotEmpty ? title : effectiveTool;
-
-  updated['title'] = effectiveTitle;
-  updated['summary'] = effectiveTitle;
-  updated['tool'] = effectiveTool;
-  updated['args'] = _deepCopyStringMap(args);
-
-  if (action != null) {
-    updated['kind'] = 'function';
-    updated.remove('executor');
-    updated['model_free'] = true;
-    updated['scriptable'] = true;
-    updated['tool'] = action;
-    updated.remove('agent_call');
-    updated.remove('fallback_prompt');
-    updated.remove('fallbackPrompt');
-    updated.remove('source_tool');
-    if (_isReplayCoordinateAction(action)) {
-      updated['coordinate_hook'] = 'function';
-    } else {
-      updated.remove('coordinate_hook');
-    }
-  } else {
-    updated.remove('omniflow_action');
-    updated.remove('local_action');
-    updated.remove('callable_tool');
-    updated.remove('coordinate_hook');
-    updated['tool'] = effectiveTool;
-    final existingExecutor = (rawStep['executor'] ?? '').toString().trim();
-    updated.remove('executor');
-    if (existingExecutor == 'agent') {
-      updated['kind'] = updated['kind'] ?? 'agent_replan';
-      updated['model_free'] = false;
-      updated['scriptable'] = false;
-    } else {
-      updated['kind'] = 'tool_call';
-      updated['model_free'] = false;
-      updated['scriptable'] = true;
-    }
+  final existingArgs = _asStringKeyMap(
+    _asStringKeyMap(rawStep['action'])['args'],
+  );
+  final editedArgs = action == null
+      ? _deepCopyStringMap(args)
+      : _canonicalReusableArgsBySchema(effectiveTool, args);
+  if (existingArgs['target'] is Map) {
+    editedArgs['target'] = _deepCopyStringMap(
+      _asStringKeyMap(existingArgs['target']),
+    );
   }
-
-  return updated;
-}
-
-Map<String, dynamic> _newReusableFunctionStepTemplate(int index) {
-  final stepId = 'step_${index + 1}';
   return <String, dynamic>{
-    'id': stepId,
-    'step_id': stepId,
-    'index': index,
-    'title': 'click',
-    'summary': 'click',
-    'kind': 'function',
-    'model_free': true,
-    'scriptable': true,
-    'tool': 'click',
-    'args': <String, dynamic>{'target_description': '', 'x': 0, 'y': 0},
+    'step_index': _asInt(rawStep['step_index']) ?? 0,
+    'source_state_id': (rawStep['source_state_id'] ?? '').toString(),
+    'action': <String, dynamic>{'tool': effectiveTool, 'args': editedArgs},
   };
-}
-
-Map<String, dynamic>? _appendReusableFunctionStep(
-  Map<String, dynamic> spec,
-  Map<String, dynamic> newStep,
-) {
-  final updatedSpec = _deepCopyStringMap(spec);
-  final execution = _asStringKeyMap(updatedSpec['execution']);
-  final rawSteps = execution['steps'];
-  final steps = rawSteps is List
-      ? rawSteps.map(_asStringKeyMap).toList(growable: true)
-      : <Map<String, dynamic>>[];
-  final index = steps.length;
-  final step = _reusableFunctionStepAtIndex(newStep, index);
-  steps.add(step);
-  execution['steps'] = steps;
-  updatedSpec['execution'] = execution;
-  _syncReusableExecutionCounts(updatedSpec, execution, steps);
-
-  final action = _actionMapForReusableStep(step);
-  if (action != null) {
-    final rawActions = updatedSpec['actions'];
-    final actions = rawActions is List ? List<dynamic>.from(rawActions) : [];
-    actions.add(action);
-    updatedSpec['actions'] = actions;
-  }
-  return updatedSpec;
-}
-
-Map<String, dynamic> _reusableFunctionStepAtIndex(
-  Map<String, dynamic> rawStep,
-  int index,
-) {
-  final step = _deepCopyStringMap(rawStep);
-  final stepId = 'step_${index + 1}';
-  step['id'] = stepId;
-  step['step_id'] = stepId;
-  step['index'] = index;
-  final tool = (step['tool'] ?? '').toString();
-  if ((step['title'] ?? '').toString().trim().isEmpty) {
-    step['title'] = tool.trim().isEmpty ? stepId : tool;
-  }
-  if ((step['summary'] ?? '').toString().trim().isEmpty) {
-    step['summary'] = step['title'];
-  }
-  return step;
 }
 
 Map<String, dynamic>? _replaceReusableFunctionStep(
@@ -4720,23 +4450,17 @@ Map<String, dynamic>? _replaceReusableFunctionStep(
   Map<String, dynamic> replacement,
 ) {
   final updatedSpec = _deepCopyStringMap(spec);
-  final execution = _asStringKeyMap(updatedSpec['execution']);
-  final rawSteps = execution['steps'];
+  final rawSteps = updatedSpec['steps'];
   if (rawSteps is! List) return null;
   final steps = rawSteps.map(_asStringKeyMap).toList(growable: true);
-  var index = step.id.trim().isEmpty
-      ? -1
-      : steps.indexWhere((candidate) => candidate['id']?.toString() == step.id);
-  if (index < 0 && step.index >= 0 && step.index < steps.length) {
-    index = step.index;
-  }
+  final index = step.index;
   if (index < 0 || index >= steps.length) return null;
-  steps[index] = replacement;
-  execution['steps'] = steps;
-  updatedSpec['execution'] = execution;
-  _syncReusableExecutionCounts(updatedSpec, execution, steps);
-  _syncReusableCanonicalActionAfterStepEdit(updatedSpec, index, replacement);
-  _updateReusableParameterDefaults(updatedSpec, index, replacement);
+  steps[index] = <String, dynamic>{
+    'step_index': index,
+    'source_state_id': (steps[index]['source_state_id'] ?? '').toString(),
+    'action': _deepCopyStringMap(_asStringKeyMap(replacement['action'])),
+  };
+  updatedSpec['steps'] = steps;
   return updatedSpec;
 }
 
@@ -4745,139 +4469,18 @@ Map<String, dynamic>? _removeReusableFunctionStep(
   _ReusableFunctionStepSummary step,
 ) {
   final updatedSpec = _deepCopyStringMap(spec);
-  final execution = _asStringKeyMap(updatedSpec['execution']);
-  final rawSteps = execution['steps'];
+  final rawSteps = updatedSpec['steps'];
   if (rawSteps is! List || rawSteps.length <= 1) return null;
   final steps = rawSteps.map(_asStringKeyMap).toList(growable: true);
-  var index = step.id.trim().isEmpty
-      ? -1
-      : steps.indexWhere((candidate) => candidate['id']?.toString() == step.id);
-  if (index < 0 && step.index >= 0 && step.index < steps.length) {
-    index = step.index;
-  }
+  final index = step.index;
   if (index < 0 || index >= steps.length) return null;
   steps.removeAt(index);
   for (var nextIndex = 0; nextIndex < steps.length; nextIndex++) {
-    steps[nextIndex]['index'] = nextIndex;
-    steps[nextIndex]['id'] = 'step_${nextIndex + 1}';
-    steps[nextIndex]['step_id'] = 'step_${nextIndex + 1}';
+    steps[nextIndex]['step_index'] = nextIndex;
   }
-  execution['steps'] = steps;
-  updatedSpec['execution'] = execution;
-  _syncReusableExecutionCounts(updatedSpec, execution, steps);
-  final actions = updatedSpec['actions'];
-  if (actions is List && index < actions.length) {
-    updatedSpec['actions'] = List<dynamic>.from(actions)..removeAt(index);
-  }
+  updatedSpec['steps'] = steps;
   _shiftReusableBindingsAfterStepRemoval(updatedSpec, index);
   return updatedSpec;
-}
-
-void _syncReusableCanonicalActionAfterStepEdit(
-  Map<String, dynamic> spec,
-  int index,
-  Map<String, dynamic> step,
-) {
-  final rawActions = spec['actions'];
-  if (rawActions is! List || index < 0 || index >= rawActions.length) return;
-  final rawAction = rawActions[index];
-  final existingAction = rawAction is Map ? _asStringKeyMap(rawAction) : null;
-  final action = _actionMapForReusableStep(
-    step,
-    existingAction: existingAction,
-  );
-  if (action == null) return;
-  final actions = List<dynamic>.from(rawActions);
-  actions[index] = action;
-  spec['actions'] = actions;
-}
-
-void _syncReusableExecutionCounts(
-  Map<String, dynamic> spec,
-  Map<String, dynamic> execution,
-  List<Map<String, dynamic>> steps,
-) {
-  final functionStepCount = steps.where(_isFunctionSpecStep).length;
-  final scriptableStepCount = steps
-      .where((step) => step['scriptable'] == true)
-      .length;
-  final modelFreeStepCount = steps
-      .where((step) => step['model_free'] == true)
-      .length;
-
-  execution['step_count'] = steps.length;
-  execution['function_step_count'] = functionStepCount;
-
-  final metadata = _asStringKeyMap(spec['metadata']);
-  if (metadata.isNotEmpty) {
-    metadata['step_count'] = steps.length;
-    metadata['scriptable_step_count'] = scriptableStepCount;
-    metadata['model_free_step_count'] = modelFreeStepCount;
-    metadata['function_step_count'] = functionStepCount;
-    spec['metadata'] = metadata;
-  }
-}
-
-bool _isFunctionSpecStep(Map<String, dynamic> step) {
-  final tool = (step['tool'] ?? '').toString();
-  return _replayableActionForToolName(tool) != null ||
-      _normalizeReplayToolName(tool) == 'call_tool';
-}
-
-Map<String, dynamic>? _actionMapForReusableStep(
-  Map<String, dynamic> step, {
-  Map<String, dynamic>? existingAction,
-}) {
-  final rawTool = (step['tool'] ?? '').toString();
-  final tool =
-      _replayableActionForToolName(rawTool) ??
-      _normalizeReplayToolName(rawTool);
-  final args = _asStringKeyMap(step['args']);
-  final action = <String, dynamic>{};
-  action['tool'] = tool;
-  final title = (step['title'] ?? step['summary'] ?? '').toString().trim();
-  if (title.isNotEmpty) {
-    action['description'] = title;
-  }
-
-  switch (tool) {
-    case 'click':
-    case 'long_press':
-      action['args'] = _canonicalReusableArgsBySchema(tool, args);
-      return action;
-    case 'input_text':
-      final nextArgs = _canonicalReusableArgsBySchema(tool, args);
-      final existingArgs = _asStringKeyMap(existingAction?['args']);
-      final existingText = (existingArgs['text'] ?? '').toString();
-      if (existingText.contains(r'${')) {
-        nextArgs['text'] = existingArgs['text'];
-      } else {
-        final text = _firstPresentReusableArg(args, const ['text']);
-        if (text != null) nextArgs['text'] = text;
-      }
-      action['args'] = nextArgs;
-      return action;
-    case 'swipe':
-      action['args'] = _canonicalReusableArgsBySchema(tool, args);
-      return action;
-    case 'open_app':
-      final packageName = (args['package_name'] ?? '').toString().trim();
-      action['args'] = <String, dynamic>{
-        if (packageName.isNotEmpty) 'package_name': packageName,
-      };
-      return action;
-    case 'press_key':
-    case 'call_tool':
-      action['args'] = _canonicalReusableArgsBySchema(tool, args);
-      return action;
-    case 'finished':
-      action['args'] = _canonicalReusableArgsBySchema(tool, args);
-      return action;
-    default:
-      action['tool'] = rawTool.trim().isEmpty ? tool : rawTool.trim();
-      action['args'] = args;
-      return action;
-  }
 }
 
 Map<String, dynamic> _canonicalReusableArgsBySchema(
@@ -4896,88 +4499,30 @@ Map<String, dynamic> _canonicalReusableArgsBySchema(
   return output;
 }
 
-void _updateReusableParameterDefaults(
-  Map<String, dynamic> spec,
-  int stepIndex,
-  Map<String, dynamic> step,
-) {
-  final args = _asStringKeyMap(step['args']);
-  if (args.isEmpty) return;
-  final parameters = spec['parameters'];
-  if (parameters is List) {
-    for (final raw in parameters) {
-      if (raw is! Map) continue;
-      final parameter = raw.map(
-        (key, value) => MapEntry(key.toString(), value),
-      );
-      final argKey = _boundReusableArgKeyForStep(
-        parameter['bindings'],
-        stepIndex,
-      );
-      if (argKey != null && args.containsKey(argKey)) {
-        raw['default'] = args[argKey];
-      }
-    }
-    return;
-  }
-  final schema = _asStringKeyMap(parameters);
-  final properties = _asStringKeyMap(schema['properties']);
-  for (final raw in properties.values) {
-    if (raw is! Map) continue;
-    final property = raw.map((key, value) => MapEntry(key.toString(), value));
-    final argKey = _boundReusableArgKeyForStep(
-      property['x_oob_bindings'],
-      stepIndex,
-    );
-    if (argKey != null && args.containsKey(argKey)) {
-      raw['default'] = args[argKey];
-    }
-  }
-}
-
-String? _boundReusableArgKeyForStep(dynamic rawBindings, int stepIndex) {
-  if (rawBindings is! List) return null;
-  for (final rawBinding in rawBindings) {
-    final match = RegExp(
-      r'^\$\.execution\.steps\[(\d+)\]\.args\.([A-Za-z0-9_]+)$',
-    ).firstMatch(rawBinding?.toString() ?? '');
-    if (match != null && int.tryParse(match.group(1) ?? '') == stepIndex) {
-      return match.group(2);
-    }
-  }
-  return null;
-}
-
 void _shiftReusableBindingsAfterStepRemoval(
   Map<String, dynamic> spec,
   int removedIndex,
 ) {
-  final parameters = spec['parameters'];
-  if (parameters is List) {
-    parameters.removeWhere((raw) {
-      if (raw is! Map) return false;
-      final hadBindings = raw['bindings'] is List;
-      final bindings = _shiftReusableBindings(raw['bindings'], removedIndex);
-      if (hadBindings) raw['bindings'] = bindings;
-      return hadBindings && bindings.isEmpty;
-    });
-    return;
-  }
-
-  final schema = _asStringKeyMap(parameters);
+  final rawBindings = spec['bindings'];
+  if (rawBindings is! List) return;
+  final oldBindings = rawBindings.map(_asStringKeyMap).toList(growable: false);
+  final oldNames = oldBindings
+      .map(_bindingArgumentName)
+      .whereType<String>()
+      .toSet();
+  final shifted = oldBindings
+      .map((binding) => _shiftReusableBinding(binding, removedIndex))
+      .whereType<Map<String, dynamic>>()
+      .toList(growable: false);
+  spec['bindings'] = shifted;
+  final remainingNames = shifted
+      .map(_bindingArgumentName)
+      .whereType<String>()
+      .toSet();
+  final removedNames = oldNames.difference(remainingNames);
+  if (removedNames.isEmpty) return;
+  final schema = _asStringKeyMap(spec['input_schema']);
   final properties = _asStringKeyMap(schema['properties']);
-  final removedNames = <String>[];
-  for (final entry in properties.entries) {
-    final raw = entry.value;
-    if (raw is! Map) continue;
-    final hadBindings = raw['x_oob_bindings'] is List;
-    final bindings = _shiftReusableBindings(
-      raw['x_oob_bindings'],
-      removedIndex,
-    );
-    if (hadBindings) raw['x_oob_bindings'] = bindings;
-    if (hadBindings && bindings.isEmpty) removedNames.add(entry.key);
-  }
   for (final name in removedNames) {
     properties.remove(name);
   }
@@ -4987,48 +4532,39 @@ void _shiftReusableBindingsAfterStepRemoval(
   }
   if (schema.isNotEmpty) {
     schema['properties'] = properties;
-    spec['parameters'] = schema;
+    spec['input_schema'] = schema;
   }
 }
 
-List<String> _shiftReusableBindings(dynamic rawBindings, int removedIndex) {
-  if (rawBindings is! List) return const [];
-  final output = <String>[];
-  final bindingPattern = RegExp(
-    r'^\$\.(execution\.steps|actions)\[(\d+)\](.*)$',
-  );
-  for (final value in rawBindings) {
-    final binding = value?.toString() ?? '';
-    final match = bindingPattern.firstMatch(binding);
-    if (match == null) {
-      output.add(binding);
-      continue;
-    }
-    final index = int.tryParse(match.group(2) ?? '');
-    if (index == null) {
-      output.add(binding);
-      continue;
-    }
-    if (index == removedIndex) continue;
-    if (index > removedIndex) {
-      output.add('\$.${match.group(1)}[${index - 1}]${match.group(3)}');
-    } else {
-      output.add(binding);
-    }
-  }
-  return output;
+Map<String, dynamic>? _shiftReusableBinding(
+  Map<String, dynamic> binding,
+  int removedIndex,
+) {
+  final target = (binding['target'] ?? '').toString();
+  final match = RegExp(
+    r'^\$\.steps\[(\d+)\](\.action\.args(?:\..+)?)$',
+  ).firstMatch(target);
+  if (match == null) return binding;
+  final index = int.tryParse(match.group(1) ?? '');
+  if (index == null) return binding;
+  if (index == removedIndex) return null;
+  if (index < removedIndex) return binding;
+  return <String, dynamic>{
+    'source': binding['source'],
+    'target': '\$.steps[${index - 1}]${match.group(2)}',
+  };
+}
+
+String? _bindingArgumentName(Map<String, dynamic> binding) {
+  final match = RegExp(
+    r'^\$\.arguments\.([A-Za-z_][A-Za-z0-9_]*)',
+  ).firstMatch((binding['source'] ?? '').toString());
+  return match?.group(1);
 }
 
 List<_ReusableFunctionParameterSummary> _reusableFunctionParameters(
   dynamic rawParameters,
 ) {
-  if (rawParameters is List) {
-    return rawParameters
-        .map(_asStringKeyMap)
-        .where((item) => item.isNotEmpty)
-        .map(_ReusableFunctionParameterSummary.fromMap)
-        .toList(growable: false);
-  }
   final schema = _asStringKeyMap(rawParameters);
   final properties = _asStringKeyMap(schema['properties']);
   if (properties.isEmpty) return const <_ReusableFunctionParameterSummary>[];
@@ -5058,12 +4594,7 @@ Map<String, dynamic> _deepCopyStringMap(Map<String, dynamic> value) {
 Map<String, dynamic> _functionSpecJsonFromSavePayload(
   Map<String, dynamic> payload,
 ) {
-  for (final key in const [
-    'function',
-    'function_spec',
-    'updated_function',
-    'spec',
-  ]) {
+  for (final key in const ['function', 'updated_function']) {
     final map = _asStringKeyMap(payload[key]);
     if (map.isNotEmpty) return _deepCopyStringMap(map);
   }
@@ -5344,12 +4875,7 @@ class _FunctionApiStatusBox extends StatelessWidget {
     if (!importResult.success) {
       return _text(context, '保存：失败', 'Save: failed');
     }
-    final count = importResult.functionsCreated;
-    return _text(
-      context,
-      count > 0 ? '保存：已保存 $count 条复用指令' : '保存：已保存',
-      count > 0 ? 'Save: $count Functions saved' : 'Save: saved',
-    );
+    return _text(context, '保存：已保存', 'Save: saved');
   }
 
   String _runStatusText(BuildContext context, UtgManualRunResult result) {
@@ -5479,78 +5005,6 @@ class _WarningBox extends StatelessWidget {
   }
 }
 
-class _PromptHighlightBox extends StatelessWidget {
-  const _PromptHighlightBox({required this.text, required this.source});
-
-  final String text;
-  final String source;
-
-  @override
-  Widget build(BuildContext context) {
-    final palette = context.omniPalette;
-    final color = _routeColor(context);
-    final title = source.trim().isEmpty
-        ? _text(context, 'Prompt', 'Prompt')
-        : '${_text(context, 'Prompt', 'Prompt')} · $source';
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(10),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: context.isDarkTheme ? 0.13 : 0.07),
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: color.withValues(alpha: 0.20)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Icon(Icons.notes_rounded, size: 15, color: color),
-              const SizedBox(width: 6),
-              Expanded(
-                child: Text(
-                  title,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: color,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-              ),
-              Tooltip(
-                message: _text(context, '复制 Prompt', 'Copy prompt'),
-                child: IconButton(
-                  visualDensity: VisualDensity.compact,
-                  icon: const Icon(Icons.content_copy_rounded, size: 16),
-                  color: palette.textSecondary,
-                  onPressed: () {
-                    Clipboard.setData(ClipboardData(text: text));
-                    showToast(
-                      _text(context, '已复制 Prompt', 'Prompt copied'),
-                      type: ToastType.success,
-                    );
-                  },
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 4),
-          SelectableText(
-            text,
-            style: TextStyle(
-              fontSize: 12,
-              color: palette.textPrimary,
-              height: 1.35,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
 class _VlmStepActionPanel extends StatelessWidget {
   const _VlmStepActionPanel({required this.snapshot, required this.source});
 
@@ -5562,16 +5016,15 @@ class _VlmStepActionPanel extends StatelessWidget {
     final palette = context.omniPalette;
     final isDark = context.isDarkTheme;
     final color = _runLogStepSourceColor(context, source);
-    final params = _asStringKeyMap(snapshot.params);
+    final args = snapshot.args;
     final result = _asStringKeyMap(snapshot.result);
     final action = _vlmActionLabel(context, snapshot.toolName).trim();
     final target = _runLogStepTarget(snapshot).trim();
-    final coordinates = _vlmCoordinateText(params);
+    final coordinates = _vlmCoordinateText(args);
     final resultText = _firstNonBlank([
       result['summary'],
       result['message'],
       result['error_message'],
-      result['errorMessage'],
     ]).trim();
     final meta = <MapEntry<String, String>>[
       if (snapshot.packageName.isNotEmpty)
@@ -6162,345 +5615,119 @@ class _RunLogStepSourceBadge extends StatelessWidget {
   }
 }
 
-class _FunctionStepCleanupBadge extends StatelessWidget {
-  const _FunctionStepCleanupBadge({required this.info});
-
-  final _FunctionStepCleanupInfo info;
-
-  @override
-  Widget build(BuildContext context) {
-    return Tooltip(
-      message: info.tooltip,
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-        decoration: BoxDecoration(
-          color: info.color.withValues(
-            alpha: context.isDarkTheme ? 0.18 : 0.10,
-          ),
-          borderRadius: BorderRadius.circular(999),
-          border: Border.all(color: info.color.withValues(alpha: 0.26)),
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(info.icon, size: 11, color: info.color),
-            const SizedBox(width: 3),
-            Text(
-              info.label,
-              style: TextStyle(
-                fontSize: 10,
-                fontWeight: FontWeight.w700,
-                color: info.color,
-                height: 1,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _FunctionStepCleanupInfo {
-  const _FunctionStepCleanupInfo({
-    required this.label,
-    required this.tooltip,
-    required this.color,
-    required this.icon,
-  });
-
-  final String label;
-  final String tooltip;
-  final Color color;
-  final IconData icon;
-}
-
-_FunctionStepCleanupInfo? _functionStepCleanupInfo(
-  BuildContext context,
-  Map<String, dynamic> step,
-) {
-  final annotation = _asStringKeyMap(
-    step['cleanup_annotation'] ?? step['cleanupAnnotation'],
-  );
-  final mergedSteps = _asStringKeyMapList(
-    step['merged_steps'] ?? step['mergedSteps'],
-  );
-  final importance = _firstNonBlank([
-    annotation['importance'],
-    step['importance'],
-  ]).trim().toLowerCase();
-  var action = _normalizeFunctionStepCleanupAction(
-    _firstNonBlank([
-      annotation['cleanup_action'],
-      annotation['cleanupAction'],
-      annotation['action'],
-      step['cleanup_action'],
-      step['cleanupAction'],
-    ]),
-  );
-  if (action.isEmpty && mergedSteps.isNotEmpty) {
-    action = 'merged_duplicate';
-  }
-  if (action == 'keep' && importance == 'noise') {
-    action = 'noise';
-  }
-  if (action == 'keep' || action.isEmpty) {
-    return null;
-  }
-
-  final reason = _firstNonBlank([
-    annotation['reason'],
-    annotation['cleanup_reason'],
-    annotation['cleanupReason'],
-    annotation['noise_reason'],
-    annotation['noiseReason'],
-  ]);
-  final mergedCount =
-      _asInt(annotation['merged_step_count']) ??
-      _asInt(annotation['mergedStepCount']) ??
-      mergedSteps.length;
-  final color = switch (action) {
-    'merged_duplicate' => _successColor(context),
-    'merge_candidate' => _routeColor(context),
-    'drop_candidate' => _warningColor(context),
-    'noise' => context.omniPalette.textSecondary,
-    'review' => _routeColor(context),
-    _ => context.omniPalette.textSecondary,
-  };
-  final icon = switch (action) {
-    'merged_duplicate' || 'merge_candidate' => Icons.merge_type_rounded,
-    'drop_candidate' => Icons.remove_circle_outline_rounded,
-    'noise' => Icons.filter_alt_off_outlined,
-    'review' => Icons.rate_review_outlined,
-    _ => Icons.info_outline_rounded,
-  };
-  final label = switch (action) {
-    'merged_duplicate' =>
-      mergedCount > 0
-          ? _text(context, '已合并 $mergedCount', 'Merged $mergedCount')
-          : _text(context, '已合并', 'Merged'),
-    'merge_candidate' => _text(context, '可合并', 'Merge'),
-    'drop_candidate' => _text(context, '可删除', 'Drop'),
-    'noise' => _text(context, '噪声', 'Noise'),
-    'review' => _text(context, '待确认', 'Review'),
-    _ => action,
-  };
-  final tooltip = reason.trim().isEmpty ? label : '$label · $reason';
-  return _FunctionStepCleanupInfo(
-    label: label,
-    tooltip: tooltip,
-    color: color,
-    icon: icon,
-  );
-}
-
-String _normalizeFunctionStepCleanupAction(String raw) {
-  final text = raw.trim().toLowerCase().replaceAll('-', '_');
-  return switch (text) {
-    'keep' || 'useful' => 'keep',
-    'merged_duplicate' || 'merged_duplicate_step' => 'merged_duplicate',
-    'merge' || 'merged' || 'merge_candidate' => 'merge_candidate',
-    'drop' || 'delete' || 'remove' || 'drop_candidate' => 'drop_candidate',
-    'noise' || 'noisy' || 'noop' || 'no_op' => 'noise',
-    'review' || 'review_candidate' => 'review',
-    _ => '',
-  };
-}
-
 class _RunLogStepSnapshot {
   const _RunLogStepSnapshot({
-    required this.card,
-    required this.header,
-    required this.toolCall,
-    required this.params,
+    required this.step,
+    required this.diagnostics,
+    required this.action,
+    required this.args,
     required this.result,
-    required this.compileResult,
     required this.before,
     required this.after,
     required this.stepNumber,
     required this.title,
     required this.toolName,
-    required this.toolCallId,
     required this.compileKind,
+    required this.status,
     required this.success,
     required this.durationMs,
     required this.packageName,
-    required this.prompt,
-    required this.promptSource,
+    required this.thinking,
     required this.tokenUsage,
     required this.tokenUsageAttempts,
   });
 
-  final Map<String, dynamic> card;
-  final Map<String, dynamic> header;
-  final Map<String, dynamic> toolCall;
-  final dynamic params;
-  final dynamic result;
-  final dynamic compileResult;
+  final Map<String, dynamic> step;
+  final Map<String, dynamic> diagnostics;
+  final Map<String, dynamic> action;
+  final Map<String, dynamic> args;
+  final Map<String, dynamic> result;
   final Map<String, dynamic> before;
   final Map<String, dynamic> after;
   final int stepNumber;
   final String title;
   final String toolName;
-  final String toolCallId;
   final String compileKind;
+  final String status;
   final bool? success;
   final int? durationMs;
   final String packageName;
-  final String prompt;
-  final String promptSource;
+  final String thinking;
   final Map<String, dynamic> tokenUsage;
   final List<Map<String, dynamic>> tokenUsageAttempts;
 
-  int? get totalTokens =>
-      _asInt(tokenUsage['total_tokens'] ?? tokenUsage['totalTokens']);
+  int? get totalTokens => _asInt(tokenUsage['total_tokens']);
+
+  bool get isPending => status == 'running' || status == 'waiting_user';
+
+  bool get isFailed => status == 'failed' || success == false;
 
   bool get isVlmStep {
-    final toolType = _firstNonBlank([
-      card['tool_type'],
-      card['toolType'],
-      header['tool_type'],
-      header['toolType'],
-    ]).toLowerCase();
-    final normalizedToolName = toolName.trim().toLowerCase();
-    final source = _firstNonBlank([
-      card['source'],
-      card['run_source'],
-      card['runSource'],
-      card['selection_source'],
-      card['selectionSource'],
-    ]).toLowerCase();
-    final normalizedExecutionKind = compileKind.trim().toLowerCase();
-    return normalizedExecutionKind == 'vlm_step' ||
-        normalizedExecutionKind == 'vlm' ||
-        toolType == 'vlm' ||
-        normalizedToolName == 'vlm_task' ||
-        source == 'vlm';
+    return diagnostics['source']?.toString().trim().toLowerCase() == 'vlm';
   }
 
-  factory _RunLogStepSnapshot.fromCard(
-    Map<String, dynamic> card, {
+  factory _RunLogStepSnapshot.fromStep(
+    Map<String, dynamic> step, {
     required int fallbackIndex,
   }) {
-    final header = _asStringKeyMap(card['header']);
-    final before = _asStringKeyMap(card['before']);
-    final after = _asStringKeyMap(card['after']);
-    final toolCall = _extractToolCall(card);
-    final function = _asStringKeyMap(toolCall['function']);
-    final params = _extractParams(card, toolCall, function);
-    final compileResult = _firstPresentValue(card, const [
-      'recall_result',
-      'recallResult',
-      'compile_result',
-      'compileResult',
-      'route_result',
-      'routeResult',
-    ]);
-    final result = _extractResult(card);
-    final promptHit = _extractPromptHit([
-      _PromptSearchRoot('params', params),
-      _PromptSearchRoot('tool_call', toolCall),
-      _PromptSearchRoot('function', function),
-      _PromptSearchRoot('card', card),
-      _PromptSearchRoot('result', result),
-    ]);
-    final headerStepIndex = _asInt(
-      _firstPresentValue(header, const ['step_index', 'stepIndex', 'index']),
-    );
-    final cardStepIndex = _asInt(
-      _firstPresentValue(card, const ['step_index', 'stepIndex', 'index']),
-    );
-    final usesNestedLocalIndex = _timelineParentCardId(card).isNotEmpty;
-    final stepIndex = usesNestedLocalIndex
-        ? fallbackIndex
-        : ((headerStepIndex ?? cardStepIndex) ?? fallbackIndex);
+    final diagnostics = _asStringKeyMap(step['diagnostics']);
+    final action = _asStringKeyMap(step['action']);
+    final toolName = action['tool']?.toString().trim() ?? '';
+    final args = _asStringKeyMap(action['args']);
+    final result = _asStringKeyMap(step['result']);
+    final beforeStateId = step['before_state_id']?.toString().trim() ?? '';
+    final afterStateId = step['after_state_id']?.toString().trim() ?? '';
+    final before = beforeStateId.isEmpty
+        ? const <String, dynamic>{}
+        : <String, dynamic>{'state_id': beforeStateId};
+    final after = afterStateId.isEmpty
+        ? const <String, dynamic>{}
+        : <String, dynamic>{'state_id': afterStateId};
+    final stepIndex = _asInt(step['step_index']) ?? fallbackIndex;
     final stepNumber = stepIndex + 1;
-    final toolName = _firstNonBlank([
-      toolCall['name'],
-      toolCall['tool_name'],
-      toolCall['toolName'],
-      function['name'],
-      card['tool_name'],
-      card['toolName'],
-      card['action_type'],
-      card['actionType'],
-      header['tool_name'],
-      header['toolName'],
-    ]);
-    final title = _firstNonBlank([
-      header['title'],
-      card['title'],
-      card['summary'],
-      card['operation_description'],
-      card['operationDescription'],
-      toolName,
-    ]);
-    final recallKind = _firstNonBlank([
-      header['recall_kind'],
-      header['recallKind'],
-      card['recall_kind'],
-      card['recallKind'],
-      header['compile_kind'],
-      header['compileKind'],
-      card['compile_kind'],
-      card['compileKind'],
-      card['selection_source'] == 'vlm' ? 'miss' : null,
-    ]);
+    final source = diagnostics['source']?.toString().trim() ?? '';
+    final status = step['status']?.toString().trim().toLowerCase() ?? '';
     final success =
-        _asBool(_firstPresentValue(header, const ['success'])) ??
-        _asBool(_firstPresentValue(card, const ['success']));
-    final durationMs = _asInt(
-      _firstPresentValue(header, const ['duration_ms', 'durationMs']) ??
-          _firstPresentValue(card, const ['duration_ms', 'durationMs']),
-    );
-    final paramsMap = _asStringKeyMap(params);
-    final packageName = _firstNonBlank([
-      before['package_name'],
-      before['packageName'],
-      after['package_name'],
-      after['packageName'],
-      paramsMap['package_name'],
-      paramsMap['packageName'],
-      card['package_name'],
-      card['packageName'],
+        _asBool(result['success']) ??
+        switch (status) {
+          'succeeded' => true,
+          'failed' => false,
+          _ => null,
+        };
+    final durationMs = _asInt(diagnostics['duration_ms']);
+    final packageName = args['package_name']?.toString().trim() ?? '';
+    final thinking = _firstNonBlank([
+      step['thinking'],
+      diagnostics['thinking'],
+      diagnostics['reasoning'],
     ]);
-    final toolCallId = _firstNonBlank([
-      toolCall['id'],
-      toolCall['tool_call_id'],
-      toolCall['toolCallId'],
-      card['tool_call_id'],
-      card['toolCallId'],
+    final summary = _firstNonBlank([
+      step['summary'],
+      diagnostics['summary'],
+      result['error'],
     ]);
-    var tokenUsage = _firstMap(card, const ['token_usage', 'tokenUsage']);
-    if (tokenUsage.isEmpty) {
-      tokenUsage = _firstMap(header, const ['token_usage', 'tokenUsage']);
-    }
+    final tokenUsage = _firstMap(diagnostics, const ['token_usage']);
     final tokenUsageAttempts = _asStringKeyMapList(
-      _firstPresentValue(card, const [
-        'token_usage_attempts',
-        'tokenUsageAttempts',
-      ]),
+      diagnostics['token_usage_attempts'],
     );
 
     return _RunLogStepSnapshot(
-      card: card,
-      header: header,
-      toolCall: toolCall,
-      params: params,
+      step: step,
+      diagnostics: diagnostics,
+      action: action,
+      args: args,
       result: result,
-      compileResult: compileResult,
       before: before,
       after: after,
       stepNumber: stepNumber,
-      title: title,
+      title: toolName.isNotEmpty ? toolName : summary,
       toolName: toolName,
-      toolCallId: toolCallId,
-      compileKind: recallKind,
+      compileKind: source,
+      status: status,
       success: success,
       durationMs: durationMs,
       packageName: packageName,
-      prompt: promptHit.text,
-      promptSource: promptHit.source,
+      thinking: thinking,
       tokenUsage: tokenUsage,
       tokenUsageAttempts: tokenUsageAttempts,
     );
@@ -6508,47 +5735,25 @@ class _RunLogStepSnapshot {
 
   String previewText(BuildContext context) {
     final parts = <String>[];
-    final paramsMap = _asStringKeyMap(params);
-    final resultMap = _asStringKeyMap(result);
-    if (prompt.isNotEmpty) {
-      parts.add(
-        '${_text(context, '提示', 'Prompt')}: ${_compactPreview(prompt, maxLength: 180)}',
-      );
-    }
-    final target = _firstNonBlank([
-      paramsMap['target_description'],
-      paramsMap['targetDescription'],
-      paramsMap['label'],
-      paramsMap['text'],
-      paramsMap['content'],
-      paramsMap['goal'],
-      paramsMap['task_goal'],
-      paramsMap['taskGoal'],
-      paramsMap['query'],
-      paramsMap['url'],
-      resultMap['summary'],
-      resultMap['message'],
-      resultMap['error_message'],
-      resultMap['errorMessage'],
-    ]);
+    final target = _canonicalActionPreview(toolName, args);
     if (target.isNotEmpty) {
       parts.add(target);
     }
-    final x = paramsMap['x'];
-    final y = paramsMap['y'];
+    final x = args['x'];
+    final y = args['y'];
     if (x != null && y != null) {
       parts.add('($x, $y)');
     }
-    final direction = _firstNonBlank([paramsMap['direction']]);
+    final direction = args['direction']?.toString().trim() ?? '';
     if (direction.isNotEmpty) {
       parts.add(direction);
     }
     return parts.join(' · ');
   }
 
-  String get toolCallForCopy {
-    if (toolCall.isNotEmpty) {
-      return _prettyJson(toolCall);
+  String get actionForCopy {
+    if (action.isNotEmpty) {
+      return _prettyJson(action);
     }
     return toolName;
   }
@@ -6556,6 +5761,12 @@ class _RunLogStepSnapshot {
   bool get tokenUsageIsVlmCost => isVlmStep && totalTokens != null;
 
   String statusLabel(BuildContext context) {
+    if (status == 'running') {
+      return _text(context, '执行中', 'Running');
+    }
+    if (status == 'waiting_user') {
+      return _text(context, '等待用户', 'Waiting for user');
+    }
     if (success == null) {
       return _text(context, '未知', 'Unknown');
     }
@@ -6579,15 +5790,9 @@ class _RunLogStepSnapshot {
 
   String tokenUsageLabel(BuildContext context) {
     final total = totalTokens;
-    final promptTokens = _asInt(
-      tokenUsage['prompt_tokens'] ?? tokenUsage['promptTokens'],
-    );
-    final completionTokens = _asInt(
-      tokenUsage['completion_tokens'] ?? tokenUsage['completionTokens'],
-    );
-    final cachedTokens = _asInt(
-      tokenUsage['cached_tokens'] ?? tokenUsage['cachedTokens'],
-    );
+    final promptTokens = _asInt(tokenUsage['prompt_tokens']);
+    final completionTokens = _asInt(tokenUsage['completion_tokens']);
+    final cachedTokens = _asInt(tokenUsage['cached_tokens']);
     final parts = <String>[];
     if (total != null) {
       parts.add(_formatTokens(total));
@@ -6612,49 +5817,40 @@ class _RunLogStepSnapshot {
       '### Step $stepNumber',
       if (title.isNotEmpty) 'Title: $title',
       if (toolName.isNotEmpty) 'Tool: $toolName',
-      if (toolCallId.isNotEmpty) 'Tool Call ID: $toolCallId',
       if (compileKind.isNotEmpty)
         'Execution: ${_userVisibleString(compileKind)}',
       if (success != null) 'Success: $success',
       if (durationMs != null) 'Duration: ${_formatMs(durationMs!)}',
       if (tokenUsageIsVlmCost) 'Model usage: ${tokenUsageLabelTextOnly()}',
       if (packageName.isNotEmpty) 'Package: $packageName',
-      if (prompt.isNotEmpty) 'Prompt Source: $promptSource',
     ];
 
-    if (prompt.isNotEmpty) {
-      _appendTranscriptSection(lines, 'Prompt', prompt);
+    if (thinking.isNotEmpty) {
+      _appendTranscriptSection(lines, 'Reasoning', thinking);
     }
-    _appendTranscriptSection(lines, 'Tool Call', toolCall);
-    _appendTranscriptSection(lines, 'Arguments', params);
+    _appendTranscriptSection(lines, 'Action', action);
+    _appendTranscriptSection(lines, 'Arguments', args);
     _appendTranscriptSection(lines, 'Result', result);
     _appendTranscriptSection(lines, 'Token Usage', {
       if (tokenUsage.isNotEmpty) 'token_usage': tokenUsage,
       if (tokenUsageAttempts.isNotEmpty)
         'token_usage_attempts': tokenUsageAttempts,
     });
-    _appendTranscriptSection(lines, 'Execution Info', compileResult);
     if (before.isNotEmpty || after.isNotEmpty) {
       _appendTranscriptSection(lines, 'Before / After', {
         if (before.isNotEmpty) 'before': before,
         if (after.isNotEmpty) 'after': after,
       });
     }
-    _appendTranscriptSection(lines, 'Raw JSON', card);
+    _appendTranscriptSection(lines, 'Raw JSON', step);
     return lines.join('\n').trimRight();
   }
 
   String tokenUsageLabelTextOnly() {
     final total = totalTokens;
-    final promptTokens = _asInt(
-      tokenUsage['prompt_tokens'] ?? tokenUsage['promptTokens'],
-    );
-    final completionTokens = _asInt(
-      tokenUsage['completion_tokens'] ?? tokenUsage['completionTokens'],
-    );
-    final cachedTokens = _asInt(
-      tokenUsage['cached_tokens'] ?? tokenUsage['cachedTokens'],
-    );
+    final promptTokens = _asInt(tokenUsage['prompt_tokens']);
+    final completionTokens = _asInt(tokenUsage['completion_tokens']);
+    final cachedTokens = _asInt(tokenUsage['cached_tokens']);
     final parts = <String>[];
     if (total != null) parts.add(_formatTokens(total));
     if (promptTokens != null || completionTokens != null) {
@@ -6668,269 +5864,31 @@ class _RunLogStepSnapshot {
   }
 }
 
-Map<String, dynamic> _extractToolCall(Map<String, dynamic> card) {
-  final explicit = _firstMap(card, const [
-    'tool_call',
-    'toolCall',
-    'action',
-    'call',
-  ]);
-  if (explicit.isNotEmpty) {
-    return explicit;
-  }
-  final toolName = _firstNonBlank([
-    card['tool_name'],
-    card['toolName'],
-    card['action_type'],
-    card['actionType'],
-  ]);
-  if (toolName.isEmpty) {
-    return const {};
-  }
-  return <String, dynamic>{
-    'name': toolName,
-    if (card.containsKey('params')) 'params': card['params'],
-    if (card.containsKey('arguments')) 'arguments': card['arguments'],
-  };
-}
-
-dynamic _extractParams(
-  Map<String, dynamic> card,
-  Map<String, dynamic> toolCall,
-  Map<String, dynamic> function,
-) {
-  final value = _firstPresent([
-    toolCall['params'],
-    toolCall['arguments'],
-    toolCall['args'],
-    function['arguments'],
-    card['params'],
-    card['arguments'],
-    card['args'],
-  ]);
-  return _decodeJsonIfNeeded(value);
-}
-
-dynamic _extractResult(Map<String, dynamic> card) {
-  final value = _firstPresent([
-    card['result'],
-    card['tool_result'],
-    card['toolResult'],
-    card['execution_result'],
-    card['executionResult'],
-    card['output'],
-    card['error'],
-    card['error_message'],
-    card['errorMessage'],
-  ]);
-  return _decodeJsonIfNeeded(value);
-}
-
-class _PromptHit {
-  const _PromptHit(this.text, this.source);
-
-  final String text;
-  final String source;
-}
-
-class _PromptSearchRoot {
-  const _PromptSearchRoot(this.name, this.value);
-
-  final String name;
-  final dynamic value;
-}
-
-const Set<String> _promptKeyNames = {
-  'prompt',
-  'subagentprompt',
-  'agentprompt',
-  'augmentprompt',
-  'augumentprompt',
-  'systemprompt',
-  'userprompt',
-  'instruction',
-  'instructions',
-  'query',
-  'question',
-  'message',
-  'usermessage',
-  'input',
-  'task',
-  'goal',
-  'request',
-};
-
-_PromptHit _extractPromptHit(List<_PromptSearchRoot> roots) {
-  for (final root in roots) {
-    final hit = _findPromptInValue(
-      root.value,
-      path: root.name,
-      visited: <Object>{},
-    );
-    if (hit.text.trim().isNotEmpty) {
-      return hit;
-    }
-  }
-  return const _PromptHit('', '');
-}
-
-_PromptHit _findPromptInValue(
-  dynamic raw, {
-  required String path,
-  required Set<Object> visited,
-}) {
-  final value = _decodeJsonIfNeeded(raw);
-  if (value is Map) {
-    if (!visited.add(value)) {
-      return const _PromptHit('', '');
-    }
-    final map = value.map((key, item) => MapEntry(key.toString(), item));
-    for (final entry in map.entries) {
-      final key = entry.key.trim();
-      final normalizedKey = _normalizePromptKey(key);
-      if (_promptKeyNames.contains(normalizedKey)) {
-        final text = _promptTextFromValue(entry.value);
-        if (text.isNotEmpty) {
-          return _PromptHit(text, '$path.$key');
-        }
-      }
-    }
-    for (final entry in map.entries) {
-      final hit = _findPromptInValue(
-        entry.value,
-        path: '$path.${entry.key}',
-        visited: visited,
-      );
-      if (hit.text.isNotEmpty) {
-        return hit;
-      }
-    }
-  } else if (value is Iterable) {
-    var index = 0;
-    for (final item in value) {
-      final hit = _findPromptInValue(
-        item,
-        path: '$path[$index]',
-        visited: visited,
-      );
-      if (hit.text.isNotEmpty) {
-        return hit;
-      }
-      index++;
-    }
-  }
-  return const _PromptHit('', '');
-}
-
-String _promptTextFromValue(dynamic raw) {
-  final value = _decodeJsonIfNeeded(raw);
-  if (value is String) {
-    return value.trim();
-  }
-  if (value is num || value is bool) {
-    return value.toString();
-  }
-  if (value is Map) {
-    return _firstNonBlank([
-      value['text'],
-      value['content'],
-      value['message'],
-      value['prompt'],
-      value['value'],
-    ]);
-  }
-  return '';
-}
-
-String _normalizePromptKey(String key) {
-  return key.replaceAll(RegExp(r'[^A-Za-z0-9]+'), '').toLowerCase().trim();
-}
-
 List<_ThinkingDebugEntry> _collectRunLogThinkingEntries(
-  Map<String, dynamic> payload,
-  List<Map<String, dynamic>> cards,
+  Map<String, dynamic> _,
+  List<Map<String, dynamic>> steps,
 ) {
   final entries = <_ThinkingDebugEntry>[];
-  final visited = <Object>{};
-  _collectThinkingEntriesFromValue(
-    payload,
-    path: 'payload',
-    entries: entries,
-    visited: visited,
-  );
-  for (var index = 0; index < cards.length; index++) {
-    _collectThinkingEntriesFromValue(
-      cards[index],
-      path: 'cards[$index]',
-      entries: entries,
-      visited: visited,
-    );
+  for (var index = 0; index < steps.length; index++) {
+    final diagnostics = _asStringKeyMap(steps[index]['diagnostics']);
+    final topLevelThinking = steps[index]['thinking']?.toString().trim() ?? '';
+    final text = _firstNonBlank([
+      topLevelThinking,
+      diagnostics['thinking'],
+      diagnostics['reasoning'],
+    ]);
+    if (text.isNotEmpty) {
+      entries.add(
+        _ThinkingDebugEntry(
+          path: topLevelThinking.isNotEmpty
+              ? 'steps[$index].thinking'
+              : 'steps[$index].diagnostics.thinking',
+          text: text,
+        ),
+      );
+    }
   }
   return entries;
-}
-
-void _collectThinkingEntriesFromValue(
-  dynamic raw, {
-  required String path,
-  required List<_ThinkingDebugEntry> entries,
-  required Set<Object> visited,
-}) {
-  final value = _decodeJsonIfNeeded(raw);
-  if (value is Map) {
-    if (!visited.add(value)) return;
-    final map = value.map((key, item) => MapEntry(key.toString(), item));
-    for (final entry in map.entries) {
-      final key = entry.key.trim();
-      if (_isThinkingDebugKey(key)) {
-        final text = _debugTextFromValue(entry.value);
-        if (text.isNotEmpty) {
-          entries.add(_ThinkingDebugEntry(path: '$path.$key', text: text));
-        }
-      }
-      _collectThinkingEntriesFromValue(
-        entry.value,
-        path: '$path.$key',
-        entries: entries,
-        visited: visited,
-      );
-    }
-    return;
-  }
-  if (value is Iterable) {
-    var index = 0;
-    for (final item in value) {
-      _collectThinkingEntriesFromValue(
-        item,
-        path: '$path[$index]',
-        entries: entries,
-        visited: visited,
-      );
-      index++;
-    }
-  }
-}
-
-bool _isThinkingDebugKey(String key) {
-  final normalized = key
-      .replaceAll(RegExp(r'[^A-Za-z0-9]+'), '')
-      .toLowerCase()
-      .trim();
-  return normalized == 'thinking' ||
-      normalized == 'thinkingcontent' ||
-      normalized == 'deepthinking' ||
-      normalized == 'deepthinkingcontent' ||
-      normalized == 'reasoning' ||
-      normalized == 'reasoningcontent' ||
-      normalized == 'modelreasoning' ||
-      normalized == 'assistantreasoning';
-}
-
-String _debugTextFromValue(dynamic raw) {
-  final value = _decodeJsonIfNeeded(raw);
-  if (value == null) return '';
-  if (value is String) return value.trim();
-  if (value is num || value is bool) return value.toString();
-  return _prettyJson(value).trim();
 }
 
 void _appendTranscriptSection(List<String> lines, String title, dynamic value) {
@@ -6978,18 +5936,14 @@ T _localeValue<T>(BuildContext context, {required T zh, required T en}) {
 Map<String, dynamic> _defaultArgumentsForFunctionSpec(
   Map<String, dynamic> functionSpec,
 ) {
-  final rawParameters = functionSpec['parameters'];
-  if (rawParameters is! List) {
-    return const {};
-  }
+  final inputSchema = _asStringKeyMap(functionSpec['input_schema']);
+  final properties = _asStringKeyMap(inputSchema['properties']);
   final arguments = <String, dynamic>{};
-  for (final item in rawParameters) {
-    if (item is! Map) continue;
-    final name = (item['name'] ?? '').toString().trim();
-    if (name.isEmpty) continue;
-    final defaultValue = item['default'];
+  for (final entry in properties.entries) {
+    final property = _asStringKeyMap(entry.value);
+    final defaultValue = property['default'];
     if (defaultValue == null) continue;
-    arguments[name] = defaultValue;
+    arguments[entry.key] = defaultValue;
   }
   return arguments;
 }
@@ -7064,36 +6018,26 @@ _RunLogStatusInfo _runLogStatusInfo(
   BuildContext context,
   Map<String, dynamic> payload,
 ) {
-  final rawStatus = _firstNonBlank([
-    payload['run_status'],
-    payload['runStatus'],
-    payload['status'],
-  ]).toLowerCase();
+  final rawStatus = payload['status']?.toString().trim().toLowerCase() ?? '';
   final finished = _isRunLogFinished(payload);
   final success = _runLogSuccess(payload);
-  final requestFailed = _asBool(payload['success']) == false;
-  final errorMessage = _firstNonBlank([
-    payload['error_message'],
-    payload['errorMessage'],
-    payload['error_code'],
-    payload['errorCode'],
-  ]);
-  if (success == false || requestFailed || errorMessage.isNotEmpty) {
-    return _RunLogStatusInfo(
-      kind: _RunLogStatusKind.failed,
-      label: _text(context, '失败', 'Failed'),
-      title: _text(context, '执行失败', 'Execution failed'),
-      color: _errorColor(context),
-      icon: Icons.error_outline_rounded,
-    );
-  }
-  if (!finished || rawStatus == 'running' || rawStatus == 'in_progress') {
+  final errorMessage = payload['error']?.toString().trim() ?? '';
+  if (!finished || rawStatus == 'running') {
     return _RunLogStatusInfo(
       kind: _RunLogStatusKind.running,
       label: _text(context, '运行中', 'Running'),
       title: _text(context, '执行还在进行中', 'Execution is still running'),
       color: _runningColor(context),
       icon: Icons.timelapse_rounded,
+    );
+  }
+  if (success == false || errorMessage.isNotEmpty) {
+    return _RunLogStatusInfo(
+      kind: _RunLogStatusKind.failed,
+      label: _text(context, '失败', 'Failed'),
+      title: _text(context, '执行失败', 'Execution failed'),
+      color: _errorColor(context),
+      icon: Icons.error_outline_rounded,
     );
   }
   if (success == true) {
@@ -7128,97 +6072,17 @@ enum _RunLogStepSource { agentVlm, human, omniflowReplay, route }
 bool _isVlmRunLogStep(_RunLogStepSnapshot snapshot) => snapshot.isVlmStep;
 
 _RunLogStepSource _runLogStepSource(_RunLogStepSnapshot snapshot) {
-  final evidence = _runLogSourceEvidence(snapshot);
-  if (_containsAny(evidence, const [
-    'omniflow_replay',
-    'oob_omniflow_replay',
-    'function_runner',
-    'completed_local',
-  ])) {
-    return _RunLogStepSource.omniflowReplay;
-  }
-  if (_containsAny(evidence, const [
-    'human_takeover',
-    'manual_recording',
-    'human',
-  ])) {
-    return _RunLogStepSource.human;
-  }
-  if (_isVlmRunLogStep(snapshot)) {
-    return _RunLogStepSource.agentVlm;
-  }
-  return _RunLogStepSource.route;
-}
-
-Set<String> _runLogSourceEvidence(_RunLogStepSnapshot snapshot) {
-  final values = <String>{};
-  void collect(dynamic value, {int depth = 0}) {
-    if (value == null || depth > 4) {
-      return;
-    }
-    if (value is Map) {
-      for (final entry in value.entries) {
-        final key = entry.key.toString().trim().toLowerCase();
-        final shouldCollect = const {
-          'source',
-          'run_source',
-          'runsource',
-          'selection_source',
-          'selectionsource',
-          'recording_source',
-          'recordingsource',
-          'recall_kind',
-          'recallkind',
-          'compile_kind',
-          'compilekind',
-          'tool_type',
-          'tooltype',
-          'runner',
-          'executor',
-          'execution_status',
-          'executionstatus',
-          'replay_engine',
-          'replayengine',
-        }.contains(key);
-        if (shouldCollect) {
-          collect(entry.value, depth: depth + 1);
-        } else if (entry.value is Map || entry.value is List) {
-          collect(entry.value, depth: depth + 1);
-        }
-      }
-      return;
-    }
-    if (value is List) {
-      for (final item in value) {
-        collect(item, depth: depth + 1);
-      }
-      return;
-    }
-    final text = value.toString().trim().toLowerCase();
-    if (text.isNotEmpty) {
-      values.add(text);
-    }
-  }
-
-  collect(snapshot.card);
-  collect(snapshot.header);
-  collect(snapshot.result);
-  collect(snapshot.params);
-  collect(snapshot.compileResult);
-  values.add(snapshot.compileKind.trim().toLowerCase());
-  values.add(snapshot.toolName.trim().toLowerCase());
-  return values.where((value) => value.isNotEmpty).toSet();
-}
-
-bool _containsAny(Set<String> values, List<String> needles) {
-  for (final value in values) {
-    for (final needle in needles) {
-      if (value == needle || value.contains(needle)) {
-        return true;
-      }
-    }
-  }
-  return false;
+  return switch (snapshot.diagnostics['source']
+      ?.toString()
+      .trim()
+      .toLowerCase()) {
+    'vlm' => _RunLogStepSource.agentVlm,
+    'human_trajectory' ||
+    'human_takeover' ||
+    'manual_recording' => _RunLogStepSource.human,
+    'omniflow_replay' || 'function' => _RunLogStepSource.omniflowReplay,
+    _ => _RunLogStepSource.route,
+  };
 }
 
 bool _hasRunLogSourceBadge(_RunLogStepSource source) {
@@ -7308,44 +6172,30 @@ String _runLogStepDisplayTitle(
 }
 
 String _runLogStepTarget(_RunLogStepSnapshot snapshot) {
-  final params = _asStringKeyMap(snapshot.params);
-  final result = _asStringKeyMap(snapshot.result);
-  final replayAction =
-      _replayableActionForToolName(snapshot.toolName) ??
-      snapshot.toolName.trim().toLowerCase();
-  if (replayAction == 'open_app' && snapshot.packageName.isNotEmpty) {
-    return snapshot.packageName;
-  }
-  return _firstNonBlank([
-    params['target_description'],
-    params['targetDescription'],
-    params['content'],
-    params['goal'],
-    params['task_goal'],
-    params['taskGoal'],
-    params['text'],
-    params['prompt'],
-    params['value'],
-    params['package_name'],
-    params['packageName'],
-    params['key'],
-    params['duration_ms'],
-    params['durationMs'],
-    result['summary'],
-    result['message'],
-  ]);
+  return _canonicalActionPreview(snapshot.toolName, snapshot.args);
 }
 
-String _vlmCoordinateText(Map<String, dynamic> params) {
-  final x = _firstNonBlank([params['x'], params['clientX']]);
-  final y = _firstNonBlank([params['y'], params['clientY']]);
+String _canonicalActionPreview(String tool, Map<String, dynamic> args) {
+  return switch (tool.trim().toLowerCase()) {
+    'input_text' => args['text']?.toString().trim() ?? '',
+    'open_app' => args['package_name']?.toString().trim() ?? '',
+    'press_key' => args['key']?.toString().trim() ?? '',
+    'wait' => args['duration_ms'] == null ? '' : '${args['duration_ms']}ms',
+    'swipe' => args['direction']?.toString().trim() ?? '',
+    _ => '',
+  };
+}
+
+String _vlmCoordinateText(Map<String, dynamic> args) {
+  final x = _firstNonBlank([args['x']]);
+  final y = _firstNonBlank([args['y']]);
   if (x.isNotEmpty && y.isNotEmpty) {
     return '$x,$y';
   }
-  final x1 = _firstNonBlank([params['x1'], params['startX']]);
-  final y1 = _firstNonBlank([params['y1'], params['startY']]);
-  final x2 = _firstNonBlank([params['x2'], params['endX']]);
-  final y2 = _firstNonBlank([params['y2'], params['endY']]);
+  final x1 = _firstNonBlank([args['x1']]);
+  final y1 = _firstNonBlank([args['y1']]);
+  final x2 = _firstNonBlank([args['x2']]);
+  final y2 = _firstNonBlank([args['y2']]);
   if (x1.isNotEmpty && y1.isNotEmpty && x2.isNotEmpty && y2.isNotEmpty) {
     return '$x1,$y1 -> $x2,$y2';
   }
@@ -7356,182 +6206,48 @@ String _vlmActionLabel(BuildContext context, String raw) {
   switch (raw.trim()) {
     case 'click':
       return _text(context, '点击', 'Tap');
-    case 'type':
+    case 'input_text':
       return _text(context, '输入', 'Type');
     case 'swipe':
       return _text(context, '滑动', 'Swipe');
     case 'long_press':
-    case 'longPress':
       return _text(context, '长按', 'Long press');
     case 'open_app':
-    case 'openApp':
       return _text(context, '打开应用', 'Open app');
     case 'press_key':
       return _text(context, '按键', 'Press key');
-    case 'call_tool':
-      return _text(context, '复用指令', 'Function');
     case 'wait':
       return _text(context, '等待', 'Wait');
-    case 'record':
-      return _text(context, '记录', 'Record');
-    case 'finished':
-      return _text(context, '完成任务', 'Finish');
-    case 'require_user_choice':
-    case 'requireUserChoice':
-      return _text(context, '请求选择', 'Need choice');
-    case 'require_user_confirmation':
-    case 'requireUserConfirmation':
-      return _text(context, '请求确认', 'Need confirmation');
-    case 'info':
-      return _text(context, '请求协助', 'Need input');
-    case 'feedback':
-      return _text(context, '反馈', 'Feedback');
-    case 'abort':
-      return _text(context, '中止', 'Abort');
-    case 'hot_key':
-    case 'hotKey':
-      return _text(context, '快捷键', 'Shortcut');
-    case 'vlm_task':
-    case 'mobile':
-      return _text(context, '视觉执行', 'Visual task');
   }
   return raw;
 }
 
-List<Map<String, dynamic>> _extractTimelineCards(Map<String, dynamic> payload) {
-  return _findTimelineCards(payload, <Object>{});
+List<Map<String, dynamic>> _extractTimelineSteps(Map<String, dynamic> payload) {
+  if (!_isCanonicalRunLog(payload)) {
+    return const <Map<String, dynamic>>[];
+  }
+  final steps = payload['steps'];
+  if (steps is! List) {
+    return const <Map<String, dynamic>>[];
+  }
+  return steps
+      .map(_asStringKeyMap)
+      .where(_isCanonicalRunLogStep)
+      .toList(growable: false);
 }
 
-class _RunLogCardGroup {
-  const _RunLogCardGroup({
-    required this.card,
-    required this.fallbackIndex,
-    required this.nestedCards,
-  });
+class _RunLogStepGroup {
+  const _RunLogStepGroup({required this.step, required this.fallbackIndex});
 
-  final Map<String, dynamic> card;
+  final Map<String, dynamic> step;
   final int fallbackIndex;
-  final List<Map<String, dynamic>> nestedCards;
 }
 
-List<_RunLogCardGroup> _groupTimelineCards(List<Map<String, dynamic>> cards) {
-  if (cards.isEmpty) return const <_RunLogCardGroup>[];
-  final parentIndexes = <String, int>{};
-  for (var index = 0; index < cards.length; index++) {
-    final cardId = _timelineCardId(cards[index]);
-    if (cardId.isNotEmpty) {
-      parentIndexes[cardId] = index;
-    }
-  }
-  final nestedByParent = <String, List<Map<String, dynamic>>>{};
-  final nestedIndexes = <int>{};
-  for (var index = 0; index < cards.length; index++) {
-    final parentId = _timelineParentCardId(cards[index]);
-    if (parentId.isEmpty || !parentIndexes.containsKey(parentId)) {
-      continue;
-    }
-    final parentCard = cards[parentIndexes[parentId]!];
-    if (_shouldFlattenTimelineChild(cards[index], parentCard)) {
-      continue;
-    }
-    nestedByParent.putIfAbsent(parentId, () => <Map<String, dynamic>>[]);
-    nestedByParent[parentId]!.add(cards[index]);
-    nestedIndexes.add(index);
-  }
-  final groups = <_RunLogCardGroup>[];
-  for (var index = 0; index < cards.length; index++) {
-    if (nestedIndexes.contains(index)) {
-      continue;
-    }
-    final card = cards[index];
-    groups.add(
-      _RunLogCardGroup(
-        card: card,
-        fallbackIndex: index,
-        nestedCards:
-            nestedByParent[_timelineCardId(card)] ??
-            const <Map<String, dynamic>>[],
-      ),
-    );
-  }
-  return groups;
-}
-
-bool _shouldFlattenTimelineChild(
-  Map<String, dynamic> child,
-  Map<String, dynamic> parent,
-) {
-  return _timelineCardLooksLikeVlm(child) || _timelineCardLooksLikeVlm(parent);
-}
-
-bool _timelineCardLooksLikeVlm(Map<String, dynamic> card) {
-  final header = _asStringKeyMap(card['header']);
-  final toolCall = _extractToolCall(card);
-  final values = <String>[
-    _firstNonBlank([card['tool_type'], card['toolType']]),
-    _firstNonBlank([card['source'], card['run_source'], card['runSource']]),
-    _firstNonBlank([
-      card['recall_kind'],
-      card['recallKind'],
-      card['compile_kind'],
-      card['compileKind'],
-    ]),
-    _firstNonBlank([card['span_kind'], card['spanKind']]),
-    _firstNonBlank([header['tool_type'], header['toolType']]),
-    _firstNonBlank([
-      header['source'],
-      header['run_source'],
-      header['runSource'],
-    ]),
-    _firstNonBlank([
-      header['recall_kind'],
-      header['recallKind'],
-      header['compile_kind'],
-      header['compileKind'],
-    ]),
-    _firstNonBlank([header['span_kind'], header['spanKind']]),
-    _firstNonBlank([
-      toolCall['name'],
-      toolCall['tool_name'],
-      toolCall['toolName'],
-      card['tool_name'],
-      card['toolName'],
-    ]),
-  ].map((value) => value.trim().toLowerCase()).toList(growable: false);
-  return values.any(
-    (value) =>
-        value == 'vlm' ||
-        value == 'vlm_task' ||
-        value == 'vlm_step' ||
-        value == 'vlm_action' ||
-        value.contains('vlm'),
-  );
-}
-
-String _timelineCardId(Map<String, dynamic> card) {
-  final header = _asStringKeyMap(card['header']);
-  final toolCall = _extractToolCall(card);
-  return _firstNonBlank([
-    card['card_id'],
-    card['cardId'],
-    card['tool_call_id'],
-    card['toolCallId'],
-    toolCall['id'],
-    header['card_id'],
-    header['cardId'],
-  ]);
-}
-
-String _timelineParentCardId(Map<String, dynamic> card) {
-  final header = _asStringKeyMap(card['header']);
-  return _firstNonBlank([
-    card['parent_card_id'],
-    card['parentCardId'],
-    card['parent_tool_call_id'],
-    card['parentToolCallId'],
-    header['parent_card_id'],
-    header['parentCardId'],
-  ]);
+List<_RunLogStepGroup> _groupTimelineSteps(List<Map<String, dynamic>> steps) {
+  return [
+    for (var index = 0; index < steps.length; index++)
+      _RunLogStepGroup(step: steps[index], fallbackIndex: index),
+  ];
 }
 
 class _RunLogTokenUsageAggregate {
@@ -7560,43 +6276,30 @@ class _RunLogTokenUsageAggregate {
       stepCount != null;
 
   factory _RunLogTokenUsageAggregate.fromPayload(Map<String, dynamic> payload) {
-    final usage = _firstMap(payload, const ['token_usage', 'tokenUsage']);
+    final diagnostics = _runLogDiagnostics(payload);
+    final usage = _firstMap(diagnostics, const ['token_usage']);
     final byStep = _asStringKeyMapList(
-      _firstPresentValue(payload, const [
-        'token_usage_by_step',
-        'tokenUsageByStep',
-      ]),
+      _firstPresentValue(diagnostics, const ['token_usage_by_step']),
     );
     final byCall = _asStringKeyMapList(
-      _firstPresentValue(payload, const [
-        'token_usage_by_call',
-        'tokenUsageByCall',
-      ]),
+      _firstPresentValue(diagnostics, const ['token_usage_by_call']),
     );
     return _RunLogTokenUsageAggregate(
       totalTokens: _asInt(
-        payload['token_usage_total'] ??
-            payload['tokenUsageTotal'] ??
-            usage['total_tokens'] ??
-            usage['totalTokens'],
+        diagnostics['token_usage_total'] ?? usage['total_tokens'],
       ),
-      promptTokens: _asInt(usage['prompt_tokens'] ?? usage['promptTokens']),
-      completionTokens: _asInt(
-        usage['completion_tokens'] ?? usage['completionTokens'],
-      ),
-      cachedTokens: _asInt(usage['cached_tokens'] ?? usage['cachedTokens']),
+      promptTokens: _asInt(usage['prompt_tokens']),
+      completionTokens: _asInt(usage['completion_tokens']),
+      cachedTokens: _asInt(usage['cached_tokens']),
       callCount:
           _asInt(
-            payload['token_usage_call_count'] ??
-                payload['tokenUsageCallCount'] ??
+            diagnostics['token_usage_call_count'] ??
                 usage['call_count'] ??
-                usage['callCount'] ??
-                usage['attempt_count'] ??
-                usage['attemptCount'],
+                usage['attempt_count'],
           ) ??
           (byCall.isNotEmpty ? byCall.length : null),
       stepCount:
-          _asInt(usage['step_count'] ?? usage['stepCount']) ??
+          _asInt(usage['step_count']) ??
           (byStep.isNotEmpty ? byStep.length : null),
     );
   }
@@ -7606,20 +6309,29 @@ String? _runLogPayloadError(
   BuildContext context,
   Map<String, dynamic> payload,
 ) {
-  final success = _asBool(payload['success']);
-  if (success != false) {
+  if (_isCanonicalRunLog(payload)) {
     return null;
   }
-  final code = (payload['error_code'] ?? payload['errorCode'])
-      ?.toString()
-      .trim()
-      .toUpperCase();
+  if (payload.isNotEmpty && payload['schema_version'] != null) {
+    return _text(
+      context,
+      '不支持的 RunLog schema_version：${payload['schema_version']}',
+      'Unsupported RunLog schema_version: ${payload['schema_version']}',
+    );
+  }
+  final success = _asBool(payload['success']);
+  if (success != false) {
+    return _text(
+      context,
+      'RunLog 不是 canonical 格式，无法展示。',
+      'RunLog is not in canonical format.',
+    );
+  }
+  final code = payload['error_code']?.toString().trim().toUpperCase();
   if (code == 'NOT_FOUND' || code == 'RUN_LOG_ID_EMPTY') {
     return context.l10n.omniflowAssetRunLogNotReady;
   }
-  final message = (payload['error_message'] ?? payload['errorMessage'])
-      ?.toString()
-      .trim();
+  final message = payload['error_message']?.toString().trim();
   if (message != null && message.isNotEmpty) {
     return message;
   }
@@ -7639,9 +6351,9 @@ class _RunLogConvertEligibility {
 _RunLogConvertEligibility _runLogConvertEligibility(
   BuildContext context,
   Map<String, dynamic> payload,
-  List<Map<String, dynamic>> cards,
+  List<Map<String, dynamic>> steps,
 ) {
-  if (cards.isEmpty) {
+  if (steps.isEmpty) {
     return _RunLogConvertEligibility(
       canConvert: false,
       message: _text(context, '暂无可注册步骤', 'No steps to register'),
@@ -7664,34 +6376,18 @@ _RunLogConvertEligibility _runLogConvertEligibility(
 }
 
 bool _isRunLogFinished(Map<String, dynamic> payload) {
-  final explicit = _asBool(
-    payload['run_finished'] ?? payload['runFinished'] ?? payload['is_finished'],
-  );
-  if (explicit != null) {
-    return explicit;
-  }
-  return _firstNonBlank([
-    payload['finished_at'],
-    payload['finishedAt'],
-    payload['finished_at_ms'],
-    payload['finishedAtMs'],
-  ]).isNotEmpty;
+  return payload['status'] != 'running';
 }
 
 bool? _runLogSuccess(Map<String, dynamic> payload) {
-  return _asBool(
-    payload['run_success'] ??
-        payload['runSuccess'] ??
-        payload['record_success'] ??
-        payload['recordSuccess'],
-  );
+  return _asBool(payload['success']);
 }
 
 String _runLogEmptyMessage(BuildContext context, Map<String, dynamic> payload) {
   final success = _asBool(payload['success']);
-  final doneReason = (payload['done_reason'] ?? payload['doneReason'])
-      ?.toString()
-      .trim();
+  final doneReason = _runLogDiagnostics(
+    payload,
+  )['done_reason']?.toString().trim();
   if (success == true) {
     return _text(
       context,
@@ -7705,336 +6401,136 @@ String _runLogEmptyMessage(BuildContext context, Map<String, dynamic> payload) {
   return context.l10n.runLogTimelineEmpty;
 }
 
-List<Map<String, dynamic>> _findTimelineCards(
-  dynamic value,
-  Set<Object> visited,
-) {
-  final decoded = _decodeJsonIfNeeded(value);
-  if (decoded is List) {
-    return _cardsFromList(decoded);
-  }
-  if (decoded is! Map) {
-    return const <Map<String, dynamic>>[];
-  }
-  if (!visited.add(decoded)) {
-    return const <Map<String, dynamic>>[];
-  }
-
-  final map = decoded.map((key, item) => MapEntry(key.toString(), item));
-  for (final key in const <String>[
-    'cards',
+bool _isCanonicalRunLog(Map<String, dynamic> payload) {
+  const required = {
+    'schema_version',
+    'run_id',
+    'goal',
+    'status',
+    'success',
     'steps',
-    'timeline_cards',
-    'timelineCards',
-    'timeline_steps',
-    'timelineSteps',
-    'run_steps',
-    'runSteps',
-  ]) {
-    final cards = _cardsFromValue(map[key]);
-    if (cards.isNotEmpty) {
-      return cards;
-    }
-  }
+  };
+  const allowed = {
+    ...required,
+    'error',
+    'started_at_ms',
+    'finished_at_ms',
+    'final_state_id',
+    'diagnostics',
+  };
+  return payload['schema_version'] == 'omniflow.canonical_run_log.v1' &&
+      payload.keys.toSet().containsAll(required) &&
+      payload.keys.every(allowed.contains) &&
+      payload['run_id'] is String &&
+      (payload['run_id'] as String).trim().isNotEmpty &&
+      payload['goal'] is String &&
+      const {
+        'running',
+        'succeeded',
+        'failed',
+        'cancelled',
+      }.contains(payload['status']) &&
+      payload['success'] is bool &&
+      ((payload['status'] == 'succeeded') == (payload['success'] == true)) &&
+      payload['steps'] is List &&
+      (payload['diagnostics'] == null || payload['diagnostics'] is Map);
+}
 
-  for (final key in const <String>[
-    'timeline',
-    'timeline_payload',
-    'timelinePayload',
-    'run_log',
-    'runLog',
-    'run',
-    'detail',
-    'data',
-    'payload',
+Map<String, dynamic> _runLogDiagnostics(Map<String, dynamic> payload) =>
+    _asStringKeyMap(payload['diagnostics']);
+
+bool _isCanonicalRunLogStep(Map<String, dynamic> step) {
+  const allowed = {
+    'step_id',
+    'step_index',
+    'status',
+    'thinking',
+    'summary',
+    'before_state_id',
+    'action',
     'result',
-  ]) {
-    final cards = _findTimelineCards(map[key], visited);
-    if (cards.isNotEmpty) {
-      return cards;
+    'after_state_id',
+    'diagnostics',
+    'metadata',
+  };
+  if (!step.containsKey('step_index') || !step.keys.every(allowed.contains)) {
+    return false;
+  }
+  final stepIndex = step['step_index'];
+  if (stepIndex is! num || stepIndex.toInt() < 0) return false;
+  final stepId = step['step_id']?.toString().trim() ?? '';
+  final status = step['status']?.toString().trim().toLowerCase() ?? '';
+  if (step.containsKey('step_id') && stepId.isEmpty) return false;
+  if (status.isNotEmpty &&
+      !const {
+        'running',
+        'succeeded',
+        'failed',
+        'waiting_user',
+      }.contains(status)) {
+    return false;
+  }
+  for (final key in const ['before_state_id', 'after_state_id']) {
+    if (step.containsKey(key) &&
+        (step[key]?.toString().trim().isEmpty ?? true)) {
+      return false;
     }
   }
-
-  return const <Map<String, dynamic>>[];
-}
-
-List<Map<String, dynamic>> _cardsFromValue(dynamic value) {
-  final decoded = _decodeJsonIfNeeded(value);
-  if (decoded is! List) {
-    return const <Map<String, dynamic>>[];
-  }
-  return _cardsFromList(decoded);
-}
-
-List<Map<String, dynamic>> _cardsFromList(List<dynamic> items) {
-  final cards = <Map<String, dynamic>>[];
-  for (var index = 0; index < items.length; index++) {
-    final card = _asStringKeyMap(items[index]);
-    if (card.isEmpty) {
-      continue;
+  if (step.containsKey('action')) {
+    if (step['action'] is! Map) return false;
+    final action = _asStringKeyMap(step['action']);
+    if (action.keys.length != 2 ||
+        action['tool']?.toString().trim().isEmpty != false ||
+        action['args'] is! Map) {
+      return false;
     }
-    cards.add(_normalizeTimelineCard(card, index));
   }
-  return cards;
+  if (step.containsKey('result')) {
+    if (step['result'] is! Map) return false;
+    final result = _asStringKeyMap(step['result']);
+    if (result.keys.any((key) => key != 'success' && key != 'error') ||
+        result['success'] is! bool ||
+        (result.containsKey('error') && result['error'] is! String)) {
+      return false;
+    }
+  }
+  return (step['diagnostics'] == null || step['diagnostics'] is Map) &&
+      (step['metadata'] == null || step['metadata'] is Map);
 }
 
-Map<String, dynamic> _runLogCardFromFunctionStep(
+Map<String, dynamic> _functionStepAsRunLogStep(
   Map<String, dynamic> step,
   int fallbackIndex,
 ) {
-  final normalized = Map<String, dynamic>.from(step);
-  final toolName = _firstNonBlank([
-    normalized['tool'],
-    normalized['tool_name'],
-    normalized['toolName'],
-    normalized['action_type'],
-    normalized['actionType'],
-  ]);
-  final args = _decodeJsonIfNeeded(
-    _firstPresent([
-      normalized['args'],
-      normalized['arguments'],
-      normalized['params'],
-      normalized['input'],
-    ]),
-  );
-  final result = _functionStepResult(normalized);
-  final isVlm = _functionStepLooksLikeVlm(normalized, toolName);
-  final recallKind = isVlm
-      ? 'vlm_step'
-      : _firstNonBlank([
-          normalized['recall_kind'],
-          normalized['recallKind'],
-          normalized['compile_kind'],
-          normalized['compileKind'],
-          _isLegacyFunctionExecutor(normalized['executor']) ? 'hit' : null,
-          normalized['kind'],
-        ]);
-  final cardId = _functionStepCardId(normalized, fallbackIndex);
-  final title = _firstNonBlank([
-    normalized['title'],
-    normalized['summary'],
-    normalized['description'],
-    toolName,
-  ]);
-  final durationMs = _firstPresent([
-    normalized['duration_ms'],
-    normalized['durationMs'],
-    normalized['elapsed_ms'],
-    normalized['elapsedMs'],
-  ]);
-  final sourceRunId = _firstNonBlank([
-    normalized['source_run_id'],
-    normalized['sourceRunId'],
-    _asStringKeyMap(normalized['source'])['run_id'],
-    _asStringKeyMap(normalized['source'])['runId'],
-  ]);
-
-  return _normalizeTimelineCard(<String, dynamic>{
-    'card_id': cardId,
-    'tool_call_id': cardId,
-    'step_index': fallbackIndex,
-    if (title.isNotEmpty) 'title': title,
-    if (title.isNotEmpty) 'summary': title,
-    if (recallKind.isNotEmpty) 'recall_kind': recallKind,
-    if (recallKind.isNotEmpty) 'compile_kind': recallKind,
-    if (isVlm) ...<String, dynamic>{
-      'source': 'vlm',
-      'tool_type': 'vlm',
-      'span_kind': toolName == 'vlm_task' ? 'vlm_task' : 'vlm_action',
-    },
-    if (sourceRunId.isNotEmpty) 'source_run_id': sourceRunId,
-    'success': _asBool(normalized['success']) ?? true,
-    if (durationMs != null) 'duration_ms': durationMs,
-    'header': <String, dynamic>{
-      'step_index': fallbackIndex,
-      if (title.isNotEmpty) 'title': title,
-      if (toolName.isNotEmpty) 'tool_name': toolName,
-      if (recallKind.isNotEmpty) 'recall_kind': recallKind,
-      if (recallKind.isNotEmpty) 'compile_kind': recallKind,
-      'success': _asBool(normalized['success']) ?? true,
-      if (durationMs != null) 'duration_ms': durationMs,
-      if (isVlm) ...<String, dynamic>{
-        'source': 'vlm',
-        'tool_type': 'vlm',
-        'span_kind': toolName == 'vlm_task' ? 'vlm_task' : 'vlm_action',
-      },
-    },
-    'tool_call': <String, dynamic>{
-      'id': cardId,
-      if (toolName.isNotEmpty) 'name': toolName,
-      if (args != null) 'arguments': args,
-    },
-    if (!_isEmptyJsonValue(result)) 'result': result,
-    'recall_result': _functionStepRecallResult(normalized),
-    'compile_result': _functionStepRecallResult(normalized),
-    'function_step': normalized,
-  }, fallbackIndex);
-}
-
-bool _isLegacyFunctionExecutor(Object? value) {
-  final normalized = value?.toString().trim().toLowerCase();
-  return normalized == 'function' || normalized == 'omniflow';
-}
-
-String _functionStepCardId(Map<String, dynamic> step, int fallbackIndex) {
-  return _firstNonBlank([
-    step['id'],
-    step['step_id'],
-    step['stepId'],
-    step['tool_call_id'],
-    step['toolCallId'],
-    'function_step_${fallbackIndex + 1}',
-  ]);
-}
-
-dynamic _functionStepResult(Map<String, dynamic> step) {
-  return _decodeJsonIfNeeded(
-    _firstPresent([
-      step['observed_result'],
-      step['observedResult'],
-      step['result'],
-      step['output'],
-      step['response'],
-      step['error_message'],
-      step['errorMessage'],
-      step['error'],
-    ]),
-  );
-}
-
-Map<String, dynamic> _functionStepRecallResult(Map<String, dynamic> step) {
+  final action = _asStringKeyMap(step['action']);
+  final sourceStateId = step['source_state_id']?.toString().trim() ?? '';
   return <String, dynamic>{
-    if (step.containsKey('kind')) 'kind': step['kind'],
-    if (step.containsKey('executor')) 'executor': step['executor'],
-    if (step.containsKey('tool_binding')) 'tool_binding': step['tool_binding'],
-    if (step.containsKey('toolBinding')) 'tool_binding': step['toolBinding'],
-    if (step.containsKey('agent_call')) 'agent_call': step['agent_call'],
-    if (step.containsKey('agentCall')) 'agent_call': step['agentCall'],
-    if (step.containsKey('fallback_reason'))
-      'fallback_reason': step['fallback_reason'],
-    if (step.containsKey('fallbackReason'))
-      'fallback_reason': step['fallbackReason'],
-    if (step.containsKey('needs_agent')) 'needs_agent': step['needs_agent'],
-    if (step.containsKey('needsAgent')) 'needs_agent': step['needsAgent'],
-    if (step.containsKey('blocked_executor'))
-      'blocked_executor': step['blocked_executor'],
-    if (step.containsKey('blockedExecutor'))
-      'blocked_executor': step['blockedExecutor'],
+    'step_id': 'function-step-$fallbackIndex',
+    'step_index': _asInt(step['step_index']) ?? fallbackIndex,
+    'status': 'succeeded',
+    'before_state_id': sourceStateId,
+    'action': <String, dynamic>{
+      'tool': action['tool']?.toString().trim() ?? '',
+      'args': _asStringKeyMap(action['args']),
+    },
+    'result': const <String, dynamic>{'success': true},
+    'after_state_id': sourceStateId,
+    'diagnostics': const <String, dynamic>{'source': 'function'},
   };
 }
 
-bool _functionStepLooksLikeVlm(Map<String, dynamic> step, String toolName) {
-  final agentCall = _asStringKeyMap(step['agent_call'] ?? step['agentCall']);
-  final toolBinding = _asStringKeyMap(
-    step['tool_binding'] ?? step['toolBinding'],
-  );
-  final values = <String>[
-    toolName,
-    _firstNonBlank([step['tool_type'], step['toolType']]),
-    _firstNonBlank([step['source'], step['run_source'], step['runSource']]),
-    _firstNonBlank([
-      step['recall_kind'],
-      step['recallKind'],
-      step['compile_kind'],
-      step['compileKind'],
-    ]),
-    _firstNonBlank([step['kind']]),
-    _firstNonBlank([step['executor']]),
-    _firstNonBlank([
-      agentCall['tool_name'],
-      agentCall['toolName'],
-      agentCall['original_tool'],
-      agentCall['originalTool'],
-    ]),
-    _firstNonBlank([toolBinding['tool'], toolBinding['kind']]),
-  ].map((value) => value.trim().toLowerCase()).toList(growable: false);
-  return values.any(
-    (value) =>
-        value == 'vlm' ||
-        value == 'vlm_task' ||
-        value == 'vlm_step' ||
-        value == 'vlm_action' ||
-        value.contains('vlm'),
-  );
-}
-
-Map<String, dynamic> _normalizeTimelineCard(
-  Map<String, dynamic> card,
-  int fallbackIndex,
-) {
-  final normalized = Map<String, dynamic>.from(card);
-  normalized.putIfAbsent('step_index', () => fallbackIndex);
-
-  final toolCall = _extractToolCall(normalized);
-  final function = _asStringKeyMap(toolCall['function']);
-  final toolName = _firstNonBlank([
-    toolCall['name'],
-    toolCall['tool_name'],
-    toolCall['toolName'],
-    function['name'],
-    normalized['tool_name'],
-    normalized['toolName'],
-    normalized['action_type'],
-    normalized['actionType'],
-  ]);
-  final title = _firstNonBlank([
-    normalized['title'],
-    normalized['summary'],
-    normalized['operation_description'],
-    normalized['operationDescription'],
-    toolName,
-  ]);
-
-  if (_asStringKeyMap(normalized['header']).isEmpty) {
-    normalized['header'] = <String, dynamic>{
-      'step_index': fallbackIndex,
-      if (title.isNotEmpty) 'title': title,
-      if (toolName.isNotEmpty) 'tool_name': toolName,
-      if (normalized.containsKey('status')) 'status': normalized['status'],
-      if (normalized.containsKey('success')) 'success': normalized['success'],
-      if (normalized.containsKey('duration_ms'))
-        'duration_ms': normalized['duration_ms'],
-      if (normalized.containsKey('durationMs'))
-        'duration_ms': normalized['durationMs'],
-    };
-  }
-
-  if (toolCall.isEmpty && toolName.isNotEmpty) {
-    final args = _firstPresent([
-      normalized['arguments'],
-      normalized['params'],
-      normalized['args'],
-    ]);
-    normalized['tool_call'] = <String, dynamic>{
-      'id': _firstNonBlank([
-        normalized['tool_call_id'],
-        normalized['toolCallId'],
-        normalized['card_id'],
-        normalized['cardId'],
-      ]),
-      'name': toolName,
-      if (args != null) 'arguments': args,
-    };
-  }
-
-  return normalized;
-}
-
 Map<String, dynamic> _asStringKeyMap(dynamic value) {
-  final decoded = _decodeJsonIfNeeded(value);
-  if (decoded is! Map) {
+  if (value is! Map) {
     return const <String, dynamic>{};
   }
-  return decoded.map((key, item) => MapEntry(key.toString(), item));
+  return value.map((key, item) => MapEntry(key.toString(), item));
 }
 
 List<Map<String, dynamic>> _asStringKeyMapList(dynamic value) {
-  final decoded = _decodeJsonIfNeeded(value);
-  if (decoded is! List) {
+  if (value is! List) {
     return const <Map<String, dynamic>>[];
   }
-  return decoded
+  return value
       .map(_asStringKeyMap)
       .where((item) => item.isNotEmpty)
       .toList(growable: false);
@@ -8059,19 +6555,6 @@ dynamic _firstPresentValue(Map<String, dynamic> source, List<String> keys) {
   return null;
 }
 
-dynamic _firstPresent(List<dynamic> values) {
-  for (final value in values) {
-    if (value == null) {
-      continue;
-    }
-    if (value is String && value.trim().isEmpty) {
-      continue;
-    }
-    return value;
-  }
-  return null;
-}
-
 String _firstNonBlank(List<dynamic> values) {
   for (final value in values) {
     final text = value?.toString().trim() ?? '';
@@ -8082,25 +6565,16 @@ String _firstNonBlank(List<dynamic> values) {
   return '';
 }
 
-bool _timelineCardMatchesId(Map<String, dynamic> card, String targetId) {
+bool _timelineStepMatchesId(Map<String, dynamic> step, String targetId) {
   final normalizedTarget = targetId.trim().toLowerCase();
   if (normalizedTarget.isEmpty) {
     return false;
   }
-  final toolCall = _asStringKeyMap(card['toolCall']);
+  final stepIndex = _asInt(step['step_index']);
   final candidates = <dynamic>[
-    card['cardId'],
-    card['card_id'],
-    card['id'],
-    card['toolCallId'],
-    card['tool_call_id'],
-    card['callId'],
-    card['call_id'],
-    card['operationId'],
-    card['operation_id'],
-    toolCall['id'],
-    toolCall['toolCallId'],
-    toolCall['tool_call_id'],
+    if (stepIndex != null) stepIndex.toString(),
+    if (stepIndex != null) 'step_$stepIndex',
+    if (stepIndex != null) 'step_${stepIndex + 1}',
   ];
   for (final candidate in candidates) {
     if ((candidate?.toString().trim().toLowerCase() ?? '') ==
@@ -8112,25 +6586,7 @@ bool _timelineCardMatchesId(Map<String, dynamic> card, String targetId) {
 }
 
 String _stateScreenshotPath(Map<String, dynamic> state) {
-  final screenshot = _asStringKeyMap(state['screenshot']);
-  final image = _asStringKeyMap(state['image']);
-  final rawPath = _firstNonBlank([
-    state['screenshot_path'],
-    state['screenshotPath'],
-    state['image_path'],
-    state['imagePath'],
-    state['path'],
-    screenshot['path'],
-    screenshot['screenshot_path'],
-    screenshot['screenshotPath'],
-    screenshot['absolute_path'],
-    screenshot['absolutePath'],
-    screenshot['relative_path'],
-    screenshot['relativePath'],
-    image['path'],
-    image['image_path'],
-    image['imagePath'],
-  ]);
+  final rawPath = state['screenshot_path']?.toString().trim() ?? '';
   if (rawPath.isEmpty) {
     return '';
   }
@@ -8142,17 +6598,6 @@ String _stateScreenshotPath(Map<String, dynamic> state) {
     }
   }
   return rawPath;
-}
-
-String _compactPreview(String value, {int maxLength = 160}) {
-  final normalized = value.replaceAll(RegExp(r'\s+'), ' ').trim();
-  if (normalized.length <= maxLength) {
-    return normalized;
-  }
-  if (maxLength <= 1) {
-    return normalized.substring(0, maxLength);
-  }
-  return '${normalized.substring(0, maxLength - 1).trimRight()}…';
 }
 
 bool? _asBool(dynamic value) {
@@ -8222,6 +6667,14 @@ String _prettyJson(dynamic value) {
 String _prettyUserJson(dynamic value) {
   try {
     return const JsonEncoder.withIndent('  ').convert(_userVisibleJson(value));
+  } catch (_) {
+    return _userVisibleString(value?.toString() ?? '');
+  }
+}
+
+String _compactUserJson(dynamic value) {
+  try {
+    return jsonEncode(_userVisibleJson(value));
   } catch (_) {
     return _userVisibleString(value?.toString() ?? '');
   }

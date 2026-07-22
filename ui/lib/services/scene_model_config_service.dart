@@ -146,29 +146,36 @@ class SceneVoiceConfig {
 
 class SceneOperationConfig {
   final bool useOfficialService;
+  final String officialModel;
 
-  const SceneOperationConfig({this.useOfficialService = false});
+  const SceneOperationConfig({
+    this.useOfficialService = false,
+    this.officialModel = '',
+  });
 
   factory SceneOperationConfig.fromMap(Map<dynamic, dynamic>? map) {
     return SceneOperationConfig(
       useOfficialService: map?['useOfficialService'] == true,
+      officialModel: (map?['officialModel'] ?? '').toString().trim(),
     );
   }
 
   SceneOperationConfig copyWith({bool? useOfficialService}) {
     return SceneOperationConfig(
       useOfficialService: useOfficialService ?? this.useOfficialService,
+      officialModel: officialModel,
     );
   }
 
   @override
   bool operator ==(Object other) {
     return other is SceneOperationConfig &&
-        other.useOfficialService == useOfficialService;
+        other.useOfficialService == useOfficialService &&
+        other.officialModel == officialModel;
   }
 
   @override
-  int get hashCode => useOfficialService.hashCode;
+  int get hashCode => Object.hash(useOfficialService, officialModel);
 }
 
 class SceneModelConfigService {

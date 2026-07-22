@@ -50,16 +50,10 @@ class ReusableFunctionCard extends StatelessWidget {
     required this.steps,
     required this.stepCount,
     required this.parameterCount,
-    required this.sourceRunCount,
-    required this.runCount,
-    required this.successCount,
-    required this.failCount,
     required this.isRunning,
     required this.onRun,
     this.runButtonKey,
-    this.onRunLogsTap,
     this.agentVisible,
-    this.lastRunSuccess,
     this.isBusy = false,
     this.actions = const <ReusableFunctionCardAction>[],
   });
@@ -69,16 +63,10 @@ class ReusableFunctionCard extends StatelessWidget {
   final List<ReusableFunctionStepPreview> steps;
   final int stepCount;
   final int parameterCount;
-  final int sourceRunCount;
-  final int runCount;
-  final int successCount;
-  final int failCount;
-  final bool? lastRunSuccess;
   final bool? agentVisible;
   final bool isRunning;
   final VoidCallback? onRun;
   final Key? runButtonKey;
-  final VoidCallback? onRunLogsTap;
   final bool isBusy;
   final List<ReusableFunctionCardAction> actions;
 
@@ -212,44 +200,6 @@ class ReusableFunctionCard extends StatelessWidget {
                     label: _text(context, '参数', 'Params'),
                     value: parameterCount.toString(),
                   ),
-                  if (sourceRunCount > 0)
-                    _MetricPill(
-                      label: _text(context, '轨迹', 'Traces'),
-                      value: sourceRunCount.toString(),
-                      onTap: onRunLogsTap,
-                      color: onRunLogsTap == null
-                          ? null
-                          : palette.accentPrimary,
-                      backgroundColor: onRunLogsTap == null
-                          ? null
-                          : palette.accentPrimary.withValues(alpha: 0.10),
-                    ),
-                  _MetricPill(
-                    label: _text(context, '执行', 'Runs'),
-                    value: runCount.toString(),
-                  ),
-                  _MetricPill(
-                    label: _text(context, '成功', 'Success'),
-                    value: successCount.toString(),
-                  ),
-                  if (failCount > 0)
-                    _MetricPill(
-                      label: _text(context, '失败', 'Failed'),
-                      value: failCount.toString(),
-                    ),
-                  if (lastRunSuccess != null)
-                    _MetricPill(
-                      label: _text(context, '上次', 'Last'),
-                      value: lastRunSuccess!
-                          ? _text(context, '成功', 'Success')
-                          : _text(context, '失败', 'Failed'),
-                      color: lastRunSuccess!
-                          ? Colors.green.shade700
-                          : Colors.red.shade700,
-                      backgroundColor: lastRunSuccess!
-                          ? Colors.green.withValues(alpha: 0.10)
-                          : Colors.red.withValues(alpha: 0.10),
-                    ),
                   if (agentVisible != null)
                     _MetricPill(
                       label: 'Agent',
@@ -325,14 +275,12 @@ class _MetricPill extends StatelessWidget {
     required this.value,
     this.color,
     this.backgroundColor,
-    this.onTap,
   });
 
   final String label;
   final String value;
   final Color? color;
   final Color? backgroundColor;
-  final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {
@@ -359,16 +307,7 @@ class _MetricPill extends StatelessWidget {
         ),
       ),
     );
-    final handler = onTap;
-    if (handler == null) return content;
-    return Tooltip(
-      message: _text(context, '查看轨迹', 'View traces'),
-      child: GestureDetector(
-        behavior: HitTestBehavior.opaque,
-        onTap: handler,
-        child: content,
-      ),
-    );
+    return content;
   }
 }
 

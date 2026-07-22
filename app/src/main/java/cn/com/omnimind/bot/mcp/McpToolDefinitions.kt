@@ -1,6 +1,7 @@
 package cn.com.omnimind.bot.mcp
 
 import cn.com.omnimind.baselib.i18n.AppLocaleManager
+import cn.com.omnimind.baselib.runlog.OobActionSchema
 import cn.com.omnimind.bot.agent.AgentToolNames
 import cn.com.omnimind.bot.function.FunctionApi
 
@@ -183,7 +184,7 @@ BEHAVIOR:
         "name" to "get_state",
         "description" to """Capture the current Android device state from OOB's on-device Accessibility runtime.
 
-Returns the foreground package/activity, live Accessibility XML, screenshot metadata, and optionally a JPEG screenshot data URI plus OOB indexed page evidence. This is a read-only state capture tool for external testing and GUI agents; it avoids slow host-side adb uiautomator/screencap capture.
+Returns one canonical `state` object with the foreground package/activity and live Accessibility XML. Screenshot media and optional indexed context are returned beside it. This is a read-only capture tool for external testing and GUI agents; it avoids slow host-side adb uiautomator/screencap capture.
 """.trimIndent(),
         "inputSchema" to mapOf(
             "type" to "object",
@@ -201,7 +202,7 @@ Returns the foreground package/activity, live Accessibility XML, screenshot meta
                 "include_indexed_context" to mapOf(
                     "type" to "boolean",
                     "default" to true,
-                    "description" to "Include OOB indexed page evidence rendered from XML for element grounding. Default: true."
+                    "description" to "Include indexed state context rendered from XML for element grounding. Default: true."
                 ),
                 "include_marked_screenshot" to mapOf(
                     "type" to "boolean",
@@ -223,10 +224,6 @@ Returns the foreground package/activity, live Accessibility XML, screenshot meta
                     "enum" to listOf("original", "high", "medium", "low", "summary"),
                     "default" to "medium",
                     "description" to "Screenshot compression level. Default: medium."
-                ),
-                "max_xml_chars" to mapOf(
-                    "type" to "integer",
-                    "description" to "Optional XML truncation limit for the returned xml field. Omit or set <=0 for full XML."
                 )
             )
         )
@@ -236,27 +233,25 @@ Returns the foreground package/activity, live Accessibility XML, screenshot meta
         "name" to "act",
         "description" to """Execute one canonical Android UI action through OOB's on-device runtime.
 
-Use this for external evaluators that make their own next-step decision but want OOB to provide the physical device operation. This is a single-step executor, not a planner: pass one action such as click, input_text, swipe, open_app, press_key, long_press, or finished. Coordinates are absolute screen pixels by default; set coordinate_space=relative_0_1000 only when x/y fields are normalized 0..1000 values.
+Use this for external evaluators that make their own next-step decision but want OOB to provide the physical device operation. This is a single-step executor, not a planner. Pass exactly one canonical {tool,args} action. Coordinate fields always use 0..1000 relative values and are converted to device pixels once by the Android action executor.
 """.trimIndent(),
         "inputSchema" to mapOf(
             "type" to "object",
+            "additionalProperties" to false,
+            "required" to listOf("action"),
             "properties" to mapOf(
                 "action" to mapOf(
                     "type" to "object",
-                    "description" to "Canonical action object, for example {tool:'click', args:{x:100,y:200}}."
-                ),
-                "tool" to mapOf(
-                    "type" to "string",
-                    "description" to "Action name when action is not supplied."
-                ),
-                "args" to mapOf(
-                    "type" to "object",
-                    "description" to "Action arguments when action is not supplied."
-                ),
-                "coordinate_space" to mapOf(
-                    "type" to "string",
-                    "enum" to listOf("absolute", "relative_0_1000"),
-                    "description" to "Coordinate space for x/y fields. Default absolute."
+                    "additionalProperties" to false,
+                    "required" to listOf("tool", "args"),
+                    "properties" to mapOf(
+                        "tool" to mapOf(
+                            "type" to "string",
+                            "enum" to OobActionSchema.replayableToolNames.toList(),
+                        ),
+                        "args" to mapOf("type" to "object"),
+                    ),
+                    "description" to "Canonical {tool,args} action. Coordinate args always use 0..1000 relative values."
                 ),
                 "settle_delay_ms" to mapOf(
                     "type" to "integer",

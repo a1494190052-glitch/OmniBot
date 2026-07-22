@@ -16,13 +16,13 @@ class ManualRecordingEngineTest {
         val journal = ManualRecordingJournal()
         val engine = ManualRecordingEngine(
             journal = journal,
-            observe = { stage, action ->
-                events += "$stage:${action.tool}"
+            observe = { stage, command ->
+                events += "$stage:${command.action.tool}"
                 ManualRecordingObservation(xml = "<$stage/>")
             },
-            execute = { action ->
-                events += "execute:${action.tool}"
-                if (action.tool == "click") delay(20)
+            execute = { command ->
+                events += "execute:${command.action.tool}"
+                if (command.action.tool == "click") delay(20)
                 OperationResult(true, "ok")
             },
             nowMs = { 200L },
@@ -34,7 +34,7 @@ class ManualRecordingEngineTest {
 
         assertTrue(first.await().recorded)
         assertTrue(second.await().recorded)
-        assertEquals(listOf("click", "swipe"), journal.snapshot().map { it.actionName })
+        assertEquals(listOf("click", "swipe"), journal.snapshot().map { it.action.tool })
         assertEquals(
             listOf(
                 "1_before:click", "execute:click", "1_after:click",
@@ -81,6 +81,76 @@ class ManualRecordingEngineTest {
     }
 
     @Test
+    fun retriesUnchangedAfterStateUntilFreshXmlArrives() = runBlocking {
+        val journal = ManualRecordingJournal()
+        var afterAttempts = 0
+        val engine = ManualRecordingEngine(
+            journal = journal,
+            observe = { stage, _ ->
+                if (stage.endsWith("_before")) {
+                    ManualRecordingObservation(xml = "<page name=\"before\"/>")
+                } else {
+                    afterAttempts += 1
+                    ManualRecordingObservation(
+                        xml = if (afterAttempts < 3) {
+                            "<page name=\"before\"/>"
+                        } else {
+                            "<page name=\"after\"/>"
+                        },
+                    )
+                }
+            },
+            execute = { OperationResult(true, "ok") },
+        )
+
+        val outcome = engine.perform(action("click", 100L))
+
+        assertTrue(outcome.recorded)
+        assertEquals(3, afterAttempts)
+        assertEquals("<page name=\"after\"/>", journal.lastOrNull()?.afterXml)
+    }
+
+    @Test
+    fun waitDoesNotRequireAfterStateToChange() = runBlocking {
+        val journal = ManualRecordingJournal()
+        var observationCount = 0
+        val engine = ManualRecordingEngine(
+            journal = journal,
+            observe = { _, _ ->
+                observationCount += 1
+                ManualRecordingObservation(xml = "<page/>")
+            },
+            execute = { OperationResult(true, "ok") },
+        )
+
+        val outcome = engine.perform(action("wait", 100L))
+
+        assertTrue(outcome.recorded)
+        assertEquals(2, observationCount)
+        assertEquals("<page/>", journal.lastOrNull()?.afterXml)
+    }
+
+    @Test
+    fun unchangedClickStateIsStillRecordedAfterRetries() = runBlocking {
+        val journal = ManualRecordingJournal()
+        var observationCount = 0
+        val engine = ManualRecordingEngine(
+            journal = journal,
+            observe = { _, _ ->
+                observationCount += 1
+                ManualRecordingObservation(xml = "<page/>")
+            },
+            execute = { OperationResult(true, "ok") },
+        )
+
+        val outcome = engine.perform(action("click", 100L))
+
+        assertTrue(outcome.recorded)
+        assertEquals(6, observationCount)
+        assertEquals("<page/>", journal.lastOrNull()?.afterXml)
+    }
+
+    @Test
     fun cancellationClosesPendingActionWithoutSwallowingIt() = runBlocking {
         val engine = ManualRecordingEngine(
             journal = ManualRecordingJournal(),
@@ -99,9 +169,8 @@ class ManualRecordingEngineTest {
         assertEquals(ManualRecordingEngineStats(1, 0, 1, 0, null), engine.stats())
     }
 
-    private fun action(tool: String, startedAtMs: Long) = ManualCanonicalAction(
-        tool = tool,
-        args = emptyMap(),
+    private fun action(tool: String, startedAtMs: Long) = ManualRecordingCommand(
+        action = actionOf(tool),
         title = tool,
         summary = tool,
         source = "overlay_touch",

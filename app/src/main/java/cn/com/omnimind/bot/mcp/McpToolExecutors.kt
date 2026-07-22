@@ -1,5 +1,4 @@
 package cn.com.omnimind.bot.mcp
-import cn.com.omnimind.bot.runlog.resolveActionName
 import cn.com.omnimind.baselib.runlog.OobActionSchema
 
 import android.content.Context
@@ -18,6 +17,7 @@ import cn.com.omnimind.bot.function.FunctionJson.firstNonBlank
 import cn.com.omnimind.bot.function.FunctionJson.mapArg
 import cn.com.omnimind.bot.function.FunctionRun
 import cn.com.omnimind.bot.vlm.VlmToolCoordinator
+import cn.com.omnimind.bot.omniflow.OmniFlowState
 import cn.com.omnimind.bot.vlm.VlmToolOutcome
 import cn.com.omnimind.bot.vlm.VlmToolOutcomeStatus
 import cn.com.omnimind.bot.function.FunctionSchema
@@ -50,10 +50,9 @@ object McpToolExecutors {
     private val XML_PACKAGE_REGEX = Regex("""package="([^"]+)"""")
     private fun brandName(): String = AppLocaleManager.brandName()
 
-    private data class NormalizedActRequest(
+    internal data class NormalizedActRequest(
         val tool: String,
         val args: Map<String, Any?>,
-        val sourceActionType: String,
     )
     
     /**
@@ -137,9 +136,7 @@ object McpToolExecutors {
             args,
             true,
             "include_indexed_context",
-            "includeIndexedContext",
-            "include_indexed_page_evidence",
-            "includeIndexedPageEvidence"
+            "includeIndexedContext"
         )
         val includeMarkedScreenshot = boolArgOrDefault(
             args,
@@ -154,7 +151,6 @@ object McpToolExecutors {
             "includeImageContent"
         )
         val filterOverlay = boolArgOrDefault(args, true, "filter_overlay", "filterOverlay")
-        val maxXmlChars = intArg(args, "max_xml_chars", "maxXmlChars") ?: 0
         val imageQuality = imageQualityArg(args)
 
         val capturedAtMs = System.currentTimeMillis()
@@ -172,7 +168,6 @@ object McpToolExecutors {
             Result.success("")
         }
         val rawXml = xmlCapture.getOrDefault("")
-        val returnedXml = truncateXml(rawXml, maxXmlChars)
 
         val screenshotCapture = if (includeScreenshot || includeMarkedScreenshot || includeImageContent) {
             runCatching {
@@ -241,9 +236,7 @@ object McpToolExecutors {
                 appendLine("screenshot_size: ${screenshotPayload.compressedWidth}x${screenshotPayload.compressedHeight}")
                 appendLine("screenshot_original_size: ${screenshotPayload.originalWidth}x${screenshotPayload.originalHeight}")
             }
-            if (indexedEvidence.isNotBlank()) {
-                appendLine("indexed_page_evidence: present")
-            }
+            if (indexedEvidence.isNotBlank()) appendLine("indexed_context: present")
             if (xmlCapture.isFailure) {
                 appendLine("xml_error: ${xmlCapture.exceptionOrNull()?.message.orEmpty()}")
             }
@@ -263,17 +256,23 @@ object McpToolExecutors {
             )
         }
 
+        val state = OmniFlowState.build(
+            xml = rawXml,
+            packageName = packageName,
+            activityName = activityName,
+            displayWidth = displayWidth,
+            displayHeight = displayHeight,
+        ).let { captured ->
+            if (includeXml) captured else captured - "xml"
+        }
         return@withContext linkedMapOf<String, Any?>(
             "content" to content,
             "success" to true,
             "schema_version" to "oob.get_state.v1",
             "captured_at_ms" to capturedAtMs,
-            "package_name" to packageName,
-            "activity_name" to activityName,
-            "xml" to returnedXml.takeIf { includeXml },
-            "xml_chars" to rawXml.length,
+            "state" to state,
+            "indexed_context" to indexedEvidence.takeIf { it.isNotBlank() },
             "xml_node_count" to xmlNodeCount(rawXml),
-            "xml_truncated" to (includeXml && returnedXml.length < rawXml.length),
             "xml_error" to (xmlCapture.exceptionOrNull()?.message ?: xmlStability?.errorMessage),
             "xml_stable" to xmlStability?.stable,
             "xml_capture_attempts" to xmlStability?.attempts,
@@ -283,7 +282,6 @@ object McpToolExecutors {
             "xml_display_height" to xmlStability?.displayHeight,
             "xml_max_right" to xmlStability?.maxRight,
             "xml_max_bottom" to xmlStability?.maxBottom,
-            "indexed_page_evidence" to indexedEvidence.takeIf { it.isNotBlank() },
             "screenshot" to screenshotPayload?.let { payload ->
                 linkedMapOf<String, Any?>(
                     "present" to (screenshotDataUri != null),
@@ -317,20 +315,19 @@ object McpToolExecutors {
         args: Map<String, Any?>?
     ): Map<String, Any?> = withContext(Dispatchers.IO) {
         val request = args ?: emptyMap()
-        val normalized = normalizeActRequest(context, request)
+        val normalized = normalizeActRequest(request)
         val startedAtMs = System.currentTimeMillis()
         val settleDelayMs = (longArg(request, "settle_delay_ms", "settleDelayMs") ?: 1_000L)
             .coerceIn(0L, 10_000L)
-        ActionExecutor(
+        val result = ActionExecutor(
             AndroidDeviceOperator(null, context),
             UIContextManager(),
         ).act(
             action = normalized.tool,
             args = normalized.args,
             source = "mcp_act",
-            diagnostics = mapOf("source_action_type" to normalized.sourceActionType),
         )
-        if (settleDelayMs > 0L && normalized.tool != "finished") {
+        if (result.success && settleDelayMs > 0L) {
             delay(settleDelayMs)
         }
         val packageName = runCatching { AccessibilityController.getPackageName().orEmpty() }
@@ -341,15 +338,21 @@ object McpToolExecutors {
             "content" to listOf(
                 mapOf(
                     "type" to "text",
-                    "text" to "act executed ${normalized.tool}"
+                    "text" to if (result.success) {
+                        "act executed ${normalized.tool}"
+                    } else {
+                        "act failed ${normalized.tool}: ${result.message}"
+                    }
                 )
             ),
-            "success" to true,
+            "success" to result.success,
             "schema_version" to "oob.act.v1",
             "source" to "oob_accessibility_runtime",
-            "source_action_type" to normalized.sourceActionType,
-            "tool" to normalized.tool,
-            "args" to normalized.args,
+            "action" to linkedMapOf(
+                "tool" to normalized.tool,
+                "args" to normalized.args,
+            ),
+            "error" to result.message.takeUnless { result.success },
             "settle_delay_ms" to settleDelayMs,
             "duration_ms" to (System.currentTimeMillis() - startedAtMs),
             "package_name" to packageName.takeIf { it.isNotBlank() },
@@ -607,130 +610,41 @@ object McpToolExecutors {
         return metrics.widthPixels.coerceAtLeast(1) to metrics.heightPixels.coerceAtLeast(1)
     }
 
-    private fun normalizeActRequest(
-        context: Context,
+    internal fun normalizeActRequest(
         request: Map<String, Any?>,
     ): NormalizedActRequest {
-        val actionPayload = mapArg(request["action"]).ifEmpty { request }
-        val nestedArgs = mapArg(actionPayload["args"])
-            .ifEmpty { mapArg(actionPayload["params"]) }
-            .ifEmpty { mapArg(request["args"]) }
-            .ifEmpty { mapArg(request["params"]) }
-        val rawType = firstNonBlank(
-            actionPayload["tool"],
-            actionPayload["name"],
-            actionPayload["action_type"],
-            actionPayload["type"],
-            request["tool"],
-            request["action_type"],
-            request["type"],
-        ).trim().lowercase()
-        if (rawType.isBlank()) {
-            throw IllegalArgumentException("act requires action.tool or action_type")
+        val unknownRequestFields = request.keys - setOf("action", "settle_delay_ms")
+        require(unknownRequestFields.isEmpty()) {
+            "act_unknown_fields:${unknownRequestFields.sorted().joinToString(",")}"
         }
-        val tool = when (rawType) {
-            "click", "tap", "double_tap" -> OobActionSchema.TOOL_CLICK
-            "long_press", "long-click", "long_click", "longpress" -> OobActionSchema.TOOL_LONG_PRESS
-            "input_text", "type", "text" -> OobActionSchema.TOOL_INPUT_TEXT
-            "scroll", "swipe" -> OobActionSchema.TOOL_SWIPE
-            "open_app" -> OobActionSchema.TOOL_OPEN_APP
-            "navigate_back", "press_back" -> OobActionSchema.TOOL_PRESS_KEY
-            "navigate_home", "press_home" -> OobActionSchema.TOOL_PRESS_KEY
-            "keyboard_enter", "press_enter" -> OobActionSchema.TOOL_PRESS_KEY
-            "press_key" -> OobActionSchema.TOOL_PRESS_KEY
-            "status", "answer", "finished", "finish" -> OobActionSchema.TOOL_FINISHED
-            "wait" -> OobActionSchema.TOOL_WAIT
-            else -> resolveActionName(rawType)
-                ?: throw IllegalArgumentException("Unsupported act action_type: $rawType")
+        val actionPayload = strictStringMap(request["action"], "act_action_required")
+        val unknownActionFields = actionPayload.keys - setOf("tool", "args")
+        require(unknownActionFields.isEmpty()) {
+            "act_action_unknown_fields:${unknownActionFields.sorted().joinToString(",")}"
         }
-
-        val args = LinkedHashMap<String, Any?>()
-        args.putAll(nestedArgs)
-        for (key in ANDROIDWORLD_ACTION_ARG_KEYS) {
-            if (!args.containsKey(key) && actionPayload.containsKey(key)) {
-                args[key] = actionPayload[key]
-            }
-            if (!args.containsKey(key) && request.containsKey(key)) {
-                args[key] = request[key]
-            }
+        require(actionPayload.keys.containsAll(setOf("tool", "args"))) {
+            "act_action_requires_tool_and_args"
         }
-        when (rawType) {
-            "navigate_back", "press_back" -> args["key"] = "back"
-            "navigate_home", "press_home" -> args["key"] = "home"
-            "keyboard_enter", "press_enter" -> args["key"] = "enter"
+        val tool = actionPayload["tool"] as? String
+            ?: throw IllegalArgumentException("act_action_tool_invalid")
+        require(OobActionSchema.canonicalToolName(tool) == tool && tool in OobActionSchema.replayableToolNames) {
+            "act_action_tool_invalid:$tool"
         }
-        if (tool == OobActionSchema.TOOL_OPEN_APP && !args.containsKey("package_name")) {
-            args["package_name"] = firstNonBlank(args["app_name"], actionPayload["app_name"], request["app_name"])
-        }
-        if (tool == OobActionSchema.TOOL_FINISHED && !args.containsKey("content")) {
-            args["content"] = firstNonBlank(args["goal_status"], args["text"], actionPayload["goal_status"])
-        }
-        if (tool == OobActionSchema.TOOL_SWIPE && rawType == "scroll") {
-            fillDefaultScrollArgs(context, args)
-        }
-        decodeRelativeCoordinatesIfRequested(context, request, actionPayload, args)
         return NormalizedActRequest(
             tool = tool,
-            args = args.filterValues { it != null },
-            sourceActionType = rawType,
+            args = strictStringMap(actionPayload["args"], "act_action_args_invalid"),
         )
     }
 
-    private fun fillDefaultScrollArgs(context: Context, args: MutableMap<String, Any?>) {
-        val (displayWidth, displayHeight) = currentDisplaySize(context)
-        val direction = firstNonBlank(args["direction"]).lowercase().ifBlank { "down" }
-        val centerX = displayWidth / 2f
-        val centerY = displayHeight / 2f
-        val distance = (minOf(displayWidth, displayHeight) * 0.55f).coerceAtLeast(240f)
-        args["direction"] = direction
-        args.putIfAbsent("x", centerX)
-        args.putIfAbsent("y", centerY)
-        args.putIfAbsent("distance", distance)
-        args.putIfAbsent("duration_ms", 300L)
-    }
-
-
-    private fun decodeRelativeCoordinatesIfRequested(
-        context: Context,
-        request: Map<String, Any?>,
-        actionPayload: Map<String, Any?>,
-        args: MutableMap<String, Any?>,
-    ) {
-        val coordinateSpace = firstNonBlank(
-            args["coordinate_space"],
-            actionPayload["coordinate_space"],
-            request["coordinate_space"],
-            actionPayload["coordinateSpace"],
-            request["coordinateSpace"],
-        ).trim().lowercase()
-        if (coordinateSpace != "relative_0_1000") return
-        val (displayWidth, displayHeight) = currentDisplaySize(context)
-        for (key in listOf("x", "x1", "x2")) {
-            val value = numericArg(args, key) ?: continue
-            args[key] = (value.coerceIn(0.0, 1000.0) / 1000.0) * displayWidth
-        }
-        for (key in listOf("y", "y1", "y2")) {
-            val value = numericArg(args, key) ?: continue
-            args[key] = (value.coerceIn(0.0, 1000.0) / 1000.0) * displayHeight
+    private fun strictStringMap(value: Any?, error: String): Map<String, Any?> {
+        val raw = value as? Map<*, *> ?: throw IllegalArgumentException(error)
+        return linkedMapOf<String, Any?>().apply {
+            raw.forEach { (key, item) ->
+                require(key is String) { error }
+                put(key, item)
+            }
         }
     }
-
-    private fun numericArg(args: Map<String, Any?>, key: String): Double? {
-        val raw = args[key] ?: return null
-        return when (raw) {
-            is Number -> raw.toDouble()
-            is String -> raw.trim().toDoubleOrNull()
-            else -> raw.toString().trim().toDoubleOrNull()
-        }
-    }
-
-    private val ANDROIDWORLD_ACTION_ARG_KEYS = setOf(
-        "x", "y", "x1", "y1", "x2", "y2",
-        "index", "node_id", "node_resource_id",
-        "text", "direction", "app_name", "package_name", "goal_status",
-        "key", "keycode", "clear_text", "target_description",
-        "duration_ms", "time_ms", "time_s", "distance", "coordinate_space",
-    )
 
     private fun firstString(args: Map<String, Any?>?, vararg keys: String): String? {
         if (args == null) return null
@@ -824,11 +738,6 @@ object McpToolExecutors {
         dataUri
             .substringAfter("base64,", dataUri)
             .replace(Regex("\\s+"), "")
-
-    private fun truncateXml(xml: String, maxXmlChars: Int): String {
-        if (maxXmlChars <= 0 || xml.length <= maxXmlChars) return xml
-        return xml.take(maxXmlChars)
-    }
 
     private fun xmlNodeCount(xml: String): Int {
         if (xml.isBlank()) return 0

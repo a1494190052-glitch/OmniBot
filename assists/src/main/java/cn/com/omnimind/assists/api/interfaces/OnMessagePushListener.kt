@@ -2,6 +2,17 @@ package cn.com.omnimind.assists.api.interfaces
 
 import cn.com.omnimind.assists.api.bean.VlmTaskTerminalResult
 
+data class VlmStepProgress(
+    val runId: String,
+    val stepIndex: Int,
+    val status: String,
+    val thinking: String = "",
+    val summary: String = "",
+    val action: Map<String, Any?>? = null,
+    val result: Map<String, Any?>? = null,
+    val error: String? = null,
+)
+
 interface OnMessagePushListener {
     /**
      * 大模型消息
@@ -35,5 +46,8 @@ interface OnMessagePushListener {
      * VLM任务终态/交互态结果
      */
     fun onVlmTaskResult(result: VlmTaskTerminalResult) {}
+
+    /** Real-time canonical VLM step progress for execution cards. */
+    suspend fun onVlmStepProgress(progress: VlmStepProgress) {}
 
 }

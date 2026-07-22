@@ -184,37 +184,40 @@ class DebugAgentFunctionManagementReceiver : BroadcastReceiver() {
             toolName = "oob_function_register",
             args = buildJsonObject {
                 put(
-                    "function_spec",
+                    "function",
                     mapToJson(
                         linkedMapOf(
-                            "schema_version" to "oob.reusable_function.v1",
+                            "schema_version" to "omniflow.function.v2",
                             "function_id" to functionId,
                             "name" to name,
                             "description" to description,
-                            "agent_visible" to true,
-                            "visibility" to "agent_reusable",
-                            "constraints" to mapOf("package_name" to targetPackage),
-                            "execution" to mapOf(
-                                "kind" to "tool_sequence",
-                                "runner" to "oob_tool_sequence",
-                                "entrypoint" to "execute",
-                                "steps" to listOf(
-                                    mapOf(
-                                        "id" to "step_1",
-                                        "index" to 0,
-                                        "title" to "Open $targetPackage",
+                            "input_schema" to mapOf(
+                                "type" to "object",
+                                "properties" to emptyMap<String, Any?>(),
+                                "required" to emptyList<String>(),
+                                "additionalProperties" to false,
+                            ),
+                            "bindings" to emptyList<Map<String, String>>(),
+                            "steps" to listOf(
+                                mapOf(
+                                    "step_index" to 0,
+                                    "state_id" to "debug_state_0",
+                                    "action" to mapOf(
                                         "tool" to "open_app",
                                         "args" to mapOf("package_name" to targetPackage),
                                     ),
-                                    mapOf(
-                                        "id" to "step_2",
-                                        "index" to 1,
-                                        "title" to "$targetPackage opened",
+                                ),
+                                mapOf(
+                                    "step_index" to 1,
+                                    "state_id" to "debug_state_1",
+                                    "action" to mapOf(
                                         "tool" to "finished",
                                         "args" to mapOf("content" to "$targetPackage opened"),
                                     ),
                                 ),
                             ),
+                            "checker_rules" to emptyList<Map<String, Any?>>(),
+                            "agent_visible" to true,
                         )
                     ),
                 )

@@ -9,6 +9,7 @@ import cn.com.omnimind.assists.controller.accessibility.AccessibilityController
 import cn.com.omnimind.baselib.llm.ModelProviderConfigStore
 import cn.com.omnimind.baselib.llm.SceneModelBindingStore
 import cn.com.omnimind.baselib.runlog.InternalRunLogStore
+import cn.com.omnimind.baselib.runlog.RunLogStepRecord
 import cn.com.omnimind.baselib.util.OmniLog
 import cn.com.omnimind.bot.agent.AgentAiCapabilityConfigSync
 import cn.com.omnimind.bot.agent.ResolvedSkillContext
@@ -144,6 +145,7 @@ class DebugVlmRunLogReceiver : BroadcastReceiver() {
                 skipGoHome = skipGoHome,
                 disableFunctionRecall = disableFunctionRecall,
                 waitTimeoutMs = waitTimeoutMs,
+                register = register,
                 stepSkillGuidance = stepSkillGuidance,
                 configuredBinding = configuredBinding,
             )
@@ -204,27 +206,17 @@ class DebugVlmRunLogReceiver : BroadcastReceiver() {
         val outcomePayload = outcome.toPayload()
         val vlmTaskFinished = outcome.status == VlmToolOutcomeStatus.FINISHED
         val runLogSuccessful = record?.success == true
-        var timeline = record?.let {
-            if (vlmTaskFinished && runLogSuccessful && register) {
-                waitForAutoRegisteredTimeline(context, runId)
-            } else {
-                InternalRunLogStore.timelinePayload(context, runId)
-            }
-        }
+        var timeline = record?.let { InternalRunLogStore.timelinePayload(context, runId) }
         val convert = if (vlmTaskFinished && runLogSuccessful) {
-            if (register && timeline?.get("registered_as_function") == true) {
-                autoRegisteredConvertPayload(runId, timeline.orEmpty())
-            } else {
-                FunctionService(context).convertRunLog(
-                    mapOf(
-                        "run_id" to runId,
-                        "register" to register,
-                        "function_id" to "debug_${runId.replace('-', '_')}",
-                        "name" to "Debug VLM RunLog",
-                        "description" to goal,
-                    )
+            FunctionService(context).convertRunLog(
+                mapOf(
+                    "run_id" to runId,
+                    "register" to register,
+                    "function_id" to "debug_${runId.replace('-', '_')}",
+                    "name" to "Debug VLM RunLog",
+                    "description" to goal,
                 )
-            }
+            )
         } else {
             null
         }
@@ -250,7 +242,7 @@ class DebugVlmRunLogReceiver : BroadcastReceiver() {
             "run_id" to runId,
             "runlog_found" to (record != null),
             "runlog_success" to runLogSuccessful,
-            "runlog_card_count" to (record?.cards?.size ?: 0),
+            "runlog_step_count" to (record?.steps?.size ?: 0),
             "run_log" to timeline,
             "token_usage" to (timeline?.get("token_usage") ?: emptyMap<String, Any?>()),
             "token_usage_total" to timeline?.get("token_usage_total"),
@@ -259,30 +251,6 @@ class DebugVlmRunLogReceiver : BroadcastReceiver() {
             "convert" to convert,
             "convert_success" to (convert?.get("success") == true),
         )
-    }
-
-    private fun autoRegisteredConvertPayload(
-        runId: String,
-        timeline: Map<String, Any?>
-    ): Map<String, Any?> {
-        val functionId = timeline["registered_function_id"]?.toString()?.trim().orEmpty()
-        return linkedMapOf<String, Any?>(
-            "success" to functionId.isNotEmpty(),
-            "registered" to functionId.isNotEmpty(),
-            "run_id" to runId,
-            "function_id" to functionId,
-            "created_function_id" to functionId,
-            "function_spec" to timeline["registered_function_spec"],
-            "summary" to timeline["registered_function_summary"],
-            "function_kind" to "oob_reusable_function",
-            "asset_state" to "native_local",
-            "source" to "oob_vlm_auto_registrar",
-        ).filterValues { value ->
-            when (value) {
-                is String -> value.isNotBlank()
-                else -> value != null
-            }
-        }
     }
 
     private suspend fun seedSuccessfulVlmRunLog(
@@ -295,6 +263,7 @@ class DebugVlmRunLogReceiver : BroadcastReceiver() {
         skipGoHome: Boolean,
         disableFunctionRecall: Boolean,
         waitTimeoutMs: Long?,
+        register: Boolean,
         stepSkillGuidance: String,
         configuredBinding: Map<String, Any?>?,
     ): Map<String, Any?> {
@@ -311,31 +280,34 @@ class DebugVlmRunLogReceiver : BroadcastReceiver() {
             toolName = "vlm_task",
             operationDescription = goal,
         )
-        InternalRunLogStore.appendCard(
+        InternalRunLogStore.appendRecordedStep(
             context = context,
             runId = runId,
-            card = linkedMapOf(
-                "card_id" to "$runId-wait",
-                "tool_name" to "wait",
-                "title" to "Seeded wait for VLM recall loop",
-                "success" to true,
-                "args" to linkedMapOf(
-                    "time_ms" to 100L,
-                    "reason" to "offline debug seed for VLM RunLog recall loop",
+            record = RunLogStepRecord(
+                step = linkedMapOf(
+                    "step_index" to 0,
+                    "before_state_id" to "$runId-before",
+                    "action" to linkedMapOf(
+                        "tool" to "wait",
+                        "args" to linkedMapOf("duration_ms" to 100L),
+                    ),
+                    "result" to linkedMapOf("success" to true),
+                    "after_state_id" to "$runId-after",
+                    "diagnostics" to linkedMapOf("seeded" to true),
                 ),
-                "before" to linkedMapOf(
+                states = listOf(
+                    linkedMapOf(
+                    "state_id" to "$runId-before",
                     "package_name" to currentPackage,
-                    "observation_xml" to currentXml,
+                    "xml" to currentXml,
+                    ),
+                    linkedMapOf(
+                        "state_id" to "$runId-after",
+                        "package_name" to currentPackage,
+                        "xml" to currentXml,
+                    ),
                 ),
-                "after" to linkedMapOf(
-                    "package_name" to currentPackage,
-                    "observation_xml" to currentXml,
-                ),
-                "result" to linkedMapOf(
-                    "success" to true,
-                    "seeded" to true,
-                ),
-            )
+            ),
         )
         InternalRunLogStore.finishRun(
             context = context,
@@ -344,24 +316,19 @@ class DebugVlmRunLogReceiver : BroadcastReceiver() {
             doneReason = "offline_seed_finished",
         )
 
-        val timeline = waitForAutoRegisteredTimeline(context, runId)
-        val autoRegistered = timeline["registered_as_function"] == true
-        val convert = linkedMapOf<String, Any?>(
-            "success" to autoRegistered,
-            "registered" to autoRegistered,
-            "run_id" to runId,
-            "function_id" to timeline["registered_function_id"],
-            "created_function_id" to timeline["registered_function_id"],
-            "function_spec" to timeline["registered_function_spec"],
-            "source" to "oob_vlm_auto_registrar",
-            "error_code" to "AUTO_REGISTER_TIMEOUT".takeUnless { autoRegistered },
-            "error_message" to "Successful seeded vlm_task RunLog was not auto-registered in time."
-                .takeUnless { autoRegistered },
-        ).filterValues { it != null }
+        val convert = FunctionService(context).convertRunLog(
+            mapOf(
+                "run_id" to runId,
+                "register" to register,
+                "function_id" to "debug_${runId.replace('-', '_')}",
+                "name" to "Debug seeded RunLog",
+                "description" to goal,
+            )
+        )
         val refreshedTimeline = InternalRunLogStore.timelinePayload(context, runId)
 
         return linkedMapOf(
-            "success" to autoRegistered,
+            "success" to (convert["success"] == true),
             "phase" to "offline_seed",
             "offline_seed" to true,
             "goal" to goal,
@@ -387,9 +354,8 @@ class DebugVlmRunLogReceiver : BroadcastReceiver() {
             "run_id" to runId,
             "runlog_found" to true,
             "runlog_success" to true,
-            "runlog_card_count" to 1,
+            "runlog_step_count" to 1,
             "run_log" to refreshedTimeline,
-            "auto_registered" to autoRegistered,
             "token_usage" to emptyMap<String, Any?>(),
             "token_usage_total" to 0,
             "token_usage_by_step" to emptyList<Map<String, Any?>>(),
@@ -397,17 +363,6 @@ class DebugVlmRunLogReceiver : BroadcastReceiver() {
             "convert" to convert,
             "convert_success" to (convert["success"] == true),
         )
-    }
-
-    private fun waitForAutoRegisteredTimeline(context: Context, runId: String): Map<String, Any?> {
-        val deadline = System.currentTimeMillis() + 20_000L
-        var timeline = InternalRunLogStore.timelinePayload(context, runId)
-        while (System.currentTimeMillis() < deadline) {
-            if (timeline["registered_as_function"] == true) return timeline
-            Thread.sleep(50L)
-            timeline = InternalRunLogStore.timelinePayload(context, runId)
-        }
-        return timeline
     }
 
     private fun configureVlmBindingIfRequested(

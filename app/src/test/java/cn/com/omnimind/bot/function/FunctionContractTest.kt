@@ -2,63 +2,98 @@ package cn.com.omnimind.bot.function
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertThrows
 import org.junit.Test
 
 class FunctionContractTest {
     @Test
-    fun `stored function keeps references without source state`() {
-        val sanitized = FunctionContract.sanitize(
-            linkedMapOf(
-                "function_id" to "fn_settings",
-                "source_run_ids" to listOf("run-1"),
-                "source" to mapOf("kind" to "run_log", "run_id" to "run-1"),
-                "actions" to listOf(
-                    mapOf(
-                        "tool" to "click",
+    fun `canonical function keeps only persisted action args`() {
+        val canonical = FunctionContract.canonical(
+            functionSpec(
+                steps = listOf(
+                    linkedMapOf(
+                        "step_index" to 0,
+                        "source_state_id" to "state-1",
+                        "action" to mapOf(
+                            "tool" to "click",
                         "args" to mapOf(
-                            "x" to 500,
-                            "y" to 500,
-                            "xml" to "<hierarchy />",
-                            "screenshot_path" to "/tmp/source.png",
-                            "source_context" to mapOf(
-                                "page" to "<hierarchy />",
-                                "coordinate_space" to "relative_0_1000",
-                                "action_index" to 2,
-                            ),
+                            "x" to 500.0,
+                            "y" to 500.0,
+                            "target_description" to "Settings",
+                            "node_resource_id" to "settings_button",
                         ),
-                    ),
-                ),
-                "metadata" to mapOf(
-                    "source_run_ids" to listOf("run-1"),
-                    "oob_function_evidence" to mapOf(
-                        "latest_run_id" to "run-1",
-                        "latest_analysis" to mapOf(
-                            "summary" to "raw evidence",
-                            "source_xml" to "<hierarchy />",
                         ),
                     ),
                 ),
             ),
         )
 
-        val action = FunctionJson.mapArg(FunctionJson.listArg(sanitized["actions"]).single())
+        val step = FunctionJson.mapArg(FunctionJson.listArg(canonical["steps"]).single())
+        val action = FunctionJson.mapArg(step["action"])
         val args = FunctionJson.mapArg(action["args"])
+        assertEquals(mapOf("x" to 500L, "y" to 500L), args)
+        assertEquals("state-1", step["source_state_id"])
         assertEquals(
-            mapOf(
-                "x" to 500,
-                "y" to 500,
-                "source_context" to mapOf(
-                    "coordinate_space" to "relative_0_1000",
-                    "action_index" to 2,
-                ),
+            setOf(
+                "schema_version",
+                "function_id",
+                "name",
+                "description",
+                "input_schema",
+                "bindings",
+                "steps",
+                "checker_rules",
+                "agent_visible",
             ),
-            args,
+            canonical.keys,
         )
-        assertEquals(listOf("run-1"), FunctionJson.listArg(sanitized["source_run_ids"]))
-        assertEquals("run-1", FunctionJson.mapArg(sanitized["source"])["run_id"])
-        val evidence = FunctionJson.mapArg(FunctionJson.mapArg(sanitized["metadata"])["oob_function_evidence"])
-        assertEquals("run-1", evidence["latest_run_id"])
-        assertFalse(evidence.containsKey("latest_analysis"))
-        assertFalse(sanitized.toString().contains("<hierarchy"))
+        assertFalse(canonical.toString().contains("target_description"))
+        assertFalse(canonical.toString().contains("node_resource_id"))
     }
+
+    @Test
+    fun `canonical function rejects storage metadata in action args`() {
+        val error = assertThrows(IllegalArgumentException::class.java) {
+            FunctionContract.canonical(
+                functionSpec(
+                    steps = listOf(
+                        linkedMapOf(
+                            "step_index" to 0,
+                            "source_state_id" to "state-1",
+                            "action" to mapOf(
+                                "tool" to "click",
+                                "args" to mapOf(
+                                    "x" to 500,
+                                    "y" to 500,
+                                    "xml" to "<hierarchy />",
+                                ),
+                            ),
+                        ),
+                    ),
+                ),
+            )
+        }
+
+        assertEquals(
+            "canonical_action_unknown_args:click:xml",
+            error.message,
+        )
+    }
+
+    private fun functionSpec(steps: List<Map<String, Any?>>): Map<String, Any?> = linkedMapOf(
+        "schema_version" to FunctionContract.SCHEMA_VERSION,
+        "function_id" to "fn_settings",
+        "name" to "Open settings",
+        "description" to "Open Android settings",
+        "input_schema" to linkedMapOf(
+            "type" to "object",
+            "properties" to emptyMap<String, Any?>(),
+            "required" to emptyList<String>(),
+            "additionalProperties" to false,
+        ),
+        "bindings" to emptyList<Map<String, Any?>>(),
+        "steps" to steps,
+        "checker_rules" to emptyList<Map<String, Any?>>(),
+        "agent_visible" to true,
+    )
 }

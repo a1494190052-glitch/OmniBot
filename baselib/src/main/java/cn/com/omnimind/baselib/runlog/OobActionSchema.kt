@@ -28,7 +28,6 @@ object OobActionSchema {
     const val TOOL_REQUIRE_USER_CONFIRMATION = "require_user_confirmation"
 
     const val ARG_TARGET_DESCRIPTION = "target_description"
-    const val ARG_ELEMENT_INDEX = "element_index"
     const val ARG_NODE_ID = "node_id"
     const val ARG_NODE_RESOURCE_ID = "node_resource_id"
     const val ARG_X = "x"
@@ -36,7 +35,6 @@ object OobActionSchema {
     const val ARG_DURATION_MS = "duration_ms"
     const val ARG_TEXT = "text"
     const val ARG_DIRECTION = "direction"
-    const val ARG_SCROLLABLE_INDEX = "scrollable_index"
     const val ARG_DISTANCE = "distance"
     const val ARG_X1 = "x1"
     const val ARG_Y1 = "y1"
@@ -44,8 +42,6 @@ object OobActionSchema {
     const val ARG_Y2 = "y2"
     const val ARG_PACKAGE_NAME = "package_name"
     const val ARG_KEY = "key"
-    const val ARG_TIME_S = "time_s"
-    const val ARG_TIME_MS = "time_ms"
     const val ARG_REASON = "reason"
     const val ARG_FUNCTION_ID = "function_id"
     const val ARG_TOOL_NAME = "tool_name"
@@ -64,6 +60,13 @@ object OobActionSchema {
         STRING_ARRAY,
     }
 
+    enum class Kind {
+        ACTION,
+        OBSERVE,
+        FUNCTION_INVOCATION,
+        DECISION,
+    }
+
     data class LocalizedText(
         val zhCn: String,
         val enUs: String,
@@ -73,6 +76,7 @@ object OobActionSchema {
         val name: String,
         val type: Type,
         val required: Boolean = false,
+        val persisted: Boolean = true,
         val description: LocalizedText = LocalizedText("", ""),
         val enumValues: List<String> = emptyList(),
         val minimum: Number? = null,
@@ -82,6 +86,7 @@ object OobActionSchema {
 
     data class ToolSpec(
         val name: String,
+        val kind: Kind,
         val uiLabel: LocalizedText,
         val description: LocalizedText,
         val promptGuide: LocalizedText,
@@ -99,31 +104,29 @@ object OobActionSchema {
     val tools: List<ToolSpec> = listOf(
         ToolSpec(
             name = "click",
+            kind = Kind.ACTION,
             uiLabel = LocalizedText(zhCn = "点击", enUs = "Click"),
-            description = LocalizedText(zhCn = "点击一个可见目标；必须按 schema 提供 target_description、x、y，element_index 仅作为可选定位线索。", enUs = "Tap a visible target; provide target_description, x, and y as required by the schema. element_index is an optional grounding hint only."),
-            promptGuide = LocalizedText(zhCn = "- click(target_description, x, y, element_index?): 点击可见目标；x/y 是 required 的 0..1000 相对坐标，element_index 只补充 grounding。", enUs = "- click(target_description, x, y, element_index?): Tap a visible target; x/y are required 0..1000 relative coordinates, and element_index only supplements grounding."),
+            description = LocalizedText(zhCn = "点击一个可见目标；必须按 schema 提供 target_description、x、y。", enUs = "Tap a visible target; provide target_description, x, and y as required by the schema."),
+            promptGuide = LocalizedText(zhCn = "- click(target_description, x, y): 点击可见目标；x/y 是 required 的 0..1000 相对坐标。", enUs = "- click(target_description, x, y): Tap a visible target; x/y are required 0..1000 relative coordinates."),
             argsTemplate = emptyMap(),
             args = listOf(
 ArgSpec(
                     name = "target_description",
                     type = Type.STRING,
                     required = true,
+                    persisted = false,
                     description = LocalizedText(zhCn = "要点击的目标描述。", enUs = "Description of the target to tap."),
-                ),
-ArgSpec(
-                    name = "element_index",
-                    type = Type.INTEGER,
-                    description = LocalizedText(zhCn = "可选。OOB indexed page evidence 中目标元素的 #index；提供后系统可用 live XML 中该元素中心辅助定位，但不能替代 required 坐标。", enUs = "Optional. The #index of the target element in OOB indexed page evidence; when provided, the runtime may use that live XML element center for grounding, but it cannot replace required coordinates."),
-                    minimum = 0,
                 ),
 ArgSpec(
                     name = "node_id",
                     type = Type.STRING,
+                    persisted = false,
                     description = LocalizedText(zhCn = "可选。live XML 中已确认的无障碍节点 id。", enUs = "Optional. Confirmed accessibility node id from live XML."),
                 ),
 ArgSpec(
                     name = "node_resource_id",
                     type = Type.STRING,
+                    persisted = false,
                     description = LocalizedText(zhCn = "可选。录制或 XML grounding 得到的 Android resource-id，用于重放定位诊断和迁移。", enUs = "Optional. Android resource-id captured from recording or XML grounding, used for replay targeting diagnostics and transfer."),
                 ),
 ArgSpec(
@@ -132,6 +135,7 @@ ArgSpec(
                     required = true,
                     description = LocalizedText(zhCn = "点击位置的 required 0..1000 相对 X 坐标；执行前会解码为屏幕绝对像素。", enUs = "Required 0..1000 relative X coordinate of the tap target; decoded to absolute screen pixels before execution."),
                     minimum = 0,
+                    maximum = 1000,
                 ),
 ArgSpec(
                     name = "y",
@@ -139,6 +143,7 @@ ArgSpec(
                     required = true,
                     description = LocalizedText(zhCn = "点击位置的 required 0..1000 相对 Y 坐标；执行前会解码为屏幕绝对像素。", enUs = "Required 0..1000 relative Y coordinate of the tap target; decoded to absolute screen pixels before execution."),
                     minimum = 0,
+                    maximum = 1000,
                 ),
             ),
             modelVisible = true,
@@ -151,31 +156,29 @@ ArgSpec(
         ),
         ToolSpec(
             name = "long_press",
+            kind = Kind.ACTION,
             uiLabel = LocalizedText(zhCn = "长按", enUs = "Long press"),
             description = LocalizedText(zhCn = "长按一个目标。", enUs = "Long-press a target."),
-            promptGuide = LocalizedText(zhCn = "- long_press(target_description, x, y, element_index?): 长按目标；x/y 是 required 的 0..1000 相对坐标，element_index 只补充 grounding。", enUs = "- long_press(target_description, x, y, element_index?): Long-press a target; x/y are required 0..1000 relative coordinates, and element_index only supplements grounding."),
+            promptGuide = LocalizedText(zhCn = "- long_press(target_description, x, y): 长按目标；x/y 是 required 的 0..1000 相对坐标。", enUs = "- long_press(target_description, x, y): Long-press a target; x/y are required 0..1000 relative coordinates."),
             argsTemplate = emptyMap(),
             args = listOf(
 ArgSpec(
                     name = "target_description",
                     type = Type.STRING,
                     required = true,
+                    persisted = false,
                     description = LocalizedText(zhCn = "要长按的目标描述。", enUs = "Description of the target to long-press."),
-                ),
-ArgSpec(
-                    name = "element_index",
-                    type = Type.INTEGER,
-                    description = LocalizedText(zhCn = "可选。OOB indexed page evidence 中目标元素的 #index；提供后系统可用 live XML 中该元素中心辅助定位，但不能替代 required 坐标。", enUs = "Optional. The #index of the target element in OOB indexed page evidence; when provided, the runtime may use that live XML element center for grounding, but it cannot replace required coordinates."),
-                    minimum = 0,
                 ),
 ArgSpec(
                     name = "node_id",
                     type = Type.STRING,
+                    persisted = false,
                     description = LocalizedText(zhCn = "可选。live XML 中已确认的无障碍节点 id。", enUs = "Optional. Confirmed accessibility node id from live XML."),
                 ),
 ArgSpec(
                     name = "node_resource_id",
                     type = Type.STRING,
+                    persisted = false,
                     description = LocalizedText(zhCn = "可选。录制或 XML grounding 得到的 Android resource-id，用于重放定位诊断和迁移。", enUs = "Optional. Android resource-id captured from recording or XML grounding, used for replay targeting diagnostics and transfer."),
                 ),
 ArgSpec(
@@ -184,6 +187,7 @@ ArgSpec(
                     required = true,
                     description = LocalizedText(zhCn = "长按位置的 0..1000 相对 X 坐标；执行前会解码为屏幕绝对像素。", enUs = "0..1000 relative X coordinate of the long press; decoded to absolute screen pixels before execution."),
                     minimum = 0,
+                    maximum = 1000,
                 ),
 ArgSpec(
                     name = "y",
@@ -191,6 +195,7 @@ ArgSpec(
                     required = true,
                     description = LocalizedText(zhCn = "长按位置的 0..1000 相对 Y 坐标；执行前会解码为屏幕绝对像素。", enUs = "0..1000 relative Y coordinate of the long press; decoded to absolute screen pixels before execution."),
                     minimum = 0,
+                    maximum = 1000,
                 ),
 ArgSpec(
                     name = "duration_ms",
@@ -209,15 +214,17 @@ ArgSpec(
         ),
         ToolSpec(
             name = "input_text",
+            kind = Kind.ACTION,
             uiLabel = LocalizedText(zhCn = "输入文本", enUs = "Input text"),
-            description = LocalizedText(zhCn = "向一个可见输入目标输入文本；必须按 schema 提供 target_description、text、x、y，element_index 仅作为可选定位线索。", enUs = "Type text into a visible input target; provide target_description, text, x, and y as required by the schema. element_index is an optional grounding hint only."),
-            promptGuide = LocalizedText(zhCn = "- input_text(target_description, text, x, y, element_index?): 向输入框输入；x/y 是 required 的 0..1000 相对坐标，element_index 只补充 grounding。", enUs = "- input_text(target_description, text, x, y, element_index?): Type into an input field; x/y are required 0..1000 relative coordinates, and element_index only supplements grounding."),
+            description = LocalizedText(zhCn = "向一个可见输入目标输入文本；必须按 schema 提供 target_description、text、x、y。", enUs = "Type text into a visible input target; provide target_description, text, x, and y as required by the schema."),
+            promptGuide = LocalizedText(zhCn = "- input_text(target_description, text, x, y): 向输入框输入；x/y 是 required 的 0..1000 相对坐标。", enUs = "- input_text(target_description, text, x, y): Type into an input field; x/y are required 0..1000 relative coordinates."),
             argsTemplate = emptyMap(),
             args = listOf(
 ArgSpec(
                     name = "target_description",
                     type = Type.STRING,
                     required = true,
+                    persisted = false,
                     description = LocalizedText(zhCn = "要输入文本的目标输入框描述。", enUs = "Description of the input target."),
                 ),
 ArgSpec(
@@ -227,34 +234,34 @@ ArgSpec(
                     description = LocalizedText(zhCn = "要输入的文本内容。", enUs = "Text content to type."),
                 ),
 ArgSpec(
-                    name = "element_index",
-                    type = Type.INTEGER,
-                    description = LocalizedText(zhCn = "可选。OOB indexed page evidence 中目标输入框的 #index；提供后系统可用 live XML 中该元素中心辅助定位，但不能替代 required 坐标。", enUs = "Optional. The #index of the target input field in OOB indexed page evidence; when provided, the runtime may use that live XML element center for grounding, but it cannot replace required coordinates."),
-                    minimum = 0,
-                ),
-ArgSpec(
                     name = "node_id",
                     type = Type.STRING,
+                    persisted = false,
                     description = LocalizedText(zhCn = "可选。live XML 中已确认的无障碍节点 id。", enUs = "Optional. Confirmed accessibility node id from live XML."),
                 ),
 ArgSpec(
                     name = "node_resource_id",
                     type = Type.STRING,
+                    persisted = false,
                     description = LocalizedText(zhCn = "可选。录制或 XML grounding 得到的 Android resource-id，用于重放定位诊断和迁移。", enUs = "Optional. Android resource-id captured from recording or XML grounding, used for replay targeting diagnostics and transfer."),
                 ),
 ArgSpec(
                     name = "x",
                     type = Type.NUMBER,
                     required = true,
+                    persisted = false,
                     description = LocalizedText(zhCn = "目标输入框中心的 required 0..1000 相对 X 坐标；执行前会解码为屏幕绝对像素。", enUs = "Required 0..1000 relative X coordinate of the input target center; decoded to absolute screen pixels before execution."),
                     minimum = 0,
+                    maximum = 1000,
                 ),
 ArgSpec(
                     name = "y",
                     type = Type.NUMBER,
                     required = true,
+                    persisted = false,
                     description = LocalizedText(zhCn = "目标输入框中心的 required 0..1000 相对 Y 坐标；执行前会解码为屏幕绝对像素。", enUs = "Required 0..1000 relative Y coordinate of the input target center; decoded to absolute screen pixels before execution."),
                     minimum = 0,
+                    maximum = 1000,
                 ),
             ),
             modelVisible = true,
@@ -267,15 +274,17 @@ ArgSpec(
         ),
         ToolSpec(
             name = "swipe",
+            kind = Kind.ACTION,
             uiLabel = LocalizedText(zhCn = "滑动", enUs = "Swipe"),
             description = LocalizedText(zhCn = "在屏幕或可滚动区域内按方向滑动。", enUs = "Swipe in a direction on the screen or inside a scrollable region."),
-            promptGuide = LocalizedText(zhCn = "- swipe(target_description, direction, x1, y1, x2, y2, scrollable_index?, duration_ms?): 在屏幕或指定可滚动区域内滑动；direction 和 x1/y1/x2/y2 必须满足 schema.required。", enUs = "- swipe(target_description, direction, x1, y1, x2, y2, scrollable_index?, duration_ms?): Swipe on the screen or a target scrollable region; direction and x1/y1/x2/y2 must satisfy schema.required."),
+            promptGuide = LocalizedText(zhCn = "- swipe(target_description, direction, x1, y1, x2, y2, duration_ms?): 在屏幕或指定可滚动区域内滑动；direction 和 x1/y1/x2/y2 必须满足 schema.required。", enUs = "- swipe(target_description, direction, x1, y1, x2, y2, duration_ms?): Swipe on the screen or a target scrollable region; direction and x1/y1/x2/y2 must satisfy schema.required."),
             argsTemplate = emptyMap(),
             args = listOf(
 ArgSpec(
                     name = "target_description",
                     type = Type.STRING,
                     required = true,
+                    persisted = false,
                     description = LocalizedText(zhCn = "本次滑动想浏览或定位的目标描述。", enUs = "Description of what this swipe action is trying to browse or locate."),
                 ),
 ArgSpec(
@@ -286,28 +295,28 @@ ArgSpec(
                     enumValues = listOf("up", "down", "left", "right"),
                 ),
 ArgSpec(
-                    name = "scrollable_index",
-                    type = Type.INTEGER,
-                    description = LocalizedText(zhCn = "可选。OOB indexed page evidence 中 Scrollable regions 的 Sindex；提供后系统会在该区域内生成安全滑动坐标。", enUs = "Optional. The Sindex of the target Scrollable region in OOB indexed page evidence; when provided, the runtime generates safe swipe coordinates inside that region."),
-                    minimum = 0,
-                ),
-ArgSpec(
                     name = "x",
                     type = Type.NUMBER,
+                    persisted = false,
                     description = LocalizedText(zhCn = "可选。滑动锚点的 0..1000 相对 X 坐标；不提供时使用安全兜底区域。", enUs = "Optional 0..1000 relative swipe anchor X coordinate; when omitted, the runtime uses a safe fallback region."),
                     minimum = 0,
+                    maximum = 1000,
                 ),
 ArgSpec(
                     name = "y",
                     type = Type.NUMBER,
+                    persisted = false,
                     description = LocalizedText(zhCn = "可选。滑动锚点的 0..1000 相对 Y 坐标；不提供时使用安全兜底区域。", enUs = "Optional 0..1000 relative swipe anchor Y coordinate; when omitted, the runtime uses a safe fallback region."),
                     minimum = 0,
+                    maximum = 1000,
                 ),
 ArgSpec(
                     name = "distance",
                     type = Type.NUMBER,
+                    persisted = false,
                     description = LocalizedText(zhCn = "可选。滑动距离，使用 0..1000 相对坐标尺度。", enUs = "Optional swipe distance using the 0..1000 relative coordinate scale."),
                     minimum = 0,
+                    maximum = 1000,
                 ),
 ArgSpec(
                     name = "x1",
@@ -315,6 +324,7 @@ ArgSpec(
                     required = true,
                     description = LocalizedText(zhCn = "滑动起点的 0..1000 相对 X 坐标；执行前会解码为屏幕绝对像素。", enUs = "Start 0..1000 relative X coordinate; decoded to absolute screen pixels before execution."),
                     minimum = 0,
+                    maximum = 1000,
                 ),
 ArgSpec(
                     name = "y1",
@@ -322,6 +332,7 @@ ArgSpec(
                     required = true,
                     description = LocalizedText(zhCn = "滑动起点的 0..1000 相对 Y 坐标；执行前会解码为屏幕绝对像素。", enUs = "Start 0..1000 relative Y coordinate; decoded to absolute screen pixels before execution."),
                     minimum = 0,
+                    maximum = 1000,
                 ),
 ArgSpec(
                     name = "x2",
@@ -329,6 +340,7 @@ ArgSpec(
                     required = true,
                     description = LocalizedText(zhCn = "滑动终点的 0..1000 相对 X 坐标；执行前会解码为屏幕绝对像素。", enUs = "End 0..1000 relative X coordinate; decoded to absolute screen pixels before execution."),
                     minimum = 0,
+                    maximum = 1000,
                 ),
 ArgSpec(
                     name = "y2",
@@ -336,6 +348,7 @@ ArgSpec(
                     required = true,
                     description = LocalizedText(zhCn = "滑动终点的 0..1000 相对 Y 坐标；执行前会解码为屏幕绝对像素。", enUs = "End 0..1000 relative Y coordinate; decoded to absolute screen pixels before execution."),
                     minimum = 0,
+                    maximum = 1000,
                 ),
 ArgSpec(
                     name = "duration_ms",
@@ -354,6 +367,7 @@ ArgSpec(
         ),
         ToolSpec(
             name = "open_app",
+            kind = Kind.ACTION,
             uiLabel = LocalizedText(zhCn = "打开应用", enUs = "Open app"),
             description = LocalizedText(zhCn = "打开指定应用。", enUs = "Open a specific app."),
             promptGuide = LocalizedText(zhCn = "- open_app(package_name): 打开指定应用。", enUs = "- open_app(package_name): Open a specific app."),
@@ -376,6 +390,7 @@ ArgSpec(
         ),
         ToolSpec(
             name = "press_key",
+            kind = Kind.ACTION,
             uiLabel = LocalizedText(zhCn = "按系统键", enUs = "Press key"),
             description = LocalizedText(zhCn = "按一个系统导航键。", enUs = "Press one system navigation key."),
             promptGuide = LocalizedText(zhCn = "- press_key(key): 按系统导航键；key 只能是 back、home 或 enter。", enUs = "- press_key(key): Press a system navigation key; key must be back, home, or enter."),
@@ -399,27 +414,17 @@ ArgSpec(
         ),
         ToolSpec(
             name = "wait",
+            kind = Kind.ACTION,
             uiLabel = LocalizedText(zhCn = "等待", enUs = "Wait"),
             description = LocalizedText(zhCn = "等待页面加载、动画或外部状态变化。", enUs = "Wait for page loading, animation, or external state changes."),
-            promptGuide = LocalizedText(zhCn = "- wait(time_s?): 只在页面明确处于加载、动画或等待外部状态变化时使用。", enUs = "- wait(time_s?): Use only when the page is clearly loading, animating, or waiting for an external state change."),
+            promptGuide = LocalizedText(zhCn = "- wait(duration_ms): 只在页面明确处于加载、动画或等待外部状态变化时使用。", enUs = "- wait(duration_ms): Use only when the page is clearly loading, animating, or waiting for an external state change."),
             argsTemplate = emptyMap(),
             args = listOf(
 ArgSpec(
-                    name = "time_s",
-                    type = Type.NUMBER,
-                    description = LocalizedText(zhCn = "等待秒数。", enUs = "Seconds to wait."),
-                    minimum = 0,
-                ),
-ArgSpec(
-                    name = "time_ms",
-                    type = Type.INTEGER,
-                    description = LocalizedText(zhCn = "等待毫秒数；兼容已采集轨迹。", enUs = "Milliseconds to wait; compatible with collected trajectories."),
-                    minimum = 0,
-                ),
-ArgSpec(
                     name = "duration_ms",
                     type = Type.INTEGER,
-                    description = LocalizedText(zhCn = "等待毫秒数；与 time_s 二选一。", enUs = "Milliseconds to wait; alternative to time_s."),
+                    required = true,
+                    description = LocalizedText(zhCn = "等待时长，单位毫秒。", enUs = "Wait duration in milliseconds."),
                     minimum = 0,
                 ),
             ),
@@ -433,6 +438,7 @@ ArgSpec(
         ),
         ToolSpec(
             name = "get_state",
+            kind = Kind.OBSERVE,
             uiLabel = LocalizedText(zhCn = "刷新状态", enUs = "Get state"),
             description = LocalizedText(zhCn = "不执行 UI 操作，只重新获取当前页面状态、包名和 Accessibility tree。", enUs = "Do not perform a UI action; refresh the current page state, package name, and Accessibility tree."),
             promptGuide = LocalizedText(zhCn = "- 内部状态刷新：运行时每轮自动读取当前页面状态；该动作不暴露给模型或前端，不点击、不滑动、不输入。", enUs = "- Internal state refresh: the runtime reads the current page state automatically each turn; this action is not exposed to the model or frontend and does not tap, swipe, or type."),
@@ -454,6 +460,7 @@ ArgSpec(
         ),
         ToolSpec(
             name = "call_tool",
+            kind = Kind.FUNCTION_INVOCATION,
             uiLabel = LocalizedText(zhCn = "调用工具", enUs = "Call tool"),
             description = LocalizedText(zhCn = "内部工具调用动作。Function recall/replay 由运行时自动决定，普通 VLM/Agent 不直接选择该动作。", enUs = "Internal tool-call action. Function recall/replay is selected by the runtime; normal VLM/Agent output does not choose this action directly."),
             promptGuide = LocalizedText(zhCn = "- 内部动作：不要在普通 VLM/Agent 输出中生成 call_tool；Function 命中由运行时自动执行。", enUs = "- Internal action: do not emit call_tool in normal VLM/Agent output; Function hits are executed by the runtime."),
@@ -487,6 +494,7 @@ ArgSpec(
         ),
         ToolSpec(
             name = "finished",
+            kind = Kind.DECISION,
             uiLabel = LocalizedText(zhCn = "完成", enUs = "Finished"),
             description = LocalizedText(zhCn = "仅当当前页面或上一轮工具结果直接证明用户目标已经完成时结束。", enUs = "End only when the current page or previous tool result directly proves the user's goal is complete."),
             promptGuide = LocalizedText(zhCn = "- finished(content?): 仅在当前页面或上一轮工具结果直接证明目标完成时调用；不确定就继续执行下一步。", enUs = "- finished(content?): Call only when the current page or previous tool result directly proves completion; if uncertain, continue with the next action."),
@@ -499,8 +507,8 @@ ArgSpec(
                 ),
             ),
             modelVisible = true,
-            replayable = true,
-            editorVisible = true,
+            replayable = false,
+            editorVisible = false,
             recordable = false,
             coordinateAction = false,
             pointTargetAction = false,
@@ -508,6 +516,7 @@ ArgSpec(
         ),
         ToolSpec(
             name = "info",
+            kind = Kind.DECISION,
             uiLabel = LocalizedText(zhCn = "询问用户", enUs = "Info"),
             description = LocalizedText(zhCn = "向用户询问或请求手动协助。", enUs = "Ask the user a question or request manual help."),
             promptGuide = LocalizedText(zhCn = "- info(value): 询问用户或请求用户协助。", enUs = "- info(value): Ask the user for information or manual assistance."),
@@ -530,6 +539,7 @@ ArgSpec(
         ),
         ToolSpec(
             name = "feedback",
+            kind = Kind.DECISION,
             uiLabel = LocalizedText(zhCn = "反馈", enUs = "Feedback"),
             description = LocalizedText(zhCn = "反馈当前上下文与目标不匹配。", enUs = "Report that the current context does not match the goal."),
             promptGuide = LocalizedText(zhCn = "- feedback(value): 请求上层重新规划。", enUs = "- feedback(value): Ask the upper layer to re-plan."),
@@ -552,6 +562,7 @@ ArgSpec(
         ),
         ToolSpec(
             name = "abort",
+            kind = Kind.DECISION,
             uiLabel = LocalizedText(zhCn = "终止", enUs = "Abort"),
             description = LocalizedText(zhCn = "任务无法继续时终止。", enUs = "Abort when the task cannot continue."),
             promptGuide = LocalizedText(zhCn = "- abort(value?): 在任务无法继续时终止。", enUs = "- abort(value?): Abort when the task cannot continue."),
@@ -573,6 +584,7 @@ ArgSpec(
         ),
         ToolSpec(
             name = "require_user_choice",
+            kind = Kind.DECISION,
             uiLabel = LocalizedText(zhCn = "用户选择", enUs = "User choice"),
             description = LocalizedText(zhCn = "让用户在若干选项中选择一个。", enUs = "Ask the user to choose one option from a list."),
             promptGuide = LocalizedText(zhCn = "- require_user_choice(options, prompt): 让用户做互斥选择。", enUs = "- require_user_choice(options, prompt): Ask the user to make a mutually exclusive choice."),
@@ -601,6 +613,7 @@ ArgSpec(
         ),
         ToolSpec(
             name = "require_user_confirmation",
+            kind = Kind.DECISION,
             uiLabel = LocalizedText(zhCn = "用户确认", enUs = "User confirmation"),
             description = LocalizedText(zhCn = "让用户确认当前状态后继续。", enUs = "Ask the user to confirm the current state before continuing."),
             promptGuide = LocalizedText(zhCn = "- require_user_confirmation(prompt): 让用户确认后继续。", enUs = "- require_user_confirmation(prompt): Ask the user to confirm before continuing."),
@@ -624,14 +637,14 @@ ArgSpec(
     )
 
     val modelVisibleTools: List<ToolSpec> = tools.filter { it.modelVisible }
+    val actionToolNames: Set<String> = tools.filter { it.kind == Kind.ACTION }.mapTo(linkedSetOf()) { it.name }
+    val decisionToolNames: Set<String> = tools.filter { it.kind == Kind.DECISION }.mapTo(linkedSetOf()) { it.name }
     val replayableToolNames: Set<String> = tools.filter { it.replayable }.mapTo(linkedSetOf()) { it.name }
     val editorVisibleTools: List<ToolSpec> = tools.filter { it.editorVisible }
     val recordableToolNames: Set<String> = tools.filter { it.recordable }.mapTo(linkedSetOf()) { it.name }
     val coordinateToolNames: Set<String> = tools.filter { it.coordinateAction }.mapTo(linkedSetOf()) { it.name }
     val pointTargetToolNames: Set<String> = tools.filter { it.pointTargetAction }.mapTo(linkedSetOf()) { it.name }
     val routeToolNames: Set<String> = tools.filter { it.routeAction }.mapTo(linkedSetOf()) { it.name }
-    val sourceContextArgNames: Set<String> = linkedSetOf("target_description", "element_index", "node_id", "x", "y", "x1", "y1", "x2", "y2", "scrollable_index", "direction", "distance", "duration_ms", "time_s", "key", "text", "package_name", "selector", "node_resource_id", "bounds", "node_class", "clear")
-
     private val toolsByName: Map<String, ToolSpec> = tools.associateBy { it.name }
 
     fun tool(name: String): ToolSpec? = toolsByName[normalizeToolName(name)]
@@ -649,6 +662,9 @@ ArgSpec(
 
     fun requiredArgNames(toolName: String): List<String> =
         tool(toolName)?.args?.filter { it.required }?.map { it.name } ?: emptyList()
+
+    fun persistedArgs(toolName: String): List<ArgSpec> =
+        tool(toolName)?.args?.filter { it.persisted } ?: emptyList()
 
     fun argsTemplate(toolName: String): Map<String, Any?> =
         tool(toolName)?.argsTemplate ?: emptyMap()

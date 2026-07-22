@@ -1,6 +1,7 @@
 package cn.com.omnimind.assists.task.vlmserver
 
 import cn.com.omnimind.baselib.i18n.AppLocaleManager
+import cn.com.omnimind.baselib.llm.AssistantToolCall
 import cn.com.omnimind.baselib.runlog.OobActionSchema
 import cn.com.omnimind.baselib.llm.ChatCompletionFunction
 import cn.com.omnimind.baselib.llm.ChatCompletionTool
@@ -122,12 +123,7 @@ object VLMToolDefinitions {
             val name = function["name"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty()
             if (name.isEmpty()) return@mapNotNull null
             if (isInternalRuntimeToolName(name)) return@mapNotNull null
-            val functionId = firstNonBlank(
-                definition["function_id"],
-                definition["functionId"],
-                function["function_id"],
-                function["functionId"],
-            )
+            val functionId = firstNonBlank(definition["function_id"])
             if (functionId.isEmpty()) return@mapNotNull null
             name to functionId
         }.toMap()
@@ -153,7 +149,7 @@ object VLMToolDefinitions {
     }
 
     private fun isHiddenFunctionTool(function: JsonObject): Boolean {
-        val toolType = function["toolType"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty()
+        val toolType = function["tool_type"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty()
         val modelVisible = function["model_visible"]?.jsonPrimitive?.booleanOrNull
         if (modelVisible == false) return true
         return toolType.equals("oob_function", ignoreCase = true)
@@ -209,8 +205,8 @@ object VLMToolDefinitions {
             append(
                 t(
                     locale,
-                    "注意：每个 tool call 的 JSON 参数必须是严格合法的 object，并满足所选工具 schema.required。Function replay 由本地 runtime 自动处理；不要输出 call_tool、function_id 或隐藏 Function 工具。若本轮 tools[] 包含 run_recalled_workflow_*，它是本轮已召回工作流工具，明显匹配当前目标时优先调用，否则继续普通 UI action。schema.required 中的坐标字段必须是 0..1000 相对坐标，分别写入 x / y / x1 / y1 / x2 / y2，每个字段都只能是单个数值；不要返回 [x,y]、coordinates、对象，或 \"x\": 827, 76 这类非法格式。系统会在执行前解码为屏幕绝对像素，本地记录始终保存绝对像素。wait 只在页面明确加载、动画或等待外部状态时使用。",
-                    "Important: every tool call JSON argument value must be a strict object and satisfy the selected tool's schema.required. Function replay is handled by the local runtime; do not emit call_tool, function_id, or hidden Function tools. If this turn's tools[] includes run_recalled_workflow_*, it is a recalled workflow tool for this turn; prefer it when it clearly matches the current goal, otherwise choose an ordinary UI action. Coordinate fields in schema.required must be 0..1000 relative coordinates, written into x / y / x1 / y1 / x2 / y2 as separate scalar fields; each field must be a single numeric scalar. Do not emit [x,y], coordinates, objects, or invalid forms such as \"x\": 827, 76. The system decodes coordinates to screen absolute pixels before execution, and local records always store absolute pixels. Use wait only when the page is clearly loading, animating, or waiting for an external state change."
+                    "注意：每个 tool call 的 JSON 参数必须是严格合法的 object，并满足所选工具 schema.required。Function replay 由本地 runtime 自动处理；不要输出 call_tool、function_id 或隐藏 Function 工具。若本轮 tools[] 包含 run_recalled_workflow_*，它是本轮已召回工作流工具，明显匹配当前目标时优先调用，否则继续普通 UI action。schema.required 中的坐标字段必须是 0..1000 相对坐标，分别写入 x / y / x1 / y1 / x2 / y2，每个字段都只能是单个数值；不要返回 [x,y]、coordinates、对象，或 \"x\": 827, 76 这类非法格式。Action、RunLog 和 Function 始终保存相对坐标；只有 Android 执行动作时才转换一次为当前屏幕像素。wait 只在页面明确加载、动画或等待外部状态时使用。",
+                    "Important: every tool call JSON argument value must be a strict object and satisfy the selected tool's schema.required. Function replay is handled by the local runtime; do not emit call_tool, function_id, or hidden Function tools. If this turn's tools[] includes run_recalled_workflow_*, it is a recalled workflow tool for this turn; prefer it when it clearly matches the current goal, otherwise choose an ordinary UI action. Coordinate fields in schema.required must be 0..1000 relative coordinates, written into x / y / x1 / y1 / x2 / y2 as separate scalar fields; each field must be a single numeric scalar. Do not emit [x,y], coordinates, objects, or invalid forms such as \"x\": 827, 76. Action, RunLog, and Function always store relative coordinates; conversion to current-screen pixels happens exactly once at Android action dispatch. Use wait only when the page is clearly loading, animating, or waiting for an external state change."
                 )
             )
         }
@@ -239,8 +235,8 @@ object VLMToolDefinitions {
             appendLine(
                 t(
                     locale,
-                    "页面索引证据只用于你选择目标；输出参数只能包含所选工具 schema.properties 中列出的字段。",
-                    "Indexed page evidence is only for choosing the target; output arguments may contain only fields listed in the selected tool's schema.properties."
+                    "页面状态只用于选择目标；输出参数只能包含所选工具 schema.properties 中列出的字段。",
+                    "Page state is only for choosing the target; output arguments may contain only fields listed in the selected tool's schema.properties."
                 )
             )
             appendLine(actionChoiceGuide(locale, selectedNames))
@@ -263,8 +259,8 @@ object VLMToolDefinitions {
             append(
                 t(
                     locale,
-                    "黑屏/空白但 indexed evidence 或 visible_texts 有目标控件时，按这些证据继续选择工具；不要输出刷新状态、等待或空操作。",
-                    "If the screenshot is black/blank but indexed evidence or visible_texts contains the target control, continue from that evidence; do not output refresh-state, wait, or no-op actions."
+                    "黑屏/空白但 page state 或 visible_texts 有目标控件时，按这些证据继续选择工具；不要输出刷新状态、等待或空操作。",
+                    "If the screenshot is black/blank but page state or visible_texts contains the target control, continue from that evidence; do not output refresh-state, wait, or no-op actions."
                 )
             )
         }.trim()
@@ -384,37 +380,72 @@ object VLMToolDefinitions {
         return vlmOutputArgs(schema).map { it.name }
     }
 
-    fun normalizeArguments(toolName: String, arguments: JsonObject): JsonObject {
-        if (arguments.isEmpty()) return arguments
-        val normalized = arguments.toMutableMap()
-        normalizeEnumArguments(toolName, normalized)
-        return JsonObject(normalized)
+    fun describeInvalidToolCall(
+        toolCall: AssistantToolCall,
+        message: String,
+        requiredFieldsOverride: Set<String>? = null,
+    ): VLMToolCallFailure {
+        val toolName = toolCall.function.name.trim().takeIf(String::isNotEmpty)
+        val parsedArguments = toolName?.let {
+            runCatching {
+                parseRawArgumentsObject(
+                    toolName = it,
+                    rawArguments = toolCall.function.arguments,
+                    allowEmpty = true,
+                )
+            }.getOrNull()
+        }
+        val requiredFields = when {
+            requiredFieldsOverride != null -> requiredFieldsOverride.sorted()
+            toolName != null -> requiredFieldsFor(toolName)
+            else -> emptyList()
+        }
+        val providedFields = parsedArguments?.keys?.sorted().orEmpty()
+        return VLMToolCallFailure(
+            code = if (parsedArguments == null) "invalid_arguments_json" else "invalid_arguments",
+            toolName = toolName,
+            requiredFields = requiredFields,
+            providedFields = providedFields,
+            argumentTypes = parsedArguments
+                ?.entries
+                ?.sortedBy { it.key }
+                ?.associate { (field, value) -> field to describeType(value) }
+                .orEmpty(),
+            missingFields = parsedArguments?.let { parsed ->
+                requiredFields.filter { field -> parsed[field] == null || parsed[field] is JsonNull }
+            }.orEmpty(),
+            safeArgumentsPreview = parsedArguments?.let(::safeArgumentsPreview)
+                ?: "invalid_json(chars=${toolCall.function.arguments.length})",
+            message = sanitizeToolCallFailureMessage(message),
+        )
     }
 
-    fun coerceArguments(toolName: String, arguments: JsonObject): JsonObject {
-        val properties = propertiesFor(toolName)
-        if (properties.isEmpty() || arguments.isEmpty()) return arguments
+    fun sanitizeToolCallFailureMessage(message: String): String {
+        return message
+            .replace(Regex(";\\s*raw=.*$", RegexOption.DOT_MATCHES_ALL), "; raw=<redacted>")
+            .take(MAX_SAFE_FAILURE_MESSAGE_CHARS)
+    }
 
-        val normalized = linkedMapOf<String, JsonElement>()
-        arguments.entries.forEach { (field, value) ->
-            val schema = properties[field]
-            normalized[field] = if (schema != null) {
-                coerceValue(value, schema)
-            } else {
-                value
-            }
+    fun safeToolCallSummary(toolCalls: List<AssistantToolCall>): String {
+        if (toolCalls.isEmpty()) return "[]"
+        return toolCalls.joinToString(prefix = "[", postfix = "]") { toolCall ->
+            val toolName = toolCall.function.name.trim().ifBlank { "<missing>" }
+            val arguments = runCatching {
+                parseRawArgumentsObject(toolName, toolCall.function.arguments, allowEmpty = true)
+            }.getOrNull()
+            val shape = arguments
+                ?.entries
+                ?.sortedBy { it.key }
+                ?.joinToString(",") { (field, value) -> "$field:${describeType(value)}" }
+                ?: "invalid_json"
+            "$toolName{$shape}"
         }
-        return JsonObject(normalized)
     }
 
     fun parseArguments(toolName: String, rawArguments: String): JsonObject {
         val parsed = parseRawArgumentsObject(toolName, rawArguments)
-        val normalizedFromParsed = coerceArguments(
-            toolName,
-            normalizeArguments(toolName, stripVlmMetadataArguments(parsed))
-        )
-        validateArguments(toolName, normalizedFromParsed)
-        return normalizedFromParsed
+        validateArguments(toolName, parsed)
+        return parsed
     }
 
     internal fun parseRawArgumentsObject(
@@ -479,99 +510,13 @@ object VLMToolDefinitions {
         }
     }
 
-    private fun stripVlmMetadataArguments(arguments: JsonObject): JsonObject {
-        if (arguments.isEmpty()) return arguments
-        val stripped = arguments.filterKeys { key ->
-            !key.equals(TOOL_TITLE_FIELD, ignoreCase = true) &&
-                !key.equals("toolTitle", ignoreCase = true)
-        }
-        return if (stripped.size == arguments.size) arguments else JsonObject(stripped)
-    }
-
     private fun previewRawArguments(raw: String, maxLen: Int = 240): String {
         val normalized = raw.replace(Regex("\\s+"), " ").trim()
         return if (normalized.length <= maxLen) normalized else normalized.take(maxLen) + "..."
     }
 
-    private fun normalizeEnumArguments(
-        toolName: String,
-        arguments: MutableMap<String, JsonElement>
-    ) {
-        val properties = propertiesFor(toolName)
-        if (properties.isEmpty()) return
-        arguments.entries.toList().forEach { (field, value) ->
-            val raw = (value as? JsonPrimitive)?.contentOrNull?.trim().orEmpty()
-            if (raw.isEmpty()) return@forEach
-            val enumValues = (properties[field]?.get("enum") as? JsonArray).orEmpty()
-            if (enumValues.isEmpty()) return@forEach
-            val resolved = enumValues
-                .mapNotNull { it.jsonPrimitive.contentOrNull?.trim()?.takeIf(String::isNotEmpty) }
-                .firstOrNull { it.equals(raw, ignoreCase = true) }
-                ?: return@forEach
-            if (resolved != raw) {
-                arguments[field] = JsonPrimitive(resolved)
-            }
-        }
-    }
-
     private fun isCoordinateField(field: String): Boolean {
         return field == "x" || field == "y" || field == "x1" || field == "y1" || field == "x2" || field == "y2"
-    }
-
-    private fun coerceValue(value: JsonElement, schema: JsonObject): JsonElement {
-        val type = schema["type"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty()
-        return when (type) {
-            "string" -> coerceString(value)
-            "number" -> coerceNumber(value) ?: value
-            "integer" -> coerceInteger(value) ?: value
-            "array" -> coerceArray(value, schema) ?: value
-            else -> value
-        }
-    }
-
-    private fun coerceString(value: JsonElement): JsonElement {
-        return when (value) {
-            is JsonPrimitive -> {
-                JsonPrimitive(value.contentOrNull ?: value.toString())
-            }
-
-            else -> JsonPrimitive(value.toString())
-        }
-    }
-
-    private fun coerceNumber(value: JsonElement): JsonPrimitive? {
-        val primitive = value as? JsonPrimitive ?: return null
-        val raw = primitive.contentOrNull?.trim().orEmpty()
-        if (raw.isEmpty()) return null
-        val number = raw.toDoubleOrNull() ?: return null
-        val asLong = number.toLong()
-        return if (number == asLong.toDouble()) JsonPrimitive(asLong) else JsonPrimitive(number)
-    }
-
-    private fun coerceInteger(value: JsonElement): JsonPrimitive? {
-        val primitive = value as? JsonPrimitive ?: return null
-        val raw = primitive.contentOrNull?.trim().orEmpty()
-        if (raw.isEmpty()) return null
-        val longValue = raw.toLongOrNull()
-            ?: raw.toDoubleOrNull()?.toLong()
-            ?: return null
-        return JsonPrimitive(longValue)
-    }
-
-    private fun coerceArray(value: JsonElement, schema: JsonObject): JsonArray? {
-        if (value is JsonArray) return value
-        val primitive = value as? JsonPrimitive ?: return null
-        val raw = primitive.contentOrNull?.trim().orEmpty()
-        if (raw.isEmpty()) return JsonArray(emptyList())
-        val itemType = ((schema["items"] as? JsonObject)?.get("type") as? JsonPrimitive)?.contentOrNull
-        if (itemType == "string") {
-            val parts = raw.split(Regex("[,，、\\n]"))
-                .map { it.trim().trim('"', '\'') }
-                .filter { it.isNotEmpty() }
-                .map(::JsonPrimitive)
-            return JsonArray(parts)
-        }
-        return null
     }
 
     private fun matchesType(expectedType: String, value: JsonElement): Boolean {
@@ -598,6 +543,36 @@ object VLMToolDefinitions {
                 value.doubleOrNull != null -> "number"
                 else -> "primitive"
             }
+        }
+    }
+
+    private fun safeArgumentsPreview(arguments: JsonObject): String {
+        val safeArguments = buildJsonObject {
+            arguments.entries.sortedBy { it.key }.forEach { (field, value) ->
+                put(field, safePreviewValue(field, value))
+            }
+        }
+        return safeArguments.toString().take(MAX_SAFE_ARGUMENT_PREVIEW_CHARS)
+    }
+
+    private fun safePreviewValue(field: String, value: JsonElement): JsonElement {
+        if (field.lowercase() in SENSITIVE_ARGUMENT_FIELDS) {
+            return JsonPrimitive("<redacted>")
+        }
+        if (field.lowercase() !in SAFE_ARGUMENT_VALUE_FIELDS) {
+            return JsonPrimitive("<${describeType(value)}>")
+        }
+        return when (value) {
+            is JsonPrimitive -> {
+                if (value.isString) {
+                    JsonPrimitive(value.contentOrNull.orEmpty().take(MAX_SAFE_STRING_VALUE_CHARS))
+                } else {
+                    value
+                }
+            }
+            is JsonArray -> JsonPrimitive("<array:${value.size}>")
+            is JsonObject -> JsonPrimitive("<object:${value.keys.sorted().joinToString(",")}>")
+            is JsonNull -> JsonNull
         }
     }
 
@@ -714,5 +689,32 @@ object VLMToolDefinitions {
             )
         }
     }
+
+    private const val MAX_SAFE_ARGUMENT_PREVIEW_CHARS = 800
+    private const val MAX_SAFE_FAILURE_MESSAGE_CHARS = 1200
+    private const val MAX_SAFE_STRING_VALUE_CHARS = 120
+    private val SENSITIVE_ARGUMENT_FIELDS = setOf(
+        "text",
+        "content",
+        "value",
+        "prompt",
+        "arguments",
+    )
+    private val SAFE_ARGUMENT_VALUE_FIELDS = setOf(
+        "target_description",
+        "x",
+        "y",
+        "x1",
+        "y1",
+        "x2",
+        "y2",
+        "node_id",
+        "node_resource_id",
+        "direction",
+        "distance",
+        "duration_ms",
+        "key",
+        "package_name",
+    )
 
 }

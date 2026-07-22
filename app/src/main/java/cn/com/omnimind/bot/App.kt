@@ -12,8 +12,12 @@ import cn.com.omnimind.bot.agent.WorkspaceScheduledTaskScheduler
 import cn.com.omnimind.bot.activity.StartupThemeResolver
 import cn.com.omnimind.bot.im.ImChannelManager
 import cn.com.omnimind.bot.localmodel.LocalModelFeatureInstaller
+import cn.com.omnimind.bot.llm.BundledDebugModelConfigInstaller
+import cn.com.omnimind.bot.manager.AssistsCoreManager
 import cn.com.omnimind.bot.mcp.McpServerManager
 import cn.com.omnimind.bot.omniflow.OmniFlowPythonRuntime
+import cn.com.omnimind.bot.omniflow.omniFlowControlActExecutorFactory
+import cn.com.omnimind.bot.omniflow.omniFlowRecordStepExecutor
 import cn.com.omnimind.bot.quicklog.QuickLogWidgetUpdater
 import cn.com.omnimind.bot.terminal.EmbeddedTerminalRuntime
 import cn.com.omnimind.bot.update.AppUpdateManager
@@ -107,6 +111,13 @@ class App : BaseApplication() {
 
         DatabaseHelper.init(this)
         LocalModelFeatureInstaller.install(this)
+        AssistsCoreManager.installRunLogFinishListener()
+        cn.com.omnimind.assists.task.vlmserver.ControlActExecutorRegistry.register(
+            omniFlowControlActExecutorFactory(this)
+        )
+        cn.com.omnimind.assists.runlog.OmniFlowRecordStepExecutorRegistry.register(
+            omniFlowRecordStepExecutor(this)
+        )
 
         val nestedStart = System.currentTimeMillis()
         NestedBackgroundStateUtil.init(this)
@@ -127,7 +138,11 @@ class App : BaseApplication() {
             SkillIndexService(this, workspaceManager).seedBuiltinSkillsIfNeeded()
         }
         runCatching {
-            AgentAiCapabilityConfigSync.get(this).initialize()
+            val configSync = AgentAiCapabilityConfigSync.get(this)
+            configSync.initialize()
+            if (BundledDebugModelConfigInstaller.installIfNeeded()) {
+                configSync.syncFileFromStores()
+            }
         }
         runCatching {
             WorkspaceMemoryRollupScheduler(this).ensureScheduledIfEnabled()

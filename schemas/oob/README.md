@@ -1,36 +1,48 @@
 # OmniFlow Shared Schemas
 
-`oob_canonical_actions.v1.json` is the single source of truth for OmniFlow
-executable actions, VLM-visible tools, editor-visible actions, and action
-argument names.
+These files are the wire contracts shared by OpenOmniBot and OmniFlow. Copies
+in both repositories must remain byte-for-byte identical.
 
-`omniflow_checker_rule.v1.json` is the shared checker rule contract for
-`metadata.checker_rules`. Keep it byte-for-byte aligned with the OmniFlow repo
-copy:
+- `oob_canonical_actions.v1.json`: executable actions as `{tool, args}`.
+- `omniflow_canonical_run_log.v1.json`: captured steps as
+  `step_index/before_state_id/action/result/after_state_id/diagnostics`, plus one
+  optional `final_state_id`.
+- `omniflow_function.v2.json`: reusable Functions with `function_id`,
+  `input_schema`, `bindings`, and `steps`; each step references
+  `source_state_id`.
+- `omniflow_checker_rule.v1.json`: optional replay checker rules.
+- `omniflow_android_bridge.v2.json`: the Android/Python Bridge API.
 
-- `/Users/wuzewen/Projects/Omni/OpenOmniBot/schemas/oob/omniflow_checker_rule.v1.json`
-- `/Users/wuzewen/Projects/Omni/OmniFlow/schemas/oob/omniflow_checker_rule.v1.json`
+`state_id` is the only persisted UI-state reference. RunLogs and Functions do
+not embed captured UI evidence. XML, screenshots, hashes, byte counts, and file
+paths are Evidence Store implementation details and are resolved by `state_id`
+only when transfer or diagnostics need them.
+Function files never embed XML or screenshots. The Bridge resolves
+`state_id` on demand and must block coordinate actions when state lookup or
+OmniTransfer mapping fails; source coordinates must never pass through.
 
-Native OmniFlow reads checker records through `OmniflowCheckerRule`; Python
-OmniFlow must adapt the same schema instead of adding a second checker/trigger
-schema.
+Production writers, compilers, stores, and replay code accept only these
+contracts. Historical AndroidWorld data is normalized at its import adapter,
+not inside the core runtime.
 
-Do not duplicate action names or argument lists in Kotlin or Dart. Update the
-schema first, then regenerate consumers:
+Canonical action constraints include:
 
-```bash
-python3 scripts/generate-oob-action-schema.py
-```
+- `oob_canonical_actions.v1.json` is the only action-field rule source.
+- Every RunLog and Function action passes through the same schema-driven
+  canonical action converter before persistence.
+- The converter keeps only arguments whose schema entry does not set
+  `persisted: false`; runtime grounding hints such as `target_description`,
+  node ids, resource ids, screenshots, and target evidence are never saved.
+- There is no separate forbidden-field list or compiler cleanup list.
+- Unsupported tools, invalid persisted values, and missing required persisted
+  arguments fail conversion; all other non-persisted input is omitted.
 
-Generated files:
+The only saved arguments are:
 
-- `baselib/src/main/java/cn/com/omnimind/baselib/runlog/OobCanonicalActionSchema.kt`
-- `ui/lib/features/task/run_log/oob_canonical_action_schema.dart`
-
-Current canonical constraints:
-
-- `input_text` uses only `args.text`.
-- `swipe` uses `duration_ms`, not `duration`, and carries `direction`.
-- `open_app` uses only `package_name`.
-- Back/Home/Enter use `press_key(key)` with `key=back|home|enter`.
-- Saved Function recall and replay are selected by the runtime; normal VLM/Agent output must not emit `call_tool(function_id, arguments)`.
+- `click`: `x`, `y`.
+- `long_press`: `x`, `y`, optional `duration_ms`.
+- `input_text`: `text`.
+- `swipe`: `direction`, `x1`, `y1`, `x2`, `y2`, optional `duration_ms`.
+- `open_app`: `package_name`.
+- `press_key`: `key`.
+- `wait`: `duration_ms`.

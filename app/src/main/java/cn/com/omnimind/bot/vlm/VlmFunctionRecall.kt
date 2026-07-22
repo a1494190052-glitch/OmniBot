@@ -26,7 +26,6 @@ class VlmFunctionRecall(context: Context) : VLMRecallContextProvider {
     private val appContext = context.applicationContext
     private val config get() = VlmWorkspaceConfig.getInstance(appContext).get()
     private val recallAdapter = OmniFlowFunctionRecallAdapter(
-        enabled = OmniFlowPythonRuntime::isReady,
         bridgeCall = { operation, payload ->
             OmniFlowPythonRuntime.call(appContext, operation, payload)
         },
@@ -130,11 +129,7 @@ class VlmFunctionRecall(context: Context) : VLMRecallContextProvider {
     ): JsonObject? {
         val functionId = firstNonBlank(candidate["function_id"]).takeIf { it.isNotEmpty() } ?: return null
         val toolName = "${config.recallToolNamePrefix}_${index + 1}"
-        val inputSchema = mapArg(candidate["parameters"]).ifEmpty {
-            mapArg(candidate["inputSchema"]).ifEmpty {
-                mapArg(candidate["input_schema"])
-            }
-        }
+        val inputSchema = mapArg(candidate["input_schema"])
         val description = buildDescription(
             candidate = candidate,
             inputSchema = inputSchema,
@@ -146,7 +141,7 @@ class VlmFunctionRecall(context: Context) : VLMRecallContextProvider {
             put("function_id", functionId)
             put("function", buildJsonObject {
                 put("name", toolName)
-                put("toolType", "oob_recalled_function")
+                put("tool_type", "oob_recalled_function")
                 put("description", description)
                 put("parameters", sanitizeInputSchema(inputSchema))
             })

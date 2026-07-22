@@ -19,6 +19,7 @@ import io.ktor.server.routing.get
 object WebChatStaticHandler {
 
     private const val WEBCHAT_ASSET_DIR = "flutter_web"
+    private const val FLUTTER_MOBILE_ASSET_DIR = "flutter_assets"
 
     fun Route.registerWebChatStaticRoutes(context: Context) {
         val appContext = context.applicationContext
@@ -53,7 +54,10 @@ object WebChatStaticHandler {
         } else {
             "$WEBCHAT_ASSET_DIR/index.html"
         }
-        val assetBytes = openAssetBytes(context, assetPath, normalizedPath)
+        val assetBytes = openAssetBytes(
+            context,
+            *assetCandidatesForPath(normalizedPath).toTypedArray()
+        )
         if (assetBytes != null) {
             call.respondBytes(bytes = assetBytes, contentType = contentTypeForPath(assetPath))
             return
@@ -103,6 +107,17 @@ object WebChatStaticHandler {
             if (bytes != null) return bytes
         }
         return null
+    }
+
+    internal fun assetCandidatesForPath(normalizedPath: String): List<String> {
+        val candidates = linkedSetOf(
+            "$WEBCHAT_ASSET_DIR/$normalizedPath",
+            normalizedPath,
+        )
+        if (normalizedPath.startsWith("assets/assets/")) {
+            candidates += "$FLUTTER_MOBILE_ASSET_DIR/${normalizedPath.removePrefix("assets/")}"
+        }
+        return candidates.toList()
     }
 
     private fun contentTypeForPath(path: String): ContentType {

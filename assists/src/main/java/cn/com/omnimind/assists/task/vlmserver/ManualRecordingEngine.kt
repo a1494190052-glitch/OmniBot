@@ -1,12 +1,12 @@
 package cn.com.omnimind.assists.task.vlmserver
 
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
-internal data class ManualCanonicalAction(
-    val tool: String,
-    val args: Map<String, Any?>,
+internal data class ManualRecordingCommand(
+    val action: Action,
     val title: String,
     val summary: String,
     val source: String,
@@ -17,6 +17,9 @@ internal data class ManualRecordingObservation(
     val xml: String? = null,
     val screenshot: ManualVlmScreenshotRef? = null,
     val packageName: String? = null,
+    val displayWidth: Int = 0,
+    val displayHeight: Int = 0,
+    val captureError: String? = null,
 )
 
 internal data class ManualRecordingEngineStats(
@@ -35,9 +38,9 @@ internal data class ManualRecordingOutcome(
 
 internal class ManualRecordingEngine(
     private val journal: ManualRecordingJournal,
-    private val observe: suspend (stage: String, action: ManualCanonicalAction) -> ManualRecordingObservation,
-    private val execute: suspend (action: ManualCanonicalAction) -> OperationResult,
-    private val settleBeforeAfterObservation: suspend (action: ManualCanonicalAction) -> Unit = {},
+    private val observe: suspend (stage: String, command: ManualRecordingCommand) -> ManualRecordingObservation,
+    private val execute: suspend (command: ManualRecordingCommand) -> OperationResult,
+    private val onActionRecorded: suspend (index: Int, action: ManualVlmRecordedAction) -> Unit = { _, _ -> },
     private val nowMs: () -> Long = System::currentTimeMillis,
 ) {
     private val performMutex = Mutex()
@@ -49,26 +52,26 @@ internal class ManualRecordingEngine(
     private var pendingSummary: String? = null
 
     suspend fun perform(
-        action: ManualCanonicalAction,
+        command: ManualRecordingCommand,
         onDispatched: suspend (OperationResult) -> Unit = {},
     ): ManualRecordingOutcome = performMutex.withLock {
         val sequence = synchronized(stateLock) {
             received += 1
             pending += 1
-            pendingSummary = action.summary
+            pendingSummary = command.summary
             received
         }
         var recorded = false
         try {
-            val before = safeObserve("${sequence}_before", action)
+            val before = safeObserve("${sequence}_before", command)
             val operationResult = try {
-                execute(action)
+                execute(command)
             } catch (error: CancellationException) {
                 throw error
             } catch (error: Exception) {
                 OperationResult(
                     success = false,
-                    message = error.message.orEmpty().ifBlank { "${action.tool} execution failed" },
+                    message = error.message.orEmpty().ifBlank { "${command.action.tool} execution failed" },
                 )
             }
             try {
@@ -78,35 +81,44 @@ internal class ManualRecordingEngine(
             } catch (_: Exception) {
                 Unit
             }
+            val after = safeObserve(
+                stage = "${sequence}_after",
+                command = command,
+                staleXml = before.xml,
+                retryUnchanged = operationResult.success && command.action.tool in STATE_CHANGING_TOOLS,
+            )
             if (operationResult.success) {
-                settleBeforeAfterObservation(action)
-            }
-            val after = safeObserve("${sequence}_after", action)
-            if (operationResult.success) {
-                journal.append(
-                    ManualVlmRecordedAction(
-                        actionName = action.tool,
-                        title = action.title,
-                        params = action.args + linkedMapOf(
-                            "recording_backend" to action.source,
-                            "action_source" to action.source,
-                        ),
-                        packageName = after.packageName ?: before.packageName,
-                        beforeXml = before.xml,
-                        afterXml = after.xml,
-                        beforeScreenshot = before.screenshot,
-                        afterScreenshot = after.screenshot,
-                        startedAtMs = action.startedAtMs,
-                        finishedAtMs = nowMs(),
-                        summary = action.summary,
-                        eventContext = linkedMapOf(
-                            "schema_version" to "oob.manual_recording.event.v2",
-                            "sequence" to sequence,
-                            "source" to action.source,
-                            "dispatch_status" to "completed",
-                        ) + operationResult.diagnostics,
-                    )
+                val sourceStateRequired = command.action.tool in SOURCE_STATE_REQUIRED_TOOLS
+                val evidenceComplete = !sourceStateRequired || !before.xml.isNullOrBlank()
+                val action = ManualVlmRecordedAction(
+                    action = command.action,
+                    title = command.title,
+                    beforePackageName = before.packageName,
+                    afterPackageName = after.packageName,
+                    beforeXml = before.xml,
+                    afterXml = after.xml,
+                    beforeScreenshot = before.screenshot,
+                    afterScreenshot = after.screenshot,
+                    startedAtMs = command.startedAtMs,
+                    finishedAtMs = nowMs(),
+                    summary = command.summary,
+                    eventContext = linkedMapOf(
+                        "schema_version" to "oob.manual_recording.event.v2",
+                        "sequence" to sequence,
+                        "source" to command.source,
+                        "dispatch_status" to "completed",
+                        "evidence_complete" to evidenceComplete,
+                        "evidence_error" to before.captureError.takeUnless { evidenceComplete },
+                    ).filterValues { it != null } + operationResult.diagnostics,
+                    recordingBackend = command.source,
+                    displayWidth = after.displayWidth.takeIf { it > 0 } ?: before.displayWidth,
+                    displayHeight = after.displayHeight.takeIf { it > 0 } ?: before.displayHeight,
+                    evidenceComplete = evidenceComplete,
+                    evidenceError = before.captureError.takeUnless { evidenceComplete },
                 )
+                val index = journal.size()
+                onActionRecorded(index, action)
+                journal.append(action)
                 recorded = true
             }
             ManualRecordingOutcome(
@@ -139,12 +151,50 @@ internal class ManualRecordingEngine(
 
     private suspend fun safeObserve(
         stage: String,
-        action: ManualCanonicalAction,
-    ): ManualRecordingObservation = try {
-        observe(stage, action)
-    } catch (error: CancellationException) {
-        throw error
-    } catch (_: Exception) {
-        ManualRecordingObservation()
+        command: ManualRecordingCommand,
+        staleXml: String? = null,
+        retryUnchanged: Boolean = false,
+    ): ManualRecordingObservation {
+        var latest = ManualRecordingObservation(captureError = "xml_unavailable")
+        var latestWithXml: ManualRecordingObservation? = null
+        repeat(OBSERVATION_ATTEMPTS) { attempt ->
+            latest = try {
+                observe(stage, command).let { observation ->
+                    if (!observation.xml.isNullOrBlank()) observation
+                    else observation.copy(captureError = observation.captureError ?: "xml_unavailable")
+                }
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Exception) {
+                ManualRecordingObservation(
+                    captureError = error.message.orEmpty().ifBlank {
+                        "${error.javaClass.simpleName}:xml_capture_failed"
+                    },
+                )
+            }
+            val xml = latest.xml
+            if (!xml.isNullOrBlank()) {
+                latestWithXml = latest
+                val unchanged = retryUnchanged && !staleXml.isNullOrBlank() && xml == staleXml
+                if (!unchanged) return latest
+            }
+            if (attempt == OBSERVATION_ATTEMPTS - 1) {
+                return latestWithXml ?: latest
+            }
+            delay(OBSERVATION_RETRY_DELAY_MS)
+        }
+        return latestWithXml ?: latest
+    }
+
+    private companion object {
+        private const val OBSERVATION_ATTEMPTS = 5
+        private const val OBSERVATION_RETRY_DELAY_MS = 100L
+        private val SOURCE_STATE_REQUIRED_TOOLS = setOf(
+            "click",
+            "long_press",
+            "input_text",
+            "swipe",
+        )
+        private val STATE_CHANGING_TOOLS = SOURCE_STATE_REQUIRED_TOOLS + "press_key"
     }
 }

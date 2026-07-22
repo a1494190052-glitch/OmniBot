@@ -3,6 +3,7 @@ package cn.com.omnimind.bot.omniflow
 import android.content.Context
 import com.ai.assistance.operit.terminal.TerminalManager
 import com.google.gson.GsonBuilder
+import com.google.gson.ToNumberPolicy
 import com.google.gson.reflect.TypeToken
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -27,6 +28,7 @@ internal fun interface OmniFlowPythonHostCall {
 
 internal class OmniFlowPythonClient(
     private val processStarter: suspend (command: String, environment: Map<String, String>) -> Process,
+    private val bridgeCommand: String = bridgeCommand(DEFAULT_SHELL_SITE_PACKAGES),
     private val requestIdFactory: () -> String = { UUID.randomUUID().toString() },
 ) {
     private data class BridgeSession(
@@ -59,7 +61,7 @@ internal class OmniFlowPythonClient(
     private var session: BridgeSession? = null
     private var closed = false
 
-    constructor(context: Context) : this(
+    constructor(context: Context, shellSitePackagesPath: String) : this(
         processStarter = { command, environment ->
             TerminalManager.getInstance(context.applicationContext).startLongLivedAlpineProcess(
                 command = command,
@@ -67,7 +69,8 @@ internal class OmniFlowPythonClient(
                 redirectErrorStream = false,
                 extraEnvironment = environment,
             )
-        }
+        },
+        bridgeCommand = bridgeCommand(shellSitePackagesPath),
     )
 
     suspend fun warmup(): Map<String, Any?> = call("health")
@@ -118,7 +121,7 @@ internal class OmniFlowPythonClient(
         session?.takeIf { it.process.isAlive }?.let { return it }
         session?.let { clearSession(it) }
         val process = processStarter(
-            BRIDGE_COMMAND,
+            bridgeCommand,
             mapOf("PYTHONUNBUFFERED" to "1", "OMNIBOT_HEADLESS" to "1"),
         )
         val stdout = Channel<String>(Channel.UNLIMITED)
@@ -282,14 +285,25 @@ internal class OmniFlowPythonClient(
         private const val STDERR_TAIL_CHARS = 8_192
         private const val DEFAULT_CALL_TIMEOUT_MS = 30_000L
         private const val RUN_TIMEOUT_MS = 10 * 60_000L
-        private val gson = GsonBuilder().disableHtmlEscaping().create()
+        private const val DEFAULT_SHELL_SITE_PACKAGES =
+            "/workspace/.omnibot/runtime/omniflow/current/site-packages"
+        private val gson = GsonBuilder()
+            .disableHtmlEscaping()
+            .setObjectToNumberStrategy(ToNumberPolicy.LONG_OR_DOUBLE)
+            .create()
         private val MAP_TYPE = object : TypeToken<Map<String, Any?>>() {}.type
-        private val BRIDGE_COMMAND = """
-            python_bin=/workspace/.venv/bin/python3
-            if [ ! -x "${'$'}python_bin" ]; then python_bin="${'$'}(command -v python3 || true)"; fi
+
+        internal fun bridgeCommand(shellSitePackagesPath: String): String {
+            require(shellSitePackagesPath.matches(Regex("/[A-Za-z0-9_./-]+"))) {
+                "omniflow_runtime_path_invalid"
+            }
+            return """
+            export PYTHONPATH='$shellSitePackagesPath'
+            python_bin="${'$'}(command -v python3 || true)"
             if [ -z "${'$'}python_bin" ]; then echo 'omniflow_python_not_installed' >&2; exit 127; fi
-            exec "${'$'}python_bin" -u -m omniflow.bridge --store /workspace/.omnibot/omniflow/omniflow.json
-        """.trimIndent()
+            exec "${'$'}python_bin" -u -m oob_omniflow_bridge --store /workspace/.omnibot/omniflow/omniflow.json
+            """.trimIndent()
+        }
 
         private fun defaultTimeoutMs(operation: String): Long =
             if (operation == "run") RUN_TIMEOUT_MS else DEFAULT_CALL_TIMEOUT_MS

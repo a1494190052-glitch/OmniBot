@@ -83,7 +83,7 @@ object PromptTemplate {
             5. assistant.content 可为空；若返回，只能是 {"summary":"约20字本步摘要"}，不要包含动作参数。
 
             每轮先判断目标是否已经达成；若已达成，直接调用 finished，不要重复点击已经聚焦或已经打开的目标控件。
-            根据后续 user 消息里的任务上下文、当前截图、OOB compact indexed page evidence 和历史 tool 结果选择动作；raw XML 只供本地 runtime 内部使用。
+            根据后续 user 消息里的任务上下文、当前截图、OOB compact page state 和历史 tool 结果选择动作；raw XML 只供本地 runtime 内部使用。
             """.trimIndent(),
             """
             You are an Android phone GUI agent and only choose the next action for the current phone UI.
@@ -96,7 +96,7 @@ object PromptTemplate {
             5. assistant.content may be empty. If present, it must only be {"summary":"about 20 words for this step"} and must not contain action arguments.
 
             First check whether the goal is already satisfied this turn. If it is, call finished and do not click a target control that is already focused or already open.
-            Choose the action from the later user message's task context, current screenshot, OOB compact indexed page evidence, and prior tool results. Raw XML is internal-only for the local runtime.
+            Choose the action from the later user message's task context, current screenshot, OOB compact page state, and prior tool results. Raw XML is internal-only for the local runtime.
             """.trimIndent()
         )
     }
@@ -146,8 +146,8 @@ object PromptTemplate {
             appendLine(
                 t(
                     locale,
-                    "以下是当前这一轮的动态上下文，请结合当前截图和 OOB indexed page evidence 选择下一步动作。原始 XML 只供系统内部使用，不会作为模型上下文提供。",
-                    "Below is the dynamic context for the current turn. Use it together with the current screenshot and OOB indexed page evidence to choose the next action. Raw XML is internal-only and is not provided as model context."
+                    "以下是当前这一轮的动态上下文，请结合当前截图和 OOB page state 选择下一步动作。原始 XML 只供系统内部使用，不会作为模型上下文提供。",
+                    "Below is the dynamic context for the current turn. Use it together with the current screenshot and OOB page state to choose the next action. Raw XML is internal-only and is not provided as model context."
                 )
             )
             appendLine("${t(locale, "场景", "Scene")}: $resolvedSceneId")
@@ -214,8 +214,8 @@ object PromptTemplate {
         if (width <= 0 || height <= 0) return ""
         return t(
             locale,
-            "坐标系统：凡所选工具 schema.required 要求的 x/y/x1/y1/x2/y2，都必须输出 0..1000 相对坐标，其中 x=0 是屏幕左侧、x=1000 是右侧、y=0 是顶部、y=1000 是底部。系统会在执行前把相对坐标解码为当前屏幕绝对像素，本地记录和执行结果始终保存绝对像素。",
-            "Coordinate system: whenever the selected tool's schema.required includes x/y/x1/y1/x2/y2, output them as 0..1000 relative coordinates: x=0 is the left edge, x=1000 is the right edge, y=0 is the top edge, and y=1000 is the bottom edge. The system decodes relative coordinates to current-screen absolute pixels before execution, and local records and execution results always store absolute pixels."
+            "坐标系统：凡所选工具 schema.required 要求的 x/y/x1/y1/x2/y2，都必须输出 0..1000 相对坐标，其中 x=0 是屏幕左侧、x=1000 是右侧、y=0 是顶部、y=1000 是底部。Action、RunLog 和 Function 始终保存相对坐标；只有 Android 执行动作时才转换一次为当前屏幕像素。",
+            "Coordinate system: whenever the selected tool's schema.required includes x/y/x1/y1/x2/y2, output them as 0..1000 relative coordinates: x=0 is the left edge, x=1000 is the right edge, y=0 is the top edge, and y=1000 is the bottom edge. Action, RunLog, and Function always store relative coordinates; conversion to current-screen pixels happens exactly once at Android action dispatch."
         )
     }
 
@@ -252,21 +252,25 @@ object PromptTemplate {
         }.trim()
     }
 
-    private fun actionSummary(action: UIAction): String {
-        return when (action) {
-            is ClickAction -> "click ${compactLine(action.targetDescription, 80)}"
-            is InputTextAction -> "input_text ${compactLine(action.targetDescription, 60)} text=${compactLine(action.text, 80)}"
-            is SwipeAction -> "swipe ${compactLine(action.targetDescription, 80)} ${action.direction.orEmpty()}"
-            is LongPressAction -> "long_press ${compactLine(action.targetDescription, 80)}"
-            is OpenAppAction -> "open_app ${action.packageName}"
-            is PressKeyAction -> "press_key ${action.key}"
-            is FunctionRunAction -> "function ${action.functionId}"
-            is FinishedAction -> "finished"
-            is RecordAction -> "record"
-            is InfoAction -> "info"
-            is AbortAction -> "abort"
-            is WaitAction -> "wait"
-            is GetStateAction -> "get_state"
+    private fun actionSummary(command: VLMCommand): String {
+        return when (command) {
+            is Action -> buildString {
+                append(command.tool)
+                command.stringArg("target_description").takeIf(String::isNotEmpty)?.let {
+                    append(" ${compactLine(it, 80)}")
+                }
+                if (command.tool == "input_text") {
+                    command.stringArg("text").takeIf(String::isNotEmpty)?.let {
+                        append(" text=${compactLine(it, 80)}")
+                    }
+                }
+            }
+            is FunctionInvocation -> "function ${command.functionId}"
+            is FinishedDecision -> "finished"
+            is RecordMemory -> "record"
+            is InfoDecision -> "info"
+            is AbortDecision -> "abort"
+            is Observe -> "get_state"
         }.trim()
     }
 
@@ -416,6 +420,52 @@ object PromptTemplate {
                     )
                 )
             }
+            retryState.toolCallFailure?.let { failure ->
+                failure.toolName?.takeIf(String::isNotBlank)?.let {
+                    appendLine("${t(locale, "上一轮实际工具", "Previous actual tool")}: $it")
+                }
+                if (failure.requiredFields.isNotEmpty()) {
+                    appendLine(
+                        "${t(locale, "该工具必填字段", "Required fields for this tool")}: " +
+                            failure.requiredFields.joinToString(", ")
+                    )
+                }
+                if (failure.providedFields.isNotEmpty()) {
+                    val providedShape = failure.providedFields.joinToString(", ") { field ->
+                        "$field:${failure.argumentTypes[field] ?: "unknown"}"
+                    }
+                    appendLine("${t(locale, "上一轮实际字段与类型", "Previous argument fields and types")}: $providedShape")
+                }
+                if (failure.missingFields.isNotEmpty()) {
+                    appendLine(
+                        "${t(locale, "上一轮缺失字段", "Missing fields in the previous turn")}: " +
+                            failure.missingFields.joinToString(", ")
+                    )
+                }
+                if (failure.toolName != null && failure.requiredFields.isNotEmpty()) {
+                    val minimalShape = failure.requiredFields.joinToString(
+                        prefix = "{",
+                        postfix = "}",
+                    ) { field -> "\"$field\":${retryArgumentExample(field)}" }
+                    appendLine(
+                        t(
+                            locale,
+                            "强制纠错：若本轮仍调用 ${failure.toolName}，function.arguments 至少必须具有这个完整 JSON 形状：$minimalShape。任何 required 字段缺失都会被拒绝，且动作不会执行。",
+                            "Mandatory correction: if you call ${failure.toolName} again, function.arguments must at least have this complete JSON shape: $minimalShape. Any missing required field will be rejected and the action will not execute."
+                        )
+                    )
+                }
+                failure.safeArgumentsPreview?.takeIf(String::isNotBlank)?.let {
+                    appendLine("${t(locale, "上一轮安全参数预览", "Safe previous arguments preview")}: $it")
+                }
+                appendLine(
+                    t(
+                        locale,
+                        "保留上一轮仍然正确的字段，只修正缺失或类型错误的字段；不要再次提交同一个非法结构。",
+                        "Keep fields that were already valid and correct only missing or mistyped fields; do not submit the same invalid structure again."
+                    )
+                )
+            }
             appendLine(
                 t(
                     locale,
@@ -488,6 +538,19 @@ object PromptTemplate {
     private fun truncateForRetry(text: String, maxLen: Int = 280): String {
         val normalized = text.replace("\r\n", "\n").trim()
         return if (normalized.length <= maxLen) normalized else normalized.take(maxLen) + "..."
+    }
+
+    private fun retryArgumentExample(field: String): String {
+        return when (field) {
+            "x", "y", "x1", "y1", "x2", "y2", "distance" -> "500"
+            "duration_ms" -> "1000"
+            "direction" -> "\"up\""
+            "key" -> "\"back\""
+            "package_name" -> "\"com.example.app\""
+            "options" -> "[\"option\"]"
+            "text" -> "\"required text\""
+            else -> "\"value\""
+        }
     }
 
     private const val MAX_FOCUSED_INSTALLED_APPS = 12

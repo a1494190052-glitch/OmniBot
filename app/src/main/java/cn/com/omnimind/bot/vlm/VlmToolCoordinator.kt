@@ -7,23 +7,19 @@ import android.provider.Settings
 import cn.com.omnimind.accessibility.util.ScreenStateUtil
 import cn.com.omnimind.assists.api.bean.VlmTaskTerminalResult
 import cn.com.omnimind.assists.api.interfaces.OnMessagePushListener
+import cn.com.omnimind.assists.api.interfaces.VlmStepProgress
 import cn.com.omnimind.assists.controller.accessibility.AccessibilityController
 import cn.com.omnimind.assists.controller.http.HttpController
-import cn.com.omnimind.assists.task.vlmserver.AbortAction
-import cn.com.omnimind.assists.task.vlmserver.ClickAction
-import cn.com.omnimind.assists.task.vlmserver.FinishedAction
-import cn.com.omnimind.assists.task.vlmserver.FunctionRunAction
-import cn.com.omnimind.assists.task.vlmserver.GetStateAction
+import cn.com.omnimind.assists.task.vlmserver.AbortDecision
+import cn.com.omnimind.assists.task.vlmserver.Action
+import cn.com.omnimind.assists.task.vlmserver.FinishedDecision
+import cn.com.omnimind.assists.task.vlmserver.FunctionInvocation
 import cn.com.omnimind.assists.task.vlmserver.HttpVLMStreamClient
-import cn.com.omnimind.assists.task.vlmserver.InfoAction
-import cn.com.omnimind.assists.task.vlmserver.InputTextAction
-import cn.com.omnimind.assists.task.vlmserver.LongPressAction
-import cn.com.omnimind.assists.task.vlmserver.OpenAppAction
-import cn.com.omnimind.assists.task.vlmserver.PressKeyAction
-import cn.com.omnimind.assists.task.vlmserver.RecordAction
-import cn.com.omnimind.assists.task.vlmserver.SwipeAction
-import cn.com.omnimind.assists.task.vlmserver.UIAction
+import cn.com.omnimind.assists.task.vlmserver.InfoDecision
+import cn.com.omnimind.assists.task.vlmserver.Observe
+import cn.com.omnimind.assists.task.vlmserver.RecordMemory
 import cn.com.omnimind.assists.task.vlmserver.UIContext
+import cn.com.omnimind.assists.task.vlmserver.VLMCommand
 import cn.com.omnimind.assists.task.vlmserver.VLMClient
 import cn.com.omnimind.assists.task.vlmserver.VLMConversationState
 import cn.com.omnimind.assists.task.vlmserver.VLMCurrentPageSnapshot
@@ -31,7 +27,7 @@ import cn.com.omnimind.assists.task.vlmserver.VLMIndexedPageContext
 import cn.com.omnimind.assists.task.vlmserver.VLMRecallContextProviderRegistry
 import cn.com.omnimind.assists.task.vlmserver.VLMRecallContextRequest
 import cn.com.omnimind.assists.task.vlmserver.VLMStreamClient
-import cn.com.omnimind.assists.task.vlmserver.WaitAction
+import cn.com.omnimind.assists.task.vlmserver.toCanonicalMap
 import cn.com.omnimind.baselib.util.ImageQuality
 import cn.com.omnimind.baselib.util.OmniLog
 import cn.com.omnimind.bot.mcp.McpTaskManager
@@ -960,6 +956,48 @@ object VlmToolCoordinator {
                 }
             }
 
+            override suspend fun onVlmStepProgress(progress: VlmStepProgress) {
+                val action = progress.action
+                val tool = (action?.get("tool") as? String).orEmpty()
+                val args = action?.get("args") as? Map<*, *>
+                val detail = when {
+                    progress.summary.isNotBlank() -> progress.summary
+                    tool == "click" -> "准备点击"
+                    tool == "long_press" -> "准备长按"
+                    tool == "input_text" -> "准备输入文本"
+                    tool == "swipe" -> "准备滑动"
+                    tool == "get_state" -> "刷新页面状态"
+                    tool == "finished" -> "任务完成"
+                    tool == "info" -> "等待用户输入"
+                    tool == "abort" -> "任务终止"
+                    else -> progress.thinking.ifBlank { "处理当前步骤" }
+                }
+                val statusText = when (progress.status) {
+                    "running" -> "准备"
+                    "succeeded" -> "完成"
+                    "failed" -> "失败"
+                    "waiting_user" -> "等待用户"
+                    else -> progress.status
+                }
+                taskState.message = "第${progress.stepIndex + 1}步 · $statusText $detail"
+                taskState.markStateChanged()
+                progressReporter(
+                    taskState.message,
+                    linkedMapOf<String, Any?>(
+                        "agentStreamKind" to "vlm_step",
+                        "vlmStepIndex" to progress.stepIndex,
+                        "vlmStepStatus" to progress.status,
+                        "vlmStepThinking" to progress.thinking,
+                        "vlmStepSummary" to progress.summary,
+                        "vlmStepAction" to action,
+                        "vlmStepResult" to progress.result,
+                        "vlmStepError" to progress.error,
+                        "childRunId" to progress.runId,
+                        "vlmStepArgs" to args,
+                    ).filterValues { it != null },
+                )
+            }
+
             override fun onTaskFinish() {
                 if (taskState.status !in setOf(TaskStatus.FINISHED, TaskStatus.ERROR, TaskStatus.CANCELLED)) {
                     taskState.status = TaskStatus.FINISHED
@@ -1034,54 +1072,19 @@ object VlmToolCoordinator {
     }
 
 
-    private fun UIAction.toDebugMap(): Map<String, Any?> =
+    private fun VLMCommand.toDebugMap(): Map<String, Any?> =
         when (this) {
-            is ClickAction -> linkedMapOf(
-                "tool" to name,
-                "target_description" to targetDescription,
-                "node_id" to nodeId,
-                "x" to x,
-                "y" to y,
-            )
-            is InputTextAction -> linkedMapOf(
-                "tool" to name,
-                "target_description" to targetDescription,
-                "text" to text,
-                "node_id" to nodeId,
-                "x" to x,
-                "y" to y,
-            )
-            is SwipeAction -> linkedMapOf(
-                "tool" to name,
-                "target_description" to targetDescription,
-                "scrollable_index" to scrollableIndex,
-                "direction" to direction,
-                "x1" to x1,
-                "y1" to y1,
-                "x2" to x2,
-                "y2" to y2,
-                "duration_ms" to durationMs,
-            )
-            is LongPressAction -> linkedMapOf(
-                "tool" to name,
-                "target_description" to targetDescription,
-                "node_id" to nodeId,
-                "x" to x,
-                "y" to y,
-            )
-            is OpenAppAction -> linkedMapOf("tool" to name, "package_name" to packageName)
-            is PressKeyAction -> linkedMapOf("tool" to name, "key" to key)
-            is GetStateAction -> linkedMapOf("tool" to name, "reason" to reason)
-            is FunctionRunAction -> linkedMapOf(
+            is Action -> toCanonicalMap()
+            is Observe -> linkedMapOf("command" to name, "reason" to reason)
+            is FunctionInvocation -> linkedMapOf(
                 "tool" to name,
                 "function_id" to functionId,
                 "arguments" to arguments.toPlainAny(),
             )
-            is FinishedAction -> linkedMapOf("tool" to name, "content" to content)
-            is InfoAction -> linkedMapOf("tool" to name, "value" to value)
-            is AbortAction -> linkedMapOf("tool" to name, "value" to value)
-            is WaitAction -> linkedMapOf("tool" to name, "duration_ms" to durationMs)
-            is RecordAction -> linkedMapOf("tool" to name, "content" to content)
+            is FinishedDecision -> linkedMapOf("decision" to name, "content" to content)
+            is InfoDecision -> linkedMapOf("decision" to name, "value" to value)
+            is AbortDecision -> linkedMapOf("decision" to name, "value" to value)
+            is RecordMemory -> linkedMapOf("command" to name, "content" to content)
         }.filterValues { it != null }
 
     private fun recalledFunctionDiagnostics(functionNames: Collection<String>): Map<String, String> {

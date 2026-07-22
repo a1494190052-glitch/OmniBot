@@ -7,6 +7,7 @@ package cn.com.omnimind.assists.task.vlmserver
 import android.app.Activity
 import android.content.Context
 import android.content.Intent
+import android.view.WindowManager
 import BaseApplication
 import cn.com.omnimind.assists.controller.accessibility.AccessibilityController
 import cn.com.omnimind.assists.api.eventapi.ExecutionTaskEventApi
@@ -39,8 +40,8 @@ class AndroidDeviceOperator(
     // 存储最后一次截图的尺寸（传给VLM的图片）以及设备实际尺寸
     private var lastScreenshotWidth: Int = 1080
     private var lastScreenshotHeight: Int = 1920
-    private var lastDisplayWidth: Int = 1080
-    private var lastDisplayHeight: Int = 1920
+    private var lastDisplayWidth: Int = currentDisplaySize()?.first ?: 1080
+    private var lastDisplayHeight: Int = currentDisplaySize()?.second ?: 1920
 
     companion object {
         private var clipboardResultCallback: ((Boolean) -> Unit)? = null
@@ -716,9 +717,8 @@ class AndroidDeviceOperator(
             val metricsWidth = displayMetrics?.widthPixels ?: payload.originalWidth
             val metricsHeight = displayMetrics?.heightPixels ?: payload.originalHeight
 
-            // 取更大的值避免低估（屏幕实测/截图原始值）
-            lastDisplayWidth = maxOf(payload.originalWidth, metricsWidth)
-            lastDisplayHeight = maxOf(payload.originalHeight, metricsHeight)
+            lastDisplayWidth = payload.originalWidth.takeIf { it > 0 } ?: metricsWidth
+            lastDisplayHeight = payload.originalHeight.takeIf { it > 0 } ?: metricsHeight
 
             OmniLog.d(
                 Tag,
@@ -750,9 +750,19 @@ class AndroidDeviceOperator(
 
     override fun getLastScreenshotHeight(): Int = lastScreenshotHeight
 
-    override fun getDisplayWidth(): Int = lastDisplayWidth
+    override fun getDisplayWidth(): Int = currentDisplaySize()?.first ?: lastDisplayWidth
 
-    override fun getDisplayHeight(): Int = lastDisplayHeight
+    override fun getDisplayHeight(): Int = currentDisplaySize()?.second ?: lastDisplayHeight
+
+    private fun currentDisplaySize(): Pair<Int, Int>? {
+        val bounds = context?.getSystemService(WindowManager::class.java)
+            ?.maximumWindowMetrics
+            ?.bounds
+            ?: return null
+        val width = bounds.width().takeIf { it > 0 } ?: return null
+        val height = bounds.height().takeIf { it > 0 } ?: return null
+        return width to height
+    }
 
     override fun isReady(): Boolean = AccessibilityController.initController()
 

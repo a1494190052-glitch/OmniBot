@@ -76,9 +76,7 @@ class OmniCaptureAction(
     }
 
     fun getCurrentPackageName(): String {
-        val windowPackage = service.windows.find {
-            it.type == AccessibilityWindowInfo.TYPE_APPLICATION
-        }?.root?.packageName?.toString()
+        val windowPackage = getActualRootNode()?.packageName?.toString()
 //        if (isMineHalfScreen()) {
 //            return packageName
 //        }
@@ -86,7 +84,7 @@ class OmniCaptureAction(
     }
 
     fun getCurrentActivity(): String {
-        return service.rootInActiveWindow?.className?.toString() ?: packageName
+        return getActualRootNode()?.className?.toString() ?: className.ifBlank { packageName }
     }
 
 
@@ -172,49 +170,24 @@ class OmniCaptureAction(
         return false
     }
     private fun getActualRootNode(): AccessibilityNodeInfo? {
-        val windows = service.windows
-        windows?.forEach { window ->
-            // 排除悬浮窗类型的窗口
-            if (window.type == AccessibilityWindowInfo.TYPE_APPLICATION) {
-                val root = window.root
-                if (root != null) {
-                    return root
-                }
-            }
-        }
-        return null
+        return service.windows
+            .asSequence()
+            .filter { it.type == AccessibilityWindowInfo.TYPE_APPLICATION }
+            .sortedWith(
+                compareByDescending<AccessibilityWindowInfo> { it.isActive }
+                    .thenByDescending { it.isFocused }
+                    .thenByDescending { it.layer }
+            )
+            .mapNotNull { window -> runCatching { window.root }.getOrNull() }
+            .firstOrNull()
+            ?: service.rootInActiveWindow
     }
 
     fun captureScreenshotXml(withOld: Boolean): String? {
-        val startTime=System.currentTimeMillis()
-//        半屏特殊处理
-//        if (isMineHalfScreen()) {
-//            return xml
-//        }
-        var rootNode = getActualRootNode()
-        if (rootNode == null) {
-            rootNode = service.rootInActiveWindow
-        }
-//        val rstartTime=System.currentTimeMillis()
-        // 在 API 33+ 上，先预取整个树结构
-
-//                rootNode.refresh()
-//        OmniLog.d("CaptureServer", "refresh used time ${System.currentTimeMillis()-rstartTime}")
-
-//        if (rootNode == null){
-//            return null
-//        }
-//        if (withOld){
-//            val rootNode = service.rootInActiveWindow ?: return null
-            val xmlTree = XmlTreeUtils.buildXmlTree(rootNode) ?: return null
-            xml = XmlTreeUtils.serializeXml(xmlTree)
-//        }else{
-//            xml = XmlTreeUtils.buildXmlDirectly(rootNode) ?: return null
-
-//        }
-        OmniLog.d("CaptureServer", "xml used time ${System.currentTimeMillis()-startTime}")
-
-        // 使用优化的直接生成 XML 方法，避免构建中间树结构
+        val startedAtMs = System.currentTimeMillis()
+        val rootNode = getActualRootNode() ?: service.rootInActiveWindow
+        xml = XmlTreeUtils.buildXmlDirectly(rootNode) ?: return null
+        OmniLog.d("CaptureServer", "xml used time ${System.currentTimeMillis() - startedAtMs}")
         return xml
     }
 
@@ -237,4 +210,3 @@ data class XmlTreeNode(
     val node: AccessibilityNode,
     val children: List<XmlTreeNode>,
 )
-

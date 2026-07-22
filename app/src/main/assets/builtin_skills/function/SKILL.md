@@ -13,12 +13,15 @@ explicit action edits.
 
 ## Storage Model
 
-- A RunLog is the complete execution record. It may contain XML, screenshots,
-  before/after observations, failures, and diagnostics.
-- A Function is the reusable executable result. It contains canonical actions,
-  parameters, minimal coordinate semantics, and source RunLog ids.
+- A RunLog is the complete execution record. Each step contains
+  `before_state_id`, one canonical `action`, its `result`, `after_state_id`, and
+  metadata; the run may end with one `final_state_id`. Raw XML is stored behind
+  `state_id` and loaded only when needed.
+- A Function is the reusable executable result. It contains `function_id`,
+  parameters, bindings, and steps of `source_state_id + action`. It does not
+  retain a source RunLog id or copy source state.
 - Read raw evidence with `oob_run_log_get({run_id})` only when needed. Never
-  copy XML, screenshots, bounds, observations, or source state into a Function
+  copy XML, screenshots, bounds, state, or source state into a Function
   patch.
 
 ## Save A Recording
@@ -36,8 +39,9 @@ action. Do not expect the compiler to merge input or remove behavior.
 ## Enhance Or Repair
 
 1. Read the saved Function with `oob_function_get`.
-2. Resolve its source `run_id`, then read that RunLog with `oob_run_log_get`.
-3. Compare Function actions with RunLog cards in order.
+2. Use an explicitly selected RunLog only when the user is repairing from a
+   known recording; do not infer a hidden source RunLog from the Function.
+3. Compare Function steps with RunLog steps in order when both are available.
 4. Build the smallest evidence-backed `patch.action_edits`.
 5. Call `update_function` with `dry_run=true` and inspect the preview.
 6. If the preview preserves the intended workflow, call the same patch without
@@ -87,8 +91,8 @@ whole Function.
 ## Safety And Identity
 
 - Preserve `function_id`.
-- Keep raw evidence in the RunLog. Function patches may reference only
-  `run_id`, action indexes, and minimal coordinate semantics.
+- Keep raw state in the RunLog store. Function patches may reference only the
+  Function, step indexes, and minimal coordinate semantics.
 - Never execute a Function merely because it was enhanced.
 - Use `oob_function_delete` only for a specific Function. Use
   `oob_function_clear` only after the user explicitly asks to clear all.

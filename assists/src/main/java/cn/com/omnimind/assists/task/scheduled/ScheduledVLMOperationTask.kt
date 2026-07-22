@@ -6,7 +6,9 @@ import cn.com.omnimind.assists.api.interfaces.OnMessagePushListener
 import cn.com.omnimind.assists.api.interfaces.TaskChangeListener
 import cn.com.omnimind.assists.api.eventapi.ExecutionTaskEventApi
 import cn.com.omnimind.assists.task.vlmserver.FunctionRunExecutor
+import cn.com.omnimind.assists.task.vlmserver.ControlActExecutorFactory
 import cn.com.omnimind.assists.task.vlmserver.VLMOperationTask
+import cn.com.omnimind.assists.runlog.OmniFlowRecordStepExecutor
 
 /**
  * 视觉模型执行任务
@@ -19,9 +21,11 @@ class ScheduledVLMOperationTask(
     private val needSummary: Boolean = false,
     taskManager: TaskManager,
     functionRunExecutor: FunctionRunExecutor? = null,
+    controlActExecutorFactory: ControlActExecutorFactory,
+    recordStepExecutor: OmniFlowRecordStepExecutor,
 ) : VLMOperationTask(
     executionTaskEventApi, taskChangeListener, onMessagePushListener, needSummary,
-    taskManager, functionRunExecutor
+    taskManager, functionRunExecutor, controlActExecutorFactory, recordStepExecutor
 ) {
     override fun getTaskType(): TaskType {
         return TaskType.SCHEDULED_VLM_OPERATION_EXECUTION

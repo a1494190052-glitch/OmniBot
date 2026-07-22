@@ -284,7 +284,10 @@ class _ChatBotSheetState extends State<ChatBotSheet>
       _handleAiMessage(taskId, content, type);
     });
 
-    _aiService.setOnMessageEndCallback((taskId, {Map<String, dynamic>? turnUsage}) {
+    _aiService.setOnMessageEndCallback((
+      taskId, {
+      Map<String, dynamic>? turnUsage,
+    }) {
       _handleAiMessageEnd(taskId);
     });
 
@@ -871,7 +874,7 @@ class _ChatBotSheetState extends State<ChatBotSheet>
   }
 
   /// 任务完成回调，用于恢复输入框显示
-  void _onTaskFinish(String? _) {
+  void _onTaskFinish(String? taskId) {
     if (mounted && _isExecutingTask) {
       setState(() {
         _isExecutingTask = false;
@@ -1829,18 +1832,6 @@ class _ChatBotSheetState extends State<ChatBotSheet>
       debugPrint('Agent flow error: $e');
       return false;
     }
-  }
-
-  List<Map<String, dynamic>> _historyBeforeLatestUser(
-    List<Map<String, dynamic>> history,
-  ) {
-    if (history.isEmpty) return history;
-    final normalized = List<Map<String, dynamic>>.from(history);
-    final last = normalized.last;
-    if ((last['role'] as String?) == 'user') {
-      normalized.removeLast();
-    }
-    return normalized;
   }
 
   String _latestUserUtterance() {

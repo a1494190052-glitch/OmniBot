@@ -5,6 +5,8 @@ import 'package:go_router/go_router.dart';
 import 'package:ui/l10n/app_locale_controller.dart';
 import 'package:ui/l10n/generated/app_localizations.dart';
 import 'package:ui/l10n/legacy_text_localizer.dart';
+import 'package:ui/features/task/run_log/vlm_function_registration_coordinator.dart';
+import 'package:ui/services/assists_core_service.dart';
 import 'package:ui/services/omnibot_resource_service.dart';
 import 'package:ui/services/app_background_service.dart';
 import 'package:ui/services/app_font_effect_service.dart';
@@ -42,6 +44,8 @@ Future<void> bootstrapMain(List<String> args) async {
     GoRouterManager.setInitialRoute(initialRoute);
   }
   WidgetsFlutterBinding.ensureInitialized();
+  AssistsMessageService.initialize();
+  VlmFunctionRegistrationPrompt.initialize();
   WidgetsBinding.instance.deferFirstFrame();
   SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
 

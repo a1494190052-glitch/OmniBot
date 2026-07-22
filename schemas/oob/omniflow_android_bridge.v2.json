@@ -1,0 +1,160 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "contract_id": "oob.omniflow.android_bridge",
+  "contract_version": 2,
+  "protocol_version": "omniflow.bridge.v2",
+  "transport": {
+    "encoding": "utf-8",
+    "framing": "json-lines",
+    "request": {
+      "required": ["id", "op"],
+      "optional": ["payload"]
+    },
+    "response": {
+      "required": ["id", "ok", "result", "error"],
+      "success": {"ok": true, "error": null},
+      "failure": {"ok": false, "result": null}
+    }
+  },
+  "function": {
+    "identifier_field": "function_id",
+    "schema_version": "omniflow.function.v2",
+    "accepted_input_aliases": [],
+    "forbidden_output_fields": ["id", "parameters", "actions", "execution"]
+  },
+  "state": {
+    "identifier_field": "state_id",
+    "inline_xml_field": "xml",
+    "display_field": "display",
+    "display_semantics": "device_screen_pixels",
+    "accepted_input_aliases": []
+  },
+  "operations": {
+    "catalog": {
+      "request": {
+        "action": [
+          "list",
+          "get",
+          "put",
+          "register",
+          "update",
+          "delete",
+          "clear",
+          "replace"
+        ],
+        "replace_required": ["functions"]
+      },
+      "response": {
+        "function_values_use": "function_id",
+        "replace_required": ["count", "invalid_functions"]
+      }
+    },
+    "compile": {
+      "request": {"required": ["run_id"]},
+      "host_calls": ["get_run_log", "get_state"],
+      "response": {"required": ["success", "function", "error"]}
+    },
+    "control_act": {
+      "request": {
+        "required": ["action"],
+        "optional": ["function_id", "source_state_id", "checker_rules", "state"]
+      },
+      "host_calls": ["observe", "act", "get_state"],
+      "response": {
+        "required": [
+          "success",
+          "action",
+          "result",
+          "before_state",
+          "after_state",
+          "error"
+        ],
+        "optional": ["transfer"]
+      }
+    },
+    "health": {
+      "request": {"required": []},
+      "response": {
+        "required": [
+          "protocol_version",
+          "capabilities",
+          "contract_sha256",
+          "runtime_version",
+          "omniflow_commit",
+          "omniflow_source_sha256",
+          "omnitransfer_commit",
+          "omnitransfer_source_sha256"
+        ]
+      }
+    },
+    "materialize": {
+      "request": {"required": ["function", "arguments"]},
+      "response": {
+        "required": ["success", "function", "missing_arguments", "error"]
+      }
+    },
+    "prepare_action": {
+      "request": {"required": ["function_id", "source_state_id", "action", "state"]},
+      "host_calls": ["get_state"],
+      "response": {
+        "required": [
+          "success",
+          "decision",
+          "action",
+          "reason"
+        ],
+        "optional": ["transfer"]
+      }
+    },
+    "recall": {
+      "request": {"required": ["goal", "state"]},
+      "response": {"required": ["functions"]}
+    },
+    "record_step": {
+      "request": {
+        "required": ["step_index"],
+        "optional": [
+          "step_id",
+          "status",
+          "thinking",
+          "summary",
+          "before_state_id",
+          "action",
+          "result",
+          "after_state_id",
+          "diagnostics"
+        ]
+      },
+      "response": {"required": ["step"]}
+    },
+    "run": {
+      "request": {"one_of": ["function_id", "goal"]},
+      "host_calls": ["observe", "act", "get_state"],
+      "response": {
+        "required": ["success", "function_id", "actions_executed", "error", "final_state"]
+      }
+    },
+    "shutdown": {
+      "request": {"required": []},
+      "response": {"required": ["stopped"]}
+    }
+  },
+  "host_call": {
+    "request_required": ["id", "event", "call_id", "method", "payload"],
+    "response_required": ["call_id", "ok", "result", "error"],
+    "methods": ["act", "get_run_log", "get_state", "observe"],
+    "act_payload": {"required": ["action", "state"]}
+  },
+  "invariants": {
+    "closed_operation_set": true,
+    "function_output_identifier": "function_id",
+    "action_coordinate_space": "relative_0_1000",
+    "state_display_semantics": "device_screen_pixels",
+    "android_pixel_conversion_owner": "host_action_executor",
+    "control_act_transfer_failure": {
+      "success": false,
+      "action": null,
+      "forbid_source_coordinate_passthrough": true
+    }
+  }
+}

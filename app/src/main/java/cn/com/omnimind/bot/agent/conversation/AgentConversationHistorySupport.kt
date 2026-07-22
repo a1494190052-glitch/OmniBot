@@ -765,6 +765,8 @@ internal object AgentConversationHistorySupport {
         return linkedMapOf<String, Any?>(
             "type" to "agent_tool_summary",
             "taskId" to payload["taskId"],
+            "childRunId" to (payload["childRunId"] ?: payload["child_run_id"]),
+            "child_run_id" to (payload["child_run_id"] ?: payload["childRunId"]),
             "cardId" to payload["cardId"]?.toString().orEmpty().ifEmpty { messageId },
             "toolName" to trimText(payload["toolName"]?.toString().orEmpty(), MAX_DISPLAY_INLINE_CHARS),
             "displayName" to trimText(
@@ -814,6 +816,15 @@ internal object AgentConversationHistorySupport {
             "workspaceId" to compactDisplayScalar(payload["workspaceId"]),
             "artifacts" to compactDisplayList(payload["artifacts"]),
             "actions" to compactDisplayList(payload["actions"]),
+            "agentStreamKind" to compactDisplayScalar(payload["agentStreamKind"] ?: payload["agent_stream_kind"]),
+            "vlmStepIndex" to (payload["vlmStepIndex"] ?: payload["vlm_step_index"]),
+            "vlmStepStatus" to compactDisplayScalar(payload["vlmStepStatus"] ?: payload["vlm_step_status"]),
+            "vlmStepThinking" to trimText(payload["vlmStepThinking"]?.toString().orEmpty(), MAX_TOOL_SUMMARY_CHARS),
+            "vlmStepSummary" to trimText(payload["vlmStepSummary"]?.toString().orEmpty(), MAX_TOOL_SUMMARY_CHARS),
+            "vlmStepAction" to compactDisplayValue(payload["vlmStepAction"], depth = 0),
+            "vlmStepArgs" to compactDisplayValue(payload["vlmStepArgs"], depth = 0),
+            "vlmStepResult" to compactDisplayValue(payload["vlmStepResult"], depth = 0),
+            "vlmStepError" to trimText(payload["vlmStepError"]?.toString().orEmpty(), MAX_TOOL_SUMMARY_CHARS),
             "success" to (
                 payload["success"]
                     ?: (status == AgentConversationHistoryRepository.STATUS_SUCCESS)

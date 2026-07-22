@@ -11,35 +11,24 @@ import org.w3c.dom.Element
 import org.xml.sax.InputSource
 import java.io.ByteArrayOutputStream
 import java.io.StringReader
+import java.util.IdentityHashMap
 import javax.xml.parsers.DocumentBuilderFactory
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.roundToInt
 
 /**
- * Builds OOB indexed page evidence from live Accessibility XML.
+ * Builds compact page state from live Accessibility XML.
  *
  * The VLM receives one current screenshot plus this compact Accessibility-tree
- * view by default. The indexed evidence gives stable labels, flags, and
- * 0..1000 relative centers so the model can choose element_index /
- * scrollable_index without requiring a second marked screenshot.
+ * view by default. The page state gives stable labels, flags, and 0..1000
+ * relative centers without exposing Accessibility node identities.
  */
 object VLMIndexedPageContext {
     data class IndexedTarget(
-        val index: Int,
         val label: String,
         val centerX: Float,
         val centerY: Float,
-        val nodeId: String? = null
-    )
-
-    data class IndexedScrollTarget(
-        val index: Int,
-        val label: String,
-        val x1: Float,
-        val y1: Float,
-        val x2: Float,
-        val y2: Float
     )
 
     fun enrich(
@@ -83,10 +72,9 @@ object VLMIndexedPageContext {
         }
 
         return buildString {
-            appendLine("OOB indexed evidence (0..1000 coords):")
-            candidates.forEachIndexed { index, node ->
-                append("#").append(index)
-                    .append(" ").append(node.actionHint())
+            appendLine("OOB page state (0..1000 coords):")
+            candidates.forEach { node ->
+                append(node.actionHint())
                     .append(" c=(").append(norm(node.bounds.centerX, screen.left, screen.width))
                     .append(",").append(norm(node.bounds.centerY, screen.top, screen.height)).append(")")
                     .append(" flags=").append(node.flags())
@@ -105,9 +93,8 @@ object VLMIndexedPageContext {
             }
             if (formFields.isNotEmpty()) {
                 appendLine("Forms:")
-                formFields.forEachIndexed { index, node ->
-                    append("F").append(index)
-                        .append(" c=(").append(norm(node.bounds.centerX, screen.left, screen.width))
+                formFields.forEach { node ->
+                    append("c=(").append(norm(node.bounds.centerX, screen.left, screen.width))
                         .append(",").append(norm(node.bounds.centerY, screen.top, screen.height)).append(")")
                         .append(" role=").append(node.formRole())
                         .append(" ").append(node.actionHint())
@@ -120,12 +107,11 @@ object VLMIndexedPageContext {
             }
             if (scrollables.isNotEmpty()) {
                 appendLine("Scroll:")
-                scrollables.forEachIndexed { index, node ->
+                scrollables.forEach { node ->
                     val x = norm(node.bounds.centerX, screen.left, screen.width)
                     val y1 = norm(node.bounds.bottom - node.bounds.height * 0.14f, screen.top, screen.height)
                     val y2 = norm(node.bounds.top + node.bounds.height * 0.22f, screen.top, screen.height)
-                    append("S").append(index)
-                        .append(" swipe")
+                    append("swipe")
                         .append(" down=(").append(x).append(",").append(y1)
                         .append(")->(").append(x).append(",").append(y2).append(")")
                         .append(" label=\"").append(node.displayLabel.take(MAX_LABEL_CHARS)).append("\"")
@@ -133,37 +119,6 @@ object VLMIndexedPageContext {
                 }
             }
         }.trim().take(MAX_SECTION_CHARS)
-    }
-
-    fun renderRepresentativeElements(
-        currentXml: String?,
-        displayWidth: Int,
-        displayHeight: Int,
-        maxElements: Int = 5,
-    ): String {
-        val snapshot = buildIndexedSnapshot(currentXml, displayWidth, displayHeight) ?: return ""
-        val screen = snapshot.screen
-        val nodes = snapshot.candidates.take(maxElements.coerceAtLeast(0))
-        if (nodes.isEmpty()) return ""
-        return nodes.mapIndexed { index, node ->
-            buildString {
-                append("#").append(index)
-                    .append(" center=(")
-                    .append(norm(node.bounds.centerX, screen.left, screen.width))
-                    .append(",")
-                    .append(norm(node.bounds.centerY, screen.top, screen.height))
-                    .append(")")
-                    .append(" action=").append(node.actionHint())
-                    .append(" flags=").append(node.flags())
-                    .append(" role=").append(node.semanticRole())
-                appendCompactField("node_id", node.nodeId, MAX_ID_CHARS)
-                appendCompactField("text", node.text, MAX_LABEL_CHARS)
-                appendCompactField("desc", node.contentDesc, MAX_LABEL_CHARS)
-                appendCompactField("hint", node.hintText, MAX_LABEL_CHARS)
-                appendCompactField("resource-id", node.resourceId, MAX_RESOURCE_ID_CHARS)
-                appendCompactField("label", node.displayLabel, MAX_LABEL_CHARS)
-            }
-        }.joinToString("\n")
     }
 
     fun renderMarkedScreenshot(
@@ -180,139 +135,18 @@ object VLMIndexedPageContext {
         val widthScale = bitmap.width.toFloat() / snapshot.screen.width.coerceAtLeast(1f)
         val heightScale = bitmap.height.toFloat() / snapshot.screen.height.coerceAtLeast(1f)
         val strokeWidth = max(2f, min(bitmap.width, bitmap.height) / 260f)
-        val textSize = max(18f, min(bitmap.width, bitmap.height) / 24f)
         val boxPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             color = Color.rgb(0, 180, 0)
             style = Paint.Style.STROKE
             this.strokeWidth = strokeWidth
         }
-        val labelBgPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = Color.WHITE
-            style = Paint.Style.FILL
-        }
-        val labelTextPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = Color.BLACK
-            style = Paint.Style.FILL
-            this.textSize = textSize
-            isFakeBoldText = true
-        }
 
-        snapshot.candidates.forEachIndexed { index, node ->
+        snapshot.candidates.forEach { node ->
             val rect = node.bounds.toBitmapRect(snapshot.screen, widthScale, heightScale)
-            if (rect.width() <= 1f || rect.height() <= 1f) return@forEachIndexed
+            if (rect.width() <= 1f || rect.height() <= 1f) return@forEach
             canvas.drawRect(rect, boxPaint)
-            val label = index.toString()
-            val padding = max(4f, textSize * 0.16f)
-            val labelWidth = labelTextPaint.measureText(label) + padding * 2
-            val labelHeight = textSize + padding * 2
-            val labelLeft = rect.left.coerceIn(0f, (bitmap.width - labelWidth).coerceAtLeast(0f))
-            val labelTop = rect.top.coerceIn(0f, (bitmap.height - labelHeight).coerceAtLeast(0f))
-            canvas.drawRect(
-                labelLeft,
-                labelTop,
-                labelLeft + labelWidth,
-                labelTop + labelHeight,
-                labelBgPaint
-            )
-            canvas.drawText(label, labelLeft + padding, labelTop + textSize + padding * 0.25f, labelTextPaint)
         }
         return encodeJpegDataUri(bitmap)
-    }
-
-    fun elementTarget(
-        currentXml: String?,
-        displayWidth: Int,
-        displayHeight: Int,
-        index: Int
-    ): IndexedTarget? {
-        if (index < 0) return null
-        val snapshot = buildIndexedSnapshot(currentXml, displayWidth, displayHeight) ?: return null
-        val node = snapshot.candidates.getOrNull(index) ?: return null
-        return IndexedTarget(
-            index = index,
-            label = node.displayLabel.take(MAX_LABEL_CHARS),
-            centerX = node.bounds.centerX,
-            centerY = node.bounds.centerY,
-            nodeId = node.nodeId.takeIf { it.isNotBlank() }
-        )
-    }
-
-    fun elementTargetByNodeId(
-        currentXml: String?,
-        displayWidth: Int,
-        displayHeight: Int,
-        nodeId: String?
-    ): IndexedTarget? {
-        val normalizedNodeId = nodeId?.trim().orEmpty()
-        if (normalizedNodeId.isBlank()) return null
-        val snapshot = buildIndexedSnapshot(currentXml, displayWidth, displayHeight) ?: return null
-        val index = snapshot.candidates.indexOfFirst { it.nodeId == normalizedNodeId }
-        if (index < 0) return null
-        val node = snapshot.candidates[index]
-        return IndexedTarget(
-            index = index,
-            label = node.displayLabel.take(MAX_LABEL_CHARS),
-            centerX = node.bounds.centerX,
-            centerY = node.bounds.centerY,
-            nodeId = node.nodeId.takeIf { it.isNotBlank() }
-        )
-    }
-
-    fun focusedEditableTarget(
-        currentXml: String?,
-        displayWidth: Int,
-        displayHeight: Int,
-    ): IndexedTarget? {
-        val snapshot = buildIndexedSnapshot(currentXml, displayWidth, displayHeight) ?: return null
-        val node = snapshot.focusedEditable ?: return null
-        val index = snapshot.candidates.indexOfFirst { candidate ->
-            if (node.nodeId.isNotBlank() && candidate.nodeId == node.nodeId) {
-                true
-            } else {
-                candidate.bounds == node.bounds && candidate.displayLabel == node.displayLabel
-            }
-        }
-        return IndexedTarget(
-            index = index,
-            label = node.displayLabel.take(MAX_LABEL_CHARS),
-            centerX = node.bounds.centerX,
-            centerY = node.bounds.centerY,
-            nodeId = node.nodeId.takeIf { it.isNotBlank() }
-        )
-    }
-
-    fun uniqueFormFieldTarget(
-        currentXml: String?,
-        displayWidth: Int,
-        displayHeight: Int,
-        preferEditable: Boolean = false,
-    ): IndexedTarget? {
-        val snapshot = buildIndexedSnapshot(currentXml, displayWidth, displayHeight) ?: return null
-        val fields = snapshot.formFields
-            .filter { it.actionable }
-            .let { candidates ->
-                if (!preferEditable) {
-                    candidates
-                } else {
-                    candidates.filter { it.editable || it.focusable || it.clickable }
-                }
-            }
-        if (fields.size != 1) return null
-        val node = fields.first()
-        val index = snapshot.candidates.indexOfFirst { candidate ->
-            if (node.nodeId.isNotBlank() && candidate.nodeId == node.nodeId) {
-                true
-            } else {
-                candidate.bounds == node.bounds && candidate.displayLabel == node.displayLabel
-            }
-        }
-        return IndexedTarget(
-            index = index,
-            label = node.formLabel.take(MAX_LABEL_CHARS),
-            centerX = node.bounds.centerX,
-            centerY = node.bounds.centerY,
-            nodeId = node.nodeId.takeIf { it.isNotBlank() }
-        )
     }
 
     fun uniqueElementTargetByDescription(
@@ -326,111 +160,30 @@ object VLMIndexedPageContext {
         if (query.isBlank()) return null
         val snapshot = buildIndexedSnapshot(currentXml, displayWidth, displayHeight) ?: return null
         val scored = snapshot.candidates
-            .mapIndexedNotNull { index, node ->
+            .mapNotNull { node ->
                 val score = descriptionMatchScore(query, node, preferEditable)
                 if (score >= MIN_UNIQUE_MATCH_SCORE) {
-                    IndexedNodeScore(index = index, node = node, score = score)
+                    IndexedNodeScore(node = node, score = score)
                 } else {
                     null
                 }
             }
             .sortedWith(
                 compareByDescending<IndexedNodeScore> { it.score }
-                    .thenBy { it.node.bounds.top }
-                    .thenBy { it.node.bounds.left }
-            )
-        val best = scored.firstOrNull() ?: return null
-        val competing = scored.drop(1).firstOrNull()
-        if (competing != null && best.score - competing.score < MIN_UNIQUE_MATCH_MARGIN) {
-            return null
-        }
-        return IndexedTarget(
-            index = best.index,
-            label = best.node.displayLabel.take(MAX_LABEL_CHARS),
-            centerX = best.node.bounds.centerX,
-            centerY = best.node.bounds.centerY,
-            nodeId = best.node.nodeId.takeIf { it.isNotBlank() }
-        )
-    }
-
-    fun visibleElementTargetByDescription(
-        currentXml: String?,
-        displayWidth: Int,
-        displayHeight: Int,
-        targetDescription: String,
-        preferEditable: Boolean = false
-    ): IndexedTarget? {
-        val query = normalizeMatchText(targetDescription)
-        if (query.isBlank()) return null
-        val snapshot = buildIndexedSnapshot(currentXml, displayWidth, displayHeight) ?: return null
-        val scored = snapshot.candidates
-            .mapIndexedNotNull { index, node ->
-                val score = descriptionMatchScore(query, node, preferEditable)
-                if (score >= MIN_UNIQUE_MATCH_SCORE) {
-                    IndexedNodeScore(index = index, node = node, score = score)
-                } else {
-                    null
-                }
-            }
-            .sortedWith(
-                compareByDescending<IndexedNodeScore> { it.score }
-                    .thenBy { if (it.node.scrollable && !it.node.editable) 1 else 0 }
-                    .thenBy { it.node.bounds.area }
                     .thenBy { it.node.bounds.top }
                     .thenBy { it.node.bounds.left }
             )
         val best = scored.firstOrNull() ?: return null
         val competing = scored.drop(1).firstOrNull { candidate ->
-            !candidate.node.isBroadContainerFor(best.node)
+            !best.node.isSameSemanticTarget(candidate.node)
         }
         if (competing != null && best.score - competing.score < MIN_UNIQUE_MATCH_MARGIN) {
             return null
         }
         return IndexedTarget(
-            index = best.index,
             label = best.node.displayLabel.take(MAX_LABEL_CHARS),
             centerX = best.node.bounds.centerX,
             centerY = best.node.bounds.centerY,
-            nodeId = best.node.nodeId.takeIf { it.isNotBlank() }
-        )
-    }
-
-    fun scrollTarget(
-        currentXml: String?,
-        displayWidth: Int,
-        displayHeight: Int,
-        index: Int,
-        direction: String?
-    ): IndexedScrollTarget? {
-        if (index < 0) return null
-        val snapshot = buildIndexedSnapshot(currentXml, displayWidth, displayHeight) ?: return null
-        val node = snapshot.scrollables.getOrNull(index) ?: return null
-        val dir = direction?.lowercase()?.trim().orEmpty().ifBlank { "down" }
-        val left = node.bounds.left
-        val right = node.bounds.right
-        val top = node.bounds.top
-        val bottom = node.bounds.bottom
-        val width = node.bounds.width.coerceAtLeast(1f)
-        val height = node.bounds.height.coerceAtLeast(1f)
-        val centerX = node.bounds.centerX
-        val centerY = node.bounds.centerY
-        val startX = left + width * 0.76f
-        val endX = left + width * 0.24f
-        val startY = bottom - height * 0.16f
-        val endY = top + height * 0.24f
-        val (x1, y1, x2, y2) = when (dir) {
-            "up" -> listOf(centerX, endY, centerX, startY)
-            "left" -> listOf(startX, centerY, endX, centerY)
-            "right" -> listOf(endX, centerY, startX, centerY)
-            else -> listOf(centerX, startY, centerX, endY)
-        }
-        return IndexedScrollTarget(
-            index = index,
-            label = node.displayLabel.take(MAX_LABEL_CHARS),
-            x1 = x1,
-            y1 = y1,
-            x2 = x2,
-            y2 = y2
         )
     }
 
@@ -515,13 +268,16 @@ object VLMIndexedPageContext {
         }.getOrNull() ?: return null
 
         val nodeList = document.getElementsByTagName("node")
-        val nodes = ArrayList<PageNode>(nodeList.length)
+        val elements = ArrayList<Element>(nodeList.length)
         for (index in 0 until nodeList.length) {
-            val element = nodeList.item(index) as? Element ?: continue
+            (nodeList.item(index) as? Element)?.let(elements::add)
+        }
+        val descendantSemanticText = aggregateDescendantSemanticText(elements)
+        val nodes = ArrayList<PageNode>(elements.size)
+        for (element in elements) {
             val bounds = parseBounds(element.attr("bounds")) ?: continue
             if (bounds.area <= 0f) continue
             nodes += PageNode(
-                nodeId = element.attr("id"),
                 bounds = bounds,
                 text = element.attr("text"),
                 contentDesc = element.attr("content-desc"),
@@ -529,7 +285,7 @@ object VLMIndexedPageContext {
                 resourceId = element.attr("resource-id"),
                 className = firstNonBlank(element.attr("class"), element.attr("class-name")),
                 packageName = element.attr("package"),
-                descendantText = descendantSemanticText(element),
+                descendantText = descendantSemanticText[element]?.render().orEmpty(),
                 clickable = element.boolAttr("clickable"),
                 longClickable = element.boolAttr("long-clickable"),
                 focusable = element.boolAttr("focusable"),
@@ -555,25 +311,31 @@ object VLMIndexedPageContext {
         return Rect(0f, 0f, max(width, maxRight), max(height, maxBottom))
     }
 
-    private fun descendantSemanticText(element: Element): String {
-        val parts = linkedSetOf<String>()
-        val descendants = element.getElementsByTagName("node")
-        for (index in 0 until descendants.length) {
-            val child = descendants.item(index) as? Element ?: continue
-            if (child === element) continue
-            listOf(
-                child.attr("text"),
-                child.attr("content-desc"),
-                child.attr("hintText"),
-                child.attr("hint-text"),
-                child.attr("hint")
-            )
-                .map { it.trim() }
-                .filter { it.isNotBlank() }
-                .forEach { parts += it }
-            if (parts.size >= MAX_DESCENDANT_PARTS || parts.joinToString(" ").length >= MAX_DESCENDANT_CHARS) break
+    private fun aggregateDescendantSemanticText(
+        elements: List<Element>
+    ): IdentityHashMap<Element, DescendantSemanticAccumulator> {
+        val accumulators = IdentityHashMap<Element, DescendantSemanticAccumulator>()
+        elements.forEach { element ->
+            val semanticParts = listOf(
+                element.attr("text"),
+                element.attr("content-desc"),
+                element.attr("hintText"),
+                element.attr("hint-text"),
+                element.attr("hint")
+            ).filter { it.isNotBlank() }
+            if (semanticParts.isEmpty()) return@forEach
+
+            var ancestor = element.parentNode
+            while (ancestor != null) {
+                if (ancestor is Element && ancestor.tagName == "node") {
+                    accumulators
+                        .getOrPut(ancestor, ::DescendantSemanticAccumulator)
+                        .appendNode(semanticParts)
+                }
+                ancestor = ancestor.parentNode
+            }
         }
-        return parts.joinToString(" ").take(MAX_DESCENDANT_CHARS)
+        return accumulators
     }
 
     private fun parseBounds(raw: String): Rect? {
@@ -598,20 +360,6 @@ object VLMIndexedPageContext {
 
     private fun firstNonBlank(vararg values: String): String =
         values.firstOrNull { it.isNotBlank() }.orEmpty()
-
-    private fun StringBuilder.appendCompactField(name: String, value: String, maxChars: Int) {
-        val compact = value
-            .replace("\r\n", "\n")
-            .lineSequence()
-            .map(String::trim)
-            .filter(String::isNotEmpty)
-            .joinToString(" ")
-            .replace("\"", "\\\"")
-            .take(maxChars)
-        if (compact.isNotBlank()) {
-            append(" ").append(name).append("=\"").append(compact).append("\"")
-        }
-    }
 
     private fun descriptionMatchScore(
         normalizedQuery: String,
@@ -688,13 +436,25 @@ object VLMIndexedPageContext {
     )
 
     private data class IndexedNodeScore(
-        val index: Int,
         val node: PageNode,
         val score: Int
     )
 
+    private class DescendantSemanticAccumulator {
+        private val parts = linkedSetOf<String>()
+        private var saturated = false
+
+        fun appendNode(semanticParts: List<String>) {
+            if (saturated) return
+            semanticParts.forEach(parts::add)
+            saturated = parts.size >= MAX_DESCENDANT_PARTS ||
+                parts.joinToString(" ").length >= MAX_DESCENDANT_CHARS
+        }
+
+        fun render(): String = parts.joinToString(" ").take(MAX_DESCENDANT_CHARS)
+    }
+
     private data class PageNode(
-        val nodeId: String,
         val bounds: Rect,
         val text: String,
         val contentDesc: String,
@@ -870,6 +630,13 @@ object VLMIndexedPageContext {
                 packageName
             ).joinToString("|")
 
+        fun isSameSemanticTarget(other: PageNode): Boolean {
+            val ownLabel = normalizeMatchText(displayLabel)
+            val otherLabel = normalizeMatchText(other.displayLabel)
+            if (ownLabel.isBlank() || ownLabel != otherLabel) return false
+            return bounds.contains(other.bounds) || other.bounds.contains(bounds)
+        }
+
         private fun resourceTail(): String =
             resourceId.substringAfterLast('/').substringAfterLast(':')
 
@@ -878,11 +645,6 @@ object VLMIndexedPageContext {
                 .joinToString(" ")
                 .lowercase()
 
-        fun isBroadContainerFor(target: PageNode): Boolean {
-            if (this === target) return false
-            if (!scrollable || editable || !bounds.contains(target.bounds)) return false
-            return bounds.area >= target.bounds.area * MIN_CONTAINER_AREA_RATIO
-        }
     }
 
     private data class Rect(
@@ -944,8 +706,6 @@ object VLMIndexedPageContext {
     private const val MAX_SCROLLABLES = 1
     private const val MAX_FORM_FIELDS = 3
     private const val MAX_LABEL_CHARS = 40
-    private const val MAX_RESOURCE_ID_CHARS = 96
-    private const val MAX_ID_CHARS = 32
     private const val MAX_DESCENDANT_PARTS = 5
     private const val MAX_DESCENDANT_CHARS = 80
     private const val MAX_SECTION_CHARS = 1_100
@@ -953,7 +713,6 @@ object VLMIndexedPageContext {
     private const val MARKED_SCREENSHOT_JPEG_QUALITY = 92
     private const val MIN_UNIQUE_MATCH_SCORE = 82
     private const val MIN_UNIQUE_MATCH_MARGIN = 8
-    private const val MIN_CONTAINER_AREA_RATIO = 3.0f
     private val FORM_FIELD_TERMS = setOf(
         "name",
         "phone",

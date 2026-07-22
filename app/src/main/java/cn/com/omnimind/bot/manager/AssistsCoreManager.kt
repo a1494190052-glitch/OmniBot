@@ -37,6 +37,7 @@ import cn.com.omnimind.baselib.llm.ModelProviderProfile
 import cn.com.omnimind.baselib.llm.ModelProviderConfigStore
 import cn.com.omnimind.baselib.llm.MnnLocalProviderStateStore
 import cn.com.omnimind.baselib.llm.ModelSceneRegistry
+import cn.com.omnimind.baselib.llm.OfficialVlmOperationConfigStore
 import cn.com.omnimind.baselib.llm.ProviderModelOption
 import cn.com.omnimind.baselib.llm.ProviderCustomHeaderUtils
 import cn.com.omnimind.baselib.llm.SceneModelCatalogResolver
@@ -49,6 +50,7 @@ import cn.com.omnimind.baselib.llm.SceneOperationConfig
 import cn.com.omnimind.baselib.llm.SceneOperationConfigStore
 import cn.com.omnimind.baselib.llm.SceneVoiceConfig
 import cn.com.omnimind.baselib.llm.SceneVoiceConfigStore
+import cn.com.omnimind.baselib.runlog.InternalRunLogFinishEvent
 import cn.com.omnimind.baselib.runlog.InternalRunLogStore
 import cn.com.omnimind.baselib.util.APPPackageUtil
 import cn.com.omnimind.baselib.util.OmniLog
@@ -56,6 +58,7 @@ import cn.com.omnimind.baselib.util.RuntimeLogStore
 import cn.com.omnimind.baselib.util.exception.PermissionException
 import cn.com.omnimind.bot.R
 import cn.com.omnimind.bot.activity.MainActivity
+import cn.com.omnimind.bot.omniflow.omniFlowRecordStepExecutor
 import cn.com.omnimind.bot.ui.scheduled.ScheduledTaskReminderLoader
 import cn.com.omnimind.bot.util.AssistsUtil
 import cn.com.omnimind.assists.controller.http.HttpController
@@ -143,6 +146,15 @@ import kotlin.coroutines.resumeWithException
 internal const val CHAT_ONLY_MODE = "chat_only"
 private const val MAX_PERSISTED_THINKING_CHARS = 16 * 1024
 private const val THINKING_TRUNCATION_NOTICE = "[Earlier reasoning omitted]\n"
+
+internal fun runLogFinishedEventPayload(
+    event: InternalRunLogFinishEvent
+): Map<String, Any?> = mapOf(
+    "run_id" to event.runId,
+    "source" to event.source,
+    "tool_name" to event.toolName,
+    "success" to event.success,
+)
 
 private val chatTaskPayloadJson = Json {
     ignoreUnknownKeys = true
@@ -572,6 +584,32 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
         fun bindMainEngineChannel(channel: MethodChannel) {
             mainEngineChannel = channel
             FlutterChatSyncBridge.bindMainChannel(channel)
+        }
+
+        fun installRunLogFinishListener() {
+            InternalRunLogStore.setFinishListener(::dispatchRunLogFinished)
+        }
+
+        private fun dispatchRunLogFinished(event: InternalRunLogFinishEvent) {
+            val payload = runLogFinishedEventPayload(event)
+            mainHandler.post {
+                val target = mainEngineChannel
+                if (target == null) {
+                    OmniLog.w(
+                        "[AssistsCoreManager]",
+                        "skip onRunLogFinished: main Flutter channel unavailable, run_id=${event.runId}",
+                    )
+                    return@post
+                }
+                runCatching {
+                    target.invokeMethod("onRunLogFinished", payload)
+                }.onFailure {
+                    OmniLog.w(
+                        "[AssistsCoreManager]",
+                        "dispatch onRunLogFinished failed: ${it.message}",
+                    )
+                }
+            }
         }
 
         private fun registerSharedInstance(instance: AssistsCoreManager) {
@@ -1098,8 +1136,10 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
     }
 
     private fun SceneOperationConfig.toMap(): Map<String, Any?> {
+        val officialModel = OfficialVlmOperationConfigStore.getConfig().model.trim()
         return mapOf(
-            "useOfficialService" to useOfficialService
+            "useOfficialService" to useOfficialService,
+            "officialModel" to officialModel,
         )
     }
 
@@ -2329,7 +2369,8 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
                     call.argument<Int>("maxSteps"),
                     call.argument<String>("packageName"),
                     vlmListener,
-                    skipGoHome
+                    skipGoHome = skipGoHome,
+                    taskId = taskId.takeIf { it.isNotEmpty() },
                 )
                 withContext(Dispatchers.Main) {
                     result.success("SUCCESS")
@@ -6508,6 +6549,12 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
         }
     }
 
+    fun getInternalRunLogState(call: MethodCall, result: MethodChannel.Result) {
+        runRunLogFunctionApi(result, "GET_INTERNAL_RUN_LOG_STATE_ERROR") {
+            FunctionService(context).getRunLogState(methodCallArgs(call))
+        }
+    }
+
     fun convertInternalRunLogToFunction(call: MethodCall, result: MethodChannel.Result) {
         runRunLogFunctionApi(result, "CONVERT_INTERNAL_RUN_LOG_TO_FUNCTION_ERROR") {
             FunctionService(context).convertRunLog(methodCallArgs(call))
@@ -6554,10 +6601,8 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
         val args = methodCallArgs(call)
         val name = methodText(args["name"]).ifBlank { "人工录制轨迹" }
         val description = methodText(args["description"]).ifBlank { name }
-        val enableRawTouch = methodBool(args["enableRawTouch"]) ||
-            methodBool(args["enable_raw_touch"])
-        val enableDebugScreenshots = methodBool(args["enableDebugScreenshots"]) ||
-            methodBool(args["enable_debug_screenshots"])
+        val enableRawTouch = methodBool(args["enable_raw_touch"])
+        val enableDebugScreenshots = methodBool(args["enable_debug_screenshots"])
 
         workJob.launch {
             val payload = runCatching {
@@ -6565,10 +6610,12 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
                     context = context,
                     name = name,
                     description = description,
+                    recordStepExecutor = omniFlowRecordStepExecutor(context),
                     enableRawTouch = enableRawTouch,
                     enableDebugScreenshots = enableDebugScreenshots
                 )
-                if (!HumanTrajectoryLearningSession.isActive()) {
+                val learningRunId = HumanTrajectoryLearningSession.activeRunId()
+                if (!HumanTrajectoryLearningSession.isActive() || learningRunId == null) {
                     return@runCatching runCatching {
                         humanTrajectoryFinalizedPayload(
                             result = learningResult.await(),
@@ -6582,19 +6629,34 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
                     }
                 }
 
+                if (!HumanTrajectoryLearningSession.pauseActive()) {
+                    learningRunId?.let { runId ->
+                        HumanTrajectoryLearningSession.cancelActive(
+                            expectedRunId = runId,
+                            message = "无法进入手动录制待机状态"
+                        )
+                    }
+                    return@runCatching humanTrajectoryFinalizedPayload(
+                        result = learningResult.await(),
+                        phase = "failed"
+                    )
+                }
+
                 val overlayShown = withContext(Dispatchers.Main) {
-                    val shown = ManualRecordingControlOverlay.show(
+                    ManualRecordingControlOverlay.show(
                         context = context,
-                        state = ManualRecordingControlOverlay.State.RECORDING,
+                        runId = learningRunId,
+                        state = ManualRecordingControlOverlay.State.READY,
                         onCaptureState = { humanTrajectoryStatusPayload("status", true) }
                     )
-                    if (shown) {
-                        ManualRecordingControlOverlay.markRecording()
-                    }
-                    shown
                 }
                 if (!overlayShown) {
-                    HumanTrajectoryLearningSession.cancelActive("悬浮窗无法显示，轨迹学习已取消")
+                    learningRunId?.let { runId ->
+                        HumanTrajectoryLearningSession.cancelActive(
+                            expectedRunId = runId,
+                            message = "悬浮窗无法显示，轨迹学习已取消"
+                        )
+                    }
                 }
                 humanTrajectoryFinalizedPayload(
                     result = learningResult.await(),
@@ -6704,41 +6766,14 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
         } else {
             null
         }
-        val conversionSuccess = conversion?.get("success") == true
-        return linkedMapOf<String, Any?>(
-            "success" to if (result.success) conversionSuccess else false,
-            "recording_success" to result.success,
-            "conversion_success" to conversionSuccess,
-            "function_registered" to (conversion?.get("registered") == true),
-            "agent_visible" to (conversion?.get("agent_visible") == true),
-            "phase" to phase,
-            "recording_active" to false,
-            "run_id" to result.runId,
-            "name" to result.name,
-            "description" to result.description,
-            "action_count" to result.actionCount,
-            "summary" to result.summary,
-            "diagnostics" to result.diagnostics.takeIf { it.isNotEmpty() },
-            "error_code" to if (!result.success) null else if (conversionSuccess) null else {
-                conversion?.get("error_code") ?: "HUMAN_TRAJECTORY_CONVERT_FAILED"
-            },
-            "error_message" to if (!result.success) {
-                result.errorMessage.takeIf { it.isNotBlank() }
-            } else if (conversionSuccess) {
-                null
-            } else {
-                conversion?.get("error_message") ?: "Recording finished but Function conversion failed"
-            },
-            "run_log" to runLog,
-            "function_id" to conversion?.get("function_id"),
-            "created_function_id" to conversion?.get("created_function_id"),
-            "function_spec" to conversion?.get("function_spec"),
-            "conversion" to conversion,
-            "function_kind" to "oob_reusable_function",
-            "asset_state" to "native_local",
-            "token_usage_total" to 0,
-            "source" to "oob_manual_recording"
-        ).filterValues { it != null }
+        return buildManualRecordingFinalizedPayload(
+            recordingSuccess = result.success,
+            phase = phase,
+            diagnostics = result.diagnostics,
+            recordingErrorMessage = result.errorMessage,
+            runLog = runLog,
+            conversion = conversion,
+        )
     }
 
     private suspend fun convertFinishedHumanTrajectoryRunLog(
@@ -6764,9 +6799,6 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
                 "error_message" to throwableMessage(error),
                 "error_type" to error.javaClass.name,
                 "run_id" to runId,
-                "function_kind" to "oob_reusable_function",
-                "asset_state" to "native_local",
-                "source" to "oob_manual_recording"
             )
         }
 

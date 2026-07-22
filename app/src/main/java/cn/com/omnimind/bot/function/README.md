@@ -27,7 +27,7 @@ FunctionApi     = external tool names and schemas
 - `FunctionSchema.kt`: Function IDs, input schemas, source runs, and execution-step views.
 - `OmniFlowPythonRuntime`: RunLog conversion, recall, argument materialization, checker policy, and action transfer.
 - `FunctionActionEdits.kt`: explicit `delete` / `replace_args` mutations produced by the Function skill.
-- `FunctionService.registerFunction`: accepts one canonical `function_spec`; compilation stays in OmniFlow.
+- `FunctionService.registerFunction`: accepts one canonical `function`; compilation stays in OmniFlow.
 - `FunctionFrontendSessionController.kt`: progress/card/session updates for Function runs.
 - `FunctionRunLogRecorder.kt`: Function run log persistence.
 - `FunctionRunResultBuilder.kt`: result payload construction.

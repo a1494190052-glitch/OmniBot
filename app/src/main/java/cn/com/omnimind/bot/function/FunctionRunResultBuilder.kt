@@ -91,8 +91,8 @@ class FunctionRunResultBuilder {
     ): LinkedHashMap<String, Any?> {
         val successCount = stepResults.count { it["success"] != false }
         val allSuccess = stepResults.size == activeSteps.size && stepResults.none { it["success"] == false }
-        val failedStepIndex = stepResults.firstOrNull { it["success"] == false }?.get("index")
-        val lastStepIndex = stepResults.lastOrNull()?.get("index")
+        val failedStepIndex = stepResults.firstOrNull { it["success"] == false }?.get("step_index")
+        val lastStepIndex = stepResults.lastOrNull()?.get("step_index")
         val currentStepIndex = failedStepIndex ?: lastStepIndex
         val currentStepNumber = (currentStepIndex as? Number)?.toInt()?.plus(1)
         return linkedMapOf(
@@ -218,7 +218,7 @@ class FunctionRunResultBuilder {
         stepResults.lastOrNull()?.let(::stepIndex)
 
     private fun stepIndex(step: Map<String, Any?>): Int? =
-        firstPresentIndex(step["index"], step["step_index"], step["current_step_index"])
+        firstPresentIndex(step["step_index"])
 
     private fun firstPresentIndex(vararg values: Any?): Int? {
         values.forEach { value ->
@@ -258,10 +258,7 @@ class FunctionRunResultBuilder {
     }
 
     private fun stepCountFromSpec(spec: Map<String, Any?>): Int {
-        val execution = mapArg(spec["execution"])
-        val explicit = positiveInt(execution["step_count"]) ?: positiveInt(spec["step_count"])
-        if (explicit != null) return explicit
-        return listArg(execution["steps"]).size.takeIf { it > 0 } ?: 0
+        return listArg(spec["steps"]).size
     }
 
 }

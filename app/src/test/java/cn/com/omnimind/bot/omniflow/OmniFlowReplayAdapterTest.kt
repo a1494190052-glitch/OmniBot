@@ -1,6 +1,7 @@
 package cn.com.omnimind.bot.omniflow
 
-import cn.com.omnimind.assists.task.vlmserver.OperationResult
+import cn.com.omnimind.assists.task.vlmserver.State
+import cn.com.omnimind.assists.task.vlmserver.StateDisplay
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -9,192 +10,153 @@ import org.junit.Test
 
 class OmniFlowReplayAdapterTest {
     @Test
-    fun `prepare act returns a pure recovery decision`() = runBlocking {
+    fun `direct control act sends canonical action with supplied state`() = runBlocking {
         var request = emptyMap<String, Any?>()
         val adapter = OmniFlowReplayAdapter(
-            observe = { mapOf("xml" to TARGET_XML, "package_name" to "com.example") },
-            enabled = { true },
-            bridgeCall = { operation, payload ->
-                assertEquals("prepare_action", operation)
+            controlCall = { payload, _ ->
                 request = payload
-                mapOf(
-                    "success" to true,
-                    "decision" to "recover",
-                    "coordinate_space" to "absolute_pixels",
-                    "function_id" to "fn_restore_package",
-                    "action" to mapOf(
-                        "tool" to "open_app",
-                        "args" to mapOf("package_name" to "com.example"),
-                    ),
-                )
+                successResponse("click")
             },
         )
 
-        val result = adapter.prepareAct(
-            functionId = "example_function",
-            step = minimalStep(),
-            sourceRunId = "run-1",
-            sourceActionIndex = 2,
+        val suppliedState = State(
+            stateId = "live",
+            xml = "<hierarchy />",
+            packageName = "demo.app",
+            activityName = "demo.MainActivity",
+            display = StateDisplay(1080, 1920),
+        )
+        val result = adapter.controlAct(
             action = "click",
-            args = mapOf("x" to 20, "y" to 30),
-            rules = listOf(packageRule()),
-        )
-
-        assertEquals(ActionDecisionKind.RECOVER, result.kind)
-        assertEquals("open_app", result.action)
-        assertEquals(mapOf("package_name" to "com.example"), result.args)
-        assertEquals("fn_restore_package", result.functionId)
-        assertEquals("relative_0_1000", request["coordinate_space"])
-        assertEquals("run-1", request["source_run_id"])
-        assertEquals(2, request["source_action_index"])
-    }
-
-    @Test
-    fun `control act blocks when Python is unavailable`() = runBlocking {
-        var called = false
-        val adapter = OmniFlowReplayAdapter(
-            observe = { emptyMap() },
-            enabled = { false },
-            bridgeCall = { _, _ ->
-                called = true
-                emptyMap()
-            },
-        )
-
-        val result = adapter.prepareAct(
-            functionId = "example_function",
-            step = step(),
-            action = "click",
-            args = mapOf("x" to 20, "y" to 30),
-            rules = emptyList(),
-        )
-
-        assertEquals(ActionDecisionKind.BLOCK, result.kind)
-        assertEquals("python_not_ready", result.reason)
-        assertFalse(called)
-    }
-
-    @Test
-    fun `control act preserves stored recovery function id`() = runBlocking {
-        var checkerRule = emptyMap<String, Any?>()
-        val rule = mapOf(
-            "id" to "dismiss_permission",
-            "condition" to mapOf(
-                "type" to "permission_dialog",
-                "text_any" to listOf("Don’t allow"),
-            ),
-            "recovery_function_id" to "fn_dismiss_permission",
-        )
-        val adapter = OmniFlowReplayAdapter(
-            observe = { mapOf("xml" to TARGET_XML, "package_name" to "com.example") },
-            enabled = { true },
-            bridgeCall = { _, payload ->
-                checkerRule = (payload["checker_rules"] as List<*>)
-                    .first() as Map<String, Any?>
-                mapOf(
-                    "success" to true,
-                    "decision" to "ready",
-                    "action" to mapOf("tool" to "click", "args" to mapOf("x" to 20, "y" to 30)),
-                )
-            },
-        )
-
-        val result = adapter.prepareAct(
-            functionId = "example_function",
-            step = step(),
-            action = "click",
-            args = mapOf("x" to 20, "y" to 30),
-            rules = listOf(rule),
-        )
-
-        assertEquals(ActionDecisionKind.READY, result.kind)
-        assertEquals("fn_dismiss_permission", checkerRule["recovery_function_id"])
-        assertFalse(checkerRule.containsKey("action"))
-        assertEquals(
-            mapOf(
-                "type" to "permission_dialog",
-                "text_any" to listOf("Don’t allow"),
-            ),
-            checkerRule["condition"],
-        )
-    }
-
-    @Test
-    fun `action pipeline dispatches recovery and main action through one seam`() = runBlocking {
-        val dispatched = mutableListOf<Pair<String, String>>()
-        var prepareCount = 0
-        val pipeline = ActionPipeline(
-            dispatch = { action, _, source, _, _ ->
-                dispatched += action to source
-                OperationResult(success = true, message = "ok")
-            },
-            settle = {},
-        )
-
-        val result = pipeline.execute(
-            action = "click",
-            args = mapOf("x" to 20, "y" to 30),
-            prepare = { action, args ->
-                prepareCount += 1
-                if (prepareCount == 1) {
-                    ActionDecision(
-                        kind = ActionDecisionKind.RECOVER,
-                        action = "open_app",
-                        args = mapOf("package_name" to "com.example"),
-                        functionId = "fn_restore_package",
-                    )
-                } else {
-                    ActionDecision(
-                        kind = ActionDecisionKind.READY,
-                        action = action,
-                        args = args,
-                    )
-                }
-            },
+            args = mapOf("x" to 250, "y" to 750),
+            state = suppliedState,
         )
 
         assertTrue(result.success)
-        assertEquals(2, prepareCount)
         assertEquals(
-            listOf(
-                "open_app" to "omniflow_checker_recovery",
-                "click" to "function_replay",
+            mapOf(
+                "action" to mapOf(
+                    "tool" to "click",
+                    "args" to mapOf("x" to 250, "y" to 750),
+                ),
+                "state" to mapOf(
+                    "state_id" to "live",
+                    "xml" to "<hierarchy />",
+                    "package_name" to "demo.app",
+                    "activity_name" to "demo.MainActivity",
+                    "display" to mapOf("width" to 1080, "height" to 1920),
+                ),
             ),
-            dispatched,
+            request,
         )
+        assertEquals("before", result.beforeState?.stateId)
+        assertEquals("<before />", result.beforeState?.xml)
+        assertEquals("after", result.afterState?.stateId)
+        assertEquals("<after />", result.afterState?.xml)
     }
 
-    private fun packageRule(): Map<String, Any?> = mapOf(
-        "id" to "restore_package",
-        "condition" to "package_mismatch",
-        "action" to "open_app",
-        "params" to mapOf("package_name" to "com.example"),
-    )
+    @Test
+    fun `function control act sends source state and checker rules`() = runBlocking {
+        var request = emptyMap<String, Any?>()
+        val rule = mapOf("id" to "wrong_package")
+        val adapter = OmniFlowReplayAdapter(
+            controlCall = { payload, _ ->
+                request = payload
+                successResponse("click")
+            },
+        )
 
-    private fun step(): Map<String, Any?> = mapOf(
-        "tool" to "click",
-        "args" to mapOf("x" to 20, "y" to 30),
-        "source_context" to mapOf(
-            "src_ctx" to mapOf("page" to SOURCE_XML, "package_name" to "com.example")
-        ),
-    )
+        val result = adapter.controlAct(
+            functionId = "search_product",
+            sourceStateId = "state-source",
+            action = "click",
+            args = mapOf("x" to 500, "y" to 400),
+            rules = listOf(rule),
+        )
 
-    private fun minimalStep(): Map<String, Any?> = mapOf(
-        "tool" to "click",
-        "args" to mapOf(
-            "x" to 500,
-            "y" to 500,
-            "source_context" to mapOf(
-                "coordinate_space" to "relative_0_1000",
-                "action_index" to 2,
-            ),
-        ),
-    )
-
-    companion object {
-        private const val SOURCE_XML =
-            "<hierarchy><node package=\"com.example\" bounds=\"[0,0][100,100]\" /></hierarchy>"
-        private const val TARGET_XML =
-            "<hierarchy><node package=\"com.example\" bounds=\"[0,0][400,600]\" /></hierarchy>"
+        assertTrue(result.success)
+        assertEquals("search_product", request["function_id"])
+        assertEquals("state-source", request["source_state_id"])
+        assertEquals(listOf(rule), request["checker_rules"])
+        assertFalse(request.containsKey("state"))
+        assertFalse(request.containsKey("source_context"))
     }
+
+    @Test
+    fun `control act failure is fail closed`() = runBlocking {
+        val adapter = OmniFlowReplayAdapter(
+            controlCall = { _, _ -> error("runtime unavailable") },
+        )
+
+        val result = adapter.controlAct(
+            action = "click",
+            args = mapOf("x" to 250, "y" to 750),
+        )
+
+        assertFalse(result.success)
+        assertEquals("OOB_OMNIFLOW_CONTROL_FAILED", result.diagnostics["local_action_error_code"])
+    }
+
+    @Test
+    fun `blocked transfer attaches source and target screenshots`() = runBlocking {
+        val adapter = OmniFlowReplayAdapter(
+            controlCall = { _, _ ->
+                mapOf(
+                    "success" to false,
+                    "error" to "omnitransfer_target_identity_not_unique",
+                    "transfer" to mapOf(
+                        "source" to mapOf("text" to "Search"),
+                        "target" to mapOf("display" to mapOf("width" to 400, "height" to 600)),
+                        "candidates" to listOf(mapOf("rank" to 1)),
+                    ),
+                )
+            },
+            loadState = {
+                mapOf(
+                    "state_id" to it,
+                    "screenshot_path" to "/source.jpg",
+                    "display" to mapOf("width" to 100, "height" to 100),
+                )
+            },
+            captureTarget = {
+                mapOf(
+                    "screenshot_path" to "/target.jpg",
+                    "display" to mapOf("width" to 400, "height" to 600),
+                )
+            },
+        )
+
+        val result = adapter.controlAct(
+            functionId = "search_product",
+            sourceStateId = "state-source",
+            action = "click",
+            args = mapOf("x" to 500, "y" to 400),
+        )
+
+        assertFalse(result.success)
+        val diagnostics = result.diagnostics.getValue("transfer")
+        assertTrue(diagnostics.contains("/source.jpg"))
+        assertTrue(diagnostics.contains("/target.jpg"))
+    }
+
+    private fun successResponse(tool: String): Map<String, Any?> = mapOf(
+        "success" to true,
+        "action" to mapOf("tool" to tool, "args" to emptyMap<String, Any?>()),
+        "result" to mapOf(
+            "success" to true,
+            "extra" to mapOf("message" to "ok"),
+        ),
+        "before_state" to mapOf(
+            "state_id" to "before",
+            "xml" to "<before />",
+            "package_name" to "demo.before",
+            "display" to mapOf("width" to 100, "height" to 200),
+        ),
+        "after_state" to mapOf(
+            "state_id" to "after",
+            "xml" to "<after />",
+            "package_name" to "demo.after",
+            "display" to mapOf("width" to 100, "height" to 200),
+        ),
+    )
 }

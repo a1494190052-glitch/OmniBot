@@ -557,7 +557,9 @@ class _SceneModelSettingPageState extends State<SceneModelSettingPage> {
       if (!mounted) return;
       setState(() => _operationConfig = saved);
       showToast(
-        context.trLegacy(saved.useOfficialService ? '已启用内置模型服务' : '已切换为自定义模型'),
+        context.trLegacy(
+          saved.useOfficialService ? '已启用官方托管 VLM 服务' : '已切换为自定义模型',
+        ),
         type: ToastType.success,
       );
     } catch (e) {
@@ -1071,9 +1073,9 @@ class _SceneModelSettingPageState extends State<SceneModelSettingPage> {
   Widget _buildOperationOfficialServiceToggle() {
     final useOfficialService = _operationConfig.useOfficialService;
     final enabled = !_isSavingOperationConfig;
-    final title = context.trLegacy('使用内置模型服务');
+    final title = context.trLegacy('使用官方托管 VLM 服务');
     final statusLabel = context.trLegacy(
-      useOfficialService ? '内置模型服务已启用' : '自定义模型已启用',
+      useOfficialService ? '官方托管 VLM 服务已启用' : '自定义模型已启用',
     );
 
     void toggle() {
@@ -1188,6 +1190,10 @@ class _SceneModelSettingPageState extends State<SceneModelSettingPage> {
   }
 
   Widget _buildOfficialOperationServiceField() {
+    final model = _operationConfig.officialModel.trim();
+    final label = model.isEmpty
+        ? context.trLegacy('官方托管 VLM 服务')
+        : '${context.trLegacy('官方托管 VLM 服务')} · $model';
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 11),
       decoration: BoxDecoration(
@@ -1204,7 +1210,7 @@ class _SceneModelSettingPageState extends State<SceneModelSettingPage> {
           const SizedBox(width: 8),
           Expanded(
             child: Text(
-              context.trLegacy('内置模型服务'),
+              label,
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
               style: TextStyle(

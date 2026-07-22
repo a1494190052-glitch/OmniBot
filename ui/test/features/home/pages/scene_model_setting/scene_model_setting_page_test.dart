@@ -228,7 +228,7 @@ void main() {
     expect(find.text('Compactor'), findsNothing);
     expect(find.text('Chat Compactor'), findsOneWidget);
     expect(find.text('未绑定'), findsOneWidget);
-    expect(find.text('使用内置模型服务'), findsOneWidget);
+    expect(find.text('使用官方托管 VLM 服务'), findsOneWidget);
     expect(
       find.byKey(const Key('operation-official-service-toggle')),
       findsOneWidget,
@@ -300,7 +300,7 @@ void main() {
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 50));
 
-    expect(find.text('Use Built-in Model Service'), findsOneWidget);
+    expect(find.text('Use Official Hosted VLM Service'), findsOneWidget);
 
     await tester.tap(
       find.byKey(const Key('operation-official-service-toggle')),

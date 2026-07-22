@@ -1,7 +1,7 @@
 package cn.com.omnimind.bot.vlm
 
 import android.content.Context
-import cn.com.omnimind.assists.task.vlmserver.FunctionRunAction
+import cn.com.omnimind.assists.task.vlmserver.FunctionInvocation
 import cn.com.omnimind.assists.task.vlmserver.VLMRuntimeConfigRegistry
 import cn.com.omnimind.assists.task.vlmserver.VLMRecallActionProvider
 import cn.com.omnimind.assists.task.vlmserver.VLMStreamClient
@@ -28,7 +28,7 @@ class VlmRecallFunctionSelector(private val context: Context) : VLMRecallActionP
         packageName: String?,
         disableFunctionRecall: Boolean,
         streamClient: VLMStreamClient,
-    ): FunctionRunAction? {
+    ): FunctionInvocation? {
         if (disableFunctionRecall || goal.isBlank()) return null
         val config = VlmWorkspaceConfig.getInstance(context).get()
         if (!config.recallEnabled) return null
@@ -49,9 +49,7 @@ class VlmRecallFunctionSelector(private val context: Context) : VLMRecallActionP
         val functionId = firstNonBlank(candidateRaw["function_id"])
         if (functionId.isBlank()) return null
 
-        val inputSchema = mapArg(candidateRaw["parameters"]).ifEmpty {
-            mapArg(candidateRaw["inputSchema"]).ifEmpty { mapArg(candidateRaw["input_schema"]) }
-        }
+        val inputSchema = mapArg(candidateRaw["input_schema"])
 
         // One LLM call: verify the match AND fill parameters in a single prompt.
         val result = verifyAndFill(goal, candidateRaw, inputSchema, streamClient) ?: return null
@@ -61,7 +59,7 @@ class VlmRecallFunctionSelector(private val context: Context) : VLMRecallActionP
         }
 
         OmniLog.d(TAG, "Eager recall confirmed: $functionId (score=$score)")
-        return FunctionRunAction(functionId = functionId, arguments = result.arguments)
+        return FunctionInvocation(functionId = functionId, arguments = result.arguments)
     }
 
     private data class VerifyFillResult(val matches: Boolean, val arguments: JsonObject)

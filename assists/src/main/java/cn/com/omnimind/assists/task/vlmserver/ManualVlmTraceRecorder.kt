@@ -6,9 +6,9 @@ import cn.com.omnimind.assists.ManualOverlayGestureReplayResult
 import cn.com.omnimind.assists.ManualOverlayTouchGesture
 import cn.com.omnimind.assists.ManualInputTarget
 import cn.com.omnimind.assists.controller.accessibility.AccessibilityController
+import cn.com.omnimind.baselib.runlog.CanonicalActionConverter
 import cn.com.omnimind.baselib.runlog.OobActionSchema
 import cn.com.omnimind.baselib.util.OmniLog
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 
 data class ManualVlmTraceResult(
@@ -20,10 +20,10 @@ data class ManualVlmTraceResult(
 }
 
 data class ManualVlmRecordedAction(
-    val actionName: String,
+    val action: Action,
     val title: String,
-    val params: Map<String, Any?>,
-    val packageName: String?,
+    val beforePackageName: String?,
+    val afterPackageName: String?,
     val beforeXml: String?,
     val afterXml: String?,
     val beforeScreenshot: ManualVlmScreenshotRef? = null,
@@ -32,6 +32,11 @@ data class ManualVlmRecordedAction(
     val finishedAtMs: Long,
     val summary: String,
     val eventContext: Map<String, Any?> = emptyMap(),
+    val recordingBackend: String = "unknown",
+    val displayWidth: Int = 0,
+    val displayHeight: Int = 0,
+    val evidenceComplete: Boolean = true,
+    val evidenceError: String? = null,
 )
 
 internal fun selectManualInputTargetAfterClick(
@@ -40,6 +45,42 @@ internal fun selectManualInputTargetAfterClick(
     clickedFocusedTarget: ManualInputTarget?,
 ): ManualInputTarget? = after?.takeIf {
     it != before || clickedFocusedTarget != null
+}
+
+internal fun manualInputTextActionArgs(
+    text: String,
+    inputTarget: ManualInputTarget,
+): Map<String, Any?> = linkedMapOf<String, Any?>(
+    OobActionSchema.ARG_TARGET_DESCRIPTION to inputTarget.description,
+    OobActionSchema.ARG_TEXT to text,
+    OobActionSchema.ARG_X to inputTarget.x,
+    OobActionSchema.ARG_Y to inputTarget.y,
+    OobActionSchema.ARG_NODE_RESOURCE_ID to inputTarget.nodeResourceId,
+).filterValues { it != null }
+
+internal fun canonicalManualScreenAction(
+    tool: String,
+    args: Map<String, Any?>,
+    displayWidth: Int,
+    displayHeight: Int,
+): Action {
+    require(displayWidth > 0 && displayHeight > 0) { "manual_recording_display_required" }
+    val canonical = CanonicalActionConverter.convert(
+        tool = tool,
+        args = args,
+        coordinateSpace = CanonicalActionConverter.CoordinateSpace.SCREEN_ABSOLUTE_PX,
+        displaySize = CanonicalActionConverter.DisplaySize(
+            displayWidth.toDouble(),
+            displayHeight.toDouble(),
+        ),
+        replayableOnly = true,
+        persistedOnly = false,
+    )
+    @Suppress("UNCHECKED_CAST")
+    return actionOf(
+        tool,
+        canonical.getValue(OobActionSchema.ROOT_ARGS) as Map<String, Any?>,
+    )
 }
 
 data class ManualVlmScreenshotRef(
@@ -149,13 +190,8 @@ class ManualVlmTraceRecorder(
     private val sessionLabel: String,
     private val enableRawTouch: Boolean = false,
     private val enableDebugScreenshots: Boolean = false,
+    private val onActionRecorded: (suspend (index: Int, action: ManualVlmRecordedAction) -> Unit)? = null,
 ) {
-    private data class TapAnchor(
-        val x: Float,
-        val y: Float,
-        val recordedAtMs: Long,
-    )
-
     private val stateLock = Any()
     private val journal = ManualRecordingJournal()
     private val deviceOperator = AndroidDeviceOperator(null, context)
@@ -170,22 +206,19 @@ class ManualVlmTraceRecorder(
     )
     private val engine = ManualRecordingEngine(
         journal = journal,
-        observe = { stage, action -> captureObservation(stage, action) },
-        execute = { action ->
+        observe = { stage, command -> captureObservation(stage, command) },
+        execute = { command ->
             actionExecutor.act(
-                action = action.tool,
-                args = action.args,
-                source = action.source,
+                action = command.action.tool,
+                args = command.action.argsMap(),
+                source = command.source,
             )
         },
-        settleBeforeAfterObservation = { action ->
-            if (action.tool != OobActionSchema.TOOL_WAIT) delay(AFTER_ACTION_OBSERVATION_DELAY_MS)
-        },
+        onActionRecorded = { index, action -> onActionRecorded?.invoke(index, action) },
     )
 
     @Volatile private var isStarted = false
     @Volatile private var isPaused = false
-    private var lastTapAnchor: TapAnchor? = null
 
     fun start(): Boolean {
         if (isStarted) return true
@@ -196,7 +229,6 @@ class ManualVlmTraceRecorder(
         synchronized(stateLock) {
             isStarted = true
             isPaused = false
-            lastTapAnchor = null
         }
         OmniLog.i(
             TAG,
@@ -221,7 +253,6 @@ class ManualVlmTraceRecorder(
         synchronized(stateLock) {
             isStarted = false
             isPaused = false
-            lastTapAnchor = null
         }
         runBlocking { engine.awaitIdle() }
         val actions = journal.snapshot()
@@ -246,7 +277,7 @@ class ManualVlmTraceRecorder(
             rawTouchEnabled = enableRawTouch,
             rawTouchAvailable = false,
             overlayTouchRecordedCount = actions.count {
-                it.params["recording_backend"] == OVERLAY_TOUCH_SOURCE
+                it.recordingBackend == OVERLAY_TOUCH_SOURCE
             },
             recordingBackend = recordingBackend(actions),
             debugScreenshotsEnabled = observationStats.screenshotsActive,
@@ -260,24 +291,17 @@ class ManualVlmTraceRecorder(
         text: String,
         inputTarget: ManualInputTarget? = null,
     ): Boolean {
-        if (text.isEmpty() || !isRecording()) return false
-        val anchor = activeTapAnchor()
-        val args = linkedMapOf<String, Any?>(
-            OobActionSchema.ARG_TEXT to text,
-            OobActionSchema.ARG_TARGET_DESCRIPTION to (
-                inputTarget?.description ?: anchor?.let { "上次点击位置" }
-            ),
-            OobActionSchema.ARG_X to (inputTarget?.x ?: anchor?.x),
-            OobActionSchema.ARG_Y to (inputTarget?.y ?: anchor?.y),
-            OobActionSchema.ARG_NODE_RESOURCE_ID to inputTarget?.nodeResourceId,
-        ).filterValues { it != null }
+        if (text.isEmpty() || inputTarget == null || inputTarget.password || !isRecording()) {
+            return false
+        }
         return engine.perform(
             command(
                 tool = OobActionSchema.TOOL_INPUT_TEXT,
-                args = args,
+                args = manualInputTextActionArgs(text, inputTarget),
                 title = "输入文本",
                 summary = "输入文本：${text.take(MAX_TEXT_SUMMARY_CHARS)}",
                 source = MANUAL_CONTROL_SOURCE,
+                screenCoordinates = true,
             )
         ).recorded
     }
@@ -301,7 +325,7 @@ class ManualVlmTraceRecorder(
         return engine.perform(
             command(
                 tool = OobActionSchema.TOOL_WAIT,
-                args = mapOf(OobActionSchema.ARG_TIME_MS to durationMs),
+                args = mapOf(OobActionSchema.ARG_DURATION_MS to durationMs),
                 title = "等待 ${formatDuration(durationMs)}",
                 summary = "等待 ${formatDuration(durationMs)}",
                 source = MANUAL_CONTROL_SOURCE,
@@ -321,20 +345,11 @@ class ManualVlmTraceRecorder(
         } else {
             null
         }
-        val action = gesture.toCanonicalAction()
-        val outcome = engine.perform(action) { dispatchResult ->
+        val command = gesture.toRecordingCommand()
+        val outcome = engine.perform(command) { dispatchResult ->
             onGestureDispatched(
                 dispatchResult.success && gesture.actionName == OobActionSchema.TOOL_CLICK,
             )
-        }
-        if (outcome.recorded && gesture.actionName == OobActionSchema.TOOL_CLICK) {
-            synchronized(stateLock) {
-                lastTapAnchor = TapAnchor(
-                    x = gesture.startX,
-                    y = gesture.startY,
-                    recordedAtMs = System.currentTimeMillis(),
-                )
-            }
         }
         val inputTarget = if (outcome.recorded && gesture.actionName == OobActionSchema.TOOL_CLICK) {
             val inputTargetAfter = AccessibilityController.focusedInputTarget()
@@ -358,16 +373,12 @@ class ManualVlmTraceRecorder(
         )
     }
 
-    private fun ManualOverlayTouchGesture.toCanonicalAction(): ManualCanonicalAction {
-        val coordinateArgs = linkedMapOf<String, Any?>(
-            "coordinate_space" to "screen_absolute_px",
-            "display_width" to displayWidth.takeIf { it > 0 },
-            "display_height" to displayHeight.takeIf { it > 0 },
-        )
+    private fun ManualOverlayTouchGesture.toRecordingCommand(): ManualRecordingCommand {
         return when (actionName) {
             OobActionSchema.TOOL_CLICK -> command(
                 tool = actionName,
-                args = coordinateArgs + mapOf(
+                args = mapOf(
+                    OobActionSchema.ARG_TARGET_DESCRIPTION to "屏幕坐标",
                     OobActionSchema.ARG_X to startX,
                     OobActionSchema.ARG_Y to startY,
                 ),
@@ -375,11 +386,15 @@ class ManualVlmTraceRecorder(
                 summary = "点击屏幕 (${startX.toInt()}, ${startY.toInt()})",
                 source = OVERLAY_TOUCH_SOURCE,
                 startedAtMs = startedAtMs,
+                screenCoordinates = true,
+                displayWidth = displayWidth,
+                displayHeight = displayHeight,
             )
 
             OobActionSchema.TOOL_LONG_PRESS -> command(
                 tool = actionName,
-                args = coordinateArgs + mapOf(
+                args = mapOf(
+                    OobActionSchema.ARG_TARGET_DESCRIPTION to "屏幕坐标",
                     OobActionSchema.ARG_X to startX,
                     OobActionSchema.ARG_Y to startY,
                     OobActionSchema.ARG_DURATION_MS to durationMs.coerceAtLeast(1L),
@@ -388,24 +403,36 @@ class ManualVlmTraceRecorder(
                 summary = "长按屏幕 (${startX.toInt()}, ${startY.toInt()})",
                 source = OVERLAY_TOUCH_SOURCE,
                 startedAtMs = startedAtMs,
+                screenCoordinates = true,
+                displayWidth = displayWidth,
+                displayHeight = displayHeight,
             )
 
             else -> command(
                 tool = OobActionSchema.TOOL_SWIPE,
-                args = coordinateArgs + linkedMapOf(
+                args = linkedMapOf(
+                    OobActionSchema.ARG_TARGET_DESCRIPTION to "屏幕区域",
                     OobActionSchema.ARG_X1 to startX,
                     OobActionSchema.ARG_Y1 to startY,
                     OobActionSchema.ARG_X2 to endX,
                     OobActionSchema.ARG_Y2 to endY,
                     OobActionSchema.ARG_DURATION_MS to durationMs.coerceAtLeast(1L),
-                    OobActionSchema.ARG_DIRECTION to direction,
-                    OobActionSchema.ARG_DISTANCE to distancePx,
-                ).filterValues { it != null },
+                    OobActionSchema.ARG_DIRECTION to direction.orEmpty().ifBlank {
+                        if (kotlin.math.abs(endX - startX) >= kotlin.math.abs(endY - startY)) {
+                            if (endX >= startX) "right" else "left"
+                        } else {
+                            if (endY >= startY) "down" else "up"
+                        }
+                    },
+                ),
                 title = "${directionLabel(direction)}滑动",
                 summary = "从 (${startX.toInt()}, ${startY.toInt()}) 滑动到 " +
                     "(${endX.toInt()}, ${endY.toInt()})",
                 source = OVERLAY_TOUCH_SOURCE,
                 startedAtMs = startedAtMs,
+                screenCoordinates = true,
+                displayWidth = displayWidth,
+                displayHeight = displayHeight,
             )
         }
     }
@@ -417,9 +444,22 @@ class ManualVlmTraceRecorder(
         summary: String,
         source: String,
         startedAtMs: Long = System.currentTimeMillis(),
-    ): ManualCanonicalAction = ManualCanonicalAction(
-        tool = tool,
-        args = args,
+        screenCoordinates: Boolean = false,
+        displayWidth: Int = deviceOperator.getDisplayWidth(),
+        displayHeight: Int = deviceOperator.getDisplayHeight(),
+    ): ManualRecordingCommand = ManualRecordingCommand(
+        action = if (screenCoordinates) {
+            val width = displayWidth.takeIf { it > 0 } ?: deviceOperator.getDisplayWidth()
+            val height = displayHeight.takeIf { it > 0 } ?: deviceOperator.getDisplayHeight()
+            canonicalManualScreenAction(
+                tool = tool,
+                args = args,
+                displayWidth = width,
+                displayHeight = height,
+            )
+        } else {
+            actionOf(tool, args)
+        },
         title = title,
         summary = summary,
         source = source,
@@ -428,48 +468,59 @@ class ManualVlmTraceRecorder(
 
     private fun captureObservation(
         stage: String,
-        action: ManualCanonicalAction,
+        command: ManualRecordingCommand,
     ): ManualRecordingObservation {
         val xml = observationCapture.captureXml(stage).xml
         val screenshot = observationCapture.captureScreenshot(
             stage = stage,
-            annotation = screenshotAnnotation(action),
+            annotation = screenshotAnnotation(command.action),
         )
         return ManualRecordingObservation(
             xml = xml,
             screenshot = screenshot,
-            packageName = runCatching { deviceOperator.currentPackageName() }.getOrNull(),
+            packageName = AccessibilityXml.packageName(xml)
+                ?: runCatching { deviceOperator.currentPackageName() }.getOrNull(),
+            displayWidth = deviceOperator.getDisplayWidth(),
+            displayHeight = deviceOperator.getDisplayHeight(),
         )
     }
 
-    private fun screenshotAnnotation(action: ManualCanonicalAction): ManualScreenshotAnnotation? {
-        val x = (action.args[OobActionSchema.ARG_X] as? Number)?.toFloat()
-        val y = (action.args[OobActionSchema.ARG_Y] as? Number)?.toFloat()
+    private fun screenshotAnnotation(action: Action): ManualScreenshotAnnotation? {
+        val args = runCatching {
+            CanonicalActionConverter.toScreenPixels(
+                tool = action.tool,
+                args = action.argsMap(),
+                displaySize = CanonicalActionConverter.DisplaySize(
+                    deviceOperator.getDisplayWidth().toDouble(),
+                    deviceOperator.getDisplayHeight().toDouble(),
+                ),
+            )
+        }.getOrElse { action.argsMap() }
+        val x = (args[OobActionSchema.ARG_X] as? Number)?.toFloat()
+        val y = (args[OobActionSchema.ARG_Y] as? Number)?.toFloat()
         if (x != null && y != null) {
             return ManualScreenshotAnnotation.point(action.tool, x, y)
         }
-        val x1 = (action.args[OobActionSchema.ARG_X1] as? Number)?.toFloat() ?: return null
-        val y1 = (action.args[OobActionSchema.ARG_Y1] as? Number)?.toFloat() ?: return null
+        val x1 = (args[OobActionSchema.ARG_X1] as? Number)?.toFloat() ?: return null
+        val y1 = (args[OobActionSchema.ARG_Y1] as? Number)?.toFloat() ?: return null
         return ManualScreenshotAnnotation(
             actionName = action.tool,
             x = x1,
             y = y1,
-            endX = (action.args[OobActionSchema.ARG_X2] as? Number)?.toFloat(),
-            endY = (action.args[OobActionSchema.ARG_Y2] as? Number)?.toFloat(),
+            endX = (args[OobActionSchema.ARG_X2] as? Number)?.toFloat(),
+            endY = (args[OobActionSchema.ARG_Y2] as? Number)?.toFloat(),
         )
     }
 
     private fun isRecording(): Boolean = isStarted && !isPaused
 
-    private fun activeTapAnchor(): TapAnchor? = synchronized(stateLock) {
-        lastTapAnchor?.takeIf {
-            System.currentTimeMillis() - it.recordedAtMs <= TAP_ANCHOR_TTL_MS
-        }
-    }
-
     private fun buildDiagnostics(actions: List<ManualVlmRecordedAction>): Map<String, Any?> {
         val stats = engine.stats()
-        val complete = stats.pending == 0 && stats.failed == 0 && stats.received == stats.committed
+        val evidenceFailureCount = actions.count { !it.evidenceComplete }
+        val complete = stats.pending == 0 &&
+            stats.failed == 0 &&
+            stats.received == stats.committed &&
+            evidenceFailureCount == 0
         val backend = recordingBackend(actions)
         val completeness = when {
             !complete -> ManualRecordingDiagnostics.INCOMPLETE_OVERLAY_TOUCH
@@ -481,17 +532,18 @@ class ManualVlmTraceRecorder(
                 "schema_version" to "oob.manual_recording.diagnostics.v2",
                 "action_model" to "explicit_canonical_actions",
                 "action_source" to backend,
-                "recording_backend_counts" to actions.mapNotNull {
-                    it.params["recording_backend"]?.toString()
+                "recording_backend_counts" to actions.map {
+                    it.recordingBackend
                 }.groupingBy { it }.eachCount(),
                 "completeness" to completeness,
                 "guarantees_no_missing_clicks" to complete,
                 "guarantee_scope" to "accepted_actions_while_process_alive",
-                "process_crash_safe" to false,
+                "process_crash_safe" to (onActionRecorded != null),
                 "received_action_count" to stats.received,
                 "committed_action_count" to stats.committed,
                 "failed_action_count" to stats.failed,
                 "pending_action_count" to stats.pending,
+                "incomplete_state_count" to evidenceFailureCount,
                 "a11_replay_actions_enabled" to false,
                 "a11_role" to "observation_only",
                 "raw_touch_enabled" to false,
@@ -505,7 +557,7 @@ class ManualVlmTraceRecorder(
     }
 
     private fun recordingBackend(actions: List<ManualVlmRecordedAction>): String {
-        val sources = actions.mapNotNull { it.params["recording_backend"]?.toString() }.toSet()
+        val sources = actions.map(ManualVlmRecordedAction::recordingBackend).toSet()
         return when {
             sources.isEmpty() -> "explicit_actions"
             sources.size == 1 -> sources.first()
@@ -531,7 +583,6 @@ class ManualVlmTraceRecorder(
         private const val TAG = "ManualVlmTraceRecorder"
         private const val OVERLAY_TOUCH_SOURCE = "overlay_touch"
         private const val MANUAL_CONTROL_SOURCE = "manual_control"
-        private const val AFTER_ACTION_OBSERVATION_DELAY_MS = 250L
         private const val TAP_ANCHOR_TTL_MS = 30_000L
         private const val MAX_TEXT_SUMMARY_CHARS = 80
         private const val MAX_SUMMARY_ACTIONS = 8

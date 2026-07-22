@@ -8,7 +8,7 @@ interface VLMRecallActionProvider {
         packageName: String?,
         disableFunctionRecall: Boolean,
         streamClient: VLMStreamClient,
-    ): FunctionRunAction?
+    ): FunctionInvocation?
 }
 
 object VLMRecallActionProviderRegistry {
@@ -30,7 +30,7 @@ object VLMRecallActionProviderRegistry {
         packageName: String?,
         disableFunctionRecall: Boolean,
         streamClient: VLMStreamClient,
-    ): FunctionRunAction? {
+    ): FunctionInvocation? {
         val activeProvider = provider ?: return null
         return runCatching {
             activeProvider.selectAction(goal, packageName, disableFunctionRecall, streamClient)

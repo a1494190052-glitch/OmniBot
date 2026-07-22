@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:ui/core/router/go_router_manager.dart';
@@ -21,16 +23,34 @@ class _RunLogListPageState extends State<RunLogListPage> {
   static const int _pageSize = 20;
 
   List<UtgRunLogSummary> _runs = const [];
+  List<String> _availableModels = const [];
   bool _isLoading = true;
   bool _isLoadingMore = false;
   bool _hasMore = false;
   int _nextOffset = 0;
   String? _error;
+  final TextEditingController _searchController = TextEditingController();
+  Timer? _searchDebounce;
+  String _sourceFilter = '';
+  String _statusFilter = '';
+  String _modelFilter = '';
 
   @override
   void initState() {
     super.initState();
     _load();
+  }
+
+  @override
+  void dispose() {
+    _searchDebounce?.cancel();
+    _searchController.dispose();
+    super.dispose();
+  }
+
+  void _onSearchChanged(String _) {
+    _searchDebounce?.cancel();
+    _searchDebounce = Timer(const Duration(milliseconds: 350), _load);
   }
 
   Future<void> _load() async {
@@ -43,10 +63,15 @@ class _RunLogListPageState extends State<RunLogListPage> {
       final snapshot = await RunLogFunctionService.getInternalRunLogs(
         limit: _pageSize,
         offset: 0,
+        source: _sourceFilter,
+        status: _statusFilter,
+        model: _modelFilter,
+        query: _searchController.text,
       );
       if (!mounted) return;
       setState(() {
         _runs = snapshot.runs;
+        _availableModels = snapshot.availableModels;
         _hasMore = snapshot.hasMore;
         _nextOffset = snapshot.nextOffset > 0
             ? snapshot.nextOffset
@@ -72,6 +97,10 @@ class _RunLogListPageState extends State<RunLogListPage> {
       final snapshot = await RunLogFunctionService.getInternalRunLogs(
         limit: _pageSize,
         offset: _nextOffset,
+        source: _sourceFilter,
+        status: _statusFilter,
+        model: _modelFilter,
+        query: _searchController.text,
       );
       if (!mounted) return;
       setState(() {
@@ -131,38 +160,153 @@ class _RunLogListPageState extends State<RunLogListPage> {
     }
 
     final runs = _runs;
-    if (runs.isEmpty) {
-      return _RunLogEmptyState(
-        icon: Icons.route_outlined,
-        title: l10n.executionHistoryEmpty,
-        subtitle: _text(
-          context,
-          '执行一次手机任务后会出现在这里。',
-          'Execution records will appear here after a phone task.',
+    return Column(
+      children: [
+        _buildFilters(context),
+        Expanded(
+          child: runs.isEmpty
+              ? _RunLogEmptyState(
+                  icon: Icons.route_outlined,
+                  title: _text(context, '没有匹配的执行记录', 'No matching runs'),
+                  subtitle: _text(
+                    context,
+                    '调整搜索或筛选条件后重试。',
+                    'Try changing the search or filters.',
+                  ),
+                  actionLabel: _text(context, '清除筛选', 'Clear filters'),
+                  onAction: _clearFilters,
+                )
+              : RefreshIndicator(
+                  onRefresh: _load,
+                  child: ListView.separated(
+                    padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
+                    itemCount:
+                        runs.length + (_hasMore || _isLoadingMore ? 1 : 0),
+                    separatorBuilder: (_, __) => const SizedBox(height: 10),
+                    itemBuilder: (context, index) {
+                      if (index >= runs.length) {
+                        WidgetsBinding.instance.addPostFrameCallback(
+                          (_) => _loadMore(),
+                        );
+                        return const _RunLogListFooter();
+                      }
+                      return _RunLogListItem(
+                        run: runs[index],
+                        onTap: () => _openRunLog(runs[index]),
+                      );
+                    },
+                  ),
+                ),
         ),
-        actionLabel: l10n.localModelsRefresh,
-        onAction: _load,
-      );
-    }
+      ],
+    );
+  }
 
-    return RefreshIndicator(
-      onRefresh: _load,
-      child: ListView.separated(
-        padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
-        itemCount: runs.length + (_hasMore || _isLoadingMore ? 1 : 0),
-        separatorBuilder: (_, __) => const SizedBox(height: 10),
-        itemBuilder: (context, index) {
-          if (index >= runs.length) {
-            WidgetsBinding.instance.addPostFrameCallback((_) => _loadMore());
-            return const _RunLogListFooter();
-          }
-          return _RunLogListItem(
-            run: runs[index],
-            onTap: () => _openRunLog(runs[index]),
-          );
-        },
+  Widget _buildFilters(BuildContext context) {
+    final palette = context.omniPalette;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 6),
+      child: Column(
+        children: [
+          TextField(
+            controller: _searchController,
+            onChanged: _onSearchChanged,
+            textInputAction: TextInputAction.search,
+            onSubmitted: (_) => _load(),
+            decoration: InputDecoration(
+              hintText: _text(
+                context,
+                '搜索任务、Run ID 或模型',
+                'Search task, run ID, or model',
+              ),
+              prefixIcon: const Icon(Icons.search_rounded),
+              suffixIcon: _searchController.text.isEmpty
+                  ? null
+                  : IconButton(
+                      onPressed: () {
+                        _searchController.clear();
+                        _load();
+                      },
+                      icon: const Icon(Icons.close_rounded),
+                    ),
+              filled: true,
+              fillColor: palette.surfacePrimary,
+              isDense: true,
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(10),
+                borderSide: BorderSide(color: palette.borderSubtle),
+              ),
+              enabledBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(10),
+                borderSide: BorderSide(color: palette.borderSubtle),
+              ),
+            ),
+          ),
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              Expanded(
+                child: _RunLogFilterDropdown(
+                  value: _sourceFilter,
+                  items: {
+                    '': _text(context, '全部来源', 'All sources'),
+                    'vlm': 'VLM',
+                    'manual': _text(context, '手动录制', 'Manual'),
+                  },
+                  onChanged: (value) {
+                    setState(() => _sourceFilter = value);
+                    _load();
+                  },
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: _RunLogFilterDropdown(
+                  value: _statusFilter,
+                  items: {
+                    '': _text(context, '全部状态', 'All statuses'),
+                    'running': _text(context, '运行中', 'Running'),
+                    'succeeded': _text(context, '成功', 'Succeeded'),
+                    'failed': _text(context, '失败', 'Failed'),
+                  },
+                  onChanged: (value) {
+                    setState(() => _statusFilter = value);
+                    _load();
+                  },
+                ),
+              ),
+            ],
+          ),
+          if (_availableModels.isNotEmpty) ...[
+            const SizedBox(height: 8),
+            _RunLogFilterDropdown(
+              value: _availableModels.contains(_modelFilter)
+                  ? _modelFilter
+                  : '',
+              items: {
+                '': _text(context, '全部模型', 'All models'),
+                for (final model in _availableModels) model: model,
+              },
+              onChanged: (value) {
+                setState(() => _modelFilter = value);
+                _load();
+              },
+            ),
+          ],
+        ],
       ),
     );
+  }
+
+  void _clearFilters() {
+    _searchDebounce?.cancel();
+    _searchController.clear();
+    setState(() {
+      _sourceFilter = '';
+      _statusFilter = '';
+      _modelFilter = '';
+    });
+    _load();
   }
 
   void _openRunLog(UtgRunLogSummary run) {
@@ -203,6 +347,56 @@ class _RunLogListFooter extends StatelessWidget {
   }
 }
 
+class _RunLogFilterDropdown extends StatelessWidget {
+  const _RunLogFilterDropdown({
+    required this.value,
+    required this.items,
+    required this.onChanged,
+  });
+
+  final String value;
+  final Map<String, String> items;
+  final ValueChanged<String> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final palette = context.omniPalette;
+    return DropdownButtonFormField<String>(
+      initialValue: value,
+      isExpanded: true,
+      isDense: true,
+      decoration: InputDecoration(
+        filled: true,
+        fillColor: palette.surfacePrimary,
+        contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 9),
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(9),
+          borderSide: BorderSide(color: palette.borderSubtle),
+        ),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(9),
+          borderSide: BorderSide(color: palette.borderSubtle),
+        ),
+      ),
+      items: items.entries
+          .map(
+            (entry) => DropdownMenuItem<String>(
+              value: entry.key,
+              child: Text(
+                entry.value,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+          )
+          .toList(growable: false),
+      onChanged: (next) {
+        if (next != null && next != value) onChanged(next);
+      },
+    );
+  }
+}
+
 class _RunLogListItem extends StatelessWidget {
   const _RunLogListItem({required this.run, required this.onTap});
 
@@ -216,19 +410,15 @@ class _RunLogListItem extends StatelessWidget {
     final title = _titleForRun(context, run);
     final statusInfo = _runLogStatusInfo(context, run);
     final meta = [
+      if (_runSourceLabel(context, run.source).isNotEmpty)
+        _runSourceLabel(context, run.source),
       if (run.stepCount > 0) l10n.runLogTimelineStepCount(run.stepCount),
       if (_formatDuration(run.durationMs).isNotEmpty)
         _formatDuration(run.durationMs),
       if (run.tokenUsageTotal != null) _formatTokenUsage(run.tokenUsageTotal!),
-      if (run.registeredAsFunction)
-        _text(context, '已保存为复用指令', 'Function saved'),
+      if (run.modelNames.isNotEmpty) run.modelNames.join(', '),
     ].join(' · ');
-    final detail = _firstNonBlank([
-      run.errorMessage,
-      run.doneReason,
-      _routeStatusLabel(context, run.executionStatus),
-      run.toolName,
-    ]);
+    final detail = _firstNonBlank([run.error, run.doneReason, run.toolName]);
 
     return Material(
       color: Colors.transparent,
@@ -448,42 +638,17 @@ class _RunLogEmptyState extends StatelessWidget {
 }
 
 String _titleForRun(BuildContext context, UtgRunLogSummary run) {
-  final title = _firstNonBlank([
-    run.goal,
-    run.operationDescription,
-    _routeSummaryLabel(context, run.executionSummary),
-    run.selectorLabel,
-    run.runId,
-  ]);
+  final title = _firstNonBlank([run.goal, run.runId]);
   return title.isEmpty ? context.l10n.runLogTimelineUnknown : title;
 }
 
-String _routeStatusLabel(BuildContext context, String raw) {
-  final normalized = raw.trim().toLowerCase();
-  if (normalized.isEmpty) return '';
-  if (normalized.contains('hit') || normalized.contains('reuse')) {
-    return _text(context, '复用命中', 'Reuse hit');
-  }
-  if (normalized.contains('miss') || normalized.contains('vlm')) {
-    return _text(context, '自动执行', 'Automatic execution');
-  }
-  return raw
-      .trim()
-      .replaceAll(RegExp('compile', caseSensitive: false), 'execution')
-      .replaceAll('编译', '执行');
-}
-
-String _routeSummaryLabel(BuildContext context, String raw) {
-  final text = raw.trim();
-  if (text.isEmpty) return '';
-  return text
-      .replaceAll(RegExp('compile', caseSensitive: false), 'execution')
-      .replaceAll('编译', '执行');
-}
-
 String _timeLabel(UtgRunLogSummary run) {
-  final started = _parseRunDate(run.startedAt, run.startedAtMs);
-  final finished = _parseRunDate(run.finishedAt, run.finishedAtMs);
+  final started = run.startedAtMs == null
+      ? null
+      : DateTime.fromMillisecondsSinceEpoch(run.startedAtMs!).toLocal();
+  final finished = run.finishedAtMs == null
+      ? null
+      : DateTime.fromMillisecondsSinceEpoch(run.finishedAtMs!).toLocal();
   if (started == null && finished == null) {
     return '';
   }
@@ -492,19 +657,6 @@ String _timeLabel(UtgRunLogSummary run) {
     return '${formatter.format(started)} - ${formatter.format(finished)}';
   }
   return formatter.format(started ?? finished!);
-}
-
-DateTime? _parseRunDate(String raw, int? epochMs) {
-  if (epochMs != null && epochMs > 0) {
-    return DateTime.fromMillisecondsSinceEpoch(epochMs).toLocal();
-  }
-  return _parseDate(raw);
-}
-
-DateTime? _parseDate(String raw) {
-  final value = raw.trim();
-  if (value.isEmpty) return null;
-  return DateTime.tryParse(value)?.toLocal();
 }
 
 String _formatDuration(num? durationMs) {
@@ -526,6 +678,22 @@ String _formatTokenUsage(int totalTokens) {
     return '${(totalTokens / 1000).toStringAsFixed(totalTokens >= 10000 ? 1 : 2)}k tokens';
   }
   return '$totalTokens tokens';
+}
+
+String _runSourceLabel(BuildContext context, String source) {
+  switch (source.trim().toLowerCase()) {
+    case 'vlm':
+      return 'VLM';
+    case 'manual_recording':
+    case 'human_trajectory':
+    case 'human_takeover':
+      return _text(context, '手动录制', 'Manual');
+    case 'function':
+    case 'omniflow_replay':
+      return _text(context, '复用指令', 'Function');
+    default:
+      return source.trim();
+  }
 }
 
 String _firstNonBlank(Iterable<Object?> values) {
@@ -584,10 +752,8 @@ _RunLogStatusInfo _runLogStatusInfo(
   BuildContext context,
   UtgRunLogSummary run,
 ) {
-  final rawStatus = run.runStatus.trim().toLowerCase();
-  if (!run.runFinished ||
-      rawStatus == 'running' ||
-      rawStatus == 'in_progress') {
+  final rawStatus = run.status.trim().toLowerCase();
+  if (rawStatus == 'running') {
     return _RunLogStatusInfo(
       kind: _RunLogStatusKind.running,
       label: _text(context, '运行中', 'Running'),
@@ -595,8 +761,7 @@ _RunLogStatusInfo _runLogStatusInfo(
       icon: Icons.timelapse_rounded,
     );
   }
-  final succeeded = run.runSuccess ?? run.success;
-  if (succeeded) {
+  if (rawStatus == 'succeeded' && run.success) {
     return _RunLogStatusInfo(
       kind: _RunLogStatusKind.success,
       label: _text(context, '已完成', 'Done'),
@@ -604,7 +769,9 @@ _RunLogStatusInfo _runLogStatusInfo(
       icon: Icons.check_circle_outline_rounded,
     );
   }
-  if (run.runSuccess == false || run.errorMessage.trim().isNotEmpty) {
+  if (rawStatus == 'failed' ||
+      rawStatus == 'cancelled' ||
+      run.error.trim().isNotEmpty) {
     return _RunLogStatusInfo(
       kind: _RunLogStatusKind.failed,
       label: _text(context, '失败', 'Failed'),

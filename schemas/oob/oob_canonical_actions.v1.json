@@ -2,124 +2,101 @@
   "schema_version": "oob.canonical_actions.v1",
   "root_tool": "tool",
   "root_args": "args",
-  "source_context_arg_names": [
-    "target_description",
-    "element_index",
-    "node_id",
-    "x",
-    "y",
-    "x1",
-    "y1",
-    "x2",
-    "y2",
-    "scrollable_index",
-    "direction",
-    "distance",
-    "duration_ms",
-    "time_s",
-    "key",
-    "text",
-    "package_name",
-    "selector",
-    "node_resource_id",
-    "bounds",
-    "node_class",
-    "clear"
-  ],
   "tools": [
     {
       "name": "click",
+      "kind": "action",
       "ui_label": {"zh_cn": "点击", "en_us": "Click"},
       "description": {
-        "zh_cn": "点击一个可见目标；必须按 schema 提供 target_description、x、y，element_index 仅作为可选定位线索。",
-        "en_us": "Tap a visible target; provide target_description, x, and y as required by the schema. element_index is an optional grounding hint only."
+        "zh_cn": "点击一个可见目标；必须按 schema 提供 target_description、x、y。",
+        "en_us": "Tap a visible target; provide target_description, x, and y as required by the schema."
       },
       "prompt_guide": {
-        "zh_cn": "- click(target_description, x, y, element_index?): 点击可见目标；x/y 是 required 的 0..1000 相对坐标，element_index 只补充 grounding。",
-        "en_us": "- click(target_description, x, y, element_index?): Tap a visible target; x/y are required 0..1000 relative coordinates, and element_index only supplements grounding."
+        "zh_cn": "- click(target_description, x, y): 点击可见目标；x/y 是 required 的 0..1000 相对坐标。",
+        "en_us": "- click(target_description, x, y): Tap a visible target; x/y are required 0..1000 relative coordinates."
       },
       "recordable": true,
       "coordinate_action": true,
       "point_target_action": true,
       "args": [
-        {"name": "target_description", "type": "string", "required": true, "description": {"zh_cn": "要点击的目标描述。", "en_us": "Description of the target to tap."}},
-        {"name": "element_index", "type": "integer", "description": {"zh_cn": "可选。OOB indexed page evidence 中目标元素的 #index；提供后系统可用 live XML 中该元素中心辅助定位，但不能替代 required 坐标。", "en_us": "Optional. The #index of the target element in OOB indexed page evidence; when provided, the runtime may use that live XML element center for grounding, but it cannot replace required coordinates."}, "minimum": 0},
-        {"name": "node_id", "type": "string", "description": {"zh_cn": "可选。live XML 中已确认的无障碍节点 id。", "en_us": "Optional. Confirmed accessibility node id from live XML."}},
-        {"name": "node_resource_id", "type": "string", "description": {"zh_cn": "可选。录制或 XML grounding 得到的 Android resource-id，用于重放定位诊断和迁移。", "en_us": "Optional. Android resource-id captured from recording or XML grounding, used for replay targeting diagnostics and transfer."}},
-        {"name": "x", "type": "number", "required": true, "description": {"zh_cn": "点击位置的 required 0..1000 相对 X 坐标；执行前会解码为屏幕绝对像素。", "en_us": "Required 0..1000 relative X coordinate of the tap target; decoded to absolute screen pixels before execution."}, "minimum": 0},
-        {"name": "y", "type": "number", "required": true, "description": {"zh_cn": "点击位置的 required 0..1000 相对 Y 坐标；执行前会解码为屏幕绝对像素。", "en_us": "Required 0..1000 relative Y coordinate of the tap target; decoded to absolute screen pixels before execution."}, "minimum": 0}
+        {"name": "target_description", "type": "string", "required": true, "persisted": false, "description": {"zh_cn": "要点击的目标描述。", "en_us": "Description of the target to tap."}},
+        {"name": "node_id", "type": "string", "persisted": false, "description": {"zh_cn": "可选。live XML 中已确认的无障碍节点 id。", "en_us": "Optional. Confirmed accessibility node id from live XML."}},
+        {"name": "node_resource_id", "type": "string", "persisted": false, "description": {"zh_cn": "可选。录制或 XML grounding 得到的 Android resource-id，用于重放定位诊断和迁移。", "en_us": "Optional. Android resource-id captured from recording or XML grounding, used for replay targeting diagnostics and transfer."}},
+        {"name": "x", "type": "number", "required": true, "description": {"zh_cn": "点击位置的 required 0..1000 相对 X 坐标；执行前会解码为屏幕绝对像素。", "en_us": "Required 0..1000 relative X coordinate of the tap target; decoded to absolute screen pixels before execution."}, "minimum": 0, "maximum": 1000},
+        {"name": "y", "type": "number", "required": true, "description": {"zh_cn": "点击位置的 required 0..1000 相对 Y 坐标；执行前会解码为屏幕绝对像素。", "en_us": "Required 0..1000 relative Y coordinate of the tap target; decoded to absolute screen pixels before execution."}, "minimum": 0, "maximum": 1000}
       ]
     },
     {
       "name": "long_press",
+      "kind": "action",
       "ui_label": {"zh_cn": "长按", "en_us": "Long press"},
       "description": {"zh_cn": "长按一个目标。", "en_us": "Long-press a target."},
       "prompt_guide": {
-        "zh_cn": "- long_press(target_description, x, y, element_index?): 长按目标；x/y 是 required 的 0..1000 相对坐标，element_index 只补充 grounding。",
-        "en_us": "- long_press(target_description, x, y, element_index?): Long-press a target; x/y are required 0..1000 relative coordinates, and element_index only supplements grounding."
+        "zh_cn": "- long_press(target_description, x, y): 长按目标；x/y 是 required 的 0..1000 相对坐标。",
+        "en_us": "- long_press(target_description, x, y): Long-press a target; x/y are required 0..1000 relative coordinates."
       },
       "recordable": true,
       "coordinate_action": true,
       "point_target_action": true,
       "args": [
-        {"name": "target_description", "type": "string", "required": true, "description": {"zh_cn": "要长按的目标描述。", "en_us": "Description of the target to long-press."}},
-        {"name": "element_index", "type": "integer", "description": {"zh_cn": "可选。OOB indexed page evidence 中目标元素的 #index；提供后系统可用 live XML 中该元素中心辅助定位，但不能替代 required 坐标。", "en_us": "Optional. The #index of the target element in OOB indexed page evidence; when provided, the runtime may use that live XML element center for grounding, but it cannot replace required coordinates."}, "minimum": 0},
-        {"name": "node_id", "type": "string", "description": {"zh_cn": "可选。live XML 中已确认的无障碍节点 id。", "en_us": "Optional. Confirmed accessibility node id from live XML."}},
-        {"name": "node_resource_id", "type": "string", "description": {"zh_cn": "可选。录制或 XML grounding 得到的 Android resource-id，用于重放定位诊断和迁移。", "en_us": "Optional. Android resource-id captured from recording or XML grounding, used for replay targeting diagnostics and transfer."}},
-        {"name": "x", "type": "number", "required": true, "description": {"zh_cn": "长按位置的 0..1000 相对 X 坐标；执行前会解码为屏幕绝对像素。", "en_us": "0..1000 relative X coordinate of the long press; decoded to absolute screen pixels before execution."}, "minimum": 0},
-        {"name": "y", "type": "number", "required": true, "description": {"zh_cn": "长按位置的 0..1000 相对 Y 坐标；执行前会解码为屏幕绝对像素。", "en_us": "0..1000 relative Y coordinate of the long press; decoded to absolute screen pixels before execution."}, "minimum": 0},
+        {"name": "target_description", "type": "string", "required": true, "persisted": false, "description": {"zh_cn": "要长按的目标描述。", "en_us": "Description of the target to long-press."}},
+        {"name": "node_id", "type": "string", "persisted": false, "description": {"zh_cn": "可选。live XML 中已确认的无障碍节点 id。", "en_us": "Optional. Confirmed accessibility node id from live XML."}},
+        {"name": "node_resource_id", "type": "string", "persisted": false, "description": {"zh_cn": "可选。录制或 XML grounding 得到的 Android resource-id，用于重放定位诊断和迁移。", "en_us": "Optional. Android resource-id captured from recording or XML grounding, used for replay targeting diagnostics and transfer."}},
+        {"name": "x", "type": "number", "required": true, "description": {"zh_cn": "长按位置的 0..1000 相对 X 坐标；执行前会解码为屏幕绝对像素。", "en_us": "0..1000 relative X coordinate of the long press; decoded to absolute screen pixels before execution."}, "minimum": 0, "maximum": 1000},
+        {"name": "y", "type": "number", "required": true, "description": {"zh_cn": "长按位置的 0..1000 相对 Y 坐标；执行前会解码为屏幕绝对像素。", "en_us": "0..1000 relative Y coordinate of the long press; decoded to absolute screen pixels before execution."}, "minimum": 0, "maximum": 1000},
         {"name": "duration_ms", "type": "integer", "description": {"zh_cn": "长按时长，单位毫秒。", "en_us": "Long-press duration in milliseconds."}, "minimum": 0}
       ]
     },
     {
       "name": "input_text",
+      "kind": "action",
       "ui_label": {"zh_cn": "输入文本", "en_us": "Input text"},
       "description": {
-        "zh_cn": "向一个可见输入目标输入文本；必须按 schema 提供 target_description、text、x、y，element_index 仅作为可选定位线索。",
-        "en_us": "Type text into a visible input target; provide target_description, text, x, and y as required by the schema. element_index is an optional grounding hint only."
+        "zh_cn": "向一个可见输入目标输入文本；必须按 schema 提供 target_description、text、x、y。",
+        "en_us": "Type text into a visible input target; provide target_description, text, x, and y as required by the schema."
       },
       "prompt_guide": {
-        "zh_cn": "- input_text(target_description, text, x, y, element_index?): 向输入框输入；x/y 是 required 的 0..1000 相对坐标，element_index 只补充 grounding。",
-        "en_us": "- input_text(target_description, text, x, y, element_index?): Type into an input field; x/y are required 0..1000 relative coordinates, and element_index only supplements grounding."
+        "zh_cn": "- input_text(target_description, text, x, y): 向输入框输入；x/y 是 required 的 0..1000 相对坐标。",
+        "en_us": "- input_text(target_description, text, x, y): Type into an input field; x/y are required 0..1000 relative coordinates."
       },
       "recordable": true,
       "coordinate_action": true,
       "args": [
-        {"name": "target_description", "type": "string", "required": true, "description": {"zh_cn": "要输入文本的目标输入框描述。", "en_us": "Description of the input target."}},
+        {"name": "target_description", "type": "string", "required": true, "persisted": false, "description": {"zh_cn": "要输入文本的目标输入框描述。", "en_us": "Description of the input target."}},
         {"name": "text", "type": "string", "required": true, "description": {"zh_cn": "要输入的文本内容。", "en_us": "Text content to type."}},
-        {"name": "element_index", "type": "integer", "description": {"zh_cn": "可选。OOB indexed page evidence 中目标输入框的 #index；提供后系统可用 live XML 中该元素中心辅助定位，但不能替代 required 坐标。", "en_us": "Optional. The #index of the target input field in OOB indexed page evidence; when provided, the runtime may use that live XML element center for grounding, but it cannot replace required coordinates."}, "minimum": 0},
-        {"name": "node_id", "type": "string", "description": {"zh_cn": "可选。live XML 中已确认的无障碍节点 id。", "en_us": "Optional. Confirmed accessibility node id from live XML."}},
-        {"name": "node_resource_id", "type": "string", "description": {"zh_cn": "可选。录制或 XML grounding 得到的 Android resource-id，用于重放定位诊断和迁移。", "en_us": "Optional. Android resource-id captured from recording or XML grounding, used for replay targeting diagnostics and transfer."}},
-        {"name": "x", "type": "number", "required": true, "description": {"zh_cn": "目标输入框中心的 required 0..1000 相对 X 坐标；执行前会解码为屏幕绝对像素。", "en_us": "Required 0..1000 relative X coordinate of the input target center; decoded to absolute screen pixels before execution."}, "minimum": 0},
-        {"name": "y", "type": "number", "required": true, "description": {"zh_cn": "目标输入框中心的 required 0..1000 相对 Y 坐标；执行前会解码为屏幕绝对像素。", "en_us": "Required 0..1000 relative Y coordinate of the input target center; decoded to absolute screen pixels before execution."}, "minimum": 0}
+        {"name": "node_id", "type": "string", "persisted": false, "description": {"zh_cn": "可选。live XML 中已确认的无障碍节点 id。", "en_us": "Optional. Confirmed accessibility node id from live XML."}},
+        {"name": "node_resource_id", "type": "string", "persisted": false, "description": {"zh_cn": "可选。录制或 XML grounding 得到的 Android resource-id，用于重放定位诊断和迁移。", "en_us": "Optional. Android resource-id captured from recording or XML grounding, used for replay targeting diagnostics and transfer."}},
+        {"name": "x", "type": "number", "required": true, "persisted": false, "description": {"zh_cn": "目标输入框中心的 required 0..1000 相对 X 坐标；执行前会解码为屏幕绝对像素。", "en_us": "Required 0..1000 relative X coordinate of the input target center; decoded to absolute screen pixels before execution."}, "minimum": 0, "maximum": 1000},
+        {"name": "y", "type": "number", "required": true, "persisted": false, "description": {"zh_cn": "目标输入框中心的 required 0..1000 相对 Y 坐标；执行前会解码为屏幕绝对像素。", "en_us": "Required 0..1000 relative Y coordinate of the input target center; decoded to absolute screen pixels before execution."}, "minimum": 0, "maximum": 1000}
       ]
     },
     {
       "name": "swipe",
+      "kind": "action",
       "ui_label": {"zh_cn": "滑动", "en_us": "Swipe"},
       "description": {"zh_cn": "在屏幕或可滚动区域内按方向滑动。", "en_us": "Swipe in a direction on the screen or inside a scrollable region."},
       "prompt_guide": {
-        "zh_cn": "- swipe(target_description, direction, x1, y1, x2, y2, scrollable_index?, duration_ms?): 在屏幕或指定可滚动区域内滑动；direction 和 x1/y1/x2/y2 必须满足 schema.required。",
-        "en_us": "- swipe(target_description, direction, x1, y1, x2, y2, scrollable_index?, duration_ms?): Swipe on the screen or a target scrollable region; direction and x1/y1/x2/y2 must satisfy schema.required."
+        "zh_cn": "- swipe(target_description, direction, x1, y1, x2, y2, duration_ms?): 在屏幕或指定可滚动区域内滑动；direction 和 x1/y1/x2/y2 必须满足 schema.required。",
+        "en_us": "- swipe(target_description, direction, x1, y1, x2, y2, duration_ms?): Swipe on the screen or a target scrollable region; direction and x1/y1/x2/y2 must satisfy schema.required."
       },
       "recordable": true,
       "coordinate_action": true,
       "args": [
-        {"name": "target_description", "type": "string", "required": true, "description": {"zh_cn": "本次滑动想浏览或定位的目标描述。", "en_us": "Description of what this swipe action is trying to browse or locate."}},
+        {"name": "target_description", "type": "string", "required": true, "persisted": false, "description": {"zh_cn": "本次滑动想浏览或定位的目标描述。", "en_us": "Description of what this swipe action is trying to browse or locate."}},
         {"name": "direction", "type": "string", "required": true, "description": {"zh_cn": "滑动方向。", "en_us": "Swipe direction."}, "enum_values": ["up", "down", "left", "right"]},
-        {"name": "scrollable_index", "type": "integer", "description": {"zh_cn": "可选。OOB indexed page evidence 中 Scrollable regions 的 Sindex；提供后系统会在该区域内生成安全滑动坐标。", "en_us": "Optional. The Sindex of the target Scrollable region in OOB indexed page evidence; when provided, the runtime generates safe swipe coordinates inside that region."}, "minimum": 0},
-        {"name": "x", "type": "number", "description": {"zh_cn": "可选。滑动锚点的 0..1000 相对 X 坐标；不提供时使用安全兜底区域。", "en_us": "Optional 0..1000 relative swipe anchor X coordinate; when omitted, the runtime uses a safe fallback region."}, "minimum": 0},
-        {"name": "y", "type": "number", "description": {"zh_cn": "可选。滑动锚点的 0..1000 相对 Y 坐标；不提供时使用安全兜底区域。", "en_us": "Optional 0..1000 relative swipe anchor Y coordinate; when omitted, the runtime uses a safe fallback region."}, "minimum": 0},
-        {"name": "distance", "type": "number", "description": {"zh_cn": "可选。滑动距离，使用 0..1000 相对坐标尺度。", "en_us": "Optional swipe distance using the 0..1000 relative coordinate scale."}, "minimum": 0},
-        {"name": "x1", "type": "number", "required": true, "description": {"zh_cn": "滑动起点的 0..1000 相对 X 坐标；执行前会解码为屏幕绝对像素。", "en_us": "Start 0..1000 relative X coordinate; decoded to absolute screen pixels before execution."}, "minimum": 0},
-        {"name": "y1", "type": "number", "required": true, "description": {"zh_cn": "滑动起点的 0..1000 相对 Y 坐标；执行前会解码为屏幕绝对像素。", "en_us": "Start 0..1000 relative Y coordinate; decoded to absolute screen pixels before execution."}, "minimum": 0},
-        {"name": "x2", "type": "number", "required": true, "description": {"zh_cn": "滑动终点的 0..1000 相对 X 坐标；执行前会解码为屏幕绝对像素。", "en_us": "End 0..1000 relative X coordinate; decoded to absolute screen pixels before execution."}, "minimum": 0},
-        {"name": "y2", "type": "number", "required": true, "description": {"zh_cn": "滑动终点的 0..1000 相对 Y 坐标；执行前会解码为屏幕绝对像素。", "en_us": "End 0..1000 relative Y coordinate; decoded to absolute screen pixels before execution."}, "minimum": 0},
+        {"name": "x", "type": "number", "persisted": false, "description": {"zh_cn": "可选。滑动锚点的 0..1000 相对 X 坐标；不提供时使用安全兜底区域。", "en_us": "Optional 0..1000 relative swipe anchor X coordinate; when omitted, the runtime uses a safe fallback region."}, "minimum": 0, "maximum": 1000},
+        {"name": "y", "type": "number", "persisted": false, "description": {"zh_cn": "可选。滑动锚点的 0..1000 相对 Y 坐标；不提供时使用安全兜底区域。", "en_us": "Optional 0..1000 relative swipe anchor Y coordinate; when omitted, the runtime uses a safe fallback region."}, "minimum": 0, "maximum": 1000},
+        {"name": "distance", "type": "number", "persisted": false, "description": {"zh_cn": "可选。滑动距离，使用 0..1000 相对坐标尺度。", "en_us": "Optional swipe distance using the 0..1000 relative coordinate scale."}, "minimum": 0, "maximum": 1000},
+        {"name": "x1", "type": "number", "required": true, "description": {"zh_cn": "滑动起点的 0..1000 相对 X 坐标；执行前会解码为屏幕绝对像素。", "en_us": "Start 0..1000 relative X coordinate; decoded to absolute screen pixels before execution."}, "minimum": 0, "maximum": 1000},
+        {"name": "y1", "type": "number", "required": true, "description": {"zh_cn": "滑动起点的 0..1000 相对 Y 坐标；执行前会解码为屏幕绝对像素。", "en_us": "Start 0..1000 relative Y coordinate; decoded to absolute screen pixels before execution."}, "minimum": 0, "maximum": 1000},
+        {"name": "x2", "type": "number", "required": true, "description": {"zh_cn": "滑动终点的 0..1000 相对 X 坐标；执行前会解码为屏幕绝对像素。", "en_us": "End 0..1000 relative X coordinate; decoded to absolute screen pixels before execution."}, "minimum": 0, "maximum": 1000},
+        {"name": "y2", "type": "number", "required": true, "description": {"zh_cn": "滑动终点的 0..1000 相对 Y 坐标；执行前会解码为屏幕绝对像素。", "en_us": "End 0..1000 relative Y coordinate; decoded to absolute screen pixels before execution."}, "minimum": 0, "maximum": 1000},
         {"name": "duration_ms", "type": "integer", "description": {"zh_cn": "滑动时长，单位毫秒。", "en_us": "Swipe duration in milliseconds."}, "minimum": 0}
       ]
     },
     {
       "name": "open_app",
+      "kind": "action",
       "ui_label": {"zh_cn": "打开应用", "en_us": "Open app"},
       "description": {"zh_cn": "打开指定应用。", "en_us": "Open a specific app."},
       "prompt_guide": {"zh_cn": "- open_app(package_name): 打开指定应用。", "en_us": "- open_app(package_name): Open a specific app."},
@@ -130,6 +107,7 @@
     },
     {
       "name": "press_key",
+      "kind": "action",
       "ui_label": {"zh_cn": "按系统键", "en_us": "Press key"},
       "description": {"zh_cn": "按一个系统导航键。", "en_us": "Press one system navigation key."},
       "prompt_guide": {"zh_cn": "- press_key(key): 按系统导航键；key 只能是 back、home 或 enter。", "en_us": "- press_key(key): Press a system navigation key; key must be back, home, or enter."},
@@ -140,17 +118,17 @@
     },
     {
       "name": "wait",
+      "kind": "action",
       "ui_label": {"zh_cn": "等待", "en_us": "Wait"},
       "description": {"zh_cn": "等待页面加载、动画或外部状态变化。", "en_us": "Wait for page loading, animation, or external state changes."},
-      "prompt_guide": {"zh_cn": "- wait(time_s?): 只在页面明确处于加载、动画或等待外部状态变化时使用。", "en_us": "- wait(time_s?): Use only when the page is clearly loading, animating, or waiting for an external state change."},
+      "prompt_guide": {"zh_cn": "- wait(duration_ms): 只在页面明确处于加载、动画或等待外部状态变化时使用。", "en_us": "- wait(duration_ms): Use only when the page is clearly loading, animating, or waiting for an external state change."},
       "args": [
-        {"name": "time_s", "type": "number", "description": {"zh_cn": "等待秒数。", "en_us": "Seconds to wait."}, "minimum": 0},
-        {"name": "time_ms", "type": "integer", "description": {"zh_cn": "等待毫秒数；兼容已采集轨迹。", "en_us": "Milliseconds to wait; compatible with collected trajectories."}, "minimum": 0},
-        {"name": "duration_ms", "type": "integer", "description": {"zh_cn": "等待毫秒数；与 time_s 二选一。", "en_us": "Milliseconds to wait; alternative to time_s."}, "minimum": 0}
+        {"name": "duration_ms", "type": "integer", "required": true, "description": {"zh_cn": "等待时长，单位毫秒。", "en_us": "Wait duration in milliseconds."}, "minimum": 0}
       ]
     },
     {
       "name": "get_state",
+      "kind": "observe",
       "ui_label": {"zh_cn": "刷新状态", "en_us": "Get state"},
       "description": {"zh_cn": "不执行 UI 操作，只重新获取当前页面状态、包名和 Accessibility tree。", "en_us": "Do not perform a UI action; refresh the current page state, package name, and Accessibility tree."},
       "prompt_guide": {"zh_cn": "- 内部状态刷新：运行时每轮自动读取当前页面状态；该动作不暴露给模型或前端，不点击、不滑动、不输入。", "en_us": "- Internal state refresh: the runtime reads the current page state automatically each turn; this action is not exposed to the model or frontend and does not tap, swipe, or type."},
@@ -163,6 +141,7 @@
     },
     {
       "name": "call_tool",
+      "kind": "function_invocation",
       "ui_label": {"zh_cn": "调用工具", "en_us": "Call tool"},
       "description": {"zh_cn": "内部工具调用动作。Function recall/replay 由运行时自动决定，普通 VLM/Agent 不直接选择该动作。", "en_us": "Internal tool-call action. Function recall/replay is selected by the runtime; normal VLM/Agent output does not choose this action directly."},
       "prompt_guide": {"zh_cn": "- 内部动作：不要在普通 VLM/Agent 输出中生成 call_tool；Function 命中由运行时自动执行。", "en_us": "- Internal action: do not emit call_tool in normal VLM/Agent output; Function hits are executed by the runtime."},
@@ -178,9 +157,11 @@
     },
     {
       "name": "finished",
+      "kind": "decision",
       "ui_label": {"zh_cn": "完成", "en_us": "Finished"},
       "description": {"zh_cn": "仅当当前页面或上一轮工具结果直接证明用户目标已经完成时结束。", "en_us": "End only when the current page or previous tool result directly proves the user's goal is complete."},
       "prompt_guide": {"zh_cn": "- finished(content?): 仅在当前页面或上一轮工具结果直接证明目标完成时调用；不确定就继续执行下一步。", "en_us": "- finished(content?): Call only when the current page or previous tool result directly proves completion; if uncertain, continue with the next action."},
+      "replayable": false,
       "args_template": {"content": "Done"},
       "args": [
         {"name": "content", "type": "string", "description": {"zh_cn": "给用户的最终完成说明，可为空。", "en_us": "Final completion note for the user. May be empty."}}
@@ -188,6 +169,7 @@
     },
     {
       "name": "info",
+      "kind": "decision",
       "ui_label": {"zh_cn": "询问用户", "en_us": "Info"},
       "description": {"zh_cn": "向用户询问或请求手动协助。", "en_us": "Ask the user a question or request manual help."},
       "prompt_guide": {"zh_cn": "- info(value): 询问用户或请求用户协助。", "en_us": "- info(value): Ask the user for information or manual assistance."},
@@ -199,6 +181,7 @@
     },
     {
       "name": "feedback",
+      "kind": "decision",
       "ui_label": {"zh_cn": "反馈", "en_us": "Feedback"},
       "description": {"zh_cn": "反馈当前上下文与目标不匹配。", "en_us": "Report that the current context does not match the goal."},
       "prompt_guide": {"zh_cn": "- feedback(value): 请求上层重新规划。", "en_us": "- feedback(value): Ask the upper layer to re-plan."},
@@ -210,6 +193,7 @@
     },
     {
       "name": "abort",
+      "kind": "decision",
       "ui_label": {"zh_cn": "终止", "en_us": "Abort"},
       "description": {"zh_cn": "任务无法继续时终止。", "en_us": "Abort when the task cannot continue."},
       "prompt_guide": {"zh_cn": "- abort(value?): 在任务无法继续时终止。", "en_us": "- abort(value?): Abort when the task cannot continue."},
@@ -221,6 +205,7 @@
     },
     {
       "name": "require_user_choice",
+      "kind": "decision",
       "ui_label": {"zh_cn": "用户选择", "en_us": "User choice"},
       "description": {"zh_cn": "让用户在若干选项中选择一个。", "en_us": "Ask the user to choose one option from a list."},
       "prompt_guide": {"zh_cn": "- require_user_choice(options, prompt): 让用户做互斥选择。", "en_us": "- require_user_choice(options, prompt): Ask the user to make a mutually exclusive choice."},
@@ -233,6 +218,7 @@
     },
     {
       "name": "require_user_confirmation",
+      "kind": "decision",
       "ui_label": {"zh_cn": "用户确认", "en_us": "User confirmation"},
       "description": {"zh_cn": "让用户确认当前状态后继续。", "en_us": "Ask the user to confirm the current state before continuing."},
       "prompt_guide": {"zh_cn": "- require_user_confirmation(prompt): 让用户确认后继续。", "en_us": "- require_user_confirmation(prompt): Ask the user to confirm before continuing."},

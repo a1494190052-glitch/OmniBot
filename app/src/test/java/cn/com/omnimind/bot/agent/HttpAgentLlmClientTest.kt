@@ -56,6 +56,7 @@ class HttpAgentLlmClientTest {
 
             requireNotNull(error)
             assertTrue(
+                "actual error=${error::class.qualifiedName}: ${error.message}",
                 error.message.orEmpty().contains("closed before completion signal")
             )
         } finally {
@@ -90,7 +91,10 @@ class HttpAgentLlmClientTest {
             }.exceptionOrNull()
 
             requireNotNull(error)
-            assertTrue(error.message.orEmpty().contains("idle timeout"))
+            assertTrue(
+                "actual error=${error::class.qualifiedName}: ${error.message}",
+                error.message.orEmpty().contains("idle timeout")
+            )
         } finally {
             scope.cancel()
         }
