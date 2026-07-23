@@ -34,27 +34,9 @@ jobs:
           fetch-depth: 0
           submodules: false
 
-      - name: Verify embedded canonical runtimes
+      - name: Verify embedded runtime snapshot
         shell: bash
-        run: |
-          set -euo pipefail
-          runtime_dir="${RUNNER_TEMP}/canonical-runtimes"
-          mkdir -p "${runtime_dir}"
-
-          omniflow_repo="$(sed -n 's/^omniflow.repository=//p' embedded/omniflow/runtime.properties)"
-          omniflow_commit="$(sed -n 's/^omniflow.commit=//p' embedded/omniflow/runtime.properties)"
-          omnitransfer_repo="$(sed -n 's/^omnitransfer.repository=//p' embedded/omniflow/runtime.properties)"
-          omnitransfer_commit="$(sed -n 's/^omnitransfer.commit=//p' embedded/omniflow/runtime.properties)"
-
-          git clone --filter=blob:none "${omniflow_repo}" "${runtime_dir}/OmniFlow"
-          git -C "${runtime_dir}/OmniFlow" checkout --detach "${omniflow_commit}"
-          git clone --filter=blob:none "${omnitransfer_repo}" "${runtime_dir}/OmniTransfer"
-          git -C "${runtime_dir}/OmniTransfer" checkout --detach "${omnitransfer_commit}"
-
-          python3 scripts/sync-embedded-omniflow-runtime.py \
-            --check \
-            --omniflow-repo "${runtime_dir}/OmniFlow" \
-            --omnitransfer-repo "${runtime_dir}/OmniTransfer"
+        run: python3 scripts/sync-embedded-omniflow-runtime.py --check-embedded
 
       - name: Set up JDK 17
         uses: actions/setup-java@v4

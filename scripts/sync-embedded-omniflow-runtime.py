@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import re
 import shutil
 import subprocess
 from pathlib import Path
@@ -39,6 +40,11 @@ def parse_args() -> argparse.Namespace:
         description="Sync canonical OmniFlow and OmniTransfer runtime sources into OpenOmniBot."
     )
     parser.add_argument("--check", action="store_true")
+    parser.add_argument(
+        "--check-embedded",
+        action="store_true",
+        help="Verify the embedded snapshot hashes without accessing canonical repositories.",
+    )
     parser.add_argument(
         "--bootstrap-omniflow-from-embedded",
         action="store_true",
@@ -216,22 +222,67 @@ def sync_schemas(app_schema_dir: Path, omniflow_schema_dir: Path, check: bool) -
     return differences
 
 
+def check_embedded_snapshot(
+    embedded_omniflow: Path,
+    embedded_omnitransfer: Path,
+    runtime_properties: Path,
+) -> int:
+    differences = []
+    properties = read_properties(runtime_properties)
+    expected_hashes = {
+        "omniflow.source.sha256": directory_sha256(embedded_omniflow),
+        "omnitransfer.source.sha256": directory_sha256(embedded_omnitransfer),
+    }
+    for key, expected in expected_hashes.items():
+        if properties.get(key) != expected:
+            differences.append(f"runtime.properties {key} differs")
+    for key in ("omniflow.commit", "omnitransfer.commit"):
+        if not re.fullmatch(r"[0-9a-f]{40}", properties.get(key, "")):
+            differences.append(f"runtime.properties {key} is invalid")
+    transfer_files = set(files_by_relative_path(embedded_omnitransfer))
+    if transfer_files != set(OMNITRANSFER_RUNTIME_PATHS):
+        differences.append("embedded OmniTransfer runtime file set differs")
+    if not (embedded_omniflow / "bridge.py").is_file():
+        differences.append("embedded OmniFlow bridge.py is missing")
+    if differences:
+        print("Embedded runtime integrity check failed:")
+        for difference in differences:
+            print(f"- {difference}")
+        return 1
+    print("Embedded OmniFlow and OmniTransfer runtime snapshot integrity verified.")
+    return 0
+
+
 def main() -> int:
     args = parse_args()
     repo_root = Path(__file__).resolve().parents[1]
-    omniflow_repo = args.omniflow_repo.resolve()
-    omnitransfer_repo = args.omnitransfer_repo.resolve()
-    assert_source_paths(omniflow_repo, omnitransfer_repo)
-
-    canonical_omniflow = omniflow_repo / "omniflow"
-    canonical_omnitransfer = omnitransfer_repo / "src/omnitransfer"
     embedded_root = repo_root / "embedded/omniflow/python"
     embedded_omniflow = embedded_root / "omniflow"
     embedded_omnitransfer = embedded_root / "omnitransfer"
     runtime_properties = repo_root / "embedded/omniflow/runtime.properties"
 
-    if args.check and args.bootstrap_omniflow_from_embedded:
-        raise SystemExit("--check cannot be combined with --bootstrap-omniflow-from-embedded")
+    selected_modes = sum(
+        bool(value)
+        for value in (
+            args.check,
+            args.check_embedded,
+            args.bootstrap_omniflow_from_embedded,
+        )
+    )
+    if selected_modes > 1:
+        raise SystemExit("Select only one check or bootstrap mode")
+    if args.check_embedded:
+        return check_embedded_snapshot(
+            embedded_omniflow,
+            embedded_omnitransfer,
+            runtime_properties,
+        )
+
+    omniflow_repo = args.omniflow_repo.resolve()
+    omnitransfer_repo = args.omnitransfer_repo.resolve()
+    assert_source_paths(omniflow_repo, omnitransfer_repo)
+    canonical_omniflow = omniflow_repo / "omniflow"
+    canonical_omnitransfer = omnitransfer_repo / "src/omnitransfer"
 
     if args.check:
         differences = []

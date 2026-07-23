@@ -148,7 +148,7 @@ this stream; ordinary `public` builds cannot see its releases.
 
 `.github/workflows/vlm-core-standard.yml` runs on every push to `vlm-core`. It:
 
-1. verifies that the embedded OmniFlow/OmniTransfer runtime matches the pinned canonical commits;
+1. verifies the embedded OmniFlow/OmniTransfer snapshot hashes and pinned source identities without private cross-repository access;
 2. generates a monotonically increasing four-part beta version;
 3. builds and signs only the Standard APK;
 4. uploads the APK as a private GitHub Actions artifact;
