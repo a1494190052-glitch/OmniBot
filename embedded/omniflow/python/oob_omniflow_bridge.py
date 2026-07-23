@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from omniflow.bridge import JsonLineBridge
-from omnitransfer import runtime_preflight
+from omnitransfer.runtime import runtime_preflight
 
 CONTRACT_NAME = "omniflow_android_bridge.v2.json"
 RUNTIME_PROPERTIES = Path(__file__).resolve().parent.parent / "runtime.properties"

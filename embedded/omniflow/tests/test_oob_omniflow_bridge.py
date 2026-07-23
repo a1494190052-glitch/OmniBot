@@ -59,13 +59,26 @@ def test_health_advertises_the_complete_oob_contract(tmp_path: Path) -> None:
     assert health["omnitransfer_backend"] in {"numpy", "pytorch"}
 
     recall_response = BRIDGE_CONTRACT["operations"]["recall"]["response"]
-    assert recall_response["required"] == ["candidates"]
+    assert recall_response["required"] == [
+        "success",
+        "retrieval_state",
+        "candidates",
+        "count",
+        "reason",
+        "runtime_source",
+        "duration_ms",
+    ]
     assert recall_response["candidate"]["required"] == ["function", "retrieval"]
     assert recall_response["candidate"]["retrieval"]["required"] == [
         "score",
         "source",
         "rank",
     ]
+    assert "record_step" not in BRIDGE_CONTRACT["operations"]
+    assert BRIDGE_CONTRACT["host_call"]["record_step_payload"] == {
+        "required": ["step"],
+        "step_schema_ref": "omniflow_canonical_run_log.v1.json#/$defs/step",
+    }
 
 
 def test_health_loads_functions_after_action_canonicalization(tmp_path: Path) -> None:
@@ -110,6 +123,9 @@ def test_catalog_and_recall_round_trip(tmp_path: Path) -> None:
     candidate = recalled["candidates"][0]
 
     assert stored["function_id"] == "enter_name"
+    assert recalled["success"] is True
+    assert recalled["retrieval_state"] == "has_candidates"
+    assert recalled["count"] == 1
     assert candidate["function"]["function_id"] == "enter_name"
     assert "score" not in candidate["function"]
     assert candidate["retrieval"] == {
@@ -233,7 +249,7 @@ def test_omnitransfer_fails_closed_when_matcher_is_unavailable(monkeypatch) -> N
     )
 
     assert result["mapped"] is False
-    assert result["mapping_mode"] == "mutual_graph_matcher_v2"
+    assert result["mapping_mode"] == "mutual_graph_matcher_no_null_v3"
     assert result["reason"] == "matcher_unavailable"
 
 
@@ -458,108 +474,6 @@ def test_control_act_keeps_runtime_input_target_coordinates(tmp_path: Path) -> N
             "display": {"width": 100, "height": 200},
         },
     }
-
-
-def test_record_step_keeps_canonical_coordinates(tmp_path: Path) -> None:
-    result = OobOmniFlowBridge(tmp_path / "store.json")._handle(
-        "record",
-        "record_step",
-        {
-            "step_index": 0,
-            "before_state_id": "before",
-            "action": {"tool": "click", "args": {"x": 900, "y": 75}},
-            "result": {"success": True},
-            "after_state_id": "after",
-            "metadata": {
-                "step_id": "record-step-0",
-                "status": "succeeded",
-                "summary": "Tapped target",
-            },
-        },
-    )
-
-    step = result["step"]
-    assert set(step) == {
-        "step_index",
-        "before_state_id",
-        "action",
-        "result",
-        "after_state_id",
-        "metadata",
-    }
-    assert step["action"] == {
-        "tool": "click",
-        "args": {"x": 900, "y": 75},
-    }
-    assert step["before_state_id"] == "before"
-    assert step["after_state_id"] == "after"
-    assert step["metadata"]["step_id"] == "record-step-0"
-    assert set(result) == {"step"}
-
-
-def test_record_step_rejects_coordinate_space_override(tmp_path: Path) -> None:
-    with pytest.raises(ValueError, match="additionalProperties:coordinate_space"):
-        OobOmniFlowBridge(tmp_path / "store.json")._handle(
-            "record",
-            "record_step",
-            {
-                "step_index": 0,
-                "before_state_id": "before",
-                "action": {"tool": "click", "args": {"x": 900, "y": 75}},
-                "result": {"success": True},
-                "after_state_id": "after",
-                "coordinate_space": "screen_px",
-            },
-        )
-
-
-def test_record_step_rejects_noncanonical_step_fields(tmp_path: Path) -> None:
-    bridge = OobOmniFlowBridge(tmp_path / "store.json")
-
-    with pytest.raises(ValueError, match="additionalProperties:status"):
-        bridge._handle(
-            "record",
-            "record_step",
-            {
-                "step_index": 0,
-                "status": "succeeded",
-                "before_state_id": "before",
-                "action": {"tool": "wait", "args": {"duration_ms": 1000}},
-                "result": {"success": True},
-                "after_state_id": "after",
-            },
-        )
-
-
-@pytest.mark.parametrize(
-    "action",
-    [
-        {"tool": "get_state", "args": {"reason": "refresh"}},
-        {"tool": "finished", "args": {"content": "done"}},
-        {"tool": "abort", "args": {"value": "user_cancelled"}},
-    ],
-)
-def test_record_step_keeps_non_replayable_canonical_events(
-    tmp_path: Path,
-    action: dict,
-) -> None:
-    result = OobOmniFlowBridge(tmp_path / "store.json")._handle(
-        "record",
-        "record_step",
-        {
-            "step_index": 0,
-            "before_state_id": "before",
-            "action": action,
-            "result": {"success": action["tool"] != "abort"},
-            "after_state_id": "after",
-            "metadata": {
-                "step_id": "record-step-0",
-                "status": "failed" if action["tool"] == "abort" else "succeeded",
-            },
-        },
-    )
-
-    assert result["step"]["action"] == action
 
 
 def test_prepare_action_blocks_without_source_state(tmp_path: Path) -> None:

@@ -288,7 +288,7 @@ class DebugVlmRunLogReceiver : BroadcastReceiver() {
             toolName = "vlm_task",
             operationDescription = goal,
         )
-        val canonicalStep = omniFlowRecordStepExecutor(context).recordStep(
+        val canonicalStep = omniFlowRecordStepExecutor().recordStep(
             RunLogStepRecord(
                 step = linkedMapOf(
                     "step_index" to 0,

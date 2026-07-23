@@ -390,7 +390,7 @@ class DebugRunLogFunctionReplayReceiver : BroadcastReceiver() {
             .ifBlank { "debug_inline_${System.currentTimeMillis()}" }
         val goal = firstNonBlank(runLog["goal"], fallbackGoal)
         val rawSteps = (runLog["steps"] as? List<*>) ?: emptyList<Any?>()
-        val stepConverter = omniFlowRecordStepExecutor(context)
+        val stepConverter = omniFlowRecordStepExecutor()
         val steps = rawSteps.mapNotNull { raw ->
             val step = (raw as? Map<*, *>)?.entries
                 ?.associate { (key, value) -> key.toString() to value }

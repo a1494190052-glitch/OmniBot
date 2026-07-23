@@ -105,7 +105,7 @@ class DebugHumanRunRecordingReceiver : BroadcastReceiver() {
             context = context,
             name = name,
             description = description.ifBlank { name },
-            recordStepExecutor = omniFlowRecordStepExecutor(context),
+            recordStepExecutor = omniFlowRecordStepExecutor(),
             enableRawTouch = enableRawTouch,
             enableDebugScreenshots = enableDebugScreenshots
         )

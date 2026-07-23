@@ -18,6 +18,7 @@ internal data class OmniFlowRuntimeManifest(
     val omniFlowSourceSha256: String,
     val omniTransferCommit: String,
     val omniTransferSourceSha256: String,
+    val omniTransferCheckpoint: String,
     val numpyVersion: String,
     val bundleSha256: String,
 )
@@ -41,6 +42,11 @@ internal fun parseOmniFlowRuntimeManifest(input: InputStream): OmniFlowRuntimeMa
         .filter(String::isNotEmpty)
         .toSet()
     require(capabilities.isNotEmpty()) { "omniflow_runtime_capabilities_invalid" }
+    val omniTransferCheckpoint = required("omnitransfer.checkpoint")
+    require(
+        !omniTransferCheckpoint.startsWith('/') &&
+            ".." !in omniTransferCheckpoint.split('/')
+    ) { "omniflow_runtime_checkpoint_path_invalid" }
     return OmniFlowRuntimeManifest(
         version = version,
         protocol = required("runtime.protocol"),
@@ -52,6 +58,7 @@ internal fun parseOmniFlowRuntimeManifest(input: InputStream): OmniFlowRuntimeMa
         omniFlowSourceSha256 = sourceSha256("omniflow.source.sha256"),
         omniTransferCommit = required("omnitransfer.commit"),
         omniTransferSourceSha256 = sourceSha256("omnitransfer.source.sha256"),
+        omniTransferCheckpoint = omniTransferCheckpoint,
         numpyVersion = required("numpy.version"),
         bundleSha256 = bundleSha256,
     )

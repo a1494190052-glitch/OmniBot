@@ -769,19 +769,9 @@ abstract class _ChatPageStateBase extends State<ChatPage>
     await _applyConversationThreadTarget(nextTarget);
   }
 
-  String get _expectedBrowserWorkspaceId {
-    final conversationWorkspace = chatConversationWorkspaceId(
-      _currentConversationIdByMode[ChatPageMode.normal],
-    );
-    final runtime = _runtimeForMode(ChatPageMode.normal);
-    final taskId = (runtime?.currentDispatchTaskId ?? runtime?.lastAgentTaskId)
-        ?.trim();
-    if (taskId == null || taskId.isEmpty) {
-      return conversationWorkspace;
-    }
-    final segment = taskId.replaceAll(RegExp(r'[^A-Za-z0-9._-]'), '_');
-    return '$conversationWorkspace-segment-$segment';
-  }
+  String get _expectedBrowserWorkspaceId => chatConversationWorkspaceId(
+    _currentConversationIdByMode[ChatPageMode.normal],
+  );
 
   List<ChatMessageModel> get _messages =>
       _activeRuntime?.messages ?? _messagesByMode[_activeMode]!;
@@ -1517,12 +1507,11 @@ abstract class _ChatPageStateBase extends State<ChatPage>
     );
   }
 
-  String _buildOpenClawSessionKey(int conversationId, String contextSegmentId) {
-    return buildOpenClawContextSessionKey(
+  String _buildOpenClawSessionKey(int conversationId) {
+    return buildOpenClawConversationSessionKey(
       prefix: _openClawSessionKeyPrefix,
       userId: _openClawUserId,
       conversationId: conversationId,
-      contextSegmentId: contextSegmentId,
     );
   }
 

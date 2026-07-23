@@ -1186,6 +1186,22 @@ class AgentConversationHistorySupportTest {
     }
 
     @Test
+    fun `unscoped prompt history includes every task in the conversation`() {
+        val entries = listOf(
+            withContextSegment(buildUserEntry(1, "task-a-user", "任务 A 用户输入"), "task-a"),
+            withContextSegment(buildAssistantEntry(2, "task-a-assistant", "任务 A 助手输出"), "task-a"),
+            withContextSegment(buildUserEntry(3, "task-b-user", "任务 B 用户输入"), "task-b")
+        )
+
+        val messages = AgentConversationHistorySupport.buildPromptRelevantMessages(entries)
+
+        assertEquals(
+            listOf("任务 A 用户输入", "任务 A 助手输出", "任务 B 用户输入"),
+            messages.map { it.content?.jsonPrimitive?.content }
+        )
+    }
+
+    @Test
     fun `legacy entries without a segment are not read by segmented task`() {
         val legacy = buildUserEntry(1, "legacy-user", "旧任务内容")
         val current = withContextSegment(

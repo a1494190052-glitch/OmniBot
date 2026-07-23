@@ -47,7 +47,6 @@ internal fun omniFlowAndroidHostCall(
     val appContext = context.applicationContext
     val actionExecutor = ActionExecutor(deviceOperator, UIContextManager())
     return omniFlowAndroidHostCall(
-        loadRunLog = { runId -> InternalRunLogStore.timelinePayload(appContext, runId) },
         loadState = { stateId -> InternalRunLogStore.statePayload(appContext, stateId) },
         observe = {
             val snapshot = ReplayHelper.readBackendSnapshot(deviceOperator)
@@ -90,7 +89,6 @@ internal fun omniFlowAndroidHostCall(
 }
 
 internal fun omniFlowAndroidHostCall(
-    loadRunLog: (String) -> Map<String, Any?>,
     loadState: (String) -> Map<String, Any?>,
     observe: suspend () -> Map<String, Any?>,
     act: suspend (Map<String, Any?>, Map<String, Any?>) -> Map<String, Any?>,
@@ -107,11 +105,6 @@ internal fun omniFlowAndroidHostCall(
                     "host_action_state_required"
                 }
                 act(action, OmniFlowState.normalize(rawState))
-            }
-            "get_run_log" -> {
-                val runId = payload["run_id"]?.toString()?.trim().orEmpty()
-                require(runId.isNotEmpty()) { "run_id_required" }
-                loadRunLog(runId)
             }
             "get_state" -> {
                 val stateId = payload["state_id"]?.toString()?.trim().orEmpty()

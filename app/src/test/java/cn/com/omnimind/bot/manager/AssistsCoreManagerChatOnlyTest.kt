@@ -38,30 +38,11 @@ class AssistsCoreManagerChatOnlyTest {
             chatPromptContent = "# CHAT\nbe helpful\n"
         )
 
-        assertEquals(2, chatOnlyResult.size)
+        assertEquals(4, chatOnlyResult.size)
         assertEquals("system", chatOnlyResult.first()["role"])
         assertEquals("# CHAT\nbe helpful\n", chatOnlyResult.first()["content"])
-        assertEquals(content.last(), chatOnlyResult[1])
-        assertEquals(listOf(content.last()), normalResult)
-    }
-
-    @Test
-    fun `scopeChatProviderSessionKey isolates each runtime segment`() {
-        assertEquals(
-            "openomnibot:segment:task-1",
-            scopeChatProviderSessionKey(null, "task-1")
-        )
-        assertEquals(
-            "user:conversation:7:segment:task_2",
-            scopeChatProviderSessionKey("user:conversation:7", "task 2")
-        )
-        assertEquals(
-            "user:conversation:7:segment:task-3",
-            scopeChatProviderSessionKey(
-                "user:conversation:7:segment:task-3",
-                "task-3"
-            )
-        )
+        assertEquals(content, chatOnlyResult.drop(1))
+        assertEquals(content, normalResult)
     }
 
     @Test

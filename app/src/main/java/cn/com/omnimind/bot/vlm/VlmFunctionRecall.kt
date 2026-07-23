@@ -5,18 +5,14 @@ import cn.com.omnimind.assists.task.vlmserver.UIContext
 import cn.com.omnimind.assists.task.vlmserver.VLMRecallContextProvider
 import cn.com.omnimind.assists.task.vlmserver.VLMRecallContextRequest
 import cn.com.omnimind.baselib.util.OmniLog
-import cn.com.omnimind.bot.function.FunctionRecallCandidate
+import cn.com.omnimind.bot.agent.AgentToolJson.mapToJsonElement
 import cn.com.omnimind.bot.omniflow.OmniFlowFunctionRecallAdapter
 import cn.com.omnimind.bot.omniflow.OmniFlowPythonRuntime
 import cn.com.omnimind.bot.runlog.firstNonBlank
 import cn.com.omnimind.bot.runlog.listArg
 import cn.com.omnimind.bot.runlog.mapArg
-import kotlinx.serialization.json.JsonArray
-import kotlinx.serialization.json.JsonElement
-import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
-import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonPrimitive
@@ -36,275 +32,138 @@ class VlmFunctionRecall internal constructor(
     )
 
     override suspend fun enrich(request: VLMRecallContextRequest): UIContext {
-        if (request.disableFunctionRecall || !config.recallEnabled) {
-            return request.context
-        }
+        if (request.disableFunctionRecall || !config.recallEnabled) return request.context
         val goal = request.context.activeGoal().ifBlank { request.context.overallTask }.trim()
         if (goal.isBlank()) return request.context
 
+        val maxTools = config.recallMaxToolsPerStep.coerceAtLeast(0)
+        if (maxTools == 0) return request.context
         val startedAt = System.currentTimeMillis()
-        // recallMaxCandidates = retrieval pool size; recallMaxToolsPerStep = injection cap.
-        // Query with the full pool so the best match isn't excluded before ranking.
-        val fetchK = config.recallMaxCandidates.coerceAtLeast(1)
-        val injectMax = config.recallMaxToolsPerStep.coerceAtLeast(0)
-        if (injectMax <= 0) {
-            return request.context.copy(
-                pageDiagnostics = request.context.pageDiagnostics + mapOf(
-                    "recall_context_lookup_ms" to "0",
-                    "recall_context_state" to "disabled_by_max_tools",
-                    "recall_context_tool_count" to "0",
-                )
+        val result = runCatching {
+            recall(
+                mapOf(
+                    "goal" to goal,
+                    "current_package" to request.currentPackageName,
+                    "current_xml" to request.currentXml,
+                    "k" to config.recallMaxCandidates.coerceAtLeast(1),
+                ),
             )
-        }
-        val recallRequest = mapOf(
-            "goal" to goal,
-            "current_package" to request.currentPackageName,
-            "current_xml" to request.currentXml,
-            "k" to fetchK,
-        )
-        val recallResult = runCatching {
-            recall(recallRequest)
         }.onFailure { OmniLog.w(TAG, "recall failed: ${it.message}") }
             .getOrNull()
-            ?: return request.context.copy(
-                pageDiagnostics = request.context.pageDiagnostics + mapOf(
-                    "recall_context_lookup_ms" to elapsed(startedAt),
-                    "recall_context_state" to "error",
-                    "recall_context_tool_count" to "0",
-                )
-            )
+            ?: return withDiagnostics(request.context, startedAt, "unavailable", emptyList(), "")
 
-        val candidates = recalledCandidates(recallResult)
-            .take(injectMax)
-        val tools = candidates.mapIndexedNotNull { index, candidate ->
-            buildToolDefinition(index = index, candidate = candidate, currentGoal = goal)
-        }
-        val ids = tools.mapNotNull { definition ->
-            val function = definition["function"] as? JsonObject
-            function?.get("name")?.jsonPrimitive?.contentOrNull
-        }
-        val recallDiagnostics = linkedMapOf(
-            "recall_context_lookup_ms" to elapsed(startedAt),
-            "recall_context_state" to firstNonBlank(recallResult["retrieval_state"]).ifBlank { "miss" },
-            "recall_context_tool_count" to tools.size.toString(),
-            "recall_context_tool_names" to ids.joinToString(",").take(4000),
-            "recall_context_runtime_source" to firstNonBlank(recallResult["runtime_source"])
-                .ifBlank { "omniflow_python" },
-        )
-        firstNonBlank(recallResult["reason"])
-            .takeIf(String::isNotBlank)
-            ?.let { reason -> recallDiagnostics["recall_context_reason"] = reason.take(240) }
-        return request.context.copy(
-            dynamicToolDefinitions = request.context.dynamicToolDefinitions + tools,
-            pageDiagnostics = request.context.pageDiagnostics + recallDiagnostics,
+        val tools = candidates(result)
+            .take(maxTools)
+            .mapIndexedNotNull { index, candidate ->
+                toolDefinition(index, candidate, goal)
+            }
+        return withDiagnostics(
+            context = request.context.copy(
+                dynamicToolDefinitions = request.context.dynamicToolDefinitions + tools,
+            ),
+            startedAt = startedAt,
+            state = firstNonBlank(result["retrieval_state"]).ifBlank { "miss" },
+            tools = tools,
+            reason = firstNonBlank(result["reason"]),
         )
     }
 
-    private fun recalledCandidates(payload: Map<String, Any?>): List<FunctionRecallCandidate> {
+    private fun candidates(payload: Map<String, Any?>): List<Map<String, Any?>> {
         val seen = linkedSetOf<String>()
-        val candidates = mutableListOf<FunctionRecallCandidate>()
-
-        listArg(payload["candidates"]).forEach { raw ->
-            val candidate = runCatching { FunctionRecallCandidate.parse(raw) }
-                .onFailure { OmniLog.w(TAG, "recall candidate contract error: ${it.message}") }
-                .getOrNull()
-                ?: return@forEach
-            if (seen.add(candidate.functionId)) candidates += candidate
+        return listArg(payload["candidates"]).mapNotNull { raw ->
+            val candidate = mapArg(raw)
+            val functionId = firstNonBlank(mapArg(candidate["function"])["function_id"])
+            candidate.takeIf { functionId.isNotBlank() && seen.add(functionId) }
         }
-        return candidates
     }
 
-    private fun buildToolDefinition(
+    private fun toolDefinition(
         index: Int,
-        candidate: FunctionRecallCandidate,
-        currentGoal: String,
+        candidate: Map<String, Any?>,
+        goal: String,
     ): JsonObject? {
-        val function = candidate.function
-        val functionId = candidate.functionId
-        val toolName = "${config.recallToolNamePrefix}_${index + 1}"
+        val function = mapArg(candidate["function"])
+        val functionId = firstNonBlank(function["function_id"])
+        if (functionId.isBlank()) return null
         val inputSchema = mapArg(function["input_schema"])
-        val description = buildDescription(
-            candidate = function,
-            inputSchema = inputSchema,
-            functionId = functionId,
-            currentGoal = currentGoal
-        )
         return buildJsonObject {
             put("type", "function")
             put("function_id", functionId)
             put("function", buildJsonObject {
-                put("name", toolName)
+                put("name", "${config.recallToolNamePrefix}_${index + 1}")
                 put("tool_type", "oob_recalled_function")
-                put("description", description)
-                put("parameters", sanitizeInputSchema(inputSchema))
+                put("description", description(function, inputSchema, goal))
+                put("parameters", mapToJsonElement(inputSchema) as JsonObject)
             })
         }
     }
 
-    private fun buildDescription(
-        candidate: Map<String, Any?>,
+    private fun description(
+        function: Map<String, Any?>,
         inputSchema: Map<String, Any?>,
-        functionId: String,
-        currentGoal: String,
+        goal: String,
     ): String {
-        val profile = mapArg(candidate["function_profile"])
-        val purpose = firstNonBlank(profile["purpose"], profile["use_when"])
-        val useWhen = firstNonBlank(profile["use_when"], profile["reuse_when"], purpose)
-        val functionName = firstNonBlank(candidate["name"], functionId)
-        val description = firstNonBlank(candidate["description"], purpose, functionName, functionId)
-        val goal = currentGoal.replace(Regex("\\s+"), " ").trim().take(160)
-        val requiredArguments = requiredArgumentNames(inputSchema)
-        val argumentDetails = argumentDetails(inputSchema)
-        val stepDetails = stepDetails(candidate)
-        val limit = config.recallToolDescriptionChars.coerceAtLeast(MIN_TOOL_DESCRIPTION_CHARS)
-        return buildString {
-            append("Saved workflow id: ")
-            append(functionId.take(96))
-            append(". Name: ")
-            append(functionName.ifBlank { functionId }.take(80))
-            append(". ")
-            if (description.isNotBlank()) {
-                append("Description: ")
-                append(description.take(config.recallDescriptionChars))
-                append(". ")
-            }
-            if (useWhen.isNotBlank()) {
-                append("Use when: ")
-                append(useWhen.take(config.recallDescriptionChars))
-                append(". ")
-            }
-            if (goal.isNotBlank()) {
-                append("Current user goal: ")
-                append(goal)
-                append(". Fill arguments from the current user goal; pass only the argument value, not the whole sentence. ")
-            }
-            if (requiredArguments.isNotEmpty()) {
-                append("Required arguments: ")
-                append(requiredArguments.joinToString(", "))
-                append(". ")
-            }
-            if (argumentDetails.isNotBlank()) {
-                append("Argument details: ")
-                append(argumentDetails)
-                append(". ")
-            } else {
-                append("Arguments: none. ")
-            }
-            if (stepDetails.isNotBlank()) {
-                append("Recorded steps: ")
-                append(stepDetails)
-                append(". ")
-            }
-            append("Call only when it clearly matches the current goal; otherwise continue with ordinary UI actions.")
-        }.take(limit)
-    }
-
-    private fun argumentDetails(inputSchema: Map<String, Any?>): String {
+        val functionId = firstNonBlank(function["function_id"])
+        val name = firstNonBlank(function["name"])
+        val description = firstNonBlank(function["description"])
         val properties = mapArg(inputSchema["properties"])
-        if (properties.isEmpty()) return ""
-        val required = requiredArgumentNames(inputSchema).toSet()
-        return properties.entries.take(6).joinToString("; ") { (name, rawProperty) ->
-            val property = mapArg(rawProperty)
-            val description = firstNonBlank(property["description"], property["title"])
-            val type = firstNonBlank(property["type"]).ifBlank { "string" }.take(40)
-            val marker = if (name in required) "required " else ""
-            val prefix = "$name (${marker}$type)"
-            if (description.isBlank()) prefix else "$prefix: ${description.take(96)}"
-        }
-    }
-
-    private fun requiredArgumentNames(inputSchema: Map<String, Any?>): List<String> =
-        listArg(inputSchema["required"])
+        val required = listArg(inputSchema["required"])
             .mapNotNull { it?.toString()?.trim()?.takeIf(String::isNotEmpty) }
-            .filter { it != TOOL_TITLE_FIELD }
-            .distinct()
-
-    private fun stepDetails(candidate: Map<String, Any?>): String =
-        listArg(candidate["step_summaries"])
-            .mapIndexedNotNull { index, raw ->
-                val step = mapArg(raw)
-                val tool = firstNonBlank(step["tool"]).take(40)
-                val title = firstNonBlank(step["title"], step["summary"]).take(80)
-                when {
-                    tool.isBlank() && title.isBlank() -> null
-                    title.isBlank() || title == tool -> "${index + 1}. $tool"
-                    tool.isBlank() -> "${index + 1}. $title"
-                    else -> "${index + 1}. $tool: $title"
-                }
-            }
-            .take(8)
-            .joinToString("; ")
-
-    private fun sanitizeInputSchema(inputSchema: Map<String, Any?>): JsonObject {
-        val raw = toJsonObject(inputSchema)
-        if (raw.isEmpty()) return emptyObjectSchema()
-        val type = raw["type"]?.jsonPrimitive?.contentOrNull?.trim()
-        val properties = raw["properties"] as? JsonObject ?: JsonObject(emptyMap())
-        val required = raw["required"] as? JsonArray ?: JsonArray(emptyList())
-        val cleanedProperties = JsonObject(properties.filterKeys { it != TOOL_TITLE_FIELD })
-        val cleanedRequired = buildJsonArray {
-            required.forEach { item ->
-                val name = item.jsonPrimitive.contentOrNull?.trim()
-                if (!name.isNullOrBlank() && name != TOOL_TITLE_FIELD) add(JsonPrimitive(name))
+        val arguments = properties.entries.take(8).joinToString("; ") { (argument, raw) ->
+            val property = mapArg(raw)
+            val type = firstNonBlank(property["type"]).ifBlank { "string" }
+            val detail = firstNonBlank(property["description"])
+            buildString {
+                append(argument)
+                append(" (")
+                if (argument in required) append("required, ")
+                append(type)
+                append(")")
+                if (detail.isNotBlank()) append(": ${detail.take(96)}")
             }
         }
-        return buildJsonObject {
-            put("type", JsonPrimitive(type.takeUnless { it.isNullOrBlank() } ?: "object"))
-            put("additionalProperties", JsonPrimitive(false))
-            put("properties", cleanedProperties)
-            if (cleanedRequired.isNotEmpty()) put("required", cleanedRequired)
+        return buildString {
+            append("Saved workflow `$functionId`: $name. $description. ")
+            append("Current goal: ${goal.replace(Regex("\\s+"), " ").take(160)}. ")
+            if (arguments.isNotBlank()) append("Arguments: $arguments. ")
+            append("Call only when this workflow clearly advances the current goal.")
+        }.take(config.recallToolDescriptionChars.coerceAtLeast(200))
+    }
+
+    private fun withDiagnostics(
+        context: UIContext,
+        startedAt: Long,
+        state: String,
+        tools: List<JsonObject>,
+        reason: String,
+    ): UIContext {
+        val names = tools.mapNotNull { definition ->
+            (definition["function"] as? JsonObject)
+                ?.get("name")
+                ?.jsonPrimitive
+                ?.contentOrNull
         }
+        return context.copy(
+            pageDiagnostics = context.pageDiagnostics + linkedMapOf(
+                "recall_context_lookup_ms" to
+                    (System.currentTimeMillis() - startedAt).coerceAtLeast(0L).toString(),
+                "recall_context_state" to state,
+                "recall_context_tool_count" to tools.size.toString(),
+                "recall_context_tool_names" to names.joinToString(",").take(4000),
+                "recall_context_runtime_source" to "omniflow_python",
+                "recall_context_reason" to reason.take(240),
+            ).filterValues(String::isNotBlank),
+        )
     }
-
-    private fun emptyObjectSchema(): JsonObject = buildJsonObject {
-        put("type", JsonPrimitive("object"))
-        put("additionalProperties", JsonPrimitive(false))
-        put("properties", JsonObject(emptyMap()))
-    }
-
-    private fun toJsonObject(value: Map<String, Any?>): JsonObject {
-        if (value.isEmpty()) return JsonObject(emptyMap())
-        return JsonObject(value.mapValues { (_, item) -> toJsonElement(item) })
-    }
-
-    private fun toJsonElement(value: Any?): JsonElement =
-        when (value) {
-            null -> JsonNull
-            is JsonElement -> value
-            is String -> JsonPrimitive(value)
-            is Number -> JsonPrimitive(value)
-            is Boolean -> JsonPrimitive(value)
-            is Map<*, *> -> buildJsonObject {
-                value.forEach { (key, item) ->
-                    if (key != null) put(key.toString(), toJsonElement(item))
-                }
-            }
-            is Iterable<*> -> buildJsonArray {
-                value.forEach { add(toJsonElement(it)) }
-            }
-            is Array<*> -> buildJsonArray {
-                value.forEach { add(toJsonElement(it)) }
-            }
-            else -> JsonPrimitive(value.toString())
-        }
-
-    private fun elapsed(startedAtMs: Long): String =
-        (System.currentTimeMillis() - startedAtMs).coerceAtLeast(0L).toString()
 
     private companion object {
-        private const val TAG = "VlmFunctionRecall"
-        private const val TOOL_TITLE_FIELD = "tool_title"
-        private const val MIN_TOOL_DESCRIPTION_CHARS = 900
+        const val TAG = "VlmFunctionRecall"
 
-        private fun createRecall(
-            context: Context,
-        ): suspend (Map<String, Any?>) -> Map<String, Any?> {
-            val recallAdapter = OmniFlowFunctionRecallAdapter(
-                bridgeCall = { operation, payload ->
-                    OmniFlowPythonRuntime.call(context, operation, payload)
-                },
-            )
-            return recallAdapter::recall
+        fun createRecall(context: Context): suspend (Map<String, Any?>) -> Map<String, Any?> {
+            val adapter = OmniFlowFunctionRecallAdapter { operation, payload ->
+                OmniFlowPythonRuntime.call(context, operation, payload)
+            }
+            return adapter::recall
         }
     }
 }

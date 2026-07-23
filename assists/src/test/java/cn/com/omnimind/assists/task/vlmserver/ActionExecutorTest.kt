@@ -119,33 +119,11 @@ class ActionExecutorTest {
     }
 
     @Test
-    fun vlmInputPassesCanonicalCoordinatesToControlAct() = runBlocking {
+    fun vlmInputDispatchesDirectlyToTargetAwareDeviceOperation() = runBlocking {
         val device = FakeTargetedInputDeviceOperator()
-        var controlledTool = ""
-        var controlledArgs = emptyMap<String, Any?>()
-        var controlledState: State? = null
         val executor = ActionExecutor(
             deviceOperator = device,
             contextManager = UIContextManager(),
-            controlActExecutor = ControlActExecutor { tool, args, state ->
-                controlledTool = tool
-                controlledArgs = args
-                controlledState = state
-                OperationResult(
-                    success = true,
-                    message = "ok",
-                    beforeState = State(
-                        stateId = "before",
-                        xml = "<before />",
-                        packageName = "demo.before",
-                    ),
-                    afterState = State(
-                        stateId = "after",
-                        xml = "<after />",
-                        packageName = "demo.after",
-                    ),
-                )
-            },
         )
 
         val requestedState = State(
@@ -171,30 +149,21 @@ class ActionExecutorTest {
         )
 
         assertFalse(step.result.orEmpty().startsWith(ACTION_FAILURE_PREFIX))
-        assertEquals(OobActionSchema.TOOL_INPUT_TEXT, controlledTool)
-        assertEquals("搜索框", controlledArgs[OobActionSchema.ARG_TARGET_DESCRIPTION])
-        assertEquals("hello", controlledArgs[OobActionSchema.ARG_TEXT])
-        assertEquals(500.0, (controlledArgs[OobActionSchema.ARG_X] as Number).toDouble(), 0.001)
-        assertEquals(500.0, (controlledArgs[OobActionSchema.ARG_Y] as Number).toDouble(), 0.001)
-        assertEquals(requestedState, controlledState)
+        assertEquals("搜索框", device.targetedInput?.targetDescription)
+        assertEquals("hello", device.targetedInput?.text)
+        assertEquals(540f, device.targetedInput?.x ?: 0f, 0.001f)
+        assertEquals(960f, device.targetedInput?.y ?: 0f, 0.001f)
         assertEquals(0, device.genericInputCount)
-        assertEquals(null, device.targetedInput)
-        assertEquals("before", step.beforeState?.stateId)
-        assertEquals("<before />", step.beforeState?.xml)
-        assertEquals("after", step.afterState?.stateId)
-        assertEquals("<after />", step.afterState?.xml)
+        assertEquals(requestedState, step.beforeState)
+        assertEquals("vlm_online", step.pageDiagnostics["action_source"])
     }
 
     @Test
-    fun vlmClickNineHundredRemainsCanonicalUntilControlAct() = runBlocking {
-        var controlledArgs = emptyMap<String, Any?>()
+    fun vlmClickConvertsCanonicalCoordinatesAtDeviceDispatch() = runBlocking {
+        val device = FakeTargetedInputDeviceOperator()
         val executor = ActionExecutor(
-            deviceOperator = FakeTargetedInputDeviceOperator(),
+            deviceOperator = device,
             contextManager = UIContextManager(),
-            controlActExecutor = ControlActExecutor { _, args, state ->
-                controlledArgs = args
-                OperationResult(success = true, message = "ok", beforeState = state, afterState = state)
-            },
         )
 
         val step = executor.act(
@@ -218,21 +187,19 @@ class ActionExecutorTest {
         )
 
         assertFalse(step.result.orEmpty().startsWith(ACTION_FAILURE_PREFIX))
-        assertEquals(900.0, (controlledArgs.getValue(OobActionSchema.ARG_X) as Number).toDouble(), 0.001)
-        assertEquals(75.0, (controlledArgs.getValue(OobActionSchema.ARG_Y) as Number).toDouble(), 0.001)
+        assertEquals(972f, device.clickedX ?: 0f, 0.001f)
+        assertEquals(144f, device.clickedY ?: 0f, 0.001f)
+        assertEquals("vlm_online", step.pageDiagnostics["action_source"])
     }
 
     @Test
     fun vlmActionFailureRemainsFailure() = runBlocking {
+        val device = FakeTargetedInputDeviceOperator().apply {
+            clickFailureMessage = "physical click failed"
+        }
         val executor = ActionExecutor(
-            deviceOperator = FakeTargetedInputDeviceOperator(),
+            deviceOperator = device,
             contextManager = UIContextManager(),
-            controlActExecutor = ControlActExecutor { _, _, _ ->
-                OperationResult(
-                    success = false,
-                    message = "physical click failed",
-                )
-            },
         )
 
         val step = executor.act(
@@ -300,6 +267,7 @@ class ActionExecutorTest {
         var hotKeyCount = 0
         var clickedX: Float? = null
         var clickedY: Float? = null
+        var clickFailureMessage: String? = null
 
         override suspend fun inputTextAtTarget(
             text: String,
@@ -330,7 +298,7 @@ class ActionExecutorTest {
         override suspend fun clickCoordinate(x: Float, y: Float): OperationResult {
             clickedX = x
             clickedY = y
-            return success()
+            return clickFailureMessage?.let { OperationResult(false, it) } ?: success()
         }
         override suspend fun longClickCoordinate(x: Float, y: Float, duration: Long) = success()
         override suspend fun inputText(text: String): OperationResult {

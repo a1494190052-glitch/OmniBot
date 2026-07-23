@@ -1,6 +1,8 @@
 package cn.com.omnimind.bot.function
 
 import cn.com.omnimind.baselib.i18n.PromptLocale
+import cn.com.omnimind.bot.runlog.listArg
+import cn.com.omnimind.bot.runlog.mapArg
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import org.junit.Assert.assertEquals
@@ -14,16 +16,16 @@ class FunctionApiContractTest {
         val mcpTool = FunctionApi.mcpToolDefinitions.single {
             it["name"] == FunctionApi.FUNCTION_REGISTER
         }
-        val mcpInput = FunctionJson.mapArg(mcpTool["inputSchema"])
-        val mcpProperties = FunctionJson.mapArg(mcpInput["properties"])
+        val mcpInput = mapArg(mcpTool["inputSchema"])
+        val mcpProperties = mapArg(mcpInput["properties"])
 
         assertEquals(setOf("function"), mcpProperties.keys)
-        assertEquals(listOf("function"), FunctionJson.listArg(mcpInput["required"]))
-        val functionSchema = FunctionJson.mapArg(mcpProperties["function"])
-        val functionProperties = FunctionJson.mapArg(functionSchema["properties"])
-        val checkerRules = FunctionJson.mapArg(functionProperties["checker_rules"])
-        val checker = FunctionJson.mapArg(checkerRules["items"])
-        val checkerProperties = FunctionJson.mapArg(checker["properties"])
+        assertEquals(listOf("function"), listArg(mcpInput["required"]))
+        val functionSchema = mapArg(mcpProperties["function"])
+        val functionProperties = mapArg(functionSchema["properties"])
+        val checkerRules = mapArg(functionProperties["checker_rules"])
+        val checker = mapArg(checkerRules["items"])
+        val checkerProperties = mapArg(checker["properties"])
         assertEquals(
             setOf("schema_version", "trigger", "source_state_id", "action"),
             checkerProperties.keys,
@@ -45,9 +47,9 @@ class FunctionApiContractTest {
 
     @Test
     fun `schema bundle exposes the canonical checker rule`() {
-        val schemas = FunctionJson.mapArg(FunctionApi.schemaBundle()["schemas"])
-        val checker = FunctionJson.mapArg(schemas["omniflow.checker_rule.v1"])
-        val checkerProperties = FunctionJson.mapArg(checker["properties"])
+        val schemas = mapArg(FunctionApi.schemaBundle()["schemas"])
+        val checker = mapArg(schemas["omniflow.checker_rule.v1"])
+        val checkerProperties = mapArg(checker["properties"])
 
         assertEquals(
             setOf("schema_version", "trigger", "source_state_id", "action"),
@@ -55,53 +57,7 @@ class FunctionApiContractTest {
         )
         assertEquals(
             listOf("schema_version", "trigger", "source_state_id", "action"),
-            FunctionJson.listArg(checker["required"]),
+            listArg(checker["required"]),
         )
-    }
-
-    @Test
-    fun `prompt candidates only render canonical function fields`() {
-        val candidate = linkedMapOf<String, Any?>(
-            "schema_version" to "omniflow.function.v2",
-            "function_id" to "search_product",
-            "name" to "Search product",
-            "description" to "Search one product",
-            "input_schema" to linkedMapOf(
-                "type" to "object",
-                "properties" to linkedMapOf<String, Any?>(),
-                "required" to emptyList<String>(),
-                "additionalProperties" to false,
-            ),
-            "bindings" to emptyList<Map<String, Any?>>(),
-            "steps" to listOf(
-                linkedMapOf(
-                    "step_index" to 0,
-                    "source_state_id" to "state-0",
-                    "action" to linkedMapOf(
-                        "tool" to "wait",
-                        "args" to linkedMapOf("duration_ms" to 1000),
-                    ),
-                )
-            ),
-            "checker_rules" to emptyList<Map<String, Any?>>(),
-            "agent_visible" to true,
-            "score" to "LEGACY_SCORE",
-            "recall_scope" to "LEGACY_SCOPE",
-            "agent_reuse" to linkedMapOf(
-                "reuse_when" to "LEGACY_REUSE",
-                "success_signal" to "LEGACY_SUCCESS",
-            ),
-        )
-
-        val prompt = FunctionApi.buildPromptCandidateContext(
-            candidates = listOf(candidate),
-            locale = PromptLocale.EN_US,
-        )
-
-        assertTrue(prompt.contains("`search_product`"))
-        assertFalse(prompt.contains("LEGACY_SCORE"))
-        assertFalse(prompt.contains("LEGACY_SCOPE"))
-        assertFalse(prompt.contains("LEGACY_REUSE"))
-        assertFalse(prompt.contains("LEGACY_SUCCESS"))
     }
 }

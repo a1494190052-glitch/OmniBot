@@ -10,15 +10,9 @@ object VLMFunctionRunCompletionPolicy {
         if (step.action !is FunctionInvocation) return false
         val payload = step.actionResultData as? JsonObject ?: return false
         if (payload.bool("success") != true) return false
-        val nestedResult = payload["result"] as? JsonObject
-        if (payload.bool("model_required") == true || nestedResult?.bool("model_required") == true) {
-            return false
-        }
-        val stepCount = payload.int("step_count") ?: nestedResult?.int("step_count") ?: return false
+        val stepCount = payload.int("step_count") ?: return false
         val currentStep = payload.int("current_step_number")
-            ?: nestedResult?.int("current_step_number")
             ?: payload.int("completed_step_count")
-            ?: nestedResult?.int("completed_step_count")
             ?: return false
         return stepCount > 0 && currentStep >= stepCount
     }

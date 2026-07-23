@@ -9,9 +9,13 @@ class OmniFlowFunctionRecallAdapterTest {
     @Test
     fun `recall uses the Python catalog without Kotlin synchronization`() = runBlocking {
         val calls = mutableListOf<String>()
-        val adapter = OmniFlowFunctionRecallAdapter { operation, _ ->
+        var request = emptyMap<String, Any?>()
+        val adapter = OmniFlowFunctionRecallAdapter { operation, payload ->
             calls += operation
+            request = payload
             mapOf(
+                "success" to true,
+                "retrieval_state" to "has_candidates",
                 "candidates" to listOf(
                     mapOf(
                         "function" to functionSpec(),
@@ -22,6 +26,10 @@ class OmniFlowFunctionRecallAdapterTest {
                         ),
                     ),
                 ),
+                "count" to 1,
+                "reason" to "omniflow_python_match",
+                "runtime_source" to "omniflow_python",
+                "duration_ms" to 1,
             )
         }
 
@@ -31,6 +39,7 @@ class OmniFlowFunctionRecallAdapterTest {
         val function = candidate["function"] as Map<*, *>
         val retrieval = candidate["retrieval"] as Map<*, *>
         assertEquals(listOf("recall"), calls)
+        assertEquals(4, request["limit"])
         assertEquals("has_candidates", result["retrieval_state"])
         assertEquals("open_settings", function["function_id"])
         assertEquals("Open device settings", function["name"])
@@ -51,34 +60,8 @@ class OmniFlowFunctionRecallAdapterTest {
 
         assertEquals("unavailable", result["retrieval_state"])
         assertEquals("python_recall_error:runtime unavailable", result["reason"])
+        assertTrue((result["duration_ms"] as Long) >= 0L)
         assertTrue(bridgeCalled)
-    }
-
-    @Test
-    fun `missing retrieval score reports a contract error instead of defaulting to zero`() = runBlocking {
-        val adapter = OmniFlowFunctionRecallAdapter { _, _ ->
-            mapOf(
-                "candidates" to listOf(
-                    mapOf(
-                        "function" to functionSpec(),
-                        "retrieval" to mapOf(
-                            "source" to "goal_token_jaccard",
-                            "rank" to 1,
-                        ),
-                    ),
-                ),
-            )
-        }
-
-        val result = adapter.recall(mapOf("goal" to "open settings"))
-
-        assertEquals(false, result["success"])
-        assertEquals("unavailable", result["retrieval_state"])
-        assertEquals(
-            "python_recall_error:recall_candidate_score_invalid",
-            result["reason"],
-        )
-        assertEquals(emptyList<Any>(), result["candidates"])
     }
 
     private fun functionSpec(): Map<String, Any?> = linkedMapOf(

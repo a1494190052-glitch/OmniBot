@@ -3,12 +3,11 @@ package cn.com.omnimind.bot.function
 import android.content.Context
 import cn.com.omnimind.assists.task.vlmserver.AndroidDeviceOperator
 import cn.com.omnimind.assists.task.vlmserver.DeviceOperator
+import cn.com.omnimind.baselib.runlog.InternalRunLogStore
 import cn.com.omnimind.bot.agent.tool.handlers.SharedHelper
 import cn.com.omnimind.bot.omniflow.OmniFlowPythonRuntime
 import cn.com.omnimind.bot.omniflow.omniFlowAndroidHostCall
 import cn.com.omnimind.bot.runlog.firstNonBlank
-import cn.com.omnimind.bot.runlog.intArg
-import cn.com.omnimind.bot.runlog.listArg
 import cn.com.omnimind.bot.runlog.mapArg
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.NonCancellable
@@ -16,7 +15,7 @@ import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import java.util.concurrent.atomic.AtomicLong
 
-/** Thin Android adapter around the Python-owned Function runtime. */
+/** Android lifecycle and device boundary for the Python-owned Function runtime. */
 class FunctionRun(
     private val context: Context,
     private val helper: SharedHelper = SharedHelper(
@@ -36,182 +35,148 @@ class FunctionRun(
         val functionId = firstNonBlank(request["function_id"])
         if (functionId.isBlank()) return failure("", "FUNCTION_ID_EMPTY", "function_id is required")
 
-        val spec = FunctionService(context).getFunction(mapOf("function_id" to functionId))
-        if (spec["schema_version"] != "omniflow.function.v2") return spec
-
-        val arguments = mapArg(request["arguments"])
-        val expectedSteps = listArg(spec["steps"]).size
         val startedAtMs = System.currentTimeMillis()
         val runId = nextRunId(startedAtMs)
-        val trace = mutableListOf<Map<String, Any?>>()
-        var actionNumber = 0
+        val executionMode = firstNonBlank(request["execution_mode"]).ifBlank { "foreground" }
         val frontendSession = frontendSessionController.start(
             functionId = functionId,
-            spec = spec,
-            stepCount = expectedSteps,
-            toolHandle = null,
-            callStack = emptyList(),
-            fallbackRunIdProvider = { runId },
+            runId = runId,
             frontendRunId = firstNonBlank(request["frontend_run_id"]),
             frontendTaskId = firstNonBlank(request["frontend_task_id"]),
             frontendParent = firstNonBlank(request["frontend_parent"]),
         )
-        var payload: Map<String, Any?>
-        try {
-            val runtime = OmniFlowPythonRuntime.call(
+        InternalRunLogStore.beginRun(
+            context = context,
+            runId = runId,
+            goal = firstNonBlank(request["goal"], functionId),
+            source = FUNCTION_RUN_SOURCE,
+            toolName = FUNCTION_DIRECT_RUNNER,
+            operationDescription = "Function: $functionId",
+            startedAtMs = startedAtMs,
+        )
+
+        var actionNumber = 0
+        val payload = try {
+            val runtimeResult = OmniFlowPythonRuntime.call(
                 context = context,
                 operation = "run",
                 payload = mapOf(
                     "function_id" to functionId,
-                    "arguments" to arguments,
+                    "arguments" to mapArg(request["arguments"]),
+                    "run_id" to runId,
+                    "execution_mode" to executionMode,
+                    "started_at_ms" to startedAtMs,
                 ),
                 hostCall = omniFlowAndroidHostCall(
                     context = context,
                     deviceOperator = deviceOperator,
-                    stopRequested = { frontendSession?.isStopRequested() == true },
+                    stopRequested = frontendSession::isStopRequested,
                     onAction = { action ->
                         actionNumber += 1
-                        if (frontendSession?.isStopRequested() != true) {
-                            val tool = firstNonBlank(action["tool"], "action")
-                            frontendSession?.update(
-                                "第 ${actionNumber.coerceAtMost(expectedSteps)}/$expectedSteps 步 $tool",
-                            )
-                        }
+                        frontendSession.update(
+                            "第 $actionNumber 步 ${firstNonBlank(action["tool"], "action")}",
+                        )
                     },
                     onStep = { step ->
-                        trace += step
+                        InternalRunLogStore.upsertStep(context, runId, step)
                     },
                 ),
             )
-            val returnedTrace = listArg(mapArg(runtime["detail"])["trace"])
-                .mapNotNull { mapArg(it).takeIf(Map<String, Any?>::isNotEmpty) }
-            if (returnedTrace.isNotEmpty()) {
-                trace.clear()
-                trace.addAll(returnedTrace)
+            if (frontendSession.isStopRequested()) {
+                transportFailure(
+                    functionId,
+                    runId,
+                    startedAtMs,
+                    executionMode,
+                    "OOB_FUNCTION_STOPPED",
+                    "任务已停止",
+                )
+            } else {
+                require(firstNonBlank(runtimeResult["run_id"]) == runId) {
+                    "function_run_id_mismatch"
+                }
+                runtimeResult
             }
-            payload = resultPayload(
-                functionId = functionId,
-                spec = spec,
-                runtime = runtime,
-                trace = trace,
-                runId = runId,
-                startedAtMs = startedAtMs,
-                executionMode = firstNonBlank(request["execution_mode"]).ifBlank { "foreground" },
-                stopped = frontendSession?.isStopRequested() == true,
-            )
         } catch (error: CancellationException) {
-            payload = resultPayload(
-                functionId = functionId,
-                spec = spec,
-                runtime = mapOf("success" to false, "error" to "cancelled"),
-                trace = trace,
-                runId = runId,
-                startedAtMs = startedAtMs,
-                executionMode = firstNonBlank(request["execution_mode"]).ifBlank { "foreground" },
-                stopped = true,
+            val stopped = transportFailure(
+                functionId,
+                runId,
+                startedAtMs,
+                executionMode,
+                "OOB_FUNCTION_STOPPED",
+                "任务已停止",
             )
-            withContext(NonCancellable) {
-                finishRun(functionId, spec, payload, frontendSession)
-            }
+            withContext(NonCancellable) { finishRun(stopped, frontendSession) }
             throw error
         } catch (error: Exception) {
-            payload = resultPayload(
-                functionId = functionId,
-                spec = spec,
-                runtime = mapOf(
-                    "success" to false,
-                    "error" to error.message.orEmpty().ifBlank { error.javaClass.simpleName },
-                ),
-                trace = trace,
-                runId = runId,
-                startedAtMs = startedAtMs,
-                executionMode = firstNonBlank(request["execution_mode"]).ifBlank { "foreground" },
-                stopped = frontendSession?.isStopRequested() == true,
+            transportFailure(
+                functionId,
+                runId,
+                startedAtMs,
+                executionMode,
+                "OOB_FUNCTION_RUN_FAILED",
+                error.message.orEmpty().ifBlank { error.javaClass.simpleName },
             )
         }
-        finishRun(functionId, spec, payload, frontendSession)
+        finishRun(payload, frontendSession)
         return payload
     }
 
     private suspend fun finishRun(
-        functionId: String,
-        spec: Map<String, Any?>,
         payload: Map<String, Any?>,
-        frontendSession: FunctionFrontendSessionController.Session?,
+        frontendSession: FunctionFrontendSessionController.Session,
     ) {
-        FunctionRunLogRecorder.record(
-            context = context,
-            functionId = functionId,
-            functionSpec = spec,
-            runPayload = payload,
-        )
         val success = payload["success"] == true
-        frontendSession?.finish(
+        InternalRunLogStore.finishRun(
+            context = context,
+            runId = firstNonBlank(payload["run_id"]),
+            success = success,
+            doneReason = when {
+                success -> "function_completed"
+                payload["error_code"] == "OOB_FUNCTION_STOPPED" -> "function_stopped"
+                else -> "function_failed"
+            },
+            errorMessage = firstNonBlank(payload["error_message"]),
+            finishedAtMs = (payload["finished_at_ms"] as? Number)?.toLong()
+                ?: System.currentTimeMillis(),
+            finalStateId = firstNonBlank(mapArg(payload["final_state"])["state_id"]),
+        )
+        frontendSession.finish(
             helper.localized(if (success) "任务已完成" else "任务执行失败"),
             closeAfterMs = if (success) SUCCESS_VISIBLE_MS else FAILURE_VISIBLE_MS,
         )
     }
 
-    private fun resultPayload(
+    private fun transportFailure(
         functionId: String,
-        spec: Map<String, Any?>,
-        runtime: Map<String, Any?>,
-        trace: List<Map<String, Any?>>,
         runId: String,
         startedAtMs: Long,
         executionMode: String,
-        stopped: Boolean,
+        errorCode: String,
+        errorMessage: String,
     ): Map<String, Any?> {
         val finishedAtMs = System.currentTimeMillis()
-        val durationMs = (finishedAtMs - startedAtMs).coerceAtLeast(0L)
-        val success = runtime["success"] == true && !stopped
-        val successfulSteps = trace.count { mapArg(it["result"])["success"] == true }
-        val failedStepIndex = trace.indexOfFirst { mapArg(it["result"])["success"] != true }
-            .takeIf { it >= 0 }
-        val runtimeError = firstNonBlank(runtime["error"])
-        val errorCode = when {
-            success -> null
-            stopped -> "OOB_FUNCTION_STOPPED"
-            runtimeError.startsWith("function_arguments_invalid:missing:") ->
-                "OOB_FUNCTION_ARGUMENTS_MISSING"
-            else -> "OOB_FUNCTION_RUN_FAILED"
-        }
-        val errorMessage = when {
-            success -> null
-            stopped -> "任务已停止"
-            else -> runtimeError.ifBlank { "Function execution failed" }
-        }
-        val actionsExecuted = intArg(runtime["actions_executed"], defaultValue = successfulSteps)
-        return linkedMapOf<String, Any?>(
-            "success" to success,
-            "status" to if (success) "succeeded" else "failed",
+        val steps = InternalRunLogStore.getRun(context, runId)?.steps.orEmpty()
+        val completedStepCount = steps.size
+        return linkedMapOf(
+            "success" to false,
+            "status" to "failed",
             "run_id" to runId,
             "function_id" to functionId,
-            "name" to spec["name"],
-            "description" to spec["description"],
             "source" to FUNCTION_RUN_SOURCE,
             "runner" to FUNCTION_DIRECT_RUNNER,
             "execution_mode" to executionMode,
-            "step_count" to listArg(spec["steps"]).size,
-            "success_step_count" to successfulSteps,
-            "completed_step_count" to trace.size,
-            "actions_executed" to actionsExecuted,
-            "steps" to trace,
-            "failed_step_index" to failedStepIndex,
-            "current_step_index" to (failedStepIndex ?: trace.lastIndex.takeIf { it >= 0 }),
-            "current_step_number" to (failedStepIndex ?: trace.lastIndex.takeIf { it >= 0 })
-                ?.plus(1),
+            "step_count" to completedStepCount,
+            "success_step_count" to steps.count { mapArg(it["result"])["success"] == true },
+            "completed_step_count" to completedStepCount,
+            "actions_executed" to completedStepCount,
+            "steps" to steps,
             "started_at_ms" to startedAtMs,
             "finished_at_ms" to finishedAtMs,
-            "duration_ms" to durationMs,
+            "duration_ms" to (finishedAtMs - startedAtMs).coerceAtLeast(0L),
             "error_code" to errorCode,
             "error_message" to errorMessage,
-            "missing_required_arguments" to runtimeError
-                .removePrefix("function_arguments_invalid:missing:")
-                .split(',')
-                .filter(String::isNotBlank)
-                .takeIf { runtimeError.startsWith("function_arguments_invalid:missing:") },
-        ).filterValues { it != null }
+        )
     }
 
     private fun failure(functionId: String, code: String, message: String): Map<String, Any?> =

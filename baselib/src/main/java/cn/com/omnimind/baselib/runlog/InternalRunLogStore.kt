@@ -71,7 +71,6 @@ object InternalRunLogStore {
     private const val MAX_RUN_COUNT = 200
     private const val MAX_STATE_COUNT = 2_000
     private const val RUN_LOG_EVENT_SCHEMA_VERSION = "oob.run_log_event.v1"
-    private const val SNAPSHOT_MIN_INTERVAL_MS = 1_000L
 
     private val gson = GsonBuilder()
         .disableHtmlEscaping()
@@ -84,12 +83,61 @@ object InternalRunLogStore {
         .create()
     private val mapType = object : TypeToken<Map<String, Any?>>() {}.type
     private val lastEventSeqByRun = mutableMapOf<String, Long>()
-    private val lastSnapshotWriteMsByRun = mutableMapOf<String, Long>()
     @Volatile
     private var finishListener: ((InternalRunLogFinishEvent) -> Unit)? = null
 
     fun setFinishListener(listener: ((InternalRunLogFinishEvent) -> Unit)?) {
         finishListener = listener
+    }
+
+    fun canonicalStep(step: Map<String, Any?>): Map<String, Any?> {
+        val value = sanitizeMap(step)
+        val required = setOf(
+            "step_index",
+            "before_state_id",
+            "action",
+            "result",
+            "after_state_id",
+        )
+        require(value.keys.containsAll(required)) { "run_log_step_required_fields_missing" }
+        require(value.keys.all { it in required || it == "metadata" }) {
+            "run_log_step_fields_invalid"
+        }
+        val stepIndex = value["step_index"] as? Number
+        require(
+            stepIndex != null &&
+                stepIndex.toDouble().isFinite() &&
+                stepIndex.toDouble() == stepIndex.toLong().toDouble() &&
+                stepIndex.toLong() >= 0L
+        ) {
+            "run_log_step_index_invalid"
+        }
+        require(textValue(value["before_state_id"]).isNotEmpty()) {
+            "run_log_before_state_id_required"
+        }
+        require(textValue(value["after_state_id"]).isNotEmpty()) {
+            "run_log_after_state_id_required"
+        }
+        val action = stringMap(value["action"])
+        require(action.keys == setOf("tool", "args")) { "canonical_action_fields_invalid" }
+        val tool = textValue(action["tool"])
+        require(tool.isNotEmpty()) { "canonical_action_tool_required" }
+        require(OobActionSchema.canonicalToolName(tool) == tool) { "canonical_action_tool_invalid" }
+        require(action["args"] is Map<*, *>) { "canonical_action_args_invalid" }
+        val result = stringMap(value["result"])
+        require(result.keys.all { it == "success" || it == "error" }) {
+            "run_log_result_fields_invalid"
+        }
+        require(result["success"] is Boolean) {
+            "run_log_result_success_required"
+        }
+        require(result["error"] == null || result["error"] is String) {
+            "run_log_result_error_invalid"
+        }
+        require(value["metadata"] == null || value["metadata"] is Map<*, *>) {
+            "run_log_step_metadata_invalid"
+        }
+        return value
     }
 
     @Synchronized
@@ -110,7 +158,6 @@ object InternalRunLogStore {
         runEventsFile(file).delete()
         file.delete()
         lastEventSeqByRun.remove(normalizedRunId)
-        lastSnapshotWriteMsByRun.remove(normalizedRunId)
         beginRun(
             context = context,
             runId = normalizedRunId,
@@ -187,7 +234,7 @@ object InternalRunLogStore {
         if (normalizedRunId.isEmpty()) return
         val record = readRunLocked(context, normalizedRunId)
             ?: CanonicalRunLogRecord(runId = normalizedRunId)
-        val sanitizedStep = sanitizeMap(step)
+        val sanitizedStep = canonicalStep(step)
         val eventSeq = appendRunEventLocked(
             context = context,
             runId = normalizedRunId,
@@ -220,7 +267,7 @@ object InternalRunLogStore {
         if (normalizedRunId.isEmpty() || steps.isEmpty()) return
         val record = readRunLocked(context, normalizedRunId)
             ?: CanonicalRunLogRecord(runId = normalizedRunId)
-        val sanitizedSteps = steps.map(::sanitizeMap)
+        val sanitizedSteps = steps.map(::canonicalStep)
         val eventSeq = appendRunEventLocked(
             context = context,
             runId = normalizedRunId,
@@ -291,7 +338,7 @@ object InternalRunLogStore {
         if (normalizedRunId.isEmpty()) return
         val record = readRunLocked(context, normalizedRunId)
             ?: CanonicalRunLogRecord(runId = normalizedRunId)
-        val sanitizedStep = sanitizeMap(step)
+        val sanitizedStep = canonicalStep(step)
         val updatedSteps = record.steps.toMutableList()
         val stepIndex = numberToLong(sanitizedStep["step_index"])
         val replaceIndex = updatedSteps.indexOfFirst { existing ->
@@ -509,8 +556,10 @@ object InternalRunLogStore {
             gson.fromJson(file.readText(), Map::class.java) as? Map<String, Any?>
         }.getOrNull().orEmpty()
         if (textValue(state["state_id"]) != normalizedStateId) return emptyMap()
-        val xmlPath = textValue(state["xml_path"])
-        val xml = File(xmlPath).takeIf(File::isFile)?.runCatching(File::readText)?.getOrNull()
+        val xml = stateXmlFile(context, normalizedStateId)
+            .takeIf(File::isFile)
+            ?.runCatching(File::readText)
+            ?.getOrNull()
         return linkedMapOf<String, Any?>().apply {
             put("state_id", normalizedStateId)
             listOf("package_name", "activity_name", "display", "screenshot_path").forEach { key ->
@@ -554,9 +603,7 @@ object InternalRunLogStore {
         val incomingXml = textValue(state["xml"])
         val xmlFile = stateXmlFile(context, stateId)
         val sourceXml = incomingXml.ifBlank {
-            val existingPath = textValue(existing["xml_path"])
-            File(existingPath).takeIf(File::isFile)?.runCatching(File::readText)?.getOrNull()
-                ?: xmlFile.takeIf(File::isFile)?.runCatching(File::readText)?.getOrNull().orEmpty()
+            xmlFile.takeIf(File::isFile)?.runCatching(File::readText)?.getOrNull().orEmpty()
         }
         val stored = linkedMapOf<String, Any?>("state_id" to stateId).apply {
             listOf("screenshot_path", "package_name", "activity_name", "display").forEach { key ->
@@ -588,10 +635,6 @@ object InternalRunLogStore {
                     temporary.delete()
                 }
             }
-            stored["xml_path"] = xmlFile.absolutePath
-            stored["xml_sha256"] = sha256(sourceXml)
-            stored["xml_chars"] = sourceXml.length
-            stored["xml_bytes"] = xmlFile.length()
         }
         val screenshotBase64 = textValue(state["screenshot_base64"])
         if (screenshotBase64.isNotBlank()) {
@@ -878,7 +921,7 @@ object InternalRunLogStore {
             ?: error("run_log_success_required")
         val status = textValue(value["status"])
         val diagnostics = sanitizeMap(stringMap(value["diagnostics"]))
-        val steps = listOfMaps(value["steps"]).map(::sanitizeMap)
+        val steps = listOfMaps(value["steps"]).map(::canonicalStep)
         return CanonicalRunLogRecord(
             runId = runId,
             goal = textValue(value["goal"]),
@@ -904,7 +947,6 @@ object InternalRunLogStore {
                     file.writeText(gson.toJson(record))
                     tmp.delete()
                 }
-                lastSnapshotWriteMsByRun[record.runId] = System.currentTimeMillis()
             } finally {
                 Trace.endSection()
             }
@@ -1102,15 +1144,15 @@ object InternalRunLogStore {
                     ),
                 )
                 "step_appended" -> record.copy(
-                    steps = record.steps + sanitizeMap(stringMap(payload["step"]))
+                    steps = record.steps + canonicalStep(stringMap(payload["step"]))
                 )
                 "steps_appended" -> record.copy(
-                    steps = record.steps + listOfMaps(payload["steps"]).map(::sanitizeMap)
+                    steps = record.steps + listOfMaps(payload["steps"]).map(::canonicalStep)
                 )
                 "step_upserted" -> record.copy(
                     steps = upsertStepList(
                         steps = record.steps,
-                        step = sanitizeMap(stringMap(payload["step"]))
+                        step = canonicalStep(stringMap(payload["step"]))
                     )
                 )
                 "run_finished" -> record.copy(

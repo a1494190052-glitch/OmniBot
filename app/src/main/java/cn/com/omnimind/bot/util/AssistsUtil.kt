@@ -15,6 +15,7 @@ import android.util.Log
 import androidx.core.net.toUri
 import cn.com.omnimind.assists.AssistsCore
 import cn.com.omnimind.assists.api.bean.TaskParams
+import cn.com.omnimind.assists.controller.accessibility.AccessibilityController
 import cn.com.omnimind.assists.api.interfaces.OnMessagePushListener
 import cn.com.omnimind.assists.task.scheduled.worker.ScheduledParams
 import cn.com.omnimind.assists.task.scheduled.worker.ScheduledStates
@@ -141,11 +142,7 @@ class AssistsUtil {
          */
         fun finishTask(context: Context) {
             AssistsCore.finishCompanionTask()
-            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) {
-                if (ScreenCaptureManager.getInstance().hasPermission()) {
-                    ScreenCaptureManager.getInstance().release()
-                }
-            }
+            AccessibilityController.releaseScreenCaptureSession()
         }
 
         /**

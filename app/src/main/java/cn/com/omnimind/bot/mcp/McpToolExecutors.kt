@@ -13,8 +13,8 @@ import cn.com.omnimind.assists.task.vlmserver.VLMIndexedPageContext
 import cn.com.omnimind.baselib.i18n.AppLocaleManager
 import cn.com.omnimind.baselib.util.ImageQuality
 import cn.com.omnimind.baselib.util.OmniLog
-import cn.com.omnimind.bot.function.FunctionJson.firstNonBlank
-import cn.com.omnimind.bot.function.FunctionJson.mapArg
+import cn.com.omnimind.bot.runlog.firstNonBlank
+import cn.com.omnimind.bot.runlog.mapArg
 import cn.com.omnimind.bot.function.FunctionRun
 import cn.com.omnimind.bot.vlm.VlmToolCoordinator
 import cn.com.omnimind.bot.omniflow.OmniFlowState

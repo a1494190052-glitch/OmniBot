@@ -36,11 +36,9 @@ trigger and writes the Checker during the same conversion. Runtime executes at m
 recovery Action through OmniTransfer, observes again, then retries the original
 Action. Missing evidence produces no Checker.
 
-`record_step` in OmniFlow is the only RunLog-step conversion boundary. Android
-writers submit candidate values to it before persistence; Kotlin storage and
-Dart presentation do not repeat the RunLog field, enum, or type rules. The
-Bridge contract references `omniflow_canonical_run_log.v1.json#/$defs/step`
-instead of restating that step shape.
+Android writers persist the canonical five truth fields plus optional
+`metadata` directly. Kotlin storage validates the shared contract before every
+append or upsert; OmniFlow consumes the same persisted schema offline.
 
 RunLog step truth stays in the five required fields. Optional extensions use
 only `metadata`; `step_id`, `status`, `thinking`, and `summary` are metadata,

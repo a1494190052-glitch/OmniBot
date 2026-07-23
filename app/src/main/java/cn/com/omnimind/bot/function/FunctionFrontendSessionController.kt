@@ -4,7 +4,6 @@ import cn.com.omnimind.assists.FunctionUiSession
 import cn.com.omnimind.baselib.util.OmniLog
 import cn.com.omnimind.bot.agent.ManualToolStopCancellationException
 import cn.com.omnimind.bot.agent.tool.handlers.SharedHelper
-import cn.com.omnimind.bot.function.FunctionJson.firstNonBlank
 import cn.com.omnimind.uikit.loader.cat.DraggableBallInstance
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
@@ -22,44 +21,33 @@ class FunctionFrontendSessionController(
 ) {
     suspend fun start(
         functionId: String,
-        spec: Map<String, Any?>,
-        stepCount: Int,
-        toolHandle: cn.com.omnimind.bot.agent.AgentToolExecutionHandle?,
-        callStack: List<String>,
-        fallbackRunIdProvider: () -> String,
+        runId: String,
         frontendRunId: String = "",
         frontendTaskId: String = "",
         frontendParent: String = "",
-    ): Session? {
-        if (stepCount <= 0 || callStack.isNotEmpty()) return null
+    ): Session {
         val frontendMode = frontendParent.trim().lowercase()
         val canUseUiOverlay = !isHeadlessJvm()
         val embeddedInVlmTask = frontendMode == "vlm_task"
-        val runId = frontendRunId
+        val resolvedRunId = frontendRunId
             .trim()
             .takeIf { it.isNotEmpty() }
-            ?: toolHandle?.runId
-            ?.trim()
-            ?.takeIf { it.isNotEmpty() }
-            ?: fallbackRunIdProvider()
+            ?: runId
         val taskId = frontendTaskId
             .trim()
             .takeIf { it.isNotEmpty() }
-            ?: "${runId}_omniflow_ui"
+            ?: "${resolvedRunId}_omniflow_ui"
         val stopRequested = AtomicBoolean(false)
-        val label = frontendLabel(functionId, spec)
+        val label = frontendLabel(functionId)
         fun requestStopNow() {
             stopRequested.set(true)
         }
         FunctionUiSession.registerRun(
-            runId = runId,
+            runId = resolvedRunId,
             onStopRequested = { requestStopNow() },
             onCompleteRequested = {},
         )
-        toolHandle?.bindStopAction {
-            requestStopNow()
-        }
-        FunctionUiSession.beginTask(runId, taskId)
+        FunctionUiSession.beginTask(resolvedRunId, taskId)
         if (canUseUiOverlay) {
             runCatching {
                 withContext(Dispatchers.Main) {
@@ -78,14 +66,13 @@ class FunctionFrontendSessionController(
             }
         }
         return Session(
-            runId = runId,
+            runId = resolvedRunId,
             taskId = taskId,
             stopRequested = stopRequested,
             label = label,
             helper = helper,
             embeddedInVlmTask = embeddedInVlmTask,
             canUseUiOverlay = canUseUiOverlay,
-            toolHandle = toolHandle,
         )
     }
 
@@ -93,18 +80,8 @@ class FunctionFrontendSessionController(
         System.getProperty("java.awt.headless")
             ?.equals("true", ignoreCase = true) == true
 
-    private fun frontendLabel(
-        functionId: String,
-        spec: Map<String, Any?>,
-    ): String {
-        val name = firstNonBlank(
-            spec["name"],
-            spec["title"],
-            spec["description"],
-            functionId,
-        )
-        return name.replace(Regex("\\s+"), " ").take(32).ifBlank { "复用指令" }
-    }
+    private fun frontendLabel(functionId: String): String =
+        functionId.replace(Regex("[_\\s-]+"), " ").trim().take(32).ifBlank { "复用指令" }
 
     class Session internal constructor(
         private val runId: String,
@@ -114,7 +91,6 @@ class FunctionFrontendSessionController(
         private val helper: SharedHelper,
         private val embeddedInVlmTask: Boolean,
         private val canUseUiOverlay: Boolean,
-        private val toolHandle: cn.com.omnimind.bot.agent.AgentToolExecutionHandle?,
     ) {
         fun isStopRequested(): Boolean = stopRequested.get()
 
@@ -152,7 +128,6 @@ class FunctionFrontendSessionController(
         suspend fun finish(message: String, closeAfterMs: Long = 0L) {
             FunctionUiSession.endTask(taskId)
             val end = FunctionUiSession.endRun(runId)
-            toolHandle?.bindStopAction(null)
             if (canUseUiOverlay) {
                 runCatching {
                     withContext(NonCancellable + Dispatchers.Main) {

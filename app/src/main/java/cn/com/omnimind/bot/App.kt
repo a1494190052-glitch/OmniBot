@@ -16,7 +16,6 @@ import cn.com.omnimind.bot.llm.BundledDebugModelConfigInstaller
 import cn.com.omnimind.bot.manager.AssistsCoreManager
 import cn.com.omnimind.bot.mcp.McpServerManager
 import cn.com.omnimind.bot.omniflow.OmniFlowPythonRuntime
-import cn.com.omnimind.bot.omniflow.omniFlowControlActExecutorFactory
 import cn.com.omnimind.bot.omniflow.omniFlowRecordStepExecutor
 import cn.com.omnimind.bot.quicklog.QuickLogWidgetUpdater
 import cn.com.omnimind.bot.terminal.EmbeddedTerminalRuntime
@@ -112,11 +111,8 @@ class App : BaseApplication() {
         DatabaseHelper.init(this)
         LocalModelFeatureInstaller.install(this)
         AssistsCoreManager.installRunLogFinishListener()
-        cn.com.omnimind.assists.task.vlmserver.ControlActExecutorRegistry.register(
-            omniFlowControlActExecutorFactory(this)
-        )
         cn.com.omnimind.assists.runlog.OmniFlowRecordStepExecutorRegistry.register(
-            omniFlowRecordStepExecutor(this)
+            omniFlowRecordStepExecutor()
         )
 
         val nestedStart = System.currentTimeMillis()

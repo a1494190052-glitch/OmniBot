@@ -49,7 +49,6 @@ open class VLMOperationTask(
     private val needSummary: Boolean = false,
     override val taskManager: TaskManager,
     private val functionRunExecutor: FunctionRunExecutor? = null,
-    private val controlActExecutorFactory: ControlActExecutorFactory,
     private val recordStepExecutor: OmniFlowRecordStepExecutor,
 ) : Task(taskChangeListener,taskManager), DeviceOperator {
     private val Tag = "VLMOperationTask"
@@ -143,7 +142,6 @@ open class VLMOperationTask(
                 }.orEmpty()
             },
             functionRunExecutor = functionRunExecutor,
-            controlActExecutor = controlActExecutorFactory.create(this),
         )
         androidDeviceOperator = AndroidDeviceOperator(executionTaskEventApi, taskContext)
     }
@@ -1373,6 +1371,7 @@ open class VLMOperationTask(
 
     override suspend fun onTaskDestroy() {
         AccessibilityController.Companion.restoreKeyboard()
+        AccessibilityController.releaseScreenCaptureSession()
         if (this::onTaskFinishListener.isInitialized) {
             runCatching { onTaskFinishListener.invoke() }
                 .onFailure { OmniLog.e(Tag, "onTaskFinishListener failed: ${it.message}") }

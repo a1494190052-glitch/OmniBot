@@ -36,7 +36,6 @@
           "list",
           "get",
           "put",
-          "edit",
           "delete",
           "clear"
         ]
@@ -150,9 +149,17 @@
       }
     },
     "recall": {
-      "request": {"required": ["goal", "state"]},
+      "request": {"required": ["goal", "state"], "optional": ["limit"]},
       "response": {
-        "required": ["candidates"],
+        "required": [
+          "success",
+          "retrieval_state",
+          "candidates",
+          "count",
+          "reason",
+          "runtime_source",
+          "duration_ms"
+        ],
         "candidate": {
           "required": ["function", "retrieval"],
           "function_schema_ref": "omniflow_function.v2.json",
@@ -163,17 +170,41 @@
         }
       }
     },
-    "record_step": {
-      "request": {
-        "schema_ref": "omniflow_canonical_run_log.v1.json#/$defs/step"
-      },
-      "response": {"required": ["step"]}
-    },
     "run": {
-      "request": {"one_of": ["function_id", "goal"]},
-      "host_calls": ["observe", "act", "get_state"],
+      "request": {
+        "one_of": ["function_id", "goal"],
+        "optional": ["arguments", "run_id", "execution_mode", "started_at_ms"]
+      },
+      "host_calls": ["observe", "act", "get_state", "record_step"],
       "response": {
-        "required": ["success", "function_id", "actions_executed", "error", "final_state"]
+        "required": [
+          "success",
+          "status",
+          "run_id",
+          "function_id",
+          "source",
+          "runner",
+          "execution_mode",
+          "step_count",
+          "success_step_count",
+          "completed_step_count",
+          "actions_executed",
+          "steps",
+          "started_at_ms",
+          "finished_at_ms",
+          "duration_ms"
+        ],
+        "optional": [
+          "name",
+          "description",
+          "failed_step_index",
+          "current_step_index",
+          "current_step_number",
+          "error_code",
+          "error_message",
+          "missing_required_arguments",
+          "final_state"
+        ]
       }
     },
     "shutdown": {
@@ -192,7 +223,11 @@
       "observe",
       "record_step"
     ],
-    "act_payload": {"required": ["action", "state"]}
+    "act_payload": {"required": ["action", "state"]},
+    "record_step_payload": {
+      "required": ["step"],
+      "step_schema_ref": "omniflow_canonical_run_log.v1.json#/$defs/step"
+    }
   },
   "invariants": {
     "closed_operation_set": true,

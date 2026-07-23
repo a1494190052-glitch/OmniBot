@@ -14,18 +14,14 @@ void main() {
     );
   });
 
-  test('OpenClaw session key is scoped by runtime segment', () {
+  test('OpenClaw session key is stable within one conversation', () {
     expect(
-      buildOpenClawContextSessionKey(
-        userId: 'user-1',
-        conversationId: 7,
-        contextSegmentId: 'run 1',
-      ),
-      'openclaw:user-1:conversation:7:segment:run_1',
+      buildOpenClawConversationSessionKey(userId: 'user-1', conversationId: 7),
+      'openclaw:user-1:conversation:7',
     );
     expect(
-      buildOpenClawContextSessionKey(contextSegmentId: ''),
-      'openclaw:segment:isolated',
+      buildOpenClawConversationSessionKey(userId: 'user-1'),
+      'openclaw:user-1',
     );
   });
 }

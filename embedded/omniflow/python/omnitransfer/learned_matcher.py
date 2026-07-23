@@ -255,13 +255,6 @@ def build_relation_aware_matcher(
                 nn.Linear(cfg.hidden_dim, 1),
             )
             self.matchability = nn.Linear(cfg.hidden_dim, 1)
-            null_dim = cfg.hidden_dim * 4
-            self.null_head = nn.Sequential(
-                nn.LayerNorm(null_dim),
-                nn.Linear(null_dim, cfg.hidden_dim),
-                nn.GELU(),
-                nn.Linear(cfg.hidden_dim, 1),
-            )
 
         def _encode_nodes(
             self,
@@ -296,14 +289,6 @@ def build_relation_aware_matcher(
             )
             logits = self.pair_head(pair).squeeze(-1)
             return logits + self.matchability(source_states) + self.matchability(target_states).T
-
-        def _null_logits(self, states: Any, other_states: Any) -> Any:
-            pooled = other_states.mean(dim=0, keepdim=True).expand(states.shape[0], -1)
-            features = torch.cat(
-                [states, pooled, torch.abs(states - pooled), states * pooled],
-                dim=-1,
-            )
-            return self.null_head(features)
 
         def forward(
             self,
@@ -353,17 +338,10 @@ def build_relation_aware_matcher(
                 source_states,
                 reverse_relations,
             )
-            logits_ab = torch.cat(
-                [pair_logits, self._null_logits(source_states, target_states)],
-                dim=1,
-            )
-            logits_ba = torch.cat(
-                [reverse_logits, self._null_logits(target_states, source_states)],
-                dim=1,
-            )
             return {
-                "logits_ab": logits_ab,
-                "logits_ba": logits_ba,
+                "logits_ab": pair_logits,
+                "logits_ba": reverse_logits,
+                "affinity": pair_logits,
                 "source_states": source_states,
                 "target_states": target_states,
             }
@@ -516,27 +494,35 @@ class LearnedGraphMatcher:
             device=self.device,
         )
         with torch.no_grad():
-            logits = self.model(*inputs)["logits_ab"][source_index]
-            selected_logits = logits[candidate_indices]
-            probabilities = torch.softmax(selected_logits, dim=0)
+            output = self.model(*inputs)
+            selected_logits = output["logits_ab"][source_index][candidate_indices]
+            selected_affinity = output["affinity"][source_index][candidate_indices]
+            rank_probabilities = torch.softmax(selected_logits, dim=0)
+            match_probabilities = torch.sigmoid(selected_affinity)
         ranked = sorted(
             (
-                (target.nodes[index].node_id, float(probabilities[position]))
+                (target.nodes[index].node_id, float(rank_probabilities[position]))
                 for position, index in enumerate(candidate_indices)
             ),
             key=lambda item: (-item[1], item[0]),
         )
         best_id, best_probability = ranked[0]
+        best_position = next(
+            position
+            for position, index in enumerate(candidate_indices)
+            if target.nodes[index].node_id == best_id
+        )
+        match_probability = float(match_probabilities[best_position])
         second_probability = max(
             (score for _, score in ranked[1:]),
             default=0.0,
         )
         margin = best_probability - second_probability
         scores = tuple(ranked)
-        if best_probability < min_probability or margin < min_margin:
-            return LearnedMatch(None, best_probability, margin, "learned_low_confidence", scores)
+        if match_probability < min_probability or margin < min_margin:
+            return LearnedMatch(None, match_probability, margin, "learned_low_confidence", scores)
         target_node = next(node for node in target.nodes if node.node_id == best_id)
-        return LearnedMatch(target_node, best_probability, margin, "learned_match", scores)
+        return LearnedMatch(target_node, match_probability, margin, "learned_match", scores)
 
 
 def save_matcher_checkpoint(

@@ -1498,10 +1498,18 @@ class AccessibilityController() {
         }
 
         fun destroy() {
+            releaseScreenCaptureSession()
             service = null;
             actionController = null;
             captureAction = null
             screenshotAction = null
+        }
+
+        fun releaseScreenCaptureSession() {
+            runCatching { ScreenCaptureManager.getInstance().release() }
+                .onFailure { error ->
+                    OmniLog.w(TAG, "Release screen capture session failed: ${error.message}")
+                }
         }
 
         private data class SliderCandidate(

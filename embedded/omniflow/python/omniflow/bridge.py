@@ -8,6 +8,7 @@ from pathlib import Path
 import re
 import sys
 import tempfile
+import time
 from typing import Any, TextIO
 
 from omniflow.artifact import parse_function_artifact
@@ -17,7 +18,7 @@ from omniflow.function_management import edit_function, enhance_function
 from omniflow.model import Action, ActionResult, Function, Observation
 from omniflow.runtime import OmniFlow
 from omniflow.schemas import canonicalize_action
-from omniflow.trajectory import canonicalize_run_log_step, canonicalize_state
+from omniflow.trajectory import canonicalize_state
 
 PROTOCOL_VERSION = "omniflow.bridge.v2"
 _COORDINATE_TOOLS = {"click", "input_text", "long_press", "swipe"}
@@ -92,11 +93,10 @@ class JsonLineBridge:
             return self._prepare_action(request_id, body)
         if operation == "control_act":
             return self._control_act(request_id, body)
-        if operation == "record_step":
-            return self._record_step(body)
         if operation == "run":
             self.flow.host = _BridgeHost(self, request_id)
             function_id = str(body.get("function_id") or "").strip()
+            function = self.flow.store.get_function(function_id) if function_id else None
             if function_id:
                 result = asyncio.run(
                     self.flow.arun_function(
@@ -106,16 +106,18 @@ class JsonLineBridge:
                 )
             else:
                 result = self.flow.run(str(body.get("goal") or ""))
-            return _run_result(result)
+            return _run_result(result, body=body, function=function)
         raise ValueError(f"unsupported_operation:{operation}")
 
     def _catalog(self, body: dict[str, Any]) -> dict[str, Any]:
         action = str(body.get("action") or "list")
         if action == "list":
             include_hidden = body.get("include_hidden") is True
+            limit = max(1, min(int(body.get("limit") or 100), 500))
+            offset = max(0, int(body.get("offset") or 0))
             functions = self.flow.store.list_functions(
-                offset=int(body.get("offset") or 0),
-                limit=int(body.get("limit") or 100),
+                offset=offset,
+                limit=limit,
                 include_hidden=include_hidden,
             )
             total = sum(
@@ -124,46 +126,60 @@ class JsonLineBridge:
                 if include_hidden or item.agent_visible
             )
             return {
+                "success": True,
                 "functions": [item.to_dict() for item in functions],
                 "count": len(functions),
                 "total": total,
+                "limit": limit,
+                "offset": offset,
+                "next_offset": offset + len(functions),
+                "has_more": offset + len(functions) < total,
+                "include_hidden": include_hidden,
             }
         if action == "get":
             function = self.flow.store.get_function(str(body.get("function_id") or ""))
             return {"function": function.to_dict() if function else None}
         if action == "put":
-            function = self.flow.store.put_function(dict(body.get("function") or {}))
-            return {"function": function.to_dict(), "function_id": function.function_id}
-        if action == "edit":
-            function_id = str(body.get("function_id") or "").strip()
-            original = self.flow.store.get_function(function_id)
-            if original is None:
-                return {"function": None, "function_id": function_id, "found": False}
-            edits = body.get("action_edits")
-            if not isinstance(edits, list):
-                raise ValueError("catalog_action_edits_must_be_array")
-            updated, changes = edit_function(original.to_dict(), edits)
-            dry_run = body.get("dry_run") is True
-            if changes and not dry_run:
-                self.flow.store.put_function(updated)
+            value = dict(body.get("function") or {})
+            function_id = str(value.get("function_id") or "").strip()
+            already_exists = bool(
+                function_id and self.flow.store.get_function(function_id) is not None
+            )
+            try:
+                function = self.flow.store.put_function(value)
+            except ValueError as error:
+                return _management_error("FUNCTION_SCHEMA_INVALID", str(error))
+            saved = function.to_dict()
             return {
-                "function": original.to_dict(),
-                "updated_function": updated,
-                "function_id": function_id,
-                "found": True,
-                "changed": bool(changes),
-                "saved": bool(changes) and not dry_run,
-                "dry_run": dry_run,
-                "changes": changes,
+                "success": True,
+                "function": saved,
+                "function_id": function.function_id,
+                "imported": True,
+                "already_exists": already_exists,
+                "agent_visible": saved["agent_visible"],
+                "source": "omniflow_python",
             }
         if action == "delete":
+            function_id = str(body.get("function_id") or "").strip()
+            deleted = self.flow.store.delete_function(function_id)
             return {
-                "deleted": self.flow.store.delete_function(
-                    str(body.get("function_id") or "")
-                )
+                "success": deleted,
+                "function_id": function_id,
+                "deleted": deleted,
+                "source": "omniflow_python",
             }
         if action == "clear":
-            return {"deleted_count": self.flow.store.clear_functions()}
+            if body.get("confirm") is not True:
+                return _management_error(
+                    "OOB_FUNCTION_CLEAR_CONFIRMATION_REQUIRED",
+                    "Set confirm=true to clear all registered Functions",
+                )
+            return {
+                "success": True,
+                "deleted": True,
+                "deleted_count": self.flow.store.clear_functions(),
+                "source": "omniflow_python",
+            }
         raise ValueError(f"unsupported_catalog_action:{action}")
 
     def _compile(self, request_id: str, body: dict[str, Any]) -> dict[str, Any]:
@@ -386,10 +402,12 @@ class JsonLineBridge:
         return str(response.get("content") or "")
 
     def _recall(self, body: dict[str, Any]) -> dict[str, Any]:
-        _require_contract(body, {"goal", "state"}, {"goal", "state"})
+        started_at = time.monotonic()
+        _require_contract(body, {"goal", "state"}, {"goal", "state", "limit"})
         if not isinstance(body.get("state"), dict):
             raise ValueError("state_must_be_object")
         _state_observation(body["state"])
+        limit = max(1, min(int(body.get("limit") or 8), 50))
         goal_tokens = _tokens(str(body.get("goal") or ""))
         scored: list[tuple[float, Function]] = []
         for function in self.flow.store.functions.values():
@@ -402,8 +420,7 @@ class JsonLineBridge:
             if score > 0:
                 scored.append((score, function))
         ranked = sorted(scored, key=lambda item: (-item[0], item[1].function_id))
-        return {
-            "candidates": [
+        candidates = [
                 {
                     "function": function.to_dict(),
                     "retrieval": {
@@ -413,7 +430,15 @@ class JsonLineBridge:
                     },
                 }
                 for rank, (score, function) in enumerate(ranked, start=1)
-            ]
+            ][:limit]
+        return {
+            "success": True,
+            "retrieval_state": "has_candidates" if candidates else "miss",
+            "candidates": candidates,
+            "count": len(candidates),
+            "reason": "omniflow_python_match" if candidates else "python_recall_miss",
+            "runtime_source": "omniflow_python",
+            "duration_ms": max(0, int((time.monotonic() - started_at) * 1000)),
         }
 
     def _prepare_action(
@@ -514,9 +539,6 @@ class JsonLineBridge:
         if step.detail:
             result["transfer"] = dict(step.detail)
         return result
-
-    def _record_step(self, body: dict[str, Any]) -> dict[str, Any]:
-        return {"step": canonicalize_run_log_step(body)}
 
     def host_call(self, request_id: str, method: str, payload: dict[str, Any]) -> Any:
         self._host_call_index += 1
@@ -745,17 +767,86 @@ def _management_error(
     }
 
 
-def _run_result(result) -> dict[str, Any]:
-    return {
+def _run_result(
+    result,
+    *,
+    body: dict[str, Any],
+    function: Function | None,
+) -> dict[str, Any]:
+    finished_at_ms = int(time.time() * 1000)
+    started_at_ms = int(body.get("started_at_ms") or finished_at_ms)
+    trace = [
+        step
+        for step in (result.detail.get("trace") or [])
+        if isinstance(step, dict)
+    ]
+    successful_steps = sum(
+        1
+        for step in trace
+        if isinstance(step.get("result"), dict)
+        and step["result"].get("success") is True
+    )
+    failed_step_index = next(
+        (
+            index
+            for index, step in enumerate(trace)
+            if not isinstance(step.get("result"), dict)
+            or step["result"].get("success") is not True
+        ),
+        None,
+    )
+    current_step_index = (
+        failed_step_index
+        if failed_step_index is not None
+        else len(trace) - 1 if trace else None
+    )
+    error = str(result.error or "")
+    error_code = None
+    if not result.success:
+        error_code = (
+            "OOB_FUNCTION_ARGUMENTS_MISSING"
+            if error.startswith("function_arguments_invalid:missing:")
+            else "OOB_FUNCTION_RUN_FAILED"
+        )
+    payload: dict[str, Any] = {
         "success": result.success,
-        "function_id": result.function_id,
-        "actions_executed": result.actions_executed,
-        "model_calls": result.model_calls,
-        "fallback_steps": result.fallback_steps,
-        "error": result.error,
+        "status": "succeeded" if result.success else "failed",
+        "run_id": str(body.get("run_id") or ""),
+        "function_id": str(result.function_id or body.get("function_id") or ""),
+        "name": function.name if function else "",
+        "description": function.description if function else "",
+        "source": "oob_function_replay",
+        "runner": "omniflow_python",
+        "execution_mode": str(body.get("execution_mode") or "foreground"),
+        "step_count": len(function.steps) if function else 0,
+        "success_step_count": successful_steps,
+        "completed_step_count": len(trace),
+        "actions_executed": int(result.actions_executed),
+        "steps": trace,
+        "failed_step_index": failed_step_index,
+        "current_step_index": current_step_index,
+        "current_step_number": (
+            current_step_index + 1 if current_step_index is not None else None
+        ),
+        "started_at_ms": started_at_ms,
+        "finished_at_ms": finished_at_ms,
+        "duration_ms": max(0, finished_at_ms - started_at_ms),
+        "error_code": error_code,
+        "error_message": error or None,
+        "missing_required_arguments": (
+            [
+                value
+                for value in error.removeprefix(
+                    "function_arguments_invalid:missing:"
+                ).split(",")
+                if value
+            ]
+            if error.startswith("function_arguments_invalid:missing:")
+            else None
+        ),
         "final_state": _state_from_observation(result.final_state),
-        "detail": result.detail,
     }
+    return {key: value for key, value in payload.items() if value is not None}
 
 
 def _state_from_observation(

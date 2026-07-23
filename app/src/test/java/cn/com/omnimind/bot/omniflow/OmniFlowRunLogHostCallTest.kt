@@ -17,7 +17,6 @@ class OmniFlowRunLogHostCallTest {
         var receivedState = emptyMap<String, Any?>()
         var receivedAction = emptyMap<String, Any?>()
         val host = omniFlowAndroidHostCall(
-            loadRunLog = { emptyMap() },
             loadState = { emptyMap() },
             observe = {
                 observeCount += 1

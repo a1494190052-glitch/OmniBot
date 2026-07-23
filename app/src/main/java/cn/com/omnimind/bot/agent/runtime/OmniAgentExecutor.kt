@@ -166,31 +166,26 @@ class OmniAgentExecutor(
         terminalEnvironment: Map<String, String>,
         callback: AgentCallback,
         runControl: AgentRunControl = NoOpAgentRunControl,
-        continueMode: Boolean = false,
-        contextSegmentId: String? = null
+        continueMode: Boolean = false
     ): AgentResult {
         var toolRouter: AgentToolRouter? = null
         return try {
             val agentRunId = UUID.randomUUID().toString()
-            val resolvedContextSegmentId = contextSegmentId?.trim()?.takeIf { it.isNotEmpty() }
             val workspaceManager = AgentWorkspaceManager(context)
             val memoryService = WorkspaceMemoryService(context, workspaceManager)
             val workspaceDescriptor = workspaceManager.buildWorkspaceDescriptor(
                 conversationId = conversationId,
-                agentRunId = agentRunId,
-                contextSegmentId = resolvedContextSegmentId
+                agentRunId = agentRunId
             )
             val historyRepository = AgentConversationHistoryRepository(context)
             val promptMemoryContext = runCatching {
-                memoryService.buildPromptContext(
-                    includePersistentMemory = resolvedContextSegmentId == null
-                )
+                memoryService.buildPromptContext()
             }.getOrNull()
             val ltmIndex = runCatching {
                 LongTermMemoryIndex(workspaceManager)
             }.getOrNull()
             val memoryLoadTracker = TurnMemoryLoadTracker()
-            val prefetchedMemoryHits = if (ltmIndex != null && resolvedContextSegmentId == null) {
+            val prefetchedMemoryHits = if (ltmIndex != null) {
                 runCatching {
                     MemoryRetrievalPipeline(memoryService, ltmIndex)
                         .prefetchRelevant(userMessage, topK = 4)
@@ -228,8 +223,7 @@ class OmniAgentExecutor(
             val initialMessages = buildInitialMessages(
                 promptSeed = historyRepository.buildPromptSeed(
                     conversationId = conversationId,
-                    conversationMode = conversationMode,
-                    contextSegmentId = resolvedContextSegmentId
+                    conversationMode = conversationMode
                 ),
                 userMessage = userMessage,
                 attachments = attachments,
@@ -241,7 +235,6 @@ class OmniAgentExecutor(
                 skillsRootAndroidPath = workspaceManager.skillsRoot().absolutePath,
                 resolvedSkills = resolvedSkills,
                 memoryContext = promptMemoryContext,
-                automaticMemoryEnabled = resolvedContextSegmentId == null,
                 prefetchedMemoryHits = prefetchedMemoryHits
             )
 
@@ -311,7 +304,6 @@ class OmniAgentExecutor(
                     initialMessages = initialMessages,
                     conversationId = conversationId,
                     contextCompactor = contextCompactor,
-                    contextSegmentId = resolvedContextSegmentId,
                     executionEnv = DefaultAgentExecutionEnvironment(
                         agentRunId = agentRunId,
                         userMessage = userMessage,
@@ -352,7 +344,6 @@ class OmniAgentExecutor(
         skillsRootAndroidPath: String,
         resolvedSkills: List<ResolvedSkillContext>,
         memoryContext: WorkspaceMemoryPromptContext?,
-        automaticMemoryEnabled: Boolean,
         prefetchedMemoryHits: List<WorkspaceMemorySearchHit> = emptyList()
     ): List<ChatCompletionMessage> {
         val systemPrompt = AgentSystemPrompt.build(
@@ -362,7 +353,6 @@ class OmniAgentExecutor(
             skillsRootAndroidPath = skillsRootAndroidPath,
             resolvedSkills = resolvedSkills,
             memoryContext = memoryContext,
-            automaticMemoryEnabled = automaticMemoryEnabled,
             locale = AppLocaleManager.resolvePromptLocale(context)
         )
         return mergeInitialPromptMessages(

@@ -16,19 +16,21 @@ from omnitransfer.ui_graph import UIGraph, UINode, graph_from_record
 
 _MIN_ANCHOR_OFFSET = -1.0
 _MAX_ANCHOR_OFFSET = 2.0
-_MATCHER_MODE = "mutual_graph_matcher_v2"
+_MATCHER_MODE = "mutual_graph_matcher_no_null_v3"
+_DEFAULT_MATCHER_MIN_PROBABILITY = 0.5
+_DEFAULT_MATCHER_MIN_MARGIN = 0.0
 _DEFAULT_MATCHER_CHECKPOINT = (
     Path(__file__).resolve().parent
     / "checkpoints"
-    / "pair_evidence_mutual_v2_e3e9e2f0_20260722"
-    / "seeded_visual_seed17.pt"
+    / "pair_evidence_mutual_no_null_v3_20260723"
+    / "no_null_seed17.pt"
 )
 _DEFAULT_MATCHER_SHA256 = (
-    "e2c879b5046c86e7493f3eb18c46a24bbe180ae5c483e779a53097384fdc4ad5"
+    "61beec6da26f7aab7c51fd778ea22b5cfc956ca0cb658f1e91f4e8debc6f95b8"
 )
 _DEFAULT_NUMPY_MATCHER_CHECKPOINT = _DEFAULT_MATCHER_CHECKPOINT.with_suffix(".npz")
 _DEFAULT_NUMPY_MATCHER_SHA256 = (
-    "700de8fac2ba5f8e723ed2e812704f33de62dead3051b9d0279369a70f07ae37"
+    "6e5668343419da38776e1f32ad9da610abc323637d8f6c6df38fb72ddec062b8"
 )
 
 
@@ -118,8 +120,14 @@ def action_transfer(
             target,
             source_node_id=source_node.node_id,
             candidate_node_ids=candidates,
-            min_probability=_matcher_threshold("OMNITRANSFER_MATCHER_MIN_PROBABILITY"),
-            min_margin=_matcher_threshold("OMNITRANSFER_MATCHER_MIN_MARGIN"),
+            min_probability=_matcher_threshold(
+                "OMNITRANSFER_MATCHER_MIN_PROBABILITY",
+                default=_DEFAULT_MATCHER_MIN_PROBABILITY,
+            ),
+            min_margin=_matcher_threshold(
+                "OMNITRANSFER_MATCHER_MIN_MARGIN",
+                default=_DEFAULT_MATCHER_MIN_MARGIN,
+            ),
         )
     except Exception as error:
         return {
@@ -285,8 +293,9 @@ def runtime_preflight() -> dict[str, Any]:
     }
 
 
-def _matcher_threshold(name: str) -> float:
-    value = float(os.environ.get(name) or 0.0)
+def _matcher_threshold(name: str, *, default: float) -> float:
+    configured = str(os.environ.get(name) or "").strip()
+    value = float(configured) if configured else float(default)
     if not math.isfinite(value) or value < 0.0 or value > 1.0:
         raise ValueError(f"{name} must be between 0 and 1")
     return value
@@ -433,7 +442,22 @@ def _source_node(
         and node.bbox[0] <= x <= node.bbox[2]
         and node.bbox[1] <= y <= node.bbox[3]
     ]
-    return min(containing, key=lambda node: _area(node.bbox), default=None)
+    actionable = [
+        node
+        for node in containing
+        if node.enabled and (node.clickable or node.editable or node.scrollable)
+    ]
+    candidates = actionable or containing
+    return min(
+        candidates,
+        key=lambda node: (
+            _area(node.bbox),
+            not _has_stable_identity(node),
+            -node.depth,
+            node.node_id,
+        ),
+        default=None,
+    )
 
 
 def _has_stable_identity(node: UINode) -> bool:

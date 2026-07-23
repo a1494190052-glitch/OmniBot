@@ -166,13 +166,9 @@ internal fun prepareChatTaskContent(
     conversationMode: String,
     chatPromptContent: String?
 ): List<Map<String, Any>> {
-    val currentTurnContent = content.lastOrNull { message ->
-        message["role"]?.toString()?.trim()?.equals("user", ignoreCase = true) == true
-    }?.let(::listOf).orEmpty()
-    val prompt = chatPromptContent?.takeIf { it.trim().isNotEmpty() }
-        ?: return currentTurnContent
+    val prompt = chatPromptContent?.takeIf { it.trim().isNotEmpty() } ?: return content
     if (!conversationMode.equals(CHAT_ONLY_MODE, ignoreCase = true)) {
-        return currentTurnContent
+        return content
     }
     return buildList {
         add(
@@ -181,20 +177,8 @@ internal fun prepareChatTaskContent(
                 "content" to prompt
             )
         )
-        addAll(currentTurnContent)
+        addAll(content)
     }
-}
-
-internal fun scopeChatProviderSessionKey(
-    sessionKey: String?,
-    contextSegmentId: String
-): String {
-    val normalizedSegment = contextSegmentId.trim()
-        .replace(Regex("[^A-Za-z0-9._-]"), "_")
-        .ifEmpty { "isolated" }
-    val suffix = ":segment:$normalizedSegment"
-    val base = sessionKey?.trim()?.takeIf { it.isNotEmpty() } ?: "openomnibot"
-    return if (base.endsWith(suffix)) base else "$base$suffix"
 }
 
 internal fun resolveChatTaskModelOverride(
@@ -1991,10 +1975,7 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
                     baseUrl = baseUrl,
                     token = map["token"] as? String,
                     userId = map["userId"] as? String,
-                    sessionKey = scopeChatProviderSessionKey(
-                        sessionKey = map["sessionKey"] as? String,
-                        contextSegmentId = taskID
-                    )
+                    sessionKey = map["sessionKey"] as? String
                 )
             }
         }
@@ -2264,8 +2245,7 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
         val repository = conversationHistoryRepository()
         val candidate = repository.getContextCompactionCandidate(
             conversationId = state.conversationId,
-            conversationMode = state.conversationMode,
-            contextSegmentId = taskId
+            conversationMode = state.conversationMode
         ) ?: return null
         if (candidate.entriesToCompact.isEmpty()) {
             return null
@@ -2291,8 +2271,7 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
                 conversationId = state.conversationId,
                 conversationMode = state.conversationMode,
                 modelOverride = chatModelOverrideToAgentModelOverride(state.modelOverride),
-                reasoningEffort = state.reasoningEffort,
-                contextSegmentId = taskId
+                reasoningEffort = state.reasoningEffort
             )
             @Suppress("UNCHECKED_CAST")
             conversationPayload = payload["conversation"] as? Map<String, Any?>
@@ -6028,8 +6007,7 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
                     terminalEnvironment,
                     callback,
                     runControl = agentRunContext,
-                    continueMode = continueMode,
-                    contextSegmentId = taskId
+                    continueMode = continueMode
                 )
             } catch (e: CancellationException) {
                 OmniLog.i(TAG, "createAgentTask cancelled: ${e.message}")
@@ -6644,7 +6622,7 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
                     context = context,
                     name = name,
                     description = description,
-                    recordStepExecutor = omniFlowRecordStepExecutor(context),
+                    recordStepExecutor = omniFlowRecordStepExecutor(),
                     enableRawTouch = enableRawTouch,
                     enableDebugScreenshots = enableDebugScreenshots
                 )

@@ -60,7 +60,6 @@ class VLMOperationService(
     private val runId: String = "",
     private val runLogStepsProvider: suspend () -> List<Map<String, Any?>> = { emptyList() },
     private val functionRunExecutor: FunctionRunExecutor? = null,
-    private val controlActExecutor: ControlActExecutor,
 ) {
     private val Tag = "VLMOperationService"
     private val vlmClient = VLMClient()
@@ -69,7 +68,6 @@ class VLMOperationService(
         deviceOperator,
         contextManager,
         functionRunExecutor,
-        controlActExecutor,
     )
     private val logJson = Json {
         encodeDefaults = true

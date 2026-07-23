@@ -8,7 +8,6 @@ Keep the model simple:
 FunctionService = manage Functions
 FunctionRun     = bridge one Function run to Python
 Python catalog  = validate and persist Function JSON
-FunctionSchema  = expose read-only Function views
 FunctionApi     = external tool names and schemas
 ```
 
@@ -20,15 +19,12 @@ FunctionApi     = external tool names and schemas
 
 ## File Roles
 
-- `FunctionApi.kt`: public tool names, tool schemas, schema export, and lightweight prompt/profile text.
+- `FunctionApi.kt`: public tool names, tool schemas, and schema export.
 - `FunctionService.kt`: Function management flow: list/get/save/update/delete/clear/recall/convert.
 - `FunctionRun.kt`: Android host, progress, and RunLog adapter for Python execution.
-- `FunctionSchema.kt`: read-only callable summaries for UI and recall.
 - `OmniFlowPythonRuntime`: RunLog conversion, recall, binding, checker policy, and action transfer.
 - `FunctionService.registerFunction`: accepts one canonical `function`; compilation stays in OmniFlow.
 - `FunctionFrontendSessionController.kt`: progress/card/session updates for Function runs.
-- `FunctionRunLogRecorder.kt`: Function run log persistence.
-- `FunctionJson.kt`: small JSON helpers.
 
 ## Rules
 

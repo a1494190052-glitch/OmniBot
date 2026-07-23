@@ -4,6 +4,7 @@ import cn.com.omnimind.baselib.i18n.PromptLocale
 import cn.com.omnimind.baselib.runlog.OobActionSchema
 import cn.com.omnimind.bot.agent.AgentToolDefinitions
 import cn.com.omnimind.bot.agent.AgentToolJson.mapToJsonElement
+import cn.com.omnimind.bot.runlog.mapArg
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
@@ -16,7 +17,6 @@ import kotlinx.serialization.json.putJsonObject
  */
 object FunctionApi {
     const val PROFILE = "function"
-    const val SKILL_ID = "function"
 
     const val FUNCTION_LIST = "oob_function_list"
     const val FUNCTION_GET = "oob_function_get"
@@ -30,7 +30,6 @@ object FunctionApi {
     const val RUN_LOG_CONVERT = "oob_run_log_convert"
 
     const val FUNCTION_RECALL = "function.recall"
-    const val FUNCTION_INGEST_RUN_LOG = "function.ingest_run_log"
 
     val functionLifecycleTools: Set<String> = setOf(
         FUNCTION_LIST,
@@ -49,7 +48,7 @@ object FunctionApi {
 
     val profileTools: Set<String> = functionLifecycleTools + runLogTools
     val toolNames: Set<String> = profileTools
-    val mcpToolNames: Set<String> = profileTools + setOf(FUNCTION_RECALL, FUNCTION_INGEST_RUN_LOG)
+    val mcpToolNames: Set<String> = profileTools + FUNCTION_RECALL
     val acceptedMcpToolNames: Set<String> = mcpToolNames
 
     const val SCHEMA_RESOURCE_URI = "omniflow://schemas/function-management"
@@ -70,14 +69,6 @@ object FunctionApi {
             "tool_schemas" to mcpTools.mapNotNull(::toolSchemaSummary),
         )
 
-    fun isProfile(profile: String?): Boolean =
-        canonicalProfile(profile) == PROFILE
-
-    fun canonicalProfile(profile: String?): String {
-        val normalized = normalizeProfile(profile)
-        return normalized
-    }
-
     fun staticToolDefinitions(locale: PromptLocale): List<JsonObject> =
         functionManagementToolDefinitions.map { definition ->
             AgentToolDefinitions.decorateToolDefinition(definition, locale)
@@ -86,7 +77,6 @@ object FunctionApi {
     val mcpToolDefinitions: List<Map<String, Any?>>
         get() = listOf(
             functionRecallMcpTool,
-            functionIngestRunLogMcpTool,
             functionListMcpTool,
             functionGetMcpTool,
             functionRegisterMcpTool,
@@ -98,107 +88,18 @@ object FunctionApi {
             oobRunLogConvertMcpTool,
         )
 
-    internal fun buildPromptCandidateContext(
-        candidates: List<Map<String, Any?>>,
-        locale: PromptLocale,
-    ): String {
-        if (candidates.isEmpty()) return ""
-        return buildString {
-            when (locale) {
-                PromptLocale.ZH_CN -> {
-                    appendLine("本轮已根据用户目标完成 Function recall 检查。")
-                    appendLine("- Function 是可组合的复用片段；召回和重放由本地运行时处理。")
-                    appendLine("- Function recall 是运行时内部流程，不是模型工具；不要尝试调用 function_recall、call_tool(function_id) 或隐藏 Function tool。")
-                    appendLine("- 如需管理/查看已保存 Function，用 list/get/update/delete 工具；普通手机 UI 自动化继续走 vlm_task。")
-                    appendLine("- 候选复用指令只作上下文；明确要执行时由本地运行时选择，普通手机自动化仍走 vlm_task：")
-                }
-                PromptLocale.EN_US -> {
-                    appendLine("Function recall has been checked for this user goal.")
-                    appendLine("- A Function is a saved mobile workflow segment; recall and replay are handled by the local runtime.")
-                    appendLine("- Function recall is an internal runtime flow, not a model tool; do not call function_recall, call_tool(function_id), or hidden Function tools.")
-                    appendLine("- Use list/get/update/delete tools to manage saved Functions. Continue ordinary phone UI automation through vlm_task.")
-                    appendLine("- Candidate reusable Functions are context only; explicit execution is selected by the local runtime, and ordinary phone automation still uses vlm_task:")
-                }
-            }
-            candidates.forEachIndexed { index, spec ->
-                appendLine(formatPromptCandidate(index + 1, spec, locale))
-            }
-        }.trim()
-    }
-
-    private fun normalizeProfile(profile: String?): String = profile
-        ?.trim()
-        ?.lowercase()
-        ?.replace('-', '_')
-        .orEmpty()
-
-    private fun formatPromptCandidate(
-        ordinal: Int,
-        spec: Map<String, Any?>,
-        locale: PromptLocale,
-    ): String {
-        val callable = FunctionSchema.callableSummary(spec)
-        val functionId = FunctionJson.firstNonBlank(callable["function_id"], spec["function_id"])
-        val name = FunctionJson.firstNonBlank(callable["name"], spec["name"], functionId)
-        val description = FunctionJson.firstNonBlank(callable["description"], spec["description"], name)
-            .trim()
-            .replace(Regex("\\s+"), " ")
-            .takeIf { it.isNotEmpty() }
-            ?: name
-        val inputSchema = FunctionJson.mapArg(callable["input_schema"])
-        val params = ((inputSchema["properties"] as? Map<*, *>)?.keys ?: emptySet<Any?>())
-            .mapNotNull { it?.toString()?.trim()?.takeIf(String::isNotEmpty) }
-            .take(6)
-            .joinToString(", ")
-            .ifBlank {
-                when (locale) {
-                    PromptLocale.ZH_CN -> "无显式参数"
-                    PromptLocale.EN_US -> "no explicit params"
-                }
-            }
-        val clippedDescription = description.take(220)
-        return when (locale) {
-            PromptLocale.ZH_CN -> buildString {
-                append("- $ordinal. `$functionId` — $name：$clippedDescription；参数: $params")
-            }
-            PromptLocale.EN_US -> buildString {
-                append("- $ordinal. `$functionId` — $name: $clippedDescription; params: $params")
-            }
-        }
-    }
-
     private val functionRecallMcpTool = mapOf(
         "name" to FUNCTION_RECALL,
-        "description" to """Recall by the UDEG path: page match -> UDEG node -> node skill-like decision context. The result is candidate context for inspection and diagnostics. Online execution should use vlm_task; saved Function execution is selected by the local runtime, not by a direct model tool call.""".trimIndent(),
+        "description" to "Recall saved Functions for a goal and current Android state. Online execution still uses vlm_task; the local runtime owns Function replay.",
         "inputSchema" to mapOf(
             "type" to "object",
             "properties" to mapOf(
                 "goal" to mapOf("type" to "string", "description" to "Natural-language task goal."),
                 "current_package" to mapOf("type" to "string", "description" to "Optional foreground Android package for scope matching."),
-                "current_node_id" to mapOf("type" to "string", "description" to "Optional current page/node id for future compatibility."),
                 "current_xml" to mapOf("type" to "string", "description" to "Optional live accessibility XML. When omitted, the runtime captures the foreground page and page-matches it to a UDEG node."),
-                "k" to mapOf("type" to "integer", "description" to "Maximum candidates to return. Default 8."),
-                "include_debug" to mapOf(
-                    "type" to "boolean",
-                    "default" to false,
-                    "description" to "Default false returns an agent-compact payload without timing, full node skill body, page vectors, or artifacts. Set true only for tests/debugging."
-                )
+                "k" to mapOf("type" to "integer", "description" to "Maximum candidates to return. Default 8.")
             ),
             "required" to listOf("goal")
-        )
-    )
-
-    private val functionIngestRunLogMcpTool = mapOf(
-        "name" to FUNCTION_INGEST_RUN_LOG,
-        "description" to """Convert a successful RunLog into a local manual Function asset. By default this returns or saves an agent-hidden manual Function; set register=true only when explicitly publishing it for runtime recall.""".trimIndent(),
-        "inputSchema" to mapOf(
-            "type" to "object",
-            "properties" to mapOf(
-                "run_id" to mapOf("type" to "string", "description" to "Existing RunLog id. Raw RunLog state stays in the RunLog store and is resolved by id."),
-                "register" to mapOf("type" to "boolean", "description" to "Persist the converted manual Function. Default false."),
-                "agent_visible" to mapOf("type" to "boolean", "description" to "Publish the Function for runtime recall. Default false.")
-            ),
-            "required" to listOf("run_id")
         )
     )
 
@@ -337,7 +238,7 @@ object FunctionApi {
                     put("description", presentation.description)
                     put(
                         "parameters",
-                        mapToJsonElement(FunctionJson.mapArg(definition["inputSchema"])),
+                        mapToJsonElement(mapArg(definition["inputSchema"])),
                     )
                 }
             }

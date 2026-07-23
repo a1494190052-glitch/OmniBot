@@ -25,6 +25,7 @@ class OmniFlowRuntimeBundleTest {
                     omniflow.source.sha256=${"b".repeat(64)}
                     omnitransfer.commit=transfer
                     omnitransfer.source.sha256=${"c".repeat(64)}
+                    omnitransfer.checkpoint=checkpoints/matcher.npz
                     numpy.version=2.2.6
                     bundle.sha256=${"a".repeat(64)}
                 """.trimIndent().toByteArray()
@@ -39,6 +40,7 @@ class OmniFlowRuntimeBundleTest {
         assertEquals("b".repeat(64), manifest.omniFlowSourceSha256)
         assertEquals("transfer", manifest.omniTransferCommit)
         assertEquals("c".repeat(64), manifest.omniTransferSourceSha256)
+        assertEquals("checkpoints/matcher.npz", manifest.omniTransferCheckpoint)
     }
 
     @Test

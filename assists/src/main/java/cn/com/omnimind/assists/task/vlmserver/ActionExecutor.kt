@@ -65,7 +65,6 @@ class ActionExecutor(
     private val deviceOperator: DeviceOperator,
     private val contextManager: UIContextManager,
     private val functionRunExecutor: FunctionRunExecutor? = null,
-    private val controlActExecutor: ControlActExecutor? = null,
 ) {
     private val TAG = "ActionExecutor"
     private val json = Json { ignoreUnknownKeys = true }
@@ -231,23 +230,18 @@ class ActionExecutor(
         args: Map<String, Any?>,
         state: State?,
     ): OperationResult {
-        return try {
-            val controlled = requireNotNull(controlActExecutor) {
-                "control_act_executor_not_registered"
-            }.act(tool, args, state)
-            if (controlled.success) {
-                controlled.copy(message = actionSuccessMessage(tool, args))
-            } else {
-                controlled
-            }
-        } catch (error: Exception) {
-            val message = error.message.orEmpty().ifBlank { "action failed: $tool" }
-            OperationResult(
-                success = false,
-                message = message,
-                data = null,
-                diagnostics = actionFailureDiagnostics(message),
+        val dispatched = act(
+            action = tool,
+            args = args,
+            source = SOURCE_VLM_ONLINE,
+        )
+        return if (dispatched.success) {
+            dispatched.copy(
+                message = actionSuccessMessage(tool, args),
+                beforeState = dispatched.beforeState ?: state,
             )
+        } else {
+            dispatched.copy(beforeState = dispatched.beforeState ?: state)
         }
     }
 
@@ -439,6 +433,7 @@ class ActionExecutor(
 
     private companion object {
         private const val SOURCE_AGENT_ACTION = "agent_local_action"
+        private const val SOURCE_VLM_ONLINE = "vlm_online"
         private const val CLICK_POST_DELAY_MS = 300L
         private const val KEY_POST_DELAY_MS = 250L
         private const val INPUT_FOCUS_DELAY_MS = 250L

@@ -9,10 +9,8 @@ import cn.com.omnimind.bot.omniflow.OmniFlowFunctionRecallAdapter
 import cn.com.omnimind.bot.omniflow.OmniFlowPythonHostCall
 import cn.com.omnimind.bot.omniflow.OmniFlowPythonRuntime
 import cn.com.omnimind.bot.omniflow.omniFlowRunLogHostCall
-import cn.com.omnimind.bot.runlog.boolArg
 import cn.com.omnimind.bot.runlog.firstNonBlank
 import cn.com.omnimind.bot.runlog.intArg
-import cn.com.omnimind.bot.runlog.listArg
 import cn.com.omnimind.bot.runlog.mapArg
 
 /** Android adapter for the Python-owned Function catalog and compiler. */
@@ -26,7 +24,6 @@ class FunctionService(
     suspend fun executeTool(name: String?, args: Map<String, Any?>?): Map<String, Any?> =
         when (name) {
             FunctionApi.FUNCTION_RECALL -> recall(args)
-            FunctionApi.FUNCTION_INGEST_RUN_LOG -> ingestRunLog(args)
             FunctionApi.FUNCTION_LIST -> listFunctions(args)
             FunctionApi.FUNCTION_GET -> getFunction(args)
             FunctionApi.FUNCTION_REGISTER -> registerFunction(args)
@@ -52,30 +49,8 @@ class FunctionService(
         return recallAdapter.recall(request + ("current_package" to currentPackage))
     }
 
-    suspend fun listFunctions(args: Map<String, Any?>?): Map<String, Any?> {
-        val request = args.orEmpty()
-        val limit = intArg(request["limit"], defaultValue = 100).coerceIn(1, 500)
-        val offset = intArg(request["offset"], defaultValue = 0).coerceAtLeast(0)
-        val includeHidden = boolArg(request["include_hidden"])
-        val result = catalog(
-            "list",
-            "limit" to limit,
-            "offset" to offset,
-            "include_hidden" to includeHidden,
-        )
-        val functions = listArg(result["functions"])
-        val total = intArg(result["total"], defaultValue = functions.size)
-        return linkedMapOf(
-            "success" to true,
-            "count" to functions.size,
-            "limit" to limit,
-            "offset" to offset,
-            "next_offset" to (offset + functions.size),
-            "has_more" to (offset + functions.size < total),
-            "functions" to functions,
-            "include_hidden" to includeHidden,
-        )
-    }
+    suspend fun listFunctions(args: Map<String, Any?>?): Map<String, Any?> =
+        catalog("list", args.orEmpty())
 
     suspend fun getFunction(args: Map<String, Any?>?): Map<String, Any?> {
         val functionId = firstNonBlank(args?.get("function_id"))
@@ -88,66 +63,17 @@ class FunctionService(
             )
     }
 
-    suspend fun registerFunction(args: Map<String, Any?>?): Map<String, Any?> {
-        val function = mapArg(args?.get("function"))
-        if (function.isEmpty()) return errorPayload("FUNCTION_REQUIRED", "function is required")
-        val functionId = firstNonBlank(function["function_id"])
-        if (functionId.isBlank()) return errorPayload("FUNCTION_ID_EMPTY", "function_id is required")
-        val alreadyExists = functionSpec(functionId) != null
-        return runCatching {
-            val result = catalog("put", "function" to function)
-            val saved = mapArg(result["function"])
-            linkedMapOf(
-                "success" to true,
-                "function_id" to firstNonBlank(result["function_id"], functionId),
-                "imported" to true,
-                "already_exists" to alreadyExists,
-                "agent_visible" to (saved["agent_visible"] == true),
-                "function" to saved,
-                "runtime_source" to "omniflow_python",
-            )
-        }.getOrElse { error ->
-            errorPayload(
-                "FUNCTION_SCHEMA_INVALID",
-                error.message ?: "Invalid Function",
-                functionId,
-            )
-        }
-    }
+    suspend fun registerFunction(args: Map<String, Any?>?): Map<String, Any?> =
+        catalog("put", args.orEmpty())
 
-    suspend fun deleteFunction(args: Map<String, Any?>?): Map<String, Any?> {
-        val functionId = firstNonBlank(args?.get("function_id"))
-        if (functionId.isBlank()) return errorPayload("FUNCTION_ID_EMPTY", "function_id is required")
-        val deleted = catalog("delete", "function_id" to functionId)["deleted"] == true
-        return linkedMapOf(
-            "success" to deleted,
-            "function_id" to functionId,
-            "deleted" to deleted,
-            "runtime_source" to "omniflow_python",
-        )
-    }
+    suspend fun deleteFunction(args: Map<String, Any?>?): Map<String, Any?> =
+        catalog("delete", args.orEmpty())
 
-    suspend fun clearFunctions(args: Map<String, Any?>?): Map<String, Any?> {
-        if (!boolArg(args?.get("confirm"))) {
-            return errorPayload(
-                "OOB_FUNCTION_CLEAR_CONFIRMATION_REQUIRED",
-                "Set confirm=true to clear all registered Functions",
-            )
-        }
-        val result = catalog("clear")
-        return linkedMapOf(
-            "success" to true,
-            "deleted" to true,
-            "deleted_count" to intArg(result["deleted_count"], defaultValue = 0),
-            "runtime_source" to "omniflow_python",
-        )
-    }
+    suspend fun clearFunctions(args: Map<String, Any?>?): Map<String, Any?> =
+        catalog("clear", args.orEmpty())
 
     suspend fun updateFunction(args: Map<String, Any?>?): Map<String, Any?> =
         managementCall("update_function", args.orEmpty())
-
-    suspend fun ingestRunLog(args: Map<String, Any?>?): Map<String, Any?> =
-        managementCall("compile", args.orEmpty())
 
     fun listRunLogs(args: Map<String, Any?>?): Map<String, Any?> {
         val limit = intArg(args?.get("limit"), defaultValue = 50).coerceIn(1, 200)
@@ -181,15 +107,15 @@ class FunctionService(
         managementCall("compile", args.orEmpty())
 
     private suspend fun functionSpec(functionId: String): Map<String, Any?>? =
-        mapArg(catalog("get", "function_id" to functionId)["function"])
+        mapArg(catalog("get", mapOf("function_id" to functionId))["function"])
             .takeIf(Map<String, Any?>::isNotEmpty)
 
     private suspend fun catalog(
         action: String,
-        vararg values: Pair<String, Any?>,
-    ): Map<String, Any?> = bridgeCall(
+        payload: Map<String, Any?>,
+    ): Map<String, Any?> = managementCall(
         "catalog",
-        linkedMapOf<String, Any?>("action" to action).apply { putAll(values) },
+        linkedMapOf<String, Any?>("action" to action).apply { putAll(payload) },
     )
 
     private suspend fun bridgeCall(

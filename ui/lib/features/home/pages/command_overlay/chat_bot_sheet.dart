@@ -2064,9 +2064,9 @@ class _ChatBotSheetState extends State<ChatBotSheet>
       'baseUrl': _openClawBaseUrl,
       if (_openClawToken.isNotEmpty) 'token': _openClawToken,
       if (_openClawUserId.isNotEmpty) 'userId': _openClawUserId,
-      'sessionKey': buildOpenClawContextSessionKey(
+      'sessionKey': buildOpenClawConversationSessionKey(
         userId: _openClawUserId,
-        contextSegmentId: aiMessageId,
+        conversationId: _currentConversationId,
       ),
     };
     final Future<bool> sendFuture = _aiService.sendMessageWithProvider(

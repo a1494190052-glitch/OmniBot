@@ -51,7 +51,7 @@ internal object OmniFlowEmbeddedRuntime {
         ).apply { mkdirs() }
         val target = File(runtimeRoot, manifest.version)
         val marker = File(target, INSTALL_MARKER)
-        if (marker.readTextOrNull() == manifest.bundleSha256 && requiredFilesExist(target)) {
+        if (marker.readTextOrNull() == manifest.bundleSha256 && requiredFilesExist(target, manifest)) {
             return target
         }
         val bundle = File(context.cacheDir, "omniflow-runtime-${manifest.version}.zip")
@@ -65,7 +65,7 @@ internal object OmniFlowEmbeddedRuntime {
         val installing = File(runtimeRoot, ".${manifest.version}.installing")
         installing.deleteRecursively()
         extractOmniFlowRuntimeBundle(bundle.inputStream(), installing)
-        require(requiredFilesExist(installing)) { "omniflow_runtime_bundle_incomplete" }
+        require(requiredFilesExist(installing, manifest)) { "omniflow_runtime_bundle_incomplete" }
         File(installing, INSTALL_MARKER).writeText(manifest.bundleSha256)
         target.deleteRecursively()
         require(installing.renameTo(target)) { "omniflow_runtime_install_rename_failed" }
@@ -122,13 +122,15 @@ internal object OmniFlowEmbeddedRuntime {
         }
     }
 
-    private fun requiredFilesExist(root: File): Boolean = listOf(
+    private fun requiredFilesExist(
+        root: File,
+        manifest: OmniFlowRuntimeManifest,
+    ): Boolean = listOf(
         "site-packages/oob_omniflow_bridge.py",
         "site-packages/omniflow/bridge.py",
         "site-packages/omnitransfer/runtime.py",
         "site-packages/omnitransfer/numpy_matcher.py",
-        "site-packages/omnitransfer/checkpoints/" +
-            "pair_evidence_mutual_v2_e3e9e2f0_20260722/seeded_visual_seed17.npz",
+        "site-packages/omnitransfer/${manifest.omniTransferCheckpoint}",
         "site-packages/numpy/__init__.py",
         "site-packages/schemas/oob/oob_canonical_actions.v1.json",
         "site-packages/schemas/oob/omniflow_canonical_run_log.v1.json",
@@ -148,5 +150,6 @@ internal object OmniFlowEmbeddedRuntime {
         omniFlowSourceSha256,
         omniTransferCommit,
         omniTransferSourceSha256,
+        omniTransferCheckpoint,
     ).joinToString(":")
 }

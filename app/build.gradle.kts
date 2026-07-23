@@ -287,6 +287,14 @@ val omniFlowRuntimePropertiesFile = File(omniFlowRuntimeDir, "runtime.properties
 val omniFlowRuntimeProperties = Properties().apply {
     omniFlowRuntimePropertiesFile.inputStream().use(::load)
 }
+val omniTransferCheckpoint = omniFlowRuntimeProperties
+    .getProperty("omnitransfer.checkpoint")
+    ?.trim()
+    ?.takeIf(String::isNotEmpty)
+    ?: throw GradleException("OmniTransfer checkpoint path is required")
+if (omniTransferCheckpoint.startsWith('/') || ".." in omniTransferCheckpoint.split('/')) {
+    throw GradleException("OmniTransfer checkpoint path must be package-relative")
+}
 val omniFlowBridgeContractFile = rootProject.file(
     "schemas/oob/omniflow_android_bridge.v2.json"
 )
@@ -440,8 +448,7 @@ val prepareOmniFlowRuntime by tasks.registering {
         check(
             File(
                 sitePackagesDir,
-                "omnitransfer/checkpoints/" +
-                    "pair_evidence_mutual_v2_e3e9e2f0_20260722/seeded_visual_seed17.npz",
+                "omnitransfer/$omniTransferCheckpoint",
             ).isFile
         ) {
             "OmniTransfer NumPy checkpoint is missing"
@@ -494,6 +501,7 @@ val prepareOmniFlowRuntime by tasks.registering {
             "omniflow.source.sha256" to effectiveRuntimeProperties.getProperty("omniflow.source.sha256"),
             "omnitransfer.commit" to effectiveRuntimeProperties.getProperty("omnitransfer.commit"),
             "omnitransfer.source.sha256" to effectiveRuntimeProperties.getProperty("omnitransfer.source.sha256"),
+            "omnitransfer.checkpoint" to omniTransferCheckpoint,
             "numpy.version" to effectiveRuntimeProperties.getProperty("numpy.version"),
             "bundle.sha256" to sha256(bundleFile),
         )

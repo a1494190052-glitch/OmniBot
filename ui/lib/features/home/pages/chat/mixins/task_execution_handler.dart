@@ -106,20 +106,6 @@ mixin TaskExecutionHandler<T extends StatefulWidget> on State<T> {
     return history;
   }
 
-  /// 为新的运行上下文只构建当前用户输入，不夹带历史任务内容。
-  List<Map<String, dynamic>> buildCurrentTurnContent() {
-    final message = latestUserMessageForRuntimeContext(messages);
-    if (message == null) return const <Map<String, dynamic>>[];
-    final content = _buildMessageContentForModel(message);
-    if ((content is String && content.isNotEmpty) ||
-        (content is List && content.isNotEmpty)) {
-      return [
-        <String, dynamic>{'role': 'user', 'content': content},
-      ];
-    }
-    return const <Map<String, dynamic>>[];
-  }
-
   /// 获取最新的用户输入
   String latestUserUtterance() {
     final message = latestUserMessageForRuntimeContext(messages);

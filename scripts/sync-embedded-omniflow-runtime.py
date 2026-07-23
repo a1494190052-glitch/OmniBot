@@ -12,6 +12,9 @@ from pathlib import Path
 
 IGNORED_NAMES = {".DS_Store"}
 IGNORED_SUFFIXES = {".pyc", ".pyo", ".pt"}
+OMNITRANSFER_CHECKPOINT_PATH = (
+    "checkpoints/pair_evidence_mutual_no_null_v3_20260723/no_null_seed17.npz"
+)
 OMNITRANSFER_RUNTIME_PATHS = (
     "__init__.py",
     "learned_matcher.py",
@@ -20,8 +23,8 @@ OMNITRANSFER_RUNTIME_PATHS = (
     "runtime.py",
     "schema.py",
     "ui_graph.py",
-    "checkpoints/pair_evidence_mutual_v2_e3e9e2f0_20260722/README.md",
-    "checkpoints/pair_evidence_mutual_v2_e3e9e2f0_20260722/seeded_visual_seed17.npz",
+    "checkpoints/pair_evidence_mutual_no_null_v3_20260723/README.md",
+    OMNITRANSFER_CHECKPOINT_PATH,
 )
 SCHEMA_NAMES = (
     "README.md",
@@ -107,7 +110,8 @@ def assert_source_paths(omniflow_repo: Path, omnitransfer_repo: Path) -> None:
         omniflow_repo / "schemas/oob/omniflow_android_bridge.v2.json",
         omnitransfer_repo / "src/omnitransfer/runtime.py",
         omnitransfer_repo
-        / "src/omnitransfer/checkpoints/pair_evidence_mutual_v2_e3e9e2f0_20260722/seeded_visual_seed17.npz",
+        / "src/omnitransfer"
+        / OMNITRANSFER_CHECKPOINT_PATH,
     ]
     missing = [str(path) for path in required if not path.is_file()]
     if missing:
@@ -302,6 +306,7 @@ def main() -> int:
             "omniflow.source.sha256": directory_sha256(embedded_omniflow),
             "omnitransfer.commit": git_commit(omnitransfer_repo),
             "omnitransfer.source.sha256": directory_sha256(embedded_omnitransfer),
+            "omnitransfer.checkpoint": OMNITRANSFER_CHECKPOINT_PATH,
         }
         actual_properties = read_properties(runtime_properties)
         for key, expected in expected_properties.items():
@@ -327,6 +332,7 @@ def main() -> int:
             "omniflow.source.sha256": directory_sha256(embedded_omniflow),
             "omnitransfer.commit": git_commit(omnitransfer_repo),
             "omnitransfer.source.sha256": directory_sha256(embedded_omnitransfer),
+            "omnitransfer.checkpoint": OMNITRANSFER_CHECKPOINT_PATH,
         },
     )
     print("Synchronized canonical OmniFlow and OmniTransfer runtime sources.")
