@@ -226,7 +226,7 @@ def test_recovery_observes_again_before_transfer_and_original_action(
     assert trace_step(step.executed_steps[0], 0)["metadata"]["checker_trigger"] == (
         'package_is("com.example.other")'
     )
-    assert action_settle_delays == [1.0, 1.0]
+    assert action_settle_delays == [0.5, 0.5]
 
 
 def test_learned_checker_transfers_recovery_then_retries_original_action(
@@ -298,7 +298,7 @@ def test_learned_checker_transfers_recovery_then_retries_original_action(
         (Action("click", {"x": 500, "y": 500}), refreshed, original_source),
     ]
     assert step.executed_steps[0].checker_trigger == 'text_contains("跳过广告")'
-    assert action_settle_delays == [1.0, 1.0]
+    assert action_settle_delays == [0.5, 0.5]
 
 
 def test_failed_recovery_does_not_execute_original_action(
@@ -330,4 +330,4 @@ def test_failed_recovery_does_not_execute_original_action(
         Action("open_app", {"package_name": "com.example.source"})
     ]
     assert [item.origin for item in step.executed_steps] == ["checker"]
-    assert action_settle_delays == [1.0]
+    assert action_settle_delays == [0.5]

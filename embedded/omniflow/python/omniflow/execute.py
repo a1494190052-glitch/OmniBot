@@ -27,7 +27,7 @@ from omniflow.model import (
 from omniflow.transfer import transfer_action
 
 
-_ACTION_SETTLE_SECONDS = 1.0
+_ACTION_SETTLE_SECONDS = 0.5
 
 
 async def execute_function(
