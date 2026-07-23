@@ -3775,6 +3775,14 @@ class ChatConversationRuntimeCoordinator extends ChangeNotifier {
           ? event.uiStyle
           : (existingCardData['uiStyle'] ?? '').toString(),
       'taskId': taskId,
+      'childRunId': event.raw['childRunId'] ??
+          event.raw['child_run_id'] ??
+          existingCardData['childRunId'] ??
+          existingCardData['child_run_id'],
+      'child_run_id': event.raw['child_run_id'] ??
+          event.raw['childRunId'] ??
+          existingCardData['child_run_id'] ??
+          existingCardData['childRunId'],
       'toolName': event.toolName,
       'displayName': event.displayName,
       'toolTitle': event.toolTitle.isNotEmpty

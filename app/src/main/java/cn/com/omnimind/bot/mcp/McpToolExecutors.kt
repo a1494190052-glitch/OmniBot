@@ -20,7 +20,6 @@ import cn.com.omnimind.bot.vlm.VlmToolCoordinator
 import cn.com.omnimind.bot.omniflow.OmniFlowState
 import cn.com.omnimind.bot.vlm.VlmToolOutcome
 import cn.com.omnimind.bot.vlm.VlmToolOutcomeStatus
-import cn.com.omnimind.bot.function.FunctionSchema
 import cn.com.omnimind.bot.function.FunctionService
 import cn.com.omnimind.bot.util.AssistsUtil
 import cn.com.omnimind.bot.webchat.AgentRunRequestNormalizer
@@ -1034,7 +1033,7 @@ object McpToolExecutors {
         )
         val functionId = firstNonBlank(
             requestArgs["function_id"],
-            if (FunctionSchema.isFunctionCallTool(toolName)) toolArgs["function_id"] else null,
+            if (toolName == OobActionSchema.TOOL_CALL_TOOL) toolArgs["function_id"] else null,
         )
         if (functionId.isNotEmpty()) {
             val frontendRunId = firstNonBlank(

@@ -1,6 +1,5 @@
 package cn.com.omnimind.bot.omniflow
 
-import cn.com.omnimind.baselib.runlog.CanonicalActionConverter
 import java.security.MessageDigest
 
 internal object OmniFlowState {
@@ -16,6 +15,9 @@ internal object OmniFlowState {
         value["state_id"]?.toString()?.trim()?.takeIf(String::isNotEmpty)?.let {
             state["state_id"] = it
         }
+        value["screenshot_path"]?.toString()?.trim()?.takeIf(String::isNotEmpty)?.let {
+            state["screenshot_path"] = it
+        }
         return state
     }
 
@@ -25,17 +27,21 @@ internal object OmniFlowState {
         activityName: String = "",
         displayWidth: Int? = null,
         displayHeight: Int? = null,
+        screenshotPath: String? = null,
     ): Map<String, Any?> {
-        val explicitDisplay = CanonicalActionConverter.DisplaySize(
-            width = displayWidth?.toDouble() ?: 0.0,
-            height = displayHeight?.toDouble() ?: 0.0,
-        ).takeIf { it.width > 0.0 && it.height > 0.0 }
+        val explicitDisplay = if (
+            displayWidth != null && displayWidth > 0 && displayHeight != null && displayHeight > 0
+        ) {
+            displayWidth to displayHeight
+        } else {
+            null
+        }
         val identity = listOf(
             packageName,
             activityName,
             xml,
-            explicitDisplay?.width?.toInt()?.toString().orEmpty(),
-            explicitDisplay?.height?.toInt()?.toString().orEmpty(),
+            explicitDisplay?.first?.toString().orEmpty(),
+            explicitDisplay?.second?.toString().orEmpty(),
         ).joinToString("\u0000")
         return linkedMapOf<String, Any?>(
             "state_id" to "state_${sha256(identity).take(20)}",
@@ -43,8 +49,9 @@ internal object OmniFlowState {
             "package_name" to packageName,
             "activity_name" to activityName,
             "display" to explicitDisplay?.let {
-                linkedMapOf("width" to it.width.toInt(), "height" to it.height.toInt())
+                linkedMapOf("width" to it.first, "height" to it.second)
             },
+            "screenshot_path" to screenshotPath?.trim()?.takeIf(String::isNotEmpty),
         ).filterValues { value ->
             value != null && (value !is String || value.isNotEmpty())
         }

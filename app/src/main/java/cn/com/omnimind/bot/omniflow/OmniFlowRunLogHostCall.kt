@@ -41,6 +41,8 @@ internal fun omniFlowAndroidHostCall(
     context: Context,
     deviceOperator: DeviceOperator,
     stopRequested: (() -> Boolean)? = null,
+    onAction: suspend (Map<String, Any?>) -> Unit = {},
+    onStep: suspend (Map<String, Any?>) -> Unit = {},
 ): OmniFlowPythonHostCall {
     val appContext = context.applicationContext
     val actionExecutor = ActionExecutor(deviceOperator, UIContextManager())
@@ -49,15 +51,20 @@ internal fun omniFlowAndroidHostCall(
         loadState = { stateId -> InternalRunLogStore.statePayload(appContext, stateId) },
         observe = {
             val snapshot = ReplayHelper.readBackendSnapshot(deviceOperator)
+            val screenshot = runCatching {
+                OmniFlowTransferScreenshotStore.capture(appContext, deviceOperator)
+            }.getOrDefault(emptyMap())
             OmniFlowState.build(
                 xml = snapshot.xml,
                 packageName = snapshot.rawPackage,
                 activityName = snapshot.activityName,
                 displayWidth = deviceOperator.getDisplayWidth(),
                 displayHeight = deviceOperator.getDisplayHeight(),
-            )
+                screenshotPath = screenshot["screenshot_path"]?.toString(),
+            ).also { state -> InternalRunLogStore.persistState(appContext, state) }
         },
         act = { action, state ->
+            onAction(action)
             val tool = action["tool"]?.toString()?.trim().orEmpty()
             require(OobActionSchema.canonicalToolName(tool) == tool) {
                 "canonical_action_tool_invalid:$tool"
@@ -78,6 +85,7 @@ internal fun omniFlowAndroidHostCall(
                 ),
             )
         },
+        onStep = onStep,
     )
 }
 
@@ -86,6 +94,7 @@ internal fun omniFlowAndroidHostCall(
     loadState: (String) -> Map<String, Any?>,
     observe: suspend () -> Map<String, Any?>,
     act: suspend (Map<String, Any?>, Map<String, Any?>) -> Map<String, Any?>,
+    onStep: suspend (Map<String, Any?>) -> Unit = {},
 ): OmniFlowPythonHostCall {
     return OmniFlowPythonHostCall { method, payload ->
         when (method) {
@@ -108,6 +117,12 @@ internal fun omniFlowAndroidHostCall(
                 val stateId = payload["state_id"]?.toString()?.trim().orEmpty()
                 require(stateId.isNotEmpty()) { "state_id_required" }
                 loadState(stateId).also { require(it.isNotEmpty()) { "state_not_found:$stateId" } }
+            }
+            "record_step" -> {
+                val step = stringMap(payload["step"])
+                require(step.isNotEmpty()) { "record_step_required" }
+                onStep(step)
+                mapOf("recorded" to true)
             }
             else -> error("unsupported_host_call:$method")
         }

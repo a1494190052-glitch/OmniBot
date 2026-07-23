@@ -544,18 +544,11 @@ object HumanTrajectoryLearningSession {
             action = action,
             source = "human_trajectory",
         )
-        InternalRunLogStore.upsertRecordedStep(
-            context = context,
-            runId = runId,
-            stepId = stepId,
-            record = staged,
-        )
         runCatching { recordStepExecutor.recordStep(staged) }
             .onSuccess { canonical ->
                 InternalRunLogStore.upsertRecordedStep(
                     context = context,
                     runId = runId,
-                    stepId = stepId,
                     record = canonical,
                 )
             }

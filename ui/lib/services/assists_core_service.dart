@@ -1442,7 +1442,7 @@ class AssistsMessageService {
     List<Map<String, dynamic>> userAttachments = const [],
   }) async {
     try {
-      debugPrint('createChatTask taskID: $taskID content: $content');
+      debugPrint('createChatTask taskID: $taskID messages: ${content.length}');
       final args = {'taskID': taskID, 'content': content};
       if (provider != null) {
         args['provider'] = provider;

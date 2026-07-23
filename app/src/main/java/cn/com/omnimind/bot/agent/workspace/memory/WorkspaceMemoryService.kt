@@ -387,21 +387,28 @@ class WorkspaceMemoryService(
 
     fun buildPromptContext(
         maxLongChars: Int = 2400,
-        maxDailyChars: Int = 1400
+        maxDailyChars: Int = 1400,
+        includePersistentMemory: Boolean = true
     ): WorkspaceMemoryPromptContext {
         ensureInitialized()
         val soul = readSoul().trim()
-        val longMemory = truncateText(
-            readLongTermMemory().trim(),
-            maxLongChars
-        )
-        val todayDaily = truncateText(
-            summarizeTodayShortMemory(),
-            maxDailyChars
-        )
-        val indexSummary = runCatching {
-            LongTermMemoryIndex(workspaceManager).summaryForPrompt()
-        }.getOrDefault("")
+        val longMemory = if (includePersistentMemory) {
+            truncateText(readLongTermMemory().trim(), maxLongChars)
+        } else {
+            ""
+        }
+        val todayDaily = if (includePersistentMemory) {
+            truncateText(summarizeTodayShortMemory(), maxDailyChars)
+        } else {
+            ""
+        }
+        val indexSummary = if (includePersistentMemory) {
+            runCatching {
+                LongTermMemoryIndex(workspaceManager).summaryForPrompt()
+            }.getOrDefault("")
+        } else {
+            ""
+        }
         return WorkspaceMemoryPromptContext(
             soul = soul,
             longTermMemory = longMemory,

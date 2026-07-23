@@ -89,6 +89,23 @@ def action_transfer(
             "mapping_mode": _MATCHER_MODE,
             "reason": "source_point_or_offset_required",
         }
+    equivalent_target = _equivalent_graph_target(source, target, source_node)
+    if equivalent_target is not None:
+        return _mapped_result(
+            source=source,
+            target=target,
+            source_node=source_node,
+            target_node=equivalent_target,
+            offset=offset,
+            mapping_mode="equivalent_ui_graph",
+            score=1.0,
+            margin=1.0,
+            ranked=[(1.0, equivalent_target)],
+            top_k=top_k,
+            action_type=action_type,
+            source_activity_name=source_activity_name,
+            target_activity_name=target_activity_name,
+        )
     candidates = tuple(
         node.node_id
         for node in target.nodes
@@ -128,10 +145,43 @@ def action_transfer(
             "margin": float(match.margin),
             "top_candidates": _candidate_dicts(ranked, top_k),
         }
-    target_point = _project_offset(offset, target_node.bbox)
+    return _mapped_result(
+        source=source,
+        target=target,
+        source_node=source_node,
+        target_node=target_node,
+        offset=offset,
+        mapping_mode=_MATCHER_MODE,
+        score=float(match.probability),
+        margin=float(match.margin),
+        ranked=ranked,
+        top_k=top_k,
+        action_type=action_type,
+        source_activity_name=source_activity_name,
+        target_activity_name=target_activity_name,
+    )
+
+
+def _mapped_result(
+    *,
+    source: UIGraph,
+    target: UIGraph,
+    source_node: UINode,
+    target_node: UINode,
+    offset: tuple[float, float],
+    mapping_mode: str,
+    score: float,
+    margin: float,
+    ranked: list[tuple[float, UINode]],
+    top_k: int,
+    action_type: str,
+    source_activity_name: str | None,
+    target_activity_name: str | None,
+) -> dict[str, Any]:
+    target_point = _project_offset(offset, target_node.bbox or (0.0, 0.0, 0.0, 0.0))
     return {
         "mapped": True,
-        "mapping_mode": _MATCHER_MODE,
+        "mapping_mode": mapping_mode,
         "new_x": target_point[0],
         "new_y": target_point[1],
         "src_element": _node_dict(source_node),
@@ -140,8 +190,8 @@ def action_transfer(
         "target_candidate_id": _public_node_id(target_node),
         "target_bbox": list(target_node.bbox),
         "target_center": list(_center(target_node.bbox)),
-        "score": float(match.probability),
-        "margin": float(match.margin),
+        "score": score,
+        "margin": margin,
         "top_candidates": _candidate_dicts(ranked, top_k),
         "action_type": action_type,
         "source_activity_name": str(source_activity_name or ""),
@@ -255,6 +305,71 @@ def _learned_candidates(
         ),
         key=lambda item: (-item[0], item[1].node_id),
     )
+
+
+def _equivalent_graph_target(
+    source: UIGraph,
+    target: UIGraph,
+    source_node: UINode,
+) -> UINode | None:
+    if source.width != target.width or source.height != target.height:
+        return None
+    if len(source.nodes) != len(target.nodes):
+        return None
+    if any(
+        _structural_identity(left) != _structural_identity(right)
+        for left, right in zip(source.nodes, target.nodes, strict=True)
+    ):
+        return None
+    target_by_id = {node.node_id: node for node in target.nodes}
+    target_node = target_by_id.get(source_node.node_id)
+    if target_node is None or target_node.bbox is None:
+        return None
+    source_subtree = _subtree(source, source_node.node_id)
+    target_subtree = _subtree(target, target_node.node_id)
+    if len(source_subtree) != len(target_subtree):
+        return None
+    if any(
+        _identity_key(left) != _identity_key(right)
+        for left, right in zip(source_subtree, target_subtree, strict=True)
+    ):
+        return None
+    has_semantic_anchor = any(
+        node.text or node.content_desc for node in source_subtree
+    )
+    has_unique_resource = bool(source_node.resource_id) and sum(
+        node.resource_id == source_node.resource_id for node in source.nodes
+    ) == 1
+    return target_node if has_semantic_anchor or has_unique_resource else None
+
+
+def _structural_identity(node: UINode) -> tuple[Any, ...]:
+    return (
+        node.node_id,
+        node.parent_id,
+        node.child_ids,
+        node.origin_id,
+        node.resource_id,
+        node.class_name,
+        node.bbox,
+        node.clickable,
+        node.editable,
+        node.scrollable,
+        node.enabled,
+    )
+
+
+def _subtree(graph: UIGraph, root_id: str) -> tuple[UINode, ...]:
+    by_id = {node.node_id: node for node in graph.nodes}
+    pending = [root_id]
+    nodes: list[UINode] = []
+    while pending:
+        node = by_id.get(pending.pop(0))
+        if node is None:
+            return ()
+        nodes.append(node)
+        pending.extend(node.child_ids)
+    return tuple(nodes)
 
 
 def describe_action_target(

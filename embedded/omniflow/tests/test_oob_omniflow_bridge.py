@@ -9,6 +9,7 @@ import pytest
 from omniflow.bridge import JsonLineBridge
 from omnitransfer import action_transfer
 from oob_omniflow_bridge import (
+    BRIDGE_CONTRACT,
     CAPABILITIES,
     CONTRACT_SHA256,
     PROTOCOL_VERSION,
@@ -57,6 +58,15 @@ def test_health_advertises_the_complete_oob_contract(tmp_path: Path) -> None:
     assert health["omnitransfer_ready"] is True
     assert health["omnitransfer_backend"] in {"numpy", "pytorch"}
 
+    recall_response = BRIDGE_CONTRACT["operations"]["recall"]["response"]
+    assert recall_response["required"] == ["candidates"]
+    assert recall_response["candidate"]["required"] == ["function", "retrieval"]
+    assert recall_response["candidate"]["retrieval"]["required"] == [
+        "score",
+        "source",
+        "rank",
+    ]
+
 
 def test_health_loads_functions_after_action_canonicalization(tmp_path: Path) -> None:
     valid = function()
@@ -84,17 +94,6 @@ def test_health_loads_functions_after_action_canonicalization(tmp_path: Path) ->
     }
 
 
-def test_materialize_binds_canonical_arguments(tmp_path: Path) -> None:
-    result = JsonLineBridge(tmp_path / "store.json")._handle(
-        "materialize",
-        "materialize",
-        {"function": function(), "arguments": {"name": "Ada"}},
-    )
-
-    assert result["success"] is True
-    assert result["function"]["steps"][0]["action"]["args"]["text"] == "Ada"
-
-
 def test_catalog_and_recall_round_trip(tmp_path: Path) -> None:
     bridge = OobOmniFlowBridge(tmp_path / "store.json")
     stored = bridge._handle(
@@ -108,36 +107,16 @@ def test_catalog_and_recall_round_trip(tmp_path: Path) -> None:
         {"goal": "enter name", "state": {"state_id": "live-state"}},
     )
 
+    candidate = recalled["candidates"][0]
+
     assert stored["function_id"] == "enter_name"
-    assert recalled["functions"][0]["function_id"] == "enter_name"
-
-
-def test_catalog_replace_uses_the_shared_action_converter(tmp_path: Path) -> None:
-    valid = function()
-    invalid = function()
-    invalid["function_id"] = "legacy_target"
-    invalid["steps"][0]["action"]["args"]["target"] = {"text": "legacy"}
-    bridge = OobOmniFlowBridge(tmp_path / "store.json")
-
-    result = bridge._handle(
-        "replace",
-        "catalog",
-        {"action": "replace", "functions": [invalid, valid]},
-    )
-
-    assert result == {
-        "count": 1,
-        "invalid_functions": {
-            "legacy_target": "function_action_target_forbidden:0"
-        },
+    assert candidate["function"]["function_id"] == "enter_name"
+    assert "score" not in candidate["function"]
+    assert candidate["retrieval"] == {
+        "score": 0.5,
+        "source": "goal_token_jaccard",
+        "rank": 1,
     }
-    assert bridge._handle("health", "health", {})["functions"] == 1
-    recalled = bridge._handle(
-        "recall",
-        "recall",
-        {"goal": "enter name", "state": {"state_id": "live-state"}},
-    )
-    assert [item["function_id"] for item in recalled["functions"]] == ["enter_name"]
 
 
 def test_omnitransfer_fails_closed_when_matcher_is_unavailable(monkeypatch) -> None:
@@ -163,6 +142,34 @@ def test_omnitransfer_fails_closed_when_matcher_is_unavailable(monkeypatch) -> N
     assert result["mapped"] is False
     assert result["mapping_mode"] == "mutual_graph_matcher_v2"
     assert result["reason"] == "matcher_unavailable"
+
+
+def test_omnitransfer_maps_equivalent_ui_graph_without_matcher(monkeypatch) -> None:
+    import omnitransfer.runtime as runtime
+
+    monkeypatch.setattr(
+        runtime,
+        "_get_matcher",
+        lambda: pytest.fail("equivalent graphs must not invoke the learned matcher"),
+    )
+    xml = (
+        '<hierarchy bounds="[0,0][100,100]">'
+        '<node resource-id="demo:id/search" text="Search" '
+        'clickable="true" enabled="true" bounds="[10,20][50,60]" />'
+        '</hierarchy>'
+    )
+
+    result = action_transfer(
+        source_xml=xml,
+        target_xml=xml,
+        source_point=(30, 40),
+        source_package_name="demo",
+        target_package_name="demo",
+    )
+
+    assert result["mapped"] is True
+    assert result["mapping_mode"] == "equivalent_ui_graph"
+    assert (result["new_x"], result["new_y"]) == (30.0, 40.0)
 
 
 def test_prepare_action_uses_source_state_id_and_real_omnitransfer(
@@ -370,18 +377,22 @@ def test_record_step_keeps_canonical_coordinates(tmp_path: Path) -> None:
             "action": {"tool": "click", "args": {"x": 900, "y": 75}},
             "result": {"success": True},
             "after_state_id": "after",
+            "metadata": {
+                "step_id": "record-step-0",
+                "status": "succeeded",
+                "summary": "Tapped target",
+            },
         },
     )
 
     step = result["step"]
     assert set(step) == {
-        "step_id",
         "step_index",
-        "status",
         "before_state_id",
         "action",
         "result",
         "after_state_id",
+        "metadata",
     }
     assert step["action"] == {
         "tool": "click",
@@ -389,13 +400,12 @@ def test_record_step_keeps_canonical_coordinates(tmp_path: Path) -> None:
     }
     assert step["before_state_id"] == "before"
     assert step["after_state_id"] == "after"
-    assert step["step_id"] == "step-0"
-    assert step["status"] == "succeeded"
+    assert step["metadata"]["step_id"] == "record-step-0"
     assert set(result) == {"step"}
 
 
 def test_record_step_rejects_coordinate_space_override(tmp_path: Path) -> None:
-    with pytest.raises(ValueError, match="request_unknown_fields:coordinate_space"):
+    with pytest.raises(ValueError, match="additionalProperties:coordinate_space"):
         OobOmniFlowBridge(tmp_path / "store.json")._handle(
             "record",
             "record_step",
@@ -410,33 +420,53 @@ def test_record_step_rejects_coordinate_space_override(tmp_path: Path) -> None:
         )
 
 
-def test_record_step_keeps_non_replayable_and_actionless_steps(tmp_path: Path) -> None:
+def test_record_step_rejects_noncanonical_step_fields(tmp_path: Path) -> None:
     bridge = OobOmniFlowBridge(tmp_path / "store.json")
 
-    observed = bridge._handle(
-        "record-observe",
+    with pytest.raises(ValueError, match="additionalProperties:status"):
+        bridge._handle(
+            "record",
+            "record_step",
+            {
+                "step_index": 0,
+                "status": "succeeded",
+                "before_state_id": "before",
+                "action": {"tool": "wait", "args": {"duration_ms": 1000}},
+                "result": {"success": True},
+                "after_state_id": "after",
+            },
+        )
+
+
+@pytest.mark.parametrize(
+    "action",
+    [
+        {"tool": "get_state", "args": {"reason": "refresh"}},
+        {"tool": "finished", "args": {"content": "done"}},
+        {"tool": "abort", "args": {"value": "user_cancelled"}},
+    ],
+)
+def test_record_step_keeps_non_replayable_canonical_events(
+    tmp_path: Path,
+    action: dict,
+) -> None:
+    result = OobOmniFlowBridge(tmp_path / "store.json")._handle(
+        "record",
         "record_step",
         {
             "step_index": 0,
-            "status": "succeeded",
-            "action": {"tool": "get_state", "args": {"reason": "refresh"}},
-            "result": {"success": True},
+            "before_state_id": "before",
+            "action": action,
+            "result": {"success": action["tool"] != "abort"},
+            "after_state_id": "after",
+            "metadata": {
+                "step_id": "record-step-0",
+                "status": "failed" if action["tool"] == "abort" else "succeeded",
+            },
         },
-    )["step"]
-    failed = bridge._handle(
-        "record-failure",
-        "record_step",
-        {
-            "step_index": 1,
-            "status": "failed",
-            "summary": "parse failed",
-            "result": {"success": False, "error": "parse_failed"},
-        },
-    )["step"]
+    )
 
-    assert observed["action"]["tool"] == "get_state"
-    assert failed["summary"] == "parse failed"
-    assert "action" not in failed
+    assert result["step"]["action"] == action
 
 
 def test_prepare_action_blocks_without_source_state(tmp_path: Path) -> None:

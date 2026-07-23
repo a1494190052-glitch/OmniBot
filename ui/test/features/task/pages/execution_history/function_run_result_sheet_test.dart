@@ -26,43 +26,53 @@ void main() {
       'error_message': 'omnitransfer_target_identity_not_unique',
       'step_count': 1,
       'success_step_count': 0,
-      'step_results': [
+      'steps': [
         {
-          'step_id': 'step-0',
-          'tool': 'click',
-          'success': false,
-          'summary': 'omnitransfer_target_identity_not_unique',
-          'transfer': {
-            'source': {
-              'text': 'Date',
-              'bounds': [10, 10, 90, 90],
-              'display': {'width': 100, 'height': 100},
-              'screenshot_path': image.path,
-            },
-            'target': {
-              'display': {'width': 300, 'height': 300},
-              'screenshot_path': image.path,
-            },
-            'candidates': [
-              {
-                'rank': 1,
+          'step_index': 0,
+          'before_state_id': 'state-before',
+          'action': {
+            'tool': 'click',
+            'args': {'x': 50, 'y': 50},
+          },
+          'result': {
+            'success': false,
+            'error': 'omnitransfer_target_identity_not_unique',
+          },
+          'after_state_id': 'state-after',
+          'metadata': {
+            'step_id': 'step-0',
+            'transfer': {
+              'source': {
                 'text': 'Date',
                 'bounds': [10, 10, 90, 90],
-                'score': 10.0,
+                'display': {'width': 100, 'height': 100},
+                'screenshot_path': image.path,
               },
-              {
-                'rank': 2,
-                'text': 'Date',
-                'bounds': [110, 10, 190, 90],
-                'score': 10.0,
+              'target': {
+                'display': {'width': 300, 'height': 300},
+                'screenshot_path': image.path,
               },
-              {
-                'rank': 3,
-                'text': 'Date',
-                'bounds': [210, 10, 290, 90],
-                'score': 10.0,
-              },
-            ],
+              'candidates': [
+                {
+                  'rank': 1,
+                  'text': 'Date',
+                  'bounds': [10, 10, 90, 90],
+                  'score': 10.0,
+                },
+                {
+                  'rank': 2,
+                  'text': 'Date',
+                  'bounds': [110, 10, 190, 90],
+                  'score': 10.0,
+                },
+                {
+                  'rank': 3,
+                  'text': 'Date',
+                  'bounds': [210, 10, 290, 90],
+                  'score': 10.0,
+                },
+              ],
+            },
           },
         },
       ],

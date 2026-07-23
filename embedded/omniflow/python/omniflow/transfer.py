@@ -81,14 +81,33 @@ def _canonicalize_transfer_state(value: Any) -> dict[str, Any]:
 
 
 def load_omnitransfer() -> Any:
+    configured_root = os.environ.get("OMNITRANSFER_ROOT")
+    if configured_root:
+        root = Path(configured_root).expanduser()
+        source_root = root / "src"
+        if not source_root.is_dir():
+            raise RuntimeError(f"omnitransfer_root_missing:{root}")
+        resolved_source = source_root.resolve()
+        loaded = sys.modules.get("omnitransfer")
+        loaded_path = getattr(loaded, "__file__", None)
+        if loaded_path is not None and Path(loaded_path).resolve().is_relative_to(
+            resolved_source
+        ):
+            return loaded
+        for name in tuple(sys.modules):
+            if name == "omnitransfer" or name.startswith("omnitransfer."):
+                del sys.modules[name]
+        source_path = str(resolved_source)
+        if source_path in sys.path:
+            sys.path.remove(source_path)
+        sys.path.insert(0, source_path)
+        importlib.invalidate_caches()
+        return importlib.import_module("omnitransfer")
     try:
         return importlib.import_module("omnitransfer")
     except ImportError:
         pass
-    root = Path(
-        os.environ.get("OMNITRANSFER_ROOT")
-        or Path.home() / "Projects" / "Omni" / "OmniTransfer"
-    ).expanduser()
+    root = Path.home() / "Projects" / "Omni" / "OmniTransfer"
     source_root = root / "src"
     if not source_root.is_dir():
         raise RuntimeError(f"omnitransfer_root_missing:{root}")

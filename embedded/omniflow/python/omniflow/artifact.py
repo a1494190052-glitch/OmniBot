@@ -4,6 +4,7 @@ from dataclasses import replace
 import re
 from typing import Any
 
+from omniflow.checker import validate_checker_rule
 from omniflow.model import Action, Function, FunctionStep
 from omniflow.schemas import canonicalize_action
 
@@ -28,26 +29,6 @@ _TARGET_PATH = re.compile(
     r"(?P<tail>(?:\.[A-Za-z_][A-Za-z0-9_]*|\[\d+\])+)$"
 )
 _PATH_TOKEN = re.compile(r"\.([A-Za-z_][A-Za-z0-9_]*)|\[(\d+)]")
-_CHECKER_FIELDS = {
-    "schema_version",
-    "id",
-    "enabled",
-    "condition",
-    "scope",
-    "priority",
-}
-_CHECKER_CONDITION_FIELDS = {
-    "content_desc_any",
-    "content_desc_contains_any",
-    "package_any",
-    "package_not",
-    "resource_id_any",
-    "resource_id_contains_any",
-    "text_any",
-    "text_contains_any",
-    "xml_contains_any",
-}
-_CHECKER_SCOPE_FIELDS = {"action_types", "package_names"}
 def parse_function_artifact(value: dict[str, Any]) -> Function:
     if not isinstance(value, dict):
         raise ValueError("function_artifact_must_be_object")
@@ -83,9 +64,11 @@ def parse_function_artifact(value: dict[str, Any]) -> Function:
                 "action": canonicalize_action(action, replayable_only=True),
             }
         )
-    _validate_checker_rules(value.get("checker_rules"))
     canonical_value = dict(value)
     canonical_value["steps"] = canonical_steps
+    canonical_value["checker_rules"] = _canonical_checker_rules(
+        value.get("checker_rules")
+    )
     function = Function.from_dict(canonical_value)
     validate_function_artifact(function)
     return function
@@ -217,36 +200,10 @@ def _validate_bindings(function: Function) -> None:
         raise ValueError(f"function_required_parameters_unbound:{','.join(unbound)}")
 
 
-def _validate_checker_rules(value: Any) -> None:
+def _canonical_checker_rules(value: Any) -> list[dict[str, Any]]:
     if not isinstance(value, list):
         raise ValueError("function_checker_rules_must_be_array")
-    for rule in value:
-        if not isinstance(rule, dict):
-            raise ValueError("function_checker_rule_must_be_object")
-        unknown = sorted(set(rule) - _CHECKER_FIELDS)
-        if unknown:
-            raise ValueError(f"function_checker_rule_unknown_fields:{','.join(unknown)}")
-        if rule.get("schema_version") != "omniflow.checker_rule.v1":
-            raise ValueError("unsupported_function_checker_version")
-        if not str(rule.get("id") or "").strip():
-            raise ValueError("function_checker_id_required")
-        condition = rule.get("condition")
-        if not isinstance(condition, dict) or not condition:
-            raise ValueError("function_checker_condition_required")
-        unknown_condition = sorted(set(condition) - _CHECKER_CONDITION_FIELDS)
-        if unknown_condition:
-            raise ValueError(
-                "function_checker_condition_unknown_fields:"
-                + ",".join(unknown_condition)
-            )
-        scope = rule.get("scope") or {}
-        if not isinstance(scope, dict):
-            raise ValueError("function_checker_scope_must_be_object")
-        unknown_scope = sorted(set(scope) - _CHECKER_SCOPE_FIELDS)
-        if unknown_scope:
-            raise ValueError(
-                f"function_checker_scope_unknown_fields:{','.join(unknown_scope)}"
-            )
+    return [validate_checker_rule(rule) for rule in value]
 
 
 def _tokens(tail: str) -> list[str | int]:

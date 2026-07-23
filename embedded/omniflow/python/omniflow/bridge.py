@@ -10,14 +10,14 @@ import sys
 import tempfile
 from typing import Any, TextIO
 
-from omniflow.artifact import bind_function, parse_function_artifact
+from omniflow.artifact import parse_function_artifact
 from omniflow.compile import compile_runlog_to_store
 from omniflow.execute import execute_action, prepare_action
+from omniflow.function_management import edit_function, enhance_function
 from omniflow.model import Action, ActionResult, Function, Observation
 from omniflow.runtime import OmniFlow
 from omniflow.schemas import canonicalize_action
-from omniflow.trajectory import canonicalize_run_log_step
-from omniflow.trajectory import canonicalize_state
+from omniflow.trajectory import canonicalize_run_log_step, canonicalize_state
 
 PROTOCOL_VERSION = "omniflow.bridge.v2"
 _COORDINATE_TOOLS = {"click", "input_text", "long_press", "swipe"}
@@ -80,12 +80,12 @@ class JsonLineBridge:
             }
         if operation == "catalog":
             return self._catalog(body)
-        if operation == "materialize":
-            return self._materialize(body)
         if operation == "compile":
             return self._compile(request_id, body)
         if operation == "recall":
             return self._recall(body)
+        if operation == "enhance":
+            return self._enhance(request_id, body)
         if operation == "prepare_action":
             return self._prepare_action(request_id, body)
         if operation == "control_act":
@@ -110,29 +110,49 @@ class JsonLineBridge:
     def _catalog(self, body: dict[str, Any]) -> dict[str, Any]:
         action = str(body.get("action") or "list")
         if action == "list":
+            include_hidden = body.get("include_hidden") is True
             functions = self.flow.store.list_functions(
                 offset=int(body.get("offset") or 0),
                 limit=int(body.get("limit") or 100),
+                include_hidden=include_hidden,
+            )
+            total = sum(
+                1
+                for item in self.flow.store.functions.values()
+                if include_hidden or item.agent_visible
             )
             return {
                 "functions": [item.to_dict() for item in functions],
                 "count": len(functions),
-                "total": len(self.flow.store.functions),
+                "total": total,
             }
         if action == "get":
             function = self.flow.store.get_function(str(body.get("function_id") or ""))
             return {"function": function.to_dict() if function else None}
-        if action in {"put", "register", "update"}:
+        if action == "put":
             function = self.flow.store.put_function(dict(body.get("function") or {}))
             return {"function": function.to_dict(), "function_id": function.function_id}
-        if action == "replace":
-            functions = body.get("functions")
-            if not isinstance(functions, list):
-                raise ValueError("catalog_functions_must_be_array")
-            invalid_functions = self.flow.store.replace_functions(functions)
+        if action == "edit":
+            function_id = str(body.get("function_id") or "").strip()
+            original = self.flow.store.get_function(function_id)
+            if original is None:
+                return {"function": None, "function_id": function_id, "found": False}
+            edits = body.get("action_edits")
+            if not isinstance(edits, list):
+                raise ValueError("catalog_action_edits_must_be_array")
+            updated, changes = edit_function(original.to_dict(), edits)
+            dry_run = body.get("dry_run") is True
+            if changes and not dry_run:
+                self.flow.store.put_function(updated)
             return {
-                "count": len(self.flow.store.functions),
-                "invalid_functions": invalid_functions,
+                "function": original.to_dict(),
+                "updated_function": updated,
+                "function_id": function_id,
+                "found": True,
+                "changed": bool(changes),
+                "saved": bool(changes) and not dry_run,
+                "dry_run": dry_run,
+                "changes": changes,
             }
         if action == "delete":
             return {
@@ -144,28 +164,6 @@ class JsonLineBridge:
             return {"deleted_count": self.flow.store.clear_functions()}
         raise ValueError(f"unsupported_catalog_action:{action}")
 
-    def _materialize(self, body: dict[str, Any]) -> dict[str, Any]:
-        _require_contract(body, {"function", "arguments"}, {"function", "arguments"})
-        value = body.get("function")
-        if not isinstance(value, dict):
-            return _materialize_failure("function_required")
-        try:
-            function = parse_function_artifact(value)
-            bound = bind_function(function, dict(body.get("arguments") or {}))
-        except (TypeError, ValueError) as error:
-            message = str(error) or type(error).__name__
-            missing = []
-            marker = "function_arguments_invalid:missing:"
-            if message.startswith(marker):
-                missing = [item for item in message[len(marker) :].split(",") if item]
-            return _materialize_failure(message, missing)
-        return {
-            "success": True,
-            "function": bound.to_dict(),
-            "missing_arguments": [],
-            "error": None,
-        }
-
     def _compile(self, request_id: str, body: dict[str, Any]) -> dict[str, Any]:
         _require_contract(body, {"run_id"}, {"run_id"})
         run_id = str(body.get("run_id") or "").strip()
@@ -174,6 +172,7 @@ class JsonLineBridge:
         run_log = self.host_call(request_id, "get_run_log", {"run_id": run_id})
         if not isinstance(run_log, dict):
             raise ValueError("run_log_invalid")
+
         with tempfile.TemporaryDirectory(prefix="omniflow-compile-") as output_root:
             report = compile_runlog_to_store(run_log, output_root)
             compiled = OmniFlow(Path(output_root) / "store.json")
@@ -181,8 +180,48 @@ class JsonLineBridge:
             function = compiled.store.get_function(function_id)
         if function is None:
             return {"success": False, "function": None, "error": "no_actions"}
-        self.flow.store.put_function(function)
         return {"success": True, "function": function.to_dict(), "error": None}
+
+    def _enhance(self, request_id: str, body: dict[str, Any]) -> dict[str, Any]:
+        function_id = str(body.get("function_id") or "").strip()
+        function = self.flow.store.get_function(function_id)
+        if function is None:
+            return {"function_id": function_id, "found": False}
+        run_log = body.get("run_log")
+        if not isinstance(run_log, dict):
+            run_log = {}
+
+        def complete_json(prompt: str) -> str:
+            response = self.host_call(
+                request_id,
+                "complete_json",
+                {
+                    "model": "scene.dispatch.model",
+                    "prompt": prompt,
+                    "max_tokens": 1800,
+                    "temperature": 0.1,
+                },
+            )
+            if not isinstance(response, dict):
+                raise ValueError("complete_json_response_invalid")
+            return str(response.get("content") or "")
+
+        updated, changes, status = enhance_function(
+            function.to_dict(),
+            run_log,
+            complete_json,
+        )
+        self.flow.store.put_function(updated)
+        return {
+            "function_id": function_id,
+            "found": True,
+            "function": function.to_dict(),
+            "updated_function": updated,
+            "changed": bool(changes),
+            "saved": True,
+            "changes": changes,
+            "enhancement_status": status,
+        }
 
     def _recall(self, body: dict[str, Any]) -> dict[str, Any]:
         _require_contract(body, {"goal", "state"}, {"goal", "state"})
@@ -200,8 +239,20 @@ class JsonLineBridge:
             score = len(goal_tokens & candidate_tokens) / len(goal_tokens | candidate_tokens)
             if score > 0:
                 scored.append((score, function))
-        functions = [item for _, item in sorted(scored, key=lambda item: (-item[0], item[1].function_id))]
-        return {"functions": [function.to_dict() for function in functions]}
+        ranked = sorted(scored, key=lambda item: (-item[0], item[1].function_id))
+        return {
+            "candidates": [
+                {
+                    "function": function.to_dict(),
+                    "retrieval": {
+                        "score": score,
+                        "source": "goal_token_jaccard",
+                        "rank": rank,
+                    },
+                }
+                for rank, (score, function) in enumerate(ranked, start=1)
+            ]
+        }
 
     def _prepare_action(
         self,
@@ -230,29 +281,12 @@ class JsonLineBridge:
         target_state = _state_observation(target_value)
         if action.tool in _COORDINATE_TOOLS and not target_state.xml:
             return _blocked("target_state_missing")
-        function = Function(
-            schema_version="omniflow.function.v2",
-            function_id=function_id,
-            name="bridge_function",
-            description="Prepare one Function action.",
-            input_schema={
-                "type": "object",
-                "properties": {},
-                "required": [],
-                "additionalProperties": False,
-            },
-            bindings=(),
-            steps=(),
-            checker_rules=tuple(body.get("checker_rules") or ()),
-            agent_visible=False,
-        )
         decision = asyncio.run(
             prepare_action(
                 action,
                 observation=target_state,
                 source_state=source_state,
                 plugins=self.flow.plugins,
-                function=function,
             )
         )
         if decision.kind == "block" or decision.action is None:
@@ -320,27 +354,7 @@ class JsonLineBridge:
         return result
 
     def _record_step(self, body: dict[str, Any]) -> dict[str, Any]:
-        _require_contract(
-            body,
-            {"step_index"},
-            {
-                "step_id",
-                "step_index",
-                "status",
-                "thinking",
-                "summary",
-                "before_state_id",
-                "action",
-                "result",
-                "after_state_id",
-                "diagnostics",
-            },
-        )
-        step = canonicalize_run_log_step(
-            body,
-            expected_index=body.get("step_index"),
-        )
-        return {"step": step}
+        return {"step": canonicalize_run_log_step(body)}
 
     def host_call(self, request_id: str, method: str, payload: dict[str, Any]) -> Any:
         self._host_call_index += 1
@@ -437,6 +451,9 @@ class _BridgeHost:
             self.bridge.host_call(self.request_id, "get_state", {"state_id": source_state_id})
         )
 
+    def record_step(self, step: dict[str, Any]) -> None:
+        self.bridge.host_call(self.request_id, "record_step", {"step": step})
+
 
 def _state_observation(value: Any) -> Observation:
     if not isinstance(value, dict):
@@ -492,15 +509,6 @@ def _bridge_function(
         checker_rules=checker_rules,
         agent_visible=False,
     )
-
-
-def _materialize_failure(error: str, missing: list[str] | None = None) -> dict[str, Any]:
-    return {
-        "success": False,
-        "function": None,
-        "missing_arguments": missing or [],
-        "error": error,
-    }
 
 
 def _blocked(

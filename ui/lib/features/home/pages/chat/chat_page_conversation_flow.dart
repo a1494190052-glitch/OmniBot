@@ -706,14 +706,14 @@ mixin _ChatPageConversationFlowMixin on _ChatPageStateBase {
       }
       return;
     }
-    final history = buildConversationHistory();
+    final currentTurnContent = buildCurrentTurnContent();
     final userMessage = latestUserUtterance();
     final userAttachments = await _latestUserAttachments();
     final openClawConfig = {
       'baseUrl': _openClawBaseUrl,
       if (_openClawToken.isNotEmpty) 'token': _openClawToken,
       if (_openClawUserId.isNotEmpty) 'userId': _openClawUserId,
-      'sessionKey': _buildOpenClawSessionKey(conversationId),
+      'sessionKey': _buildOpenClawSessionKey(conversationId, aiMessageId),
     };
     _showOpenClawWaitingCard(aiMessageId);
     _syncRuntimeSnapshotForMode(_activeMode);
@@ -725,7 +725,7 @@ mixin _ChatPageConversationFlowMixin on _ChatPageStateBase {
     );
     final success = await AssistsMessageService.createChatTask(
       aiMessageId,
-      history,
+      currentTurnContent,
       provider: 'openclaw',
       openClawConfig: openClawConfig,
       conversationId: conversationId,
@@ -777,7 +777,7 @@ mixin _ChatPageConversationFlowMixin on _ChatPageStateBase {
       return;
     }
 
-    final history = buildConversationHistory();
+    final currentTurnContent = buildCurrentTurnContent();
     final userMessage = latestUserUtterance();
     final userAttachments = await _latestUserAttachments();
 
@@ -790,7 +790,7 @@ mixin _ChatPageConversationFlowMixin on _ChatPageStateBase {
     );
     final success = await AssistsMessageService.createChatTask(
       aiMessageId,
-      history,
+      currentTurnContent,
       conversationId: conversationId,
       conversationMode: activeConversationModeValue.storageValue,
       userMessage: userMessage,

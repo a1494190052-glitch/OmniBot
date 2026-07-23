@@ -16,6 +16,7 @@ import 'package:ui/services/overlay_service.dart';
 import 'package:ui/services/storage_service.dart';
 import 'package:ui/theme/app_font_effect_controller.dart';
 import 'package:ui/theme/app_colors.dart';
+import 'package:ui/theme/omni_theme_palette.dart';
 import 'package:ui/theme/theme_context.dart';
 import 'package:ui/utils/ui.dart';
 import 'package:ui/widgets/app_background_widgets.dart';
@@ -1685,7 +1686,11 @@ class _BackgroundSettingPageState extends State<BackgroundSettingPage> {
       final outputExists = await outputFile.exists();
       final existingUsable =
           outputExists && await _isUsablePetImage(outputFile);
-      final pictureInfo = await vg.loadPicture(SvgFileLoader(svgFile), null);
+      final svgSource = await svgFile.readAsString();
+      final pictureInfo = await vg.loadPicture(
+        SvgStringLoader(svgSource),
+        null,
+      );
       final sourceSize = pictureInfo.size;
       if (sourceSize.width <= 0 || sourceSize.height <= 0) {
         pictureInfo.picture.dispose();
@@ -2258,13 +2263,7 @@ class _BackgroundSettingPageState extends State<BackgroundSettingPage> {
                 fit: BoxFit.contain,
               )
             : isSvg
-            ? SvgPicture.file(
-                imageFile!,
-                key: ValueKey('${option.imagePath}:$imageStamp'),
-                fit: BoxFit.contain,
-                placeholderBuilder: (_) =>
-                    Icon(Icons.pets_rounded, color: palette.textSecondary),
-              )
+            ? _buildSvgPetPreview(imageFile!, imageStamp, palette)
             : Image.file(
                 imageFile!,
                 key: ValueKey('${option.imagePath}:$imageStamp'),
@@ -2276,6 +2275,24 @@ class _BackgroundSettingPageState extends State<BackgroundSettingPage> {
               ),
       ),
     );
+  }
+
+  Widget _buildSvgPetPreview(
+    File imageFile,
+    int imageStamp,
+    OmniThemePalette palette,
+  ) {
+    try {
+      return SvgPicture.string(
+        imageFile.readAsStringSync(),
+        key: ValueKey('${imageFile.path}:$imageStamp'),
+        fit: BoxFit.contain,
+        placeholderBuilder: (_) =>
+            Icon(Icons.pets_rounded, color: palette.textSecondary),
+      );
+    } catch (_) {
+      return Icon(Icons.broken_image_outlined, color: palette.textSecondary);
+    }
   }
 
   Widget _buildSliderRow({

@@ -166,6 +166,16 @@ private val defaultLongMemoryTemplate = LocalizedText(
     """.trimIndent()
 )
 
+internal fun sanitizeWorkspaceContextSegment(value: String): String {
+    val normalized = value.trim().replace(Regex("[^A-Za-z0-9._-]"), "_")
+    return normalized.takeUnless { it.isBlank() || it == "." || it == ".." }
+        ?: "isolated"
+}
+
+internal fun workspaceContextRelativePath(contextSegmentId: String): String {
+    return ".omnibot/contexts/${sanitizeWorkspaceContextSegment(contextSegmentId)}"
+}
+
 internal fun defaultSoulTemplateText(locale: PromptLocale): String {
     return defaultSoulTemplate.resolve(locale) + "\n"
 }
@@ -245,6 +255,7 @@ class AgentWorkspaceManager(
         private const val DIR_SHARED = "shared"
         private const val DIR_OFFLOADS = "offloads"
         private const val DIR_BROWSER = "browser"
+        private const val DIR_CONTEXTS = "contexts"
         private const val DIR_SKILLS = "skills"
         private const val DIR_MEMORY = "memory"
         private const val DIR_PETS = "pets"
@@ -384,6 +395,7 @@ class AgentWorkspaceManager(
     private val sharedDir = File(internalDir, DIR_SHARED)
     private val offloadsDir = File(internalDir, DIR_OFFLOADS)
     private val browserDir = File(internalDir, DIR_BROWSER)
+    private val contextsDir = File(internalDir, DIR_CONTEXTS)
     private val skillsDir = File(internalDir, DIR_SKILLS)
     private val memoryDir = File(internalDir, DIR_MEMORY)
     private val petsDir = File(internalDir, DIR_PETS)
@@ -417,6 +429,7 @@ class AgentWorkspaceManager(
             sharedDir,
             offloadsDir,
             browserDir,
+            contextsDir,
             skillsDir,
             memoryDir,
             petsDir,
@@ -551,21 +564,34 @@ class AgentWorkspaceManager(
 
     fun buildWorkspaceDescriptor(
         conversationId: Long?,
-        agentRunId: String
+        agentRunId: String,
+        contextSegmentId: String? = null
     ): AgentWorkspaceDescriptor {
         ensureRuntimeDirectories()
         val conversationKey = conversationKey(conversationId)
-        val workspaceRoot = rootDir.canonicalFile
+        val segmentKey = contextSegmentId?.trim()?.takeIf { it.isNotEmpty() }
+            ?.let(::sanitizeWorkspaceContextSegment)
+        val workspaceKey = if (segmentKey == null) {
+            conversationKey
+        } else {
+            "$conversationKey-segment-$segmentKey"
+        }
+        val workspaceRoot = if (segmentKey == null) {
+            rootDir
+        } else {
+            File(rootDir, workspaceContextRelativePath(segmentKey)).apply { mkdirs() }
+        }.canonicalFile
         val uriRoot = uriForFile(workspaceRoot) ?: buildRootUri("workspace")
+        val shellWorkspaceRoot = shellPathForAndroid(workspaceRoot) ?: SHELL_ROOT_PATH
         return AgentWorkspaceDescriptor(
-            id = conversationKey,
-            rootPath = SHELL_ROOT_PATH,
+            id = workspaceKey,
+            rootPath = shellWorkspaceRoot,
             androidRootPath = workspaceRoot.absolutePath,
             uriRoot = uriRoot,
-            currentCwd = SHELL_ROOT_PATH,
+            currentCwd = shellWorkspaceRoot,
             androidCurrentCwd = workspaceRoot.absolutePath,
             shellRootPath = SHELL_ROOT_PATH,
-            retentionPolicy = "shared_root"
+            retentionPolicy = if (segmentKey == null) "shared_root" else "segment_scoped"
         )
     }
 
@@ -603,9 +629,16 @@ class AgentWorkspaceManager(
         )
     }
 
-    fun attachmentsDirectory(): File {
+    fun attachmentsDirectory(contextSegmentId: String? = null): File {
         ensureRuntimeDirectories()
-        return attachmentsDir
+        val segmentKey = contextSegmentId?.trim()?.takeIf { it.isNotEmpty() }
+            ?.let(::sanitizeWorkspaceContextSegment)
+        return if (segmentKey == null) {
+            attachmentsDir
+        } else {
+            File(File(rootDir, workspaceContextRelativePath(segmentKey)), DIR_ATTACHMENTS)
+                .apply { mkdirs() }
+        }
     }
 
     fun sharedDirectory(): File {
@@ -723,7 +756,7 @@ class AgentWorkspaceManager(
         val allowed = if (allowPublicStorage && isWithinPublicStorage(resolved)) {
             true
         } else if (allowRootDirectories) {
-            isWithinWorkspaceRoots(resolved)
+            isWithinWorkspaceRoots(resolved, workspace)
         } else {
             isWithinWritableRoots(resolved, workspace)
         }
@@ -840,8 +873,15 @@ class AgentWorkspaceManager(
         return isWithin(rootDir.canonicalFile, file)
     }
 
-    private fun isWithinWorkspaceRoots(file: File): Boolean {
-        return isWithinRoot(file) || isWithinMountedWorkspace(file)
+    private fun isWithinWorkspaceRoots(
+        file: File,
+        workspace: AgentWorkspaceDescriptor
+    ): Boolean {
+        val workspaceRoot = File(workspace.androidRootPath).canonicalFile
+        if (isWithin(workspaceRoot, file)) {
+            return true
+        }
+        return workspaceRoot == rootDir.canonicalFile && isWithinMountedWorkspace(file)
     }
 
     private fun isWithinPublicStorage(file: File): Boolean {
@@ -996,6 +1036,7 @@ class AgentWorkspaceManager(
         }
         if (!isWithinRoot(canonical)) return null
         return when {
+            isWithin(contextsDir.canonicalFile, canonical) -> buildUriForBase(DIR_WORKSPACE, rootDir, canonical)
             isWithin(attachmentsDir.canonicalFile, canonical) -> buildUriForBase(DIR_ATTACHMENTS, attachmentsDir, canonical)
             isWithin(sharedDir.canonicalFile, canonical) -> buildUriForBase(DIR_SHARED, sharedDir, canonical)
             isWithin(offloadsDir.canonicalFile, canonical) -> buildUriForBase(DIR_OFFLOADS, offloadsDir, canonical)

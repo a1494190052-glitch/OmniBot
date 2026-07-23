@@ -148,8 +148,8 @@ internal object AgentWorkspaceAttachmentSupport {
     ): File? {
         val batchName = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
         val dir = File(
-            workspaceManager.attachmentsDirectory(),
-            "${sanitizeSegment(taskId)}/$batchName"
+            workspaceManager.attachmentsDirectory(taskId),
+            batchName
         )
         if (!dir.exists() && !dir.mkdirs()) {
             OmniLog.w(TAG, "Failed to create workspace attachment dir: ${dir.absolutePath}")

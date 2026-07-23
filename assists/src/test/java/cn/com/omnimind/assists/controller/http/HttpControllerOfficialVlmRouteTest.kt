@@ -30,10 +30,10 @@ class HttpControllerOfficialVlmRouteTest {
     }
 
     @Test
-    fun `operation scene keeps normal route when official service is disabled`() {
+    fun `operation scene keeps normal route with default install config`() {
         val route = HttpController.resolveChatCompletionRouteInfoForTest(
             modelOrScene = "scene.vlm.operation.primary",
-            sceneOperationConfig = SceneOperationConfig(useOfficialService = false),
+            sceneOperationConfig = SceneOperationConfig(),
             officialVlmOperationConfig = configuredOfficialService()
         )
 

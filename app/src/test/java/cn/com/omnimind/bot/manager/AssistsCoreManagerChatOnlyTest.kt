@@ -15,6 +15,14 @@ class AssistsCoreManagerChatOnlyTest {
         val content = listOf(
             linkedMapOf<String, Any>(
                 "role" to "user",
+                "content" to "old question"
+            ),
+            linkedMapOf<String, Any>(
+                "role" to "assistant",
+                "content" to "old answer"
+            ),
+            linkedMapOf<String, Any>(
+                "role" to "user",
                 "content" to "hello"
             )
         )
@@ -33,8 +41,27 @@ class AssistsCoreManagerChatOnlyTest {
         assertEquals(2, chatOnlyResult.size)
         assertEquals("system", chatOnlyResult.first()["role"])
         assertEquals("# CHAT\nbe helpful\n", chatOnlyResult.first()["content"])
-        assertEquals(content.first(), chatOnlyResult[1])
-        assertEquals(content, normalResult)
+        assertEquals(content.last(), chatOnlyResult[1])
+        assertEquals(listOf(content.last()), normalResult)
+    }
+
+    @Test
+    fun `scopeChatProviderSessionKey isolates each runtime segment`() {
+        assertEquals(
+            "openomnibot:segment:task-1",
+            scopeChatProviderSessionKey(null, "task-1")
+        )
+        assertEquals(
+            "user:conversation:7:segment:task_2",
+            scopeChatProviderSessionKey("user:conversation:7", "task 2")
+        )
+        assertEquals(
+            "user:conversation:7:segment:task-3",
+            scopeChatProviderSessionKey(
+                "user:conversation:7:segment:task-3",
+                "task-3"
+            )
+        )
     }
 
     @Test

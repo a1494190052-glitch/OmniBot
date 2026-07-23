@@ -36,6 +36,7 @@ class ChatMessageModel {
   final Map<String, dynamic>? streamMeta;
   final Map<String, dynamic>? turnUsage;
   final String? reasoningContent;
+  final String? contextSegmentId;
 
   /// 创建时间
   final DateTime createAt;
@@ -52,6 +53,7 @@ class ChatMessageModel {
     this.streamMeta,
     this.turnUsage,
     this.reasoningContent,
+    this.contextSegmentId,
     DateTime? createAt,
   }) : createAt = createAt ?? DateTime.now();
 
@@ -124,6 +126,7 @@ class ChatMessageModel {
       reasoningContent: _normalizeOptionalString(
         json['reasoning_content'] ?? json['reasoningContent'],
       ),
+      contextSegmentId: _normalizeOptionalString(json['contextSegmentId']),
       createAt: _parseCreateAt(json['createAt']),
     );
   }
@@ -142,6 +145,7 @@ class ChatMessageModel {
       if (streamMeta != null) 'streamMeta': streamMeta,
       if (turnUsage != null) 'turnUsage': turnUsage,
       if (reasoningContent != null) 'reasoning_content': reasoningContent,
+      if (contextSegmentId != null) 'contextSegmentId': contextSegmentId,
       'createAt': createAt.toIso8601String(),
     };
   }
@@ -204,6 +208,7 @@ class ChatMessageModel {
     Map<String, dynamic>? streamMeta,
     Map<String, dynamic>? turnUsage,
     String? reasoningContent,
+    String? contextSegmentId,
     DateTime? createAt,
   }) {
     return ChatMessageModel(
@@ -218,6 +223,7 @@ class ChatMessageModel {
       streamMeta: streamMeta ?? this.streamMeta,
       turnUsage: turnUsage ?? this.turnUsage,
       reasoningContent: reasoningContent ?? this.reasoningContent,
+      contextSegmentId: contextSegmentId ?? this.contextSegmentId,
       createAt: createAt ?? this.createAt,
     );
   }

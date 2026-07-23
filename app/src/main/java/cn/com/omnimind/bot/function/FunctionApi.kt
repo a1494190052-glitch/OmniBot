@@ -1,9 +1,7 @@
 package cn.com.omnimind.bot.function
 
-import android.content.Context
 import cn.com.omnimind.baselib.i18n.PromptLocale
 import cn.com.omnimind.baselib.runlog.OobActionSchema
-import cn.com.omnimind.baselib.util.OmniLog
 import cn.com.omnimind.bot.agent.AgentToolDefinitions
 import cn.com.omnimind.bot.agent.AgentToolJson.mapToJsonElement
 import kotlinx.serialization.json.JsonObject
@@ -19,7 +17,6 @@ import kotlinx.serialization.json.putJsonObject
 object FunctionApi {
     const val PROFILE = "function"
     const val SKILL_ID = "function"
-    private const val MAX_PROMPT_FUNCTION_CANDIDATES = 50
 
     const val FUNCTION_LIST = "oob_function_list"
     const val FUNCTION_GET = "oob_function_get"
@@ -65,7 +62,8 @@ object FunctionApi {
             "resource_uri" to SCHEMA_RESOURCE_URI,
             "canonical_actions_schema_version" to OobActionSchema.SCHEMA_VERSION,
             "schemas" to linkedMapOf(
-                "omniflow.function.v2" to reusableFunctionSchema,
+                "omniflow.function.v2" to GeneratedFunctionContractSchemas.function,
+                "omniflow.checker_rule.v1" to GeneratedFunctionContractSchemas.checker,
                 "update_function.input" to updateFunctionInputSchema(),
                 "update_function.patch" to updateFunctionPatchSchema,
             ),
@@ -100,24 +98,6 @@ object FunctionApi {
             oobRunLogConvertMcpTool,
         )
 
-    fun promptCandidateContext(
-        context: Context,
-        locale: PromptLocale,
-        goal: String? = null,
-        currentPackageName: String? = null,
-        limit: Int = MAX_PROMPT_FUNCTION_CANDIDATES,
-    ): String {
-        val candidates = runCatching {
-            promptCandidates(
-                context = context,
-                limit = limit.coerceIn(1, MAX_PROMPT_FUNCTION_CANDIDATES),
-            )
-        }.onFailure {
-            OmniLog.w("FunctionApi", "load prompt Function candidates failed: ${it.message}")
-        }.getOrDefault(emptyList())
-        return buildPromptCandidateContext(candidates, locale)
-    }
-
     internal fun buildPromptCandidateContext(
         candidates: List<Map<String, Any?>>,
         locale: PromptLocale,
@@ -145,11 +125,6 @@ object FunctionApi {
             }
         }.trim()
     }
-
-    private fun promptCandidates(
-        context: Context,
-        limit: Int,
-    ): List<Map<String, Any?>> = FunctionService(context).listFunctionSpecs(limit)
 
     private fun normalizeProfile(profile: String?): String = profile
         ?.trim()
@@ -256,7 +231,7 @@ object FunctionApi {
         "inputSchema" to mapOf(
             "type" to "object",
             "properties" to mapOf(
-                "function" to reusableFunctionSchema,
+                "function" to GeneratedFunctionContractSchemas.functionToolInput,
             ),
             "required" to listOf("function"),
         )
@@ -412,40 +387,6 @@ object FunctionApi {
             required = listOf("op", "index"),
         )
 
-    private val reusableFunctionSchema: Map<String, Any?>
-        get() = obj(
-            description = "The single Function contract shared by OOB and OmniFlow.",
-            properties = linkedMapOf(
-                "schema_version" to constString("omniflow.function.v2"),
-                "function_id" to string("Stable Function id."),
-                "name" to string("Short user-visible Function name."),
-                "description" to string("Reusable intent and success description."),
-                "input_schema" to obj(description = "Strict JSON Schema for call arguments."),
-                "bindings" to array("Argument-to-action bindings.", obj()),
-                "steps" to array(
-                    "Ordered steps with source_state_id and one canonical action.",
-                    obj(
-                        properties = linkedMapOf(
-                            "step_index" to integer("Zero-based step index."),
-                            "source_state_id" to string("Recorded source state reference."),
-                            "action" to obj(
-                                properties = linkedMapOf(
-                                    "tool" to string("Canonical action name."),
-                                    "args" to obj(description = "Canonical action arguments."),
-                                ),
-                            ),
-                        ),
-                    ),
-                ),
-                "checker_rules" to array("Runtime checker rules.", obj()),
-                "agent_visible" to boolean("Whether recall may return this Function."),
-            ),
-            required = listOf(
-                "schema_version", "function_id", "name", "description", "input_schema",
-                "bindings", "steps", "checker_rules", "agent_visible",
-            ),
-        )
-
     private fun obj(
         description: String? = null,
         properties: Map<String, Any?> = emptyMap(),
@@ -467,9 +408,6 @@ object FunctionApi {
 
     private fun boolean(description: String): Map<String, Any?> =
         primitive("boolean", description)
-
-    private fun constString(value: String): Map<String, Any?> =
-        linkedMapOf("type" to "string", "const" to value)
 
     private fun enumString(description: String, values: List<String>): Map<String, Any?> =
         linkedMapOf<String, Any?>("type" to "string", "description" to description, "enum" to values)

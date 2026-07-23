@@ -238,13 +238,15 @@ class StepResult:
     origin: str = "action"
     executed_steps: tuple["StepResult", ...] = ()
     function_id: str | None = None
+    checker_trigger: str | None = None
     detail: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
-class CheckResult:
-    allowed: bool = True
-    reason: str | None = None
+class CheckerContext:
+    source: Observation | None
+    current: Observation
+    action: Action
 
 
 @dataclass(frozen=True)
@@ -255,8 +257,8 @@ class TransferResult:
 
 
 Checker = Callable[
-    [Function | None, Action, Observation],
-    CheckResult | Awaitable[CheckResult],
+    [CheckerContext],
+    Action | None | Awaitable[Action | None],
 ]
 Transfer = Callable[
     [Action, Observation, Observation | None],

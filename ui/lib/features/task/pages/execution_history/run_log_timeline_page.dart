@@ -5618,7 +5618,7 @@ class _RunLogStepSourceBadge extends StatelessWidget {
 class _RunLogStepSnapshot {
   const _RunLogStepSnapshot({
     required this.step,
-    required this.diagnostics,
+    required this.metadata,
     required this.action,
     required this.args,
     required this.result,
@@ -5638,7 +5638,7 @@ class _RunLogStepSnapshot {
   });
 
   final Map<String, dynamic> step;
-  final Map<String, dynamic> diagnostics;
+  final Map<String, dynamic> metadata;
   final Map<String, dynamic> action;
   final Map<String, dynamic> args;
   final Map<String, dynamic> result;
@@ -5663,14 +5663,14 @@ class _RunLogStepSnapshot {
   bool get isFailed => status == 'failed' || success == false;
 
   bool get isVlmStep {
-    return diagnostics['source']?.toString().trim().toLowerCase() == 'vlm';
+    return metadata['source']?.toString().trim().toLowerCase() == 'vlm';
   }
 
   factory _RunLogStepSnapshot.fromStep(
     Map<String, dynamic> step, {
     required int fallbackIndex,
   }) {
-    final diagnostics = _asStringKeyMap(step['diagnostics']);
+    final metadata = _asStringKeyMap(step['metadata']);
     final action = _asStringKeyMap(step['action']);
     final toolName = action['tool']?.toString().trim() ?? '';
     final args = _asStringKeyMap(action['args']);
@@ -5685,35 +5685,23 @@ class _RunLogStepSnapshot {
         : <String, dynamic>{'state_id': afterStateId};
     final stepIndex = _asInt(step['step_index']) ?? fallbackIndex;
     final stepNumber = stepIndex + 1;
-    final source = diagnostics['source']?.toString().trim() ?? '';
-    final status = step['status']?.toString().trim().toLowerCase() ?? '';
-    final success =
-        _asBool(result['success']) ??
-        switch (status) {
-          'succeeded' => true,
-          'failed' => false,
-          _ => null,
-        };
-    final durationMs = _asInt(diagnostics['duration_ms']);
+    final source = metadata['source']?.toString().trim() ?? '';
+    final success = _asBool(result['success']);
+    final status =
+        metadata['status']?.toString().trim().toLowerCase() ??
+        (success == true ? 'succeeded' : 'failed');
+    final durationMs = _asInt(metadata['duration_ms']);
     final packageName = args['package_name']?.toString().trim() ?? '';
-    final thinking = _firstNonBlank([
-      step['thinking'],
-      diagnostics['thinking'],
-      diagnostics['reasoning'],
-    ]);
-    final summary = _firstNonBlank([
-      step['summary'],
-      diagnostics['summary'],
-      result['error'],
-    ]);
-    final tokenUsage = _firstMap(diagnostics, const ['token_usage']);
+    final thinking = _firstNonBlank([metadata['thinking']]);
+    final summary = _firstNonBlank([metadata['summary'], result['error']]);
+    final tokenUsage = _firstMap(metadata, const ['token_usage']);
     final tokenUsageAttempts = _asStringKeyMapList(
-      diagnostics['token_usage_attempts'],
+      metadata['token_usage_attempts'],
     );
 
     return _RunLogStepSnapshot(
       step: step,
-      diagnostics: diagnostics,
+      metadata: metadata,
       action: action,
       args: args,
       result: result,
@@ -5870,19 +5858,12 @@ List<_ThinkingDebugEntry> _collectRunLogThinkingEntries(
 ) {
   final entries = <_ThinkingDebugEntry>[];
   for (var index = 0; index < steps.length; index++) {
-    final diagnostics = _asStringKeyMap(steps[index]['diagnostics']);
-    final topLevelThinking = steps[index]['thinking']?.toString().trim() ?? '';
-    final text = _firstNonBlank([
-      topLevelThinking,
-      diagnostics['thinking'],
-      diagnostics['reasoning'],
-    ]);
+    final metadata = _asStringKeyMap(steps[index]['metadata']);
+    final text = _firstNonBlank([metadata['thinking']]);
     if (text.isNotEmpty) {
       entries.add(
         _ThinkingDebugEntry(
-          path: topLevelThinking.isNotEmpty
-              ? 'steps[$index].thinking'
-              : 'steps[$index].diagnostics.thinking',
+          path: 'steps[$index].metadata.thinking',
           text: text,
         ),
       );
@@ -6072,10 +6053,7 @@ enum _RunLogStepSource { agentVlm, human, omniflowReplay, route }
 bool _isVlmRunLogStep(_RunLogStepSnapshot snapshot) => snapshot.isVlmStep;
 
 _RunLogStepSource _runLogStepSource(_RunLogStepSnapshot snapshot) {
-  return switch (snapshot.diagnostics['source']
-      ?.toString()
-      .trim()
-      .toLowerCase()) {
+  return switch (snapshot.metadata['source']?.toString().trim().toLowerCase()) {
     'vlm' => _RunLogStepSource.agentVlm,
     'human_trajectory' ||
     'human_takeover' ||
@@ -6232,7 +6210,7 @@ List<Map<String, dynamic>> _extractTimelineSteps(Map<String, dynamic> payload) {
   }
   return steps
       .map(_asStringKeyMap)
-      .where(_isCanonicalRunLogStep)
+      .where((step) => step.isNotEmpty)
       .toList(growable: false);
 }
 
@@ -6402,101 +6380,11 @@ String _runLogEmptyMessage(BuildContext context, Map<String, dynamic> payload) {
 }
 
 bool _isCanonicalRunLog(Map<String, dynamic> payload) {
-  const required = {
-    'schema_version',
-    'run_id',
-    'goal',
-    'status',
-    'success',
-    'steps',
-  };
-  const allowed = {
-    ...required,
-    'error',
-    'started_at_ms',
-    'finished_at_ms',
-    'final_state_id',
-    'diagnostics',
-  };
-  return payload['schema_version'] == 'omniflow.canonical_run_log.v1' &&
-      payload.keys.toSet().containsAll(required) &&
-      payload.keys.every(allowed.contains) &&
-      payload['run_id'] is String &&
-      (payload['run_id'] as String).trim().isNotEmpty &&
-      payload['goal'] is String &&
-      const {
-        'running',
-        'succeeded',
-        'failed',
-        'cancelled',
-      }.contains(payload['status']) &&
-      payload['success'] is bool &&
-      ((payload['status'] == 'succeeded') == (payload['success'] == true)) &&
-      payload['steps'] is List &&
-      (payload['diagnostics'] == null || payload['diagnostics'] is Map);
+  return payload['schema_version'] == 'omniflow.canonical_run_log.v1';
 }
 
 Map<String, dynamic> _runLogDiagnostics(Map<String, dynamic> payload) =>
     _asStringKeyMap(payload['diagnostics']);
-
-bool _isCanonicalRunLogStep(Map<String, dynamic> step) {
-  const allowed = {
-    'step_id',
-    'step_index',
-    'status',
-    'thinking',
-    'summary',
-    'before_state_id',
-    'action',
-    'result',
-    'after_state_id',
-    'diagnostics',
-    'metadata',
-  };
-  if (!step.containsKey('step_index') || !step.keys.every(allowed.contains)) {
-    return false;
-  }
-  final stepIndex = step['step_index'];
-  if (stepIndex is! num || stepIndex.toInt() < 0) return false;
-  final stepId = step['step_id']?.toString().trim() ?? '';
-  final status = step['status']?.toString().trim().toLowerCase() ?? '';
-  if (step.containsKey('step_id') && stepId.isEmpty) return false;
-  if (status.isNotEmpty &&
-      !const {
-        'running',
-        'succeeded',
-        'failed',
-        'waiting_user',
-      }.contains(status)) {
-    return false;
-  }
-  for (final key in const ['before_state_id', 'after_state_id']) {
-    if (step.containsKey(key) &&
-        (step[key]?.toString().trim().isEmpty ?? true)) {
-      return false;
-    }
-  }
-  if (step.containsKey('action')) {
-    if (step['action'] is! Map) return false;
-    final action = _asStringKeyMap(step['action']);
-    if (action.keys.length != 2 ||
-        action['tool']?.toString().trim().isEmpty != false ||
-        action['args'] is! Map) {
-      return false;
-    }
-  }
-  if (step.containsKey('result')) {
-    if (step['result'] is! Map) return false;
-    final result = _asStringKeyMap(step['result']);
-    if (result.keys.any((key) => key != 'success' && key != 'error') ||
-        result['success'] is! bool ||
-        (result.containsKey('error') && result['error'] is! String)) {
-      return false;
-    }
-  }
-  return (step['diagnostics'] == null || step['diagnostics'] is Map) &&
-      (step['metadata'] == null || step['metadata'] is Map);
-}
 
 Map<String, dynamic> _functionStepAsRunLogStep(
   Map<String, dynamic> step,
@@ -6505,9 +6393,7 @@ Map<String, dynamic> _functionStepAsRunLogStep(
   final action = _asStringKeyMap(step['action']);
   final sourceStateId = step['source_state_id']?.toString().trim() ?? '';
   return <String, dynamic>{
-    'step_id': 'function-step-$fallbackIndex',
     'step_index': _asInt(step['step_index']) ?? fallbackIndex,
-    'status': 'succeeded',
     'before_state_id': sourceStateId,
     'action': <String, dynamic>{
       'tool': action['tool']?.toString().trim() ?? '',
@@ -6515,7 +6401,12 @@ Map<String, dynamic> _functionStepAsRunLogStep(
     },
     'result': const <String, dynamic>{'success': true},
     'after_state_id': sourceStateId,
-    'diagnostics': const <String, dynamic>{'source': 'function'},
+    'metadata': <String, dynamic>{
+      'step_id': 'function-step-$fallbackIndex',
+      'status': 'succeeded',
+      'summary': action['tool']?.toString().trim() ?? '',
+      'source': 'function',
+    },
   };
 }
 

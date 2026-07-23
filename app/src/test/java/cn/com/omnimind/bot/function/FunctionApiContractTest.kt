@@ -19,6 +19,16 @@ class FunctionApiContractTest {
 
         assertEquals(setOf("function"), mcpProperties.keys)
         assertEquals(listOf("function"), FunctionJson.listArg(mcpInput["required"]))
+        val functionSchema = FunctionJson.mapArg(mcpProperties["function"])
+        val functionProperties = FunctionJson.mapArg(functionSchema["properties"])
+        val checkerRules = FunctionJson.mapArg(functionProperties["checker_rules"])
+        val checker = FunctionJson.mapArg(checkerRules["items"])
+        val checkerProperties = FunctionJson.mapArg(checker["properties"])
+        assertEquals(
+            setOf("schema_version", "trigger", "source_state_id", "action"),
+            checkerProperties.keys,
+        )
+        assertFalse(checker.containsKey("${'$'}ref"))
 
         val staticTool = FunctionApi.staticToolDefinitions(PromptLocale.EN_US).single { definition ->
             val function = definition["function"] as? JsonObject
@@ -31,6 +41,22 @@ class FunctionApiContractTest {
         assertTrue(staticProperties.containsKey("function"))
         assertFalse(staticProperties.containsKey("steps"))
         assertFalse(staticProperties.containsKey("function_id"))
+    }
+
+    @Test
+    fun `schema bundle exposes the canonical checker rule`() {
+        val schemas = FunctionJson.mapArg(FunctionApi.schemaBundle()["schemas"])
+        val checker = FunctionJson.mapArg(schemas["omniflow.checker_rule.v1"])
+        val checkerProperties = FunctionJson.mapArg(checker["properties"])
+
+        assertEquals(
+            setOf("schema_version", "trigger", "source_state_id", "action"),
+            checkerProperties.keys,
+        )
+        assertEquals(
+            listOf("schema_version", "trigger", "source_state_id", "action"),
+            FunctionJson.listArg(checker["required"]),
+        )
     }
 
     @Test

@@ -34,6 +34,25 @@ class VLMToolCallRecoveryTest {
     }
 
     @Test
+    fun validNativeToolCallDoesNotRequireAssistantContent() {
+        val result = VLMClient().parseVLMResponse(
+            response = sceneTurn(
+                toolCall(
+                    name = "click",
+                    arguments = """{"target_description":"商品卡片","x":812,"y":500}""",
+                )
+            ),
+            modelOrScene = "scene.vlm_task",
+        )
+
+        assertTrue(result.success)
+        assertTrue(result.step?.action is Action)
+        assertEquals("click", result.step?.action?.name)
+        assertEquals("", result.step?.summary)
+        assertFalse(result.shouldRetryForToolCall)
+    }
+
+    @Test
     fun missingClickYIsRejectedAndPreservedForCorrection() {
         val toolCall = toolCall(
             name = "click",
@@ -200,6 +219,30 @@ class VLMToolCallRecoveryTest {
         assertEquals("vlm_diagnostic", semantics.toolType)
         assertNull(semantics.actionType)
         assertFalse(semantics.hasNativeToolCall)
+    }
+
+    @Test
+    fun userCancellationBuildsFailedAbortTerminalStep() {
+        val state = State(
+            stateId = "run-vlm-user-cancelled-100",
+            xml = "<hierarchy />",
+            packageName = "demo.app",
+            display = StateDisplay(width = 1080, height = 2400),
+        )
+
+        val step = buildUserCancelledTerminalStep(
+            state = state,
+            message = "任务已取消",
+            timestampMs = 100L,
+        )
+        val semantics = resolveVlmRunLogStepSemantics(step)
+
+        assertTrue(step.action is AbortDecision)
+        assertEquals("任务已取消", (step.action as AbortDecision).value)
+        assertEquals(state, step.beforeState)
+        assertEquals(state, step.afterState)
+        assertEquals("user_cancelled", step.failure?.kind)
+        assertFalse(semantics.success)
     }
 
     private fun toolCall(name: String, arguments: String): AssistantToolCall =

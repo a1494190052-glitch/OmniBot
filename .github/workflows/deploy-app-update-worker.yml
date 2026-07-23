@@ -1,0 +1,84 @@
+name: Deploy App Update Worker
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: write
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Validate deployment settings
+        shell: bash
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          APP_UPDATE_R2_BUCKET: ${{ vars.APP_UPDATE_R2_BUCKET }}
+        run: |
+          set -euo pipefail
+          test -n "${CLOUDFLARE_API_TOKEN}"
+          test -n "${CLOUDFLARE_ACCOUNT_ID}"
+          test -n "${APP_UPDATE_R2_BUCKET}"
+
+      - name: Create deployment config
+        shell: bash
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          APP_UPDATE_R2_BUCKET: ${{ vars.APP_UPDATE_R2_BUCKET }}
+        run: |
+          set -euo pipefail
+          config_path="${RUNNER_TEMP}/app-update-worker.toml"
+          cat > "${config_path}" <<EOF
+          name = "omnibot-app-update-worker"
+          main = "${GITHUB_WORKSPACE}/workers/app-update-worker/worker.js"
+          compatibility_date = "2026-05-12"
+          account_id = "${CLOUDFLARE_ACCOUNT_ID}"
+
+          [[r2_buckets]]
+          binding = "APP_UPDATE_BUCKET"
+          bucket_name = "${APP_UPDATE_R2_BUCKET}"
+
+          [[analytics_engine_datasets]]
+          binding = "UPDATE_ANALYTICS"
+          dataset = "omnibot_app_updates"
+
+          [vars]
+          GITHUB_REPO = "omnimind-ai/OpenOmniBot"
+          DEFAULT_SOURCE = "worker"
+          R2_RELEASES_PREFIX = "releases"
+          R2_METADATA_PREFIX = "metadata/releases"
+          ANALYTICS_DATASET = "omnibot_app_updates"
+          CF_ACCOUNT_ID = "${CLOUDFLARE_ACCOUNT_ID}"
+          EOF
+          echo "WRANGLER_CONFIG=${config_path}" >> "$GITHUB_ENV"
+
+      - name: Deploy Worker
+        shell: bash
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: npx --yes wrangler@4 deploy --config "${WRANGLER_CONFIG}"
+
+      - name: Enable vlm-core automatic publishing
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh variable set VLM_CORE_AUTO_PUBLISH_ENABLED --body true --repo "${GITHUB_REPOSITORY}"
+
+      - name: Write deployment summary
+        shell: bash
+        run: |
+          {
+            echo "## App Update Worker"
+            echo "- Channel-aware Worker deployed"
+            echo "- vlm-core automatic publishing enabled"
+            echo "- Client installation remains user-confirmed"
+          } >> "$GITHUB_STEP_SUMMARY"

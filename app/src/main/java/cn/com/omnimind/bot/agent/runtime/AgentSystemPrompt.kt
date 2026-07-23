@@ -12,6 +12,7 @@ object AgentSystemPrompt {
         skillsRootAndroidPath: String,
         resolvedSkills: List<ResolvedSkillContext>,
         memoryContext: WorkspaceMemoryPromptContext?,
+        automaticMemoryEnabled: Boolean = true,
         locale: PromptLocale = AppLocaleManager.currentPromptLocale()
     ): String {
         val visibleInstalledSkills = installedSkills.filter { skill ->
@@ -93,7 +94,12 @@ object AgentSystemPrompt {
                 enUS = "SOUL.md was not loaded. Follow the default safe operating policy."
             ).resolve(locale)
 
-        val memorySection = memoryContext?.let { context ->
+        val memorySection = if (!automaticMemoryEnabled) {
+            LocalizedText(
+                zhCN = "Workspace 持久记忆未注入；当前运行上下文按无历史记忆执行。",
+                enUS = "Persistent workspace memory was not injected; this runtime context starts without historical memory."
+            ).resolve(locale)
+        } else memoryContext?.let { context ->
             buildString {
                 appendLine(
                     LocalizedText(
@@ -144,12 +150,70 @@ object AgentSystemPrompt {
             enUS = "Workspace memory is unavailable, so continue without memory context for this turn."
         ).resolve(locale)
 
+        val memoryPolicySection = if (automaticMemoryEnabled) {
+            LocalizedText(
+                zhCN = """
+                    - 记忆纪律（重要）：记忆工具统一使用 `memory_*`——短期写 `memory_write_daily`，长期写 `memory_upsert_longterm`，检索用 `memory_search`，整理用 `memory_rollup_day`。
+                    - 短期记忆要“宁可多写”：只要本轮出现下列任一情况，就在给出最终回复前调用 `memory_write_daily` 落一条简短记录——用户偏好/习惯/画像、关键决定及理由、任务目标与进度、外部标识（路径/ID/账号别名/链接）、被用户纠正的行为或事实、踩坑与解决办法。
+                    - 每条短期记忆一句话、客观具体；不确定要不要记时，默认记到短期。
+                    - 长期记忆 `memory_upsert_longterm` 只写跨会话稳定、可复用的结论；一次性过程细节留在短期，交给夜间整理决定是否沉淀为长期。
+                    - 不要重复写已记过的同类信息；系统会自动去重，你也应避免啰嗦。
+                """.trimIndent(),
+                enUS = """
+                    - Memory discipline (important): use `memory_*` for memory — `memory_write_daily` (short-term), `memory_upsert_longterm` (long-term), `memory_search` (retrieval), `memory_rollup_day` (rollup).
+                    - Bias toward writing SHORT-term memory: whenever this turn surfaces any of the following, call `memory_write_daily` before your final reply — user preferences/habits/profile, key decisions and rationale, task goals and progress, external identifiers (paths/IDs/account aliases/links), behaviors or facts the user corrected, pitfalls and their fixes.
+                    - Keep each short-term note to one concrete sentence; when unsure whether to record something, default to writing it to short-term.
+                    - Use `memory_upsert_longterm` only for cross-session, reusable conclusions; leave one-off procedural detail in short-term and let the nightly rollup decide what becomes long-term.
+                    - Do not rewrite information you already recorded; the system de-dups, but avoid redundancy.
+                """.trimIndent()
+            ).resolve(locale)
+        } else {
+            LocalizedText(
+                zhCN = """
+                    - 当前是隔离的新运行上下文。不要自动检索、加载、写入或整理任何跨上下文记忆，即使 SOUL.md 中存在相反的默认记忆建议，也以本条边界为准。
+                    - 只有用户在当前请求中明确要求“记住、保存为记忆、查询记忆、整理记忆”时，才调用对应的 `memory_*` 工具。
+                    - 用户明确要求使用记忆时，只把工具返回的结果用于当前上下文；不要顺带加载其它历史任务。
+                """.trimIndent(),
+                enUS = """
+                    - This is a fresh isolated runtime context. Do not automatically search, load, write, or roll up cross-context memory. This boundary overrides conflicting default memory advice in SOUL.md.
+                    - Call a `memory_*` tool only when the user explicitly asks in the current request to remember, save memory, search memory, or roll memory up.
+                    - When the user explicitly requests memory, use only the tool results needed for this context; do not load unrelated prior tasks.
+                """.trimIndent()
+            ).resolve(locale)
+        }
+
+        val workspacePolicySection = if (workspace.retentionPolicy == "segment_scoped") {
+            LocalizedText(
+                zhCN = """
+                    - `${workspace.rootPath}` 是当前运行上下文的独立工作目录，对应 Android 路径 `${workspace.androidRootPath}`。
+                    - `${workspace.shellRootPath}` 只是全局挂载根，不是当前工作目录；不要读取或写入 `.omnibot/contexts` 下其它运行上下文的目录。
+                    - 新建、读取、搜索和修改文件都应限制在 `${workspace.rootPath}`；只有用户明确提供的公共存储文件可以例外处理。
+                """.trimIndent(),
+                enUS = """
+                    - `${workspace.rootPath}` is the isolated working directory for this runtime context and maps to the Android path `${workspace.androidRootPath}`.
+                    - `${workspace.shellRootPath}` is only the global mount root, not the current working directory. Do not inspect or modify other runtime-context directories under `.omnibot/contexts`.
+                    - Keep newly created, read, searched, and modified files inside `${workspace.rootPath}` unless the user explicitly provides a public-storage file.
+                """.trimIndent()
+            ).resolve(locale)
+        } else {
+            LocalizedText(
+                zhCN = """
+                    - 默认整个 `${workspace.rootPath}` 都是共享工作区；如果需要隔离，请显式创建子目录。
+                    - `${workspace.shellRootPath}` 通过 proot bind 映射到 Android 路径 `${workspace.androidRootPath}`；Alpine 与 App 看到的是同一份文件。
+                """.trimIndent(),
+                enUS = """
+                    - By default, the whole `${workspace.rootPath}` is a shared workspace; create subdirectories explicitly when isolation is needed.
+                    - `${workspace.shellRootPath}` is bind-mounted through proot to the Android path `${workspace.androidRootPath}`; Alpine and the app see the same files.
+                """.trimIndent()
+            ).resolve(locale)
+        }
+
         return when (locale) {
             PromptLocale.ZH_CN -> """
                 你是在 Alpine 工作环境内的 AI Agent，你同时能通过工具调用操作用户的手机。
 
                 当前 workspace：
-                - conversationContextId: ${workspace.id}
+                - runtimeContextId: ${workspace.id}
                 - shellWorkspaceRoot: ${workspace.rootPath}
                 - shellCurrentCwd: ${workspace.currentCwd}
                 - androidWorkspacePath: ${workspace.androidRootPath}
@@ -160,9 +224,8 @@ object AgentSystemPrompt {
                 - 创建文件优先使用 `file_write`，修改现有文件优先使用 `file_edit`。
                 - 读取、搜索、列目录、查看元信息分别使用 `file_read`、`file_search`、`file_list`、`file_stat`。
                 - 对模型来说，workspace 的主路径语义始终是 Alpine 内 shell 路径，例如 `${workspace.rootPath}`。
-                - 默认整个 `${workspace.rootPath}` 都是共享工作区，不要假设每个对话都有独立目录；如果需要隔离，请显式创建子目录。
+                $workspacePolicySection
                 - Agent 的 provider 与场景模型配置和应用内设置实时同步，配置文件位于 `${workspace.shellRootPath}/.omnibot/agent/config.json`。
-                - `${workspace.shellRootPath}` 是通过 proot bind 挂载到 Omnibot 应用内部目录 `${workspace.androidRootPath}` 的共享目录；Alpine 与 App 看到的是同一份文件。
                 - 结果文件会以 `omnibot://` 资源返回，必要时同时附带 Android 绝对路径。
                 - 如果终端输出很长，应依赖工具返回的 artifacts，而不是在回复里粘贴大段原文。
                 - 当工具结果含有 `artifacts` 时，优先在最终回复里直接引用 artifact 的 `renderMarkdown`，不要只依赖工具卡片。
@@ -193,11 +256,7 @@ object AgentSystemPrompt {
                 - 如果项目已有 `pyproject.toml` 或 `uv.lock`，优先考虑 `uv sync`、`uv run` 这类工作流，而不是污染系统 Python。
                 - 查询当前有哪些 skills、某类 skill 是否已安装，优先用 `skills_list`。
                 - 如果某个已安装 skill 看起来相关，但本轮没有注入它的正文，使用 `skills_read` 读取对应 `SKILL.md`，不要凭索引信息臆测细节。
-                - 记忆纪律（重要）：记忆工具统一使用 `memory_*`——短期写 `memory_write_daily`，长期写 `memory_upsert_longterm`，检索用 `memory_search`，整理用 `memory_rollup_day`。
-                - 短期记忆要“宁可多写”：只要本轮出现下列任一情况，就在给出最终回复前调用 `memory_write_daily` 落一条简短记录——用户偏好/习惯/画像、关键决定及理由、任务目标与进度、外部标识（路径/ID/账号别名/链接）、被用户纠正的行为或事实、踩坑与解决办法。
-                - 每条短期记忆一句话、客观具体；不确定要不要记时，默认记到短期。
-                - 长期记忆 `memory_upsert_longterm` 只写跨会话稳定、可复用的结论；一次性过程细节留在短期，交给夜间整理决定是否沉淀为长期。
-                - 不要重复写已记过的同类信息；系统会自动去重，你也应避免啰嗦。
+                $memoryPolicySection
                 - 允许在用户明确授权时更新 `.omnibot/agent/SOUL.md`，并在回复中说明更新点与原因。
                 - `schedule_task_*`、`alarm_*`、`calendar_*`、`memory_*`、`subagent_dispatch`、`mcp__*`、`terminal_execute`、`android_privileged_action`、`android_privileged_session_*`、`terminal_session_*` 调用后先等待工具结果，再决定下一步。
 
@@ -216,7 +275,7 @@ object AgentSystemPrompt {
                 You are an AI Agent operating inside an Alpine workspace environment, and you can also control the user's phone through tool calls.
 
                 Current workspace:
-                - conversationContextId: ${workspace.id}
+                - runtimeContextId: ${workspace.id}
                 - shellWorkspaceRoot: ${workspace.rootPath}
                 - shellCurrentCwd: ${workspace.currentCwd}
                 - androidWorkspacePath: ${workspace.androidRootPath}
@@ -227,9 +286,8 @@ object AgentSystemPrompt {
                 - Prefer `file_write` when creating files, and prefer `file_edit` when modifying existing files.
                 - Use `file_read`, `file_search`, `file_list`, and `file_stat` for reading, searching, listing directories, and viewing metadata.
                 - For the model, the primary workspace path semantics always use the Alpine shell path, for example `${workspace.rootPath}`.
-                - By default, the whole `${workspace.rootPath}` is a shared workspace. Do not assume each conversation has its own isolated directory; create subdirectories explicitly when isolation is needed.
+                $workspacePolicySection
                 - The Agent provider and scene-model settings stay in sync with in-app configuration in real time. The config file is `${workspace.shellRootPath}/.omnibot/agent/config.json`.
-                - `${workspace.shellRootPath}` is a shared directory bind-mounted through proot into the Omnibot app directory `${workspace.androidRootPath}`. Alpine and the app see the same files.
                 - Result files are returned as `omnibot://` resources, and Android absolute paths may also be attached when needed.
                 - If terminal output is long, rely on returned artifacts instead of pasting large raw blocks into the reply.
                 - When tool results include `artifacts`, prefer citing each artifact's `renderMarkdown` directly in the final reply instead of depending only on tool cards.
@@ -260,11 +318,7 @@ object AgentSystemPrompt {
                 - If the project already has `pyproject.toml` or `uv.lock`, prefer workflows such as `uv sync` and `uv run` instead of polluting system Python.
                 - Use `skills_list` first when you need to know which skills are installed or whether a category of skill exists.
                 - If an installed skill seems relevant but its full body was not injected in this turn, use `skills_read` to load the corresponding `SKILL.md` instead of guessing from the index.
-                - Memory discipline (important): use `memory_*` for memory — `memory_write_daily` (short-term), `memory_upsert_longterm` (long-term), `memory_search` (retrieval), `memory_rollup_day` (rollup).
-                - Bias toward writing SHORT-term memory: whenever this turn surfaces any of the following, call `memory_write_daily` before your final reply — user preferences/habits/profile, key decisions and rationale, task goals and progress, external identifiers (paths/IDs/account aliases/links), behaviors or facts the user corrected, pitfalls and their fixes.
-                - Keep each short-term note to one concrete sentence; when unsure whether to record something, default to writing it to short-term.
-                - Use `memory_upsert_longterm` only for cross-session, reusable conclusions; leave one-off procedural detail in short-term and let the nightly rollup decide what becomes long-term.
-                - Do not rewrite information you already recorded; the system de-dups, but avoid redundancy.
+                $memoryPolicySection
                 - You may update `.omnibot/agent/SOUL.md` when the user clearly authorizes it, and you must explain what changed and why.
                 - After calling `schedule_task_*`, `alarm_*`, `calendar_*`, `memory_*`, `subagent_dispatch`, `mcp__*`, `terminal_execute`, `android_privileged_action`, `android_privileged_session_*`, or `terminal_session_*`, wait for the tool result before deciding the next step.
 

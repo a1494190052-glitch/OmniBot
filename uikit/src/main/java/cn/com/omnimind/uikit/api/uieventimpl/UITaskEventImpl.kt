@@ -5,6 +5,7 @@ import cn.com.omnimind.assists.api.eventapi.ExecutingTaskType
 import cn.com.omnimind.baselib.util.VibrationUtil
 import cn.com.omnimind.uikit.UIKit
 import cn.com.omnimind.uikit.api.uievent.UITaskEvent
+import cn.com.omnimind.uikit.api.uievent.UserTakeoverAction
 import cn.com.omnimind.uikit.loader.CancelClickLoader
 import cn.com.omnimind.uikit.loader.FloatingHalfScreenLoader
 import cn.com.omnimind.uikit.loader.ScreenMaskLoader
@@ -51,13 +52,13 @@ class UITaskEventImpl : UITaskEvent {
         }
     }
 
-    override suspend fun waitingUserAction(message: String): Boolean {
+    override suspend fun waitingUserAction(message: String): UserTakeoverAction {
         VibrationUtil.vibrateLight()
         withContext(Dispatchers.Main) {
             ScreenMaskLoader.loadGoneViewScreenMask()
         }
-        val isResume = DraggableBallInstance.userTakeover(message)
-        if (isResume) {
+        val action = DraggableBallInstance.userTakeover(message)
+        if (action == UserTakeoverAction.CONTINUE) {
             val subMessage = when (UIKit.executionTaskEventApi?.taskType) {
                 ExecutingTaskType.VLM -> "智能执行中"
                 ExecutingTaskType.EMPTY -> "智能执行中"
@@ -67,7 +68,7 @@ class UITaskEventImpl : UITaskEvent {
                 DraggableBallInstance.doingTask("用户操作已完成", subMessage)
             }
         }
-        return isResume
+        return action
     }
 
     override suspend fun pauseTask(message: String) {

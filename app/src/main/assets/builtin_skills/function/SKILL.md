@@ -84,6 +84,14 @@ whole Function.
 - Treat ads, permission prompts, update prompts, and transient popups as
   checker evidence, not mandatory happy-path actions. Do not encode checker
   rules through `update_function`.
+- Checker generation runs during offline RunLog enhancement. A rule may be
+  created only from a recorded successful recovery step and contains exactly
+  `schema_version`, a restricted Python `trigger`, that step's
+  `before_state_id` as `source_state_id`, and the same canonical `action`.
+  When a built-in recovery records `metadata.checker_trigger`, copy it exactly;
+  the fast RunLog conversion writes that Checker immediately.
+  Insufficient evidence produces no rule; never invent a trigger, state id,
+  selector, coordinate, or recovery action.
 - Use `replace_args` for an explicit user correction or unambiguous RunLog
   evidence. Do not invent coordinates, selectors, or target text.
 - If evidence is ambiguous, leave the Function unchanged and report why.

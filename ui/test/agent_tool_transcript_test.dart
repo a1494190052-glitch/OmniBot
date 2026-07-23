@@ -4,6 +4,35 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:ui/features/home/pages/command_overlay/widgets/cards/agent_tool_transcript.dart';
 
 void main() {
+  test('resolveAgentToolRunId prefers the VLM child run id', () {
+    expect(
+      resolveAgentToolRunId({
+        'toolName': 'vlm_task',
+        'taskId': 'parent-agent-run',
+        'childRunId': 'vlm-run-123',
+      }),
+      'vlm-run-123',
+    );
+  });
+
+  test('resolveAgentToolRunId falls back to the VLM result task id', () {
+    expect(
+      resolveAgentToolRunId({
+        'toolName': 'vlm-task',
+        'taskId': 'parent-agent-run',
+        'resultPreviewJson': jsonEncode({'taskId': 'vlm-run-456'}),
+      }),
+      'vlm-run-456',
+    );
+    expect(
+      resolveAgentToolRunId({
+        'toolName': 'terminal_execute',
+        'childRunId': 'not-a-vlm-run',
+      }),
+      isNull,
+    );
+  });
+
   test(
     'buildAgentToolTranscript renders non-terminal tool as pseudo command',
     () {

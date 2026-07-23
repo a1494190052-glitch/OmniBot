@@ -7,6 +7,7 @@ import android.view.WindowManager
 import android.widget.FrameLayout
 import cn.com.omnimind.uikit.R
 import cn.com.omnimind.uikit.api.callback.CatStepLayoutApi
+import cn.com.omnimind.uikit.api.uievent.UserTakeoverAction
 import cn.com.omnimind.uikit.view.data.CatDialogStateData
 import cn.com.omnimind.uikit.view.data.CatDialogViewState
 
@@ -121,7 +122,7 @@ class CatDialogShowInfoView @JvmOverloads constructor(
         showInfoView.visibility = VISIBLE
         visibility = VISIBLE
         setMessage(message)
-        setSubMessage("完成后请点击继续或已完成")
+        setSubMessage("请选择继续、完成或取消")
         showInfoView.pause(catDialogShowInfoView, catDialogShowInfoViewParams, windowManager)
 
     }
@@ -131,12 +132,12 @@ class CatDialogShowInfoView @JvmOverloads constructor(
         catDialogShowInfoView: CatDialogShowInfoView,
         catDialogShowInfoViewParams: WindowManager.LayoutParams,
         windowManager: WindowManager,
-    ): Boolean {
+    ): UserTakeoverAction {
         withContext(Dispatchers.Main) {
             showInfoView.visibility = VISIBLE
             visibility = VISIBLE
             setMessage(message)
-            setSubMessage("完成后请点击继续或已完成")
+            setSubMessage("请选择继续、完成或取消")
         }
         return showInfoView.userAction(
             catDialogShowInfoView,

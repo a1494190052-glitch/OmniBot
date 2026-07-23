@@ -5,7 +5,7 @@ import cn.com.omnimind.assists.task.vlmserver.UIContext
 import cn.com.omnimind.assists.task.vlmserver.VLMRecallContextProvider
 import cn.com.omnimind.assists.task.vlmserver.VLMRecallContextRequest
 import cn.com.omnimind.baselib.util.OmniLog
-import cn.com.omnimind.bot.function.FunctionService
+import cn.com.omnimind.bot.function.FunctionRecallCandidate
 import cn.com.omnimind.bot.omniflow.OmniFlowFunctionRecallAdapter
 import cn.com.omnimind.bot.omniflow.OmniFlowPythonRuntime
 import cn.com.omnimind.bot.runlog.firstNonBlank
@@ -22,13 +22,17 @@ import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 
-class VlmFunctionRecall(context: Context) : VLMRecallContextProvider {
-    private val appContext = context.applicationContext
-    private val config get() = VlmWorkspaceConfig.getInstance(appContext).get()
-    private val recallAdapter = OmniFlowFunctionRecallAdapter(
-        bridgeCall = { operation, payload ->
-            OmniFlowPythonRuntime.call(appContext, operation, payload)
+class VlmFunctionRecall internal constructor(
+    private val configProvider: () -> VlmWorkspaceConfig.Snapshot,
+    private val recall: suspend (Map<String, Any?>) -> Map<String, Any?>,
+) : VLMRecallContextProvider {
+    private val config get() = configProvider()
+
+    constructor(context: Context) : this(
+        configProvider = {
+            VlmWorkspaceConfig.getInstance(context.applicationContext).get()
         },
+        recall = createRecall(context.applicationContext),
     )
 
     override suspend fun enrich(request: VLMRecallContextRequest): UIContext {
@@ -59,11 +63,7 @@ class VlmFunctionRecall(context: Context) : VLMRecallContextProvider {
             "k" to fetchK,
         )
         val recallResult = runCatching {
-            val service = FunctionService(appContext)
-            recallAdapter.recall(
-                request = recallRequest,
-                functionSpecs = service.listFunctionSpecs(limit = 500),
-            )
+            recall(recallRequest)
         }.onFailure { OmniLog.w(TAG, "recall failed: ${it.message}") }
             .getOrNull()
             ?: return request.context.copy(
@@ -100,38 +100,31 @@ class VlmFunctionRecall(context: Context) : VLMRecallContextProvider {
         )
     }
 
-    private fun recalledCandidates(payload: Map<String, Any?>): List<Map<String, Any?>> {
+    private fun recalledCandidates(payload: Map<String, Any?>): List<FunctionRecallCandidate> {
         val seen = linkedSetOf<String>()
-        val candidates = mutableListOf<Map<String, Any?>>()
-
-        fun add(candidate: Map<String, Any?>) {
-            val functionId = firstNonBlank(candidate["function_id"])
-            if (functionId.isEmpty() || !seen.add(functionId)) return
-            candidates += candidate
-        }
+        val candidates = mutableListOf<FunctionRecallCandidate>()
 
         listArg(payload["candidates"]).forEach { raw ->
-            mapArg(raw).takeIf { it.isNotEmpty() }?.let(::add)
-        }
-        listArg(payload["capability_candidates"]).forEach { raw ->
-            mapArg(raw).takeIf { it.isNotEmpty() }?.let(::add)
-        }
-        listArg(payload["catalog_function_candidates"]).forEach { raw ->
-            mapArg(raw).takeIf { it.isNotEmpty() }?.let(::add)
+            val candidate = runCatching { FunctionRecallCandidate.parse(raw) }
+                .onFailure { OmniLog.w(TAG, "recall candidate contract error: ${it.message}") }
+                .getOrNull()
+                ?: return@forEach
+            if (seen.add(candidate.functionId)) candidates += candidate
         }
         return candidates
     }
 
     private fun buildToolDefinition(
         index: Int,
-        candidate: Map<String, Any?>,
+        candidate: FunctionRecallCandidate,
         currentGoal: String,
     ): JsonObject? {
-        val functionId = firstNonBlank(candidate["function_id"]).takeIf { it.isNotEmpty() } ?: return null
+        val function = candidate.function
+        val functionId = candidate.functionId
         val toolName = "${config.recallToolNamePrefix}_${index + 1}"
-        val inputSchema = mapArg(candidate["input_schema"])
+        val inputSchema = mapArg(function["input_schema"])
         val description = buildDescription(
-            candidate = candidate,
+            candidate = function,
             inputSchema = inputSchema,
             functionId = functionId,
             currentGoal = currentGoal
@@ -302,5 +295,16 @@ class VlmFunctionRecall(context: Context) : VLMRecallContextProvider {
         private const val TAG = "VlmFunctionRecall"
         private const val TOOL_TITLE_FIELD = "tool_title"
         private const val MIN_TOOL_DESCRIPTION_CHARS = 900
+
+        private fun createRecall(
+            context: Context,
+        ): suspend (Map<String, Any?>) -> Map<String, Any?> {
+            val recallAdapter = OmniFlowFunctionRecallAdapter(
+                bridgeCall = { operation, payload ->
+                    OmniFlowPythonRuntime.call(context, operation, payload)
+                },
+            )
+            return recallAdapter::recall
+        }
     }
 }

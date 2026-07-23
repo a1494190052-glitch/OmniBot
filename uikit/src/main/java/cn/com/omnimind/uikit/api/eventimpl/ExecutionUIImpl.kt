@@ -9,6 +9,7 @@ import cn.com.omnimind.omniintelligence.models.ScrollDirection
 import cn.com.omnimind.uikit.api.uievent.UIBaseEvent
 import cn.com.omnimind.uikit.api.uievent.UIChatEvent
 import cn.com.omnimind.uikit.api.uievent.UITaskEvent
+import cn.com.omnimind.uikit.api.uievent.UserTakeoverAction
 import cn.com.omnimind.uikit.util.NotificationUtil
 import kotlinx.coroutines.delay
 
@@ -48,11 +49,16 @@ class ExecutionUIImpl(
         finishType: TaskFinishType, message: String, isCompanionRunning: Boolean
     ) {
         if (finishType == TaskFinishType.WAITING_INPUT) {
-            val isResume = uiTaskEvent.waitingUserAction(message)
-            if (isResume) {
-                vlmTask?.provideUserInput("用户已完成操作,请继续执行")
-            } else {
-                vlmTask?.finishTask()
+            when (uiTaskEvent.waitingUserAction(message)) {
+                UserTakeoverAction.CONTINUE -> {
+                    vlmTask?.provideUserInput("用户已完成操作,请继续执行")
+                }
+                UserTakeoverAction.COMPLETE -> {
+                    vlmTask?.completeByUser("任务已完成")
+                }
+                UserTakeoverAction.CANCEL -> {
+                    vlmTask?.finishTask()
+                }
             }
         } else if (finishType == TaskFinishType.USER_PAUSED) {
             uiTaskEvent.pauseTask("用户已接管任务")
@@ -137,7 +143,7 @@ class ExecutionUIImpl(
     }
 
     override suspend fun userTakeover(message: String): Boolean {
-        return uiTaskEvent.waitingUserAction(message)
+        return uiTaskEvent.waitingUserAction(message) == UserTakeoverAction.CONTINUE
     }
 
     override suspend fun updateShowStepText(message: String) {

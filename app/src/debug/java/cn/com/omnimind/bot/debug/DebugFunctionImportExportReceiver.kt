@@ -54,7 +54,7 @@ class DebugFunctionImportExportReceiver : BroadcastReceiver() {
         }
     }
 
-    private fun importFunction(context: Context, intent: Intent): Map<String, Any?> {
+    private suspend fun importFunction(context: Context, intent: Intent): Map<String, Any?> {
         val function = readFunction(context, intent)
         if (function.isEmpty()) {
             return linkedMapOf<String, Any?>(
@@ -79,7 +79,7 @@ class DebugFunctionImportExportReceiver : BroadcastReceiver() {
         )
     }
 
-    private fun exportFunction(context: Context, intent: Intent): Map<String, Any?> {
+    private suspend fun exportFunction(context: Context, intent: Intent): Map<String, Any?> {
         val functionId = intent.firstStringExtra("functionId", "function_id", "id")
         if (functionId.isBlank()) {
             return linkedMapOf<String, Any?>(
@@ -92,8 +92,8 @@ class DebugFunctionImportExportReceiver : BroadcastReceiver() {
 
         val service = FunctionService(context)
         val get = service.getFunction(linkedMapOf("function_id" to functionId))
-        val success = get["success"] == true
-        val function = get["function"]
+        val success = get["schema_version"] == "omniflow.function.v2"
+        val function = get.takeIf { success }
         val outputPath = intent.firstStringExtra("outputPath", "output_path")
             .ifBlank { "debug-functions/$functionId.function.json" }
         val outputFile = context.fileFromDebugPath(outputPath)

@@ -8,9 +8,11 @@ import com.google.gson.reflect.TypeToken
 import cn.com.omnimind.accessibility.service.AssistsService
 import cn.com.omnimind.assists.controller.accessibility.AccessibilityController
 import cn.com.omnimind.baselib.runlog.InternalRunLogStore
+import cn.com.omnimind.baselib.runlog.RunLogStepRecord
 import cn.com.omnimind.baselib.util.OmniLog
 import cn.com.omnimind.bot.function.FunctionRun
 import cn.com.omnimind.bot.function.FunctionService
+import cn.com.omnimind.bot.omniflow.omniFlowRecordStepExecutor
 import cn.com.omnimind.bot.util.AssistsUtil
 import cn.com.omnimind.uikit.settings.CompanionOverlaySettings
 import com.google.gson.GsonBuilder
@@ -148,7 +150,7 @@ class DebugRunLogFunctionReplayReceiver : BroadcastReceiver() {
                     inlineRegistration?.get("success") != false &&
                     resolvedFunctionId.isNotBlank()
                 val functionSpecBeforeReplay = if (canReplay) {
-                    service.getFunction(linkedMapOf("function_id" to resolvedFunctionId))["function"]
+                    service.getFunction(linkedMapOf("function_id" to resolvedFunctionId))
                 } else {
                     null
                 }
@@ -375,7 +377,7 @@ class DebugRunLogFunctionReplayReceiver : BroadcastReceiver() {
         this["schema_version"] == "omniflow.canonical_run_log.v1" &&
             (this["steps"] as? List<*>)?.isNotEmpty() == true
 
-    private fun persistInlineRunLog(
+    private suspend fun persistInlineRunLog(
         context: Context,
         requestedRunId: String,
         runLog: Map<String, Any?>,
@@ -388,8 +390,14 @@ class DebugRunLogFunctionReplayReceiver : BroadcastReceiver() {
             .ifBlank { "debug_inline_${System.currentTimeMillis()}" }
         val goal = firstNonBlank(runLog["goal"], fallbackGoal)
         val rawSteps = (runLog["steps"] as? List<*>) ?: emptyList<Any?>()
+        val stepConverter = omniFlowRecordStepExecutor(context)
         val steps = rawSteps.mapNotNull { raw ->
-            (raw as? Map<*, *>)?.entries?.associate { (key, value) -> key.toString() to value }
+            val step = (raw as? Map<*, *>)?.entries
+                ?.associate { (key, value) -> key.toString() to value }
+                ?: return@mapNotNull null
+            stepConverter.recordStep(
+                RunLogStepRecord(step = step, states = emptyList()),
+            ).step
         }
         InternalRunLogStore.replaceRun(
             context = context,

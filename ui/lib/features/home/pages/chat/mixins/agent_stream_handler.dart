@@ -1006,6 +1006,14 @@ mixin AgentStreamHandler<T extends StatefulWidget> on State<T> {
             ? event.uiStyle
             : (existingCardData['uiStyle'] ?? '').toString(),
         'taskId': taskId,
+        'childRunId': event.raw['childRunId'] ??
+            event.raw['child_run_id'] ??
+            existingCardData['childRunId'] ??
+            existingCardData['child_run_id'],
+        'child_run_id': event.raw['child_run_id'] ??
+            event.raw['childRunId'] ??
+            existingCardData['child_run_id'] ??
+            existingCardData['childRunId'],
         'cardId': cardId,
         'toolName': event.toolName,
         'displayName': event.displayName,

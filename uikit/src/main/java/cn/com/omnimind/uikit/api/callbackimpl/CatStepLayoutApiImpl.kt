@@ -31,6 +31,15 @@ class CatStepLayoutApiImpl : CatStepLayoutApi {
         }
     }
 
+    override fun onCompleteClick() {
+        VibrationUtil.vibrateLight()
+        val completed = UIKit.executionTaskEventApi?.vlmTask
+            ?.completeManualTakeover("任务已完成") == true
+        if (completed) {
+            DraggableBallInstance.finishDoingTask("任务已完成")
+        }
+    }
+
     override fun onStopClick() {
         if (HumanTrajectoryLearningSession.isActive()) {
             ManualRecordingControlOverlay.cancelRecording("人工轨迹学习已取消")

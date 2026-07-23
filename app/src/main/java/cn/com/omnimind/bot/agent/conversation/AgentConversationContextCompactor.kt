@@ -179,6 +179,7 @@ Do NOT translate or alter code snippets, file paths, identifiers, or error messa
         promptTokens: Int?,
         messages: List<ChatCompletionMessage>,
         promptTokenThresholdOverride: Int? = null,
+        contextSegmentId: String? = null,
         callback: AgentCallback? = null
     ): List<ChatCompletionMessage> {
         if (conversationId == null || conversationId <= 0L) {
@@ -197,7 +198,8 @@ Do NOT translate or alter code snippets, file paths, identifiers, or error messa
         }
         val candidate = historyRepository.getContextCompactionCandidate(
             conversationId = conversationId,
-            conversationMode = conversationMode
+            conversationMode = conversationMode,
+            contextSegmentId = contextSegmentId
         ) ?: return messages
         val runtimeWindow = AgentConversationHistorySupport.buildRuntimeCompactionWindow(messages)
             ?: return messages
@@ -212,9 +214,11 @@ Do NOT translate or alter code snippets, file paths, identifiers, or error messa
                 val outcome = compactAndPersist(
                     conversationId = conversationId,
                     existingSummary = runtimeWindow.existingSummary
-                        ?: candidate.conversation.contextSummary,
+                        ?: candidate.conversation.contextSummary
+                            ?.takeUnless { !contextSegmentId.isNullOrBlank() },
                     messagesToCompact = runtimeWindow.messagesToCompact,
-                    cutoffEntryDbId = candidate.cutoffEntryDbId
+                    cutoffEntryDbId = candidate.cutoffEntryDbId,
+                    contextSegmentId = contextSegmentId
                 )
                 val summary = outcome.summary.orEmpty()
                 if (!outcome.compacted || summary.isBlank()) {
@@ -244,17 +248,20 @@ Do NOT translate or alter code snippets, file paths, identifiers, or error messa
 
     open suspend fun compactConversationContext(
         conversationId: Long,
-        conversationMode: String
+        conversationMode: String,
+        contextSegmentId: String? = null
     ): CompactionOutcome {
         val candidate = historyRepository.getContextCompactionCandidate(
             conversationId = conversationId,
-            conversationMode = conversationMode
+            conversationMode = conversationMode,
+            contextSegmentId = contextSegmentId
         ) ?: return CompactionOutcome(
             compacted = false,
             reason = "no_candidate"
         )
         val messagesToCompact = AgentConversationHistorySupport.buildPromptRelevantMessages(
-            candidate.entriesToCompact
+            candidate.entriesToCompact,
+            contextSegmentId = contextSegmentId
         )
         if (messagesToCompact.isEmpty()) {
             return CompactionOutcome(
@@ -264,9 +271,11 @@ Do NOT translate or alter code snippets, file paths, identifiers, or error messa
         }
         return compactAndPersist(
             conversationId = conversationId,
-            existingSummary = candidate.conversation.contextSummary,
+            existingSummary = candidate.conversation.contextSummary
+                ?.takeUnless { !contextSegmentId.isNullOrBlank() },
             messagesToCompact = messagesToCompact,
-            cutoffEntryDbId = candidate.cutoffEntryDbId
+            cutoffEntryDbId = candidate.cutoffEntryDbId,
+            contextSegmentId = contextSegmentId
         )
     }
 
@@ -274,7 +283,8 @@ Do NOT translate or alter code snippets, file paths, identifiers, or error messa
         conversationId: Long,
         existingSummary: String?,
         messagesToCompact: List<ChatCompletionMessage>,
-        cutoffEntryDbId: Long
+        cutoffEntryDbId: Long,
+        contextSegmentId: String? = null
     ): CompactionOutcome {
         if (messagesToCompact.isEmpty()) {
             return CompactionOutcome(
@@ -293,11 +303,13 @@ Do NOT translate or alter code snippets, file paths, identifiers, or error messa
                 reason = "blank_summary"
             )
         }
-        historyRepository.updateContextSummary(
-            conversationId = conversationId,
-            summary = summary,
-            cutoffEntryDbId = cutoffEntryDbId
-        )
+        if (contextSegmentId.isNullOrBlank()) {
+            historyRepository.updateContextSummary(
+                conversationId = conversationId,
+                summary = summary,
+                cutoffEntryDbId = cutoffEntryDbId
+            )
+        }
         return CompactionOutcome(
             compacted = true,
             summary = summary,

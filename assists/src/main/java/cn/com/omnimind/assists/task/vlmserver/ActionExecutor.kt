@@ -6,7 +6,7 @@ package cn.com.omnimind.assists.task.vlmserver
  */
 
 import cn.com.omnimind.baselib.util.OmniLog
-import cn.com.omnimind.baselib.runlog.CanonicalActionConverter
+import cn.com.omnimind.baselib.runlog.ActionCoordinateCodec
 import cn.com.omnimind.baselib.runlog.OobActionSchema
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.currentCoroutineContext
@@ -382,10 +382,9 @@ class ActionExecutor(
             "canonical_action_target_coordinates_incomplete"
         }
         if (action !in OobActionSchema.coordinateToolNames) return args
-        return CanonicalActionConverter.toScreenPixels(
-            tool = action,
+        return ActionCoordinateCodec.toScreenPixels(
             args = args,
-            displaySize = CanonicalActionConverter.DisplaySize(
+            displaySize = ActionCoordinateCodec.DisplaySize(
                 width = deviceOperator.getDisplayWidth().toDouble(),
                 height = deviceOperator.getDisplayHeight().toDouble(),
             ),

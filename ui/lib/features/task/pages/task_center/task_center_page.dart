@@ -1,5 +1,3 @@
-import 'dart:ffi';
-
 import 'package:flutter/material.dart';
 import '../../../../widgets/card/edit_task_card.dart';
 import '../../../../models/chat_models.dart';
@@ -47,7 +45,9 @@ class _TaskCenterPageState extends State<TaskCenterPage> {
           title: LegacyTextLocalizer.isEnglish ? 'Taxi to company' : '打车去公司',
           date: DateTime.now().add(const Duration(days: 1)),
           time: const TimeOfDay(hour: 9, minute: 0),
-          repeatOption: RepeatOption.fromLabel(LegacyTextLocalizer.localize('每日')),
+          repeatOption: RepeatOption.fromLabel(
+            LegacyTextLocalizer.localize('每日'),
+          ),
           isEnabled: true,
         ),
         TaskData(
@@ -55,7 +55,9 @@ class _TaskCenterPageState extends State<TaskCenterPage> {
           title: LegacyTextLocalizer.isEnglish ? 'Grab tickets' : '抢票',
           date: DateTime.now().add(const Duration(days: 2)),
           time: const TimeOfDay(hour: 15, minute: 0),
-          repeatOption: RepeatOption.fromLabel(LegacyTextLocalizer.localize('永不')),
+          repeatOption: RepeatOption.fromLabel(
+            LegacyTextLocalizer.localize('永不'),
+          ),
           isEnabled: true,
         ),
         TaskData(
@@ -63,7 +65,9 @@ class _TaskCenterPageState extends State<TaskCenterPage> {
           title: LegacyTextLocalizer.isEnglish ? 'Taxi to company' : '打车去公司',
           date: DateTime.now().add(const Duration(days: 3)),
           time: const TimeOfDay(hour: 9, minute: 0),
-          repeatOption: RepeatOption.fromLabel(LegacyTextLocalizer.localize('每周')),
+          repeatOption: RepeatOption.fromLabel(
+            LegacyTextLocalizer.localize('每周'),
+          ),
           isEnabled: true,
         ),
       ];
@@ -88,7 +92,9 @@ class _TaskCenterPageState extends State<TaskCenterPage> {
             child: tasks.length > 0
                 ? ListView.builder(
                     padding: const EdgeInsets.symmetric(
-                        vertical: 10, horizontal: 20),
+                      vertical: 10,
+                      horizontal: 20,
+                    ),
                     itemCount: tasks.length,
                     itemBuilder: (context, index) {
                       return _buildTaskCard(tasks[index]);
@@ -105,7 +111,9 @@ class _TaskCenterPageState extends State<TaskCenterPage> {
                         ),
                         const SizedBox(height: 16),
                         Text(
-                          LegacyTextLocalizer.isEnglish ? 'No tasks yet' : '暂无任务',
+                          LegacyTextLocalizer.isEnglish
+                              ? 'No tasks yet'
+                              : '暂无任务',
                           style: TextStyle(
                             fontSize: 16,
                             color: Colors.grey[500],
@@ -118,15 +126,10 @@ class _TaskCenterPageState extends State<TaskCenterPage> {
         ],
       ),
       floatingActionButton: FloatingActionButton.small(
-        onPressed: () {
-        },
+        onPressed: () {},
         backgroundColor: Colors.black,
         shape: CircleBorder(),
-        child: const Icon(
-          Icons.add,
-          color: Colors.white,
-          size: 30,
-        ),
+        child: const Icon(Icons.add, color: Colors.white, size: 30),
       ),
     );
   }
@@ -187,7 +190,7 @@ class _TaskCenterPageState extends State<TaskCenterPage> {
                     ),
                     SizedBox(width: 10),
                   ],
-                )
+                ),
               ],
             ),
             SizedBox(height: 8),
@@ -195,7 +198,8 @@ class _TaskCenterPageState extends State<TaskCenterPage> {
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 Text(
-                  task.repeatOption.label+'${task.time.hour.toString().padLeft(2, '0')}:${task.time.minute.toString().padLeft(2, '0')}',
+                  task.repeatOption.label +
+                      '${task.time.hour.toString().padLeft(2, '0')}:${task.time.minute.toString().padLeft(2, '0')}',
                   style: TextStyle(
                     fontSize: 14,
                     color: Colors.grey[500],
@@ -217,10 +221,17 @@ class _TaskCenterPageState extends State<TaskCenterPage> {
                           value: 'execute',
                           child: Row(
                             children: [
-                              Icon(Icons.play_arrow,
-                                  size: 18, color: Colors.grey[600]),
+                              Icon(
+                                Icons.play_arrow,
+                                size: 18,
+                                color: Colors.grey[600],
+                              ),
                               SizedBox(width: 8),
-                              Text(LegacyTextLocalizer.isEnglish ? 'Execute now' : '立即执行'),
+                              Text(
+                                LegacyTextLocalizer.isEnglish
+                                    ? 'Execute now'
+                                    : '立即执行',
+                              ),
                             ],
                           ),
                         ),
@@ -228,9 +239,15 @@ class _TaskCenterPageState extends State<TaskCenterPage> {
                           value: 'edit',
                           child: Row(
                             children: [
-                              Icon(Icons.edit, size: 18, color: Colors.grey[600]),
+                              Icon(
+                                Icons.edit,
+                                size: 18,
+                                color: Colors.grey[600],
+                              ),
                               SizedBox(width: 8),
-                              Text(LegacyTextLocalizer.isEnglish ? 'Edit' : '编辑'),
+                              Text(
+                                LegacyTextLocalizer.isEnglish ? 'Edit' : '编辑',
+                              ),
                             ],
                           ),
                         ),
@@ -238,9 +255,17 @@ class _TaskCenterPageState extends State<TaskCenterPage> {
                           value: 'delete',
                           child: Row(
                             children: [
-                              Icon(Icons.delete, size: 18, color: Colors.grey[600]),
+                              Icon(
+                                Icons.delete,
+                                size: 18,
+                                color: Colors.grey[600],
+                              ),
                               SizedBox(width: 8),
-                              Text(LegacyTextLocalizer.localize('取消').replaceAll('Cancel', 'Delete')),
+                              Text(
+                                LegacyTextLocalizer.localize(
+                                  '取消',
+                                ).replaceAll('Cancel', 'Delete'),
+                              ),
                             ],
                           ),
                         ),
@@ -255,11 +280,8 @@ class _TaskCenterPageState extends State<TaskCenterPage> {
                       }
                     });
                   },
-                  child: Icon(
-                    Icons.more_horiz,
-                    color: Colors.grey[400],
-                  ),
-                )
+                  child: Icon(Icons.more_horiz, color: Colors.grey[400]),
+                ),
               ],
             ),
           ],
@@ -271,7 +293,11 @@ class _TaskCenterPageState extends State<TaskCenterPage> {
   void _executeTaskImmediately(TaskData task) {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text(LegacyTextLocalizer.isEnglish ? 'Executing task: ${task.title}' : '正在执行任务：${task.title}'),
+        content: Text(
+          LegacyTextLocalizer.isEnglish
+              ? 'Executing task: ${task.title}'
+              : '正在执行任务：${task.title}',
+        ),
         duration: Duration(seconds: 2),
       ),
     );
@@ -280,11 +306,7 @@ class _TaskCenterPageState extends State<TaskCenterPage> {
   void _editTask(TaskData task) {
     Navigator.push(
       context,
-      MaterialPageRoute(
-        builder: (_) => TaskEditPage(
-          taskId: task.id,
-        ),
-      ),
+      MaterialPageRoute(builder: (_) => TaskEditPage(taskId: task.id)),
     ).then((_) {
       _loadTasks();
     });
@@ -298,12 +320,16 @@ class _TaskCenterPageState extends State<TaskCenterPage> {
           actionsPadding: EdgeInsets.all(0),
           backgroundColor: Colors.white,
           title: Center(
-            child: Text(LegacyTextLocalizer.isEnglish ? 'Confirm delete?' : '确认删除？'),
+            child: Text(
+              LegacyTextLocalizer.isEnglish ? 'Confirm delete?' : '确认删除？',
+            ),
           ),
-          content: Text(LegacyTextLocalizer.isEnglish ? 'Are you sure you want to delete task: ${task.title}?' : '您确定要删除任务：${task.title}吗？'),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(8),
+          content: Text(
+            LegacyTextLocalizer.isEnglish
+                ? 'Are you sure you want to delete task: ${task.title}?'
+                : '您确定要删除任务：${task.title}吗？',
           ),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
           actions: [
             Row(
               children: [
@@ -332,18 +358,31 @@ class _TaskCenterPageState extends State<TaskCenterPage> {
                 Expanded(
                   child: ElevatedButton(
                     onPressed: () async {
-                      final success =
-                          await TaskStorageService.deleteTask(task.id);
+                      final success = await TaskStorageService.deleteTask(
+                        task.id,
+                      );
                       Navigator.pop(context);
 
                       if (success) {
                         _loadTasks();
                         ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(content: Text(LegacyTextLocalizer.isEnglish ? 'Deleted task: ${task.title}' : '已删除任务：${task.title}')),
+                          SnackBar(
+                            content: Text(
+                              LegacyTextLocalizer.isEnglish
+                                  ? 'Deleted task: ${task.title}'
+                                  : '已删除任务：${task.title}',
+                            ),
+                          ),
                         );
                       } else {
                         ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(content: Text(LegacyTextLocalizer.isEnglish ? 'Failed to delete task' : '删除任务失败')),
+                          SnackBar(
+                            content: Text(
+                              LegacyTextLocalizer.isEnglish
+                                  ? 'Failed to delete task'
+                                  : '删除任务失败',
+                            ),
+                          ),
                         );
                       }
                     },
@@ -359,7 +398,10 @@ class _TaskCenterPageState extends State<TaskCenterPage> {
                       padding: EdgeInsets.all(20),
                       child: Align(
                         alignment: Alignment.center,
-                        child: Text(LegacyTextLocalizer.localize('确认'), style: TextStyle(color: Colors.red)),
+                        child: Text(
+                          LegacyTextLocalizer.localize('确认'),
+                          style: TextStyle(color: Colors.red),
+                        ),
                       ),
                     ),
                   ),

@@ -16,10 +16,21 @@ class FunctionStore:
         self.load_errors: dict[str, str] = {}
         self._load()
 
-    def list_functions(self, *, offset: int = 0, limit: int = 100) -> list[Function]:
+    def list_functions(
+        self,
+        *,
+        offset: int = 0,
+        limit: int = 100,
+        include_hidden: bool = True,
+    ) -> list[Function]:
         start = max(0, int(offset))
         end = start + max(1, min(int(limit), 500))
-        return sorted(self.functions.values(), key=lambda item: item.id)[start:end]
+        functions = (
+            self.functions.values()
+            if include_hidden
+            else (item for item in self.functions.values() if item.agent_visible)
+        )
+        return sorted(functions, key=lambda item: item.id)[start:end]
 
     def get_function(self, function_id: str) -> Function | None:
         return self.functions.get(str(function_id or "").strip())
@@ -31,29 +42,6 @@ class FunctionStore:
         self.load_errors.clear()
         self.save()
         return function
-
-    def replace_functions(self, values: list[object]) -> dict[str, str]:
-        functions: dict[str, Function] = {}
-        errors: dict[str, str] = {}
-        for index, value in enumerate(values):
-            key = (
-                str(value.get("function_id") or "").strip()
-                if isinstance(value, dict)
-                else ""
-            ) or f"index_{index}"
-            try:
-                function = parse_function_artifact(value)
-                validate_function_artifact(function)
-                if function.id in functions:
-                    raise ValueError("function_catalog_duplicate_id")
-            except (TypeError, ValueError) as error:
-                errors[key] = str(error) or type(error).__name__
-                continue
-            functions[function.id] = function
-        self.functions = functions
-        self.load_errors = errors
-        self.save()
-        return errors
 
     def delete_function(self, function_id: str) -> bool:
         normalized = str(function_id or "").strip()

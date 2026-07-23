@@ -5,6 +5,7 @@ const DEFAULT_EDITIONS = ["omniinfer", "standard"];
 const DEFAULT_R2_RELEASES_PREFIX = "releases";
 const DEFAULT_R2_METADATA_PREFIX = "metadata/releases";
 const DEFAULT_ANALYTICS_DATASET = "omnibot_app_updates";
+const DEFAULT_UPDATE_CHANNEL = "public";
 const DOWNLOAD_ROUTE_PREFIX = "/downloads/";
 const ADMIN_RELEASE_ROUTE_PREFIX = "/admin/releases/";
 const ADMIN_ANALYTICS_ROUTE_PREFIX = "/admin/analytics/";
@@ -148,11 +149,12 @@ async function handleUpdateCheck(request, url, env) {
   );
   const includeBeta = parseBoolean(url.searchParams.get("includeBeta") || url.searchParams.get("include_beta"));
   const edition = normalizeEdition(url.searchParams.get("edition"));
+  const channel = normalizeUpdateChannel(url.searchParams.get("channel"));
   const source = normalizeSource(url.searchParams.get("source") || env.DEFAULT_SOURCE || "worker");
   const checkedAt = Date.now();
 
   const releases = await loadReleases(requireBucket(env), env);
-  const selected = selectLatestRelease(releases, includeBeta);
+  const selected = selectLatestRelease(releases, includeBeta, channel);
   const asset = selected ? selectPreferredApkAsset(selected.assets, edition) : null;
   const latestVersion = selected ? selected.version : currentVersion;
   const hasUpdate = Boolean(selected && asset) && compareVersions(latestVersion, currentVersion) > 0;
@@ -169,12 +171,13 @@ async function handleUpdateCheck(request, url, env) {
     installId: url.searchParams.get("installId") || url.searchParams.get("install_id"),
     country: request.cf?.country,
     track: selected ? selected.track : "",
+    channel,
     source,
     hasUpdate,
   });
 
   if (!selected) {
-    return json(emptyUpdateResponse({ currentVersion, checkedAt, edition, source, env }));
+    return json(emptyUpdateResponse({ currentVersion, checkedAt, edition, channel, source, env }));
   }
 
   return json({
@@ -191,6 +194,7 @@ async function handleUpdateCheck(request, url, env) {
     apkName: asset?.name || "",
     apkDownloadUrl: asset ? assetDownloadUrl(asset, source, url, selected.tag) : "",
     edition,
+    channel,
     source,
     officialVlmOperation: officialVlmOperationConfig(env),
     assets: (selected.assets || []).map((releaseAsset) => publicAsset(releaseAsset, url, selected.tag)),
@@ -244,6 +248,7 @@ async function handlePatchRelease(request, rawTag, env) {
     tag,
     version: body.version !== undefined ? body.version : existing.version,
     track: body.track !== undefined ? body.track : existing.track,
+    channel: body.channel !== undefined ? body.channel : existing.channel,
     draft: body.draft !== undefined ? body.draft : existing.draft,
     prerelease: body.prerelease !== undefined ? body.prerelease : existing.prerelease,
     publishedAt: body.publishedAt !== undefined ? body.publishedAt : existing.publishedAt,
@@ -523,6 +528,7 @@ async function handleDeleteRelease(rawTag, env) {
 //   blob10  request country (from Cloudflare)
 //   blob11  release track offered
 //   blob12  download source preference
+//   blob13  update channel
 //   double1 hasUpdate (1/0)
 
 function recordAnalytics(env, event) {
@@ -546,6 +552,7 @@ function recordAnalytics(env, event) {
         blobValue(event.country),
         blobValue(event.track),
         blobValue(event.source),
+        blobValue(event.channel),
       ],
       doubles: [event.hasUpdate ? 1 : 0],
     });
@@ -774,6 +781,9 @@ function normalizeRelease(input, env, existing = null) {
 
   const version = normalizeVersion(input.version || input.latestVersion || tag);
   const track = normalizeTrack(input.track) || classifyReleaseTrack(version, input.prerelease);
+  const channel = normalizeUpdateChannel(
+    input.channel !== undefined ? input.channel : existing?.channel,
+  );
   const publishedAt = normalizeTimestamp(input.publishedAt || input.published_at || Date.now());
   const assets = normalizeAssets(input.assets, tag, env, existing);
 
@@ -789,6 +799,7 @@ function normalizeRelease(input, env, existing = null) {
     tag,
     version,
     track,
+    channel,
     draft: Boolean(input.draft),
     prerelease: Boolean(input.prerelease),
     publishedAt,
@@ -840,8 +851,10 @@ function buildDefaultAsset(tag, edition, env) {
   };
 }
 
-function selectLatestRelease(releases, includeBeta) {
+function selectLatestRelease(releases, includeBeta, channel = DEFAULT_UPDATE_CHANNEL) {
+  const normalizedChannel = normalizeUpdateChannel(channel);
   return releases
+    .filter((release) => normalizeUpdateChannel(release.channel) === normalizedChannel)
     .filter((release) => release.track === "stable" || (includeBeta && release.track === "beta"))
     .reduce((selected, release) => {
       if (!selected) return release;
@@ -949,6 +962,7 @@ function releaseMetadataOptions(release) {
       tag: release.tag,
       version: release.version,
       track: release.track,
+      channel: normalizeUpdateChannel(release.channel),
       publishedAt: release.publishedAt ? String(release.publishedAt) : "",
     }),
   };
@@ -1101,6 +1115,11 @@ function normalizeSource(raw) {
   return stringValue(raw).toLowerCase() === "github" ? "github" : "worker";
 }
 
+function normalizeUpdateChannel(raw) {
+  const value = stringValue(raw).toLowerCase();
+  return /^[a-z0-9][a-z0-9._-]{0,31}$/.test(value) ? value : DEFAULT_UPDATE_CHANNEL;
+}
+
 function parseBoolean(raw) {
   const value = stringValue(raw).toLowerCase();
   return value === "1" || value === "true" || value === "yes";
@@ -1120,7 +1139,7 @@ function normalizeTimestamp(raw) {
   return Number.isNaN(parsed) ? 0 : parsed;
 }
 
-function emptyUpdateResponse({ currentVersion, checkedAt, edition, source, env }) {
+function emptyUpdateResponse({ currentVersion, checkedAt, edition, channel, source, env }) {
   return {
     ok: true,
     currentVersion,
@@ -1135,6 +1154,7 @@ function emptyUpdateResponse({ currentVersion, checkedAt, edition, source, env }
     apkName: "",
     apkDownloadUrl: "",
     edition,
+    channel: normalizeUpdateChannel(channel),
     source,
     officialVlmOperation: officialVlmOperationConfig(env),
     assets: [],
@@ -1145,9 +1165,8 @@ function officialVlmOperationConfig(env) {
   const apiBase = stringValue(env.OFFICIAL_VLM_OPERATION_API_BASE);
   const apiKey = stringValue(env.OFFICIAL_VLM_OPERATION_API_KEY);
   const model = stringValue(env.OFFICIAL_VLM_OPERATION_MODEL);
-  const enabled = env.OFFICIAL_VLM_OPERATION_ENABLED === undefined
-    ? Boolean(apiBase && apiKey && model)
-    : parseBoolean(env.OFFICIAL_VLM_OPERATION_ENABLED) && Boolean(apiBase && apiKey && model);
+  const enabled =
+    parseBoolean(env.OFFICIAL_VLM_OPERATION_ENABLED) && Boolean(apiBase && apiKey && model);
 
   return {
     enabled,
@@ -1166,6 +1185,8 @@ function normalizeSize(raw) {
   const size = Number(raw);
   return Number.isFinite(size) && size > 0 ? Math.trunc(size) : 0;
 }
+
+export { normalizeRelease, normalizeUpdateChannel, selectLatestRelease };
 
 function omitEmpty(input) {
   return Object.fromEntries(Object.entries(input).filter(([, value]) => stringValue(value) !== ""));

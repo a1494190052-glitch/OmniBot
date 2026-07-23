@@ -420,6 +420,7 @@ object AppUpdateManager {
             includeBeta = includeBeta,
             downloadSource = downloadSource,
             edition = BuildConfig.APP_EDITION,
+            channel = BuildConfig.APP_UPDATE_CHANNEL,
             deviceStatsParams = deviceStatsParams
         )
         if (updatesUrl == null) {
@@ -496,6 +497,7 @@ object AppUpdateManager {
         includeBeta: Boolean,
         downloadSource: ApkDownloadSource,
         edition: String,
+        channel: String = BuildConfig.APP_UPDATE_CHANNEL,
         deviceStatsParams: Map<String, String> = emptyMap()
     ): HttpUrl? {
         val normalizedBase = workerUrl.trim().trimEnd('/')
@@ -511,6 +513,7 @@ object AppUpdateManager {
             ?.addQueryParameter("currentVersion", normalizeVersion(currentVersion))
             ?.addQueryParameter("includeBeta", includeBeta.toString())
             ?.addQueryParameter("edition", normalizeEdition(edition))
+            ?.addQueryParameter("channel", normalizeUpdateChannel(channel))
             ?.addQueryParameter("source", downloadSource.value)
             ?: return null
         deviceStatsParams.forEach { (key, value) ->
@@ -519,6 +522,13 @@ object AppUpdateManager {
             }
         }
         return builder.build()
+    }
+
+    @VisibleForTesting
+    internal fun normalizeUpdateChannel(raw: String?): String {
+        val normalized = raw.orEmpty().trim().lowercase(Locale.ROOT)
+        return normalized.takeIf { it.matches(Regex("[a-z0-9][a-z0-9._-]{0,31}")) }
+            ?: "public"
     }
 
     /**

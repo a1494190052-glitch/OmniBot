@@ -65,19 +65,6 @@ internal object OmniFlowPythonRuntime {
             .call(operation, payload, hostCall)
     }
 
-    suspend fun materializeFunction(
-        context: Context,
-        function: Map<String, Any?>,
-        arguments: Map<String, Any?>,
-    ): Map<String, Any?> = call(
-        context = context,
-        operation = "materialize",
-        payload = mapOf(
-            "function" to function,
-            "arguments" to arguments,
-        ),
-    )
-
     private suspend fun ensureReady(context: Context): OmniFlowRuntimeManifest {
         if (ready && client != null) {
             return requireNotNull(activeManifest) { "omniflow_runtime_manifest_unavailable" }

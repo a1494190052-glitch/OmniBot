@@ -47,8 +47,8 @@ object ManualRecordingRunLogRecovery {
     }
 
     fun isManualReplayActionStep(step: Map<String, Any?>): Boolean {
-        val diagnostics = step["diagnostics"] as? Map<*, *>
-        val source = firstNonBlank(diagnostics?.get("source")).lowercase()
+        val metadata = step["metadata"] as? Map<*, *>
+        val source = firstNonBlank(metadata?.get("source")).lowercase()
         if (source !in setOf("human_trajectory", "human_takeover")) {
             return false
         }
@@ -110,8 +110,8 @@ object ManualRecordingRunLogRecovery {
     }
 
     private fun recordingBackend(step: Map<String, Any?>): String? {
-        val diagnostics = step["diagnostics"] as? Map<*, *>
-        return firstNonBlank(diagnostics?.get("recording_backend")).takeIf { it.isNotBlank() }
+        val metadata = step["metadata"] as? Map<*, *>
+        return firstNonBlank(metadata?.get("recording_backend")).takeIf { it.isNotBlank() }
     }
 
     private fun firstNonBlank(vararg values: Any?): String {

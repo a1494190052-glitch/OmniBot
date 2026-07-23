@@ -240,6 +240,14 @@ class _CompletedAgentToolRun {
 }
 
 String resolveAgentToolTitle(Map<String, dynamic> cardData) {
+  final vlmStepStatus = (cardData['vlmStepStatus'] ?? '').toString().trim();
+  final vlmProgress = (cardData['progress'] ?? '').toString().trim();
+  final cardStatus = (cardData['status'] ?? '').toString().trim();
+  if (vlmStepStatus.isNotEmpty &&
+      cardStatus == 'running' &&
+      vlmProgress.isNotEmpty) {
+    return LegacyTextLocalizer.localize(vlmProgress);
+  }
   final explicit = (cardData[kAgentToolTitleField] ?? '').toString().trim();
   if (explicit.isNotEmpty) {
     return LegacyTextLocalizer.localize(explicit);

@@ -175,7 +175,7 @@ class _AgentToolSummaryCardState extends State<AgentToolSummaryCard> {
         ),
         child: InkWell(
           onTap: () =>
-              unawaited(showAgentToolDetailSheet(context, cardData: cardData)),
+              unawaited(openAgentToolCard(context, cardData: cardData)),
           borderRadius: BorderRadius.circular(999),
           child: Padding(
             padding: const EdgeInsets.fromLTRB(12, 8, 10, 8),
@@ -398,10 +398,7 @@ class _InlineToolCallCardState extends State<_InlineToolCallCard> {
                         ? () => setState(() => _expanded = !_expanded)
                         : isCodexTool
                         ? () => unawaited(
-                            showAgentToolDetailSheet(
-                              context,
-                              cardData: cardData,
-                            ),
+                            openAgentToolCard(context, cardData: cardData),
                           )
                         : null,
                     splashColor: pressedOverlayColor,

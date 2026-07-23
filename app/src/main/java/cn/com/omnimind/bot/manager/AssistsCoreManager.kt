@@ -166,9 +166,13 @@ internal fun prepareChatTaskContent(
     conversationMode: String,
     chatPromptContent: String?
 ): List<Map<String, Any>> {
-    val prompt = chatPromptContent?.takeIf { it.trim().isNotEmpty() } ?: return content
+    val currentTurnContent = content.lastOrNull { message ->
+        message["role"]?.toString()?.trim()?.equals("user", ignoreCase = true) == true
+    }?.let(::listOf).orEmpty()
+    val prompt = chatPromptContent?.takeIf { it.trim().isNotEmpty() }
+        ?: return currentTurnContent
     if (!conversationMode.equals(CHAT_ONLY_MODE, ignoreCase = true)) {
-        return content
+        return currentTurnContent
     }
     return buildList {
         add(
@@ -177,8 +181,20 @@ internal fun prepareChatTaskContent(
                 "content" to prompt
             )
         )
-        addAll(content)
+        addAll(currentTurnContent)
     }
+}
+
+internal fun scopeChatProviderSessionKey(
+    sessionKey: String?,
+    contextSegmentId: String
+): String {
+    val normalizedSegment = contextSegmentId.trim()
+        .replace(Regex("[^A-Za-z0-9._-]"), "_")
+        .ifEmpty { "isolated" }
+    val suffix = ":segment:$normalizedSegment"
+    val base = sessionKey?.trim()?.takeIf { it.isNotEmpty() } ?: "openomnibot"
+    return if (base.endsWith(suffix)) base else "$base$suffix"
 }
 
 internal fun resolveChatTaskModelOverride(
@@ -1008,6 +1024,7 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
                     text = cancelledText,
                     isError = false,
                     streamMeta = streamMeta,
+                    contextSegmentId = run.taskId,
                     createdAt = now
                 )
                 withContext(Dispatchers.Main) {
@@ -1770,7 +1787,8 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
                 val repository = conversationHistoryRepository()
                 val messages = repository.listConversationMessages(
                     conversationId = conversationId,
-                    conversationMode = conversationMode
+                    conversationMode = conversationMode,
+                    contextSegmentId = taskId
                 )
                 val assistantEntries = messages.filter { entry ->
                     (entry["user"] as? Number)?.toInt() == 2 &&
@@ -1973,7 +1991,10 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
                     baseUrl = baseUrl,
                     token = map["token"] as? String,
                     userId = map["userId"] as? String,
-                    sessionKey = map["sessionKey"] as? String
+                    sessionKey = scopeChatProviderSessionKey(
+                        sessionKey = map["sessionKey"] as? String,
+                        contextSegmentId = taskID
+                    )
                 )
             }
         }
@@ -1996,7 +2017,8 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
                             conversationMode = conversationMode,
                             entryId = "$taskID-user",
                             text = userMessage,
-                            attachments = userAttachments
+                            attachments = userAttachments,
+                            contextSegmentId = taskID
                         )
                     }
                     registerChatTaskPersistenceState(
@@ -2116,7 +2138,8 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
                     conversationMode = state.conversationMode,
                     entryId = state.assistantEntryId,
                     text = snapshot,
-                    isError = state.isError
+                    isError = state.isError,
+                    contextSegmentId = taskID
                 )
             }
         }
@@ -2157,7 +2180,8 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
                     conversationMode = state.conversationMode,
                     entryId = state.assistantEntryId,
                     text = snapshot,
-                    isError = state.isError
+                    isError = state.isError,
+                    contextSegmentId = taskID
                 )
             }
         }
@@ -2240,7 +2264,8 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
         val repository = conversationHistoryRepository()
         val candidate = repository.getContextCompactionCandidate(
             conversationId = state.conversationId,
-            conversationMode = state.conversationMode
+            conversationMode = state.conversationMode,
+            contextSegmentId = taskId
         ) ?: return null
         if (candidate.entriesToCompact.isEmpty()) {
             return null
@@ -2266,7 +2291,8 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
                 conversationId = state.conversationId,
                 conversationMode = state.conversationMode,
                 modelOverride = chatModelOverrideToAgentModelOverride(state.modelOverride),
-                reasoningEffort = state.reasoningEffort
+                reasoningEffort = state.reasoningEffort,
+                contextSegmentId = taskId
             )
             @Suppress("UNCHECKED_CAST")
             conversationPayload = payload["conversation"] as? Map<String, Any?>
@@ -4970,6 +4996,7 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
                                 roundIndex = roundIndex,
                                 kind = streamKind
                             ),
+                            contextSegmentId = taskId,
                             createdAt = startTime
                         )
                     }
@@ -5024,6 +5051,7 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
                                 isFinal = isFinal
                             ),
                             turnUsage = usageSnapshot?.toPayload(),
+                            contextSegmentId = taskId,
                             createdAt = createdAt
                         )
                     }
@@ -5052,6 +5080,7 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
                                 roundIndex = roundIndex,
                                 kind = "clarify_required"
                             ),
+                            contextSegmentId = taskId,
                             createdAt = createdAt
                         )
                     }
@@ -5092,6 +5121,7 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
                                 roundIndex = roundIndex,
                                 kind = "permission_required"
                             ),
+                            contextSegmentId = taskId,
                             createdAt = entryCreatedAtTimes.getOrPut(textEntryId) {
                                 System.currentTimeMillis()
                             }
@@ -5108,6 +5138,7 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
                                     roundIndex = roundIndex,
                                     kind = "permission_required"
                                 ),
+                                contextSegmentId = taskId,
                                 createdAt = entryCreatedAtTimes.getOrPut("$taskId-permission") {
                                     System.currentTimeMillis()
                                 }
@@ -5237,6 +5268,7 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
                                 entryId = userEntryId,
                                 text = userMessage,
                                 attachments = historyAttachments,
+                                contextSegmentId = taskId,
                                 createdAt = userMessageCreatedAt ?: System.currentTimeMillis()
                             )
                         }
@@ -5996,7 +6028,8 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
                     terminalEnvironment,
                     callback,
                     runControl = agentRunContext,
-                    continueMode = continueMode
+                    continueMode = continueMode,
+                    contextSegmentId = taskId
                 )
             } catch (e: CancellationException) {
                 OmniLog.i(TAG, "createAgentTask cancelled: ${e.message}")
@@ -6053,6 +6086,7 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
                         text = errorMessage,
                         isError = true,
                         streamMeta = failureTextStreamMeta,
+                        contextSegmentId = taskId,
                         createdAt = System.currentTimeMillis()
                     )
                     val messages = failureRepository.listConversationMessages(

@@ -62,7 +62,8 @@ class AgentOrchestrator(
         val initialMessages: List<ChatCompletionMessage>,
         val executionEnv: AgentExecutionEnvironment,
         val conversationId: Long? = null,
-        val contextCompactor: AgentConversationContextCompactor? = null
+        val contextCompactor: AgentConversationContextCompactor? = null,
+        val contextSegmentId: String? = null
     )
 
     private val json = Json {
@@ -222,6 +223,7 @@ class AgentOrchestrator(
                         promptTokens = latestPromptTokens,
                         messages = memory.snapshot(),
                         promptTokenThresholdOverride = latestPromptTokenThreshold,
+                        contextSegmentId = input.contextSegmentId,
                         callback = callback
                     )
                     memory.replaceAll(compacted)

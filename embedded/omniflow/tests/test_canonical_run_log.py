@@ -14,13 +14,17 @@ def canonical_run_log() -> dict:
         "success": True,
         "steps": [
             {
-                "step_id": "embedded-run-0",
                 "step_index": 0,
-                "status": "succeeded",
                 "before_state_id": "state-0",
                 "action": {"tool": "wait", "args": {"duration_ms": 1000}},
                 "result": {"success": True},
                 "after_state_id": "state-1",
+                "metadata": {
+                    "step_id": "embedded-run-step-0",
+                    "status": "succeeded",
+                    "thinking": "The page is stable.",
+                    "summary": "Waited for the page.",
+                },
             }
         ],
         "final_state_id": "state-final",
@@ -52,39 +56,29 @@ def test_embedded_runtime_keeps_only_persisted_action_args() -> None:
     }
 
 
-def test_embedded_runtime_normalizes_legacy_step_identity_and_status() -> None:
+def test_embedded_runtime_rejects_noncanonical_step_identity_and_status() -> None:
     value = canonical_run_log()
-    value["steps"][0].pop("step_id")
-    value["steps"][0].pop("status")
+    value["steps"][0]["step_id"] = "embedded-run-0"
+    value["steps"][0]["status"] = "succeeded"
 
-    canonical = canonicalize_run_log(value)
-
-    assert canonical["steps"][0]["step_id"] == "embedded-run-0"
-    assert canonical["steps"][0]["status"] == "succeeded"
+    with pytest.raises(ValueError, match="additionalProperties:step_id"):
+        canonicalize_run_log(value)
 
 
-def test_embedded_runtime_keeps_non_replayable_and_diagnostic_steps() -> None:
+def test_embedded_runtime_requires_one_complete_observed_action() -> None:
     value = canonical_run_log()
-    value["steps"] = [
-        {
-            "step_index": 0,
-            "status": "succeeded",
-            "thinking": "Need a fresh observation",
-            "action": {"tool": "get_state", "args": {"reason": "refresh"}},
-            "result": {"success": True},
-        },
-        {
-            "step_index": 1,
-            "status": "failed",
-            "summary": "Model response could not be parsed",
-            "result": {"success": False, "error": "parse_failed"},
-        },
-    ]
+    value["steps"][0].pop("after_state_id")
 
-    canonical = canonicalize_run_log(value)
+    with pytest.raises(ValueError, match="required:after_state_id"):
+        canonicalize_run_log(value)
 
-    assert canonical["steps"][0]["action"]["tool"] == "get_state"
-    assert "action" not in canonical["steps"][1]
+
+def test_embedded_runtime_rejects_step_diagnostics_alias() -> None:
+    value = canonical_run_log()
+    value["steps"][0]["diagnostics"] = value["steps"][0].pop("metadata")
+
+    with pytest.raises(ValueError, match="additionalProperties:diagnostics"):
+        canonicalize_run_log(value)
 
 
 def test_embedded_runtime_rejects_unknown_action_args() -> None:
@@ -110,7 +104,7 @@ def test_embedded_runtime_rejects_old_page_names() -> None:
     value = canonical_run_log()
     value["steps"][0]["observation"] = {"state_id": "state-0"}
 
-    with pytest.raises(ValueError, match="run_log_step_unknown_fields:observation"):
+    with pytest.raises(ValueError, match="additionalProperties:observation"):
         canonicalize_run_log(value)
 
 
@@ -118,5 +112,21 @@ def test_embedded_runtime_rejects_old_final_state_name() -> None:
     value = canonical_run_log()
     value["final_observation"] = {"state_id": value.pop("final_state_id")}
 
-    with pytest.raises(ValueError, match="run_log_unknown_fields:final_observation"):
+    with pytest.raises(ValueError, match="additionalProperties:final_observation"):
+        canonicalize_run_log(value)
+
+
+def test_run_status_success_relationship_comes_from_schema() -> None:
+    value = canonical_run_log()
+    value["success"] = False
+
+    with pytest.raises(ValueError, match="run_log_schema_invalid:run_log.success:const"):
+        canonicalize_run_log(value)
+
+
+def test_step_index_uses_the_schema_integer_type() -> None:
+    value = canonical_run_log()
+    value["steps"][0]["step_index"] = 0.5
+
+    with pytest.raises(ValueError, match="run_log.steps\\[0\\].step_index:type:integer"):
         canonicalize_run_log(value)

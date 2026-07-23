@@ -187,7 +187,7 @@ object InternalRunLogStore {
         if (normalizedRunId.isEmpty()) return
         val record = readRunLocked(context, normalizedRunId)
             ?: CanonicalRunLogRecord(runId = normalizedRunId)
-        val sanitizedStep = canonicalStepForStorage(sanitizeMap(step))
+        val sanitizedStep = sanitizeMap(step)
         val eventSeq = appendRunEventLocked(
             context = context,
             runId = normalizedRunId,
@@ -220,7 +220,7 @@ object InternalRunLogStore {
         if (normalizedRunId.isEmpty() || steps.isEmpty()) return
         val record = readRunLocked(context, normalizedRunId)
             ?: CanonicalRunLogRecord(runId = normalizedRunId)
-        val sanitizedSteps = steps.map { step -> canonicalStepForStorage(sanitizeMap(step)) }
+        val sanitizedSteps = steps.map(::sanitizeMap)
         val eventSeq = appendRunEventLocked(
             context = context,
             runId = normalizedRunId,
@@ -285,17 +285,13 @@ object InternalRunLogStore {
     fun upsertStep(
         context: Context,
         runId: String,
-        stepId: String,
         step: Map<String, Any?>
     ) {
         val normalizedRunId = runId.trim()
-        val normalizedStepId = stepId.trim()
         if (normalizedRunId.isEmpty()) return
         val record = readRunLocked(context, normalizedRunId)
             ?: CanonicalRunLogRecord(runId = normalizedRunId)
-        val sanitizedStep = canonicalStepForStorage(
-            sanitizeMap(stepWithStorageIdentity(normalizedStepId, step)),
-        )
+        val sanitizedStep = sanitizeMap(step)
         val updatedSteps = record.steps.toMutableList()
         val stepIndex = numberToLong(sanitizedStep["step_index"])
         val replaceIndex = updatedSteps.indexOfFirst { existing ->
@@ -325,11 +321,10 @@ object InternalRunLogStore {
     fun upsertRecordedStep(
         context: Context,
         runId: String,
-        stepId: String,
         record: RunLogStepRecord,
     ) {
         record.states.forEach { persistStateLocked(context, stateId(it), sanitizeMap(it)) }
-        upsertStep(context, runId, stepId, record.step)
+        upsertStep(context, runId, record.step)
     }
 
     @Synchronized
@@ -473,7 +468,7 @@ object InternalRunLogStore {
         }
         val record = readRunLocked(context, normalizedRunId)
             ?: return notFoundPayload(normalizedRunId)
-        val steps = canonicalStepsForTimeline(record)
+        val steps = record.steps
         val tokenUsage = tokenUsageSummary(steps)
         val diagnostics = linkedMapOf<String, Any?>().apply {
             putAll(record.diagnostics - "event_seq")
@@ -531,109 +526,6 @@ object InternalRunLogStore {
         val stateId = stateId(sanitized)
         persistStateLocked(context, stateId, sanitized)
         return stateId
-    }
-
-    internal fun stepWithStorageIdentity(
-        stepId: String,
-        step: Map<String, Any?>,
-    ): Map<String, Any?> {
-        require(isCanonicalStep(step)) { "run_log_step_contract_invalid:$stepId" }
-        return step
-    }
-
-    internal fun isCanonicalStep(step: Map<String, Any?>): Boolean {
-        val allowed = setOf(
-            "step_id", "step_index", "status", "thinking", "summary",
-            "before_state_id", "action", "result", "after_state_id",
-            "diagnostics", "metadata",
-        )
-        if (!step.containsKey("step_index") || step.keys.any { it !in allowed }) return false
-        if (numberToLong(step["step_index"])?.let { it >= 0L } != true) return false
-        if (step.containsKey("before_state_id") && textValue(step["before_state_id"]).isEmpty()) return false
-        if (step.containsKey("after_state_id") && textValue(step["after_state_id"]).isEmpty()) return false
-        if (step.containsKey("action")) {
-            val action = stringMap(step["action"])
-            if (action.keys != setOf("tool", "args")) return false
-            if (textValue(action["tool"]).isEmpty() || action["args"] !is Map<*, *>) return false
-        }
-        if (step.containsKey("result")) {
-            val result = stringMap(step["result"])
-            if (result.keys.any { it !in setOf("success", "error") }) return false
-            if (result["success"] !is Boolean) return false
-            if (result.containsKey("error") && result["error"] !is String) return false
-        }
-        if (step.containsKey("status") && textValue(step["status"]) !in setOf(
-                "running", "succeeded", "failed", "waiting_user", "success", "error"
-            )) return false
-        if (step.containsKey("diagnostics") && step["diagnostics"] !is Map<*, *>) return false
-        if (step.containsKey("metadata") && step["metadata"] !is Map<*, *>) return false
-        return true
-    }
-
-    private fun canonicalStepForStorage(step: Map<String, Any?>): Map<String, Any?> {
-        require(isCanonicalStep(step)) { "run_log_step_contract_invalid" }
-        val index = numberToLong(step["step_index"])?.toInt()
-            ?: error("run_log_step_index_invalid")
-        val diagnostics = linkedMapOf<String, Any?>().apply {
-            putAll(stringMap(step["diagnostics"]))
-            putAll(stringMap(step["metadata"]))
-        }.takeIf { it.isNotEmpty() }
-        val result = stringMap(step["result"])
-        val rawStatus = textValue(step["status"]).ifBlank { textValue(diagnostics?.get("status")) }
-        val status = when {
-            rawStatus == "success" -> "succeeded"
-            rawStatus == "error" -> "failed"
-            rawStatus.isNotBlank() -> rawStatus
-            result.containsKey("success") -> if (result["success"] == true) "succeeded" else "failed"
-            else -> "running"
-        }
-        return linkedMapOf<String, Any?>(
-            "step_id" to textValue(step["step_id"])
-                .ifBlank { textValue(diagnostics?.get("step_id")) }
-                .ifBlank { "step-$index" },
-            "step_index" to index,
-            "status" to status,
-            "thinking" to step["thinking"],
-            "summary" to step["summary"],
-            "before_state_id" to step["before_state_id"],
-            "action" to step["action"],
-            "result" to step["result"],
-            "after_state_id" to step["after_state_id"],
-            "diagnostics" to diagnostics,
-        ).filterValues { it != null }
-    }
-
-    private fun canonicalStepsForTimeline(
-        record: CanonicalRunLogRecord,
-    ): List<Map<String, Any?>> {
-        return record.steps.mapIndexed { index, step ->
-            canonicalStepForTimeline(index, step)
-        }
-    }
-
-    private fun canonicalStepForTimeline(
-        expectedIndex: Int,
-        step: Map<String, Any?>,
-    ): Map<String, Any?> {
-        val normalized = canonicalStepForStorage(step)
-        require(numberToLong(normalized["step_index"])?.toInt() == expectedIndex) {
-            "run_log_step_index_invalid"
-        }
-        return linkedMapOf<String, Any?>(
-            "step_id" to normalized["step_id"],
-            "step_index" to normalized["step_index"],
-            "status" to normalized["status"],
-            "thinking" to normalized["thinking"],
-            "summary" to normalized["summary"],
-            "before_state_id" to normalized["before_state_id"],
-            "action" to normalized["action"],
-            "result" to normalized["result"],
-            "after_state_id" to normalized["after_state_id"],
-        ).apply {
-            stringMap(normalized["diagnostics"]).takeIf { it.isNotEmpty() }?.let {
-                put("diagnostics", it)
-            }
-        }.filterValues { it != null }
     }
 
     private fun persistStateLocked(
@@ -803,13 +695,9 @@ object InternalRunLogStore {
     private fun tokenUsageByStep(steps: List<Map<String, Any?>>): List<Map<String, Any?>> {
         return steps.mapIndexedNotNull { index, step ->
             val usage = extractTokenUsage(step) ?: return@mapIndexedNotNull null
-            val diagnostics = stringMap(step["diagnostics"])
             val action = stringMap(step["action"])
             linkedMapOf<String, Any?>(
                 "step_index" to (numberToLong(step["step_index"]) ?: index.toLong()).toInt(),
-                "step_id" to textValue(step["step_id"]).ifBlank {
-                    textValue(diagnostics["step_id"])
-                },
                 "tool" to textValue(action["tool"]),
                 "token_usage" to usage
             )
@@ -820,7 +708,6 @@ object InternalRunLogStore {
         val calls = mutableListOf<Map<String, Any?>>()
         steps.forEachIndexed { index, step ->
             val attempts = extractTokenUsageAttempts(step)
-            val diagnostics = stringMap(step["diagnostics"])
             val action = stringMap(step["action"])
             val usages = attempts.ifEmpty {
                 extractTokenUsage(step)?.let { listOf(it) } ?: emptyList()
@@ -829,9 +716,6 @@ object InternalRunLogStore {
                 calls += linkedMapOf(
                     "call_index" to calls.size,
                     "step_index" to (numberToLong(step["step_index"]) ?: index.toLong()).toInt(),
-                    "step_id" to textValue(step["step_id"]).ifBlank {
-                        textValue(diagnostics["step_id"])
-                    },
                     "tool" to textValue(action["tool"]),
                     "attempt_index" to numberToLong(usage["attempt_index"])?.toInt(),
                     "stability_attempt" to numberToLong(usage["stability_attempt"])?.toInt(),
@@ -856,13 +740,13 @@ object InternalRunLogStore {
     }
 
     private fun extractTokenUsage(step: Map<String, Any?>): Map<String, Any?>? {
-        val diagnostics = stringMap(step["diagnostics"])
-        return stringMap(diagnostics["token_usage"]).takeIf { it.isNotEmpty() }
+        val metadata = stringMap(step["metadata"])
+        return stringMap(metadata["token_usage"]).takeIf { it.isNotEmpty() }
     }
 
     private fun extractTokenUsageAttempts(step: Map<String, Any?>): List<Map<String, Any?>> {
-        val diagnostics = stringMap(step["diagnostics"])
-        return listOfMaps(diagnostics["token_usage_attempts"])
+        val metadata = stringMap(step["metadata"])
+        return listOfMaps(metadata["token_usage_attempts"])
     }
 
     private fun modelNames(record: CanonicalRunLogRecord): List<String> {
@@ -993,16 +877,8 @@ object InternalRunLogStore {
         val success = booleanValue(value["success"])
             ?: error("run_log_success_required")
         val status = textValue(value["status"])
-        require(status in setOf("running", "succeeded", "failed", "cancelled")) {
-            "run_log_status_invalid"
-        }
-        require((status == "succeeded") == success) {
-            "run_log_status_success_mismatch"
-        }
         val diagnostics = sanitizeMap(stringMap(value["diagnostics"]))
-        val steps = listOfMaps(value["steps"]).mapIndexed { index, step ->
-            canonicalStepForTimeline(index, sanitizeMap(step))
-        }
+        val steps = listOfMaps(value["steps"]).map(::sanitizeMap)
         return CanonicalRunLogRecord(
             runId = runId,
             goal = textValue(value["goal"]),

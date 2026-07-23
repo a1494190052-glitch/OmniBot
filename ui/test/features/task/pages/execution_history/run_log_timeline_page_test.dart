@@ -36,9 +36,11 @@ void main() {
             },
             'result': <String, dynamic>{'success': true},
             'after_state_id': 'state-1',
-            'diagnostics': <String, dynamic>{
+            'metadata': <String, dynamic>{
+              'step_id': 'vlm-run-step-0',
+              'status': 'succeeded',
               'source': 'vlm',
-              'title': '点击创建按钮',
+              'summary': '点击创建按钮',
               'thinking': '当前页面已经显示创建按钮，下一步点击按钮。',
             },
           },
@@ -92,5 +94,39 @@ void main() {
       find.byKey(const ValueKey('run-log-step-detail-thinking')),
       findsOneWidget,
     );
+  });
+
+  testWidgets('describes an empty failed run without replay terminology', (
+    tester,
+  ) async {
+    messenger.setMockMethodCallHandler(channel, (call) async {
+      expect(call.method, 'getInternalRunLogTimeline');
+      return <String, dynamic>{
+        'schema_version': 'omniflow.canonical_run_log.v1',
+        'run_id': 'cancelled-vlm-run',
+        'goal': '执行任务',
+        'status': 'failed',
+        'success': false,
+        'steps': <Map<String, dynamic>>[],
+        'diagnostics': <String, dynamic>{
+          'source': 'vlm',
+          'tool_name': 'vlm_task',
+          'done_reason': 'user_cancelled',
+        },
+      };
+    });
+
+    await tester.pumpWidget(
+      const MaterialApp(
+        locale: Locale('zh'),
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
+        home: RunLogTimelinePage(runId: 'cancelled-vlm-run', title: 'VLM 轨迹'),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('暂无执行步骤'), findsOneWidget);
+    expect(find.textContaining('可重放'), findsNothing);
   });
 }

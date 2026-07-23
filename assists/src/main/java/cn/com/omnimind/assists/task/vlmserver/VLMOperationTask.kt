@@ -55,9 +55,9 @@ open class VLMOperationTask(
     private val Tag = "VLMOperationTask"
     private companion object {
         private const val SUMMARY_GENERATION_TIMEOUT_MS = 20_000L
+        private const val CANCELLATION_CAPTURE_TIMEOUT_MS = 1_500L
         private const val MAX_MANUAL_TRACE_MEMORY_ACTIONS = 12
         private const val MAX_MANUAL_TRACE_PARAM_CHARS = 240
-        private const val MAX_MANUAL_TRACE_XML_CHARS = 6000
     }
 
     private lateinit var vlmOperationService: VLMOperationService
@@ -78,10 +78,14 @@ open class VLMOperationTask(
 
     private var taskContext: Context? = null
     private val terminalFinalized = AtomicBoolean(false)
+    private val runLogStateLock = Any()
     private val pendingVlmRunLogSteps = linkedMapOf<String, PendingVlmRunLogStep>()
+    private val runLogStepIndexById = linkedMapOf<String, Int>()
+    @Volatile
+    private var inFlightVlmRunLogStep: PendingVlmRunLogStep? = null
 
     private val userInputChannel = Channel<String>(Channel.Factory.UNLIMITED)
-    private val userPauseChannel = Channel<Unit>(Channel.Factory.CONFLATED)
+    private val manualTakeoverController = ManualTakeoverController()
     private val summarySheetReadyChannel = Channel<Unit>(Channel.Factory.CONFLATED)
 
     private var goal: String? = null
@@ -133,7 +137,11 @@ open class VLMOperationTask(
             isSubTask = isSubTask,
             taskId = id,
             runId = id,
-            taskScope = taskScope,
+            runLogStepsProvider = {
+                taskContext?.let { context ->
+                    InternalRunLogStore.getRun(context, id)?.steps
+                }.orEmpty()
+            },
             functionRunExecutor = functionRunExecutor,
             controlActExecutor = controlActExecutorFactory.create(this),
         )
@@ -206,7 +214,7 @@ open class VLMOperationTask(
     }
 
     /**
-     * 用户主动暂停任务：不推送按钮卡片，直接切换小猫状态为"继续"
+     * 用户主动暂停任务，等待继续、完成或取消操作。
      */
     private suspend fun handleUserPause() {
         onTaskStop(TaskFinishType.USER_PAUSED, "")
@@ -215,15 +223,16 @@ open class VLMOperationTask(
         AccessibilityController.Companion.restoreKeyboard()
         if (onMessagePushListener != null) {
             try {
-                onMessagePushListener.onVLMRequestUserInput("已接管控制，完成操作后点击继续")
+                onMessagePushListener.onVLMRequestUserInput("已接管控制，请选择继续、完成或取消")
             } catch (e: Exception) {
                 OmniLog.e(Tag, "通知UI层失败: ${e.message}")
             }
         }
         val recorder = taskContext?.let { ManualVlmTraceRecorder(it, id) }
         val recorderStarted = recorder?.start() == true
+        val resolution: ManualTakeoverResolution
         val manualTraceResult = try {
-            userPauseChannel.receive() // 阻塞等待用户点击继续
+            resolution = manualTakeoverController.awaitResolution()
             throwIfCancellationRequested("user_pause")
             recorder?.stop()
         } catch (e: Exception) {
@@ -232,6 +241,9 @@ open class VLMOperationTask(
         }
         if (recorderStarted && manualTraceResult != null) {
             appendManualTrace(manualTraceResult)
+        }
+        if (resolution is ManualTakeoverResolution.Complete) {
+            throw UserCompletedTaskException(resolution.message)
         }
         AccessibilityController.Companion.hideKeyboard()
         onTaskStarted()
@@ -243,6 +255,7 @@ open class VLMOperationTask(
      */
     fun requestPause() {
         OmniLog.d(Tag, "收到暂停请求")
+        manualTakeoverController.request()
         pauseRequested = true
     }
 
@@ -251,9 +264,12 @@ open class VLMOperationTask(
      */
     fun resumeFromPause() {
         OmniLog.d(Tag, "收到继续请求")
-        taskScope.launch {
-            userPauseChannel.send(Unit)
-        }
+        manualTakeoverController.resume()
+    }
+
+    fun completeManualTakeover(message: String = "任务已完成"): Boolean {
+        OmniLog.d(Tag, "收到人工接管完成请求")
+        return manualTakeoverController.complete(message)
     }
 
     /**
@@ -283,7 +299,7 @@ open class VLMOperationTask(
 
     private fun unblockWaitingReceivers() {
         userInputChannel.trySend("任务已取消")
-        userPauseChannel.trySend(Unit)
+        manualTakeoverController.cancel()
         summarySheetReadyChannel.trySend(Unit)
     }
 
@@ -297,14 +313,24 @@ open class VLMOperationTask(
         val context = taskContext
         val runId = id
         if (!terminalFinalized.compareAndSet(false, true)) return
+        val inFlightStep = synchronized(runLogStateLock) {
+            inFlightVlmRunLogStep.also { inFlightVlmRunLogStep = null }
+        }
         cancelScope.launch {
             if (context != null && runId.isNotBlank()) {
+                val finalStateId = appendUserCancelledRunLog(
+                    context = context,
+                    runId = runId,
+                    inFlightStep = inFlightStep,
+                    message = message,
+                )
                 InternalRunLogStore.finishRun(
                     context = context,
                     runId = runId,
                     success = false,
-                    doneReason = "cancelled",
-                    errorMessage = message
+                    doneReason = "user_cancelled",
+                    errorMessage = message,
+                    finalStateId = finalStateId,
                 )
             }
             notifyTerminalResult(
@@ -320,10 +346,9 @@ open class VLMOperationTask(
         }
     }
 
-    private fun finalizeUserCompletionAsync(message: String = "任务已完成") {
+    private fun launchUserCompletionFinalization(message: String = "任务已完成") {
         val context = taskContext
         val runId = id
-        if (!terminalFinalized.compareAndSet(false, true)) return
         cancelScope.launch {
             if (context != null && runId.isNotBlank()) {
                 InternalRunLogStore.finishRun(
@@ -369,23 +394,26 @@ open class VLMOperationTask(
     }
 
     private suspend fun appendInternalRunLog(context: Context, report: TaskExecutionReport) {
-        val pending = pendingVlmRunLogSteps.values.toList()
+        val pending = synchronized(runLogStateLock) {
+            pendingVlmRunLogSteps.values.toList()
+        }
         for (entry in pending) {
             try {
                 val runLogStep = buildInternalRunLogStep(
-                    index = runLogStepIndex(context, entry.stepId),
+                    index = entry.stepIndex,
+                    stepId = entry.stepId,
                     step = entry.step,
-                    status = if (entry.success) "succeeded" else "failed",
                     successOverride = entry.success,
                     errorMessage = entry.errorMessage,
-                )
+                ) ?: continue
                 InternalRunLogStore.upsertRecordedStep(
                     context = context,
                     runId = id,
-                    stepId = entry.stepId,
                     record = runLogStep,
                 )
-                pendingVlmRunLogSteps.remove(entry.stepId)
+                synchronized(runLogStateLock) {
+                    pendingVlmRunLogSteps.remove(entry.stepId)
+                }
             } catch (error: Exception) {
                 OmniLog.e(Tag, "VLM RunLog final retry failed for ${entry.stepId}: ${error.message}")
                 break
@@ -426,7 +454,6 @@ open class VLMOperationTask(
         if (this::vlmOperationService.isInitialized) {
             val memory = buildManualTraceMemory(result)
             if (memory.isNotBlank()) {
-                vlmOperationService.addExternalMemory(memory)
                 vlmOperationService.addPriorityEvent(
                     message = memory,
                     eventType = "human_takeover",
@@ -453,8 +480,6 @@ open class VLMOperationTask(
             }
         }
         val omitted = result.actions.size - actions.size
-        val finalAction = result.actions.lastOrNull()
-        val finalPage = finalAction?.afterXml?.trim().orEmpty()
         return buildString {
             appendLine(result.summary.ifBlank {
                 "用户在接管期间手动完成了 ${result.actionCount} 步操作。请基于当前屏幕继续执行原任务。"
@@ -462,12 +487,8 @@ open class VLMOperationTask(
             appendLine("人工接管动作明细：")
             actionLines.forEach { appendLine(it) }
             if (omitted > 0) appendLine("... 另有 $omitted 步人工动作已记录在 RunLog。")
-            finalAction?.afterPackageName?.takeIf { it.isNotBlank() }?.let {
+            result.actions.lastOrNull()?.afterPackageName?.takeIf { it.isNotBlank() }?.let {
                 appendLine("接管结束包名：$it")
-            }
-            if (finalPage.isNotBlank()) {
-                appendLine("接管结束页面 XML（截断）：")
-                appendLine(finalPage.take(MAX_MANUAL_TRACE_XML_CHARS))
             }
             append("下一步必须以当前截图和最新 Accessibility tree 为准，不要回退到接管前的页面。")
         }.trim()
@@ -482,97 +503,84 @@ open class VLMOperationTask(
         val context = taskContext ?: return
         val status = if (success) "succeeded" else "failed"
         val stepId = vlmStepId(index)
+        val runningEntry = synchronized(runLogStateLock) {
+            inFlightVlmRunLogStep?.takeIf { it.stepId == stepId }
+        }
+        val runLogIndex = runningEntry?.stepIndex ?: runLogStepIndex(context, stepId)
         val pending = PendingVlmRunLogStep(
             stepId = stepId,
+            stepIndex = runLogIndex,
             step = step,
             success = success,
             errorMessage = errorMessage,
         )
-        val runLogIndex = runLogStepIndex(context, stepId)
+        synchronized(runLogStateLock) {
+            if (inFlightVlmRunLogStep?.stepId == stepId) {
+                inFlightVlmRunLogStep = null
+            }
+            pendingVlmRunLogSteps[stepId] = pending
+        }
         try {
             val runLogStep = buildInternalRunLogStep(
                 index = runLogIndex,
+                stepId = stepId,
                 step = step,
-                status = status,
                 successOverride = success,
                 errorMessage = errorMessage
             )
-            InternalRunLogStore.upsertRecordedStep(
-                context = context,
-                runId = id,
-                stepId = stepId,
-                record = runLogStep,
-            )
-            pendingVlmRunLogSteps.remove(stepId)
+            if (runLogStep != null) {
+                InternalRunLogStore.upsertRecordedStep(
+                    context = context,
+                    runId = id,
+                    record = runLogStep,
+                )
+            }
+            synchronized(runLogStateLock) {
+                pendingVlmRunLogSteps.remove(stepId)
+            }
             publishVlmStepProgress(index, step, status, errorMessage)
         } catch (error: Exception) {
-            pendingVlmRunLogSteps[stepId] = pending
             OmniLog.e(Tag, "VLM RunLog write failed for $stepId: ${error.message}")
         }
     }
 
     private suspend fun handleVlmStepStarted(index: Int, step: UIStep) {
-        val context = taskContext ?: return
-        val stepId = vlmStepId(index)
-        runCatching {
-            val record = buildInternalRunLogStep(
-                index = runLogStepIndex(context, stepId),
+        taskContext?.let { context ->
+            val stepId = vlmStepId(index)
+            val pending = PendingVlmRunLogStep(
+                stepId = stepId,
+                stepIndex = runLogStepIndex(context, stepId),
                 step = step,
-                status = "running",
-                successOverride = null,
+                success = false,
                 errorMessage = null,
             )
-            InternalRunLogStore.upsertRecordedStep(
-                context = context,
-                runId = id,
-                stepId = stepId,
-                record = record,
-            )
-            publishVlmStepProgress(index, step, "running", null)
-        }.onFailure { error ->
-            OmniLog.e(Tag, "VLM RunLog running step write failed for $stepId: ${error.message}")
+            synchronized(runLogStateLock) {
+                inFlightVlmRunLogStep = pending
+            }
         }
+        publishVlmStepProgress(index, step, "running", null)
     }
 
     private suspend fun handleVlmStepWaitingUser(index: Int, step: UIStep) {
-        val context = taskContext ?: return
-        val stepId = vlmStepId(index)
-        try {
-            val record = buildInternalRunLogStep(
-                index = runLogStepIndex(context, stepId),
-                step = step,
-                status = "waiting_user",
-                successOverride = null,
-                errorMessage = null,
-            )
-            InternalRunLogStore.upsertRecordedStep(
-                context = context,
-                runId = id,
-                stepId = stepId,
-                record = record,
-            )
-            publishVlmStepProgress(index, step, "waiting_user", null)
-        } catch (error: Exception) {
-            OmniLog.e(Tag, "VLM RunLog waiting step write failed for $stepId: ${error.message}")
-        }
+        publishVlmStepProgress(index, step, "waiting_user", null)
     }
 
     private suspend fun buildInternalRunLogStep(
         index: Int,
+        stepId: String,
         step: UIStep,
-        status: String = "success",
         successOverride: Boolean? = null,
-        errorMessage: String? = null
-    ): RunLogStepRecord {
+        errorMessage: String? = null,
+        source: String = "vlm",
+    ): RunLogStepRecord? {
         val semantics = resolveVlmRunLogStepSemantics(step, successOverride)
-        val action = step.action.toRunLogAction()
+        val action = step.action.toRunLogAction() ?: return null
         val durationMs = if (step.startedAtMs != null && step.finishedAtMs != null) {
             (step.finishedAtMs - step.startedAtMs).coerceAtLeast(0L)
         } else {
             null
         }
         val success = semantics.success
-        val stepId = vlmStepId(index)
         val tokenUsage = step.tokenUsage?.let(VLMTokenUsageMapper::toRunLogMap)
             ?.takeIf { it.isNotEmpty() }
         val tokenUsageAttempts = step.tokenUsageAttempts
@@ -582,46 +590,41 @@ open class VLMOperationTask(
         val postActionObservation = VLMPostActionObservation.summarize(step)
         val postActionObservationMap = postActionObservation?.toRunLogMap()
         val actionResultData = step.actionResultData?.toRunLogAny()
-        val beforeState = step.beforeState
-        val afterState = step.afterState
+        val beforeState = step.beforeState ?: return null
+        val afterState = step.afterState ?: return null
         val states = listOfNotNull(beforeState, afterState)
             .distinctBy(State::stateId)
             .map { state -> state.toRunLogMap() }
-        val result = when {
-            status == "running" || status == "waiting_user" -> null
-            else -> linkedMapOf<String, Any?>(
-                "success" to success,
-                "error" to errorMessage?.takeIf(String::isNotBlank),
-            ).filterValues { it != null }
-        }
+        val result = linkedMapOf<String, Any?>(
+            "success" to success,
+            "error" to errorMessage?.takeIf(String::isNotBlank),
+        ).filterValues { it != null }
         return recordStepExecutor.recordStep(
             RunLogStepRecord(
                 step = linkedMapOf(
-                "step_id" to stepId,
-                "step_index" to index,
-                "status" to status,
-                "thinking" to step.thought.trim().takeIf { it.isNotEmpty() },
-                "summary" to step.summary.trim().takeIf { it.isNotEmpty() },
-                "before_state_id" to beforeState?.stateId,
-                "action" to action,
-                "result" to result,
-                "after_state_id" to afterState?.stateId,
-                "diagnostics" to linkedMapOf(
-                    "duration_ms" to durationMs,
-                    "started_at_ms" to step.startedAtMs,
-                    "finished_at_ms" to step.finishedAtMs,
-                    "source" to "vlm",
-                    "message" to step.result,
-                    "summary" to step.summary.takeIf(String::isNotBlank),
-                    "thinking" to step.thought.trim().takeIf { it.isNotEmpty() },
-                    "page_diagnostics" to pageDiagnostics,
-                    "token_usage" to tokenUsage,
-                    "token_usage_attempts" to tokenUsageAttempts.takeIf { it.isNotEmpty() },
-                    "post_action_observation" to postActionObservationMap,
-                    "action_result_data" to actionResultData,
-                    "failure" to step.failure?.toRunLogMap(),
-                ).filterValues { it != null },
-                ).filterValues { it != null },
+                    "step_index" to index,
+                    "before_state_id" to beforeState.stateId,
+                    "action" to action,
+                    "result" to result,
+                    "after_state_id" to afterState.stateId,
+                    "metadata" to linkedMapOf(
+                        "step_id" to stepId,
+                        "status" to if (success) "succeeded" else "failed",
+                        "duration_ms" to durationMs,
+                        "started_at_ms" to step.startedAtMs,
+                        "finished_at_ms" to step.finishedAtMs,
+                        "source" to source,
+                        "message" to step.result,
+                        "summary" to step.summary.takeIf(String::isNotBlank),
+                        "thinking" to step.thought.trim().takeIf { it.isNotEmpty() },
+                        "page_diagnostics" to pageDiagnostics,
+                        "token_usage" to tokenUsage,
+                        "token_usage_attempts" to tokenUsageAttempts.takeIf { it.isNotEmpty() },
+                        "post_action_observation" to postActionObservationMap,
+                        "action_result_data" to actionResultData,
+                        "failure" to step.failure?.toRunLogMap(),
+                    ).filterValues { it != null },
+                ),
                 states = states,
             ),
         )
@@ -672,16 +675,149 @@ open class VLMOperationTask(
         }
     }
 
-    private fun runLogStepIndex(context: Context, stepId: String): Int {
-        val steps = InternalRunLogStore.getRun(context, id)?.steps.orEmpty()
-        val existing = steps.indexOfFirst { step ->
-            val diagnostics = step["diagnostics"] as? Map<*, *>
-            step["step_id"]?.toString() == stepId || diagnostics?.get("step_id")?.toString() == stepId
+    private fun runLogStepIndex(context: Context, stepId: String, runId: String = id): Int {
+        return synchronized(runLogStateLock) {
+            runLogStepIndexById.getOrPut(stepId) {
+                val persistedCount = InternalRunLogStore.getRun(context, runId)?.steps?.size ?: 0
+                val reservedCount = runLogStepIndexById.values.maxOrNull()?.plus(1) ?: 0
+                maxOf(persistedCount, reservedCount)
+            }
         }
-        return existing.takeIf { it >= 0 } ?: steps.size
     }
 
     private fun vlmStepId(index: Int): String = "$id-vlm-${index + 1}"
+
+    private suspend fun appendUserCancelledRunLog(
+        context: Context,
+        runId: String,
+        inFlightStep: PendingVlmRunLogStep?,
+        message: String,
+    ): String {
+        val cancelledAtMs = System.currentTimeMillis()
+        val cancellationState = captureCancellationState(
+            runId = runId,
+            fallback = inFlightStep?.step?.beforeState,
+            capturedAtMs = cancelledAtMs,
+        )
+        InternalRunLogStore.persistState(context, cancellationState.toRunLogMap())
+        retryPendingVlmRunLogSteps(context, runId)
+
+        inFlightStep?.let { entry ->
+            val cancelledStep = entry.step.copy(
+                result = message,
+                afterState = cancellationState,
+                finishedAtMs = cancelledAtMs,
+                failure = VLMFailureDiagnostics(
+                    kind = "user_cancelled",
+                    message = message,
+                ),
+            )
+            runCatching {
+                buildInternalRunLogStep(
+                    index = entry.stepIndex,
+                    stepId = entry.stepId,
+                    step = cancelledStep,
+                    successOverride = false,
+                    errorMessage = message,
+                )?.let { record ->
+                    InternalRunLogStore.upsertRecordedStep(context, runId, record)
+                }
+            }.onFailure { error ->
+                OmniLog.e(Tag, "VLM cancelled step write failed for ${entry.stepId}: ${error.message}")
+            }
+        }
+
+        val terminalStepId = "$runId-vlm-user-cancelled"
+        val terminalStepIndex = runLogStepIndex(context, terminalStepId, runId)
+        val terminalStep = buildUserCancelledTerminalStep(
+            state = cancellationState,
+            message = message,
+            timestampMs = cancelledAtMs,
+        )
+        runCatching {
+            buildInternalRunLogStep(
+                index = terminalStepIndex,
+                stepId = terminalStepId,
+                step = terminalStep,
+                successOverride = false,
+                errorMessage = message,
+                source = "user_cancelled",
+            )?.let { record ->
+                InternalRunLogStore.upsertRecordedStep(context, runId, record)
+            }
+        }.onFailure { error ->
+            OmniLog.e(Tag, "VLM cancellation terminal step write failed: ${error.message}")
+        }
+        return cancellationState.stateId
+    }
+
+    private suspend fun retryPendingVlmRunLogSteps(context: Context, runId: String) {
+        val pending = synchronized(runLogStateLock) {
+            pendingVlmRunLogSteps.values.toList()
+        }
+        pending.forEach { entry ->
+            runCatching {
+                buildInternalRunLogStep(
+                    index = entry.stepIndex,
+                    stepId = entry.stepId,
+                    step = entry.step,
+                    successOverride = entry.success,
+                    errorMessage = entry.errorMessage,
+                )?.let { record ->
+                    InternalRunLogStore.upsertRecordedStep(context, runId, record)
+                    synchronized(runLogStateLock) {
+                        pendingVlmRunLogSteps.remove(entry.stepId)
+                    }
+                }
+            }.onFailure { error ->
+                OmniLog.e(Tag, "VLM pending step retry failed for ${entry.stepId}: ${error.message}")
+            }
+        }
+    }
+
+    private suspend fun captureCancellationState(
+        runId: String,
+        fallback: State?,
+        capturedAtMs: Long,
+    ): State {
+        val screenshot = if (this::androidDeviceOperator.isInitialized) {
+            withTimeoutOrNull(CANCELLATION_CAPTURE_TIMEOUT_MS) {
+                runCatching { androidDeviceOperator.captureScreenshot() }.getOrNull()
+            }
+        } else {
+            null
+        }
+        val xml = if (this::androidDeviceOperator.isInitialized) {
+            runCatching { androidDeviceOperator.currentXml() }.getOrNull()
+        } else {
+            null
+        }
+        val packageName = if (this::androidDeviceOperator.isInitialized) {
+            runCatching { androidDeviceOperator.currentPackageName() }.getOrNull()
+        } else {
+            null
+        }
+        val activityName = if (this::androidDeviceOperator.isInitialized) {
+            runCatching { androidDeviceOperator.currentActivityName() }.getOrNull()
+        } else {
+            null
+        }
+        val display = if (this::androidDeviceOperator.isInitialized) {
+            val width = runCatching { androidDeviceOperator.getDisplayWidth() }.getOrDefault(0)
+            val height = runCatching { androidDeviceOperator.getDisplayHeight() }.getOrDefault(0)
+            if (width > 0 && height > 0) StateDisplay(width, height) else null
+        } else {
+            null
+        }
+        return State(
+            stateId = "$runId-vlm-user-cancelled-$capturedAtMs",
+            xml = xml?.takeIf(String::isNotBlank) ?: fallback?.xml,
+            packageName = packageName?.takeIf(String::isNotBlank) ?: fallback?.packageName,
+            activityName = activityName?.takeIf(String::isNotBlank) ?: fallback?.activityName,
+            display = display ?: fallback?.display,
+            screenshotBase64 = screenshot?.takeIf(String::isNotBlank) ?: fallback?.screenshotBase64,
+        )
+    }
 
     private fun VLMPostActionObservation.Summary.toRunLogMap(): Map<String, Any?> =
         linkedMapOf<String, Any?>(
@@ -910,6 +1046,10 @@ open class VLMOperationTask(
             } catch (e: CancellationException) {
                 OmniLog.i(Tag, "VLM Operation Task cancelled")
                 finalizeCancellationAsync(e.message ?: "任务已取消")
+            } catch (e: UserCompletedTaskException) {
+                if (terminalFinalized.compareAndSet(false, true)) {
+                    launchUserCompletionFinalization(e.completionMessage)
+                }
             } catch (e: Exception) {
                 OmniLog.e(Tag, "VLM Operation Task Error: ${e.message}")
                 finalizeTerminalOnce {
@@ -1219,10 +1359,12 @@ open class VLMOperationTask(
 
     fun completeByUser(message: String = "任务已完成") {
         OmniLog.d(Tag, "Completing VLM Operation Task by user")
+        if (completeManualTakeover(message)) return
+        if (!terminalFinalized.compareAndSet(false, true)) return
         _isCancellationRequested = true
         unblockWaitingReceivers()
         cancelRunningJob(message)
-        finalizeUserCompletionAsync(message)
+        launchUserCompletionFinalization(message)
     }
 
     fun cancelTask() {
@@ -1243,6 +1385,10 @@ open class VLMOperationTask(
     }
 }
 
+private class UserCompletedTaskException(
+    val completionMessage: String,
+) : Exception(completionMessage)
+
 internal data class VLMRunLogStepSemantics(
     val success: Boolean,
     val toolName: String,
@@ -1254,9 +1400,30 @@ internal data class VLMRunLogStepSemantics(
 
 private data class PendingVlmRunLogStep(
     val stepId: String,
+    val stepIndex: Int,
     val step: UIStep,
     val success: Boolean,
     val errorMessage: String?,
+)
+
+internal fun buildUserCancelledTerminalStep(
+    state: State,
+    message: String,
+    timestampMs: Long,
+): UIStep = UIStep(
+    observation = "用户取消了任务",
+    thought = "",
+    action = AbortDecision(message),
+    result = message,
+    summary = "用户取消任务",
+    beforeState = state,
+    afterState = state,
+    startedAtMs = timestampMs,
+    finishedAtMs = timestampMs,
+    failure = VLMFailureDiagnostics(
+        kind = "user_cancelled",
+        message = message,
+    ),
 )
 
 internal fun resolveVlmRunLogStepSemantics(

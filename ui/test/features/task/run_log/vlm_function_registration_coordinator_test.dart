@@ -248,8 +248,20 @@ void main() {
     await tester.pump();
 
     expect(find.byType(AlertDialog), findsOneWidget);
-    await tester.tap(find.byType(TextButton));
+    final cancelButton = find.byKey(
+      const ValueKey('vlm-function-registration-cancel'),
+    );
+    expect(cancelButton, findsOneWidget);
+    expect(
+      find.descendant(
+        of: cancelButton,
+        matching: find.textContaining(RegExp(r'^(取消|Cancel)$')),
+      ),
+      findsOneWidget,
+    );
+    await tester.tap(cancelButton);
     await tester.pumpAndSettle();
+    expect(find.byType(AlertDialog), findsNothing);
   });
 }
 
@@ -297,7 +309,10 @@ Map<String, dynamic> eligibleRunLog() => <String, dynamic>{
       },
       'result': <String, dynamic>{'success': true},
       'after_state_id': 'state-1',
-      'diagnostics': <String, dynamic>{},
+      'metadata': <String, dynamic>{
+        'step_id': 'run-1-step-0',
+        'status': 'succeeded',
+      },
     },
   ],
 };

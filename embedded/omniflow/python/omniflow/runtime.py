@@ -190,7 +190,8 @@ class OmniFlow:
                 plugins=self.plugins,
                 source_state=observation,
             )
-            trace.append(trace_step(step, len(trace)))
+            for executed_step in step.executed_steps or (step,):
+                trace.append(trace_step(executed_step, len(trace)))
             actions_executed += step.actions_executed
             if not step.success:
                 previous_action_error = step.error or "fallback_action_failed"
@@ -328,14 +329,14 @@ def _recent_actions(
             continue
         action = step["action"]
         result = step["result"]
-        diagnostics = step.get("diagnostics") or {}
+        metadata = step.get("metadata") or {}
         history.append(
             {
                 "tool": str(action.get("tool") or ""),
                 "args": dict(action.get("args") or {}),
                 "success": result.get("success") is True,
                 "error": result.get("error"),
-                "function_id": diagnostics.get("function_id") or None,
+                "function_id": metadata.get("function_id") or None,
             }
         )
     return history

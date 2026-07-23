@@ -2,47 +2,21 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://omniflow.local/schemas/oob/omniflow_checker_rule.v1.json",
   "title": "OmniFlow Checker Rule",
-  "description": "A deterministic pre-transfer guard. A matching rule blocks Function replay so the caller can continue with the VLM.",
+  "description": "One learned recovery: a restricted Python trigger and one canonical Action grounded by source_state_id.",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schema_version", "id", "enabled", "condition", "scope", "priority"],
+  "required": ["schema_version", "trigger", "source_state_id", "action"],
   "properties": {
     "schema_version": {"const": "omniflow.checker_rule.v1"},
-    "id": {"type": "string", "minLength": 1},
-    "enabled": {"type": "boolean"},
-    "condition": {"$ref": "#/$defs/condition"},
-    "scope": {"$ref": "#/$defs/scope"},
-    "priority": {"type": "integer"}
-  },
-  "$defs": {
-    "string_list": {
-      "type": "array",
-      "items": {"type": "string"},
-      "minItems": 1,
-      "uniqueItems": true
-    },
-    "condition": {
+    "trigger": {"type": "string", "minLength": 1, "maxLength": 512},
+    "source_state_id": {"type": "string", "minLength": 1},
+    "action": {
       "type": "object",
       "additionalProperties": false,
-      "minProperties": 1,
+      "required": ["tool", "args"],
       "properties": {
-        "content_desc_any": {"$ref": "#/$defs/string_list"},
-        "content_desc_contains_any": {"$ref": "#/$defs/string_list"},
-        "package_any": {"$ref": "#/$defs/string_list"},
-        "package_not": {"$ref": "#/$defs/string_list"},
-        "resource_id_any": {"$ref": "#/$defs/string_list"},
-        "resource_id_contains_any": {"$ref": "#/$defs/string_list"},
-        "text_any": {"$ref": "#/$defs/string_list"},
-        "text_contains_any": {"$ref": "#/$defs/string_list"},
-        "xml_contains_any": {"$ref": "#/$defs/string_list"}
-      }
-    },
-    "scope": {
-      "type": "object",
-      "additionalProperties": false,
-      "properties": {
-        "action_types": {"$ref": "#/$defs/string_list"},
-        "package_names": {"$ref": "#/$defs/string_list"}
+        "tool": {"type": "string", "minLength": 1},
+        "args": {"type": "object"}
       }
     }
   }

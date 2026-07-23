@@ -292,10 +292,12 @@ class VlmFunctionRegistrationPrompt {
             ),
             actions: [
               TextButton(
+                key: const ValueKey('vlm-function-registration-cancel'),
                 onPressed: () => Navigator.of(dialogContext).pop(false),
-                child: Text(useEnglish ? 'Not now' : '暂不'),
+                child: Text(useEnglish ? 'Cancel' : '取消'),
               ),
               FilledButton(
+                key: const ValueKey('vlm-function-registration-confirm'),
                 onPressed: () => Navigator.of(dialogContext).pop(true),
                 child: Text(useEnglish ? 'Save' : '注册'),
               ),

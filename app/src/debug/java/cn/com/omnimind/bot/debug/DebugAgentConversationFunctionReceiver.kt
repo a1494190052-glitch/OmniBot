@@ -109,7 +109,7 @@ class DebugAgentConversationFunctionReceiver : BroadcastReceiver() {
         val functionPayload = FunctionService(context).getFunction(
             mapOf("function_id" to functionId)
         )
-        val functionRegistered = functionPayload["success"] == true
+        val functionRegistered = functionPayload["schema_version"] == "omniflow.function.v2"
         val runPayload = if (functionRegistered) {
             FunctionRun(context).runFunction(
                 mapOf(

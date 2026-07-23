@@ -414,7 +414,7 @@ class _ChatToolActivityStripState extends State<ChatToolActivityStrip> {
     BuildContext context, {
     required Map<String, dynamic> cardData,
   }) {
-    return showAgentToolDetailSheet(context, cardData: cardData);
+    return openAgentToolCard(context, cardData: cardData);
   }
 }
 

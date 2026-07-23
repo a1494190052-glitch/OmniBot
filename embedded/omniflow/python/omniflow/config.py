@@ -50,10 +50,8 @@ class OmniFlowConfig:
     plugins: PluginSet = field(default_factory=PluginSet)
 
     def resolved_plugins(self) -> PluginSet:
-        from omniflow.execute import (
-            default_checker,
-            default_transfer,
-        )
+        from omniflow.checker import default_checker
+        from omniflow.execute import default_transfer
         configured = self.plugins
         return PluginSet(
             checker=configured.checker or default_checker,

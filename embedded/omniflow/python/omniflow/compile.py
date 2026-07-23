@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 from typing import Any
 
+from omniflow.checker import validate_checker_rule
 from omniflow.schemas import canonicalize_action
 from omniflow.trajectory import canonicalize_run_log
 
@@ -20,7 +21,7 @@ def compile_runlog_to_store(
     prompt: str | None = None,
     timeout: float = 120.0,
 ) -> dict[str, Any]:
-    """Register strict v2 Functions from one successful RunLog and save them."""
+    """Register strict v2 Functions from a RunLog's successful actions."""
     from omniflow.artifact import bind_function, parse_function_artifact
     from omniflow.store import FunctionStore
 
@@ -36,18 +37,35 @@ def compile_runlog_to_store(
             raise ValueError("source_runlog_must_be_object")
         raw = value
     payload = canonicalize_run_log(raw)
-    if payload["success"] is not True:
-        raise ValueError("successful_source_runlog_required")
+    if payload.get("success") is not True or payload.get("status") != "succeeded":
+        raise ValueError("successful_source_run_log_required")
     goal = str(payload.get("goal") or "").strip()
     if not goal:
         raise ValueError("successful_source_goal_required")
 
     steps: list[dict[str, Any]] = []
+    recovery_examples: list[dict[str, Any]] = []
     for step in payload["steps"]:
         if not isinstance(step, dict):
             continue
-        diagnostics = step.get("diagnostics") if isinstance(step.get("diagnostics"), dict) else {}
-        if diagnostics.get("origin") == "checker":
+        metadata = step.get("metadata") if isinstance(step.get("metadata"), dict) else {}
+        if metadata.get("origin") == "checker":
+            result = step.get("result") if isinstance(step.get("result"), dict) else {}
+            value = step.get("action")
+            if result.get("success") is True and isinstance(value, dict):
+                example = {
+                    "source_state_id": str(step.get("before_state_id") or ""),
+                    "action": canonicalize_action(value, replayable_only=True),
+                    "metadata": {
+                        key: metadata[key]
+                        for key in ("thinking", "summary")
+                        if str(metadata.get(key) or "").strip()
+                    },
+                }
+                trigger = str(metadata.get("checker_trigger") or "").strip()
+                if trigger:
+                    example["trigger"] = trigger
+                recovery_examples.append(example)
             continue
         result = step.get("result") if isinstance(step.get("result"), dict) else {}
         if result.get("success") is not True:
@@ -56,12 +74,20 @@ def compile_runlog_to_store(
         if not isinstance(value, dict):
             continue
         try:
-            action = canonicalize_action(value, replayable_only=True)
+            action = canonicalize_action(
+                value,
+                replayable_only=True,
+                allow_non_action=True,
+            )
         except ValueError as error:
             if str(error).startswith("canonical_action_tool_not_replayable:"):
                 continue
             raise
-        description = str(diagnostics.get("action_description") or "").strip()
+        semantic_metadata = {
+            key: metadata[key]
+            for key in ("summary", "thinking", "action_description")
+            if str(metadata.get(key) or "").strip()
+        }
         steps.append(
             {
                 "step_index": len(steps),
@@ -69,9 +95,7 @@ def compile_runlog_to_store(
                 "action": action,
                 "result": {"success": True},
                 "after_state_id": str(step.get("after_state_id") or ""),
-                "diagnostics": (
-                    {"action_description": description} if description else {}
-                ),
+                "metadata": semantic_metadata,
             }
         )
     if not steps:
@@ -84,10 +108,10 @@ def compile_runlog_to_store(
         "success": True,
         "steps": steps,
     }
-    default_bundle = _default_bundle(facts)
+    default_bundle = _default_bundle(facts, recovery_examples)
     authoring_prompt = (
         prompt
-        or """Convert the successful GUI RunLog facts into reusable OmniFlow Functions.
+        or """Convert the successful replayable GUI RunLog facts into reusable OmniFlow Functions.
 Return exactly {"reason": string, "bundle": object|null}.
 
 The bundle must use schema_version "omniflow.function-bundle.v2" and contain
@@ -98,7 +122,7 @@ checker_rules, and agent_visible.
 
 Copy this exact JSON shape. Replace values but never move, rename, or omit keys:
 {
-  "reason": "why these Functions are reusable",
+  "reason": "step-by-step keep, group, parameterize, or omit decisions",
   "bundle": {
     "schema_version": "omniflow.function-bundle.v2",
     "run_id": "copy the supplied run_id exactly",
@@ -144,15 +168,36 @@ contains only tool and args. Every Function repeats schema_version
 "omniflow.function.v2". Never place a JSON path or template in an action value;
 bound action values use empty type-correct placeholders.
 
-Create the complete reusable Function when every required value is available in
-the fresh user goal. Also create useful reusable semantic contiguous action
-subsequences. Do not create a Function merely because one recorded action exists.
-A one-action Function is valid only when that action itself represents a named,
-reusable semantic capability or recovery behavior.
-If the complete task needs fresh UI discovery, a dynamic loop, visual
-transcription, or a hidden runtime answer, omit that complete Function but keep
-safe reusable subsequences. Never emit kind, parent, Root, Child, recovery, task
-name, or routing metadata.
+Treat this as semantic compilation of a raw human Record, not a generic summary.
+Inspect every supplied run_log step in step_index order before authoring. The
+top-level reason must account for every source step index and say whether it was
+kept, grouped with neighboring steps, parameterized, or omitted, with a brief
+evidence-based explanation.
+
+Actions and args are execution truth. Explicitly preserve meaningful values such
+as input_text.text, open_app.package_name, press_key.key, and wait.duration_ms.
+Use the original RunLog goal plus step metadata.summary, metadata.thinking, and
+metadata.action_description only to explain the work represented by those
+actions. Never replace or contradict the recorded Action with prose.
+
+Create the complete reusable Function only when the selected ordered actions
+actually implement the original goal. Its name must describe the user's task,
+and its description must explain the visible workflow, fixed inputs or
+parameters, and expected final state in language another person can understand.
+Also create the smallest useful semantic Functions for meaningful individual
+actions or tightly coupled contiguous action groups. Every retained replayable
+action must appear in at least one Function; every omitted action must be
+explained in reason.
+
+Do not create a Function merely because one recorded action exists. A coordinate
+click without supporting goal, metadata, or neighboring-action evidence is not a
+named capability. Do not reinterpret an accidental installer, permission page,
+advertisement, error page, or other side effect as the intended task. Mechanical
+waits and navigation scaffolding should stay inside the workflow they support,
+not become misleading standalone Functions. If the complete task needs fresh UI
+discovery, a dynamic loop, visual transcription, or a hidden runtime answer,
+omit that complete Function but keep safe understandable subsequences. Never
+emit kind, parent, Root, Child, recovery, task name, or routing metadata.
 
 input_schema values are strict JSON Schema objects with additionalProperties=false.
 Parameterize only action-ready values inferable from the fresh goal and consumed
@@ -165,6 +210,9 @@ Preserve selected source actions in order and do not invent actions or UI
 evidence. Coordinate fields in the supplied facts are already normalized to
 0..1000. Copy each supplied canonical action without adding fields. Return
 bundle=null only when no safe reusable action-grounded Function exists.
+
+This Record semantic-compilation prompt does not author recovery behavior.
+Set checker_rules=[] in every generated Function.
 """
     )
     selected_model = str(model or "").strip() or None
@@ -200,7 +248,13 @@ bundle=null only when no safe reusable action-grounded Function exists.
             model=selected_model,
             messages=[
                 {"role": "system", "content": authoring_prompt},
-                {"role": "user", "content": json.dumps(facts, ensure_ascii=False)},
+                {
+                    "role": "user",
+                    "content": json.dumps(
+                        {"run_log": facts, "recovery_examples": recovery_examples},
+                        ensure_ascii=False,
+                    ),
+                },
             ],
             response_format={"type": "json_object"},
             max_tokens=16384,
@@ -236,6 +290,7 @@ bundle=null only when no safe reusable action-grounded Function exists.
     if not isinstance(arguments_by_function, dict):
         raise ValueError("function_bundle_source_arguments_invalid")
     functions = [parse_function_artifact(value) for value in raw_functions]
+    _validate_checker_evidence(functions, recovery_examples)
     function_ids = [function.id for function in functions]
     if len(function_ids) != len(set(function_ids)):
         raise ValueError("function_bundle_duplicate_function_id")
@@ -274,7 +329,51 @@ bundle=null only when no safe reusable action-grounded Function exists.
     return report
 
 
-def _default_bundle(facts: dict[str, Any]) -> dict[str, Any] | None:
+def _validate_checker_evidence(
+    functions: list[Any],
+    recovery_examples: list[dict[str, Any]],
+) -> None:
+    evidence = [
+        {
+            "source_state_id": str(example.get("source_state_id") or ""),
+            "action": json.dumps(
+                canonicalize_action(example.get("action"), replayable_only=True),
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ":"),
+            ),
+            "trigger": str(example.get("trigger") or "").strip(),
+        }
+        for example in recovery_examples
+    ]
+    for function in functions:
+        for rule in function.checker_rules:
+            source_state_id = str(rule.get("source_state_id") or "")
+            action = json.dumps(
+                canonicalize_action(rule.get("action"), replayable_only=True),
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ":"),
+            )
+            matches = [
+                example
+                for example in evidence
+                if example["source_state_id"] == source_state_id
+                and example["action"] == action
+            ]
+            if not matches:
+                raise ValueError("function_checker_rule_missing_recovery_evidence")
+            captured_triggers = {
+                example["trigger"] for example in matches if example["trigger"]
+            }
+            if captured_triggers and rule.get("trigger") not in captured_triggers:
+                raise ValueError("function_checker_rule_trigger_mismatch")
+
+
+def _default_bundle(
+    facts: dict[str, Any],
+    recovery_examples: list[dict[str, Any]],
+) -> dict[str, Any] | None:
     source_steps = list(facts.get("steps") or ())
     if not source_steps:
         return None
@@ -295,6 +394,18 @@ def _default_bundle(facts: dict[str, Any]) -> dict[str, Any] | None:
         ).encode()
     ).hexdigest()[:12]
     function_id = f"complete_run_{digest}"
+    checker_rules = [
+        validate_checker_rule(
+            {
+                "schema_version": "omniflow.checker_rule.v1",
+                "trigger": example["trigger"],
+                "source_state_id": example["source_state_id"],
+                "action": example["action"],
+            }
+        )
+        for example in recovery_examples
+        if str(example.get("trigger") or "").strip()
+    ]
     return {
         "schema_version": "omniflow.function-bundle.v2",
         "run_id": facts["run_id"],
@@ -316,7 +427,7 @@ def _default_bundle(facts: dict[str, Any]) -> dict[str, Any] | None:
                 },
                 "bindings": [],
                 "steps": steps,
-                "checker_rules": [],
+                "checker_rules": checker_rules,
                 "agent_visible": True,
             }
         ],

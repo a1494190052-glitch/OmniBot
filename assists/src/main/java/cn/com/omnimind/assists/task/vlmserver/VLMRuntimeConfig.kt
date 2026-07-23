@@ -5,11 +5,6 @@ data class VLMRuntimeConfig(
     val maxCompletionTokens: Int = 384,
     val temperature: Double = 0.2,
     val defaultMaxSteps: Int = 12,
-    val maxHistoryRounds: Int = 4,
-    val maxHistoryActionChars: Int = 160,
-    val maxHistoryResultChars: Int = 220,
-    val maxToolResultChars: Int = 900,
-    val imageMode: String = "always",
 )
 
 object VLMRuntimeConfigRegistry {

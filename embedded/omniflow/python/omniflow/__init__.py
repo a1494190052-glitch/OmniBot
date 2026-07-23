@@ -18,6 +18,7 @@ from omniflow.embedding import (
 from omniflow.model import (
     Action,
     ActionResult,
+    CheckerContext,
     Function,
     FunctionResolution,
     FunctionResolver,
@@ -40,6 +41,7 @@ __all__ = [
     "Action",
     "ActionResult",
     "CANONICAL_RUN_LOG_SCHEMA_VERSION",
+    "CheckerContext",
     "ElementEmbedding",
     "EncoderWeights",
     "Experiment",

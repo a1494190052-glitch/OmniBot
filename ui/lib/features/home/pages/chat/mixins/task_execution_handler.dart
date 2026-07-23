@@ -6,14 +6,20 @@ import 'package:ui/models/conversation_model.dart';
 import 'package:ui/utils/ui.dart';
 import '../../../../../models/chat_message_model.dart';
 import '../../../../../services/assists_core_service.dart';
-import '../../../../../services/storage_service.dart';
 import '../../command_overlay/services/executable_task_service.dart';
 import '../../command_overlay/services/chat_service.dart';
 
-/// 聊天上下文存储的key
-const String kChatContextStorageKey = 'chat_context_for_summary';
 const String kCompactedContextSummaryPrefix =
     '<context-summary> The following is a summary of the earlier conversation that was compacted to save context space.';
+
+ChatMessageModel? latestUserMessageForRuntimeContext(
+  Iterable<ChatMessageModel> messages,
+) {
+  for (final message in messages) {
+    if (message.user == 1) return message;
+  }
+  return null;
+}
 
 /// 任务执行处理 Mixin
 /// 负责处理可执行任务、发送消息等功能
@@ -55,22 +61,8 @@ mixin TaskExecutionHandler<T extends StatefulWidget> on State<T> {
 
   // ===================== 上下文保存 =====================
 
-  /// 保存当前聊天上下文到本地存储
-  Future<void> saveChatContext() async {
-    try {
-      final List<Map<String, dynamic>> contextList = messages
-          .where((msg) => !msg.isLoading)
-          .map((msg) => msg.toJson())
-          .toList();
-      await StorageService.setJson(kChatContextStorageKey, contextList);
-    } catch (e) {
-      debugPrint('保存聊天上下文失败: $e');
-    }
-  }
-
   /// 任务执行前的处理
   Future<void> handleBeforeTaskExecute() async {
-    await saveChatContext();
     await persistConversationSnapshot();
   }
 
@@ -114,17 +106,24 @@ mixin TaskExecutionHandler<T extends StatefulWidget> on State<T> {
     return history;
   }
 
+  /// 为新的运行上下文只构建当前用户输入，不夹带历史任务内容。
+  List<Map<String, dynamic>> buildCurrentTurnContent() {
+    final message = latestUserMessageForRuntimeContext(messages);
+    if (message == null) return const <Map<String, dynamic>>[];
+    final content = _buildMessageContentForModel(message);
+    if ((content is String && content.isNotEmpty) ||
+        (content is List && content.isNotEmpty)) {
+      return [
+        <String, dynamic>{'role': 'user', 'content': content},
+      ];
+    }
+    return const <Map<String, dynamic>>[];
+  }
+
   /// 获取最新的用户输入
   String latestUserUtterance() {
-    for (final message in messages) {
-      if (message.user == 1) {
-        final text = _buildMessageTextForModel(message);
-        if (text.isNotEmpty) {
-          return text;
-        }
-      }
-    }
-    return '';
+    final message = latestUserMessageForRuntimeContext(messages);
+    return message == null ? '' : _buildMessageTextForModel(message);
   }
 
   String _buildMessageTextForModel(ChatMessageModel message) {

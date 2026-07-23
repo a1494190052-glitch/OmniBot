@@ -11,15 +11,12 @@ import cn.com.omnimind.assists.util.pollUntilReady
 import cn.com.omnimind.baselib.util.ImageCompressor
 import cn.com.omnimind.baselib.util.ImageQuality
 import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ensureActive
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
@@ -61,7 +58,7 @@ class VLMOperationService(
     private val isSubTask: Boolean = false,
     private val taskId: String = "",
     private val runId: String = "",
-    private val taskScope: CoroutineScope? = null,
+    private val runLogStepsProvider: suspend () -> List<Map<String, Any?>> = { emptyList() },
     private val functionRunExecutor: FunctionRunExecutor? = null,
     private val controlActExecutor: ControlActExecutor,
 ) {
@@ -80,38 +77,25 @@ class VLMOperationService(
         classDiscriminator = "action_type"
     }
 
-    // Context Compactor Agent
-    private val compactorAgent = CompactorAgent()
-
-    // Loading Sprite Agent (赛博精灵加载状态生成器)
-    private val loadingSpriteAgent = LoadingSpriteAgent()
-
-    // Compactor 触发步数记录
-    private val compactorTriggerSteps = mutableListOf<Int>()
-
     // 解析失败计数器
     private var parseFailureCount = 0
     private val maxParseFailures = 3
-    private val externalMemories = java.util.concurrent.ConcurrentLinkedQueue<String>()
-    private val conversationState = VLMConversationState()
+    private val pendingContextEvents = java.util.concurrent.ConcurrentLinkedQueue<VLMContextEvent>()
     private var lastReasoningOverlay = ""
     private var lastReasoningOverlayAt = 0L
     private var lastUsableXml: String? = null
     private var disableFunctionRecallForCurrentTask = false
 
-    // Priority event management
-    private var priorityEvent: Triple<String, String, Boolean>? = null  // (message, type, suggestCompletion)
-
-    private fun resetConversationState() {
-        conversationState.clear()
-        lastReasoningOverlay = ""
-        lastReasoningOverlayAt = 0L
-    }
-
     fun addExternalMemory(memory: String) {
         val trimmed = memory.trim()
         if (trimmed.isEmpty()) return
-        externalMemories.add(trimmed)
+        pendingContextEvents.add(
+            VLMContextEvent(
+                type = "external_memory",
+                text = trimmed,
+                source = "external",
+            )
+        )
     }
 
     /**
@@ -121,90 +105,37 @@ class VLMOperationService(
      * @param suggestCompletion Whether to suggest VLM complete the task
      */
     fun addPriorityEvent(message: String, eventType: String, suggestCompletion: Boolean = false) {
-        priorityEvent = Triple(message, eventType, suggestCompletion)
+        val trimmed = message.trim()
+        if (trimmed.isEmpty()) return
+        pendingContextEvents.add(
+            VLMContextEvent(
+                type = eventType.trim().ifBlank { "priority" },
+                text = trimmed,
+                source = "priority",
+                suggestCompletion = suggestCompletion,
+            )
+        )
         OmniLog.i(Tag, "Added priority event: type=$eventType, suggestCompletion=$suggestCompletion, msg=$message")
     }
 
     private fun drainExternalMemories(context: UIContext): UIContext {
-        var updatedContext = context
-
-        // Drain regular external memories
-        if (externalMemories.isNotEmpty()) {
-            val drained = ArrayList<String>()
-            while (true) {
-                val item = externalMemories.poll() ?: break
-                drained.add(item)
-            }
-            if (drained.isNotEmpty()) {
-                updatedContext = updatedContext.copy(keyMemory = context.keyMemory + drained)
-            }
+        val drained = ArrayList<VLMContextEvent>()
+        while (true) {
+            val event = pendingContextEvents.poll() ?: break
+            drained.add(event)
         }
-
-        // Drain priority event
-        val event = priorityEvent
-        if (event != null) {
-            updatedContext = updatedContext.copy(
-                priorityEvent = event.first,
-                priorityEventType = event.second,
-                suggestCompletion = event.third
-            )
-            priorityEvent = null  // Clear after consuming
-            OmniLog.i(Tag, "Priority event consumed: ${event.second}")
+        if (drained.isNotEmpty()) {
+            OmniLog.i(Tag, "Consumed ${drained.size} transient VLM context event(s)")
         }
-
-        return updatedContext
+        return contextManager.withTransientEvents(context, drained)
     }
 
-    /**
-     * 计算下一次 compactor 触发的步数
-     * 触发间隔随着总步数增加而减少，从 12 步开始，逐渐减少到 5 步
-     *
-     * @param totalSteps 当前总步数
-     * @param lastTriggerStep 上一次触发的步数
-     * @return 下一次应该触发的步数，如果没有达到触发条件则返回 null
-     */
-    private fun getNextCompactorTriggerStep(totalSteps: Int, lastTriggerStep: Int): Int? {
-        // 计算动态触发间隔
-        // 策略：从 12 步开始，随着总步数增加，间隔逐渐减少到 5 步
-        // - 第一次触发在第 12 步
-        // - 之后间隔逐渐从 8 步减少到 5 步
-        // - 公式：interval = max(5, 8 - (totalSteps / 25))
-
-        val interval = maxOf(5, 8 - (totalSteps / 25))
-
-        // 第一次触发在 12 步
-        val firstTriggerStep = 12
-
-        val nextTriggerStep = if (compactorTriggerSteps.isEmpty()) {
-            firstTriggerStep
-        } else {
-            lastTriggerStep + interval
-        }
-
-        return if (totalSteps >= nextTriggerStep) nextTriggerStep else null
-    }
-
-    /**
-     * 检查当前步骤是否应该触发 compactor
-     * @param currentStep 当前步骤索引（0-based）
-     * @param maxSteps 最大步数（保留参数兼容，当前未使用）
-     * @return 是否应该触发
-     */
-    private fun shouldTriggerCompactor(currentStep: Int, maxSteps: Int?): Boolean {
-        val totalSteps = currentStep + 1
-
-        // 如果已经记录过这个触发点，则跳过
-        if (totalSteps in compactorTriggerSteps) return false
-
-        val lastTriggerStep = compactorTriggerSteps.lastOrNull() ?: 0
-        val nextTriggerStep = getNextCompactorTriggerStep(totalSteps, lastTriggerStep)
-
-        if (nextTriggerStep != null && totalSteps == nextTriggerStep) {
-            compactorTriggerSteps.add(totalSteps)
-            return true
-        }
-
-        return false
+    private fun resetExecutionState() {
+        parseFailureCount = 0
+        lastReasoningOverlay = ""
+        lastReasoningOverlayAt = 0L
+        lastUsableXml = null
+        pendingContextEvents.clear()
     }
 
     private suspend fun ensureTaskActive(stage: String) {
@@ -243,9 +174,7 @@ class VLMOperationService(
             ?: VLMRuntimeConfigRegistry.get().defaultMaxSteps
         OmniLog.d(Tag, "executeTask - package_name: $packageName, skipGoHome: $skipGoHome")
 
-        // 重置 Compactor 触发记录
-        compactorTriggerSteps.clear()
-        resetConversationState()
+        resetExecutionState()
         disableFunctionRecallForCurrentTask = disableFunctionRecall
         ensureTaskActive("execute_task_start")
 
@@ -302,104 +231,18 @@ class VLMOperationService(
         val summaryScreenshotList =
             mutableListOf<String>() //prepare for summary,screenshot before action
         // 内部传递用 scene.xxx 格式，不要提前解析
-        var useModel = model
-
-        // 预生成赛博精灵加载提示词（异步，不阻塞主流程）
-        (taskScope ?: CoroutineScope(Dispatchers.IO)).launch {
-            try {
-                loadingSpriteAgent.prepareForTask(goal)
-            } catch (e: Exception) {
-                OmniLog.w(Tag, "预生成加载提示词失败: ${e.message}")
-            }
-        }
+        val useModel = model
 
         var stepIndex = 0
-
-        // Eager recall fast path: skip step-1 LLM when a high-confidence function match is found.
-        // The selector runs recall + optional lightweight param-fill (text-only); no screenshot taken.
-        val eagerAction = VLMRecallActionProviderRegistry.selectAction(
-            goal = goal,
-            packageName = packageName,
-            disableFunctionRecall = disableFunctionRecallForCurrentTask,
-            streamClient = streamClient,
-        )
-        if (eagerAction != null) {
-            val eagerStep = UIStep(
-                observation = "Eager recall: ${eagerAction.functionId}",
-                thought = "High-confidence function recall matched goal; executing directly.",
-                action = eagerAction,
-            )
-            val executed = actionExecutor.act(eagerStep)
-            if (!executed.result.orEmpty().startsWith("执行失败")) {
-                context = updateContext(executed, context)
-                executionTrace.add(executed)
-                onStepCompleted(executionTrace.size - 1, executed, true, null)
-                stepIndex = 1
-            } else {
-                disableFunctionRecallForCurrentTask = true
-                OmniLog.w(Tag, "Eager recall execution failed (${eagerAction.functionId}): ${executed.result}; falling back to normal VLM")
-            }
-        }
 
         while (stepIndex < normalizedMaxSteps) {
             // 检查用户是否请求暂停（每一步执行前都检查）
             safePauseCheck("before_step_$stepIndex")
             context = drainExternalMemories(context)
-
-            // === Context Compactor Logic (在超时计时之外执行) ===
-            // 使用动态触发逻辑：随着步数增加，触发间隔逐渐从 12 步减少到 5 步
-            if (shouldTriggerCompactor(stepIndex, normalizedMaxSteps)) {
-                try {
-                    OmniLog.i(Tag, "触发上下文压缩与纠错 (Trace size: ${context.trace.size})")
-
-                    // 显示赛博精灵加载提示词（从预生成列表获取）
-                    if (!isSubTask) {
-                        val loadingPhrase = loadingSpriteAgent.getNextPhrase()
-                        deviceOperator.showInfo(loadingPhrase)
-                    }
-
-                    // 截图用于 Compactor 分析
-                    ensureTaskActive("before_compactor_screenshot_$stepIndex")
-                    val compactorScreenshot = deviceOperator.captureScreenshot()
-                    ensureTaskActive("after_compactor_screenshot_$stepIndex")
-
-                    // 1. 调用 Compactor Agent
-                    val compactorResult = compactorAgent.compact(
-                        goal = context.activeGoal(),
-                        currentScreenshot = compactorScreenshot,
-                        trace = context.trace,
-                        existingRunningSummary = context.runningSummary,
-                        needSummary = summary
-                    )
-                    ensureTaskActive("after_compactor_$stepIndex")
-
-                    // 2. 处理纠错建议
-                    var newSummary = compactorResult.summary
-                    if (compactorResult.needsCorrection && !compactorResult.correctionGuidance.isNullOrBlank()) {
-                        OmniLog.w(Tag, "Compactor检测到错误，添加纠错建议: ${compactorResult.correctionGuidance}")
-                        newSummary += "\n\n[Correction Guidance]: ${compactorResult.correctionGuidance}"
-                    }
-
-                    // 3. 更新 Context (替换 trace 为结构化信息)
-                    context = context.copy(
-                        runningSummary = newSummary,
-                        currentState = compactorResult.currentState,
-                        nextStepHint = compactorResult.nextStep ?: "",
-                        completedMilestones = compactorResult.completedMilestones,
-                        keyMemory = context.keyMemory + compactorResult.keyMemory,
-                        trace = emptyList(),
-                        stepsUsed = 0
-                    )
-                    OmniLog.i(Tag, "上下文压缩完成，Running Summary Updated.")
-
-                } catch (e: CancellationException) {
-                    throw e
-                } catch (e: Exception) {
-                    OmniLog.e(Tag, "Context Compaction Failed: ${e.message}")
-                    // 失败时不阻断流程，继续使用原有 Context
-                }
-            }
-            // === Context Compactor Logic (End) ===
+            context = context.copy(
+                stepsUsed = stepIndex,
+                stepsRemaining = (normalizedMaxSteps - stepIndex).coerceAtLeast(0),
+            )
 
             val traceIndex = executionTrace.size
             val result = executeSingleStepWithTimeOut(
@@ -422,14 +265,20 @@ class VLMOperationService(
                     "Step $stepIndex failed: ${result.error ?: "unknown error"}; step=${result.step?.action?.name}"
                 )
 
-                // 使用 result.context，并将当前 step 添加到 trace 中
-                context = result.context
+                // RunLog 是 Planner 的唯一历史；这里只保留当前任务的轻量上下文。
+                context = contextManager.clearTransientEvents(result.context)
                 if (result.step != null) {
-                    context = updateContext(result.step, context)
+                    context = contextManager.clearTransientEvents(
+                        updateContext(result.step, context)
+                    )
                     executionTrace.add(result.step)
                     onStepCompleted(executionTrace.size - 1, result.step, false, result.error)
                 }
                 lastError = result.error
+
+                if (result.step?.failure?.kind == REPEATED_ACTION_STOPPED) {
+                    break
+                }
 
                 if (parseFailureCount >= maxParseFailures) {
                     return TaskExecutionReport(
@@ -464,9 +313,9 @@ class VLMOperationService(
                 "Step $stepIndex success: action=${step.action.name} result=${step.result ?: "OK"}"
             )
 
-            // 使用 result.context，并将当前 step 添加到 trace 中
-            context = result.context
-            context = updateContext(step, context)
+            // RunLog 已由 onStepCompleted 同步保存，UIContext 不再维护第二套轨迹。
+            context = contextManager.clearTransientEvents(result.context)
+            context = contextManager.clearTransientEvents(updateContext(step, context))
             executionTrace.add(step)
             if (summary) {
                 val resizedScreenshot = result.screenshot?.let {
@@ -503,14 +352,15 @@ class VLMOperationService(
                     ensureTaskActive("after_info_action_$stepIndex")
                     onStepCompleted(traceIndex, step, true, null)
 
-                    conversationState.updateLastRoundResult("用户回复：$userAnswer")
                     val userReplyStep = UIStep(
                         observation = "用户回复：$userAnswer",
                         thought = "收到用户回复，继续执行任务",
                         action = RecordMemory(content = "用户回答了：$userAnswer"),
                         result = "已记录用户回复"
                     )
-                    context = updateContext(userReplyStep, context)
+                    context = contextManager.clearTransientEvents(
+                        updateContext(userReplyStep, context)
+                    )
                     executionTrace.add(userReplyStep)
                     onStepCompleted(executionTrace.size - 1, userReplyStep, true, null)
                     stepIndex++
@@ -575,12 +425,20 @@ class VLMOperationService(
 
     private fun updateContext(step: UIStep, context: UIContext): UIContext {
         return if (step.action is RecordMemory) {
-            contextManager.addKeyMemory(
-                contextManager.updateContext(context, step),
-                step.action.content
-            )
+            contextManager.addKeyMemory(context, step.action.content)
         } else {
-            contextManager.updateContext(context, step)
+            context
+        }
+    }
+
+    private suspend fun loadRunLogSteps(): List<Map<String, Any?>> {
+        return try {
+            runLogStepsProvider()
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Exception) {
+            OmniLog.w(Tag, "读取当前 RunLog 失败，本轮使用空历史: ${error.message}")
+            emptyList()
         }
     }
 
@@ -709,16 +567,10 @@ class VLMOperationService(
                 )
                 markPhase("recall_context_ms", recallContextStartedAt)
                 _context = _context.copy(pageDiagnostics = _context.pageDiagnostics + phaseDiagnostics())
-                // Note: Compactor 已移至 executeTask 主循环，在超时计时之外执行
-
-                // Image-skip: compact page state can replace repeated screenshots after the first step.
-                val runtimeConfig = VLMRuntimeConfigRegistry.get()
-                val hasPageState = _context.currentPageSummary.contains("OOB page state")
-                val screenshotForLlm: String? = when {
-                    runtimeConfig.imageMode == "auto" && stepIndex > 0 && hasPageState -> null
-                    else -> screenshot
-                }
-                OmniLog.d(Tag, "image_mode=${runtimeConfig.imageMode} stepIndex=$stepIndex hasPageState=$hasPageState useImage=${screenshotForLlm != null}")
+                val runLogLoadStartedAt = System.currentTimeMillis()
+                val runLogSteps = loadRunLogSteps()
+                markPhase("runlog_history_load_ms", runLogLoadStartedAt)
+                _context = _context.copy(pageDiagnostics = _context.pageDiagnostics + phaseDiagnostics())
 
                 val maxToolCallRetries = 2
                 var toolCallRetryCount = 0
@@ -726,9 +578,7 @@ class VLMOperationService(
                 var vlmResult: VLMResult? = null
                 var sceneTurn: SceneChatCompletionTurn? = null
                 var lastRequestEnvelope: VLMRequestEnvelope? = null
-                var currentUserTextSnapshot = ""
                 val toolCallFailures = mutableListOf<VLMToolCallFailure>()
-                conversationState.updateStreamingReasoning("")
                 lastReasoningOverlay = ""
                 lastReasoningOverlayAt = 0L
 
@@ -736,16 +586,15 @@ class VLMOperationService(
                     val requestBuildStartedAt = System.currentTimeMillis()
                     val requestEnvelope = vlmClient.buildUIOperationRequest(
                         context = _context,
-                        screenshot = screenshotForLlm,
+                        screenshot = screenshot,
                         markedScreenshot = null,
-                        conversationState = conversationState,
+                        runLogSteps = runLogSteps,
                         model = model,
                         retryState = retryState,
                         includeMarkedScreenshot = false
                     )
                     markPhase("request_build_ms", requestBuildStartedAt)
                     lastRequestEnvelope = requestEnvelope
-                    currentUserTextSnapshot = requestEnvelope.currentUserText
                     _context = _context.copy(
                         pageDiagnostics = _context.pageDiagnostics +
                             phaseDiagnostics() +
@@ -754,7 +603,7 @@ class VLMOperationService(
                     )
                     OmniLog.i(
                         Tag,
-                        "Dispatching VLM stream request: attempt=$stabilityAttempt toolRetry=$toolCallRetryCount scene=$model activeGoal=${_context.activeGoal()} traceSize=${_context.trace.size} historyRounds=${conversationState.roundCount()}"
+                        "Dispatching VLM stream request: attempt=$stabilityAttempt toolRetry=$toolCallRetryCount scene=$model activeGoal=${_context.activeGoal()} runLogSteps=${runLogSteps.size} screenshot=true"
                     )
 
                     safePauseCheck("before_http_${stabilityAttempt}_retry_$toolCallRetryCount")
@@ -763,10 +612,7 @@ class VLMOperationService(
                     val streamedTurn = try {
                         streamClient.streamTurn(
                             request = requestEnvelope.request,
-                            onReasoningUpdate = { reasoning ->
-                                conversationState.updateStreamingReasoning(reasoning)
-                                emitReasoningOverlay(reasoning)
-                            }
+                            onReasoningUpdate = ::emitReasoningOverlay
                         )
                     } catch (e: CancellationException) {
                         throw e
@@ -1016,6 +862,59 @@ class VLMOperationService(
                     ),
                     screenshotBase64 = screenshot,
                 )
+                val repeatedActionDecision = VLMRunLogPlannerHistory.evaluateRepeatedAction(
+                    steps = runLogSteps,
+                    candidate = processedStep.action,
+                )
+                if (repeatedActionDecision != RepeatedActionDecision.ALLOW) {
+                    val stopped = repeatedActionDecision == RepeatedActionDecision.STOP
+                    val failureKind = if (stopped) {
+                        REPEATED_ACTION_STOPPED
+                    } else {
+                        REPEATED_ACTION_BLOCKED
+                    }
+                    val failureMessage = if (stopped) {
+                        "相同动作在被阻止后仍被重复规划，任务已停止"
+                    } else {
+                        "相同动作连续无进展，已阻止执行并要求重新规划"
+                    }
+                    val blockedAtMs = System.currentTimeMillis()
+                    val blockedStep = processedStep.copy(
+                        result = "$ACTION_FAILURE_PREFIX: $failureMessage",
+                        beforeState = runningState,
+                        afterState = runningState,
+                        startedAtMs = blockedAtMs,
+                        finishedAtMs = blockedAtMs,
+                        tokenUsage = usageAggregate(),
+                        tokenUsageAttempts = usageAttemptsSnapshot(),
+                        pageDiagnostics = _context.pageDiagnostics +
+                            phaseDiagnostics() +
+                            mapOf("repeated_action_guard" to repeatedActionDecision.name.lowercase()),
+                        failure = VLMFailureDiagnostics(
+                            kind = failureKind,
+                            message = failureMessage,
+                        ),
+                    )
+                    onStepStarted(
+                        traceIndex,
+                        blockedStep.copy(
+                            result = null,
+                            afterState = null,
+                            finishedAtMs = null,
+                            failure = null,
+                        ),
+                    )
+                    OmniLog.w(
+                        Tag,
+                        "Repeated action guard: decision=$repeatedActionDecision action=${processedStep.action.name} runLogSteps=${runLogSteps.size}"
+                    )
+                    return VLMOperationResult(
+                        success = false,
+                        step = blockedStep,
+                        context = _context,
+                        error = failureMessage,
+                    )
+                }
                 val runningStep = UIStep(
                     observation = processedStep.observation,
                     thought = processedStep.thought,
@@ -1104,16 +1003,6 @@ class VLMOperationService(
                 } else {
                     parseFailureCount = 0
                 }
-                sceneTurn?.let { completedTurn ->
-                    conversationState.appendRound(
-                        vlmClient.buildConversationRound(
-                            currentUserText = currentUserTextSnapshot,
-                            assistantTurn = completedTurn,
-                            executedStep = finalStep
-                        )
-                    )
-                }
-
                 if (!actionSucceeded) {
                     val actionError = if (unsupportedAction) {
                         "不支持的操作类型: ${finalStep.result}"
@@ -1611,6 +1500,8 @@ private const val MAX_GET_STATE_ACTIONABLES = 18
 private const val MAX_GET_STATE_LABEL_CHARS = 80
 private const val MAX_GET_STATE_RESULT_CHARS = 2200
 private const val VLM_RELATIVE_COORDINATE_MAX = 1000f
+private const val REPEATED_ACTION_BLOCKED = "repeated_action_blocked"
+private const val REPEATED_ACTION_STOPPED = "repeated_action_stopped"
 private val PRECISE_LOCATION_TOOLS = setOf(
     OobActionSchema.TOOL_CLICK,
     OobActionSchema.TOOL_INPUT_TEXT,

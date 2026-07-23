@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from dataclasses import replace
 import hashlib
 import inspect
@@ -10,11 +11,12 @@ from typing import Any
 import xml.etree.ElementTree as ET
 
 from omniflow.config import PluginSet
+from omniflow.checker import default_checker_trigger, match_checker_rule
 from omniflow.model import (
     Action,
     ActionDecision,
     ActionResult,
-    CheckResult,
+    CheckerContext,
     Function,
     Host,
     Observation,
@@ -23,6 +25,9 @@ from omniflow.model import (
     TransferResult,
 )
 from omniflow.transfer import transfer_action
+
+
+_ACTION_SETTLE_SECONDS = 1.0
 
 
 async def execute_function(
@@ -72,7 +77,10 @@ async def execute_function(
             source_state=source_state,
         )
         executed += step.actions_executed
-        trace.append(trace_step(step, len(trace)))
+        for executed_step in step.executed_steps or (step,):
+            recorded = trace_step(executed_step, len(trace))
+            trace.append(recorded)
+            await _record_step(host, recorded)
         current = step.after or step.before or current
         if not step.success:
             return RunResult(
@@ -101,31 +109,127 @@ async def execute_action(
     function: Function | None = None,
     source_state: Observation | None = None,
 ) -> StepResult:
+    function_id = function.id if function is not None else None
+    executed_steps: list[StepResult] = []
+    recovery_action: Action | None = None
+    recovery_trigger: str | None = None
+    try:
+        recovery = match_checker_rule(
+            CheckerContext(source_state, observation, action),
+            function.checker_rules if function is not None else (),
+        )
+        if recovery is not None:
+            recovery_trigger = recovery.trigger
+            recovery_source_state = await _load_state(host, recovery.source_state_id)
+            recovery_decision = await prepare_action(
+                recovery.action,
+                observation=observation,
+                plugins=plugins,
+                source_state=recovery_source_state,
+            )
+            if recovery_decision.kind == "block" or recovery_decision.action is None:
+                return StepResult(
+                    False,
+                    action=action,
+                    before=observation,
+                    error=f"checker_recovery_failed:{recovery_decision.reason or 'blocked'}",
+                    origin="blocked",
+                    function_id=function_id,
+                    detail=recovery_decision.detail,
+                )
+            recovery_action = recovery_decision.action
+    except Exception as error:  # noqa: BLE001
+        return StepResult(
+            False,
+            action=action,
+            before=observation,
+            error=f"checker_failed:{error}",
+            origin="blocked",
+            function_id=function_id,
+        )
+    checker = plugins.checker
+    if recovery_action is None and checker is not None:
+        try:
+            recovery_value = await _await(
+                checker(CheckerContext(source_state, observation, action))
+            )
+            recovery_action = (
+                Action.from_value(recovery_value)
+                if recovery_value is not None
+                else None
+            )
+            if recovery_action is not None:
+                recovery_trigger = default_checker_trigger(
+                    CheckerContext(source_state, observation, action),
+                    recovery_action,
+                )
+        except Exception as error:  # noqa: BLE001
+            return StepResult(
+                False,
+                action=action,
+                before=observation,
+                error=f"checker_failed:{error}",
+                origin="blocked",
+                function_id=function_id,
+            )
+    if recovery_action is not None:
+        recovery_step = replace(
+            await _dispatch_prepared(
+                recovery_action,
+                observation=observation,
+                host=host,
+            ),
+            origin="checker",
+            function_id=function_id,
+            checker_trigger=recovery_trigger,
+        )
+        executed_steps.append(recovery_step)
+        if not recovery_step.success:
+            return replace(
+                recovery_step,
+                executed_steps=tuple(executed_steps),
+            )
+        observation = recovery_step.after or observation
     decision = await prepare_action(
         action,
         observation=observation,
         plugins=plugins,
-        function=function,
         source_state=source_state,
     )
     if decision.kind == "block" or decision.action is None:
-        return StepResult(
+        blocked = StepResult(
             False,
             action=action,
             before=observation,
             error=decision.reason or "action_blocked",
             origin="blocked",
-            function_id=function.id if function is not None else None,
+            function_id=function_id,
             detail=decision.detail,
+        )
+        if not executed_steps:
+            return blocked
+        executed_steps.append(blocked)
+        return replace(
+            blocked,
+            actions_executed=sum(item.actions_executed for item in executed_steps),
+            executed_steps=tuple(executed_steps),
         )
     result = await _dispatch_prepared(
         decision.action,
         observation=observation,
         host=host,
     )
+    result = replace(
+        result,
+        function_id=function_id,
+    )
+    if not executed_steps:
+        return result
+    executed_steps.append(result)
     return replace(
         result,
-        function_id=function.id if function is not None else None,
+        actions_executed=sum(item.actions_executed for item in executed_steps),
+        executed_steps=tuple(executed_steps),
     )
 
 
@@ -134,20 +238,10 @@ async def prepare_action(
     *,
     observation: Observation,
     plugins: PluginSet,
-    function: Function | None = None,
     source_state: Observation | None = None,
 ) -> ActionDecision:
     candidate = action
-    checker = plugins.checker
-    if checker is None:
-        return ActionDecision("block", reason="checker_not_configured")
-    check = await _await(checker(function, action, observation))
-    if not check.allowed:
-        return ActionDecision(
-            "block",
-            reason=check.reason or "checker_blocked",
-        )
-    if function is None and source_state is None:
+    if source_state is None:
         return ActionDecision("ready", action=candidate)
     transfer_fn = plugins.transfer
     if transfer_fn is None:
@@ -173,6 +267,7 @@ async def _dispatch_prepared(
     host: Host,
 ) -> StepResult:
     action_result = ActionResult.from_value(await _await(host.act(action)))
+    await asyncio.sleep(_ACTION_SETTLE_SECONDS)
     if not action_result.success:
         return StepResult(
             False,
@@ -196,14 +291,16 @@ def trace_step(step: StepResult, step_index: int) -> dict[str, Any]:
     action = step.action or Action("")
     before = _state(step.before or Observation())
     after = _state(step.after or step.before or Observation())
-    diagnostics: dict[str, Any] = {"origin": step.origin}
+    metadata: dict[str, Any] = {"origin": step.origin}
     if step.function_id:
-        diagnostics["function_id"] = step.function_id
+        metadata["function_id"] = step.function_id
+    if step.checker_trigger:
+        metadata["checker_trigger"] = step.checker_trigger
     action_result = step.result or ActionResult(step.success, step.error)
     if action_result.extra:
-        diagnostics["action_result"] = dict(action_result.extra)
+        metadata["action_result"] = dict(action_result.extra)
     if step.detail:
-        diagnostics["transfer"] = dict(step.detail)
+        metadata["transfer"] = dict(step.detail)
     result: dict[str, Any] = {"success": step.success}
     if step.error:
         result["error"] = step.error
@@ -213,7 +310,7 @@ def trace_step(step: StepResult, step_index: int) -> dict[str, Any]:
         "action": action.to_dict(),
         "result": result,
         "after_state_id": after["state_id"],
-        "diagnostics": diagnostics,
+        "metadata": metadata,
     }
 
 
@@ -233,128 +330,19 @@ def _state(value: Observation) -> dict[str, Any]:
             and item != ""
         }
     )
+    explicit_state_id = str(value.extra.get("state_id") or "").strip()
     identity = json.dumps(state, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
     return {
-        "state_id": "state_" + hashlib.sha256(identity.encode()).hexdigest()[:20],
+        "state_id": explicit_state_id
+        or "state_" + hashlib.sha256(identity.encode()).hexdigest()[:20],
         **state,
     }
 
 
-def default_checker(
-    function: Function | None,
-    action: Action,
-    observation: Observation,
-) -> CheckResult:
-    if function is None:
-        return CheckResult()
-    rules = sorted(
-        (
-            canonical_checker_rule(rule)
-            for rule in function.checker_rules
-            if isinstance(rule, dict)
-        ),
-        key=lambda rule: int(rule.get("priority") or 0),
-        reverse=True,
-    )
-    for rule in rules:
-        if rule.get("enabled") is False or not checker_rule_matches(
-            rule,
-            function=function,
-            action=action,
-            observation=observation,
-        ):
-            continue
-        rule_id = str(rule.get("id") or "checker")
-        return CheckResult(False, reason=rule_id)
-    return CheckResult()
-
-
-def checker_rule_matches(
-    rule: dict[str, Any],
-    *,
-    function: Function,
-    action: Action,
-    observation: Observation,
-) -> bool:
-    del function
-    rule = canonical_checker_rule(rule)
-    scope = rule.get("scope") if isinstance(rule.get("scope"), dict) else {}
-    if not _scope_contains(scope.get("action_types"), action.tool):
-        return False
-    if not _scope_contains(scope.get("package_names"), observation.package_name or ""):
-        return False
-
-    condition = dict(rule.get("condition") or {})
-    package = str(observation.package_name or "")
-    xml_text = str(observation.xml or "").lower()
-    elements = _elements(str(observation.xml or ""))
-    checks = [
-        _field_matches(condition.get("xml_contains_any"), [xml_text], contains=True),
-        _field_matches(condition.get("text_any"), [item["text"] for item in elements]),
-        _field_matches(
-            condition.get("text_contains_any"),
-            [item["text"] for item in elements],
-            contains=True,
-        ),
-        _field_matches(
-            condition.get("content_desc_any"),
-            [item["description"] for item in elements],
-        ),
-        _field_matches(
-            condition.get("content_desc_contains_any"),
-            [item["description"] for item in elements],
-            contains=True,
-        ),
-        _field_matches(
-            condition.get("resource_id_any"), [item["resource_id"] for item in elements]
-        ),
-        _field_matches(
-            condition.get("resource_id_contains_any"),
-            [item["resource_id"] for item in elements],
-            contains=True,
-        ),
-        _field_matches(condition.get("package_any"), [package]),
-    ]
-    package_not = _strings(condition.get("package_not"))
-    if package_not:
-        checks.append(package.lower() not in package_not)
-    specified = [matched for matched in checks if matched is not None]
-    return bool(specified) and all(specified)
-
-
-def canonical_checker_rule(value: dict[str, Any]) -> dict[str, Any]:
-    return {
-        "schema_version": "omniflow.checker_rule.v1",
-        "id": str(value.get("id") or "checker").strip() or "checker",
-        "enabled": value.get("enabled") is not False,
-        "scope": dict(value.get("scope") or {}),
-        "condition": dict(value.get("condition") or {}),
-        "priority": int(value.get("priority") or 0),
-    }
-
-
-def _scope_contains(value: Any, current: str) -> bool:
-    allowed = _strings(value)
-    return not allowed or current in allowed
-
-
-def _field_matches(
-    value: Any, candidates: list[str], *, contains: bool = False
-) -> bool | None:
-    expected = _strings(value)
-    if not expected:
-        return None
-    normalized = [item.lower() for item in candidates]
-    if contains:
-        return any(
-            wanted in candidate for wanted in expected for candidate in normalized
-        )
-    return any(wanted == candidate for wanted in expected for candidate in normalized)
-
-
-def _strings(value: Any) -> list[str]:
-    raw = value if isinstance(value, list) else [value]
-    return [str(item).strip().lower() for item in raw if str(item or "").strip()]
+async def _record_step(host: Host, step: dict[str, Any]) -> None:
+    recorder = getattr(host, "record_step", None)
+    if callable(recorder):
+        await _await(recorder(step))
 
 
 def default_transfer(

@@ -7,7 +7,7 @@ interface UITaskEvent {
 
     suspend fun startCompanionAndDoingTask()
 
-    suspend fun waitingUserAction(message: String): Boolean
+    suspend fun waitingUserAction(message: String): UserTakeoverAction
 
     suspend fun pauseTask(message: String)
 

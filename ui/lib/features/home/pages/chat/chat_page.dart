@@ -25,6 +25,7 @@ import '../common/openclaw_connection_checker.dart';
 import '../omnibot_workspace/widgets/omnibot_workspace_browser.dart';
 import 'services/chat_conversation_lifecycle_guard.dart';
 import 'services/chat_conversation_runtime_coordinator.dart';
+import 'services/openclaw_context_scope.dart';
 import 'package:ui/constants/openclaw/openclaw_keys.dart';
 import 'package:ui/core/router/go_router_manager.dart';
 import 'package:ui/features/home/widgets/permission_bottom_sheet.dart';
@@ -768,9 +769,19 @@ abstract class _ChatPageStateBase extends State<ChatPage>
     await _applyConversationThreadTarget(nextTarget);
   }
 
-  String get _expectedBrowserWorkspaceId => chatConversationWorkspaceId(
-    _currentConversationIdByMode[ChatPageMode.normal],
-  );
+  String get _expectedBrowserWorkspaceId {
+    final conversationWorkspace = chatConversationWorkspaceId(
+      _currentConversationIdByMode[ChatPageMode.normal],
+    );
+    final runtime = _runtimeForMode(ChatPageMode.normal);
+    final taskId = (runtime?.currentDispatchTaskId ?? runtime?.lastAgentTaskId)
+        ?.trim();
+    if (taskId == null || taskId.isEmpty) {
+      return conversationWorkspace;
+    }
+    final segment = taskId.replaceAll(RegExp(r'[^A-Za-z0-9._-]'), '_');
+    return '$conversationWorkspace-segment-$segment';
+  }
 
   List<ChatMessageModel> get _messages =>
       _activeRuntime?.messages ?? _messagesByMode[_activeMode]!;
@@ -1506,12 +1517,13 @@ abstract class _ChatPageStateBase extends State<ChatPage>
     );
   }
 
-  String _buildOpenClawSessionKey(int conversationId) {
-    final normalizedUserId = _openClawUserId.trim();
-    if (normalizedUserId.isNotEmpty) {
-      return '$_openClawSessionKeyPrefix:$normalizedUserId:conversation:$conversationId';
-    }
-    return '$_openClawSessionKeyPrefix:conversation:$conversationId';
+  String _buildOpenClawSessionKey(int conversationId, String contextSegmentId) {
+    return buildOpenClawContextSessionKey(
+      prefix: _openClawSessionKeyPrefix,
+      userId: _openClawUserId,
+      conversationId: conversationId,
+      contextSegmentId: contextSegmentId,
+    );
   }
 
   String _openClawWaitingCardId(String taskId) => '$taskId-openclaw-waiting';

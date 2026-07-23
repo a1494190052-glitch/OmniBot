@@ -149,7 +149,8 @@ class AppUpdateManagerTest {
             currentVersion = "v0.5.0.3",
             includeBeta = true,
             downloadSource = ApkDownloadSource.WORKER,
-            edition = "omniinfer"
+            edition = "omniinfer",
+            channel = "vlm-core"
         )
 
         assertEquals("https", url?.scheme)
@@ -158,7 +159,15 @@ class AppUpdateManagerTest {
         assertEquals("0.5.0.3", url?.queryParameter("currentVersion"))
         assertEquals("true", url?.queryParameter("includeBeta"))
         assertEquals("omniinfer", url?.queryParameter("edition"))
+        assertEquals("vlm-core", url?.queryParameter("channel"))
         assertEquals("worker", url?.queryParameter("source"))
+    }
+
+    @Test
+    fun normalizeUpdateChannelDefaultsInvalidValuesToPublic() {
+        assertEquals("vlm-core", AppUpdateManager.normalizeUpdateChannel(" VLM-Core "))
+        assertEquals("public", AppUpdateManager.normalizeUpdateChannel(""))
+        assertEquals("public", AppUpdateManager.normalizeUpdateChannel("vlm/core"))
     }
 
     @Test

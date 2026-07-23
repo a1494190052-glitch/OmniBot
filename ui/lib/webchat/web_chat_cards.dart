@@ -720,7 +720,7 @@ class WebAgentToolSummaryCard extends StatelessWidget {
     // ANSI-coloured output, diff viewer) as the native chat surface. The
     // native sheet uses `isDismissible: true` so tapping anywhere on the
     // dimmed barrier outside the panel closes it.
-    native_transcript.showAgentToolDetailSheet(context, cardData: cardData);
+    native_transcript.openAgentToolCard(context, cardData: cardData);
   }
 }
 

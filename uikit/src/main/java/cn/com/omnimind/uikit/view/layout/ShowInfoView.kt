@@ -16,6 +16,7 @@ import androidx.core.graphics.toColorInt
 import cn.com.omnimind.baselib.util.ShapeBuilder
 import cn.com.omnimind.uikit.R
 import cn.com.omnimind.uikit.api.callback.CatStepLayoutApi
+import cn.com.omnimind.uikit.api.uievent.UserTakeoverAction
 import cn.com.omnimind.uikit.view.data.CatDialogStateData
 import cn.com.omnimind.uikit.view.data.CatDialogViewState
 import cn.com.omnimind.uikit.view.overlay.cat.CatDialogShowInfoView
@@ -58,10 +59,14 @@ class ShowInfoView @JvmOverloads constructor(
     private var llTakeOverTextView: TextView? = null
     private var llStopTextView: TextView? = null
     private var ivResume: ImageView? = null
+    private var takeoverContainer: CatDialogShowInfoView? = null
+    private var takeoverLayoutParams: WindowManager.LayoutParams? = null
+    private var takeoverWindowManager: WindowManager? = null
 
     var delayTask: CoroutineScope = CoroutineScope(Dispatchers.IO)
 
-    var isUserActionCompleted: CompletableDeferred<Boolean>? = null
+    private var isTakeoverActionMode = false
+    var isUserActionCompleted: CompletableDeferred<UserTakeoverAction>? = null
     var catStepLayoutApi: CatStepLayoutApi? = null
     var readyDoingTaskAnimator: AnimatorSet? = null
 
@@ -93,30 +98,43 @@ class ShowInfoView @JvmOverloads constructor(
         gradientBorderContainer?.setBorderColorType(borderColorType)
         // 设置按钮点击监听
         llTakeOver?.setOnClickListener {
-            catStepLayoutApi?.onPauseClick()
+            if (isTakeoverActionMode) {
+                val deferred = isUserActionCompleted
+                if (deferred != null) {
+                    deferred.complete(UserTakeoverAction.CANCEL)
+                } else {
+                    catStepLayoutApi?.onStopClick()
+                }
+            } else {
+                catStepLayoutApi?.onPauseClick()
+            }
         }
         llStop?.setOnClickListener {
-            val deferred = isUserActionCompleted
-            if (deferred != null) {
-                // 只调用 complete，不要立即设置为 null
-                // 让 await() 在 finally 块中处理清理
-                try {
-                    deferred.complete(false)
-                } catch (e: IllegalStateException) {
-                    // 如果已经完成，忽略异常
+            if (isTakeoverActionMode) {
+                val deferred = isUserActionCompleted
+                if (deferred != null) {
+                    deferred.complete(UserTakeoverAction.COMPLETE)
+                } else {
+                    catStepLayoutApi?.onCompleteClick()
                 }
-                return@setOnClickListener
+            } else {
+                catStepLayoutApi?.onStopClick()
             }
-            catStepLayoutApi?.onStopClick()
-
         }
         ivResume?.setOnClickListener {
+            if (
+                isTakeoverActionMode &&
+                CatDialogStateData.viewState == CatDialogViewState.USER_INFO_HINT
+            ) {
+                expandTakeoverActions()
+                return@setOnClickListener
+            }
             val deferred = isUserActionCompleted
             if (deferred != null) {
                 // 只调用 complete，不要立即设置为 null
                 // 让 await() 在 finally 块中处理清理
                 try {
-                    deferred.complete(true)
+                    deferred.complete(UserTakeoverAction.CONTINUE)
                 } catch (e: IllegalStateException) {
                     // 如果已经完成，忽略异常
                 }
@@ -130,7 +148,7 @@ class ShowInfoView @JvmOverloads constructor(
                 // 只调用 complete，不要立即设置为 null
                 // 让 await() 在 finally 块中处理清理
                 try {
-                    deferred.complete(true)
+                    deferred.complete(UserTakeoverAction.CONTINUE)
                 } catch (e: IllegalStateException) {
                     // 如果已经完成，忽略异常
                 }
@@ -145,12 +163,22 @@ class ShowInfoView @JvmOverloads constructor(
         catDialogShowInfoViewParams: WindowManager.LayoutParams,
         windowManager: WindowManager
     ) {
-        applyNormalActionStyle(stopLabel = "已完成", stopTextColor = "#16794A")
+        takeoverContainer = catDialogShowInfoView
+        takeoverLayoutParams = catDialogShowInfoViewParams
+        takeoverWindowManager = windowManager
+        isTakeoverActionMode = true
+        applyNormalActionStyle(stopLabel = "完成", stopTextColor = "#16794A")
         bottomContentLayout?.visibility = VISIBLE
         ivResume?.visibility = GONE
         llResume?.visibility = VISIBLE
-        llTakeOver?.visibility = GONE
+        llTakeOver?.visibility = VISIBLE
         llStop?.visibility = VISIBLE
+        llResume?.contentDescription = "继续智能执行"
+        llStop?.contentDescription = "完成任务"
+        llTakeOver?.contentDescription = "取消任务"
+        ivResume?.contentDescription = "展开接管操作"
+        llTakeOverTextView?.text = "取消"
+        llTakeOverTextView?.setTextColor("#C73636".toColorInt())
         if (CatDialogStateData.viewState == CatDialogViewState.USER_INFO) {
             return
         }
@@ -238,11 +266,33 @@ class ShowInfoView @JvmOverloads constructor(
 
     }
 
+    private fun expandTakeoverActions() {
+        val container = takeoverContainer ?: return
+        val params = takeoverLayoutParams ?: return
+        val windowManager = takeoverWindowManager ?: return
+        clearAllAminAndDelay()
+        CatDialogStateData.viewState = CatDialogViewState.USER_INFO
+        restoreDoingContentVisibility()
+        ivResume?.visibility = GONE
+        llResume?.visibility = VISIBLE
+        llTakeOver?.visibility = VISIBLE
+        llStop?.visibility = VISIBLE
+        gradientBorderContainer?.cornerRadiusProgress = 0.0f
+        innerRelativeLayout?.setPadding(12.dpToPx(), 12.dpToPx(), 12.dpToPx(), 12.dpToPx())
+        val (width, height) = CatDialogStateData.getTaskDoingWH()
+        val (x, y) = CatDialogStateData.getDoingTaskXY()
+        params.width = width
+        params.height = height
+        params.x = x
+        params.y = y
+        updateOverlayLayoutIfAttached(windowManager, container, params)
+    }
+
     suspend fun userAction(
         catDialogShowInfoView: CatDialogShowInfoView,
         catDialogShowInfoViewParams: WindowManager.LayoutParams,
         windowManager: WindowManager
-    ): Boolean {
+    ): UserTakeoverAction {
         withContext(Dispatchers.Main) {
             pause(
                 catDialogShowInfoView,
@@ -262,7 +312,7 @@ class ShowInfoView @JvmOverloads constructor(
                 }
             }
         } else {
-            false
+            UserTakeoverAction.CANCEL
         }
     }
 
@@ -391,6 +441,7 @@ class ShowInfoView @JvmOverloads constructor(
         isShowTakeOver: Boolean = true,
         isShowStop: Boolean = true,
     ) {
+        isTakeoverActionMode = false
         applyNormalActionStyle(stopLabel = "停止", stopTextColor = "#C73636")
         restoreDoingContentVisibility()
         ivResume?.visibility = GONE
@@ -465,6 +516,7 @@ class ShowInfoView @JvmOverloads constructor(
         windowManager: WindowManager,
         isPaused: Boolean = false,
     ) {
+        isTakeoverActionMode = false
         clearAllAminAndDelay()
         applyLearningActionStyle(isPaused)
         visibility = VISIBLE
@@ -523,6 +575,7 @@ class ShowInfoView @JvmOverloads constructor(
      * 宽高从 40dp 动画到 80dp
      */
     fun readyDoingTask() {
+        isTakeoverActionMode = false
         applyNormalActionStyle(stopLabel = "停止", stopTextColor = "#C73636")
         bottomContentLayout?.visibility = VISIBLE
         ivResume?.visibility = GONE

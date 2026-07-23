@@ -431,6 +431,10 @@ code { background: var(--accent-soft); border-radius: 5px; padding: 1px 6px; fon
           </select>
         </div>
         <div>
+          <label class="field-label" for="f-channel">更新通道</label>
+          <input id="f-channel" class="text-input" placeholder="public 或 vlm-core">
+        </div>
+        <div>
           <label class="field-label" for="f-published">发布时间</label>
           <input id="f-published" class="text-input" type="datetime-local">
         </div>
@@ -1035,6 +1039,7 @@ code { background: var(--accent-soft); border-radius: 5px; padding: 1px 6px; fon
       var tag = el('span', 'rel-tag', release.tag);
       left.appendChild(tag);
       left.appendChild(el('span', 'chip ' + (release.track === 'stable' ? 'chip-stable' : 'chip-beta'), release.track));
+      left.appendChild(el('span', 'chip chip-draft', release.channel || 'public'));
       if (release.draft) left.appendChild(el('span', 'chip chip-draft', '草稿'));
       row.appendChild(left);
 
@@ -1079,6 +1084,7 @@ code { background: var(--accent-soft); border-radius: 5px; padding: 1px 6px; fon
     $('f-tag').disabled = Boolean(release);
     $('f-version').value = release ? release.version : '';
     $('f-track').value = release && release.track === 'beta' ? 'beta' : 'stable';
+    $('f-channel').value = release ? (release.channel || 'public') : 'public';
     $('f-draft').checked = Boolean(release && release.draft);
     $('f-prerelease').checked = Boolean(release && release.prerelease);
     $('f-url').value = release ? (release.releaseUrl || '') : '';
@@ -1361,6 +1367,7 @@ code { background: var(--accent-soft); border-radius: 5px; padding: 1px 6px; fon
       tag: tag,
       version: $('f-version').value.trim() || tag.replace(/^v/i, ''),
       track: $('f-track').value,
+      channel: $('f-channel').value.trim() || 'public',
       draft: $('f-draft').checked,
       prerelease: $('f-prerelease').checked,
       publishedAt: publishedAt,

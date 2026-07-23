@@ -284,6 +284,7 @@ internal class OmniFlowPythonClient(
         private const val SHUTDOWN_TIMEOUT_MS = 1_000L
         private const val STDERR_TAIL_CHARS = 8_192
         private const val DEFAULT_CALL_TIMEOUT_MS = 30_000L
+        private const val SEMANTIC_COMPILE_TIMEOUT_MS = 120_000L
         private const val RUN_TIMEOUT_MS = 10 * 60_000L
         private const val DEFAULT_SHELL_SITE_PACKAGES =
             "/workspace/.omnibot/runtime/omniflow/current/site-packages"
@@ -305,8 +306,11 @@ internal class OmniFlowPythonClient(
             """.trimIndent()
         }
 
-        private fun defaultTimeoutMs(operation: String): Long =
-            if (operation == "run") RUN_TIMEOUT_MS else DEFAULT_CALL_TIMEOUT_MS
+        internal fun defaultTimeoutMs(operation: String): Long = when (operation) {
+            "compile" -> SEMANTIC_COMPILE_TIMEOUT_MS
+            "run" -> RUN_TIMEOUT_MS
+            else -> DEFAULT_CALL_TIMEOUT_MS
+        }
     }
 }
 

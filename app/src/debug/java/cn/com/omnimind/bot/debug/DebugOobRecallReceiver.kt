@@ -7,10 +7,8 @@ import android.util.Base64
 import cn.com.omnimind.assists.controller.accessibility.AccessibilityController
 import cn.com.omnimind.assists.task.vlmserver.UIContext
 import cn.com.omnimind.assists.task.vlmserver.VLMClient
-import cn.com.omnimind.assists.task.vlmserver.VLMConversationState
 import cn.com.omnimind.assists.task.vlmserver.VLMRecallContextRequest
 import cn.com.omnimind.baselib.util.OmniLog
-import cn.com.omnimind.bot.function.FunctionService
 import cn.com.omnimind.bot.omniflow.OmniFlowFunctionRecallAdapter
 import cn.com.omnimind.bot.omniflow.OmniFlowPythonRuntime
 import cn.com.omnimind.bot.vlm.VlmFunctionRecall
@@ -57,15 +55,11 @@ class DebugOobRecallReceiver : BroadcastReceiver() {
             "k" to topK,
         )
         val recallResult = runCatching {
-            val service = FunctionService(appContext)
             OmniFlowFunctionRecallAdapter(
                 bridgeCall = { operation, payload ->
                     OmniFlowPythonRuntime.call(appContext, operation, payload)
                 },
-            ).recall(
-                request = recallRequest,
-                functionSpecs = service.listFunctionSpecs(limit = 500),
-            )
+            ).recall(recallRequest)
         }.getOrElse { error ->
             linkedMapOf<String, Any?>(
                 "success" to false,
@@ -117,11 +111,11 @@ class DebugOobRecallReceiver : BroadcastReceiver() {
         )
         val envelope = VLMClient(
             systemPromptBuilder = { "debug recall preview" },
-            turnPromptBuilder = { context, _ -> context.overallTask }
+            turnPromptBuilder = { context, _, _ -> context.overallTask }
         ).buildUIOperationRequest(
             context = enriched,
             screenshot = null,
-            conversationState = VLMConversationState(),
+            runLogSteps = emptyList(),
         )
         val modelToolNames = envelope.request.tools.orEmpty().map { it.function.name }
         return linkedMapOf(

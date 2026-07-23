@@ -6,7 +6,7 @@ import cn.com.omnimind.assists.ManualOverlayGestureReplayResult
 import cn.com.omnimind.assists.ManualOverlayTouchGesture
 import cn.com.omnimind.assists.ManualInputTarget
 import cn.com.omnimind.assists.controller.accessibility.AccessibilityController
-import cn.com.omnimind.baselib.runlog.CanonicalActionConverter
+import cn.com.omnimind.baselib.runlog.ActionCoordinateCodec
 import cn.com.omnimind.baselib.runlog.OobActionSchema
 import cn.com.omnimind.baselib.util.OmniLog
 import kotlinx.coroutines.runBlocking
@@ -65,22 +65,14 @@ internal fun canonicalManualScreenAction(
     displayHeight: Int,
 ): Action {
     require(displayWidth > 0 && displayHeight > 0) { "manual_recording_display_required" }
-    val canonical = CanonicalActionConverter.convert(
-        tool = tool,
+    val canonicalArgs = ActionCoordinateCodec.toRelative(
         args = args,
-        coordinateSpace = CanonicalActionConverter.CoordinateSpace.SCREEN_ABSOLUTE_PX,
-        displaySize = CanonicalActionConverter.DisplaySize(
+        displaySize = ActionCoordinateCodec.DisplaySize(
             displayWidth.toDouble(),
             displayHeight.toDouble(),
         ),
-        replayableOnly = true,
-        persistedOnly = false,
     )
-    @Suppress("UNCHECKED_CAST")
-    return actionOf(
-        tool,
-        canonical.getValue(OobActionSchema.ROOT_ARGS) as Map<String, Any?>,
-    )
+    return actionOf(tool, canonicalArgs)
 }
 
 data class ManualVlmScreenshotRef(
@@ -487,10 +479,9 @@ class ManualVlmTraceRecorder(
 
     private fun screenshotAnnotation(action: Action): ManualScreenshotAnnotation? {
         val args = runCatching {
-            CanonicalActionConverter.toScreenPixels(
-                tool = action.tool,
+            ActionCoordinateCodec.toScreenPixels(
                 args = action.argsMap(),
-                displaySize = CanonicalActionConverter.DisplaySize(
+                displaySize = ActionCoordinateCodec.DisplaySize(
                     deviceOperator.getDisplayWidth().toDouble(),
                     deviceOperator.getDisplayHeight().toDouble(),
                 ),

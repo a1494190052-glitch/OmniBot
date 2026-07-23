@@ -36,17 +36,13 @@
           "list",
           "get",
           "put",
-          "register",
-          "update",
+          "edit",
           "delete",
-          "clear",
-          "replace"
-        ],
-        "replace_required": ["functions"]
+          "clear"
+        ]
       },
       "response": {
-        "function_values_use": "function_id",
-        "replace_required": ["count", "invalid_functions"]
+        "function_values_use": "function_id"
       }
     },
     "compile": {
@@ -54,12 +50,28 @@
       "host_calls": ["get_run_log", "get_state"],
       "response": {"required": ["success", "function", "error"]}
     },
+    "enhance": {
+      "request": {"required": ["function_id"], "optional": ["run_log"]},
+      "host_calls": ["complete_json"],
+      "response": {
+        "required": [
+          "function_id",
+          "found",
+          "function",
+          "updated_function",
+          "changed",
+          "saved",
+          "changes",
+          "enhancement_status"
+        ]
+      }
+    },
     "control_act": {
       "request": {
         "required": ["action"],
         "optional": ["function_id", "source_state_id", "checker_rules", "state"]
       },
-      "host_calls": ["observe", "act", "get_state"],
+      "host_calls": ["observe", "act", "get_state", "record_step"],
       "response": {
         "required": [
           "success",
@@ -87,12 +99,6 @@
         ]
       }
     },
-    "materialize": {
-      "request": {"required": ["function", "arguments"]},
-      "response": {
-        "required": ["success", "function", "missing_arguments", "error"]
-      }
-    },
     "prepare_action": {
       "request": {"required": ["function_id", "source_state_id", "action", "state"]},
       "host_calls": ["get_state"],
@@ -108,22 +114,21 @@
     },
     "recall": {
       "request": {"required": ["goal", "state"]},
-      "response": {"required": ["functions"]}
+      "response": {
+        "required": ["candidates"],
+        "candidate": {
+          "required": ["function", "retrieval"],
+          "function_schema_ref": "omniflow_function.v2.json",
+          "retrieval": {
+            "required": ["score", "source", "rank"],
+            "score_range": [0.0, 1.0]
+          }
+        }
+      }
     },
     "record_step": {
       "request": {
-        "required": ["step_index"],
-        "optional": [
-          "step_id",
-          "status",
-          "thinking",
-          "summary",
-          "before_state_id",
-          "action",
-          "result",
-          "after_state_id",
-          "diagnostics"
-        ]
+        "schema_ref": "omniflow_canonical_run_log.v1.json#/$defs/step"
       },
       "response": {"required": ["step"]}
     },
@@ -142,7 +147,14 @@
   "host_call": {
     "request_required": ["id", "event", "call_id", "method", "payload"],
     "response_required": ["call_id", "ok", "result", "error"],
-    "methods": ["act", "get_run_log", "get_state", "observe"],
+    "methods": [
+      "act",
+      "complete_json",
+      "get_run_log",
+      "get_state",
+      "observe",
+      "record_step"
+    ],
     "act_payload": {"required": ["action", "state"]}
   },
   "invariants": {

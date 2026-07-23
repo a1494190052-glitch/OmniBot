@@ -29,12 +29,7 @@ class VlmWorkspaceConfig private constructor(private val appContext: Context) {
               "primary_model": "$DEFAULT_PRIMARY_MODEL",
               "distill_model": "$DEFAULT_DISTILL_MODEL",
               "vlm_max_completion_tokens": 384,
-              "vlm_image_mode": "always",
               "vlm_temperature": 0.2,
-              "vlm_history_rounds": 4,
-              "vlm_history_action_chars": 160,
-              "vlm_history_result_chars": 220,
-              "vlm_tool_result_chars": 900,
               "vlm_default_max_steps": 12,
               "vlm_min_wait_timeout_ms": 30000,
               "vlm_max_wait_timeout_ms": 600000,
@@ -67,12 +62,7 @@ class VlmWorkspaceConfig private constructor(private val appContext: Context) {
             primaryModel = DEFAULT_PRIMARY_MODEL,
             distillModel = DEFAULT_DISTILL_MODEL,
             vlmMaxCompletionTokens = 384,
-            vlmImageMode = "always",
             vlmTemperature = 0.2,
-            vlmHistoryRounds = 4,
-            vlmHistoryActionChars = 160,
-            vlmHistoryResultChars = 220,
-            vlmToolResultChars = 900,
             vlmDefaultMaxSteps = 12,
             vlmMinWaitTimeoutMs = 30_000L,
             vlmMaxWaitTimeoutMs = 600_000L,
@@ -94,12 +84,7 @@ class VlmWorkspaceConfig private constructor(private val appContext: Context) {
         val primary_model: String = DEFAULT_PRIMARY_MODEL,
         val distill_model: String = DEFAULT_DISTILL_MODEL,
         val vlm_max_completion_tokens: Int = 384,
-        val vlm_image_mode: String = "always",
         val vlm_temperature: Double = 0.2,
-        val vlm_history_rounds: Int = 4,
-        val vlm_history_action_chars: Int = 160,
-        val vlm_history_result_chars: Int = 220,
-        val vlm_tool_result_chars: Int = 900,
         val vlm_default_max_steps: Int = 12,
         val vlm_min_wait_timeout_ms: Long = 30_000L,
         val vlm_max_wait_timeout_ms: Long = 600_000L,
@@ -119,12 +104,7 @@ class VlmWorkspaceConfig private constructor(private val appContext: Context) {
         val primaryModel: String,
         val distillModel: String,
         val vlmMaxCompletionTokens: Int,
-        val vlmImageMode: String,
         val vlmTemperature: Double,
-        val vlmHistoryRounds: Int,
-        val vlmHistoryActionChars: Int,
-        val vlmHistoryResultChars: Int,
-        val vlmToolResultChars: Int,
         val vlmDefaultMaxSteps: Int,
         val vlmMinWaitTimeoutMs: Long,
         val vlmMaxWaitTimeoutMs: Long,
@@ -181,12 +161,7 @@ class VlmWorkspaceConfig private constructor(private val appContext: Context) {
         val primaryModel = raw.primary_model.trim().ifBlank { DEFAULT_PRIMARY_MODEL }
         val distillModel = raw.distill_model.trim().ifBlank { DEFAULT_DISTILL_MODEL }
         val maxCompletionTokens = raw.vlm_max_completion_tokens.coerceIn(64, 2048)
-        val imageMode = raw.vlm_image_mode.trim().takeIf { it in setOf("always", "auto") } ?: "always"
         val temperature = raw.vlm_temperature.coerceIn(0.0, 2.0)
-        val historyRounds = raw.vlm_history_rounds.coerceIn(0, 12)
-        val historyActionChars = raw.vlm_history_action_chars.coerceIn(40, 1000)
-        val historyResultChars = raw.vlm_history_result_chars.coerceIn(40, 2000)
-        val toolResultChars = raw.vlm_tool_result_chars.coerceIn(120, 4000)
         val defaultMaxSteps = raw.vlm_default_max_steps.coerceIn(1, 64)
         val minWaitTimeoutMs = raw.vlm_min_wait_timeout_ms.coerceIn(5_000L, 600_000L)
         val maxWaitTimeoutMs = raw.vlm_max_wait_timeout_ms.coerceIn(minWaitTimeoutMs, 1_800_000L)
@@ -213,12 +188,7 @@ class VlmWorkspaceConfig private constructor(private val appContext: Context) {
             primaryModel = primaryModel,
             distillModel = distillModel,
             vlmMaxCompletionTokens = maxCompletionTokens,
-            vlmImageMode = imageMode,
             vlmTemperature = temperature,
-            vlmHistoryRounds = historyRounds,
-            vlmHistoryActionChars = historyActionChars,
-            vlmHistoryResultChars = historyResultChars,
-            vlmToolResultChars = toolResultChars,
             vlmDefaultMaxSteps = defaultMaxSteps,
             vlmMinWaitTimeoutMs = minWaitTimeoutMs,
             vlmMaxWaitTimeoutMs = maxWaitTimeoutMs,
@@ -240,13 +210,8 @@ class VlmWorkspaceConfig private constructor(private val appContext: Context) {
             VLMRuntimeConfig(
                 primarySceneId = snapshot.primaryModel,
                 maxCompletionTokens = snapshot.vlmMaxCompletionTokens,
-                imageMode = snapshot.vlmImageMode,
                 temperature = snapshot.vlmTemperature,
                 defaultMaxSteps = snapshot.vlmDefaultMaxSteps,
-                maxHistoryRounds = snapshot.vlmHistoryRounds,
-                maxHistoryActionChars = snapshot.vlmHistoryActionChars,
-                maxHistoryResultChars = snapshot.vlmHistoryResultChars,
-                maxToolResultChars = snapshot.vlmToolResultChars,
             )
         )
         VLMToolDenylistRegistry.set(snapshot.disabledTools)

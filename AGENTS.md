@@ -2,6 +2,40 @@
 
 This file provides guidance to Codex (Codex.ai/code) when working with code in this repository.
 
+## RunLog Schema Long-Term Rule
+
+The canonical RunLog step has exactly five required truth fields:
+`step_index`, `before_state_id`, `action`, `result`, and `after_state_id`.
+All optional step extensions use the single `metadata` object. In particular,
+`step_id`, `status`, `thinking`, and `summary` belong inside `metadata`; they
+must never be written at the step top level or under a step-level
+`diagnostics` alias. `result.success` remains the execution-success truth.
+
+Any canonical schema change must update OpenOmniBot schemas, Kotlin producers
+and storage, embedded OmniFlow Python, `~/Projects/Omni/OmniFlow`, Dart
+consumers, and cross-repository contract tests together. Do not add runtime
+aliases or fallback parsing for old field names.
+
+## RecoveryChecker Long-Term Rule
+
+A learned Checker is part of the Function and has exactly four fields:
+`schema_version`, `trigger`, `source_state_id`, and `action`. `trigger` is a
+restricted Python boolean expression over documented state helper functions;
+`action` is the same canonical Action used everywhere else. Do not introduce a
+second action schema, `when/then`, CEL, YAML, XPath, or runtime field aliases.
+
+Checker generation belongs to offline RunLog enhancement. The Agent may create
+a Checker only from explicit failed/recovery evidence, must copy the successful
+recovery Action and its `before_state_id`, and must not invent coordinates,
+selectors, state ids, or recovery behavior. Insufficient evidence produces no
+Checker. Built-in deterministic recoveries may record `metadata.checker_trigger`;
+offline conversion copies that verified trigger and writes the Checker in the
+same Function conversion. Runtime evaluates rules in order and executes at most one recovery
+Action, observes again, then retries the original Action. Coordinate recovery
+must load `source_state_id` and use the canonical OmniTransfer implementation;
+transfer failure returns control to the VLM and must never replay source-device
+coordinates directly.
+
 ## Project Overview
 
 OmnibotApp is an AI-powered intelligent robot assistant application for Android. It's a hybrid app combining native Android Kotlin code with Flutter UI, implementing a modular architecture with clear separation of concerns.

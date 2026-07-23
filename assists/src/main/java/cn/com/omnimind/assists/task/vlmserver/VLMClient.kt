@@ -26,8 +26,16 @@ class VLMClient(
     private val systemPromptBuilder: (sceneId: String) -> String = { sceneId ->
         PromptTemplate.buildSystemPrompt(sceneId = sceneId)
     },
-    private val turnPromptBuilder: (context: UIContext, sceneId: String) -> String = { context, sceneId ->
-        PromptTemplate.buildTurnUserPrompt(context, sceneId = sceneId)
+    private val turnPromptBuilder: (
+        context: UIContext,
+        runLogSteps: List<Map<String, Any?>>,
+        sceneId: String,
+    ) -> String = { context, runLogSteps, sceneId ->
+        PromptTemplate.buildTurnUserPrompt(
+            context = context,
+            sceneId = sceneId,
+            runLogSteps = runLogSteps,
+        )
     }
 ) {
     private val json = Json {
@@ -40,7 +48,7 @@ class VLMClient(
         context: UIContext,
         screenshot: String?,
         markedScreenshot: String? = null,
-        conversationState: VLMConversationState,
+        runLogSteps: List<Map<String, Any?>> = emptyList(),
         model: String = VLMRuntimeConfigRegistry.get().primarySceneId,
         retryState: VLMToolCallRetryState? = null,
         includeMarkedScreenshot: Boolean = false
@@ -61,12 +69,10 @@ class VLMClient(
             .withDynamicFunctionCallToolGuidance(dynamicFunctionToolNames)
             .copy(allowedVlmToolNames = selectedPromptToolNames.toList())
         val systemPrompt = systemPromptBuilder(sceneId)
-        val currentUserText = turnPromptBuilder(promptContext, sceneId)
-        val historyMessages = conversationState.historyMessages()
+        val currentUserText = turnPromptBuilder(promptContext, runLogSteps, sceneId)
         val effectiveMarkedScreenshot = markedScreenshot.takeIf { includeMarkedScreenshot }
         val messages = buildMessages(
             systemPrompt = systemPrompt,
-            historyMessages = historyMessages,
             currentUserText = currentUserText,
             screenshot = screenshot,
             markedScreenshot = effectiveMarkedScreenshot,
@@ -83,7 +89,7 @@ class VLMClient(
 
         OmniLog.i(
             TAG,
-            "buildUIOperationRequest scene=$model historyRounds=${conversationState.roundCount()} historyMessages=${historyMessages.size} totalMessages=${messages.size} currentImages=$imageCount visualPolicy=screenshot+compact_page_state marked=${includeMarkedScreenshot && !markedScreenshot.isNullOrBlank()} retry=${retryState?.retryIndex ?: 0} tools=${tools.size}/$defaultToolCount recalledTools=${dynamicFunctionToolNames.size}"
+            "buildUIOperationRequest scene=$model runLogSteps=${runLogSteps.size} totalMessages=${messages.size} currentImages=$imageCount visualPolicy=current_screenshot+runlog_action_summary marked=${includeMarkedScreenshot && !markedScreenshot.isNullOrBlank()} retry=${retryState?.retryIndex ?: 0} tools=${tools.size}/$defaultToolCount recalledTools=${dynamicFunctionToolNames.size}"
         )
 
         return VLMRequestEnvelope(
@@ -166,121 +172,6 @@ class VLMClient(
 
     private fun isSceneId(value: String): Boolean {
         return value.startsWith("scene.")
-    }
-
-    fun buildConversationRound(
-        currentUserText: String,
-        assistantTurn: SceneChatCompletionTurn,
-        executedStep: UIStep
-    ): VLMConversationRound {
-        val assistantMessage = ChatCompletionMessage(
-            role = "assistant",
-            content = assistantTurn.turn.message.content,
-            toolCalls = assistantTurn.turn.message.toolCalls
-        )
-        val toolCallId = assistantTurn.turn.message.toolCalls?.firstOrNull()?.id.orEmpty()
-        val success = !(executedStep.result?.startsWith(ACTION_FAILURE_PREFIX) == true)
-        val toolPayload = buildJsonObject {
-            put("success", JsonPrimitive(success))
-            put("result", JsonPrimitive(compactToolResult(executedStep)))
-        }.toString()
-        return VLMConversationRound(
-            userMessage = ChatCompletionMessage(
-                role = "user",
-                content = JsonPrimitive(buildCompactHistoryUserMessage(currentUserText, executedStep))
-            ),
-            assistantMessage = assistantMessage,
-            toolMessage = ChatCompletionMessage(
-                role = "tool",
-                content = JsonPrimitive(toolPayload),
-                toolCallId = toolCallId.ifBlank { null }
-            )
-        )
-    }
-
-    private fun compactToolResult(executedStep: UIStep): String {
-        val parts = buildList {
-            executedStep.result?.trim()?.takeIf { it.isNotEmpty() }?.let { add(it) }
-            executedStep.summary.trim().takeIf { it.isNotEmpty() }?.let { add("summary=$it") }
-        }
-        return parts.joinToString("; ")
-            .ifBlank { "no result details" }
-            .take(runtimeConfig().maxToolResultChars)
-    }
-
-    private fun sanitizeModelVisibleJson(value: kotlinx.serialization.json.JsonElement): kotlinx.serialization.json.JsonElement {
-        return when (value) {
-            is JsonObject -> buildJsonObject {
-                value.forEach { (key, child) ->
-                    val normalizedKey = key.trim().lowercase()
-                    if (isRawXmlKey(normalizedKey)) {
-                        put("${key}_chars", JsonPrimitive(rawXmlCharCount(child)))
-                        put("${key}_model_visible", JsonPrimitive(false))
-                    } else {
-                        put(key, sanitizeModelVisibleJson(child))
-                    }
-                }
-            }
-            is JsonArray -> buildJsonArray {
-                value.forEach { add(sanitizeModelVisibleJson(it)) }
-            }
-            is JsonPrimitive -> {
-                val text = value.contentOrNull
-                if (text != null && looksLikeRawXml(text)) {
-                    JsonPrimitive(
-                        "raw_xml_omitted(chars=${text.length}, model_visible=false)"
-                    )
-                } else {
-                    value
-                }
-            }
-        }
-    }
-
-    private fun isRawXmlKey(normalizedKey: String): Boolean {
-        return normalizedKey == "xml" ||
-            normalizedKey == "current_xml" ||
-            normalizedKey == "observation_xml" ||
-            normalizedKey == "before_xml" ||
-            normalizedKey == "after_xml" ||
-            normalizedKey.endsWith("_xml")
-    }
-
-    private fun rawXmlCharCount(value: kotlinx.serialization.json.JsonElement): Int {
-        return (value as? JsonPrimitive)?.contentOrNull?.length ?: value.toString().length
-    }
-
-    private fun looksLikeRawXml(text: String): Boolean {
-        val trimmed = text.trimStart()
-        return trimmed.startsWith("<hierarchy") ||
-            trimmed.startsWith("<node") ||
-            trimmed.contains("<node ")
-    }
-
-    internal fun buildCompactHistoryUserMessage(currentUserText: String, executedStep: UIStep): String {
-        val runtimeConfig = runtimeConfig()
-        val actionSummary = when (val command = executedStep.action) {
-            is Action -> "${command.tool} ${command.args}"
-            is Observe -> "get_state ${command.reason.take(runtimeConfig.maxHistoryActionChars)}"
-            is FunctionInvocation -> "${command.functionId} ${command.arguments.toString().take(runtimeConfig.maxHistoryActionChars)}"
-            is FinishedDecision -> "finished"
-            is InfoDecision -> "info"
-            is AbortDecision -> "abort"
-            is RecordMemory -> "record"
-        }.take(runtimeConfig.maxHistoryActionChars)
-        return buildString {
-            append("Previous turn compact context. ")
-            append("Do not use this as current page evidence; use the latest user message and screenshot for grounding. ")
-            append("Prior action: ")
-            append(actionSummary)
-            executedStep.result?.trim()?.takeIf { it.isNotEmpty() }?.let {
-                append(". Result: ")
-                append(it.take(runtimeConfig.maxHistoryResultChars))
-            }
-            if (currentUserText.contains("用户任务") || currentUserText.contains("User task")) {
-                append(". The full previous prompt was intentionally compacted to control tokens.")
-            }
-        }
     }
 
     private fun parseToolActionResponse(
@@ -409,7 +300,6 @@ class VLMClient(
 
     private fun buildMessages(
         systemPrompt: String,
-        historyMessages: List<ChatCompletionMessage>,
         currentUserText: String,
         screenshot: String?,
         markedScreenshot: String?,
@@ -421,7 +311,6 @@ class VLMClient(
             role = "system",
             content = JsonPrimitive(systemPrompt)
         )
-        messages += historyMessages
         messages += buildCurrentUserMessage(currentUserText, screenshot, markedScreenshot)
 
         retryState?.let { messages += buildRetryMessages(context, it) }

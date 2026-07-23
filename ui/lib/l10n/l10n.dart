@@ -23,7 +23,7 @@ extension OmniFlowL10nX on AppLocalizations {
   String get runLogTimelineTitle => _isEn ? 'RunLog' : '轨迹详情';
   String get runLogTimelineUnknown => _isEn ? 'Untitled' : '未命名';
   String get runLogTimelineLoadFailed => _isEn ? 'Load failed' : '加载失败';
-  String get runLogTimelineEmpty => _isEn ? 'No replayable steps' : '暂无可重放步骤';
+  String get runLogTimelineEmpty => _isEn ? 'No execution steps' : '暂无执行步骤';
   String runLogTimelineStepCount(int count) =>
       _isEn ? '$count steps' : '$count 步';
 

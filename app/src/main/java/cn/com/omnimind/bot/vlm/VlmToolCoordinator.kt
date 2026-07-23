@@ -21,7 +21,6 @@ import cn.com.omnimind.assists.task.vlmserver.RecordMemory
 import cn.com.omnimind.assists.task.vlmserver.UIContext
 import cn.com.omnimind.assists.task.vlmserver.VLMCommand
 import cn.com.omnimind.assists.task.vlmserver.VLMClient
-import cn.com.omnimind.assists.task.vlmserver.VLMConversationState
 import cn.com.omnimind.assists.task.vlmserver.VLMCurrentPageSnapshot
 import cn.com.omnimind.assists.task.vlmserver.VLMIndexedPageContext
 import cn.com.omnimind.assists.task.vlmserver.VLMRecallContextProviderRegistry
@@ -188,7 +187,6 @@ object VlmToolCoordinator {
     private fun budgetDiagnostics(context: UIContext): Map<String, String> = linkedMapOf(
         "vlm_context_current_page_summary_chars" to context.currentPageSummary.length.toString(),
         "vlm_context_step_skill_guidance_chars" to context.stepSkillGuidance.length.toString(),
-        "vlm_context_running_summary_chars" to context.runningSummary.length.toString(),
         "vlm_context_key_memory_count" to context.keyMemory.size.toString(),
         "vlm_context_installed_app_count" to context.installedApplications.size.toString(),
         "vlm_context_dynamic_tool_definition_count" to context.dynamicToolDefinitions.size.toString(),
@@ -434,7 +432,6 @@ object VlmToolCoordinator {
         snapshot: VLMCurrentPageSnapshot,
         model: String = VlmWorkspaceConfig.defaultSnapshot().primaryModel,
         streamClient: VLMStreamClient,
-        conversationState: VLMConversationState = VLMConversationState(),
         vlmClient: VLMClient = VLMClient(),
         disableFunctionRecall: Boolean = false,
         phaseMs: MutableMap<String, Long> = linkedMapOf(),
@@ -481,7 +478,7 @@ object VlmToolCoordinator {
                 context = workingContext,
                 screenshot = snapshot.screenshotBase64,
                 markedScreenshot = null,
-                conversationState = conversationState,
+                runLogSteps = emptyList(),
                 model = model,
                 includeMarkedScreenshot = false,
             )

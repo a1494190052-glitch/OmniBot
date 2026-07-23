@@ -31,36 +31,49 @@ class UtgManualRunResult {
   }
 
   List<Map<String, dynamic>> get stepResults {
-    final raw = rawJson['step_results'];
+    final raw = rawJson['steps'];
     if (raw is! List) return const <Map<String, dynamic>>[];
     return raw
         .whereType<Map>()
-        .map(
-          (item) => item.map((key, value) => MapEntry(key.toString(), value)),
-        )
+        .toList(growable: false)
+        .asMap()
+        .entries
+        .map((entry) {
+          final step = _jsonSafeDynamicMap(entry.value);
+          final action = _jsonSafeDynamicMap(step['action']);
+          final result = _jsonSafeDynamicMap(step['result']);
+          final metadata = _jsonSafeDynamicMap(step['metadata']);
+          final transfer = _jsonSafeDynamicMap(metadata['transfer']);
+          final tool = (action['tool'] ?? '').toString().trim();
+          final error = (result['error'] ?? '').toString().trim();
+          final summary = (metadata['summary'] ?? '').toString().trim();
+          return <String, dynamic>{
+            'step_id': (metadata['step_id'] ?? 'step_${entry.key + 1}')
+                .toString(),
+            'step_index': step['step_index'] ?? entry.key,
+            'tool': tool,
+            'args': _jsonSafeDynamicMap(action['args']),
+            'executor': 'function',
+            'model_free': true,
+            'success': result['success'] == true,
+            'summary': summary.isNotEmpty
+                ? summary
+                : error.isNotEmpty
+                ? error
+                : tool,
+            if (error.isNotEmpty) 'error_code': error,
+            'source_state_id': step['before_state_id'],
+            'before_state_id': step['before_state_id'],
+            'after_state_id': step['after_state_id'],
+            if (transfer.isNotEmpty) 'transfer': transfer,
+          };
+        })
         .toList(growable: false);
   }
-
-  bool get modelRequired => _truthy(rawJson['model_required']);
-
-  bool get fallbackAvailable => _truthy(rawJson['fallback_available']);
-
-  bool get canContinueWithAgent => false;
-
-  bool get canContinueWithVlm => canContinueWithAgent;
-
-  bool get delegatedToolUsed => _truthy(rawJson['delegated_tool_used']);
 
   int get stepCount => _intValue(rawJson['step_count']);
 
   int get successStepCount => _intValue(rawJson['success_step_count']);
-
-  int? get activeStepCount => _nullableIntValue(rawJson['active_step_count']);
-
-  int? get completedStepCount =>
-      _nullableIntValue(rawJson['completed_step_count']);
-
-  int? get resumeFromStep => _nullableIntValue(rawJson['resume_from_step']);
 
   int? get failedStepIndex => _nullableIntValue(rawJson['failed_step_index']);
 
@@ -75,13 +88,9 @@ class UtgManualRunResult {
     return null;
   }
 
-  String get runner => (rawJson['runner'] ?? '').toString().trim();
-
   String get executionStatus {
     return (rawJson['status'] ?? '').toString().trim();
   }
-
-  String get taskId => (rawJson['task_id'] ?? '').toString().trim();
 
   bool get completedLocal =>
       executionStatus == 'completed_local' ||
@@ -94,53 +103,6 @@ class UtgManualRunResult {
 
   bool get failed =>
       !success || executionStatus == 'failed' || executionStatus == 'error';
-
-  int get startedAtMs =>
-      _intValue(rawJson['started_at_ms'] ?? _timing['started_at_ms']);
-
-  int get finishedAtMs =>
-      _intValue(rawJson['finished_at_ms'] ?? _timing['finished_at_ms']);
-
-  int get durationMs {
-    final explicit = _intValue(
-      rawJson['duration_ms'] ??
-          _timing['duration_ms'] ??
-          _timing['runner_duration_ms'],
-    );
-    if (explicit > 0) return explicit;
-    final started = startedAtMs;
-    final finished = finishedAtMs;
-    if (started > 0 && finished >= started) return finished - started;
-    return 0;
-  }
-
-  Map<String, dynamic> get phaseMs {
-    final raw = rawJson['phase_ms'] ?? _timing['phase_ms'];
-    if (raw is Map<String, dynamic>) return raw;
-    if (raw is Map) {
-      return raw.map((key, value) => MapEntry(key.toString(), value));
-    }
-    return const <String, dynamic>{};
-  }
-
-  Map<String, dynamic> get _timing {
-    final raw = rawJson['timing'];
-    if (raw is Map<String, dynamic>) return raw;
-    if (raw is Map) {
-      return raw.map((key, value) => MapEntry(key.toString(), value));
-    }
-    return const <String, dynamic>{};
-  }
-
-  static bool _truthy(dynamic value) {
-    if (value is bool) return value;
-    if (value is num) return value != 0;
-    if (value is String) {
-      final normalized = value.trim().toLowerCase();
-      return normalized == 'true' || normalized == '1' || normalized == 'yes';
-    }
-    return false;
-  }
 
   static int _intValue(dynamic value) {
     if (value is int) return value;

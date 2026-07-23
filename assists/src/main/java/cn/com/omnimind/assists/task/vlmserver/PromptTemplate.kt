@@ -1,6 +1,5 @@
 package cn.com.omnimind.assists.task.vlmserver
 
-import cn.com.omnimind.assists.util.TimeUtil
 import cn.com.omnimind.baselib.i18n.AppLocaleManager
 import cn.com.omnimind.baselib.i18n.PromptLocale
 import cn.com.omnimind.baselib.llm.ModelSceneRegistry
@@ -22,7 +21,7 @@ object PromptTemplate {
     }
 
     fun getPrompt(context: UIContext, sceneId: String? = null): String {
-        return buildTurnUserPrompt(context, sceneId)
+        return buildTurnUserPrompt(context, sceneId = sceneId)
     }
 
     fun buildSystemPrompt(sceneId: String? = null): String {
@@ -83,7 +82,7 @@ object PromptTemplate {
             5. assistant.content 可为空；若返回，只能是 {"summary":"约20字本步摘要"}，不要包含动作参数。
 
             每轮先判断目标是否已经达成；若已达成，直接调用 finished，不要重复点击已经聚焦或已经打开的目标控件。
-            根据后续 user 消息里的任务上下文、当前截图、OOB compact page state 和历史 tool 结果选择动作；raw XML 只供本地 runtime 内部使用。
+            根据后续 user 消息里的用户任务、当前截图、OOB compact page state 和 RunLog 动作摘要选择动作；raw XML 只供本地 runtime 内部使用。
             """.trimIndent(),
             """
             You are an Android phone GUI agent and only choose the next action for the current phone UI.
@@ -96,26 +95,18 @@ object PromptTemplate {
             5. assistant.content may be empty. If present, it must only be {"summary":"about 20 words for this step"} and must not contain action arguments.
 
             First check whether the goal is already satisfied this turn. If it is, call finished and do not click a target control that is already focused or already open.
-            Choose the action from the later user message's task context, current screenshot, OOB compact page state, and prior tool results. Raw XML is internal-only for the local runtime.
+            Choose the action from the later user message's user task, current screenshot, OOB compact page state, and RunLog action summary. Raw XML is internal-only for the local runtime.
             """.trimIndent()
         )
     }
 
-    fun buildTurnUserPrompt(context: UIContext, sceneId: String? = null): String {
+    fun buildTurnUserPrompt(
+        context: UIContext,
+        sceneId: String? = null,
+        runLogSteps: List<Map<String, Any?>> = emptyList(),
+    ): String {
         val locale = currentLocale()
-        val resolvedSceneId = if (sceneId.isNullOrBlank()) {
-            VLMRuntimeConfigRegistry.get().primarySceneId
-        } else {
-            sceneId
-        }
         val installedApps = renderFocusedInstalledApps(context, locale)
-        val completedMilestones = if (context.completedMilestones.isNotEmpty()) {
-            context.completedMilestones.joinToString(
-                separator = if (locale == PromptLocale.ZH_CN) "、" else ", "
-            )
-        } else {
-            t(locale, "暂无", "None yet")
-        }
         val keyMemory = if (context.keyMemory.isNotEmpty()) {
             context.keyMemory.joinToString(
                 separator = if (locale == PromptLocale.ZH_CN) "；" else "; "
@@ -123,7 +114,23 @@ object PromptTemplate {
         } else {
             t(locale, "暂无", "None yet")
         }
-        val priorityEventSection = if (context.priorityEvent != null) {
+        val transientEventSection = if (context.transientEvents.isNotEmpty()) {
+            buildString {
+                appendLine(t(locale, "【本轮临时事件】", "[Transient events for this turn]"))
+                context.transientEvents.forEach { event ->
+                    appendLine("- [${event.type}] ${event.text}")
+                    if (event.suggestCompletion) {
+                        appendLine(
+                            t(
+                                locale,
+                                "如果已经确认任务完成，请尽快调用 finished 工具结束任务。",
+                                "If the task has already been confirmed complete, call the finished tool as soon as possible."
+                            )
+                        )
+                    }
+                }
+            }.trim()
+        } else if (context.priorityEvent != null) {
             buildString {
                 appendLine(t(locale, "【紧急事件】", "[Urgent Event]"))
                 appendLine(context.priorityEvent)
@@ -141,44 +148,38 @@ object PromptTemplate {
         } else {
             ""
         }
+        val runLogHistory = VLMRunLogPlannerHistory.render(runLogSteps)
 
         return buildString {
             appendLine(
                 t(
                     locale,
-                    "以下是当前这一轮的动态上下文，请结合当前截图和 OOB page state 选择下一步动作。原始 XML 只供系统内部使用，不会作为模型上下文提供。",
-                    "Below is the dynamic context for the current turn. Use it together with the current screenshot and OOB page state to choose the next action. Raw XML is internal-only and is not provided as model context."
+                    "请根据用户任务、当前截图和 RunLog 中更早动作的文本摘要，只选择一个下一步动作。原始 XML 只供系统内部使用。",
+                    "Choose exactly one next action from the user task, current screenshot, and textual summaries of earlier RunLog actions. Raw XML is internal-only."
                 )
             )
-            appendLine("${t(locale, "场景", "Scene")}: $resolvedSceneId")
-            appendLine("${t(locale, "当前时间", "Current time")}: ${TimeUtil.getCurrentTimeString()}")
             appendLine("${t(locale, "用户任务", "User task")}: ${context.overallTask}")
-            appendLine("${t(locale, "当前子目标", "Current sub-goal")}: ${context.activeGoal()}")
-            appendLine("${t(locale, "技能提示", "Skill guidance")}: ${renderSkillGuidance(context, locale)}")
-            if (priorityEventSection.isNotBlank()) {
-                appendLine(priorityEventSection)
+            if (context.activeGoal() != context.overallTask) {
+                appendLine("${t(locale, "当前子目标", "Current sub-goal")}: ${context.activeGoal()}")
+            }
+            renderSkillGuidance(context, locale)
+                .takeUnless { it == t(locale, "无", "None") }
+                ?.let { appendLine("${t(locale, "技能提示", "Skill guidance")}: $it") }
+            if (transientEventSection.isNotBlank()) {
+                appendLine(transientEventSection)
             }
             renderPageExplanationBlock(context, locale).takeIf { it.isNotBlank() }?.let {
                 appendLine(it)
             }
-            appendLine(renderRecentResultsBlock(context, locale))
-            appendLine("${t(locale, "已完成里程碑", "Completed milestones")}: $completedMilestones")
-            appendLine("${t(locale, "关键记忆", "Key memory")}: $keyMemory")
+            appendLine(t(locale, "【更早动作（来自当前 RunLog）】", "[Earlier actions from the current RunLog]"))
+            appendLine(runLogHistory)
+            if (context.keyMemory.isNotEmpty()) {
+                appendLine("${t(locale, "关键记忆", "Key memory")}: $keyMemory")
+            }
             appendLine("${t(locale, "相关已安装应用", "Relevant installed apps")}: $installedApps")
             renderCoordinateSystemBlock(context, locale).takeIf { it.isNotBlank() }?.let {
                 appendLine(it)
             }
-            appendLine()
-            appendLine(
-                VLMToolDefinitions.renderCompactActionSchemaGuide(
-                    locale = locale,
-                    allowedToolNames = selectedAllowedToolNames(context)
-                        .map(String::trim)
-                        .filter(String::isNotEmpty)
-                        .toSet()
-                        .takeIf { it.isNotEmpty() }
-                )
-            )
         }.trim()
     }
 
@@ -200,12 +201,6 @@ object PromptTemplate {
             .joinToString(" ")
             .ifBlank { raw.replace(Regex("""\s+"""), " ") }
         return compactLine(compacted, MAX_SKILL_GUIDANCE_CHARS)
-    }
-
-    private fun selectedAllowedToolNames(context: UIContext): List<String> {
-        return context.allowedVlmToolNames.ifEmpty {
-            VLMAllowedToolSelector.select(context).toList()
-        }
     }
 
     private fun renderCoordinateSystemBlock(context: UIContext, locale: PromptLocale): String {
@@ -231,61 +226,6 @@ object PromptTemplate {
             appendLine(t(locale, "【页面解释】", "[Page Explanation]"))
             append(pageContext)
         }.trim()
-    }
-
-    private fun renderRecentResultsBlock(context: UIContext, locale: PromptLocale): String {
-        val recent = context.trace.takeLast(MAX_RECENT_RESULT_STEPS)
-        return buildString {
-            appendLine()
-            appendLine(t(locale, "【最近结果】", "[Recent Results]"))
-            if (recent.isEmpty() && context.runningSummary.isBlank()) {
-                append(t(locale, "暂无；这是本任务的起始阶段。", "None yet; this is the beginning of the task."))
-                return@buildString
-            }
-            if (context.runningSummary.isNotBlank()) {
-                appendLine("${t(locale, "历史总结", "History summary")}: ${compactLine(context.runningSummary, 240)}")
-            }
-            recent.forEachIndexed { offset, step ->
-                val number = context.trace.size - recent.size + offset + 1
-                appendLine("- #$number ${actionSummary(step.action)} | success=${stepSucceeded(step)} | result=${stepResultForModel(step, locale)}")
-            }
-        }.trim()
-    }
-
-    private fun actionSummary(command: VLMCommand): String {
-        return when (command) {
-            is Action -> buildString {
-                append(command.tool)
-                command.stringArg("target_description").takeIf(String::isNotEmpty)?.let {
-                    append(" ${compactLine(it, 80)}")
-                }
-                if (command.tool == "input_text") {
-                    command.stringArg("text").takeIf(String::isNotEmpty)?.let {
-                        append(" text=${compactLine(it, 80)}")
-                    }
-                }
-            }
-            is FunctionInvocation -> "function ${command.functionId}"
-            is FinishedDecision -> "finished"
-            is RecordMemory -> "record"
-            is InfoDecision -> "info"
-            is AbortDecision -> "abort"
-            is Observe -> "get_state"
-        }.trim()
-    }
-
-    private fun stepSucceeded(step: UIStep): Boolean {
-        val result = step.result?.trim().orEmpty()
-        return result.isEmpty() ||
-            (!result.startsWith("执行失败") && !result.startsWith("failed", ignoreCase = true))
-    }
-
-    private fun stepResultForModel(step: UIStep, locale: PromptLocale): String {
-        val result = step.result?.trim().orEmpty()
-        if (result.isNotEmpty()) return compactLine(result, MAX_RECENT_RESULT_CHARS)
-        val summary = step.summary.trim()
-        if (summary.isNotEmpty()) return compactLine(summary, MAX_RECENT_RESULT_CHARS)
-        return t(locale, "已发送动作；等待最新页面观察。", "Action was dispatched; use the latest page observe.")
     }
 
     private fun compactLine(value: String, maxLen: Int = 240): String {
@@ -378,8 +318,6 @@ object PromptTemplate {
             context.overallTask,
             context.currentStepGoal,
             context.stepSkillGuidance,
-            context.currentState,
-            context.nextStepHint,
             context.targetPackageName,
             context.currentPackageName,
         ).joinToString(" ")
@@ -557,8 +495,6 @@ object PromptTemplate {
     private const val MAX_APP_QUERY_TERMS = 24
     private const val MAX_PAGE_EXPLANATION_CHARS = 1_200
     private const val MAX_SKILL_GUIDANCE_CHARS = 480
-    private const val MAX_RECENT_RESULT_STEPS = 2
-    private const val MAX_RECENT_RESULT_CHARS = 180
     private val APP_QUERY_STOP_WORDS = setOf(
         "the",
         "and",

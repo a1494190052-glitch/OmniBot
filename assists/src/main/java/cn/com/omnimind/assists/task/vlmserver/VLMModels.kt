@@ -1,7 +1,6 @@
 package cn.com.omnimind.assists.task.vlmserver
 
 import cn.com.omnimind.baselib.llm.AssistantToolCall
-import cn.com.omnimind.baselib.llm.ChatCompletionMessage
 import cn.com.omnimind.baselib.llm.ChatCompletionTurn
 import cn.com.omnimind.baselib.llm.ModelSceneRegistry
 import kotlinx.serialization.SerialName
@@ -13,7 +12,6 @@ import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
-import kotlinx.serialization.json.put
 import okhttp3.sse.EventSource
 
 const val ACTION_FAILURE_PREFIX = "执行失败"
@@ -243,7 +241,6 @@ data class UIContext(
     val pageDiagnostics: Map<String, String> = emptyMap(),
     @SerialName("dynamic_tool_definitions")
     val dynamicToolDefinitions: List<JsonObject> = emptyList(),
-    val trace: List<UIStep> = emptyList(),
     @SerialName("key_memory")
     val keyMemory: List<String> = emptyList(),
     @SerialName("max_steps")
@@ -252,14 +249,8 @@ data class UIContext(
     val stepsUsed: Int = 0,
     @SerialName("steps_remaining")
     val stepsRemaining: Int? = null,
-    @SerialName("running_summary")
-    val runningSummary: String = "", // 当前任务的运行总结（由Compactor生成）
-    @SerialName("current_state")
-    val currentState: String = "",   // 当前屏幕状态描述（由Compactor生成）
-    @SerialName("next_step_hint")
-    val nextStepHint: String = "",   // 建议的下一步操作（由Compactor生成）
-    @SerialName("completed_milestones")
-    val completedMilestones: List<String> = emptyList(), // 已完成的里程碑（由Compactor生成）
+    @SerialName("transient_events")
+    val transientEvents: List<VLMContextEvent> = emptyList(),
     @SerialName("priority_event")
     val priorityEvent: String? = null,  // High-priority event message (e.g., file received)
     @SerialName("priority_event_type")
@@ -355,59 +346,16 @@ data class VLMToolCallRetryState(
     val toolCallFailure: VLMToolCallFailure? = null
 )
 
-data class VLMConversationRound(
-    val userMessage: ChatCompletionMessage,
-    val assistantMessage: ChatCompletionMessage,
-    val toolMessage: ChatCompletionMessage
+@Serializable
+data class VLMContextEvent(
+    val type: String,
+    val text: String,
+    val source: String = "external",
+    @SerialName("created_at_ms")
+    val createdAtMs: Long = System.currentTimeMillis(),
+    @SerialName("suggest_completion")
+    val suggestCompletion: Boolean = false,
 )
-
-class VLMConversationState(
-    private val maxCompletedRounds: Int = VLMRuntimeConfigRegistry.get().maxHistoryRounds
-) {
-    private val completedRounds = ArrayDeque<VLMConversationRound>()
-    var streamingReasoning: String = ""
-        private set
-
-    fun clear() {
-        completedRounds.clear()
-        streamingReasoning = ""
-    }
-
-    fun updateStreamingReasoning(reasoning: String) {
-        streamingReasoning = reasoning
-    }
-
-    fun appendRound(round: VLMConversationRound) {
-        completedRounds.addLast(round)
-        while (completedRounds.size > maxCompletedRounds) {
-            completedRounds.removeFirst()
-        }
-    }
-
-    fun updateLastRoundResult(toolResult: String) {
-        val last = completedRounds.removeLastOrNull() ?: return
-        val newPayload = buildJsonObject {
-            put("success", JsonPrimitive(true))
-            put("result", JsonPrimitive(toolResult))
-        }.toString()
-        completedRounds.addLast(
-            last.copy(toolMessage = last.toolMessage.copy(content = JsonPrimitive(newPayload)))
-        )
-    }
-
-    fun historyMessages(): List<ChatCompletionMessage> {
-        if (completedRounds.isEmpty()) return emptyList()
-        val messages = mutableListOf<ChatCompletionMessage>()
-        completedRounds.forEach { round ->
-            messages += round.userMessage
-            messages += round.assistantMessage
-            messages += round.toolMessage
-        }
-        return messages
-    }
-
-    fun roundCount(): Int = completedRounds.size
-}
 
 data class VLMRequestEnvelope(
     val request: cn.com.omnimind.baselib.llm.ChatCompletionRequest,
@@ -449,8 +397,9 @@ data class VLMResult(
 fun UIContext.budgetDiagnostics(): Map<String, String> = linkedMapOf(
     "vlm_context_current_page_summary_chars" to currentPageSummary.length.toString(),
     "vlm_context_step_skill_guidance_chars" to stepSkillGuidance.length.toString(),
-    "vlm_context_running_summary_chars" to runningSummary.length.toString(),
     "vlm_context_key_memory_count" to keyMemory.size.toString(),
+    "vlm_context_transient_event_count" to transientEvents.size.toString(),
+    "vlm_context_transient_event_chars" to transientEvents.sumOf { it.text.length }.toString(),
     "vlm_context_installed_app_count" to installedApplications.size.toString(),
     "vlm_context_dynamic_tool_definition_count" to dynamicToolDefinitions.size.toString(),
 )

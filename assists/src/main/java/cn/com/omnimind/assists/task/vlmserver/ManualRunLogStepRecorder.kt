@@ -1,7 +1,6 @@
 package cn.com.omnimind.assists.task.vlmserver
 
 import cn.com.omnimind.assists.runlog.OmniFlowRecordStepExecutor
-import cn.com.omnimind.baselib.runlog.CanonicalActionConverter
 import cn.com.omnimind.baselib.runlog.RunLogStepRecord
 
 internal object ManualRunLogStepRecorder {
@@ -23,11 +22,6 @@ internal object ManualRunLogStepRecorder {
     ): RunLogStepRecord {
         val durationMs = (action.finishedAtMs - action.startedAtMs).coerceAtLeast(0L)
         val displaySize = displaySize(action)
-        val canonicalAction = CanonicalActionConverter.convert(
-            tool = action.action.tool,
-            args = action.action.argsMap(),
-            replayableOnly = true,
-        )
         val beforeState = state(
             stateId = "$stepId-before",
             xml = action.beforeXml,
@@ -43,18 +37,21 @@ internal object ManualRunLogStepRecorder {
             displaySize = displaySize,
         )
         return RunLogStepRecord(
-                step = linkedMapOf(
+            step = linkedMapOf(
                 "step_index" to index,
                 "before_state_id" to beforeState.getValue("state_id"),
-                "action" to canonicalAction,
+                "action" to linkedMapOf(
+                    "tool" to action.action.tool,
+                    "args" to action.action.argsMap(),
+                ),
                 "result" to linkedMapOf(
                     "success" to true,
                 ),
                 "after_state_id" to afterState.getValue("state_id"),
-                "diagnostics" to linkedMapOf(
+                "metadata" to linkedMapOf(
                     "step_id" to stepId,
-                    "title" to action.title,
-                    "status" to "success",
+                    "status" to "succeeded",
+                    "summary" to action.title,
                     "duration_ms" to durationMs,
                     "started_at_ms" to action.startedAtMs,
                     "finished_at_ms" to action.finishedAtMs,
@@ -64,17 +61,14 @@ internal object ManualRunLogStepRecorder {
                     "evidence_complete" to action.evidenceComplete,
                     "evidence_error" to action.evidenceError,
                 ).filterValues { it != null },
-                ),
-                states = listOf(beforeState, afterState),
+            ),
+            states = listOf(beforeState, afterState),
         )
     }
 
-    private fun displaySize(action: ManualVlmRecordedAction): CanonicalActionConverter.DisplaySize? {
+    private fun displaySize(action: ManualVlmRecordedAction): Pair<Int, Int>? {
         if (action.displayWidth > 0 && action.displayHeight > 0) {
-            return CanonicalActionConverter.DisplaySize(
-                action.displayWidth.toDouble(),
-                action.displayHeight.toDouble(),
-            )
+            return action.displayWidth to action.displayHeight
         }
         return null
     }
@@ -84,13 +78,13 @@ internal object ManualRunLogStepRecorder {
         xml: String?,
         screenshotPath: String?,
         packageName: String?,
-        displaySize: CanonicalActionConverter.DisplaySize?,
+        displaySize: Pair<Int, Int>?,
     ): Map<String, Any?> = linkedMapOf<String, Any?>(
         "state_id" to stateId,
         "xml" to xml,
         "screenshot_path" to screenshotPath,
         "display" to displaySize?.let {
-            linkedMapOf("width" to it.width.toInt(), "height" to it.height.toInt())
+            linkedMapOf("width" to it.first, "height" to it.second)
         },
         "package_name" to packageName,
     ).filterValues { it != null }

@@ -12,7 +12,6 @@ import 'widgets/chat_input_area.dart';
 import 'package:ui/utils/data_parser.dart';
 import 'package:ui/services/assists_core_service.dart';
 import 'package:ui/services/agent_stream_meta.dart';
-import 'package:ui/features/home/pages/command_overlay/services/chat_service.dart';
 import 'package:ui/features/home/pages/command_overlay/constants/messages.dart';
 import 'package:ui/features/home/pages/command_overlay/utils/deep_thinking_parser.dart';
 import 'package:ui/features/home/pages/chat/utils/agent_run_timeline.dart';
@@ -33,10 +32,10 @@ import 'package:ui/widgets/ai_generated_badge.dart';
 import 'package:ui/constants/openclaw/openclaw_keys.dart';
 import 'package:ui/utils/ui.dart';
 import 'package:ui/features/home/pages/chat/mixins/agent_stream_handler.dart';
+import 'package:ui/features/home/pages/chat/mixins/task_execution_handler.dart';
+import 'package:ui/features/home/pages/chat/services/openclaw_context_scope.dart';
 import 'package:ui/theme/theme_context.dart';
 
-/// 聊天上下文存储的key
-const String kChatContextStorageKey = 'chat_context_for_summary';
 const String kChatResumeAfterAuthKey = 'chat_resume_after_auth';
 
 /// 启动场景类型
@@ -306,8 +305,7 @@ class _ChatBotSheetState extends State<ChatBotSheet>
         _loadResumeDataAndResend();
       });
     } else {
-      // 普通场景：清空保存的上下文和恢复数据
-      _clearSavedContext();
+      // 普通场景：清空授权恢复数据
       StorageService.remove(kChatResumeAfterAuthKey);
 
       // 如果有初始文本或附件，立即发送
@@ -602,21 +600,7 @@ class _ChatBotSheetState extends State<ChatBotSheet>
     return true;
   }
 
-  /// 保存当前聊天上下文到本地存储
-  Future<void> _saveChatContext() async {
-    try {
-      final List<Map<String, dynamic>> contextList = _messages
-          .where((msg) => !msg.isLoading)
-          .map((msg) => msg.toJson())
-          .toList();
-      await StorageService.setJson(kChatContextStorageKey, contextList);
-    } catch (e) {
-      debugPrint('保存聊天上下文失败: $e');
-    }
-  }
-
   Future<void> _handleBeforeTaskExecute() async {
-    await _saveChatContext();
     await _saveConversationToDb();
   }
 
@@ -778,15 +762,6 @@ class _ChatBotSheetState extends State<ChatBotSheet>
       _addLoadingMessage();
     } catch (e) {
       debugPrint('加载聊天上下文失败: $e');
-    }
-  }
-
-  /// 清空保存的聊天上下文
-  Future<void> _clearSavedContext() async {
-    try {
-      await StorageService.remove(kChatContextStorageKey);
-    } catch (e) {
-      debugPrint('清空聊天上下文失败: $e');
     }
   }
 
@@ -1683,32 +1658,9 @@ class _ChatBotSheetState extends State<ChatBotSheet>
     // _currentThinkingStage = 1;
   }
 
-  List<Map<String, dynamic>> _buildConversationHistory() {
-    final List<Map<String, dynamic>> history = [];
-    final recentMessages = ChatService.getRecentMessages(
-      _messages,
-      maxCount: 10,
-    );
-
-    for (final message in recentMessages) {
-      if (message.user == 1) {
-        final text = _buildMessageTextForModel(message);
-        if (text.isNotEmpty) {
-          history.insert(0, {'role': 'user', 'content': text});
-        }
-      } else if (message.user == 2) {
-        final text = message.content?['text'] as String? ?? '';
-        if (text.isNotEmpty) {
-          history.insert(0, {'role': 'assistant', 'content': text});
-        }
-      }
-    }
-    return history;
-  }
-
   List<Map<String, dynamic>> _buildOpenClawHistory() {
     final latest = _latestUserUtterance();
-    if (latest.isEmpty) return _buildConversationHistory();
+    if (latest.isEmpty) return const <Map<String, dynamic>>[];
     return [
       {'role': 'user', 'content': latest},
     ];
@@ -1835,15 +1787,8 @@ class _ChatBotSheetState extends State<ChatBotSheet>
   }
 
   String _latestUserUtterance() {
-    for (final message in _messages) {
-      if (message.user == 1) {
-        final text = _buildMessageTextForModel(message);
-        if (text.isNotEmpty) {
-          return text;
-        }
-      }
-    }
-    return '';
+    final message = latestUserMessageForRuntimeContext(_messages);
+    return message == null ? '' : _buildMessageTextForModel(message);
   }
 
   List<Map<String, dynamic>> _latestUserAgentAttachments() {
@@ -2119,8 +2064,10 @@ class _ChatBotSheetState extends State<ChatBotSheet>
       'baseUrl': _openClawBaseUrl,
       if (_openClawToken.isNotEmpty) 'token': _openClawToken,
       if (_openClawUserId.isNotEmpty) 'userId': _openClawUserId,
-      if (_openClawUserId.isNotEmpty)
-        'sessionKey': 'openclaw:${_openClawUserId.trim()}',
+      'sessionKey': buildOpenClawContextSessionKey(
+        userId: _openClawUserId,
+        contextSegmentId: aiMessageId,
+      ),
     };
     final Future<bool> sendFuture = _aiService.sendMessageWithProvider(
       aiMessageId,

@@ -9,6 +9,7 @@ import cn.com.omnimind.baselib.llm.ChatCompletionMessage
 import cn.com.omnimind.baselib.llm.ChatCompletionRequest
 import cn.com.omnimind.baselib.llm.contentText
 import cn.com.omnimind.baselib.util.OmniLog
+import cn.com.omnimind.bot.function.FunctionRecallCandidate
 import cn.com.omnimind.bot.function.FunctionService
 import cn.com.omnimind.bot.runlog.firstNonBlank
 import cn.com.omnimind.bot.runlog.listArg
@@ -21,7 +22,19 @@ import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 
-class VlmRecallFunctionSelector(private val context: Context) : VLMRecallActionProvider {
+class VlmRecallFunctionSelector internal constructor(
+    private val recallEnabled: () -> Boolean,
+    private val recall: suspend (Map<String, Any?>) -> Map<String, Any?>,
+) : VLMRecallActionProvider {
+
+    constructor(context: Context) : this(
+        recallEnabled = {
+            VlmWorkspaceConfig.getInstance(context.applicationContext).get().recallEnabled
+        },
+        recall = { request ->
+            FunctionService(context.applicationContext).recall(request)
+        },
+    )
 
     override suspend fun selectAction(
         goal: String,
@@ -30,29 +43,28 @@ class VlmRecallFunctionSelector(private val context: Context) : VLMRecallActionP
         streamClient: VLMStreamClient,
     ): FunctionInvocation? {
         if (disableFunctionRecall || goal.isBlank()) return null
-        val config = VlmWorkspaceConfig.getInstance(context).get()
-        if (!config.recallEnabled) return null
+        if (!recallEnabled()) return null
 
-        val recall = runCatching {
-            FunctionService(context).recall(
-                mapOf("goal" to goal, "current_package" to packageName.orEmpty(), "k" to 1)
-            )
+        val recallResult = runCatching {
+            recall(mapOf("goal" to goal, "current_package" to packageName.orEmpty(), "k" to 1))
         }.onFailure { OmniLog.w(TAG, "recall failed: ${it.message}") }
             .getOrNull() ?: return null
 
-        val candidateRaw = mapArg(listArg(recall["candidates"]).firstOrNull())
+        val candidateRaw = mapArg(listArg(recallResult["candidates"]).firstOrNull())
         if (candidateRaw.isEmpty()) return null
+        val candidate = runCatching { FunctionRecallCandidate.parse(candidateRaw) }
+            .onFailure { OmniLog.w(TAG, "recall candidate contract error: ${it.message}") }
+            .getOrNull() ?: return null
 
-        val score = candidateRaw["score"]?.toString()?.toFloatOrNull() ?: 0f
+        val score = candidate.score
         if (score < SCORE_THRESHOLD) return null
 
-        val functionId = firstNonBlank(candidateRaw["function_id"])
-        if (functionId.isBlank()) return null
-
-        val inputSchema = mapArg(candidateRaw["input_schema"])
+        val function = candidate.function
+        val functionId = candidate.functionId
+        val inputSchema = mapArg(function["input_schema"])
 
         // One LLM call: verify the match AND fill parameters in a single prompt.
-        val result = verifyAndFill(goal, candidateRaw, inputSchema, streamClient) ?: return null
+        val result = verifyAndFill(goal, function, inputSchema, streamClient) ?: return null
         if (!result.matches) {
             OmniLog.d(TAG, "Eager recall rejected by LLM: $functionId (score=$score)")
             return null
@@ -151,6 +163,6 @@ class VlmRecallFunctionSelector(private val context: Context) : VLMRecallActionP
 
     companion object {
         private const val TAG = "VlmRecallFunctionSelector"
-        private const val SCORE_THRESHOLD = 0.85f
+        private const val SCORE_THRESHOLD = 0.85
     }
 }

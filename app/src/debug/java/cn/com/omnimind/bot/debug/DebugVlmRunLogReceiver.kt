@@ -16,6 +16,7 @@ import cn.com.omnimind.bot.agent.ResolvedSkillContext
 import cn.com.omnimind.bot.manager.AssistsCoreManager
 import cn.com.omnimind.bot.mcp.VlmTaskRequest
 import cn.com.omnimind.bot.function.FunctionService
+import cn.com.omnimind.bot.omniflow.omniFlowRecordStepExecutor
 import cn.com.omnimind.bot.util.AssistsUtil
 import cn.com.omnimind.bot.vlm.VlmToolCoordinator
 import cn.com.omnimind.bot.vlm.VlmToolOutcomeStatus
@@ -207,14 +208,15 @@ class DebugVlmRunLogReceiver : BroadcastReceiver() {
         val vlmTaskFinished = outcome.status == VlmToolOutcomeStatus.FINISHED
         val runLogSuccessful = record?.success == true
         var timeline = record?.let { InternalRunLogStore.timelinePayload(context, runId) }
-        val convert = if (vlmTaskFinished && runLogSuccessful) {
+        val convert = if (register && vlmTaskFinished && runLogSuccessful) {
             FunctionService(context).convertRunLog(
                 mapOf(
                     "run_id" to runId,
                     "register" to register,
                     "function_id" to "debug_${runId.replace('-', '_')}",
-                    "name" to "Debug VLM RunLog",
+                    "name" to goal.take(120),
                     "description" to goal,
+                    "agent_visible" to register,
                 )
             )
         } else {
@@ -223,6 +225,8 @@ class DebugVlmRunLogReceiver : BroadcastReceiver() {
         if (convert != null && record != null) {
             timeline = InternalRunLogStore.timelinePayload(context, runId)
         }
+        val timelineDiagnostics = timeline?.get("diagnostics") as? Map<*, *>
+        val tokenUsage = timelineDiagnostics?.get("token_usage") as? Map<*, *>
 
         return linkedMapOf(
             "success" to vlmTaskFinished,
@@ -244,10 +248,14 @@ class DebugVlmRunLogReceiver : BroadcastReceiver() {
             "runlog_success" to runLogSuccessful,
             "runlog_step_count" to (record?.steps?.size ?: 0),
             "run_log" to timeline,
-            "token_usage" to (timeline?.get("token_usage") ?: emptyMap<String, Any?>()),
-            "token_usage_total" to timeline?.get("token_usage_total"),
-            "token_usage_by_step" to (timeline?.get("token_usage_by_step") ?: emptyList<Map<String, Any?>>()),
-            "token_usage_by_call" to (timeline?.get("token_usage_by_call") ?: emptyList<Map<String, Any?>>()),
+            "token_usage" to (tokenUsage ?: emptyMap<String, Any?>()),
+            "token_usage_total" to tokenUsage?.get("total_tokens"),
+            "token_usage_by_step" to (
+                timelineDiagnostics?.get("token_usage_by_step") ?: emptyList<Map<String, Any?>>()
+            ),
+            "token_usage_by_call" to (
+                timelineDiagnostics?.get("token_usage_by_call") ?: emptyList<Map<String, Any?>>()
+            ),
             "convert" to convert,
             "convert_success" to (convert?.get("success") == true),
         )
@@ -280,10 +288,8 @@ class DebugVlmRunLogReceiver : BroadcastReceiver() {
             toolName = "vlm_task",
             operationDescription = goal,
         )
-        InternalRunLogStore.appendRecordedStep(
-            context = context,
-            runId = runId,
-            record = RunLogStepRecord(
+        val canonicalStep = omniFlowRecordStepExecutor(context).recordStep(
+            RunLogStepRecord(
                 step = linkedMapOf(
                     "step_index" to 0,
                     "before_state_id" to "$runId-before",
@@ -293,13 +299,18 @@ class DebugVlmRunLogReceiver : BroadcastReceiver() {
                     ),
                     "result" to linkedMapOf("success" to true),
                     "after_state_id" to "$runId-after",
-                    "diagnostics" to linkedMapOf("seeded" to true),
+                    "metadata" to linkedMapOf(
+                        "step_id" to "$runId-step-0",
+                        "status" to "succeeded",
+                        "summary" to "Seeded debug step",
+                        "seeded" to true,
+                    ),
                 ),
                 states = listOf(
                     linkedMapOf(
-                    "state_id" to "$runId-before",
-                    "package_name" to currentPackage,
-                    "xml" to currentXml,
+                        "state_id" to "$runId-before",
+                        "package_name" to currentPackage,
+                        "xml" to currentXml,
                     ),
                     linkedMapOf(
                         "state_id" to "$runId-after",
@@ -307,7 +318,12 @@ class DebugVlmRunLogReceiver : BroadcastReceiver() {
                         "xml" to currentXml,
                     ),
                 ),
-            ),
+            )
+        )
+        InternalRunLogStore.appendRecordedStep(
+            context = context,
+            runId = runId,
+            record = canonicalStep,
         )
         InternalRunLogStore.finishRun(
             context = context,

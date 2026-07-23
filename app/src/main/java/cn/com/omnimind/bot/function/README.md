@@ -6,8 +6,8 @@ Keep the model simple:
 
 ```text
 FunctionService = manage Functions
-FunctionRun     = run one Function
-FunctionStore   = persist workspace JSON
+FunctionRun     = bridge one Function run to Python
+Python catalog  = validate and persist Function JSON
 FunctionSchema  = expose read-only Function views
 FunctionApi     = external tool names and schemas
 ```
@@ -16,21 +16,18 @@ FunctionApi     = external tool names and schemas
 
 `FunctionService.executeTool(...)` is the management-tool adapter. It handles list/get/save/update/delete/clear/recall/convert style calls. It should not become a replay executor.
 
-`FunctionRun.runFunction(...)` executes one saved Function. It loads the Function, prepares arguments, replays steps, reports progress, and records results. UI actions inside a Function must go through `ActionExecutor.act(...)`.
+`FunctionRun.runFunction(...)` is an Android adapter. Python loads, validates, binds, transfers, checks, and runs the Function; Kotlin exposes device operations, progress, and RunLog persistence.
 
 ## File Roles
 
 - `FunctionApi.kt`: public tool names, tool schemas, schema export, and lightweight prompt/profile text.
 - `FunctionService.kt`: Function management flow: list/get/save/update/delete/clear/recall/convert.
-- `FunctionRun.kt`: Function execution flow.
-- `FunctionStore.kt`: workspace JSON persistence only.
-- `FunctionSchema.kt`: Function IDs, input schemas, source runs, and execution-step views.
-- `OmniFlowPythonRuntime`: RunLog conversion, recall, argument materialization, checker policy, and action transfer.
-- `FunctionActionEdits.kt`: explicit `delete` / `replace_args` mutations produced by the Function skill.
+- `FunctionRun.kt`: Android host, progress, and RunLog adapter for Python execution.
+- `FunctionSchema.kt`: read-only callable summaries for UI and recall.
+- `OmniFlowPythonRuntime`: RunLog conversion, recall, binding, checker policy, and action transfer.
 - `FunctionService.registerFunction`: accepts one canonical `function`; compilation stays in OmniFlow.
 - `FunctionFrontendSessionController.kt`: progress/card/session updates for Function runs.
 - `FunctionRunLogRecorder.kt`: Function run log persistence.
-- `FunctionRunResultBuilder.kt`: result payload construction.
 - `FunctionJson.kt`: small JSON helpers.
 
 ## Rules
@@ -41,8 +38,8 @@ FunctionApi     = external tool names and schemas
 - Do not expose internal Function replay as a normal VLM action. Online VLM should output ordinary phone actions only.
 - Keep Function storage in workspace JSON. Do not add SharedPreferences fallback or double-write paths.
 - Accept canonical tool input in production. Legacy aliases belong only in explicit offline import/migration paths.
-- Let OmniFlow materialize arguments and validate bindings before Kotlin executes steps.
-- Pass Function `metadata.checker_rules` to OmniFlow unchanged; checker normalization and support decisions belong to Python.
+- Let OmniFlow bind arguments, validate, and execute every Function step; Kotlin only serves device operations.
+- Store learned `checker_rules` at the Function top level. Offline RunLog enhancement may add only evidence-backed `trigger + source_state_id + action` rules; Python owns trigger evaluation and recovery execution.
 
 ## Extension Point
 

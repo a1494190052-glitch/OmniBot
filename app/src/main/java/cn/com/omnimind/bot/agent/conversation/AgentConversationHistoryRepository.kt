@@ -48,6 +48,7 @@ class AgentConversationHistoryRepository(
         text: String,
         attachments: List<Map<String, Any?>> = emptyList(),
         turnUsage: Map<String, Any?>? = null,
+        contextSegmentId: String? = null,
         createdAt: Long = System.currentTimeMillis()
     ) {
         val payload = AgentConversationHistorySupport.buildTextMessagePayload(
@@ -58,6 +59,7 @@ class AgentConversationHistoryRepository(
             isError = false,
             streamMeta = null,
             turnUsage = turnUsage,
+            contextSegmentId = contextSegmentId,
             createdAt = createdAt
         )
         upsertMessageEntry(
@@ -83,6 +85,7 @@ class AgentConversationHistoryRepository(
         attachments: List<Map<String, Any?>> = emptyList(),
         streamMeta: Map<String, Any?>? = null,
         turnUsage: Map<String, Any?>? = null,
+        contextSegmentId: String? = null,
         createdAt: Long = System.currentTimeMillis()
     ) {
         val payload = AgentConversationHistorySupport.buildTextMessagePayload(
@@ -95,6 +98,8 @@ class AgentConversationHistoryRepository(
             interruptedTurn = interruptedTurn,
             streamMeta = streamMeta,
             turnUsage = turnUsage,
+            contextSegmentId = contextSegmentId ?: streamMeta
+                ?.get("parentTaskId")?.toString()?.trim()?.takeIf { it.isNotEmpty() },
             createdAt = createdAt
         )
         upsertMessageEntry(
@@ -115,6 +120,7 @@ class AgentConversationHistoryRepository(
         entryId: String,
         cardData: Map<String, Any?>,
         streamMeta: Map<String, Any?>? = null,
+        contextSegmentId: String? = null,
         createdAt: Long = System.currentTimeMillis()
     ) {
         val payload = AgentConversationHistorySupport.buildCardMessagePayload(
@@ -122,6 +128,8 @@ class AgentConversationHistoryRepository(
             cardData = cardData,
             isError = false,
             streamMeta = streamMeta,
+            contextSegmentId = contextSegmentId ?: streamMeta
+                ?.get("parentTaskId")?.toString()?.trim()?.takeIf { it.isNotEmpty() },
             createdAt = createdAt
         )
         upsertMessageEntry(
@@ -142,7 +150,8 @@ class AgentConversationHistoryRepository(
         entryId: String,
         payload: Map<String, Any?>,
         fallbackStatus: String = STATUS_RUNNING,
-        fallbackSummary: String = ""
+        fallbackSummary: String = "",
+        contextSegmentId: String? = null
     ) = withContext(Dispatchers.IO) {
         val existing = loadThreadEntryByIdSafe(
             conversationId = conversationId,
@@ -157,6 +166,10 @@ class AgentConversationHistoryRepository(
             fallbackStatus = fallbackStatus,
             fallbackSummary = fallbackSummary
         )
+        val resolvedContextSegmentId = contextSegmentId?.trim()?.takeIf { it.isNotEmpty() }
+            ?: mergedPayload[AgentConversationHistorySupport.CONTEXT_SEGMENT_ID_KEY]
+                ?.toString()?.trim()?.takeIf { it.isNotEmpty() }
+            ?: mergedPayload["taskId"]?.toString()?.trim()?.takeIf { it.isNotEmpty() }
         val normalizedStatus = mergedPayload["status"]?.toString()?.trim()
             ?.ifEmpty { null }
             ?: fallbackStatus
@@ -173,7 +186,13 @@ class AgentConversationHistoryRepository(
                 entryType = ENTRY_TYPE_TOOL_EVENT,
                 status = normalizedStatus,
                 summary = normalizedSummary,
-                payloadJson = gson.toJson(mergedPayload),
+                payloadJson = gson.toJson(
+                    mergedPayload.toMutableMap().apply {
+                        resolvedContextSegmentId?.let {
+                            put(AgentConversationHistorySupport.CONTEXT_SEGMENT_ID_KEY, it)
+                        }
+                    }
+                ),
                 createdAt = existing?.createdAt ?: System.currentTimeMillis(),
                 updatedAt = System.currentTimeMillis()
             )
@@ -188,6 +207,9 @@ class AgentConversationHistoryRepository(
     ) = withContext(Dispatchers.IO) {
         val existingConversation = DatabaseHelper.getConversationById(conversationId)
         val existingEntries = loadThreadEntriesAscSafe(conversationId, conversationMode)
+        val existingContextSegmentsByEntryId = existingEntries.associate { entry ->
+            entry.entryId to AgentConversationHistorySupport.contextSegmentIdOf(entry)
+        }
         val preservedSummary = existingConversation?.contextSummary
             ?.trim()
             ?.takeIf { it.isNotEmpty() }
@@ -223,10 +245,28 @@ class AgentConversationHistoryRepository(
                     .orEmpty()
                 else -> extractSummaryFromMessagePayload(message)
             }
+            val contextSegmentId = message[AgentConversationHistorySupport.CONTEXT_SEGMENT_ID_KEY]
+                ?.toString()?.trim()?.takeIf { it.isNotEmpty() }
+                ?: restoredToolPayload
+                    ?.get(AgentConversationHistorySupport.CONTEXT_SEGMENT_ID_KEY)
+                    ?.toString()?.trim()?.takeIf { it.isNotEmpty() }
+                ?: existingContextSegmentsByEntryId[entryId]
             val payloadJson = if (restoredToolPayload != null) {
-                gson.toJson(restoredToolPayload)
+                gson.toJson(
+                    restoredToolPayload.toMutableMap().apply {
+                        contextSegmentId?.let {
+                            put(AgentConversationHistorySupport.CONTEXT_SEGMENT_ID_KEY, it)
+                        }
+                    }
+                )
             } else {
-                gson.toJson(message)
+                gson.toJson(
+                    message.toMutableMap().apply {
+                        contextSegmentId?.let {
+                            put(AgentConversationHistorySupport.CONTEXT_SEGMENT_ID_KEY, it)
+                        }
+                    }
+                )
             }
             val insertedId = upsertEntry(
                 AgentConversationEntry(
@@ -265,11 +305,17 @@ class AgentConversationHistoryRepository(
 
     suspend fun listConversationMessages(
         conversationId: Long,
-        conversationMode: String
+        conversationMode: String,
+        contextSegmentId: String? = null
     ): List<Map<String, Any?>> = withContext(Dispatchers.IO) {
-        val normalized = normalizeEntriesForDisplay(
-            loadThreadEntriesDescSafe(conversationId, conversationMode)
-        )
+        val requestedSegment = contextSegmentId?.trim()?.takeIf { it.isNotEmpty() }
+        val entries = loadThreadEntriesDescSafe(conversationId, conversationMode)
+            .let { candidates ->
+                if (requestedSegment == null) candidates else candidates.filter { entry ->
+                    AgentConversationHistorySupport.belongsToContextSegment(entry, requestedSegment)
+                }
+            }
+        val normalized = normalizeEntriesForDisplay(entries)
         val messagePayloads = normalized.mapNotNull { entry -> entryToMessagePayload(entry) }
         ConversationSnapshotOrdering.sortForDisplay(messagePayloads)
     }
@@ -310,7 +356,8 @@ class AgentConversationHistoryRepository(
 
     suspend fun buildPromptSeed(
         conversationId: Long?,
-        conversationMode: String
+        conversationMode: String,
+        contextSegmentId: String? = null
     ): PromptSeed = withContext(Dispatchers.IO) {
         if (conversationId == null || conversationId <= 0L) {
             return@withContext PromptSeed(emptyList())
@@ -321,14 +368,19 @@ class AgentConversationHistoryRepository(
         )
         AgentConversationHistorySupport.buildPromptSeedFromEntries(
             entries = normalizedEntries,
-            contextSummary = conversation?.contextSummary,
+            contextSummary = conversation?.contextSummary?.takeUnless {
+                !contextSegmentId.isNullOrBlank()
+            },
             cutoffEntryDbId = conversation?.contextSummaryCutoffEntryDbId
+                ?.takeUnless { !contextSegmentId.isNullOrBlank() },
+            contextSegmentId = contextSegmentId
         )
     }
 
     suspend fun getContextCompactionCandidate(
         conversationId: Long,
-        conversationMode: String
+        conversationMode: String,
+        contextSegmentId: String? = null
     ): ContextCompactionCandidate? = withContext(Dispatchers.IO) {
         val conversation = DatabaseHelper.getConversationById(conversationId) ?: return@withContext null
         val normalizedEntries = normalizeInterruptedToolEntries(
@@ -337,6 +389,8 @@ class AgentConversationHistoryRepository(
         val selection = AgentConversationHistorySupport.selectEntriesToCompact(
             entries = normalizedEntries,
             cutoffEntryDbId = conversation.contextSummaryCutoffEntryDbId
+                ?.takeUnless { !contextSegmentId.isNullOrBlank() },
+            contextSegmentId = contextSegmentId
         ) ?: return@withContext null
         ContextCompactionCandidate(
             conversation = conversation,
@@ -503,6 +557,7 @@ class AgentConversationHistoryRepository(
             streamMeta = AgentConversationHistorySupport.compactDisplayStreamMeta(
                 payload["streamMeta"]
             ),
+            contextSegmentId = AgentConversationHistorySupport.contextSegmentIdOf(entry),
             createdAt = entry.createdAt
         )
     }

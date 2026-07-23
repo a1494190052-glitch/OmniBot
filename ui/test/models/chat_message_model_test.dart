@@ -146,4 +146,22 @@ void main() {
       'cache': 10000,
     });
   });
+
+  test('ChatMessageModel preserves context segment across persistence', () {
+    final message = ChatMessageModel.fromJson({
+      'id': 'task-1-user',
+      'type': 1,
+      'user': 1,
+      'content': {'text': 'current task'},
+      'contextSegmentId': 'task-1',
+      'createAt': '1774600557281',
+    });
+
+    expect(message.contextSegmentId, 'task-1');
+    expect(message.toJson()['contextSegmentId'], 'task-1');
+    expect(
+      message.copyWith(content: {'text': 'updated'}).contextSegmentId,
+      'task-1',
+    );
+  });
 }

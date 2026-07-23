@@ -398,6 +398,7 @@ jobs:
           payload = {
               "tag": tag,
               "track": os.environ["RELEASE_TRACK"],
+              "channel": "public",
               "draft": env_bool("RELEASE_DRAFT"),
               "prerelease": env_bool("RELEASE_PRERELEASE"),
               "publishedAt": int(time.time() * 1000),

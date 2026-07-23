@@ -8,47 +8,6 @@ import org.junit.Test
 
 class InternalRunLogStoreCanonicalStepTest {
     @Test
-    fun storageIdentityDoesNotChangeCanonicalStepShape() {
-        val step = linkedMapOf<String, Any?>(
-            "step_index" to 0,
-            "before_state_id" to "state-0",
-            "action" to mapOf("tool" to "wait", "args" to mapOf("duration_ms" to 1000)),
-            "result" to mapOf("success" to true),
-            "after_state_id" to "state-1",
-            "diagnostics" to mapOf("step_id" to "run-step-0"),
-        )
-
-        val stored = InternalRunLogStore.stepWithStorageIdentity("run-step-0", step)
-
-        assertEquals(step, stored)
-        assertFalse(stored.containsKey("card_id"))
-        assertEquals(true, InternalRunLogStore.isCanonicalStep(stored))
-    }
-
-    @Test(expected = IllegalArgumentException::class)
-    fun nonCanonicalStepIsRejected() {
-        InternalRunLogStore.stepWithStorageIdentity(
-            "legacy-step",
-            mapOf("title" to "legacy"),
-        )
-    }
-
-    @Test
-    fun inlineStatesAreNotPartOfCanonicalRunLogStep() {
-        val step = linkedMapOf<String, Any?>(
-            "step_index" to 0,
-            "before_state_id" to "state-0",
-            "before_state" to mapOf("state_id" to "state-0", "xml" to "<before />"),
-            "action" to mapOf("tool" to "wait", "args" to mapOf("duration_ms" to 1000)),
-            "result" to mapOf("success" to true),
-            "after_state_id" to "state-1",
-            "after_state" to mapOf("state_id" to "state-1", "xml" to "<after />"),
-        )
-
-        assertFalse(InternalRunLogStore.isCanonicalStep(step))
-    }
-
-    @Test
     fun canonicalJsonIntegersSurviveGenericGsonMaps() {
         val normalized = InternalRunLogStore.sanitizeMap(
             mapOf(
@@ -99,5 +58,4 @@ class InternalRunLogStoreCanonicalStepTest {
         assertFalse(json.contains("\"finishedAtMs\""))
         assertFalse(json.contains("event_log_path"))
     }
-
 }

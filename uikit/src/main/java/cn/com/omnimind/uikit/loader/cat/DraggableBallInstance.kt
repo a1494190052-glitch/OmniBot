@@ -9,6 +9,7 @@ import cn.com.omnimind.baselib.util.DisplayUtil
 import cn.com.omnimind.baselib.util.OmniLog
 import cn.com.omnimind.baselib.util.dpToPx
 import cn.com.omnimind.uikit.UIKit
+import cn.com.omnimind.uikit.api.uievent.UserTakeoverAction
 import cn.com.omnimind.uikit.view.data.Constant
 import cn.com.omnimind.uikit.view.data.WindowFlag
 import cn.com.omnimind.uikit.loader.CancelClickLoader
@@ -472,10 +473,10 @@ object DraggableBallInstance {
      */
     suspend fun userTakeover(
         message: String
-    ): Boolean {
+    ): UserTakeoverAction {
         resetTaskCompletionHintState()
         // 取消待执行的动画任务
-        val instance = getLoadedInstance() ?: return false
+        val instance = getLoadedInstance() ?: return UserTakeoverAction.CANCEL
         CancelClickLoader.cancelIntercepting()
         instance.catDialogShowInfoView.cancelAnimations()
         instance.catView.setViewState(DraggableViewState.DOING_TASK)

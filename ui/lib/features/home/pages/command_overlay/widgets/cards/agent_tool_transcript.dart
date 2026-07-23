@@ -122,6 +122,113 @@ Future<void> showAgentToolDetailSheet(
   );
 }
 
+Future<void> openAgentToolCard(
+  BuildContext context, {
+  required Map<String, dynamic> cardData,
+}) {
+  final runId = resolveAgentToolRunId(cardData);
+  if (runId != null) {
+    GoRouterManager.push(
+      '/task/run_log_timeline',
+      extra: <String, dynamic>{
+        'runId': runId,
+        'title': resolveAgentToolTitle(cardData),
+      },
+    );
+    return Future<void>.value();
+  }
+  return showAgentToolDetailSheet(context, cardData: cardData);
+}
+
+String? resolveAgentToolRunId(Map<String, dynamic> cardData) {
+  final toolName = (cardData['toolName'] ?? cardData['tool_name'] ?? '')
+      .toString()
+      .trim()
+      .toLowerCase();
+  if (toolName != 'vlm_task' && toolName != 'vlm-task') {
+    return null;
+  }
+
+  final directRunId = _firstNonEmptyString(<Object?>[
+    cardData['childRunId'],
+    cardData['child_run_id'],
+  ]);
+  if (directRunId != null) {
+    return directRunId;
+  }
+
+  for (final key in const <String>[
+    'resultPreviewJson',
+    'result_preview_json',
+    'rawResultJson',
+    'raw_result_json',
+  ]) {
+    final runId = _findVlmRunId(_decodeJsonValue(cardData[key]));
+    if (runId != null) {
+      return runId;
+    }
+  }
+  return null;
+}
+
+String? _findVlmRunId(Object? value) {
+  if (value is Map) {
+    for (final key in const <String>[
+      'childRunId',
+      'child_run_id',
+      'runId',
+      'run_id',
+      'taskId',
+      'task_id',
+    ]) {
+      final runId = _firstNonEmptyString(<Object?>[value[key]]);
+      if (runId != null) {
+        return runId;
+      }
+    }
+    for (final child in value.values) {
+      final runId = _findVlmRunId(child);
+      if (runId != null) {
+        return runId;
+      }
+    }
+  } else if (value is Iterable) {
+    for (final child in value) {
+      final runId = _findVlmRunId(child);
+      if (runId != null) {
+        return runId;
+      }
+    }
+  } else if (value is String) {
+    final decoded = _decodeJsonValue(value);
+    if (!identical(decoded, value)) {
+      return _findVlmRunId(decoded);
+    }
+  }
+  return null;
+}
+
+Object? _decodeJsonValue(Object? value) {
+  if (value is! String || value.trim().isEmpty) {
+    return value;
+  }
+  try {
+    return jsonDecode(value);
+  } on FormatException {
+    return value;
+  }
+}
+
+String? _firstNonEmptyString(Iterable<Object?> values) {
+  for (final value in values) {
+    final text = value?.toString().trim() ?? '';
+    if (text.isNotEmpty) {
+      return text;
+    }
+  }
+  return null;
+}
+
 Color resolveAgentToolStatusColor(String status) {
   switch (status) {
     case 'success':
@@ -1012,9 +1119,7 @@ class _AgentToolDetailContent extends StatelessWidget {
 }
 
 String _resolveChildRunId(Map<String, dynamic> cardData) {
-  return (cardData['childRunId'] ?? cardData['child_run_id'] ?? '')
-      .toString()
-      .trim();
+  return resolveAgentToolRunId(cardData) ?? '';
 }
 
 CodexDiffSummary? _resolveDiffSummary(Map<String, dynamic> cardData) {

@@ -172,6 +172,16 @@ object HttpController {
             .build()
     }
 
+    internal fun buildNonStreamingClient(timeoutSeconds: Long): OkHttpClient {
+        require(timeoutSeconds > 0) { "timeoutSeconds must be positive" }
+        return OkHttpClient.Builder()
+            .connectTimeout(timeoutSeconds, java.util.concurrent.TimeUnit.SECONDS)
+            .readTimeout(timeoutSeconds, java.util.concurrent.TimeUnit.SECONDS)
+            .writeTimeout(timeoutSeconds, java.util.concurrent.TimeUnit.SECONDS)
+            .callTimeout(timeoutSeconds, java.util.concurrent.TimeUnit.SECONDS)
+            .build()
+    }
+
     private val completionJson = Json {
         ignoreUnknownKeys = true
         isLenient = true
@@ -2932,7 +2942,8 @@ object HttpController {
         responseJsonObject: Boolean = false,
         maxTokens: Int? = null,
         temperature: Double? = null,
-        reasoningEffort: String? = null
+        reasoningEffort: String? = null,
+        timeoutSeconds: Long? = null
     ): ResultBean = withContext(Dispatchers.IO) {
         val resolved = resolveSceneRequest(model)
         logSceneProfile(resolved)
@@ -2954,7 +2965,8 @@ object HttpController {
                 maxTokens = maxTokens,
                 temperature = temperature
             ),
-            retryOnBadRequest = responseJsonObject
+            retryOnBadRequest = responseJsonObject,
+            timeoutSeconds = timeoutSeconds
         )
         if (!response.success) {
             throw IllegalStateException(response.message.ifBlank { "LLM request failed" })
@@ -3094,9 +3106,11 @@ object HttpController {
     private suspend fun postSceneChatCompletionInternal(
         resolved: ResolvedSceneRequest,
         request: ChatCompletionRequest,
-        retryOnBadRequest: Boolean
+        retryOnBadRequest: Boolean,
+        timeoutSeconds: Long? = null
     ): SceneChatCompletionResponse = withContext(Dispatchers.IO) {
         prepareLocalProviderIfNeeded(resolved)
+        val requestClient = timeoutSeconds?.let(::buildNonStreamingClient) ?: OkHttpClient()
         val base = normalizeApiBase(resolved.apiBase ?: "")
         if (base == null) {
             return@withContext buildFailureSceneResponse(
@@ -3128,7 +3142,7 @@ object HttpController {
             logRequestHeaders("[anthropic model=${resolved.resolvedModel}]", requestCall.headers.toMultimap().mapValues {
                 it.value.joinToString(",")
             })
-            val response = OkHttpClient().newCall(requestCall).execute()
+            val response = requestClient.newCall(requestCall).execute()
             val responseBody = response.body?.string()
             OmniLog.d(TAG, "Anthropic Response Status: ${response.code}")
             logResponseBody("[anthropic model=${resolved.resolvedModel}]", responseBody)
@@ -3210,7 +3224,7 @@ object HttpController {
                 it.value.joinToString(",")
             })
 
-            val response = OkHttpClient().newCall(requestCall).execute()
+            val response = requestClient.newCall(requestCall).execute()
             val responseBody = response.body?.string()
             OmniLog.d(TAG, "Response Status: ${response.code}")
             logResponseBody("[openai_compatible model=${variant.request.model}]", responseBody)

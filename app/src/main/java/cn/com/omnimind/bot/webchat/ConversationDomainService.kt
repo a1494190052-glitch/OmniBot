@@ -322,7 +322,8 @@ class ConversationDomainService(
         conversationId: Long,
         conversationMode: String,
         modelOverride: AgentModelOverride?,
-        reasoningEffort: String? = null
+        reasoningEffort: String? = null,
+        contextSegmentId: String? = null
     ): Map<String, Any?> {
         val normalizedMode = normalizeConversationMode(conversationMode)
         val compactor = AgentConversationContextCompactor(
@@ -333,7 +334,8 @@ class ConversationDomainService(
         )
         val outcome = compactor.compactConversationContext(
             conversationId = conversationId,
-            conversationMode = normalizedMode
+            conversationMode = normalizedMode,
+            contextSegmentId = contextSegmentId
         )
         val updatedConversation = DatabaseHelper.getConversationById(conversationId)
         if (outcome.compacted && updatedConversation != null) {

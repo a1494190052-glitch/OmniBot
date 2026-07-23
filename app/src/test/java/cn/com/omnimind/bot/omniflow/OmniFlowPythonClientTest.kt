@@ -15,6 +15,12 @@ import java.util.concurrent.TimeUnit
 
 class OmniFlowPythonClientTest {
     @Test
+    fun `enhancement allows two minutes`() {
+        assertEquals(120_000L, OmniFlowPythonClient.defaultTimeoutMs("compile"))
+        assertEquals(30_000L, OmniFlowPythonClient.defaultTimeoutMs("health"))
+    }
+
+    @Test
     fun `embedded bridge command uses the versioned site packages`() {
         val command = OmniFlowPythonClient.bridgeCommand(
             "/workspace/.omnibot/runtime/omniflow/2026.07.19.1/site-packages"

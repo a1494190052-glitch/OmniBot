@@ -79,7 +79,6 @@ class InternalRunLogStoreTimelineTest {
         InternalRunLogStore.upsertRecordedStep(
             context = context,
             runId = runId,
-            stepId = stepId,
             record = RunLogStepRecord(
                 step = canonicalStep(beforeStateId, afterStateId),
                 states = listOf(
@@ -91,7 +90,6 @@ class InternalRunLogStoreTimelineTest {
         InternalRunLogStore.upsertRecordedStep(
             context = context,
             runId = runId,
-            stepId = stepId,
             record = RunLogStepRecord(
                 step = canonicalStep(beforeStateId, afterStateId),
                 states = listOf(
@@ -148,7 +146,12 @@ class InternalRunLogStoreTimelineTest {
         "action" to mapOf("tool" to "wait", "args" to mapOf("duration_ms" to 1000)),
         "result" to mapOf("success" to true),
         "after_state_id" to afterStateId,
-        "metadata" to mapOf("step_id" to "step-0"),
+        "metadata" to mapOf(
+            "step_id" to "test-step-0",
+            "status" to "succeeded",
+            "summary" to "waited",
+            "source" to "test",
+        ),
     )
 
     private fun storageDir(): File = File(context.filesDir, "run_logs")
