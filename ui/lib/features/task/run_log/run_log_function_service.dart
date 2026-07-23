@@ -409,25 +409,20 @@ class RunLogFunctionService {
   static Future<Map<String, dynamic>> updateFunction({
     required String functionId,
     String? runId,
-    String mode = 'enhance',
-    Map<String, dynamic>? analysis,
+    String mode = 'edit',
     Map<String, dynamic>? patch,
-    Map<String, dynamic> extraArgs = const <String, dynamic>{},
-    bool autoAnalyzeWithModel = false,
+    bool dryRun = false,
   }) async {
     final normalizedFunctionId = functionId.trim();
     if (normalizedFunctionId.isEmpty) {
       throw Exception('function_id 为空，无法更新 Function');
     }
     final args = <String, dynamic>{
-      ..._jsonSafeMap(extraArgs),
       'function_id': normalizedFunctionId,
-      'mode': mode.trim().isEmpty ? 'enhance' : mode.trim(),
-      'auto_analyze_with_model': autoAnalyzeWithModel,
+      'mode': mode.trim().isEmpty ? 'edit' : mode.trim(),
       if (runId != null && runId.trim().isNotEmpty) 'run_id': runId.trim(),
-      if (analysis != null && analysis.isNotEmpty)
-        'analysis': _jsonSafeMap(analysis),
       if (patch != null && patch.isNotEmpty) 'patch': _jsonSafeMap(patch),
+      if (dryRun) 'dry_run': true,
     };
     final result = await AssistsMessageService.assistCore.invokeMethod(
       'updateFunction',
@@ -444,11 +439,6 @@ class RunLogFunctionService {
       functionId: functionId,
       runId: runId,
       mode: 'enhance',
-      autoAnalyzeWithModel: true,
-      extraArgs: const <String, dynamic>{
-        'offline_job': true,
-        'background_enhancement': true,
-      },
     );
   }
 

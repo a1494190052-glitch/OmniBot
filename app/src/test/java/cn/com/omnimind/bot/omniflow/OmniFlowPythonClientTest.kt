@@ -16,7 +16,9 @@ import java.util.concurrent.TimeUnit
 class OmniFlowPythonClientTest {
     @Test
     fun `enhancement allows two minutes`() {
-        assertEquals(120_000L, OmniFlowPythonClient.defaultTimeoutMs("compile"))
+        assertEquals(120_000L, OmniFlowPythonClient.defaultTimeoutMs("enhance"))
+        assertEquals(120_000L, OmniFlowPythonClient.defaultTimeoutMs("update_function"))
+        assertEquals(30_000L, OmniFlowPythonClient.defaultTimeoutMs("compile"))
         assertEquals(30_000L, OmniFlowPythonClient.defaultTimeoutMs("health"))
     }
 

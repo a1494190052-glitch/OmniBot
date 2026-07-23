@@ -2,7 +2,6 @@ package cn.com.omnimind.assists.task.vlmserver
 
 import cn.com.omnimind.baselib.i18n.AppLocaleManager
 import cn.com.omnimind.baselib.i18n.PromptLocale
-import cn.com.omnimind.baselib.llm.ModelSceneRegistry
 import java.util.Locale
 
 /**
@@ -24,42 +23,9 @@ object PromptTemplate {
         return buildTurnUserPrompt(context, sceneId = sceneId)
     }
 
+    @Suppress("UNUSED_PARAMETER")
     fun buildSystemPrompt(sceneId: String? = null): String {
-        val locale = currentLocale()
-        val resolvedSceneId = if (sceneId.isNullOrBlank()) {
-            VLMRuntimeConfigRegistry.get().primarySceneId
-        } else {
-            sceneId
-        }
-        if (resolvedSceneId == "scene.vlm.operation.primary") {
-            return buildToolActionSystemPrompt(locale)
-        }
-        val runtimeProfile = ModelSceneRegistry.getRuntimeProfile(resolvedSceneId)
-        val parser = runtimeProfile?.responseParser ?: ModelSceneRegistry.ResponseParser.TEXT_CONTENT
-        if (parser == ModelSceneRegistry.ResponseParser.OPENAI_TOOL_ACTIONS) {
-            return buildToolActionSystemPrompt(locale)
-        }
-        val template = ModelSceneRegistry.getPrompt(resolvedSceneId)
-            ?: ModelSceneRegistry.getPrompt("scene.vlm.operation.primary")
-            ?: throw IllegalStateException("scene.vlm.operation.primary prompt not found")
-
-        return ModelSceneRegistry.renderPrompt(
-            template,
-            mapOf(
-                "priorityEvent" to t(locale, "若后续 user 消息包含紧急事件，请优先处理。", "If later user messages contain urgent events, prioritize them."),
-                "overallTask" to t(locale, "见后续 user 消息", "See the following user message"),
-                "currentStepGoal" to t(locale, "见后续 user 消息", "See the following user message"),
-                "stepSkillGuidance" to t(locale, "见后续 user 消息", "See the following user message"),
-                "summaryHistory" to t(locale, "见后续 user 消息", "See the following user message"),
-                "currentState" to t(locale, "见后续 user 消息", "See the following user message"),
-                "nextStepHint" to t(locale, "见后续 user 消息", "See the following user message"),
-                "completedMilestones" to t(locale, "见后续 user 消息", "See the following user message"),
-                "keyMemory" to t(locale, "见后续 user 消息", "See the following user message"),
-                "installedApps" to t(locale, "见后续 user 消息", "See the following user message"),
-                "currentTime" to t(locale, "见后续 user 消息", "See the following user message"),
-                "responseContract" to ""
-            )
-        )
+        return buildToolActionSystemPrompt(currentLocale())
     }
 
     private fun buildToolActionSystemPrompt(locale: PromptLocale): String {
@@ -100,6 +66,7 @@ object PromptTemplate {
         )
     }
 
+    @Suppress("UNUSED_PARAMETER")
     fun buildTurnUserPrompt(
         context: UIContext,
         sceneId: String? = null,

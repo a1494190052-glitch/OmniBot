@@ -15,9 +15,7 @@ void main() {
         loadedRunId = runId;
         return eligibleRunLog()..['run_id'] = runId;
       },
-      compileRunLog: (_) async => compiledFunction(),
-      registerFunction: (_) async => <String, dynamic>{'success': false},
-      enhanceFunction: (_, _) async => <String, dynamic>{'success': true},
+      registerRunLog: (_) async => registeredFunction(),
     );
 
     await coordinator.handleRunLogFinished(
@@ -30,12 +28,12 @@ void main() {
 
   test('failed VLM run does not prompt', () async {
     var promptCount = 0;
-    var compileCount = 0;
+    var registerCount = 0;
     final coordinator = coordinatorWith(
       runLog: eligibleRunLog()
         ..['status'] = 'failed'
         ..['success'] = false,
-      onCompile: () => compileCount += 1,
+      onRegister: () => registerCount += 1,
     );
 
     final outcome = await coordinator.handleRunLogFinished(
@@ -48,7 +46,7 @@ void main() {
 
     expect(outcome, VlmFunctionRegistrationOutcome.ignored);
     expect(promptCount, 0);
-    expect(compileCount, 0);
+    expect(registerCount, 0);
   });
 
   test('same run id only prompts once while first prompt is active', () async {
@@ -77,15 +75,11 @@ void main() {
     expect(promptCount, 1);
   });
 
-  test('declining does not register or enhance', () async {
-    var compileCount = 0;
+  test('declining does not register', () async {
     var registerCount = 0;
-    var enhanceCount = 0;
     final coordinator = coordinatorWith(
       runLog: eligibleRunLog(),
-      onCompile: () => compileCount += 1,
       onRegister: () => registerCount += 1,
-      onEnhance: () => enhanceCount += 1,
     );
 
     final outcome = await coordinator.handleRunLogFinished(
@@ -94,9 +88,7 @@ void main() {
     );
 
     expect(outcome, VlmFunctionRegistrationOutcome.declined);
-    expect(compileCount, 0);
     expect(registerCount, 0);
-    expect(enhanceCount, 0);
   });
 
   test('recalled Function run does not prompt again', () async {
@@ -122,51 +114,31 @@ void main() {
     expect(promptCount, 0);
   });
 
-  test(
-    'confirmation registers before starting background enhancement',
-    () async {
-      final events = <String>[];
-      final enhanced = Completer<void>();
-      final coordinator = coordinatorWith(
-        runLog: eligibleRunLog(),
-        onCompile: () => events.add('compile'),
-        onRegister: () => events.add('register'),
-        onEnhance: () {
-          events.add('enhance');
-          enhanced.complete();
-        },
-      );
+  test('confirmation performs one compile-and-register operation', () async {
+    final events = <String>[];
+    final coordinator = coordinatorWith(
+      runLog: eligibleRunLog(),
+      onRegister: () => events.add('register'),
+    );
 
-      final outcome = await coordinator.handleRunLogFinished(
-        runId: 'run-1',
-        confirm: (_) async {
-          events.add('confirm');
-          return true;
-        },
-      );
-      await enhanced.future;
+    final outcome = await coordinator.handleRunLogFinished(
+      runId: 'run-1',
+      confirm: (_) async {
+        events.add('confirm');
+        return true;
+      },
+    );
 
-      expect(outcome, VlmFunctionRegistrationOutcome.registered);
-      expect(events, ['confirm', 'compile', 'register', 'enhance']);
-    },
-  );
+    expect(outcome, VlmFunctionRegistrationOutcome.registered);
+    expect(events, ['confirm', 'register']);
+  });
 
   test('accepted registration reports compiler failure', () async {
-    var registerCount = 0;
-    var enhanceCount = 0;
     final coordinator = VlmFunctionRegistrationCoordinator(
       loadRunLog: (_) async => eligibleRunLog(),
-      compileRunLog: (_) async => <String, dynamic>{
+      registerRunLog: (_) async => <String, dynamic>{
         'success': false,
         'error_message': 'no replayable actions',
-      },
-      registerFunction: (_) async {
-        registerCount += 1;
-        return <String, dynamic>{'success': true};
-      },
-      enhanceFunction: (_, _) async {
-        enhanceCount += 1;
-        return <String, dynamic>{'success': true};
       },
     );
 
@@ -176,33 +148,6 @@ void main() {
     );
 
     expect(outcome, VlmFunctionRegistrationOutcome.registrationFailed);
-    expect(registerCount, 0);
-    expect(enhanceCount, 0);
-  });
-
-  test('enhancement failure keeps successful registration', () async {
-    final enhancementAttempted = Completer<void>();
-    final coordinator = VlmFunctionRegistrationCoordinator(
-      loadRunLog: (_) async => eligibleRunLog(),
-      compileRunLog: (_) async => compiledFunction(),
-      registerFunction: (_) async => {
-        'success': true,
-        'function_id': 'fn-run-1',
-      },
-      enhanceFunction: (_, _) async {
-        enhancementAttempted.complete();
-        throw StateError('offline model unavailable');
-      },
-    );
-
-    final outcome = await coordinator.handleRunLogFinished(
-      runId: 'run-1',
-      confirm: (_) async => true,
-    );
-    await enhancementAttempted.future;
-    await Future<void>.delayed(Duration.zero);
-
-    expect(outcome, VlmFunctionRegistrationOutcome.registered);
   });
 
   testWidgets('RunLog finish waits for the root navigator before prompting', (
@@ -241,6 +186,7 @@ void main() {
     await tester.pumpWidget(
       MaterialApp(
         navigatorKey: GoRouterManager.rootNavigatorKey,
+        theme: ThemeData(splashFactory: InkRipple.splashFactory),
         home: const Scaffold(),
       ),
     );
@@ -267,23 +213,13 @@ void main() {
 
 VlmFunctionRegistrationCoordinator coordinatorWith({
   required Map<String, dynamic> runLog,
-  void Function()? onCompile,
   void Function()? onRegister,
-  void Function()? onEnhance,
 }) {
   return VlmFunctionRegistrationCoordinator(
     loadRunLog: (_) async => runLog,
-    compileRunLog: (_) async {
-      onCompile?.call();
-      return compiledFunction();
-    },
-    registerFunction: (_) async {
+    registerRunLog: (_) async {
       onRegister?.call();
-      return {'success': true, 'function_id': 'fn-run-1'};
-    },
-    enhanceFunction: (_, _) async {
-      onEnhance?.call();
-      return {'success': true};
+      return registeredFunction();
     },
   );
 }
@@ -317,8 +253,9 @@ Map<String, dynamic> eligibleRunLog() => <String, dynamic>{
   ],
 };
 
-Map<String, dynamic> compiledFunction() => <String, dynamic>{
+Map<String, dynamic> registeredFunction() => <String, dynamic>{
   'success': true,
+  'registered': true,
   'function_id': 'fn-run-1',
   'function': <String, dynamic>{
     'schema_version': 'omniflow.function.v2',

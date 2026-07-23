@@ -48,10 +48,6 @@ class UIContextManager {
         )
     }
 
-    fun addKeyMemories(context: UIContext, memories: List<String>): UIContext {
-        return memories.fold(context) { current, memory -> addKeyMemory(current, memory) }
-    }
-
     fun withTransientEvents(context: UIContext, events: List<VLMContextEvent>): UIContext {
         return context.copy(
             transientEvents = events,

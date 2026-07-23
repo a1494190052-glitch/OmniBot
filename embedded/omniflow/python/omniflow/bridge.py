@@ -82,6 +82,8 @@ class JsonLineBridge:
             return self._catalog(body)
         if operation == "compile":
             return self._compile(request_id, body)
+        if operation == "update_function":
+            return self._update_function(request_id, body)
         if operation == "recall":
             return self._recall(body)
         if operation == "enhance":
@@ -165,46 +167,188 @@ class JsonLineBridge:
         raise ValueError(f"unsupported_catalog_action:{action}")
 
     def _compile(self, request_id: str, body: dict[str, Any]) -> dict[str, Any]:
-        _require_contract(body, {"run_id"}, {"run_id"})
+        _require_contract(
+            body,
+            {"run_id"},
+            {
+                "run_id",
+                "register",
+                "agent_visible",
+                "function_id",
+                "name",
+                "description",
+            },
+        )
         run_id = str(body.get("run_id") or "").strip()
         if not run_id:
-            raise ValueError("run_id_required")
+            return _management_error("RUN_LOG_ID_EMPTY", "run_id is required")
         run_log = self.host_call(request_id, "get_run_log", {"run_id": run_id})
         if not isinstance(run_log, dict):
-            raise ValueError("run_log_invalid")
+            return _management_error(
+                "RUN_LOG_NOT_FOUND",
+                f"RunLog not found: {run_id}",
+                run_id=run_id,
+            )
+        if run_log.get("error_code"):
+            return _management_error(
+                str(run_log["error_code"]),
+                str(run_log.get("error_message") or f"RunLog not found: {run_id}"),
+                run_id=run_id,
+            )
 
-        with tempfile.TemporaryDirectory(prefix="omniflow-compile-") as output_root:
-            report = compile_runlog_to_store(run_log, output_root)
-            compiled = OmniFlow(Path(output_root) / "store.json")
-            function_id = next(iter(report["function_ids"]), "")
-            function = compiled.store.get_function(function_id)
+        try:
+            with tempfile.TemporaryDirectory(prefix="omniflow-compile-") as output_root:
+                report = compile_runlog_to_store(run_log, output_root)
+                compiled = OmniFlow(Path(output_root) / "store.json")
+                function_id = next(iter(report["function_ids"]), "")
+                function = compiled.store.get_function(function_id)
+        except ValueError as error:
+            return _compile_error(run_id, error)
         if function is None:
-            return {"success": False, "function": None, "error": "no_actions"}
-        return {"success": True, "function": function.to_dict(), "error": None}
+            return _management_error(
+                "RUN_LOG_NO_REPLAYABLE_STEPS",
+                "RunLog has no replayable steps",
+                run_id=run_id,
+            )
+
+        value = function.to_dict()
+        for field in ("function_id", "name", "description"):
+            replacement = str(body.get(field) or "").strip()
+            if replacement:
+                value[field] = replacement
+        value["agent_visible"] = body.get("agent_visible") is True
+        try:
+            value = parse_function_artifact(value).to_dict()
+        except ValueError as error:
+            return _management_error(
+                "FUNCTION_SCHEMA_INVALID",
+                str(error),
+                run_id=run_id,
+            )
+
+        register = body.get("register") is True
+        function_id = value["function_id"]
+        already_exists = self.flow.store.get_function(function_id) is not None
+        if register:
+            self.flow.store.put_function(value)
+        status = "converted"
+        if register:
+            status = "updated" if already_exists else "created"
+        step_count = len(run_log.get("steps") or ())
+        return {
+            "success": True,
+            "accepted": True,
+            "status": status,
+            "run_id": run_id,
+            "function_id": function_id,
+            "function": value,
+            "registered": register,
+            "already_exists": already_exists,
+            "step_count": step_count,
+            "successful_step_count": sum(
+                1
+                for step in run_log.get("steps") or ()
+                if isinstance(step, dict)
+                and isinstance(step.get("result"), dict)
+                and step["result"].get("success") is True
+            ),
+            "compiled_step_count": len(value["steps"]),
+            "error": None,
+            "source": "omniflow_python",
+        }
+
+    def _update_function(
+        self,
+        request_id: str,
+        body: dict[str, Any],
+    ) -> dict[str, Any]:
+        _require_contract(
+            body,
+            {"function_id"},
+            {"function_id", "mode", "patch", "dry_run", "run_id"},
+        )
+        function_id = str(body.get("function_id") or "").strip()
+        if not function_id:
+            return _management_error("FUNCTION_ID_EMPTY", "function_id is required")
+        original = self.flow.store.get_function(function_id)
+        if original is None:
+            return _management_error(
+                "OOB_FUNCTION_NOT_FOUND",
+                f"Function not found: {function_id}",
+                function_id=function_id,
+            )
+
+        patch = body.get("patch")
+        if patch is not None and not isinstance(patch, dict):
+            return _management_error(
+                "FUNCTION_PATCH_INVALID",
+                "patch must be an object",
+                function_id=function_id,
+            )
+        mode = str(body.get("mode") or "").strip().lower()
+        if isinstance(patch, dict) or mode == "edit":
+            edits = (patch or {}).get("action_edits", [])
+            if not isinstance(edits, list):
+                return _management_error(
+                    "FUNCTION_PATCH_INVALID",
+                    "patch.action_edits must be an array",
+                    function_id=function_id,
+                )
+            updated, changes = edit_function(original.to_dict(), edits)
+            dry_run = body.get("dry_run") is True
+            if changes and not dry_run:
+                self.flow.store.put_function(updated)
+            return {
+                "success": True,
+                "function_id": function_id,
+                "found": True,
+                "function": original.to_dict(),
+                "updated_function": updated,
+                "changed": bool(changes),
+                "saved": bool(changes) and not dry_run,
+                "dry_run": dry_run,
+                "changes": changes,
+                "message": (
+                    "No applicable action edits."
+                    if not changes
+                    else "Function update preview generated."
+                    if dry_run
+                    else "Function updated."
+                ),
+                "source": "omniflow_python",
+            }
+        if mode != "enhance":
+            return _management_error(
+                "FUNCTION_UPDATE_MODE_REQUIRED",
+                "mode must be edit or enhance",
+                function_id=function_id,
+            )
+        run_log: dict[str, Any] = {}
+        run_id = str(body.get("run_id") or "").strip()
+        if run_id:
+            loaded = self.host_call(request_id, "get_run_log", {"run_id": run_id})
+            if isinstance(loaded, dict):
+                run_log = loaded
+        return self._enhance(
+            request_id,
+            {"function_id": function_id, "run_log": run_log},
+        )
 
     def _enhance(self, request_id: str, body: dict[str, Any]) -> dict[str, Any]:
         function_id = str(body.get("function_id") or "").strip()
         function = self.flow.store.get_function(function_id)
         if function is None:
-            return {"function_id": function_id, "found": False}
+            return _management_error(
+                "OOB_FUNCTION_NOT_FOUND",
+                f"Function not found: {function_id}",
+                function_id=function_id,
+            ) | {"found": False}
         run_log = body.get("run_log")
         if not isinstance(run_log, dict):
             run_log = {}
 
         def complete_json(prompt: str) -> str:
-            response = self.host_call(
-                request_id,
-                "complete_json",
-                {
-                    "model": "scene.dispatch.model",
-                    "prompt": prompt,
-                    "max_tokens": 1800,
-                    "temperature": 0.1,
-                },
-            )
-            if not isinstance(response, dict):
-                raise ValueError("complete_json_response_invalid")
-            return str(response.get("content") or "")
+            return self._complete_json(request_id, prompt)
 
         updated, changes, status = enhance_function(
             function.to_dict(),
@@ -213,6 +357,7 @@ class JsonLineBridge:
         )
         self.flow.store.put_function(updated)
         return {
+            "success": True,
             "function_id": function_id,
             "found": True,
             "function": function.to_dict(),
@@ -221,7 +366,24 @@ class JsonLineBridge:
             "saved": True,
             "changes": changes,
             "enhancement_status": status,
+            "message": "Function enhancement completed.",
+            "source": "omniflow_python",
         }
+
+    def _complete_json(self, request_id: str, prompt: str) -> str:
+        response = self.host_call(
+            request_id,
+            "complete_json",
+            {
+                "model": "scene.dispatch.model",
+                "prompt": prompt,
+                "max_tokens": 1800,
+                "temperature": 0.1,
+            },
+        )
+        if not isinstance(response, dict):
+            raise ValueError("complete_json_response_invalid")
+        return str(response.get("content") or "")
 
     def _recall(self, body: dict[str, Any]) -> dict[str, Any]:
         _require_contract(body, {"goal", "state"}, {"goal", "state"})
@@ -542,6 +704,45 @@ def _require_contract(
     unknown = sorted(set(value) - allowed)
     if unknown:
         raise ValueError(f"request_unknown_fields:{','.join(unknown)}")
+
+
+def _compile_error(run_id: str, error: ValueError) -> dict[str, Any]:
+    message = str(error)
+    code = {
+        "successful_source_actions_required": "RUN_LOG_NO_REPLAYABLE_STEPS",
+        "semantic_functions_required": "RUN_LOG_NO_REPLAYABLE_STEPS",
+        "default_bundle_actions_required": "RUN_LOG_NO_REPLAYABLE_STEPS",
+        "successful_source_run_log_required": "RUN_LOG_NOT_SUCCESSFUL",
+        "successful_source_goal_required": "RUN_LOG_GOAL_EMPTY",
+    }.get(message, "RUN_LOG_COMPILE_FAILED")
+    user_message = {
+        "RUN_LOG_NO_REPLAYABLE_STEPS": "RunLog has no replayable steps",
+        "RUN_LOG_NOT_SUCCESSFUL": "RunLog did not finish successfully",
+        "RUN_LOG_GOAL_EMPTY": "RunLog goal is required",
+    }.get(code, message)
+    return _management_error(code, user_message, run_id=run_id)
+
+
+def _management_error(
+    code: str,
+    message: str,
+    *,
+    function_id: str = "",
+    run_id: str = "",
+) -> dict[str, Any]:
+    return {
+        "success": False,
+        "accepted": False,
+        "status": "rejected",
+        "registered": False,
+        "function_id": function_id,
+        "run_id": run_id,
+        "function": None,
+        "error": message,
+        "error_code": code,
+        "error_message": message,
+        "source": "omniflow_python",
+    }
 
 
 def _run_result(result) -> dict[str, Any]:

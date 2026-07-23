@@ -15,7 +15,7 @@ void main() {
     messenger.setMockMethodCallHandler(channel, null);
   });
 
-  test('enhanceFunction dispatches a background model enhancement', () async {
+  test('enhanceFunction dispatches explicit semantic enhancement', () async {
     MethodCall? capturedCall;
     messenger.setMockMethodCallHandler(channel, (call) async {
       capturedCall = call;
@@ -37,11 +37,8 @@ void main() {
     expect(result['success'], isTrue);
     expect(capturedCall?.method, 'updateFunction');
     expect(capturedCall?.arguments, <String, dynamic>{
-      'offline_job': true,
-      'background_enhancement': true,
       'function_id': 'fn_existing',
       'mode': 'enhance',
-      'auto_analyze_with_model': true,
       'run_id': 'run_source',
     });
   });

@@ -46,15 +46,52 @@
       }
     },
     "compile": {
-      "request": {"required": ["run_id"]},
-      "host_calls": ["get_run_log", "get_state"],
-      "response": {"required": ["success", "function", "error"]}
+      "request": {
+        "required": ["run_id"],
+        "optional": [
+          "register",
+          "agent_visible",
+          "function_id",
+          "name",
+          "description"
+        ]
+      },
+      "host_calls": ["get_run_log"],
+      "response": {
+        "required": [
+          "success",
+          "status",
+          "run_id",
+          "function_id",
+          "function",
+          "registered",
+          "error"
+        ]
+      }
+    },
+    "update_function": {
+      "request": {
+        "required": ["function_id"],
+        "optional": ["mode", "patch", "dry_run", "run_id"]
+      },
+      "host_calls": ["get_run_log", "complete_json"],
+      "response": {
+        "required": [
+          "success",
+          "function_id",
+          "function",
+          "updated_function",
+          "changed",
+          "saved"
+        ]
+      }
     },
     "enhance": {
       "request": {"required": ["function_id"], "optional": ["run_log"]},
       "host_calls": ["complete_json"],
       "response": {
         "required": [
+          "success",
           "function_id",
           "found",
           "function",

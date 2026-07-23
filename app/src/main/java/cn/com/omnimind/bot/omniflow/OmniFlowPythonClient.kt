@@ -307,7 +307,7 @@ internal class OmniFlowPythonClient(
         }
 
         internal fun defaultTimeoutMs(operation: String): Long = when (operation) {
-            "compile" -> SEMANTIC_COMPILE_TIMEOUT_MS
+            "enhance", "update_function" -> SEMANTIC_COMPILE_TIMEOUT_MS
             "run" -> RUN_TIMEOUT_MS
             else -> DEFAULT_CALL_TIMEOUT_MS
         }

@@ -239,7 +239,7 @@ object FunctionApi {
 
     private val updateFunctionMcpTool = mapOf(
         "name" to FUNCTION_UPDATE,
-        "description" to "Apply explicit delete or replace_args edits to one saved Function. Raw RunLog evidence stays in the RunLog store.",
+        "description" to "Apply explicit action edits or explicitly enhance one saved Function. Compilation and registration never trigger enhancement automatically.",
         "inputSchema" to updateFunctionInputSchema()
     )
 
@@ -357,6 +357,8 @@ object FunctionApi {
         obj(
             properties = linkedMapOf(
                 "function_id" to string("Existing Function id to update in place."),
+                "mode" to string("Use edit for patch changes or enhance for optional semantic enhancement."),
+                "run_id" to string("Canonical RunLog id used only when mode=enhance."),
                 "patch" to updateFunctionPatchSchema,
                 "dry_run" to boolean("Preview changes without saving."),
             ),

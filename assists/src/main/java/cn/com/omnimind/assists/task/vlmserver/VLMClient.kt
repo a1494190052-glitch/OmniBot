@@ -36,7 +36,8 @@ class VLMClient(
             sceneId = sceneId,
             runLogSteps = runLogSteps,
         )
-    }
+    },
+    private val requestLogger: (String) -> Unit = { message -> OmniLog.i(TAG, message) },
 ) {
     private val json = Json {
         ignoreUnknownKeys = true
@@ -87,8 +88,7 @@ class VLMClient(
         val tools = (dynamicTools + baseTools).distinctBy { it.function.name }
         val defaultToolCount = VLMToolDefinitions.tools().size
 
-        OmniLog.i(
-            TAG,
+        requestLogger(
             "buildUIOperationRequest scene=$model runLogSteps=${runLogSteps.size} totalMessages=${messages.size} currentImages=$imageCount visualPolicy=current_screenshot+runlog_action_summary marked=${includeMarkedScreenshot && !markedScreenshot.isNullOrBlank()} retry=${retryState?.retryIndex ?: 0} tools=${tools.size}/$defaultToolCount recalledTools=${dynamicFunctionToolNames.size}"
         )
 

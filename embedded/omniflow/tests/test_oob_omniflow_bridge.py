@@ -119,6 +119,99 @@ def test_catalog_and_recall_round_trip(tmp_path: Path) -> None:
     }
 
 
+def test_compile_registers_without_calling_enhancement(tmp_path: Path) -> None:
+    run_log = {
+        "schema_version": "omniflow.canonical_run_log.v1",
+        "run_id": "source",
+        "goal": "wait once",
+        "status": "succeeded",
+        "success": True,
+        "steps": [
+            {
+                "step_index": 0,
+                "before_state_id": "state-0",
+                "action": {"tool": "wait", "args": {"duration_ms": 1000}},
+                "result": {"success": True},
+                "after_state_id": "state-1",
+                "metadata": {},
+            }
+        ],
+    }
+    reader = StringIO(
+        json.dumps(
+            {"call_id": "compile:1", "ok": True, "result": run_log}
+        )
+        + "\n"
+    )
+    writer = StringIO()
+    bridge = OobOmniFlowBridge(
+        tmp_path / "store.json",
+        reader=reader,
+        writer=writer,
+    )
+
+    result = bridge._handle(
+        "compile",
+        "compile",
+        {
+            "run_id": "source",
+            "register": True,
+            "agent_visible": True,
+            "function_id": "wait_once",
+        },
+    )
+
+    calls = [json.loads(line) for line in writer.getvalue().splitlines()]
+    assert [call["method"] for call in calls] == ["get_run_log"]
+    assert result["registered"] is True
+    assert result["function_id"] == "wait_once"
+    assert bridge.flow.store.get_function("wait_once") is not None
+
+
+def test_update_function_uses_the_single_enhancement_interface(tmp_path: Path) -> None:
+    reader = StringIO(
+        json.dumps(
+            {
+                "call_id": "update:1",
+                "ok": True,
+                "result": {"run_id": "source", "goal": "enter name", "steps": []},
+            }
+        )
+        + "\n"
+        + json.dumps(
+            {
+                "call_id": "update:2",
+                "ok": True,
+                "result": {
+                    "content": json.dumps(
+                        {"name": "Enter a contact name", "checker_rules": []}
+                    )
+                },
+            }
+        )
+        + "\n"
+    )
+    writer = StringIO()
+    bridge = OobOmniFlowBridge(
+        tmp_path / "store.json",
+        reader=reader,
+        writer=writer,
+    )
+    bridge._handle("put", "catalog", {"action": "put", "function": function()})
+
+    result = bridge._handle(
+        "update",
+        "update_function",
+        {"function_id": "enter_name", "mode": "enhance", "run_id": "source"},
+    )
+
+    calls = [json.loads(line) for line in writer.getvalue().splitlines()]
+    assert [call["method"] for call in calls] == ["get_run_log", "complete_json"]
+    assert result["success"] is True
+    assert result["updated_function"]["name"] == "Enter a contact name"
+    assert result["enhancement_status"] == "enhanced"
+
+
 def test_omnitransfer_fails_closed_when_matcher_is_unavailable(monkeypatch) -> None:
     import omnitransfer.runtime as runtime
 

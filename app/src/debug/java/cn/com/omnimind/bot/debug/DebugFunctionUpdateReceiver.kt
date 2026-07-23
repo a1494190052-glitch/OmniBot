@@ -25,36 +25,18 @@ class DebugFunctionUpdateReceiver : BroadcastReceiver() {
                 val functionId = intent.firstStringExtra("functionId", "function_id")
                 val runId = intent.firstStringExtra("runId", "run_id")
                 val mode = intent.firstStringExtra("mode", "operation").ifBlank { "enhance" }
-                val instruction = intent.decodeBase64Extra("instructionBase64")
-                    ?: intent.firstStringExtra("instruction", "request", "user_instruction")
-                val analysis = intent.decodeJsonMapBase64Extra("analysisBase64")
-                    ?: intent.decodeJsonMapBase64Extra("enhancementAnalysisBase64")
-                    ?: emptyMap()
                 val patch = intent.decodeJsonMapBase64Extra("patchBase64")
                     ?: intent.decodeJsonMapBase64Extra("enhancementPatchBase64")
                     ?: directPatchFromExtras(intent)
-                val extraArgs = intent.decodeJsonMapBase64Extra("extraArgsBase64")
-                    ?: emptyMap()
                 val dryRun = intent.booleanExtra("dryRun")
                     ?: intent.booleanExtra("dry_run")
-                val backgroundEnhancement = intent.booleanExtra("backgroundEnhancement")
-                    ?: intent.booleanExtra("background_enhancement")
-                val autoAnalyzeWithModel = intent.booleanExtra("autoAnalyzeWithModel")
-                    ?: intent.booleanExtra("auto_analyze_with_model")
 
                 val args = linkedMapOf<String, Any?>().apply {
-                    putAll(extraArgs)
-                    put("offline_job", true)
-                    put("debug_offline_update", true)
                     put("function_id", functionId)
                     put("mode", mode)
                     if (runId.isNotBlank()) put("run_id", runId)
-                    if (instruction.isNotBlank()) put("instruction", instruction)
-                    if (analysis.isNotEmpty()) put("analysis", analysis)
                     if (patch.isNotEmpty()) put("patch", patch)
                     dryRun?.let { put("dry_run", it) }
-                    backgroundEnhancement?.let { put("background_enhancement", it) }
-                    autoAnalyzeWithModel?.let { put("auto_analyze_with_model", it) }
                 }.filterValues { it != null }
 
                 val service = FunctionService(appContext)

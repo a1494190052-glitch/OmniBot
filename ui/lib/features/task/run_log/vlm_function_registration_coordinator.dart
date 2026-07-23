@@ -8,11 +8,8 @@ import 'package:ui/services/assists_core_service.dart';
 import 'package:ui/utils/ui.dart';
 
 typedef VlmRunLogLoader = Future<Map<String, dynamic>> Function(String runId);
-typedef VlmRunLogCompiler = Future<Map<String, dynamic>> Function(String runId);
-typedef VlmFunctionRegistrar =
-    Future<Map<String, dynamic>> Function(Map<String, dynamic> function);
-typedef VlmFunctionEnhancer =
-    Future<Map<String, dynamic>> Function(String functionId, String runId);
+typedef VlmRunLogRegistrar =
+    Future<Map<String, dynamic>> Function(String runId);
 typedef VlmRegistrationConfirmation =
     Future<bool> Function(VlmFunctionRegistrationCandidate candidate);
 
@@ -36,51 +33,24 @@ class VlmFunctionRegistrationCandidate {
 class VlmFunctionRegistrationCoordinator {
   VlmFunctionRegistrationCoordinator({
     VlmRunLogLoader? loadRunLog,
-    VlmRunLogCompiler? compileRunLog,
-    VlmFunctionRegistrar? registerFunction,
-    VlmFunctionEnhancer? enhanceFunction,
+    VlmRunLogRegistrar? registerRunLog,
   }) : _loadRunLog =
            loadRunLog ??
            ((runId) =>
                RunLogFunctionService.getInternalRunLogTimeline(runId: runId)),
-       _compileRunLog =
-           compileRunLog ??
+       _registerRunLog =
+           registerRunLog ??
            ((runId) => RunLogFunctionService.convertInternalRunLogToFunction(
              runId: runId,
-             register: false,
+             register: true,
              agentVisible: true,
-           )),
-       _registerFunction =
-           registerFunction ??
-           ((function) async {
-             final result = await RunLogFunctionService.registerFunction(
-               function: function,
-             );
-             return <String, dynamic>{
-               ...result.rawJson,
-               'success': result.success,
-               'function_id': result.functionId,
-             };
-           }),
-       _enhanceFunction =
-           enhanceFunction ??
-           ((functionId, runId) => RunLogFunctionService.updateFunction(
-             functionId: functionId,
-             runId: runId,
-             autoAnalyzeWithModel: true,
-             extraArgs: const <String, dynamic>{
-               'source': 'vlm_registration_prompt',
-               'background_enhancement': true,
-             },
            ));
 
   static final VlmFunctionRegistrationCoordinator instance =
       VlmFunctionRegistrationCoordinator();
 
   final VlmRunLogLoader _loadRunLog;
-  final VlmRunLogCompiler _compileRunLog;
-  final VlmFunctionRegistrar _registerFunction;
-  final VlmFunctionEnhancer _enhanceFunction;
+  final VlmRunLogRegistrar _registerRunLog;
   final Set<String> _inFlightRunIds = <String>{};
   final Set<String> _handledRunIds = <String>{};
 
@@ -114,25 +84,17 @@ class VlmFunctionRegistrationCoordinator {
       _markHandled(normalizedRunId);
       if (!accepted) return VlmFunctionRegistrationOutcome.declined;
 
-      final compiled = await _compileRunLog(canonicalRunId);
-      final functionSpec = _map(compiled['function']);
+      final registration = await _registerRunLog(canonicalRunId);
+      final functionSpec = _map(registration['function']);
       final functionId = _text(
-        compiled['function_id'] ?? functionSpec['function_id'],
+        registration['function_id'] ?? functionSpec['function_id'],
       );
-      if (compiled['success'] != true ||
+      if (registration['success'] != true ||
+          registration['registered'] != true ||
           functionSpec.isEmpty ||
           functionId.isEmpty) {
         return VlmFunctionRegistrationOutcome.registrationFailed;
       }
-
-      final registration = await _registerFunction(functionSpec);
-      final registeredFunctionId = _text(
-        registration['function_id'] ?? functionId,
-      );
-      if (registration['success'] != true || registeredFunctionId.isEmpty) {
-        return VlmFunctionRegistrationOutcome.registrationFailed;
-      }
-      _startBackgroundEnhancement(registeredFunctionId, canonicalRunId);
       return VlmFunctionRegistrationOutcome.registered;
     } catch (error, stackTrace) {
       debugPrint('VLM Function registration prompt failed: $error');
@@ -141,30 +103,6 @@ class VlmFunctionRegistrationCoordinator {
       return VlmFunctionRegistrationOutcome.registrationFailed;
     } finally {
       _inFlightRunIds.remove(normalizedRunId);
-    }
-  }
-
-  void _startBackgroundEnhancement(String functionId, String runId) {
-    unawaited(_runBackgroundEnhancement(functionId, runId));
-  }
-
-  Future<void> _runBackgroundEnhancement(
-    String functionId,
-    String runId,
-  ) async {
-    try {
-      final result = await _enhanceFunction(functionId, runId);
-      if (result['success'] != true) {
-        debugPrint(
-          'Background Function enhancement kept the registered version: '
-          '${result['error_message'] ?? result['message'] ?? 'unknown error'}',
-        );
-      }
-    } catch (error, stackTrace) {
-      debugPrint(
-        'Background Function enhancement kept the registered version: $error',
-      );
-      debugPrintStack(stackTrace: stackTrace);
     }
   }
 
@@ -260,8 +198,8 @@ class VlmFunctionRegistrationPrompt {
       case VlmFunctionRegistrationOutcome.registered:
         AppToast.success(
           LegacyTextLocalizer.isEnglish
-              ? 'Saved. LLM enhancement is running in the background.'
-              : '已注册，LLM 正在后台增强。',
+              ? 'Saved as a reusable command.'
+              : '已注册为复用指令。',
         );
       case VlmFunctionRegistrationOutcome.registrationFailed:
         AppToast.error(
@@ -286,9 +224,9 @@ class VlmFunctionRegistrationPrompt {
             content: Text(
               useEnglish
                   ? 'Save this successful operation for faster reuse next time. '
-                        'LLM will improve its description in the background without delaying use.'
+                        'You can optionally enhance its description later.'
                   : '保存这次成功操作，下次相似任务可更快复用。'
-                        '注册后即可使用，LLM 会在后台增强描述，不阻塞当前操作。',
+                        '需要时可稍后手动增强描述。',
             ),
             actions: [
               TextButton(

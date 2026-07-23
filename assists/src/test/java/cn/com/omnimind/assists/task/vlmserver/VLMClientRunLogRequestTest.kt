@@ -29,6 +29,7 @@ class VLMClientRunLogRequestTest {
                 receivedRunLogSteps = steps
                 "task=${context.overallTask}\n${VLMRunLogPlannerHistory.render(steps)}"
             },
+            requestLogger = {},
         )
 
         val envelope = client.buildUIOperationRequest(
