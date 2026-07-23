@@ -13,7 +13,7 @@ binding = "UPDATE_ANALYTICS"
 dataset = "omnibot_app_updates"
 
 [vars]
-GITHUB_REPO = "omnimind-ai/OpenOmniBot"
+GITHUB_REPO = "omnimind-ai/OmniBot"
 DEFAULT_SOURCE = "worker"
 R2_RELEASES_PREFIX = "releases"
 R2_METADATA_PREFIX = "metadata/releases"

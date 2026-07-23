@@ -680,6 +680,7 @@ if [[ ! "$UPDATE_CHANNEL" =~ ^[a-z0-9][a-z0-9._-]{0,31}$ ]]; then
   exit 1
 fi
 export OMNIBOT_UPDATE_CHANNEL="$UPDATE_CHANNEL"
+export OMNIBOT_UPDATE_WORKER_URL="$WORKER_URL"
 
 if [[ "$UPDATE_CHANNEL" == "vlm-core" && "$EDITION" != "standard" ]]; then
   echo "The vlm-core update channel only supports --edition standard" >&2

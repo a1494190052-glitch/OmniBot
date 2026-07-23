@@ -111,7 +111,7 @@ object AppUpdateManager {
     private const val WORKER_UPDATES_PATH = "updates"
     private const val WORKER_DOWNLOADS_PATH = "downloads"
     private const val GITHUB_RELEASE_DOWNLOAD_PREFIX =
-        "https://github.com/omnimind-ai/OpenOmniBot/releases/download"
+        "https://github.com/omnimind-ai/OmniBot/releases/download"
     private const val WORK_NAME = "app_update_periodic_check"
     private const val PERIODIC_CHECK_HOURS = 12L
     private const val SILENT_CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000L

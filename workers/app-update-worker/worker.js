@@ -1,6 +1,6 @@
 import ADMIN_HTML from "./admin-ui.js";
 
-const DEFAULT_GITHUB_REPO = "omnimind-ai/OpenOmniBot";
+const DEFAULT_GITHUB_REPO = "omnimind-ai/OmniBot";
 const DEFAULT_EDITIONS = ["omniinfer", "standard"];
 const DEFAULT_R2_RELEASES_PREFIX = "releases";
 const DEFAULT_R2_METADATA_PREFIX = "metadata/releases";
