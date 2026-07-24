@@ -173,9 +173,28 @@
     "run": {
       "request": {
         "one_of": ["function_id", "goal"],
-        "optional": ["arguments", "run_id", "execution_mode", "started_at_ms"]
+        "optional": [
+          "arguments",
+          "run_id",
+          "execution_mode",
+          "started_at_ms",
+          "model",
+          "resolver_model",
+          "max_steps",
+          "target_package_name",
+          "step_skill_guidance",
+          "disable_function_recall"
+        ]
       },
-      "host_calls": ["observe", "act", "get_state", "record_step"],
+      "host_calls": [
+        "observe",
+        "act",
+        "get_state",
+        "record_step",
+        "model_turn",
+        "complete_json",
+        "request_input"
+      ],
       "response": {
         "required": [
           "success",
@@ -203,7 +222,12 @@
           "error_code",
           "error_message",
           "missing_required_arguments",
-          "final_state"
+          "final_state",
+          "done_reason",
+          "finished_content",
+          "model",
+          "model_calls",
+          "fallback_steps"
         ]
       }
     },
@@ -220,10 +244,17 @@
       "complete_json",
       "get_run_log",
       "get_state",
+      "model_turn",
       "observe",
-      "record_step"
+      "record_step",
+      "request_input"
     ],
-    "act_payload": {"required": ["action", "state"]},
+    "act_payload": {"required": ["action", "state"], "optional": ["metadata"]},
+    "model_turn_payload": {
+      "required": ["goal", "model", "state", "max_steps"],
+      "optional": ["target_package_name", "step_skill_guidance"]
+    },
+    "request_input_payload": {"required": ["question"]},
     "record_step_payload": {
       "required": ["step"],
       "step_schema_ref": "omniflow_canonical_run_log.v1.json#/$defs/step"

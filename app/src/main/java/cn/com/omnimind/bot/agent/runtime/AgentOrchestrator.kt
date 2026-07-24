@@ -63,7 +63,10 @@ class AgentOrchestrator(
         val executionEnv: AgentExecutionEnvironment,
         val conversationId: Long? = null,
         val contextCompactor: AgentConversationContextCompactor? = null,
-        val contextSegmentId: String? = null
+        val contextSegmentId: String? = null,
+        val turnContextProvider: AgentTurnContextProvider? = null,
+        val turnObserver: AgentTurnObserver? = null,
+        val requestOptions: AgentTurnRequestOptions = AgentTurnRequestOptions(),
     )
 
     private val json = Json {
@@ -133,16 +136,26 @@ class AgentOrchestrator(
 
         try {
             roundLoop@ while (true) {
+                val maxModelRounds = input.requestOptions.maxModelRounds
+                if (maxModelRounds != null && completedModelRounds >= maxModelRounds) {
+                    val message = "max_model_rounds_exceeded:$maxModelRounds"
+                    callback.onError(message)
+                    terminalError = AgentResult.Error(message)
+                    terminated = true
+                    break@roundLoop
+                }
                 completedModelRounds += 1
                 val round = completedModelRounds
                 val assistantContentPrefix = accumulatedAssistantContent
                 callback.onThinkingStart()
                 val roundStartsAfterToolResult = memory.lastRole() == "tool"
-                val toolChoiceForRound = if (roundStartsAfterToolResult) {
+                val toolChoiceForRound = input.requestOptions.toolChoice ?: if (roundStartsAfterToolResult) {
                     null
                 } else {
                     JsonPrimitive("auto")
                 }
+                val turnContext = input.turnContextProvider?.currentContext()
+                val requestMessages = memory.snapshot() + listOfNotNull(turnContext)
                 logInfo(
                     tag,
                     "round=$round request_tools=${toolRegistry.toolsForModel.size}"
@@ -152,16 +165,21 @@ class AgentOrchestrator(
                     streamTurnWithRetry(
                         callback = callback,
                         request = ChatCompletionRequest(
-                            messages = memory.snapshot(),
-                            model = model,
-                            maxCompletionTokens = 16384,
+                            messages = requestMessages,
+                            model = input.requestOptions.model ?: model,
+                            modelOverride = input.requestOptions.modelOverride,
+                            maxCompletionTokens = input.requestOptions.maxCompletionTokens ?: 16384,
+                            temperature = input.requestOptions.temperature,
                             stream = true,
                             streamOptions = ChatCompletionStreamOptions(includeUsage = true),
-                            enableThinking = if (disableThinking) false else null,
-                            reasoningEffort = if (disableThinking) null else input.executionEnv.reasoningEffort,
+                            enableThinking = input.requestOptions.enableThinking
+                                ?: if (disableThinking) false else null,
+                            reasoningEffort = input.requestOptions.reasoningEffort
+                                ?: if (disableThinking) null else input.executionEnv.reasoningEffort,
+                            thinking = input.requestOptions.thinking,
                             tools = toolRegistry.toolsForModel,
                             toolChoice = toolChoiceForRound,
-                            parallelToolCalls = true
+                            parallelToolCalls = input.requestOptions.parallelToolCalls ?: true
                         ),
                         assistantContentPrefix = assistantContentPrefix
                     )
@@ -190,6 +208,7 @@ class AgentOrchestrator(
                     content = rawAssistantContent
                 )
                 val toolCalls = turn.message.toolCalls.orEmpty()
+                input.turnObserver?.onTurn(turn)
                 logInfo(
                     tag,
                     "round=$round parsed_tool_calls=${toolCalls.size} finish_reason=${lastFinishReason.orEmpty()} assistant_content_len=${lastAssistantContent.length}"
@@ -286,6 +305,23 @@ class AgentOrchestrator(
                     hasUserFacingOutput = true
                     terminated = true
                     break
+                }
+                val maxToolCallsPerTurn = input.requestOptions.maxToolCallsPerTurn
+                if (maxToolCallsPerTurn != null && toolCalls.size > maxToolCallsPerTurn) {
+                    val message = "too_many_tool_calls:${toolCalls.size}:max=$maxToolCallsPerTurn"
+                    toolCalls.forEach { toolCall ->
+                        val descriptor = toolRegistry.runtimeDescriptor(toolCall.function.name)
+                        val result = ToolExecutionResult.Error(toolCall.function.name, message)
+                        executedTools.add(result)
+                        callback.onToolCallComplete(toolCall.function.name, result)
+                        appendToolResultMessage(
+                            memory = memory,
+                            toolCall = toolCall,
+                            descriptor = descriptor,
+                            result = result,
+                        )
+                    }
+                    continue@roundLoop
                 }
                 accumulatedAssistantContent = ""
                 lengthContinuationRounds = 0

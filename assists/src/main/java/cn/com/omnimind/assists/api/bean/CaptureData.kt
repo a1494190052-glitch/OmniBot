@@ -17,6 +17,8 @@ data class CaptureData(
     val compressedWidth: Int = 0,         // 压缩后图片宽度（未压缩则等于原始）
     val compressedHeight: Int = 0,        // 压缩后图片高度
     val appliedScale: Float = 1f,         // 实际应用的缩放比例（未压缩则为1f）
+    val errorCode: Int? = null,
+    val errorMessage: String? = null,
 ) {
     /**
      * 将基于压缩图片的坐标缩放到原始分辨率

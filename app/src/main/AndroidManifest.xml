@@ -67,8 +67,6 @@
     <uses-permission android:name="android.permission.WRITE_CALENDAR" />
     <!-- 前台服务权限 -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
-    <!-- Android 10+ MediaProjection 需在 mediaProjection 类型前台服务中使用；Android 14+ 需声明此权限 -->
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION" />
     <uses-permission android:name="android.permission.BIND_ACCESSIBILITY_SERVICE"
         tools:ignore="ProtectedPermissions,WrongManifestParent" />
 
@@ -296,12 +294,6 @@
             android:enabled="true"
             android:foregroundServiceType="specialUse"
             android:exported="false" />
-        <!-- Android 10+ 录屏/截屏必须在此类型前台服务中创建 MediaProjection -->
-        <service
-            android:name="cn.com.omnimind.accessibility.service.MediaProjectionForegroundService"
-            android:enabled="true"
-            android:exported="false"
-            android:foregroundServiceType="mediaProjection" />
         <provider
             android:name="rikka.shizuku.ShizukuProvider"
             android:authorities="${applicationId}.shizuku"

@@ -129,10 +129,11 @@ class OmniFlow:
             last_error if failed_function_id is not None else None
         )
         previous_action: Action | None = None
+        pending_user_input: str | None = None
         while planner_attempts < planner_budget:
             observation = await self._observe(screenshot=True)
             recent_actions = _recent_actions(trace)
-            if previous_action_error or recent_actions:
+            if previous_action_error or recent_actions or pending_user_input:
                 observation = Observation(
                     xml=observation.xml,
                     package_name=observation.package_name,
@@ -149,8 +150,14 @@ class OmniFlow:
                             if recent_actions
                             else {}
                         ),
+                        **(
+                            {"user_input": pending_user_input}
+                            if pending_user_input
+                            else {}
+                        ),
                     },
                 )
+            pending_user_input = None
             try:
                 planned = Action.from_value(
                     await _await(self.planner.one_step_action(goal, observation))
@@ -171,6 +178,7 @@ class OmniFlow:
             model_calls += 1
             fallback_steps += 1
             planner_attempts += 1
+            planner_metadata = _take_planner_metadata(self.planner)
             if planned.tool == "finished":
                 return self._result(
                     True,
@@ -182,16 +190,68 @@ class OmniFlow:
                     fallback_steps=fallback_steps,
                     final_state=observation,
                     function_resolution=resolution_detail,
+                    terminal_detail={
+                        "done_reason": "finished",
+                        "finished_content": str(planned.args.get("content") or ""),
+                    },
                 )
+            if planned.tool == "abort":
+                message = str(planned.args.get("value") or "").strip() or "vlm_aborted"
+                return self._result(
+                    False,
+                    profile=profile,
+                    trace=trace,
+                    function_id=failed_function_id,
+                    actions_executed=actions_executed,
+                    model_calls=model_calls,
+                    fallback_steps=fallback_steps,
+                    error=message,
+                    final_state=observation,
+                    function_resolution=resolution_detail,
+                    terminal_detail={"done_reason": "abort"},
+                )
+            if planned.tool == "info":
+                question = str(planned.args.get("value") or "").strip()
+                if not question:
+                    previous_action_error = "info_question_required"
+                    previous_action = planned
+                    continue
+                try:
+                    pending_user_input = str(
+                        await _await(_request_input(self.host, question))
+                    )
+                except Exception as error:  # noqa: BLE001
+                    return self._result(
+                        False,
+                        profile=profile,
+                        trace=trace,
+                        function_id=failed_function_id,
+                        actions_executed=actions_executed,
+                        model_calls=model_calls,
+                        fallback_steps=fallback_steps,
+                        error=f"request_input_failed:{error}",
+                        final_state=observation,
+                        function_resolution=resolution_detail,
+                    )
+                previous_action_error = None
+                previous_action = None
+                continue
+            if planned.tool == "get_state":
+                previous_action_error = None
+                previous_action = None
+                continue
             step = await execute_action(
                 planned,
                 observation=observation,
                 host=self.host,
                 plugins=self.plugins,
-                source_state=observation,
             )
             for executed_step in step.executed_steps or (step,):
-                trace.append(trace_step(executed_step, len(trace)))
+                recorded = trace_step(executed_step, len(trace))
+                if planner_metadata:
+                    recorded["metadata"].update(planner_metadata)
+                trace.append(recorded)
+                await _record_step(self.host, recorded)
             actions_executed += step.actions_executed
             if not step.success:
                 previous_action_error = step.error or "fallback_action_failed"
@@ -293,6 +353,7 @@ class OmniFlow:
         error: str | None = None,
         final_state: Observation | None = None,
         function_resolution: dict[str, Any] | None = None,
+        terminal_detail: dict[str, Any] | None = None,
     ) -> RunResult:
         detail: dict[str, Any] = {
             "experiment": profile.name,
@@ -300,6 +361,8 @@ class OmniFlow:
         }
         if function_resolution:
             detail["function_resolution"] = dict(function_resolution)
+        if terminal_detail:
+            detail.update(terminal_detail)
         return RunResult(
             success,
             function_id,
@@ -344,3 +407,24 @@ def _recent_actions(
 
 async def _await(value: Any) -> Any:
     return await value if inspect.isawaitable(value) else value
+
+
+def _take_planner_metadata(planner: Planner) -> dict[str, Any]:
+    take_metadata = getattr(planner, "take_metadata", None)
+    if not callable(take_metadata):
+        return {}
+    value = take_metadata()
+    return dict(value) if isinstance(value, dict) else {}
+
+
+async def _request_input(host: Host, question: str) -> str:
+    request_input = getattr(host, "request_input", None)
+    if not callable(request_input):
+        raise RuntimeError("request_input_not_supported")
+    return str(await _await(request_input(question)))
+
+
+async def _record_step(host: Host, step: dict[str, Any]) -> None:
+    recorder = getattr(host, "record_step", None)
+    if callable(recorder):
+        await _await(recorder(step))

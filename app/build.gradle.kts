@@ -274,7 +274,7 @@ val bundledDebugLlmApiKey = System.getenv("LLMTHU_API_KEY")?.trim().orEmpty()
 val bundledDebugAgentModel = prop("OMNIBOT_DEBUG_AGENT_MODEL")
     .ifBlank { "DeepSeek-V4-Pro" }
 val bundledDebugVlmModel = prop("OMNIBOT_DEBUG_VLM_MODEL")
-    .ifBlank { "Qwen3-VL-235B-A22B-Instruct" }
+    .ifBlank { "Qwen3-VL-30B-A3B-Instruct" }
 val bundledDebugLlmProfileName = prop("OMNIBOT_DEBUG_LLM_PROFILE_NAME")
     .ifBlank { "LLM API Debug" }
 

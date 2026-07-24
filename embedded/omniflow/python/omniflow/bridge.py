@@ -13,9 +13,11 @@ from typing import Any, TextIO
 
 from omniflow.artifact import parse_function_artifact
 from omniflow.compile import compile_runlog_to_store
+from omniflow.config import OmniFlowConfig, RuntimeSettings
 from omniflow.execute import execute_action, prepare_action
 from omniflow.function_management import edit_function, enhance_function
-from omniflow.model import Action, ActionResult, Function, Observation
+from omniflow.model import Action, ActionResult, Function, FunctionResolution, Observation
+from omniflow.resolvers.llm_resolver import SYSTEM_PROMPT, parse_resolution
 from omniflow.runtime import OmniFlow
 from omniflow.schemas import canonicalize_action
 from omniflow.trajectory import canonicalize_state
@@ -94,18 +96,52 @@ class JsonLineBridge:
         if operation == "control_act":
             return self._control_act(request_id, body)
         if operation == "run":
-            self.flow.host = _BridgeHost(self, request_id)
             function_id = str(body.get("function_id") or "").strip()
-            function = self.flow.store.get_function(function_id) if function_id else None
+            goal = str(body.get("goal") or "").strip()
+            if not function_id and not goal:
+                raise ValueError("run_goal_or_function_id_required")
+            model = str(body.get("model") or "").strip()
+            if goal and not model:
+                raise ValueError("model_required")
+            max_steps = max(1, min(int(body.get("max_steps") or 20), 64))
+            host = _BridgeHost(self, request_id)
+            planner = (
+                _BridgePlanner(
+                    self,
+                    request_id,
+                    host,
+                    model=model,
+                    target_package_name=str(body.get("target_package_name") or ""),
+                    step_skill_guidance=str(body.get("step_skill_guidance") or ""),
+                    max_steps=max_steps,
+                )
+                if goal
+                else None
+            )
+            resolver = None
+            if goal and body.get("disable_function_recall") is not True:
+                resolver = _BridgeResolver(
+                    self,
+                    request_id,
+                    model=str(body.get("resolver_model") or model).strip(),
+                )
+            flow = OmniFlow(
+                self.flow.store.path,
+                host=host,
+                planner=planner,
+                resolver=resolver,
+                config=OmniFlowConfig(runtime=RuntimeSettings(max_steps=max_steps)),
+            )
+            function = flow.store.get_function(function_id) if function_id else None
             if function_id:
                 result = asyncio.run(
-                    self.flow.arun_function(
+                    flow.arun_function(
                         function_id,
                         arguments=dict(body.get("arguments") or {}),
                     )
                 )
             else:
-                result = self.flow.run(str(body.get("goal") or ""))
+                result = flow.run(goal)
             return _run_result(result, body=body, function=function)
         raise ValueError(f"unsupported_operation:{operation}")
 
@@ -606,6 +642,7 @@ class _BridgeHost:
         self.bridge = bridge
         self.request_id = request_id
         self.current_observation: Observation | None = None
+        self.current_action_metadata: dict[str, Any] = {}
 
     def observe(self, **kwargs: Any) -> Observation:
         self.current_observation = _state_observation(
@@ -622,6 +659,7 @@ class _BridgeHost:
                 "act",
                 {
                     "action": action.to_dict(),
+                    "metadata": dict(self.current_action_metadata),
                     "state": _state_from_observation(
                         self.current_observation,
                         include_xml=True,
@@ -630,6 +668,16 @@ class _BridgeHost:
             )
         )
 
+    def request_input(self, question: str) -> str:
+        response = self.bridge.host_call(
+            self.request_id,
+            "request_input",
+            {"question": str(question)},
+        )
+        if not isinstance(response, dict):
+            raise ValueError("request_input_response_invalid")
+        return str(response.get("value") or "")
+
     def get_state(self, source_state_id: str) -> Observation:
         return _state_observation(
             self.bridge.host_call(self.request_id, "get_state", {"state_id": source_state_id})
@@ -637,6 +685,113 @@ class _BridgeHost:
 
     def record_step(self, step: dict[str, Any]) -> None:
         self.bridge.host_call(self.request_id, "record_step", {"step": step})
+
+
+class _BridgePlanner:
+    def __init__(
+        self,
+        bridge: JsonLineBridge,
+        request_id: str,
+        host: _BridgeHost,
+        *,
+        model: str,
+        target_package_name: str,
+        step_skill_guidance: str,
+        max_steps: int,
+    ):
+        self.bridge = bridge
+        self.request_id = request_id
+        self.host = host
+        self.model = str(model).strip()
+        self.target_package_name = str(target_package_name).strip()
+        self.step_skill_guidance = str(step_skill_guidance)
+        self.max_steps = int(max_steps)
+        self._metadata: dict[str, Any] = {}
+
+    def one_step_action(self, goal: str, observation: Observation) -> Action:
+        response = self.bridge.host_call(
+            self.request_id,
+            "model_turn",
+            {
+                "goal": str(goal),
+                "model": self.model,
+                "state": _planner_state(observation),
+                "target_package_name": self.target_package_name,
+                "step_skill_guidance": self.step_skill_guidance,
+                "max_steps": self.max_steps,
+            },
+        )
+        if not isinstance(response, dict):
+            raise ValueError("model_turn_response_invalid")
+        if str(response.get("requested_model") or "").strip() != self.model:
+            raise ValueError("model_turn_requested_model_mismatch")
+        self._metadata = dict(response.get("metadata") or {})
+        self.host.current_action_metadata = dict(self._metadata)
+        return _action(response.get("action"))
+
+    def take_metadata(self) -> dict[str, Any]:
+        metadata = dict(self._metadata)
+        self._metadata.clear()
+        return metadata
+
+
+class _BridgeResolver:
+    def __init__(self, bridge: JsonLineBridge, request_id: str, *, model: str):
+        self.bridge = bridge
+        self.request_id = request_id
+        self.model = str(model).strip()
+        if not self.model:
+            raise ValueError("resolver_model_required")
+
+    def resolve(self, goal: str, functions: list[Function]) -> FunctionResolution:
+        candidates = [
+            {
+                "function_id": function.id,
+                "description": function.description,
+                "input_schema": function.input_schema,
+            }
+            for function in functions
+            if function.actions
+        ]
+        if not candidates:
+            return FunctionResolution(model_calls=0, detail={"reason": "no_candidates"})
+        prompt = SYSTEM_PROMPT + "\n\n" + json.dumps(
+            {"goal": str(goal), "functions": candidates},
+            ensure_ascii=False,
+        )
+        response = self.bridge.host_call(
+            self.request_id,
+            "complete_json",
+            {
+                "model": self.model,
+                "prompt": prompt,
+                "max_tokens": 1024,
+                "temperature": 0,
+            },
+        )
+        if not isinstance(response, dict):
+            raise ValueError("complete_json_response_invalid")
+        function_id, arguments = parse_resolution(response.get("content"), functions)
+        return FunctionResolution(
+            function_id=function_id,
+            arguments=arguments,
+            model_calls=1,
+            detail={"model": self.model, "candidate_count": len(candidates)},
+        )
+
+
+def _planner_state(observation: Observation) -> dict[str, Any]:
+    state = observation.to_dict()
+    state["state_id"] = str(observation.extra.get("state_id") or "").strip()
+    for key in ("display", "screenshot_path"):
+        if observation.extra.get(key) is not None:
+            state[key] = observation.extra[key]
+    state["extra"] = {
+        key: value
+        for key, value in observation.extra.items()
+        if key not in {"state_id", "display", "screenshot_path"}
+    }
+    return {key: value for key, value in state.items() if value is not None}
 
 
 def _state_observation(value: Any) -> Observation:
@@ -815,7 +970,7 @@ def _run_result(
         "function_id": str(result.function_id or body.get("function_id") or ""),
         "name": function.name if function else "",
         "description": function.description if function else "",
-        "source": "oob_function_replay",
+        "source": "oob_function_replay" if function else "vlm",
         "runner": "omniflow_python",
         "execution_mode": str(body.get("execution_mode") or "foreground"),
         "step_count": len(function.steps) if function else 0,
@@ -833,6 +988,12 @@ def _run_result(
         "duration_ms": max(0, finished_at_ms - started_at_ms),
         "error_code": error_code,
         "error_message": error or None,
+        "done_reason": result.detail.get("done_reason")
+        or ("finished" if result.success else "error"),
+        "finished_content": result.detail.get("finished_content"),
+        "model": str(body.get("model") or "") or None,
+        "model_calls": int(result.model_calls),
+        "fallback_steps": int(result.fallback_steps),
         "missing_required_arguments": (
             [
                 value

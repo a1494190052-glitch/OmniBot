@@ -1,6 +1,5 @@
 package cn.com.omnimind.bot.agent.tool.handlers
 
-import android.provider.Settings
 import cn.com.omnimind.assists.AgentVlmUiSession
 import cn.com.omnimind.baselib.util.OmniLog
 import cn.com.omnimind.bot.agent.*
@@ -11,7 +10,7 @@ import cn.com.omnimind.bot.agent.AgentToolRegistry
 import cn.com.omnimind.bot.agent.ToolExecutionResult
 import cn.com.omnimind.bot.mcp.McpTaskManager
 import cn.com.omnimind.bot.mcp.VlmTaskRequest
-import cn.com.omnimind.bot.util.AssistsUtil
+import cn.com.omnimind.bot.util.AndroidAutomationPermissionGate
 import cn.com.omnimind.bot.vlm.VlmToolCoordinator
 import cn.com.omnimind.bot.vlm.VlmToolOutcomeStatus
 import kotlinx.coroutines.CancellationException
@@ -137,9 +136,9 @@ class VlmToolHandler(
                     success = true
                 )
             }
-            val missing = checkExecutionPrerequisites()
-            if (missing.isNotEmpty()) {
-                return helper.permissionRequiredResult(callback, missing)
+            val permissionCheck = AndroidAutomationPermissionGate.check(helper.context)
+            if (!permissionCheck.granted) {
+                return helper.permissionRequiredResult(callback, permissionCheck.displayNames)
             }
             val sanitized = sanitizeVlmExecutionArgs(rawArgs = rawArgs, userMessage = userMessage, appNameToPackage = appNameToPackage, currentPackageName = currentPackageName)
             val safeArgs = sanitized.args
@@ -458,10 +457,4 @@ class VlmToolHandler(
                 operationMarkers.any { normalized.contains(normalizeIntentText(it)) }
     }
 
-    private fun checkExecutionPrerequisites(): List<String> {
-        val missing = mutableListOf<String>()
-        if (!AssistsUtil.Core.isAccessibilityServiceEnabled()) { missing.add("无障碍权限") }
-        if (!Settings.canDrawOverlays(helper.context)) { missing.add("悬浮窗权限") }
-        return missing
-    }
 }

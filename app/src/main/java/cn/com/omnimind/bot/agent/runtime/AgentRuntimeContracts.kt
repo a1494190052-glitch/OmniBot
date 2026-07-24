@@ -2,7 +2,11 @@ package cn.com.omnimind.bot.agent
 
 import cn.com.omnimind.bot.agent.workspace.memory.LongTermMemoryIndex
 import cn.com.omnimind.bot.agent.workspace.memory.TurnMemoryLoadTracker
+import cn.com.omnimind.baselib.llm.ChatCompletionMessage
+import cn.com.omnimind.baselib.llm.ChatCompletionThinking
+import cn.com.omnimind.baselib.llm.ChatCompletionTurn
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonElement
 
 interface AgentExecutionEnvironment {
     val agentRunId: String
@@ -56,6 +60,28 @@ interface AgentToolCatalog {
 
     fun validateArguments(toolName: String, arguments: JsonObject)
 }
+
+fun interface AgentTurnContextProvider {
+    suspend fun currentContext(): ChatCompletionMessage?
+}
+
+fun interface AgentTurnObserver {
+    suspend fun onTurn(turn: ChatCompletionTurn)
+}
+
+data class AgentTurnRequestOptions(
+    val model: String? = null,
+    val modelOverride: String? = null,
+    val maxCompletionTokens: Int? = null,
+    val temperature: Double? = null,
+    val toolChoice: JsonElement? = null,
+    val parallelToolCalls: Boolean? = null,
+    val enableThinking: Boolean? = null,
+    val reasoningEffort: String? = null,
+    val thinking: ChatCompletionThinking? = null,
+    val maxModelRounds: Int? = null,
+    val maxToolCallsPerTurn: Int? = null,
+)
 
 interface AgentToolExecutor {
     suspend fun execute(

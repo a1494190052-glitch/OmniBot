@@ -471,19 +471,19 @@ object VLMToolDefinitions {
     }
 
     fun validateArguments(toolName: String, arguments: JsonObject) {
-        val schema = toolSpec(toolName)
+        toolSpec(toolName)
             ?: throw IllegalArgumentException("Unknown VLM tool: $toolName")
         val properties = propertiesFor(toolName)
         val requiredFields = requiredFieldsFor(toolName)
-        requiredFields.forEach { field ->
-            if (arguments[field] == null || arguments[field] is JsonNull) {
-                throw IllegalArgumentException("Tool $toolName missing required argument: $field")
-            }
-        }
+        val violations = mutableListOf<String>()
+        requiredFields
+            .filter { field -> arguments[field] == null || arguments[field] is JsonNull }
+            .forEach { field -> violations += "missing required argument: $field" }
 
         arguments.entries.forEach { (field, value) ->
             val fieldSchema = properties[field] ?: run {
-                throw IllegalArgumentException("Tool $toolName has unknown argument: $field")
+                violations += "unknown argument: $field"
+                return@forEach
             }
             val expectedType = fieldSchema["type"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty()
             if (expectedType.isNotEmpty() && !matchesType(expectedType, value)) {
@@ -492,21 +492,45 @@ object VLMToolDefinitions {
                 } else {
                     ""
                 }
-                throw IllegalArgumentException(
-                    "Tool $toolName argument $field expected $expectedType but got ${describeType(value)}.$coordinateHint"
-                )
+                violations += "argument $field expected $expectedType but got ${describeType(value)}.$coordinateHint"
+                return@forEach
             }
             val enumValues = (fieldSchema["enum"] as? JsonArray).orEmpty()
             if (enumValues.isNotEmpty()) {
                 val raw = (value as? JsonPrimitive)?.contentOrNull
                 if (raw == null || enumValues.none { it.jsonPrimitive.contentOrNull == raw }) {
-                    throw IllegalArgumentException(
-                        "Tool $toolName argument $field must be one of ${
-                            enumValues.joinToString(",") { it.toString() }
-                        }"
-                    )
+                    violations += "argument $field must be one of ${
+                        enumValues.joinToString(",") { it.toString() }
+                    }"
                 }
             }
+        }
+        if (violations.isNotEmpty()) {
+            throw IllegalArgumentException(
+                "Tool $toolName arguments invalid: ${violations.joinToString("; ")} " +
+                    "Retry with canonical arguments: ${canonicalArgumentsExample(requiredFields, properties)}"
+            )
+        }
+    }
+
+    private fun canonicalArgumentsExample(
+        requiredFields: List<String>,
+        properties: Map<String, JsonObject>,
+    ): JsonObject = buildJsonObject {
+        requiredFields.forEach { field ->
+            val fieldSchema = properties[field].orEmpty()
+            val enumValue = (fieldSchema["enum"] as? JsonArray)?.firstOrNull()
+            put(
+                field,
+                enumValue ?: when (fieldSchema["type"]?.jsonPrimitive?.contentOrNull) {
+                    "number" -> JsonPrimitive(500)
+                    "integer" -> JsonPrimitive(if (field == "duration_ms") 1000 else 1)
+                    "boolean" -> JsonPrimitive(false)
+                    "array" -> JsonArray(emptyList())
+                    "object" -> JsonObject(emptyMap())
+                    else -> JsonPrimitive("value")
+                },
+            )
         }
     }
 

@@ -7,6 +7,7 @@ from types import SimpleNamespace
 import pytest
 
 from omniflow.bridge import JsonLineBridge
+from omniflow import transfer as transfer_module
 from omnitransfer import action_transfer
 from oob_omniflow_bridge import (
     BRIDGE_CONTRACT,
@@ -45,6 +46,18 @@ def function() -> dict:
         "checker_rules": [],
         "agent_visible": True,
     }
+
+
+def test_transfer_uses_bundled_omnitransfer_without_repository(monkeypatch) -> None:
+    bundled = SimpleNamespace(action_transfer=lambda **_kwargs: {"mapped": False})
+    monkeypatch.delenv("OMNITRANSFER_ROOT", raising=False)
+    monkeypatch.setattr(
+        transfer_module.importlib,
+        "import_module",
+        lambda name: bundled if name == "omnitransfer" else None,
+    )
+
+    assert transfer_module.load_omnitransfer() is bundled
 
 
 def test_health_advertises_the_complete_oob_contract(tmp_path: Path) -> None:
@@ -105,6 +118,160 @@ def test_health_loads_functions_after_action_canonicalization(tmp_path: Path) ->
     assert health["invalid_functions"] == {
         "legacy_target": "function_action_target_forbidden:0"
     }
+
+
+def test_goal_run_uses_explicit_model_and_records_step(tmp_path: Path) -> None:
+    state_0 = {
+        "state_id": "live-0",
+        "package_name": "demo.app",
+        "xml": "<hierarchy />",
+        "display": {"width": 1080, "height": 2400},
+    }
+    state_1 = {**state_0, "state_id": "live-1"}
+
+    def line(value: dict) -> str:
+        return json.dumps(value) + "\n"
+
+    reader = StringIO(
+        line(
+            {
+                "id": "run",
+                "op": "run",
+                "payload": {
+                    "goal": "tap search",
+                    "model": "selected-vlm-model",
+                    "max_steps": 4,
+                    "disable_function_recall": True,
+                    "run_id": "run-1",
+                },
+            }
+        )
+        + line({"id": "run", "call_id": "run:1", "ok": True, "result": state_0})
+        + line({"id": "run", "call_id": "run:2", "ok": True, "result": state_0})
+        + line(
+            {
+                "id": "run",
+                "call_id": "run:3",
+                "ok": True,
+                "result": {
+                    "requested_model": "selected-vlm-model",
+                    "action": {
+                        "tool": "click",
+                        "args": {"x": 500, "y": 300, "target_description": "Search"},
+                    },
+                    "metadata": {"summary": "Tap search"},
+                },
+            }
+        )
+        + line({"id": "run", "call_id": "run:4", "ok": True, "result": {"success": True}})
+        + line({"id": "run", "call_id": "run:5", "ok": True, "result": state_1})
+        + line({"id": "run", "call_id": "run:6", "ok": True, "result": {"recorded": True}})
+        + line({"id": "run", "call_id": "run:7", "ok": True, "result": state_1})
+        + line(
+            {
+                "id": "run",
+                "call_id": "run:8",
+                "ok": True,
+                "result": {
+                    "requested_model": "selected-vlm-model",
+                    "action": {"tool": "finished", "args": {"content": "Search opened"}},
+                    "metadata": {"summary": "Done"},
+                },
+            }
+        )
+    )
+    writer = StringIO()
+    JsonLineBridge(tmp_path / "store.json", reader=reader, writer=writer).serve_once()
+    messages = [json.loads(value) for value in writer.getvalue().splitlines()]
+
+    calls = [message for message in messages if message.get("event") == "host_call"]
+    assert [message["method"] for message in calls] == [
+        "observe",
+        "observe",
+        "model_turn",
+        "act",
+        "observe",
+        "record_step",
+        "observe",
+        "model_turn",
+    ]
+    assert calls[2]["payload"]["model"] == "selected-vlm-model"
+    assert calls[5]["payload"]["step"]["metadata"]["summary"] == "Tap search"
+    result = next(message["result"] for message in messages if "ok" in message)
+    assert result["success"] is True
+    assert result["finished_content"] == "Search opened"
+
+
+def test_goal_run_returns_info_answer_to_the_next_model_turn(tmp_path: Path) -> None:
+    state = {
+        "state_id": "live-0",
+        "package_name": "demo.app",
+        "xml": "<hierarchy />",
+        "display": {"width": 1080, "height": 2400},
+    }
+
+    def line(value: dict) -> str:
+        return json.dumps(value) + "\n"
+
+    reader = StringIO(
+        line(
+            {
+                "id": "run",
+                "op": "run",
+                "payload": {
+                    "goal": "ask before continuing",
+                    "model": "selected-vlm-model",
+                    "max_steps": 4,
+                    "disable_function_recall": True,
+                },
+            }
+        )
+        + line({"id": "run", "call_id": "run:1", "ok": True, "result": state})
+        + line({"id": "run", "call_id": "run:2", "ok": True, "result": state})
+        + line(
+            {
+                "id": "run",
+                "call_id": "run:3",
+                "ok": True,
+                "result": {
+                    "requested_model": "selected-vlm-model",
+                    "action": {"tool": "info", "args": {"value": "Continue?"}},
+                    "metadata": {"summary": "Ask permission"},
+                },
+            }
+        )
+        + line({"id": "run", "call_id": "run:4", "ok": True, "result": {"value": "yes"}})
+        + line({"id": "run", "call_id": "run:5", "ok": True, "result": state})
+        + line(
+            {
+                "id": "run",
+                "call_id": "run:6",
+                "ok": True,
+                "result": {
+                    "requested_model": "selected-vlm-model",
+                    "action": {"tool": "finished", "args": {"content": "Confirmed"}},
+                    "metadata": {"summary": "Done"},
+                },
+            }
+        )
+    )
+    writer = StringIO()
+    JsonLineBridge(tmp_path / "store.json", reader=reader, writer=writer).serve_once()
+    messages = [json.loads(value) for value in writer.getvalue().splitlines()]
+
+    calls = [message for message in messages if message.get("event") == "host_call"]
+    assert [message["method"] for message in calls] == [
+        "observe",
+        "observe",
+        "model_turn",
+        "request_input",
+        "observe",
+        "model_turn",
+    ]
+    assert calls[5]["payload"]["state"]["extra"]["user_input"] == "yes"
+    result = next(message["result"] for message in messages if "ok" in message)
+    assert result["success"] is True
+    assert result["finished_content"] == "Confirmed"
 
 
 def test_catalog_and_recall_round_trip(tmp_path: Path) -> None:
@@ -473,6 +640,7 @@ def test_control_act_keeps_runtime_input_target_coordinates(tmp_path: Path) -> N
             "xml": xml,
             "display": {"width": 100, "height": 200},
         },
+        "metadata": {},
     }
 
 

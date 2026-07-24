@@ -181,7 +181,6 @@ object HumanTrajectoryLearningSession {
                 activeSession = null
                 activePaused = false
                 runCatching { stale.recorder.stop() }
-                AccessibilityController.releaseScreenCaptureSession()
                 runCatching {
                     stale.result.complete(
                         HumanTrajectoryLearningResult(
@@ -209,7 +208,6 @@ object HumanTrajectoryLearningSession {
             OmniLog.i(TAG, "start beginRun done: $runId")
             OmniLog.i(TAG, "start recorder.start: $runId")
             if (!recorder.start()) {
-                AccessibilityController.releaseScreenCaptureSession()
                 InternalRunLogStore.finishRun(
                     context = appContext,
                     runId = runId,
@@ -338,7 +336,6 @@ object HumanTrajectoryLearningSession {
             }
         }
             .getOrElse { error ->
-                AccessibilityController.releaseScreenCaptureSession()
                 InternalRunLogStore.finishRun(
                     context = session.context,
                     runId = session.runId,
@@ -361,8 +358,6 @@ object HumanTrajectoryLearningSession {
                 OmniLog.w(TAG, "human trajectory learning failed: ${error.message}")
                 return true
             }
-        AccessibilityController.releaseScreenCaptureSession()
-
         var diagnosticsMs = 0L
         var finishRunMs = 0L
         val persisted = runCatching {
@@ -497,7 +492,6 @@ object HumanTrajectoryLearningSession {
             return false
         }
         runCatching { session.recorder.stop() }
-        AccessibilityController.releaseScreenCaptureSession()
         InternalRunLogStore.finishRun(
             context = session.context,
             runId = session.runId,

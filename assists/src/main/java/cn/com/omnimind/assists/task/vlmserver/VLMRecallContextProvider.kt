@@ -49,38 +49,6 @@ object VLMRecallContextProviderRegistry {
     }
 }
 
-interface VLMPostTaskHook {
-    suspend fun onTaskCompleted(
-        goal: String,
-        packageName: String?,
-        executedFunctionId: String?,
-        success: Boolean,
-        executionTrace: List<UIStep>,
-    )
-}
-
-object VLMPostTaskHookRegistry {
-    private const val TAG = "VLMPostTaskHook"
-
-    @Volatile
-    private var hook: VLMPostTaskHook? = null
-
-    fun register(hook: VLMPostTaskHook?) { this.hook = hook }
-    fun clear() { hook = null }
-
-    suspend fun notify(
-        goal: String,
-        packageName: String?,
-        executedFunctionId: String?,
-        success: Boolean,
-        executionTrace: List<UIStep>,
-    ) {
-        val active = hook ?: return
-        runCatching { active.onTaskCompleted(goal, packageName, executedFunctionId, success, executionTrace) }
-            .onFailure { OmniLog.w(TAG, "post-task hook failed: ${it.message}") }
-    }
-}
-
 object VLMSystemPromptRegistry {
     @Volatile
     private var strategiesExtra: String? = null

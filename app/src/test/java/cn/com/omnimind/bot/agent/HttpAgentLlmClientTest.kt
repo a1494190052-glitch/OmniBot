@@ -276,6 +276,54 @@ class HttpAgentLlmClientTest {
         }
     }
 
+    @Test
+    fun `request model override wins over client default model`() = runBlocking {
+        val scope = CoroutineScope(Job() + Dispatchers.Default)
+        var routedExplicitModel: String? = null
+        var streamedExplicitModel: String? = null
+        try {
+            val client = HttpAgentLlmClient(
+                scope = scope,
+                modelOverride = testOverride(),
+                resolveRouteInfoOp = { model, _, _, _, explicitModel, protocolType, _ ->
+                    routedExplicitModel = explicitModel
+                    routeInfo(
+                        requestedModel = model,
+                        resolvedModel = explicitModel.orEmpty(),
+                        protocolType = protocolType ?: "openai_compatible",
+                        requiresReasoningEcho = false,
+                    )
+                },
+                streamRequestOp = { _, _, listener, _, _, _, explicitModel, _, _, _ ->
+                    streamedExplicitModel = explicitModel
+                    val source = dummyEventSource()
+                    listener.onOpen(source, okResponse())
+                    listener.onEvent(
+                        source,
+                        null,
+                        "message",
+                        """{"choices":[{"delta":{"content":"ok"}}]}"""
+                    )
+                    listener.onEvent(source, null, "message", "[DONE]")
+                    source
+                },
+                json = json,
+            )
+
+            client.streamTurn(
+                request = simpleRequest().copy(
+                    model = "scene.vlm.operation.primary",
+                    modelOverride = "selected-vlm-model",
+                )
+            )
+
+            assertEquals("selected-vlm-model", routedExplicitModel)
+            assertEquals("selected-vlm-model", streamedExplicitModel)
+        } finally {
+            scope.cancel()
+        }
+    }
+
     private fun simpleRequest() = cn.com.omnimind.baselib.llm.ChatCompletionRequest(
         messages = listOf(
             cn.com.omnimind.baselib.llm.ChatCompletionMessage(

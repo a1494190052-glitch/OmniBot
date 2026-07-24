@@ -2,10 +2,13 @@ from __future__ import annotations
 
 import importlib
 import json
+import math
 import os
 from pathlib import Path
+import re
 import sys
 from typing import Any
+import xml.etree.ElementTree as ET
 
 TRANSFER_STATE_CATALOG_FILENAME = "transfer_states.json"
 TRANSFER_STATE_CATALOG_VERSION = "omniflow.transfer-state-catalog.v1"
@@ -83,38 +86,316 @@ def _canonicalize_transfer_state(value: Any) -> dict[str, Any]:
 def load_omnitransfer() -> Any:
     configured_root = os.environ.get("OMNITRANSFER_ROOT")
     if configured_root:
-        root = Path(configured_root).expanduser()
-        source_root = root / "src"
-        if not source_root.is_dir():
-            raise RuntimeError(f"omnitransfer_root_missing:{root}")
-        resolved_source = source_root.resolve()
-        loaded = sys.modules.get("omnitransfer")
-        loaded_path = getattr(loaded, "__file__", None)
-        if loaded_path is not None and Path(loaded_path).resolve().is_relative_to(
-            resolved_source
-        ):
-            return loaded
-        for name in tuple(sys.modules):
-            if name == "omnitransfer" or name.startswith("omnitransfer."):
-                del sys.modules[name]
-        source_path = str(resolved_source)
-        if source_path in sys.path:
-            sys.path.remove(source_path)
-        sys.path.insert(0, source_path)
-        importlib.invalidate_caches()
-        return importlib.import_module("omnitransfer")
+        return _load_omnitransfer_from_root(Path(configured_root))
     try:
         return importlib.import_module("omnitransfer")
-    except ImportError:
-        pass
-    root = Path.home() / "Projects" / "Omni" / "OmniTransfer"
-    source_root = root / "src"
-    if not source_root.is_dir():
+    except ModuleNotFoundError as error:
+        if error.name != "omnitransfer":
+            raise
+    return _load_omnitransfer_from_root(
+        Path.home() / "Projects" / "Omni" / "OmniTransfer"
+    )
+
+
+def _load_omnitransfer_from_root(root: Path) -> Any:
+    root = root.expanduser().resolve()
+    source_root = (root / "src").resolve()
+    package_root = source_root / "omnitransfer"
+    if not package_root.is_dir():
         raise RuntimeError(f"omnitransfer_root_missing:{root}")
-    source_path = str(source_root.resolve())
-    if source_path not in sys.path:
-        sys.path.insert(0, source_path)
-    return importlib.import_module("omnitransfer")
+    loaded = sys.modules.get("omnitransfer")
+    if loaded is not None and _module_is_from(loaded, package_root):
+        return loaded
+    for name in tuple(sys.modules):
+        if name == "omnitransfer" or name.startswith("omnitransfer."):
+            del sys.modules[name]
+    source_path = str(source_root)
+    sys.path[:] = [
+        item
+        for item in sys.path
+        if str(Path(item or ".").resolve()) != source_path
+    ]
+    sys.path.insert(0, source_path)
+    importlib.invalidate_caches()
+    module = importlib.import_module("omnitransfer")
+    if not _module_is_from(module, package_root):
+        raise RuntimeError(f"omnitransfer_import_outside_root:{module.__file__}")
+    return module
+
+
+def _module_is_from(module: Any, package_root: Path) -> bool:
+    module_path = Path(str(getattr(module, "__file__", "") or "")).resolve()
+    try:
+        module_path.relative_to(package_root)
+    except ValueError:
+        return False
+    return True
+
+
+def required_transfer_state_ids(functions: Any) -> tuple[str, ...]:
+    required: list[str] = []
+    values = functions.values() if isinstance(functions, dict) else functions
+    for function in values or ():
+        for step in getattr(function, "steps", ()) or ():
+            action = getattr(step, "action", None)
+            if not _action_requires_transfer_state(action):
+                continue
+            state_id = str(getattr(step, "source_state_id", "") or "").strip()
+            if state_id and state_id not in required:
+                required.append(state_id)
+    return tuple(required)
+
+
+def transfer_state_coverage(
+    functions: Any,
+    states: dict[str, dict[str, Any]],
+) -> dict[str, Any]:
+    required = required_transfer_state_ids(functions)
+    missing = tuple(state_id for state_id in required if state_id not in states)
+    return {
+        "required_state_ids": required,
+        "missing_state_ids": missing,
+        "required_state_count": len(required),
+        "available_state_count": len(states),
+        "complete": not missing,
+    }
+
+
+def audit_transfer_action_sources(
+    functions: Any,
+    states: dict[str, dict[str, Any]],
+    *,
+    center_tolerance: float = 0.02,
+) -> dict[str, Any]:
+    tolerance = float(center_tolerance)
+    if not math.isfinite(tolerance) or tolerance < 0.0 or tolerance > 0.5:
+        raise ValueError("transfer_source_center_tolerance_invalid")
+    audited: list[dict[str, Any]] = []
+    values = functions.values() if isinstance(functions, dict) else functions
+    for function in values or ():
+        function_id = str(getattr(function, "id", "") or "")
+        for step in getattr(function, "steps", ()) or ():
+            action = getattr(step, "action", None)
+            if not _action_requires_point_target(action):
+                continue
+            step_index = int(getattr(step, "step_index", 0))
+            source_state_id = str(getattr(step, "source_state_id", "") or "")
+            state = states.get(source_state_id)
+            if not isinstance(state, dict):
+                raise ValueError(
+                    f"transfer_action_source_state_missing:{function_id}:"
+                    f"{step_index}:{source_state_id}"
+                )
+            source_xml = str(state.get("xml") or "")
+            source_size = _xml_display_size(source_xml)
+            if source_size is None:
+                raise ValueError(
+                    f"transfer_action_source_display_missing:{function_id}:"
+                    f"{step_index}:{source_state_id}"
+                )
+            width, height = source_size
+            source_point = (
+                float(action.args["x"]) / 1000.0 * width,
+                float(action.args["y"]) / 1000.0 * height,
+            )
+            _require_raw_source_target(
+                source_xml,
+                source_point,
+                function_id=function_id,
+                step_index=step_index,
+                source_state_id=source_state_id,
+            )
+            result = transfer_action(
+                source_xml=source_xml,
+                target_xml=source_xml,
+                source_point=source_point,
+                source_package_name=str(state.get("package_name") or ""),
+                target_package_name=str(state.get("package_name") or ""),
+                source_activity_name=str(state.get("activity_name") or ""),
+                target_activity_name=str(state.get("activity_name") or ""),
+                action_type=str(getattr(action, "tool", "") or ""),
+                top_k=3,
+            )
+            if result.get("mapped") is not True:
+                reason = str(result.get("reason") or "failed")
+                raise ValueError(
+                    f"transfer_action_source_target_unresolved:{function_id}:"
+                    f"{step_index}:{source_state_id}:{reason}"
+                )
+            source_element = result.get("src_element")
+            if not isinstance(source_element, dict):
+                raise ValueError(
+                    f"transfer_action_source_target_unresolved:{function_id}:"
+                    f"{step_index}:{source_state_id}"
+                )
+            offset_x, offset_y = _source_element_offset(
+                source_element,
+                source_point,
+                function_id=function_id,
+                step_index=step_index,
+                source_state_id=source_state_id,
+            )
+            if max(abs(offset_x - 0.5), abs(offset_y - 0.5)) > tolerance:
+                raise ValueError(
+                    f"transfer_action_source_point_not_centered:{function_id}:"
+                    f"{step_index}:{source_state_id}:"
+                    f"offset={offset_x:.6f},{offset_y:.6f}"
+                )
+            audited.append(
+                {
+                    "function_id": function_id,
+                    "step_index": step_index,
+                    "source_state_id": source_state_id,
+                    "offset_x": offset_x,
+                    "offset_y": offset_y,
+                    "target": {
+                        key: source_element[key]
+                        for key in ("resource_id", "text", "content_desc", "class")
+                        if source_element.get(key) not in (None, "")
+                    },
+                }
+            )
+    return {
+        "source_target_audit_complete": True,
+        "source_target_count": len(audited),
+        "source_targets": audited,
+    }
+
+
+def _source_element_offset(
+    source_element: dict[str, Any],
+    point: tuple[float, float],
+    *,
+    function_id: str,
+    step_index: int,
+    source_state_id: str,
+) -> tuple[float, float]:
+    try:
+        left, top, right, bottom = (
+            float(item) for item in source_element["bounds"]
+        )
+        offset_x = (point[0] - left) / (right - left)
+        offset_y = (point[1] - top) / (bottom - top)
+    except (KeyError, TypeError, ValueError, ZeroDivisionError) as error:
+        raise ValueError(
+            f"transfer_action_source_target_offset_invalid:{function_id}:"
+            f"{step_index}:{source_state_id}"
+        ) from error
+    if not all(math.isfinite(value) for value in (offset_x, offset_y)):
+        raise ValueError(
+            f"transfer_action_source_target_offset_invalid:{function_id}:"
+            f"{step_index}:{source_state_id}"
+        )
+    return offset_x, offset_y
+
+
+def _action_requires_transfer_state(action: Any) -> bool:
+    tool = str(getattr(action, "tool", "") or "")
+    args = getattr(action, "args", None)
+    if not isinstance(args, dict):
+        return False
+    if tool in {"click", "input_text", "long_press"}:
+        return all(args.get(key) is not None for key in ("x", "y"))
+    if tool == "swipe":
+        return all(args.get(key) is not None for key in ("x1", "y1", "x2", "y2"))
+    return False
+
+
+def _action_requires_point_target(action: Any) -> bool:
+    tool = str(getattr(action, "tool", "") or "")
+    args = getattr(action, "args", None)
+    return (
+        tool in {"click", "input_text", "long_press"}
+        and isinstance(args, dict)
+        and all(args.get(key) is not None for key in ("x", "y"))
+    )
+
+
+def _xml_display_size(xml_text: str) -> tuple[float, float] | None:
+    try:
+        root = ET.fromstring(xml_text)
+    except ET.ParseError:
+        return None
+    bounds = [
+        numbers
+        for element in root.iter()
+        if len(
+            numbers := [
+                int(item)
+                for item in re.findall(
+                    r"-?\d+",
+                    str(element.attrib.get("bounds") or ""),
+                )
+            ]
+        )
+        == 4
+        and numbers[2] > numbers[0]
+        and numbers[3] > numbers[1]
+    ]
+    if not bounds:
+        return None
+    width = max(float(item[2]) for item in bounds)
+    height = max(float(item[3]) for item in bounds)
+    return (width, height) if width > 0.0 and height > 0.0 else None
+
+
+def _require_raw_source_target(
+    xml_text: str,
+    point: tuple[float, float],
+    *,
+    function_id: str,
+    step_index: int,
+    source_state_id: str,
+) -> None:
+    try:
+        root = ET.fromstring(xml_text)
+    except ET.ParseError as error:
+        raise ValueError(
+            f"transfer_action_source_state_xml_invalid:{function_id}:"
+            f"{step_index}:{source_state_id}"
+        ) from error
+    x, y = point
+    candidates: list[tuple[float, ET.Element]] = []
+    for element in root.iter():
+        numbers = [
+            int(item)
+            for item in re.findall(
+                r"-?\d+",
+                str(element.attrib.get("bounds") or ""),
+            )
+        ]
+        if len(numbers) != 4:
+            continue
+        left, top, right, bottom = numbers
+        if left <= x <= right and top <= y <= bottom and right > left and bottom > top:
+            candidates.append((float((right - left) * (bottom - top)), element))
+    if not candidates:
+        raise ValueError(
+            f"transfer_action_source_target_unresolved:{function_id}:"
+            f"{step_index}:{source_state_id}"
+        )
+    target = min(
+        candidates,
+        key=lambda item: (
+            item[0],
+            0 if str(item[1].attrib.get("class") or "").strip() else 1,
+        ),
+    )[1]
+    explicit_class = str(target.attrib.get("class") or "").strip()
+    raw_attributes = {
+        "package",
+        "resource-id",
+        "content-desc",
+        "clickable",
+        "enabled",
+        "focusable",
+        "scrollable",
+    }
+    if not explicit_class or not any(key in target.attrib for key in raw_attributes):
+        raise ValueError(
+            f"transfer_action_source_state_not_raw:{function_id}:"
+            f"{step_index}:{source_state_id}"
+        )
 
 
 def transfer_action(**kwargs: Any) -> dict[str, Any]:
@@ -124,14 +405,4 @@ def transfer_action(**kwargs: Any) -> dict[str, Any]:
     result = action_transfer(**kwargs)
     if not isinstance(result, dict):
         raise RuntimeError("omnitransfer_result_invalid")
-    return result
-
-
-def describe_action_target(**kwargs: Any) -> dict[str, Any] | None:
-    describe = getattr(load_omnitransfer(), "describe_action_target", None)
-    if not callable(describe):
-        raise RuntimeError("omnitransfer_describe_action_target_unavailable")
-    result = describe(**kwargs)
-    if result is not None and not isinstance(result, dict):
-        raise RuntimeError("omnitransfer_target_invalid")
     return result

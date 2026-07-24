@@ -114,6 +114,9 @@ class App : BaseApplication() {
         cn.com.omnimind.assists.runlog.OmniFlowRecordStepExecutorRegistry.register(
             omniFlowRecordStepExecutor()
         )
+        cn.com.omnimind.assists.task.vlmserver.VlmTaskEngineRegistry.register(
+            cn.com.omnimind.bot.vlm.NativeVlmTaskEngine()
+        )
 
         val nestedStart = System.currentTimeMillis()
         NestedBackgroundStateUtil.init(this)

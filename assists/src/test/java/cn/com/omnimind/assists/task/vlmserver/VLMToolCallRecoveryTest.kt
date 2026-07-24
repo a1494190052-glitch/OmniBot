@@ -74,6 +74,27 @@ class VLMToolCallRecoveryTest {
     }
 
     @Test
+    fun coordinateArrayFailureExplainsEveryViolationAndShowsCanonicalShape() {
+        val error = runCatching {
+            VLMToolDefinitions.validateArguments(
+                toolName = "click",
+                arguments = JsonObject(
+                    mapOf(
+                        "target_description" to JsonPrimitive("Network & internet"),
+                        "x" to JsonArray(listOf(JsonPrimitive(500), JsonPrimitive(369))),
+                    )
+                ),
+            )
+        }.exceptionOrNull()
+
+        val message = error?.message.orEmpty()
+        assertTrue(message.contains("missing required argument: y"))
+        assertTrue(message.contains("x expected number but got array"))
+        assertTrue(message.contains("\"x\":500"))
+        assertTrue(message.contains("\"y\":500"))
+    }
+
+    @Test
     fun retryConversationIncludesFailedNativeCallAndStructuredToolError() {
         val toolCall = toolCall(
             name = "click",
@@ -197,52 +218,6 @@ class VLMToolCallRecoveryTest {
         assertFalse(result.success)
         assertNull(result.step)
         assertTrue(result.error.orEmpty().contains("reserved argument: function_id"))
-    }
-
-    @Test
-    fun diagnosticFailureIsNotRecordedAsSuccessfulToolCall() {
-        val step = UIStep(
-            observation = "VLM响应解析失败",
-            thought = "参数不合规",
-            action = RecordMemory(content = "解析失败"),
-            result = "解析失败",
-            failure = VLMFailureDiagnostics(
-                kind = "tool_call_failure",
-                message = "Tool click missing required argument: y",
-            ),
-        )
-
-        val semantics = resolveVlmRunLogStepSemantics(step, successOverride = true)
-
-        assertFalse(semantics.success)
-        assertEquals("tool_call_failure", semantics.toolName)
-        assertEquals("vlm_diagnostic", semantics.toolType)
-        assertNull(semantics.actionType)
-        assertFalse(semantics.hasNativeToolCall)
-    }
-
-    @Test
-    fun userCancellationBuildsFailedAbortTerminalStep() {
-        val state = State(
-            stateId = "run-vlm-user-cancelled-100",
-            xml = "<hierarchy />",
-            packageName = "demo.app",
-            display = StateDisplay(width = 1080, height = 2400),
-        )
-
-        val step = buildUserCancelledTerminalStep(
-            state = state,
-            message = "任务已取消",
-            timestampMs = 100L,
-        )
-        val semantics = resolveVlmRunLogStepSemantics(step)
-
-        assertTrue(step.action is AbortDecision)
-        assertEquals("任务已取消", (step.action as AbortDecision).value)
-        assertEquals(state, step.beforeState)
-        assertEquals(state, step.afterState)
-        assertEquals("user_cancelled", step.failure?.kind)
-        assertFalse(semantics.success)
     }
 
     private fun toolCall(name: String, arguments: String): AssistantToolCall =

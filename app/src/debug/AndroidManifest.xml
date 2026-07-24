@@ -87,6 +87,14 @@
             </intent-filter>
         </receiver>
         <receiver
+            android:name=".debug.DebugAgentVlmReceiver"
+            android:enabled="true"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="cn.com.omnimind.bot.debug.RUN_AGENT_VLM_VALIDATION" />
+            </intent-filter>
+        </receiver>
+        <receiver
             android:name=".debug.DebugOobRecallReceiver"
             android:enabled="true"
             android:exported="true">

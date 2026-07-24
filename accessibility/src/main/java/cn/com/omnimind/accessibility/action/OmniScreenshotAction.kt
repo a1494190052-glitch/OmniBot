@@ -17,8 +17,10 @@ import androidx.annotation.RequiresApi
 import androidx.core.graphics.createBitmap
 import cn.com.omnimind.accessibility.service.AssistsService
 import cn.com.omnimind.baselib.util.OmniLog
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
@@ -52,12 +54,12 @@ class OmniScreenshotAction(
      * 如果能过滤就过滤,如果过滤不了就截取默认截图
      */
     suspend fun captureScreenshotWithDefault(): Bitmap? {
-        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-            captureExcludingOverlaysV14()
-        } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            captureDefaultScreenshot()
-        }else {
-            ScreenCaptureManager.getInstance().captureOnce()
+        return when {
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE ->
+                captureExcludingOverlaysV14()
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.R ->
+                captureDefaultScreenshot()
+            else -> null
         }
     }
 
@@ -69,8 +71,6 @@ class OmniScreenshotAction(
         screenshotMutex.lock()
         var delayUnlock = false // 成功时延迟解锁，失败时立即解锁
         try {
-            val windows = service.windows ?: return null
-
             // 获取屏幕实际尺寸（包括状态栏和导航栏）
             // 使用 getRealSize() 而不是 displayMetrics，因为 displayMetrics 不包括系统UI
             val windowManager = service.getSystemService(WindowManager::class.java)
@@ -80,20 +80,28 @@ class OmniScreenshotAction(
             val screenHeight = screenSize.y
             
             OmniLog.d(TAG, "Screen size: width=$screenWidth, height=$screenHeight")
-            
-            val validWindows = filterValidWindows(windows)
-            if (validWindows.isEmpty()) {
-                // 立即解锁（不延迟）
-                return null
+
+            val result = captureWithRetry("window") {
+                val windows = service.windows
+                    ?: throw ScreenshotCaptureException(
+                        message = "Accessibility windows unavailable",
+                    )
+                val validWindows = filterValidWindows(windows)
+                if (validWindows.isEmpty()) {
+                    throw ScreenshotCaptureException(
+                        message = "No capturable accessibility windows",
+                    )
+                }
+                captureAndMergeWindows(validWindows, screenWidth, screenHeight)
             }
-            val result = captureAndMergeWindows(validWindows, screenWidth, screenHeight)
             // 成功时标记为延迟解锁
             delayUnlock = true
             return result
+        } catch (error: CancellationException) {
+            throw error
         } catch (e: Exception) {
             OmniLog.e(TAG, "Failed to capture screenshot excluding overlays", e)
-            // 失败时立即解锁（delayUnlock = false）
-            return null
+            throw e
         } finally {
             // 统一在 finally 中解锁
             if (delayUnlock) {
@@ -127,7 +135,7 @@ class OmniScreenshotAction(
     suspend fun captureDefaultScreenshot(
         hintOverlay: (() -> Unit)? = null,
         showOverlay: (() -> Unit)? = null
-    ): Bitmap? {
+    ): Bitmap {
         screenshotMutex.lock()
         var delayUnlock = false // 成功时延迟解锁，失败时立即解锁
         try {
@@ -140,63 +148,27 @@ class OmniScreenshotAction(
                 delay(100)
             }
 
-            // 添加超时机制，避免永远阻塞（2秒超时）
-            val result = withTimeoutOrNull(2000L) {
-                suspendCancellableCoroutine<Bitmap?> { cont ->
-                    service.takeScreenshot(
-                        Display.DEFAULT_DISPLAY,
-                        mainThreadExecutor,
-                        object : AccessibilityService.TakeScreenshotCallback {
-                            override fun onSuccess(screenshot: AccessibilityService.ScreenshotResult) {
-                                showOverlay?.invoke()
-
-                                CoroutineScope(Dispatchers.Default).launch {
-                                    screenshot.hardwareBuffer.use { hardwareBuffer ->
-                                        try {
-                                            val bitmap = Bitmap.wrapHardwareBuffer(
-                                                hardwareBuffer,
-                                                screenshot.colorSpace,
-                                            )
-                                                ?: throw RuntimeException("Failed to wrap hardware buffer into Bitmap")
-
-                                            // 转换为软件 Bitmap 以便进行像素操作
-                                            val softwareBitmap = convertToSoftwareBitmap(bitmap)
-
-                                            cont.resume(softwareBitmap)
-                                        } catch (e: Exception) {
-                                            cont.resumeWithException(e)
-                                        }
-                                    }
-                                }
-                            }
-
-                            override fun onFailure(errorCode: Int) {
-                                // 截图失败时也要恢复显示悬浮框
-                                CoroutineScope(Dispatchers.Main).launch {
-                                    showOverlay?.invoke()
-                                }
-                                cont.resumeWithException(
-                                    RuntimeException("Screenshot failed with error code: $errorCode")
-                                )
-                            }
-                        },
-                    )
-                }
-            } ?: run {
-                // 超时处理
-                OmniLog.e(TAG, "captureDefaultScreenshot timeout after 10 seconds")
-                showOverlay?.invoke() // 恢复显示悬浮框
-                null
+            val result = captureWithRetry("display") {
+                captureDefaultScreenshotOnce()
             }
 
             // 成功时标记为延迟解锁
             delayUnlock = true
             return result
+        } catch (error: CancellationException) {
+            throw error
         } catch (e: Exception) {
             OmniLog.e(TAG, "Failed to capture default screenshot", e)
-            // 失败时立即解锁（delayUnlock = false）
-            return null
+            throw e
         } finally {
+            showOverlay?.let { callback ->
+                withContext(NonCancellable + Dispatchers.Main) {
+                    runCatching { callback.invoke() }
+                        .onFailure { error ->
+                            OmniLog.w(TAG, "Failed to restore screenshot overlay: ${error.message}")
+                        }
+                }
+            }
             // 统一在 finally 中解锁
             if (delayUnlock) {
                 // 成功时延迟解锁，避免频繁截图
@@ -218,6 +190,69 @@ class OmniScreenshotAction(
                     // Mutex 可能已经被解锁，忽略此异常
                     OmniLog.d(TAG, "Mutex already unlocked, ignoring")
                 }
+            }
+        }
+    }
+
+    @RequiresApi(Build.VERSION_CODES.R)
+    private suspend fun captureDefaultScreenshotOnce(): Bitmap {
+        return withTimeoutOrNull(2000L) {
+            suspendCancellableCoroutine { cont ->
+                service.takeScreenshot(
+                    Display.DEFAULT_DISPLAY,
+                    mainThreadExecutor,
+                    object : AccessibilityService.TakeScreenshotCallback {
+                        override fun onSuccess(screenshot: AccessibilityService.ScreenshotResult) {
+                            CoroutineScope(Dispatchers.Default).launch {
+                                screenshot.hardwareBuffer.use { hardwareBuffer ->
+                                    try {
+                                        val bitmap = Bitmap.wrapHardwareBuffer(
+                                            hardwareBuffer,
+                                            screenshot.colorSpace,
+                                        ) ?: throw RuntimeException(
+                                            "Failed to wrap hardware buffer into Bitmap",
+                                        )
+                                        cont.resume(convertToSoftwareBitmap(bitmap))
+                                    } catch (error: Exception) {
+                                        cont.resumeWithException(error)
+                                    }
+                                }
+                            }
+                        }
+
+                        override fun onFailure(errorCode: Int) {
+                            cont.resumeWithException(
+                                ScreenshotCaptureException(errorCode = errorCode),
+                            )
+                        }
+                    },
+                )
+            }
+        } ?: throw ScreenshotCaptureException(
+            message = "Screenshot timed out after 2000 ms",
+        )
+    }
+
+    private suspend fun <T> captureWithRetry(
+        operation: String,
+        capture: suspend () -> T,
+    ): T {
+        var retriesCompleted = 0
+        while (true) {
+            try {
+                return capture()
+            } catch (error: ScreenshotCaptureException) {
+                val retryDelayMs = ScreenshotCaptureRetryPolicy.retryDelayMs(
+                    errorCode = error.errorCode,
+                    retriesCompleted = retriesCompleted,
+                ) ?: throw error
+                retriesCompleted++
+                OmniLog.w(
+                    TAG,
+                    "$operation screenshot failed with error code ${error.errorCode}; " +
+                        "retry $retriesCompleted after ${retryDelayMs}ms",
+                )
+                delay(retryDelayMs)
             }
         }
     }
@@ -256,17 +291,24 @@ class OmniScreenshotAction(
         windows: List<Pair<AccessibilityWindowInfo, Int>>,
         screenWidth: Int,
         screenHeight: Int
-    ): Bitmap? {
+    ): Bitmap {
         // 按图层排序
         val sortedWindows = windows.sortedBy { it.first.layer }
+        val hasApplicationWindows = sortedWindows.any { (window) ->
+            window.type == AccessibilityWindowInfo.TYPE_APPLICATION
+        }
 
         // 添加超时机制，避免永远阻塞（2秒超时）
         return withTimeoutOrNull(2000L) {
-            suspendCancellableCoroutine { cont ->
+            suspendCancellableCoroutine<Bitmap> { cont ->
                 val screenshots = mutableMapOf<Int, Pair<Bitmap, Rect>>()
                 val lock = Any() // 用于同步计数器操作
                 var successCount = 0
                 var failureCount = 0
+                var applicationSuccessCount = 0
+                var applicationFailureCount = 0
+                val failureErrorCodes = mutableListOf<Int>()
+                val applicationFailureErrorCodes = mutableListOf<Int>()
                 val totalWindows = sortedWindows.size
                 var isCompleted = false // 防止重复完成
 
@@ -290,6 +332,9 @@ class OmniScreenshotAction(
                                                 // 原子性递增计数器
                                                 synchronized(lock) {
                                                     failureCount++
+                                                    if (window.type == AccessibilityWindowInfo.TYPE_APPLICATION) {
+                                                        applicationFailureCount++
+                                                    }
                                                 }
                                                 checkAndComplete()
                                                 return@launch
@@ -302,6 +347,9 @@ class OmniScreenshotAction(
                                             synchronized(lock) {
                                                 screenshots[windowId] = softwareBitmap to bounds
                                                 successCount++
+                                                if (window.type == AccessibilityWindowInfo.TYPE_APPLICATION) {
+                                                    applicationSuccessCount++
+                                                }
                                             }
 
                                             OmniLog.d(
@@ -319,6 +367,9 @@ class OmniScreenshotAction(
                                         // 原子性递增计数器
                                         synchronized(lock) {
                                             failureCount++
+                                            if (window.type == AccessibilityWindowInfo.TYPE_APPLICATION) {
+                                                applicationFailureCount++
+                                            }
                                         }
                                         checkAndComplete()
                                     }
@@ -348,6 +399,11 @@ class OmniScreenshotAction(
                                 // 原子性递增计数器
                                 synchronized(lock) {
                                     failureCount++
+                                    failureErrorCodes += errorCode
+                                    if (window.type == AccessibilityWindowInfo.TYPE_APPLICATION) {
+                                        applicationFailureCount++
+                                        applicationFailureErrorCodes += errorCode
+                                    }
                                 }
                                 checkAndComplete()
                             }
@@ -361,6 +417,27 @@ class OmniScreenshotAction(
                                     val totalProcessed = successCount + failureCount
                                     if (totalProcessed == totalWindows && !isCompleted) {
                                         isCompleted = true
+
+                                        if (
+                                            hasApplicationWindows &&
+                                            applicationSuccessCount == 0 &&
+                                            applicationFailureCount > 0
+                                        ) {
+                                            val errorCode = applicationFailureErrorCodes
+                                                .firstOrNull(ScreenshotCaptureRetryPolicy::isRecoverable)
+                                                ?: applicationFailureErrorCodes.firstOrNull()
+                                            cleanupWindows(sortedWindows)
+                                            cleanupBitmaps(screenshots.values.map { it.first })
+                                            cont.resumeWithException(
+                                                ScreenshotCaptureException(
+                                                    errorCode = errorCode,
+                                                    message = errorCode?.let {
+                                                        "Application window screenshot failed with error code: $it"
+                                                    } ?: "Application window screenshot failed",
+                                                ),
+                                            )
+                                            return
+                                        }
 
                                         // 所有窗口都已处理完成
                                         if (successCount > 0) {
@@ -387,7 +464,12 @@ class OmniScreenshotAction(
                                                 OmniLog.e(TAG, "Failed to merge screenshots", e)
                                                 cleanupWindows(sortedWindows)
                                                 cleanupBitmaps(screenshots.values.map { it.first })
-                                                cont.resume(null)
+                                                cont.resumeWithException(
+                                                    ScreenshotCaptureException(
+                                                        message = "Failed to merge window screenshots",
+                                                        cause = e,
+                                                    ),
+                                                )
                                             }
                                         } else {
                                             // 所有窗口都失败了
@@ -396,7 +478,17 @@ class OmniScreenshotAction(
                                                 "All windows failed to capture: total=$totalWindows"
                                             )
                                             cleanupWindows(sortedWindows)
-                                            cont.resume(null)
+                                            val errorCode = failureErrorCodes
+                                                .firstOrNull(ScreenshotCaptureRetryPolicy::isRecoverable)
+                                                ?: failureErrorCodes.firstOrNull()
+                                            cont.resumeWithException(
+                                                ScreenshotCaptureException(
+                                                    errorCode = errorCode,
+                                                    message = errorCode?.let {
+                                                        "All window screenshots failed with error code: $it"
+                                                    } ?: "All window screenshots failed",
+                                                ),
+                                            )
                                         }
                                     }
                                 }
@@ -407,9 +499,11 @@ class OmniScreenshotAction(
             }
         } ?: run {
             // 超时处理
-            OmniLog.e(TAG, "captureAndMergeWindows timeout after 10 seconds")
+            OmniLog.e(TAG, "captureAndMergeWindows timeout after 2000 ms")
             cleanupWindows(sortedWindows)
-            null
+            throw ScreenshotCaptureException(
+                message = "Window screenshot timed out after 2000 ms",
+            )
         }
     }
 
@@ -421,7 +515,7 @@ class OmniScreenshotAction(
         sortedWindows: List<Pair<AccessibilityWindowInfo, Int>>,
         screenWidth: Int,
         screenHeight: Int
-    ): Bitmap? {
+    ): Bitmap {
         return try {
             // 创建全屏位图
             val mergedBitmap = createBitmap(screenWidth, screenHeight)
@@ -558,7 +652,7 @@ class OmniScreenshotAction(
             mergedBitmap
         } catch (e: Exception) {
             OmniLog.e(TAG, "Failed to merge screenshots", e)
-            null
+            throw e
         }
     }
 

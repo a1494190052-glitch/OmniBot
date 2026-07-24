@@ -181,7 +181,6 @@ data class UIStep(
     val tokenUsageAttempts: List<VLMTokenUsage> = emptyList(),
     @SerialName("page_diagnostics")
     val pageDiagnostics: Map<String, String> = emptyMap(),
-    val failure: VLMFailureDiagnostics? = null
 )
 
 @Serializable
@@ -328,14 +327,6 @@ data class VLMToolCallFailure(
     @SerialName("safe_arguments_preview")
     val safeArgumentsPreview: String? = null,
     val message: String
-)
-
-@Serializable
-data class VLMFailureDiagnostics(
-    val kind: String,
-    val message: String,
-    @SerialName("tool_call_failures")
-    val toolCallFailures: List<VLMToolCallFailure> = emptyList()
 )
 
 data class VLMToolCallRetryState(

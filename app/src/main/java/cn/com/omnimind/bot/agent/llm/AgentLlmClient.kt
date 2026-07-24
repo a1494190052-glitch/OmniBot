@@ -126,6 +126,10 @@ class HttpAgentLlmClient(
     ): ChatCompletionTurn {
         val modelCandidates = buildModelCandidates(request.model)
         val sanitizedRequest = sanitizeRequestForTarget(request)
+        val requestModelOverride = sanitizedRequest.modelOverride
+            ?.trim()
+            ?.takeIf(String::isNotEmpty)
+            ?: modelOverride?.modelId
         var lastFailure: AgentStreamRequestException? = null
 
         for (modelIndex in modelCandidates.indices) {
@@ -135,7 +139,7 @@ class HttpAgentLlmClient(
                 modelOverride?.apiBase,
                 modelOverride?.apiKey,
                 modelOverride?.customHeaders,
-                modelOverride?.modelId,
+                requestModelOverride,
                 modelOverride?.protocolType,
                 modelOverride?.wireApi
             )
@@ -155,6 +159,7 @@ class HttpAgentLlmClient(
                     return streamTurnOnce(
                         model = candidateModel,
                         requestJson = requestJson,
+                        requestModelOverride = requestModelOverride,
                         onReasoningUpdate = onReasoningUpdate,
                         onContentUpdate = onContentUpdate
                     )
@@ -200,15 +205,30 @@ class HttpAgentLlmClient(
     private suspend fun streamTurnOnce(
         model: String,
         requestJson: String,
+        requestModelOverride: String?,
         onReasoningUpdate: (suspend (String) -> Unit)?,
         onContentUpdate: (suspend (String) -> Unit)?
     ): ChatCompletionTurn {
         return try {
-            doStreamTurnOnce(model, requestJson, onReasoningUpdate, onContentUpdate, forceHttp1 = false)
+            doStreamTurnOnce(
+                model,
+                requestJson,
+                requestModelOverride,
+                onReasoningUpdate,
+                onContentUpdate,
+                forceHttp1 = false,
+            )
         } catch (e: AgentStreamRequestException) {
             if (isHttp2ProtocolError(e)) {
                 OmniLog.w(tag, "HTTP/2 stream PROTOCOL_ERROR, retrying with HTTP/1.1")
-                doStreamTurnOnce(model, requestJson, onReasoningUpdate, onContentUpdate, forceHttp1 = true)
+                doStreamTurnOnce(
+                    model,
+                    requestJson,
+                    requestModelOverride,
+                    onReasoningUpdate,
+                    onContentUpdate,
+                    forceHttp1 = true,
+                )
             } else {
                 throw e
             }
@@ -244,6 +264,7 @@ class HttpAgentLlmClient(
     private suspend fun doStreamTurnOnce(
         model: String,
         requestJson: String,
+        requestModelOverride: String?,
         onReasoningUpdate: (suspend (String) -> Unit)?,
         onContentUpdate: (suspend (String) -> Unit)?,
         forceHttp1: Boolean
@@ -255,7 +276,7 @@ class HttpAgentLlmClient(
             modelOverride?.apiBase,
             modelOverride?.apiKey,
             modelOverride?.customHeaders,
-            modelOverride?.modelId,
+            requestModelOverride,
             modelOverride?.protocolType,
             modelOverride?.wireApi
         )
@@ -485,7 +506,7 @@ class HttpAgentLlmClient(
                 modelOverride?.apiBase,
                 modelOverride?.apiKey,
                 modelOverride?.customHeaders,
-                modelOverride?.modelId,
+                requestModelOverride,
                 modelOverride?.protocolType,
                 modelOverride?.wireApi,
                 forceHttp1

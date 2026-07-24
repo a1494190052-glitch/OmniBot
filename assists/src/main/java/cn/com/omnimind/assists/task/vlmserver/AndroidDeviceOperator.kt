@@ -704,7 +704,7 @@ class AndroidDeviceOperator(
                 compressQuality = ImageQuality.MEDIUM
             )
             if (!payload.isSuccess) {
-                throw RuntimeException("截图数据为空")
+                throw RuntimeException(payload.errorMessage ?: "截图数据为空")
             }
             val finalBase64 = payload.imageBase64!!
             val appliedScale = payload.appliedScale

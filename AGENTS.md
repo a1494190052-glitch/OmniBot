@@ -36,6 +36,20 @@ must load `source_state_id` and use the canonical OmniTransfer implementation;
 transfer failure returns control to the VLM and must never replay source-device
 coordinates directly.
 
+## Large Refactor Acceptance Rule
+
+Any large runtime, schema, VLM, RunLog, or Function refactor must be validated
+through all four production workflows before it is considered complete:
+
+1. Online VLM execution on an Android device or emulator.
+2. RunLog persistence followed by Function registration.
+3. Function enhancement with semantic parameter extraction and binding.
+4. Function replay through the canonical execution path.
+
+Compilation and isolated unit tests are necessary but are not sufficient. The
+acceptance result must identify which workflows were exercised, the runtime
+backend and model used, and any external dependency that prevented completion.
+
 ## Project Overview
 
 OmnibotApp is an AI-powered intelligent robot assistant application for Android. It's a hybrid app combining native Android Kotlin code with Flutter UI, implementing a modular architecture with clear separation of concerns.

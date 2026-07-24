@@ -55,6 +55,8 @@ class DebugFunctionUpdateReceiver : BroadcastReceiver() {
                 } else {
                     emptyMap()
                 }
+                val beforeHash = stableHash(before)
+                val afterHash = stableHash(after)
 
                 linkedMapOf<String, Any?>(
                     "success" to (update["success"] == true),
@@ -65,14 +67,14 @@ class DebugFunctionUpdateReceiver : BroadcastReceiver() {
                     "saved" to update["saved"],
                     "requires_confirmation" to update["requires_confirmation"],
                     "needs_agent_analysis" to update["needs_agent_analysis"],
-                    "before_found" to (before["success"] == true),
-                    "after_found" to (after["success"] == true),
-                    "before_hash" to stableHash(before["function"]),
-                    "after_hash" to stableHash(after["function"]),
+                    "before_found" to before.isFunctionSpec(),
+                    "after_found" to after.isFunctionSpec(),
+                    "before_hash" to beforeHash,
+                    "after_hash" to afterHash,
                     "hash_changed" to (
-                        stableHash(before["function"]).isNotBlank() &&
-                            stableHash(after["function"]).isNotBlank() &&
-                            stableHash(before["function"]) != stableHash(after["function"])
+                        beforeHash.isNotBlank() &&
+                            afterHash.isNotBlank() &&
+                            beforeHash != afterHash
                         ),
                     "duration_ms" to (updateEndedAtMs - updateStartedAtMs).coerceAtLeast(0L),
                     "args" to args,
@@ -153,6 +155,10 @@ class DebugFunctionUpdateReceiver : BroadcastReceiver() {
         val digest = MessageDigest.getInstance("SHA-256").digest(json.toByteArray(Charsets.UTF_8))
         return digest.joinToString("") { "%02x".format(it) }
     }
+
+    private fun Map<String, Any?>.isFunctionSpec(): Boolean =
+        this["schema_version"] == "omniflow.function.v2" &&
+            this["function_id"]?.toString()?.isNotBlank() == true
 
     private fun Throwable.fullMessage(): String {
         val parts = mutableListOf<String>()

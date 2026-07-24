@@ -19,8 +19,6 @@ internal object OmniFlowEmbeddedRuntime {
     private const val MANIFEST_ASSET = "$ASSET_ROOT/manifest.properties"
     private const val BUNDLE_ASSET = "$ASSET_ROOT/bundle.zip"
     private const val INSTALL_MARKER = ".installed"
-    private const val STORE_RUNTIME_MARKER = ".runtime_fingerprint"
-    private const val PYTHON_STORE_FILE = "omniflow.json"
     private val prepareMutex = Mutex()
 
     @Volatile
@@ -87,15 +85,10 @@ internal object OmniFlowEmbeddedRuntime {
             AgentWorkspaceManager.internalRootDirectory(context),
             "omniflow",
         ).apply { mkdirs() }
-        val marker = File(storeDirectory, STORE_RUNTIME_MARKER)
-        val fingerprint = manifest.runtimeFingerprint()
-        if (marker.readTextOrNull() == fingerprint) {
-            return
-        }
-
-        File(storeDirectory, PYTHON_STORE_FILE).delete()
-        File(storeDirectory, "$PYTHON_STORE_FILE.tmp").delete()
-        marker.writeText(fingerprint)
+        alignOmniFlowStoreWithRuntime(
+            storeDirectory = storeDirectory,
+            runtimeFingerprint = manifest.runtimeFingerprint(),
+        )
     }
 
     private suspend fun ensurePython(context: Context, expectedVersion: String) {
@@ -152,4 +145,15 @@ internal object OmniFlowEmbeddedRuntime {
         omniTransferSourceSha256,
         omniTransferCheckpoint,
     ).joinToString(":")
+}
+
+internal fun alignOmniFlowStoreWithRuntime(
+    storeDirectory: File,
+    runtimeFingerprint: String,
+) {
+    storeDirectory.mkdirs()
+    val marker = File(storeDirectory, ".runtime_fingerprint")
+    if (marker.takeIf(File::isFile)?.readText()?.trim() == runtimeFingerprint) return
+    File(storeDirectory, "omniflow.json.tmp").delete()
+    marker.writeText(runtimeFingerprint)
 }

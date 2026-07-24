@@ -5,6 +5,7 @@ import cn.com.omnimind.baselib.llm.ChatCompletionMessage
 import cn.com.omnimind.baselib.llm.ChatCompletionRequest
 import cn.com.omnimind.baselib.llm.ChatCompletionStreamOptions
 import cn.com.omnimind.baselib.llm.ChatCompletionThinking
+import cn.com.omnimind.baselib.llm.ChatCompletionTurn
 import cn.com.omnimind.baselib.llm.ModelSceneRegistry
 import cn.com.omnimind.baselib.llm.contentText
 import cn.com.omnimind.baselib.runlog.OobActionSchema
@@ -151,6 +152,17 @@ class VLMClient(
             ModelSceneRegistry.ResponseParser.TEXT_CONTENT ->
                 VLMResult(false, null, "主 VLM parser 不支持 TEXT_CONTENT: $modelOrScene")
         }
+    }
+
+    fun metadataFromTurn(turn: ChatCompletionTurn): VLMThinkingContext {
+        val content = turn.message.contentText()
+        val metadata = parseStepMetadata(content, turn.reasoning)
+        return buildThinkingContext(
+            content = content,
+            reasoning = turn.reasoning,
+            finishReason = turn.finishReason,
+            metadata = metadata,
+        )
     }
 
     fun resolveVlmSceneId(modelOrScene: String?): String {

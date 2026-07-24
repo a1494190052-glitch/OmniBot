@@ -168,7 +168,6 @@ class TaskManager(
             params.onMessagePushListener,
             params.needSummary
             ,this,
-            params.functionRunExecutor,
             cn.com.omnimind.assists.runlog.OmniFlowRecordStepExecutorRegistry.requireExecutor(),
         )
         (runningTask as ScheduledVLMOperationTask).start(
@@ -260,7 +259,6 @@ class TaskManager(
             params.onMessagePushListener,
             params.needSummary
             ,this,
-            params.functionRunExecutor,
             cn.com.omnimind.assists.runlog.OmniFlowRecordStepExecutorRegistry.requireExecutor(),
         )
         params.taskId?.trim()?.takeIf { it.isNotEmpty() }?.let { taskId ->

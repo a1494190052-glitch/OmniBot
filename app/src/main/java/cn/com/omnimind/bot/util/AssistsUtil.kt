@@ -1,13 +1,11 @@
 package cn.com.omnimind.bot.util
 
-import cn.com.omnimind.accessibility.action.ScreenCaptureManager
 import android.app.AppOpsManager
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
-import android.os.Build
 import android.os.Process
 import android.os.PowerManager
 import android.provider.Settings
@@ -15,19 +13,14 @@ import android.util.Log
 import androidx.core.net.toUri
 import cn.com.omnimind.assists.AssistsCore
 import cn.com.omnimind.assists.api.bean.TaskParams
-import cn.com.omnimind.assists.controller.accessibility.AccessibilityController
 import cn.com.omnimind.assists.api.interfaces.OnMessagePushListener
 import cn.com.omnimind.assists.task.scheduled.worker.ScheduledParams
 import cn.com.omnimind.assists.task.scheduled.worker.ScheduledStates
-import cn.com.omnimind.assists.task.vlmserver.FunctionRunExecutor
-import cn.com.omnimind.assists.task.vlmserver.OperationResult
 import cn.com.omnimind.baselib.util.APPPackageUtil
 import cn.com.omnimind.baselib.util.MobileManufacturerUtil
 import cn.com.omnimind.baselib.util.exception.PermissionException
 import cn.com.omnimind.bot.App
-import cn.com.omnimind.bot.agent.AgentToolJson
 import cn.com.omnimind.bot.manager.OmniForegroundService
-import cn.com.omnimind.bot.function.FunctionRun
 import cn.com.omnimind.bot.util.AssistsUtil.Core.createCompanionTask
 import cn.com.omnimind.uikit.UIKit
 import cn.com.omnimind.uikit.api.callback.HalfScreenApi
@@ -142,7 +135,6 @@ class AssistsUtil {
          */
         fun finishTask(context: Context) {
             AssistsCore.finishCompanionTask()
-            AccessibilityController.releaseScreenCaptureSession()
         }
 
         /**
@@ -196,22 +188,7 @@ class AssistsUtil {
             taskId: String? = null,
             disableFunctionRecall: Boolean = false
         ) {
-
-            if (!AssistsCore.isAccessibilityServiceEnabled()) {
-                throw PermissionException("请先开无障碍服务!")
-            }
-            if (!Settings.canDrawOverlays(context)) {
-                throw PermissionException("请先开启悬浮窗权限!")
-            }
-            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) {
-                if (!ScreenCaptureManager.getInstance().hasPermission()) {
-                    val hasPermission =
-                        ScreenCaptureManager.getInstance().requestScreenCapturePermission()
-                    if (!hasPermission) {
-                        throw PermissionException("请先授予屏幕截图权限!")
-                    }
-                }
-            }
+            AndroidAutomationPermissionGate.check(context).requireGranted()
             AssistsCore.startTask(
                 TaskParams.VLMOperationTaskParams(
                     goal,
@@ -226,44 +203,10 @@ class AssistsUtil {
                     skipGoHome,
                     stepSkillGuidance,
                     taskId,
-                    disableFunctionRecall,
-                    functionRunExecutor(context.applicationContext)
+                    disableFunctionRecall
                 )
             )
         }
-
-        private fun functionRunExecutor(context: Context): FunctionRunExecutor =
-            FunctionRunExecutor { action, runContext ->
-                val arguments = AgentToolJson.jsonObjectToMap(action.arguments)
-                val callArgs = buildMap<String, Any?> {
-                    put("function_id", action.functionId)
-                    put("arguments", arguments)
-                    if (runContext.taskId.isNotBlank()) put("frontend_task_id", runContext.taskId)
-                    if (runContext.runId.isNotBlank()) put("frontend_run_id", runContext.runId)
-                    put("frontend_parent", "vlm_task")
-                }
-                val result = FunctionRun(context).runFunction(callArgs)
-                val success = result["success"] == true
-                val stepCount = result["step_count"]?.toString()?.toIntOrNull()
-                val failedStep = result["failed_step_index"]?.toString()?.toIntOrNull()
-                val message = if (success) {
-                    buildString {
-                        append("Function ${action.functionId} completed")
-                        if (stepCount != null && stepCount > 0) append(" ($stepCount steps)")
-                    }
-                } else {
-                    val stepNumber = failedStep?.plus(1)?.toString() ?: "?"
-                    val detail = result["error_message"]?.toString()?.takeIf { it.isNotBlank() }
-                        ?: result["error_code"]?.toString()?.takeIf { it.isNotBlank() }
-                        ?: "unknown error"
-                    "Function ${action.functionId} failed at step $stepNumber: $detail"
-                }
-                OperationResult(
-                    success = success,
-                    message = message,
-                    data = AgentToolJson.mapToJsonElement(result),
-                )
-            }
 
         /**
          * 提供用户输入给正在运行的VLM任务
@@ -316,21 +259,7 @@ class AssistsUtil {
             onMessagePushListener: OnMessagePushListener,
             needSummary: Boolean = false
         ) {
-            if (!AssistsCore.isAccessibilityServiceEnabled()) {
-                throw PermissionException("请先开无障碍服务!")
-            }
-            if (!Settings.canDrawOverlays(context)) {
-                throw PermissionException("请先开启悬浮窗权限!")
-            }
-            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) {
-                if (!ScreenCaptureManager.getInstance().hasPermission()) {
-                    val hasPermission =
-                        ScreenCaptureManager.getInstance().requestScreenCapturePermission()
-                    if (!hasPermission) {
-                        throw PermissionException("请先授予屏幕截图权限!")
-                    }
-                }
-            }
+            AndroidAutomationPermissionGate.check(context).requireGranted()
             val taskParams =
                 TaskParams.ScheduledVLMOperationTaskParams(
                     title,
@@ -386,21 +315,7 @@ class AssistsUtil {
             onMessagePushListener: OnMessagePushListener,
             packageName: String
         ) {
-            if (!AssistsCore.isAccessibilityServiceEnabled()) {
-                throw PermissionException("请先开无障碍服务!")
-            }
-            if (!Settings.canDrawOverlays(context)) {
-                throw PermissionException("请先开启悬浮窗权限!")
-            }
-            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) {
-                if (!ScreenCaptureManager.getInstance().hasPermission()) {
-                    val hasPermission =
-                        ScreenCaptureManager.getInstance().requestScreenCapturePermission()
-                    if (!hasPermission) {
-                        throw PermissionException("请先授予屏幕截图权限!")
-                    }
-                }
-            }
+            AndroidAutomationPermissionGate.check(context).requireGranted()
             AssistsCore.startFirstUse({
                 onMessagePushListener.onTaskFinish()
             }, packageName)

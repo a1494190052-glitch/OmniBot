@@ -19,10 +19,4 @@ interface AssistsServiceListener {
      */
     fun onUnbind() {}
 
-    /**
-     * 录屏权限开启
-     */
-    fun screenCaptureEnable() {
-
-    }
 }

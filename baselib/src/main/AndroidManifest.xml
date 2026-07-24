@@ -11,13 +11,6 @@
             android:noHistory="true"
             android:taskAffinity=""
             android:theme="@style/Theme.OmnibotApp.Permission" />
-        <activity
-            android:name=".permission.ServiceRequest"
-            android:excludeFromRecents="true"
-            android:launchMode="singleInstance"
-            android:noHistory="true"
-            android:taskAffinity=""
-            android:theme="@style/Theme.OmnibotApp.Permission" />
     </application>
 
 </manifest>

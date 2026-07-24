@@ -20,7 +20,7 @@ import cn.com.omnimind.accessibility.action.AccessibilityNode
 import cn.com.omnimind.accessibility.action.OmniAction
 import cn.com.omnimind.accessibility.action.OmniCaptureAction
 import cn.com.omnimind.accessibility.action.OmniScreenshotAction
-import cn.com.omnimind.accessibility.action.ScreenCaptureManager
+import cn.com.omnimind.accessibility.action.ScreenshotCaptureException
 import cn.com.omnimind.accessibility.service.AssistsService
 import cn.com.omnimind.accessibility.service.AssistsServiceListener
 import cn.com.omnimind.assists.AssistsCore
@@ -1276,67 +1276,14 @@ class AccessibilityController() {
                             AssistsCore.screenshotImageEventApi?.onScreenShotShowOverlay()
                         })
                     } else {
-                        withContext(Dispatchers.Main) {
-                            AssistsCore.screenshotImageEventApi?.onScreenShotHideOverlay()
-
-                        }
-                        val bitmap = ScreenCaptureManager.getInstance().captureOnce()
-                        withContext(Dispatchers.Main) {
-                            AssistsCore.screenshotImageEventApi?.onScreenShotShowOverlay()
-
-                        }
-                        bitmap
+                        null
                     }
                 }
             } else {
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
                     screenshotAction?.captureDefaultScreenshot()
                 } else {
-                    ScreenCaptureManager.getInstance().captureOnce()
-                }
-            }
-            if (image == null && !ScreenCaptureManager.getInstance().hasPermission()) {
-                val hasProjectionPermission = try {
-                    ScreenCaptureManager.getInstance().requestScreenCapturePermission()
-                } catch (e: Exception) {
-                    OmniLog.w("Assists", "Request MediaProjection permission failed: ${e.message}")
-                    false
-                }
-                if (hasProjectionPermission) {
-                    image = if (isFilterOverlay) {
-                        withContext(Dispatchers.Main) {
-                            AssistsCore.screenshotImageEventApi?.onScreenShotHideOverlay()
-                        }
-                        try {
-                            ScreenCaptureManager.getInstance().captureOnce()
-                        } finally {
-                            withContext(Dispatchers.Main) {
-                                AssistsCore.screenshotImageEventApi?.onScreenShotShowOverlay()
-                            }
-                        }
-                    } else {
-                        ScreenCaptureManager.getInstance().captureOnce()
-                    }
-                }
-            }
-            if (image == null && ScreenCaptureManager.getInstance().hasPermission()) {
-                OmniLog.w(
-                    "Assists",
-                    "Accessibility screenshot returned null, fallback to MediaProjection capture"
-                )
-                image = if (isFilterOverlay) {
-                    withContext(Dispatchers.Main) {
-                        AssistsCore.screenshotImageEventApi?.onScreenShotHideOverlay()
-                    }
-                    try {
-                        ScreenCaptureManager.getInstance().captureOnce()
-                    } finally {
-                        withContext(Dispatchers.Main) {
-                            AssistsCore.screenshotImageEventApi?.onScreenShotShowOverlay()
-                        }
-                    }
-                } else {
-                    ScreenCaptureManager.getInstance().captureOnce()
+                    null
                 }
             }
             if (image == null) {
@@ -1347,7 +1294,8 @@ class AccessibilityController() {
                     isMostlyLightBackground = false,
                     imageFilePath = null,
                     imageBase64 = null,
-                    imageBitmap = null
+                    imageBitmap = null,
+                    errorMessage = "Accessibility screenshot returned no image",
                 )
             }
 
@@ -1450,7 +1398,24 @@ class AccessibilityController() {
                     isMostlyLightBackground = false,
                     imageFilePath = null,
                     imageBase64 = null,
-                    imageBitmap = null
+                    imageBitmap = null,
+                    errorMessage = "Screenshot processing ran out of memory",
+                )
+            } catch (error: ScreenshotCaptureException) {
+                if (image != null && !image.isRecycled) {
+                    image.recycle()
+                }
+                OmniLog.e(TAG, "captureScreenshotImage failed", error)
+                return CaptureData(
+                    isSuccess = false,
+                    isFilterOverlay = isFilterOverlay,
+                    isLotOfSingleColor = false,
+                    isMostlyLightBackground = false,
+                    imageFilePath = null,
+                    imageBase64 = null,
+                    imageBitmap = null,
+                    errorCode = error.errorCode,
+                    errorMessage = error.message,
                 )
             } catch (error: Throwable) {
                 if (error is CancellationException) throw error
@@ -1465,7 +1430,8 @@ class AccessibilityController() {
                     isMostlyLightBackground = false,
                     imageFilePath = null,
                     imageBase64 = null,
-                    imageBitmap = null
+                    imageBitmap = null,
+                    errorMessage = error.message ?: error.javaClass.simpleName,
                 )
             }
         }
@@ -1498,18 +1464,10 @@ class AccessibilityController() {
         }
 
         fun destroy() {
-            releaseScreenCaptureSession()
             service = null;
             actionController = null;
             captureAction = null
             screenshotAction = null
-        }
-
-        fun releaseScreenCaptureSession() {
-            runCatching { ScreenCaptureManager.getInstance().release() }
-                .onFailure { error ->
-                    OmniLog.w(TAG, "Release screen capture session failed: ${error.message}")
-                }
         }
 
         private data class SliderCandidate(
