@@ -64,6 +64,7 @@ internal class AndroidGuiPolicy(
     fun buildRequest(
         context: UIContext,
         screenshot: String?,
+        previousScreenshot: String? = null,
         model: String,
     ): AndroidGuiTurnRequest {
         val runtimeConfig = VLMRuntimeConfigRegistry.get()
@@ -89,11 +90,16 @@ internal class AndroidGuiPolicy(
         val tools = (dynamicTools + baseTools).distinctBy { it.function.name }
         val messages = listOf(
             ChatCompletionMessage(role = "system", content = JsonPrimitive(systemPrompt)),
-            currentUserMessage(currentUserText, screenshot),
+            currentUserMessage(
+                text = currentUserText,
+                screenshot = screenshot,
+                previousScreenshot = previousScreenshot,
+            ),
         )
         OmniLog.i(
             TAG,
-            "build request scene=$model tools=${tools.size} recalled=${dynamicFunctionNames.size} screenshot=${!screenshot.isNullOrBlank()}",
+            "build request scene=$model tools=${tools.size} recalled=${dynamicFunctionNames.size} " +
+                "screenshot=${!screenshot.isNullOrBlank()} compare_previous=${!previousScreenshot.isNullOrBlank()}",
         )
         return AndroidGuiTurnRequest(
             request = ChatCompletionRequest(
@@ -125,7 +131,14 @@ internal class AndroidGuiPolicy(
         val payload = content.extractJsonObject()
         val observation = payload.string("observation")
         val explicitThinking = payload.string("thought").ifBlank { payload.string("thinking") }
-        val summary = payload.string("summary").ifBlank {
+        val toolSummary = turn.message.toolCalls.orEmpty().firstNotNullOfOrNull { toolCall ->
+            val arguments = runCatching {
+                json.parseToJsonElement(toolCall.function.arguments) as? JsonObject
+            }.getOrNull() ?: return@firstNotNullOfOrNull null
+            AndroidGuiModelAdapter.summary(toolCall.function.name, arguments)
+                .takeIf(String::isNotBlank)
+        }.orEmpty()
+        val summary = toolSummary.ifBlank { payload.string("summary") }.ifBlank {
             content.takeUnless { payload != null }.orEmpty()
         }
         return AndroidGuiTurnMetadata(
@@ -138,6 +151,9 @@ internal class AndroidGuiPolicy(
         )
     }
 
+    fun modelTurnContractViolation(turn: ChatCompletionTurn): String? =
+        AndroidGuiModelAdapter.modelTurnContractViolation(turn)
+
     fun parseAndValidateArguments(
         turnRequest: AndroidGuiTurnRequest,
         toolName: String,
@@ -146,9 +162,16 @@ internal class AndroidGuiPolicy(
         val arguments = runCatching { json.parseToJsonElement(rawArguments) as? JsonObject }
             .getOrNull()
             ?: throw IllegalArgumentException("Invalid tool arguments JSON for $toolName")
-        validateArguments(turnRequest, toolName, arguments)
-        return arguments
+        val adaptedArguments = adaptModelArguments(toolName, arguments)
+        validateArguments(turnRequest, toolName, adaptedArguments)
+        return executionArguments(toolName, adaptedArguments)
     }
+
+    fun adaptModelArguments(toolName: String, arguments: JsonObject): JsonObject =
+        AndroidGuiModelAdapter.adapt(toolName, arguments)
+
+    fun executionArguments(toolName: String, arguments: JsonObject): JsonObject =
+        AndroidGuiModelAdapter.executionArguments(toolName, arguments)
 
     fun validateArguments(
         turnRequest: AndroidGuiTurnRequest,
@@ -183,7 +206,11 @@ internal class AndroidGuiPolicy(
         }
     }
 
-    private fun currentUserMessage(text: String, screenshot: String?): ChatCompletionMessage =
+    private fun currentUserMessage(
+        text: String,
+        screenshot: String?,
+        previousScreenshot: String?,
+    ): ChatCompletionMessage =
         ChatCompletionMessage(
             role = "user",
             content = buildJsonArray {
@@ -191,14 +218,29 @@ internal class AndroidGuiPolicy(
                     put("type", "text")
                     put("text", text)
                 })
-                screenshot?.trim()?.takeIf(String::isNotEmpty)?.let { image ->
+                previousScreenshot?.trim()?.takeIf(String::isNotEmpty)?.let { image ->
                     add(buildJsonObject {
-                        put("type", "image_url")
-                        put("image_url", buildJsonObject { put("url", image.asDataUri()) })
+                        put("type", "text")
+                        put("text", "[Previous screenshot before the last action]")
                     })
+                    add(imagePart(image))
+                    if (!screenshot.isNullOrBlank()) {
+                        add(buildJsonObject {
+                            put("type", "text")
+                            put("text", "[Current screenshot after the last action]")
+                        })
+                    }
+                }
+                screenshot?.trim()?.takeIf(String::isNotEmpty)?.let { image ->
+                    add(imagePart(image))
                 }
             },
         )
+
+    private fun imagePart(image: String): JsonObject = buildJsonObject {
+        put("type", "image_url")
+        put("image_url", buildJsonObject { put("url", image.asDataUri()) })
+    }
 
     private fun UIContext.withFunctionGuidance(functionNames: Set<String>): UIContext {
         if (functionNames.isEmpty()) return this

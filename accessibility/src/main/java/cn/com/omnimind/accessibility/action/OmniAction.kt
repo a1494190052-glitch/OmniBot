@@ -29,7 +29,6 @@ import java.util.concurrent.CompletableFuture
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
-import java.util.concurrent.atomic.AtomicInteger
 
 class OmniGestureDispatchTimeoutException(message: String) : RuntimeException(message)
 
@@ -40,7 +39,6 @@ class OmniAction(
         private const val TAG = "OmniGestureController"
         private const val CLICK_DURATION = 160L
         private const val CLICK_TIMEOUT_MS = 900L
-        private const val CLICK_RETRY_DELAY_MS = 80L
         private const val LONG_CLICK_DURATION = 1000L
         private const val SCROLL_DISTANCE = 300f
         private const val SCROLL_DURATION = 500L
@@ -259,7 +257,6 @@ class OmniAction(
             gestureDescription = gestureBuilder.build(),
             timeoutMs = timeoutMs,
             timeoutLabel = "coordinate_click",
-            maxCancelRetries = 1,
         )
     }
 
@@ -350,13 +347,11 @@ class OmniAction(
         gestureDescription: GestureDescription,
         timeoutMs: Long,
         timeoutLabel: String,
-        maxCancelRetries: Int = 0,
     ): CompletableFuture<Unit> {
         val future = CompletableFuture<Unit>()
         val completed = AtomicBoolean(false)
-        val attempt = AtomicInteger(0)
+        val dispatched = AtomicBoolean(false)
         val boundedTimeoutMs = timeoutMs.coerceAtLeast(1L)
-        lateinit var dispatchGesture: Runnable
         val timeoutRunnable = Runnable {
             if (completed.compareAndSet(false, true)) {
                 future.completeExceptionally(
@@ -374,17 +369,6 @@ class OmniAction(
                 }
 
                 override fun onCancelled(gestureDescription: GestureDescription?) {
-                    if (!completed.get() && attempt.get() <= maxCancelRetries) {
-                        OmniLog.w(
-                            TAG,
-                            "gesture cancelled, retrying: label=$timeoutLabel attempt=${attempt.get()}/$maxCancelRetries"
-                        )
-                        mainHandler.postDelayed(
-                            { dispatchGesture.run() },
-                            CLICK_RETRY_DELAY_MS,
-                        )
-                        return
-                    }
                     OmniLog.w(TAG, "gesture cancelled: label=$timeoutLabel")
                     completeGestureFuture(
                         completed,
@@ -395,9 +379,8 @@ class OmniAction(
                 }
             }
 
-        dispatchGesture = Runnable {
-            if (completed.get()) return@Runnable
-            attempt.incrementAndGet()
+        val dispatchGesture = Runnable {
+            if (completed.get() || !dispatched.compareAndSet(false, true)) return@Runnable
             val dispatchResult =
                 service.dispatchGesture(
                     gestureDescription,

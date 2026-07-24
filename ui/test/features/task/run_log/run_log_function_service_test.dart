@@ -43,6 +43,32 @@ void main() {
     });
   });
 
+  test('convert can explicitly skip default offline enhancement', () async {
+    MethodCall? capturedCall;
+    messenger.setMockMethodCallHandler(channel, (call) async {
+      capturedCall = call;
+      return <String, dynamic>{
+        'success': true,
+        'function_id': 'fn_base',
+        'enhancement_status': 'none',
+      };
+    });
+
+    final result = await RunLogFunctionService.convertInternalRunLogToFunction(
+      runId: 'run_source',
+      enhance: false,
+    );
+
+    expect(result['success'], isTrue);
+    expect(capturedCall?.method, 'convertInternalRunLogToFunction');
+    expect(capturedCall?.arguments, <String, dynamic>{
+      'run_id': 'run_source',
+      'register': true,
+      'agent_visible': false,
+      'enhance': false,
+    });
+  });
+
   test('timeline exposes the existing Function enhancement trigger', () {
     var root = Directory.current.absolute;
     while (!File('${root.path}/pubspec.yaml').existsSync()) {

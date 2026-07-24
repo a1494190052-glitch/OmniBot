@@ -229,6 +229,7 @@ class JsonLineBridge:
                 "function_id",
                 "name",
                 "description",
+                "enhance",
             },
         )
         run_id = str(body.get("run_id") or "").strip()
@@ -278,6 +279,19 @@ class JsonLineBridge:
                 run_id=run_id,
             )
 
+        changes: list[dict[str, Any]] = []
+        enhancement_status = "none"
+        enhancement_message = ""
+        if body.get("enhance") is not False:
+            try:
+                value, changes, enhancement_status = enhance_function(
+                    value,
+                    run_log,
+                    lambda prompt: self._complete_json(request_id, prompt),
+                )
+            except Exception as error:
+                enhancement_status = "failed"
+                enhancement_message = str(error)
         register = body.get("register") is True
         function_id = value["function_id"]
         already_exists = self.flow.store.get_function(function_id) is not None
@@ -305,6 +319,9 @@ class JsonLineBridge:
                 and step["result"].get("success") is True
             ),
             "compiled_step_count": len(value["steps"]),
+            "enhancement_status": enhancement_status,
+            "changes": changes,
+            "message": enhancement_message,
             "error": None,
             "source": "omniflow_python",
         }

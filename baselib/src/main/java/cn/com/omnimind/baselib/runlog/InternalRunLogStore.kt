@@ -715,6 +715,7 @@ object InternalRunLogStore {
         }
         putSum(summary, "reasoning_tokens", usages)
         putSum(summary, "text_tokens", usages)
+        putSum(summary, "image_tokens", usages)
         putSum(summary, "cached_tokens", usages)
         putSum(summary, "attempt_count", usages)
         summary["step_count"] = usages.size

@@ -58,6 +58,10 @@ interface AgentToolCatalog {
 
     fun runtimeDescriptor(toolName: String): AgentToolRegistry.RuntimeToolDescriptor
 
+    fun modelTurnContractViolation(turn: ChatCompletionTurn): String? = null
+
+    fun adaptModelArguments(toolName: String, arguments: JsonObject): JsonObject = arguments
+
     fun validateArguments(toolName: String, arguments: JsonObject)
 }
 

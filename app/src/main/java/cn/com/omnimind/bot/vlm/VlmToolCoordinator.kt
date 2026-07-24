@@ -389,6 +389,7 @@ object VlmToolCoordinator {
         val captureStartedAt = System.currentTimeMillis()
         val config = loadConfig(context)
         val boundedRequest = request.withRuntimeDefaults(config)
+        VlmModelCapabilityGuard.requireSupported(requireNotNull(boundedRequest.model))
         val snapshot = captureParseOnlySnapshot(context)
         markPhase("read_current_page_ms", captureStartedAt)
         val baseContext = UIContext(
@@ -475,17 +476,13 @@ object VlmToolCoordinator {
         val toolCalls = turn.message.toolCalls.orEmpty()
         var parsedArguments: JsonObject? = null
         val parseError = timed("parse_response_ms") {
-            when {
-                toolCalls.isEmpty() -> "provider_tool_call_contract_violation: provider returned no native tool_calls"
-                toolCalls.size > 1 -> "provider_tool_call_contract_violation: expected one native tool_call, got ${toolCalls.size}"
-                else -> runCatching {
+            policy.modelTurnContractViolation(turn) ?: runCatching {
                     parsedArguments = policy.parseAndValidateArguments(
                         turnRequest = turnRequest,
                         toolName = toolCalls.single().function.name,
                         rawArguments = toolCalls.single().function.arguments,
                     )
                 }.exceptionOrNull()?.message
-            }
         }
         val toolCall = toolCalls.singleOrNull()
         val action = parsedArguments?.let { arguments ->

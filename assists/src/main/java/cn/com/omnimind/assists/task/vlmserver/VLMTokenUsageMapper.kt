@@ -25,6 +25,7 @@ object VLMTokenUsageMapper {
             totalTokens = usage.totalTokens ?: addIfAny(usage.promptTokens, usage.completionTokens),
             reasoningTokens = intField(usage.completionTokensDetails, "reasoning_tokens"),
             textTokens = intField(usage.completionTokensDetails, "text_tokens"),
+            imageTokens = intField(usage.promptTokensDetails, "image_tokens"),
             cachedTokens = intField(usage.promptTokensDetails, "cached_tokens"),
             prefillTokensPerSecond = usage.prefillTokensPerSecond,
             decodeTokensPerSecond = usage.decodeTokensPerSecond,
@@ -50,6 +51,7 @@ object VLMTokenUsageMapper {
                 ),
             reasoningTokens = sumInts(nonEmpty) { it.reasoningTokens },
             textTokens = sumInts(nonEmpty) { it.textTokens },
+            imageTokens = sumInts(nonEmpty) { it.imageTokens },
             cachedTokens = sumInts(nonEmpty) { it.cachedTokens },
             resolvedModel = commonString(nonEmpty.mapNotNull { it.resolvedModel }),
             route = commonString(nonEmpty.mapNotNull { it.route }),
@@ -64,6 +66,7 @@ object VLMTokenUsageMapper {
             putInt("total_tokens", usage.totalTokens)
             putInt("reasoning_tokens", usage.reasoningTokens)
             putInt("text_tokens", usage.textTokens)
+            putInt("image_tokens", usage.imageTokens)
             putInt("cached_tokens", usage.cachedTokens)
             putDouble("prefill_tokens_per_second", usage.prefillTokensPerSecond)
             putDouble("decode_tokens_per_second", usage.decodeTokensPerSecond)
@@ -90,6 +93,7 @@ object VLMTokenUsageMapper {
             totalTokens != null ||
             reasoningTokens != null ||
             textTokens != null ||
+            imageTokens != null ||
             cachedTokens != null
     }
 

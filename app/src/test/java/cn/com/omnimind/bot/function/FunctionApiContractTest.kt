@@ -60,4 +60,21 @@ class FunctionApiContractTest {
             listArg(checker["required"]),
         )
     }
+
+    @Test
+    fun `run log conversion exposes default offline enhancement`() {
+        val convertTool = FunctionApi.mcpToolDefinitions.single {
+            it["name"] == FunctionApi.RUN_LOG_CONVERT
+        }
+        val convertInput = mapArg(convertTool["inputSchema"])
+        val convertProperties = mapArg(convertInput["properties"])
+        val enhance = mapArg(convertProperties["enhance"])
+        val updateTool = FunctionApi.mcpToolDefinitions.single {
+            it["name"] == FunctionApi.FUNCTION_UPDATE
+        }
+
+        assertEquals("boolean", enhance["type"])
+        assertTrue(enhance["description"].toString().contains("Default true"))
+        assertTrue(updateTool["description"].toString().contains("RunLog conversion enhances by default"))
+    }
 }

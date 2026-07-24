@@ -1123,7 +1123,8 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
         return mapOf(
             "sceneId" to sceneId,
             "providerProfileId" to providerProfileId,
-            "modelId" to modelId
+            "modelId" to modelId,
+            "toolCall" to toolCall
         )
     }
 
@@ -3533,10 +3534,16 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
         val sceneId = call.argument<String>("sceneId")?.trim().orEmpty()
         val providerProfileId = call.argument<String>("providerProfileId")?.trim().orEmpty()
         val modelId = call.argument<String>("modelId")?.trim().orEmpty()
+        val toolCall = call.argument<Boolean>("toolCall")
 
         workJob.launch {
             try {
-                SceneModelBindingStore.saveBinding(sceneId, providerProfileId, modelId)
+                SceneModelBindingStore.saveBinding(
+                    sceneId = sceneId,
+                    providerProfileId = providerProfileId,
+                    modelId = modelId,
+                    toolCall = toolCall
+                )
                 syncAgentAiCapabilityConfigFile()
                 withContext(Dispatchers.Main) {
                     result.success(SceneModelBindingStore.getBindingEntries().map { it.toMap() })

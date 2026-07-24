@@ -209,6 +209,13 @@ class AgentOrchestrator(
                 )
                 val toolCalls = turn.message.toolCalls.orEmpty()
                 input.turnObserver?.onTurn(turn)
+                val turnContractViolation = toolRegistry.modelTurnContractViolation(turn)
+                if (turnContractViolation != null) {
+                    callback.onError(turnContractViolation, false)
+                    terminalError = AgentResult.Error(turnContractViolation)
+                    terminated = true
+                    break@roundLoop
+                }
                 logInfo(
                     tag,
                     "round=$round parsed_tool_calls=${toolCalls.size} finish_reason=${lastFinishReason.orEmpty()} assistant_content_len=${lastAssistantContent.length}"
@@ -342,7 +349,10 @@ class AgentOrchestrator(
                     val descriptor = toolRegistry.runtimeDescriptor(toolCall.function.name)
                     descriptorMap[toolCall.id] = descriptor
                     val parsedArgs: JsonObject = try {
-                        parseToolArguments(toolCall.function.arguments)
+                        toolRegistry.adaptModelArguments(
+                            toolName = toolCall.function.name,
+                            arguments = parseToolArguments(toolCall.function.arguments),
+                        )
                     } catch (error: Exception) {
                         val result = ToolExecutionResult.Error(
                             toolCall.function.name,

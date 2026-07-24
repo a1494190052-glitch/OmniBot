@@ -31,10 +31,18 @@ For requests such as “保存刚才的操作” or “把上一条轨迹变成�
 1. Call `oob_run_log_list` when the RunLog id is unknown.
 2. Choose the newest successful RunLog that matches the user request.
 3. Call `oob_run_log_convert` with its `run_id` and `register=true`.
-4. Report the real `function_id` and action count.
+4. Check the returned `enhancement_status` and `changes`.
+5. Report the real `function_id` and action count.
 
-The baseline conversion intentionally preserves every successful recorded
-action. Do not expect the compiler to merge input or remove behavior.
+Conversion attempts offline enhancement by default before registration. Pass
+`enhance=false` only when the user explicitly chooses to skip it. Enhancement
+is optional: if it fails, the base Function is still registered with
+`enhancement_status=failed`; retry with `update_function` using
+`mode=enhance`. Enhancement may refine the Function's name, description,
+semantic parameters, bindings, and evidence-backed checker rules. It preserves
+every successful recorded action and never merges input, removes behavior, or
+invents recovery evidence. Use `update_function` only for later edits or to
+retry enhancement of an existing Function.
 
 ## Enhance Or Repair
 

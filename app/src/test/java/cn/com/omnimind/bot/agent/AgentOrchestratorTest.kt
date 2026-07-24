@@ -653,6 +653,100 @@ class AgentOrchestratorTest {
     }
 
     @Test
+    fun modelArgumentsAreAdaptedBeforeValidationAndExecution() = runBlocking {
+        val llmClient = FakeLlmClient(
+            turns = listOf(
+                assistantTurn(
+                    toolCalls = listOf(
+                        toolCall(name = "click", arguments = """{"point":[500,561]}""")
+                    )
+                ),
+                assistantTurn(content = "已完成。")
+            )
+        )
+        val toolCatalog = FakeToolCatalog(
+            argumentAdapter = { _, arguments ->
+                val point = arguments.getValue("point") as kotlinx.serialization.json.JsonArray
+                JsonObject(mapOf("x" to point[0], "y" to point[1]))
+            }
+        )
+        val toolExecutor = FakeToolExecutor(
+            results = mapOf(
+                "click" to listOf(
+                    ToolExecutionResult.ContextResult(
+                        toolName = "click",
+                        summaryText = "页面已变化",
+                        previewJson = "{}",
+                        rawResultJson = "{}"
+                    )
+                )
+            )
+        )
+
+        AgentOrchestrator(
+            llmClient = llmClient,
+            toolRegistry = toolCatalog,
+            toolRouter = toolExecutor,
+            eventAdapter = AgentEventAdapter(eventJson),
+            model = "test-model"
+        ).run(
+            AgentOrchestrator.Input(
+                callback = RecordingCallback(),
+                initialMessages = initialMessages("点击目标"),
+                executionEnv = FakeExecutionEnvironment("点击目标")
+            )
+        )
+
+        assertEquals(setOf("x", "y"), toolCatalog.validatedArguments.single().keys)
+        assertEquals(setOf("x", "y"), toolExecutor.executeArguments.single().keys)
+    }
+
+    @Test
+    fun modelTurnContractViolationStopsBeforeTextRecoveryOrExecution() = runBlocking {
+        val llmClient = FakeLlmClient(
+            turns = listOf(
+                assistantTurn(
+                    content = """{"tool_call":{"name":"click","arguments":{"x":500,"y":561}}}""",
+                    finishReason = "stop",
+                )
+            )
+        )
+        val toolCatalog = FakeToolCatalog(
+            turnContractViolation = {
+                "model_native_tool_calls_unsupported: " +
+                    "model returned a tool call in assistant.content instead of native tool_calls"
+            }
+        )
+        val toolExecutor = FakeToolExecutor()
+        val callback = RecordingCallback()
+
+        val result = AgentOrchestrator(
+            llmClient = llmClient,
+            toolRegistry = toolCatalog,
+            toolRouter = toolExecutor,
+            eventAdapter = AgentEventAdapter(eventJson),
+            model = "test-model",
+        ).run(
+            AgentOrchestrator.Input(
+                callback = callback,
+                initialMessages = initialMessages("点击应用"),
+                executionEnv = FakeExecutionEnvironment("点击应用"),
+            )
+        )
+
+        assertTrue(result is AgentResult.Error)
+        assertEquals(1, llmClient.requests.size)
+        assertTrue(toolExecutor.executeCalls.isEmpty())
+        assertEquals(
+            "model_native_tool_calls_unsupported: " +
+                "model returned a tool call in assistant.content instead of native tool_calls",
+            callback.errors.single(),
+        )
+        assertFalse(callback.lastErrorRetryable)
+        assertTrue(callback.finalChatMessages().isEmpty())
+    }
+
+    @Test
     fun invalidToolArgumentsBackfillRemainingToolCallIds() = runBlocking {
         val llmClient = FakeLlmClient(
             turns = listOf(
@@ -1184,9 +1278,12 @@ class AgentOrchestratorTest {
     }
 
     private class FakeToolCatalog(
-        private val validationErrors: Map<String, String> = emptyMap()
+        private val validationErrors: Map<String, String> = emptyMap(),
+        private val argumentAdapter: (String, JsonObject) -> JsonObject = { _, arguments -> arguments },
+        private val turnContractViolation: (ChatCompletionTurn) -> String? = { null },
     ) : AgentToolCatalog {
         override val toolsForModel: List<ChatCompletionTool> = emptyList()
+        val validatedArguments = mutableListOf<JsonObject>()
 
         override fun runtimeDescriptor(toolName: String): AgentToolRegistry.RuntimeToolDescriptor {
             return AgentToolRegistry.RuntimeToolDescriptor(
@@ -1196,7 +1293,14 @@ class AgentOrchestratorTest {
             )
         }
 
+        override fun adaptModelArguments(toolName: String, arguments: JsonObject): JsonObject =
+            argumentAdapter(toolName, arguments)
+
+        override fun modelTurnContractViolation(turn: ChatCompletionTurn): String? =
+            turnContractViolation(turn)
+
         override fun validateArguments(toolName: String, arguments: JsonObject) {
+            validatedArguments += arguments
             val message = validationErrors[toolName] ?: return
             throw IllegalArgumentException(message)
         }
@@ -1207,6 +1311,7 @@ class AgentOrchestratorTest {
     ) : AgentToolExecutor {
         private val queuedResults = results.mapValues { (_, value) -> ArrayDeque(value) }
         val executeCalls = mutableListOf<String>()
+        val executeArguments = mutableListOf<JsonObject>()
 
         override suspend fun execute(
             toolCall: AssistantToolCall,
@@ -1217,6 +1322,7 @@ class AgentOrchestratorTest {
             toolHandle: AgentToolExecutionHandle
         ): ToolExecutionResult {
             executeCalls += toolCall.function.name
+            executeArguments += args
             val queue = queuedResults[toolCall.function.name]
             return if (queue != null && queue.isNotEmpty()) {
                 queue.removeFirst()

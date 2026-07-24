@@ -302,7 +302,151 @@ def test_catalog_and_recall_round_trip(tmp_path: Path) -> None:
     }
 
 
-def test_compile_registers_without_calling_enhancement(tmp_path: Path) -> None:
+def test_compile_registers_enhanced_function(tmp_path: Path) -> None:
+    run_log = {
+        "schema_version": "omniflow.canonical_run_log.v1",
+        "run_id": "source",
+        "goal": "wait once",
+        "status": "succeeded",
+        "success": True,
+        "steps": [
+            {
+                "step_index": 0,
+                "before_state_id": "state-0",
+                "action": {"tool": "wait", "args": {"duration_ms": 1000}},
+                "result": {"success": True},
+                "after_state_id": "state-1",
+                "metadata": {},
+            }
+        ],
+    }
+    reader = StringIO(
+        json.dumps(
+            {"call_id": "compile:1", "ok": True, "result": run_log}
+        )
+        + "\n"
+        + json.dumps(
+            {
+                "call_id": "compile:2",
+                "ok": True,
+                "result": {
+                    "content": json.dumps(
+                        {"name": "Pause once", "checker_rules": []}
+                    )
+                },
+            }
+        )
+        + "\n"
+    )
+    writer = StringIO()
+    bridge = OobOmniFlowBridge(
+        tmp_path / "store.json",
+        reader=reader,
+        writer=writer,
+    )
+
+    result = bridge._handle(
+        "compile",
+        "compile",
+        {
+            "run_id": "source",
+            "register": True,
+            "agent_visible": True,
+            "function_id": "wait_once",
+        },
+    )
+
+    calls = [json.loads(line) for line in writer.getvalue().splitlines()]
+    assert [call["method"] for call in calls] == ["get_run_log", "complete_json"]
+    assert result["registered"] is True
+    assert result["function_id"] == "wait_once"
+    assert result["function"]["name"] == "Pause once"
+    assert result["enhancement_status"] == "enhanced"
+    assert result["changes"] == [{"part": "function", "field": "name"}]
+    assert bridge.flow.store.get_function("wait_once").name == "Pause once"
+
+
+def test_compile_registers_semantic_parameters_and_bindings(tmp_path: Path) -> None:
+    run_log = {
+        "schema_version": "omniflow.canonical_run_log.v1",
+        "run_id": "source",
+        "goal": "enter a contact name",
+        "status": "succeeded",
+        "success": True,
+        "steps": [
+            {
+                "step_index": 0,
+                "before_state_id": "state-0",
+                "action": {"tool": "input_text", "args": {"text": "Alice"}},
+                "result": {"success": True},
+                "after_state_id": "state-1",
+                "metadata": {},
+            }
+        ],
+    }
+    reader = StringIO(
+        json.dumps({"call_id": "compile:1", "ok": True, "result": run_log})
+        + "\n"
+        + json.dumps(
+            {
+                "call_id": "compile:2",
+                "ok": True,
+                "result": {
+                    "content": json.dumps(
+                        {
+                            "parameters": [
+                                {
+                                    "name": "contact_name",
+                                    "description": "Contact name to enter",
+                                    "step_index": 0,
+                                    "arg_name": "text",
+                                }
+                            ],
+                            "checker_rules": [],
+                        }
+                    )
+                },
+            }
+        )
+        + "\n"
+    )
+    bridge = OobOmniFlowBridge(
+        tmp_path / "store.json",
+        reader=reader,
+        writer=StringIO(),
+    )
+
+    result = bridge._handle(
+        "compile",
+        "compile",
+        {"run_id": "source", "register": True, "function_id": "enter_name"},
+    )
+
+    registered = bridge.flow.store.get_function("enter_name")
+    assert result["enhancement_status"] == "enhanced"
+    assert result["changes"] == [{"part": "function", "field": "parameters"}]
+    assert registered is not None
+    assert registered.input_schema == {
+        "type": "object",
+        "properties": {
+            "contact_name": {
+                "type": "string",
+                "description": "Contact name to enter",
+            }
+        },
+        "required": ["contact_name"],
+        "additionalProperties": False,
+    }
+    assert registered.bindings == (
+        {
+            "source": "$.arguments.contact_name",
+            "target": "$.steps[0].action.args.text",
+        },
+    )
+    assert registered.steps[0].action.args == {"text": ""}
+
+
+def test_compile_can_skip_optional_enhancement(tmp_path: Path) -> None:
     run_log = {
         "schema_version": "omniflow.canonical_run_log.v1",
         "run_id": "source",
@@ -339,15 +483,71 @@ def test_compile_registers_without_calling_enhancement(tmp_path: Path) -> None:
         {
             "run_id": "source",
             "register": True,
-            "agent_visible": True,
             "function_id": "wait_once",
+            "enhance": False,
         },
     )
 
     calls = [json.loads(line) for line in writer.getvalue().splitlines()]
     assert [call["method"] for call in calls] == ["get_run_log"]
+    assert result["success"] is True
     assert result["registered"] is True
-    assert result["function_id"] == "wait_once"
+    assert result["enhancement_status"] == "none"
+    assert result["changes"] == []
+
+
+def test_compile_keeps_function_when_default_enhancement_fails(tmp_path: Path) -> None:
+    run_log = {
+        "schema_version": "omniflow.canonical_run_log.v1",
+        "run_id": "source",
+        "goal": "wait once",
+        "status": "succeeded",
+        "success": True,
+        "steps": [
+            {
+                "step_index": 0,
+                "before_state_id": "state-0",
+                "action": {"tool": "wait", "args": {"duration_ms": 1000}},
+                "result": {"success": True},
+                "after_state_id": "state-1",
+                "metadata": {},
+            }
+        ],
+    }
+    reader = StringIO(
+        json.dumps(
+            {"call_id": "compile:1", "ok": True, "result": run_log}
+        )
+        + "\n"
+        + json.dumps(
+            {
+                "call_id": "compile:2",
+                "ok": False,
+                "error": {"code": "offline_model_unavailable"},
+            }
+        )
+        + "\n"
+    )
+    writer = StringIO()
+    bridge = OobOmniFlowBridge(
+        tmp_path / "store.json",
+        reader=reader,
+        writer=writer,
+    )
+
+    result = bridge._handle(
+        "compile",
+        "compile",
+        {"run_id": "source", "register": True, "function_id": "wait_once"},
+    )
+
+    calls = [json.loads(line) for line in writer.getvalue().splitlines()]
+    assert [call["method"] for call in calls] == ["get_run_log", "complete_json"]
+    assert result["success"] is True
+    assert result["registered"] is True
+    assert result["enhancement_status"] == "failed"
+    assert result["changes"] == []
+    assert result["message"] == "offline_model_unavailable"
     assert bridge.flow.store.get_function("wait_once") is not None
 
 

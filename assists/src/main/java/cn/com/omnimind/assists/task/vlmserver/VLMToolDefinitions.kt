@@ -23,6 +23,7 @@ import kotlinx.serialization.json.put
 
 object VLMToolDefinitions {
     private const val TOOL_TITLE_FIELD = "tool_title"
+    private const val SUMMARY_FIELD = "summary"
     private val argumentJson = Json {
         ignoreUnknownKeys = false
         isLenient = false
@@ -59,8 +60,23 @@ object VLMToolDefinitions {
     ): JsonObject {
         val args = vlmOutputArgs(schema)
         return objectSchema(
-            properties = args.associate { arg -> arg.name to jsonSchemaForArg(arg, locale) },
-            required = args.map { it.name },
+            properties = linkedMapOf<String, JsonObject>().apply {
+                put(SUMMARY_FIELD, summarySchema(locale))
+                args.forEach { arg -> put(arg.name, jsonSchemaForArg(arg, locale)) }
+            },
+            required = listOf(SUMMARY_FIELD) + args.map { it.name },
+        )
+    }
+
+    private fun summarySchema(locale: PromptLocale): JsonObject = buildJsonObject {
+        put("type", "string")
+        put(
+            "description",
+            t(
+                locale,
+                "20字内说明为什么选择此动作，以及它如何推进用户目标。不要复述坐标或参数。",
+                "In at most 20 words, explain why this action was chosen and how it advances the user's goal. Do not repeat coordinates or arguments.",
+            ),
         )
     }
 
@@ -227,8 +243,8 @@ object VLMToolDefinitions {
             appendLine(
                 t(
                     locale,
-                    "输出约束：只返回 tools[] 中恰好一个原生 tool_call；function.arguments 必须满足所选工具的 JSON schema，schema.required 字段必须全部填写；assistant.content 可为空，若返回只能是约20字 summary；不要输出其他 JSON 字段、Markdown、旧格式 action/swipe/coordinate/coordinate2，或 tools[] 外的工具名。",
-                    "Output constraint: return exactly one native tool_call from tools[]. function.arguments must satisfy the selected tool JSON schema, and every schema.required field must be present. assistant.content may be empty; if present it must be an about-20-word summary only. Do not output other JSON fields, Markdown, legacy action/swipe/coordinate/coordinate2 formats, or tool names outside tools[]."
+                    "输出约束：只返回 tools[] 中恰好一个原生 tool_call；function.arguments 必须满足所选工具的 JSON schema，schema.required 字段必须全部填写；基础 GUI 工具的 function.arguments.summary 必须在20字内说明为什么选择此动作以及如何推进目标，不要复述动作参数；assistant.content 可为空；不要输出其他 JSON 字段、Markdown、旧格式 action/swipe/coordinate/coordinate2，或 tools[] 外的工具名。",
+                    "Output constraint: return exactly one native tool_call from tools[]. function.arguments must satisfy the selected tool JSON schema, and every schema.required field must be present. For base GUI tools, function.arguments.summary must explain in at most 20 words why the action was chosen and how it advances the goal; do not repeat action arguments. assistant.content may be empty. Do not output other JSON fields, Markdown, legacy action/swipe/coordinate/coordinate2 formats, or tool names outside tools[]."
                 )
             )
             appendLine(
@@ -358,9 +374,9 @@ object VLMToolDefinitions {
     fun responseContract(locale: PromptLocale = currentLocale()): String {
         return when (locale) {
             PromptLocale.ZH_CN ->
-                """{"summary":"约20字本步摘要"}"""
+                """{"summary":"20字内说明此动作如何推进目标"}"""
             PromptLocale.EN_US ->
-                """{"summary":"about 20 words for this step"}"""
+                """{"summary":"within 20 words, explain how this action advances the goal"}"""
         }
     }
 
@@ -371,12 +387,15 @@ object VLMToolDefinitions {
 
     fun propertiesFor(toolName: String, locale: PromptLocale = currentLocale()): Map<String, JsonObject> {
         val schema = toolSpec(toolName) ?: return emptyMap()
-        return vlmOutputArgs(schema).associate { arg -> arg.name to jsonSchemaForArg(arg, locale) }
+        return linkedMapOf<String, JsonObject>().apply {
+            put(SUMMARY_FIELD, summarySchema(locale))
+            vlmOutputArgs(schema).forEach { arg -> put(arg.name, jsonSchemaForArg(arg, locale)) }
+        }
     }
 
     fun requiredFieldsFor(toolName: String): List<String> {
         val schema = toolSpec(toolName) ?: return emptyList()
-        return vlmOutputArgs(schema).map { it.name }
+        return listOf(SUMMARY_FIELD) + vlmOutputArgs(schema).map { it.name }
     }
 
     internal fun parseRawArgumentsObject(

@@ -14,8 +14,12 @@ import cn.com.omnimind.bot.agent.NoOpAgentRunControl
 import cn.com.omnimind.bot.agent.ToolExecutionResult
 import cn.com.omnimind.bot.omniflow.OmniFlowPythonHostCall
 import kotlinx.coroutines.runBlocking
+import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -88,6 +92,7 @@ class AndroidGuiToolboxTest {
         assertEquals("等待页面稳定", metadata["summary"])
         assertEquals("页面仍在加载", metadata["thinking"])
         assertEquals("succeeded", metadata["status"])
+        assertEquals("state_changed", metadata["outcome"])
         assertEquals("run-test-vlm-0", metadata["step_id"])
         assertFalse(step.containsKey("summary"))
         assertFalse(step.containsKey("thinking"))
@@ -96,7 +101,109 @@ class AndroidGuiToolboxTest {
     }
 
     @Test
-    fun hostFailureReturnsToolErrorWithoutWritingFalseStep() = runBlocking {
+    fun primitiveActionDerivesSummaryWhenModelContentIsEmpty() = runBlocking {
+        val host = RecordingHost()
+        val states = ArrayDeque(listOf(state("state-before"), state("state-after")))
+        val toolbox = toolbox(
+            host = host,
+            androidHost = OmniFlowPythonHostCall { method, _ ->
+                when (method) {
+                    "observe" -> states.removeFirst()
+                    "act" -> mapOf("success" to true)
+                    else -> error("unexpected_host_call:$method")
+                }
+            },
+        )
+        toolbox.prepare()
+        toolbox.onTurn(
+            ChatCompletionTurn(
+                message = ChatCompletionMessage(role = "assistant", content = JsonPrimitive("")),
+                finishReason = "tool_calls",
+            )
+        )
+
+        val args = JsonObject(
+            mapOf(
+                "target_description" to JsonPrimitive("网络与互联网"),
+                "x" to JsonPrimitive(500),
+                "y" to JsonPrimitive(250),
+            )
+        )
+        toolbox.execute(
+            toolCall = toolCall(
+                OobActionSchema.TOOL_CLICK,
+                "{\"target_description\":\"网络与互联网\",\"x\":500,\"y\":250}",
+            ),
+            args = args,
+            runtimeDescriptor = toolbox.runtimeDescriptor(OobActionSchema.TOOL_CLICK),
+            env = unusedProxy(),
+            callback = unusedProxy(),
+            toolHandle = NoOpAgentRunControl.beginToolExecution(OobActionSchema.TOOL_CLICK, "call-1"),
+        )
+
+        assertEquals("点击「网络与互联网」", host.steps.single().map("metadata")["summary"])
+    }
+
+    @Test
+    fun primitiveActionMovesToolSummaryIntoMetadataOnly() = runBlocking {
+        val host = RecordingHost()
+        val states = ArrayDeque(listOf(state("state-before"), state("state-after")))
+        val toolbox = toolbox(
+            host = host,
+            androidHost = OmniFlowPythonHostCall { method, payload ->
+                when (method) {
+                    "observe" -> states.removeFirst()
+                    "act" -> {
+                        val action = (payload["action"] as Map<*, *>)
+                        val actionArgs = action["args"] as Map<*, *>
+                        assertFalse(actionArgs.containsKey("summary"))
+                        mapOf("success" to true)
+                    }
+                    else -> error("unexpected_host_call:$method")
+                }
+            },
+        )
+        toolbox.prepare()
+        toolbox.onTurn(
+            ChatCompletionTurn(
+                message = ChatCompletionMessage(
+                    role = "assistant",
+                    content = JsonPrimitive(""),
+                    toolCalls = listOf(
+                        toolCall(
+                            OobActionSchema.TOOL_CLICK,
+                            """{"summary":"进入应用列表","target_description":"应用","x":500,"y":561}""",
+                        )
+                    ),
+                ),
+                finishReason = "tool_calls",
+            )
+        )
+        val args = JsonObject(
+            mapOf(
+                "summary" to JsonPrimitive("进入应用列表"),
+                "target_description" to JsonPrimitive("应用"),
+                "x" to JsonPrimitive(500),
+                "y" to JsonPrimitive(561),
+            )
+        )
+
+        toolbox.execute(
+            toolCall = toolCall(OobActionSchema.TOOL_CLICK, args.toString()),
+            args = args,
+            runtimeDescriptor = toolbox.runtimeDescriptor(OobActionSchema.TOOL_CLICK),
+            env = unusedProxy(),
+            callback = unusedProxy(),
+            toolHandle = NoOpAgentRunControl.beginToolExecution(OobActionSchema.TOOL_CLICK, "call-1"),
+        )
+
+        val step = host.steps.single()
+        assertEquals("进入应用列表", step.map("metadata")["summary"])
+        assertFalse(step.map("action").map("args").containsKey("summary"))
+    }
+
+    @Test
+    fun hostFailureWritesFailedCanonicalStep() = runBlocking {
         val host = RecordingHost()
         val toolbox = toolbox(
             host = host,
@@ -119,9 +226,109 @@ class AndroidGuiToolboxTest {
             toolHandle = NoOpAgentRunControl.beginToolExecution(OobActionSchema.TOOL_WAIT, "call-1"),
         )
 
-        assertTrue(result is ToolExecutionResult.Error)
-        assertEquals("accessibility_disconnected", (result as ToolExecutionResult.Error).message)
-        assertTrue(host.steps.isEmpty())
+        assertTrue(result is ToolExecutionResult.ContextResult && !result.success)
+        assertEquals(1, host.steps.size)
+        val step = host.steps.single()
+        assertEquals(false, step.map("result")["success"])
+        assertEquals("accessibility_disconnected", step.map("result")["error"])
+        assertEquals("action_failed", step.map("metadata")["outcome"])
+    }
+
+    @Test
+    fun unchangedActionCarriesPreviousScreenshotIntoNextTurnOnly() = runBlocking {
+        val previousScreenshot = kotlin.io.path.createTempFile().toFile().apply {
+            writeBytes("previous".toByteArray())
+            deleteOnExit()
+        }
+        val currentScreenshot = kotlin.io.path.createTempFile().toFile().apply {
+            writeBytes("current".toByteArray())
+            deleteOnExit()
+        }
+        val host = RecordingHost()
+        val states = ArrayDeque(
+            listOf(
+                state("state-same", previousScreenshot.absolutePath),
+                state("state-same", currentScreenshot.absolutePath),
+                state("state-same", currentScreenshot.absolutePath),
+            )
+        )
+        val toolbox = toolbox(
+            host = host,
+            androidHost = OmniFlowPythonHostCall { method, _ ->
+                when (method) {
+                    "observe" -> states.removeFirst()
+                    "act" -> mapOf("success" to true)
+                    else -> error("unexpected_host_call:$method")
+                }
+            },
+        )
+        toolbox.prepare()
+        toolbox.currentContext()
+        toolbox.onTurn(
+            ChatCompletionTurn(
+                message = ChatCompletionMessage(
+                    role = "assistant",
+                    content = JsonPrimitive("{\"summary\":\"点击目标入口\"}"),
+                ),
+                finishReason = "tool_calls",
+            )
+        )
+
+        val result = toolbox.execute(
+            toolCall = toolCall(
+                OobActionSchema.TOOL_CLICK,
+                "{\"target_description\":\"入口\",\"x\":500,\"y\":250}",
+            ),
+            args = JsonObject(
+                mapOf(
+                    "target_description" to JsonPrimitive("入口"),
+                    "x" to JsonPrimitive(500),
+                    "y" to JsonPrimitive(250),
+                )
+            ),
+            runtimeDescriptor = toolbox.runtimeDescriptor(OobActionSchema.TOOL_CLICK),
+            env = unusedProxy(),
+            callback = unusedProxy(),
+            toolHandle = NoOpAgentRunControl.beginToolExecution(OobActionSchema.TOOL_CLICK, "call-1"),
+        ) as ToolExecutionResult.ContextResult
+
+        val payload = Json.parseToJsonElement(result.rawResultJson).jsonObject
+        assertEquals("state_unchanged", payload["outcome"]?.jsonPrimitive?.content)
+        assertEquals(1, payload["failure_streak"]?.jsonPrimitive?.content?.toInt())
+        assertEquals("state_unchanged", host.steps.single().map("metadata")["outcome"])
+
+        val nextContext = toolbox.currentContext()
+        val parts = requireNotNull(nextContext.content).jsonArray
+        assertEquals(5, parts.size)
+        assertEquals(
+            "data:image/jpeg;base64,cHJldmlvdXM=",
+            parts[2].jsonObject["image_url"]?.jsonObject?.get("url")?.jsonPrimitive?.content,
+        )
+        assertEquals(
+            "data:image/jpeg;base64,Y3VycmVudA==",
+            parts[4].jsonObject["image_url"]?.jsonObject?.get("url")?.jsonPrimitive?.content,
+        )
+
+        val secondResult = toolbox.execute(
+            toolCall = toolCall(
+                OobActionSchema.TOOL_CLICK,
+                "{\"target_description\":\"入口\",\"x\":500,\"y\":250}",
+            ),
+            args = JsonObject(
+                mapOf(
+                    "target_description" to JsonPrimitive("入口"),
+                    "x" to JsonPrimitive(500),
+                    "y" to JsonPrimitive(250),
+                )
+            ),
+            runtimeDescriptor = toolbox.runtimeDescriptor(OobActionSchema.TOOL_CLICK),
+            env = unusedProxy(),
+            callback = unusedProxy(),
+            toolHandle = NoOpAgentRunControl.beginToolExecution(OobActionSchema.TOOL_CLICK, "call-2"),
+        ) as ToolExecutionResult.ContextResult
+        val secondPayload = Json.parseToJsonElement(secondResult.rawResultJson).jsonObject
+        assertEquals(2, secondPayload["failure_streak"]?.jsonPrimitive?.content?.toInt())
+        assertTrue(secondResult.summaryText.contains("re-plan"))
     }
 
     @Test
@@ -172,13 +379,17 @@ class AndroidGuiToolboxTest {
         androidHostOverride = androidHost,
     )
 
-    private fun state(stateId: String): Map<String, Any?> = linkedMapOf(
+    private fun state(
+        stateId: String,
+        screenshotPath: String? = null,
+    ): Map<String, Any?> = linkedMapOf(
         "state_id" to stateId,
         "package_name" to "com.example",
         "activity_name" to "MainActivity",
         "display" to mapOf("width" to 1080, "height" to 2400),
         "xml" to "<hierarchy />",
-    )
+        "screenshot_path" to screenshotPath,
+    ).filterValues { it != null }
 
     private fun toolCall(tool: String, arguments: String): AssistantToolCall = AssistantToolCall(
         id = "call-1",

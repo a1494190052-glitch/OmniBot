@@ -29,6 +29,7 @@ internal class NativeVlmTaskEngine(
         request: VlmTaskEngineRequest,
         host: VlmTaskEngineHost,
     ): VlmTaskEngineResult {
+        VlmModelCapabilityGuard.requireSupported(request.model)
         val context = request.context.applicationContext
         val toolbox = AndroidGuiToolbox(
             context = context,

@@ -449,6 +449,7 @@ class RunLogFunctionService {
     String? functionId,
     String? name,
     String? description,
+    bool enhance = true,
   }) async {
     final normalizedRunId = runId.trim();
     if (normalizedRunId.isEmpty) {
@@ -459,6 +460,7 @@ class RunLogFunctionService {
           'run_id': normalizedRunId,
           'register': register,
           'agent_visible': agentVisible,
+          'enhance': enhance,
           if (functionId != null && functionId.trim().isNotEmpty)
             'function_id': functionId.trim(),
           if (name != null && name.trim().isNotEmpty) 'name': name.trim(),

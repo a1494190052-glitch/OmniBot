@@ -119,7 +119,9 @@ class SkillRuntimeBehaviorTest {
         assertTrue(text.contains("oob_run_log_get"))
         assertTrue(text.contains("update_function"))
         assertTrue(text.contains("patch.action_edits"))
-        assertTrue(text.contains("The baseline conversion intentionally preserves every successful recorded"))
+        assertTrue(text.contains("Conversion attempts offline enhancement by default"))
+        assertTrue(text.contains("retry with `update_function`"))
+        assertTrue(text.contains("Use `update_function` only for later"))
         assertTrue(text.contains("copy XML, screenshots"))
     }
 

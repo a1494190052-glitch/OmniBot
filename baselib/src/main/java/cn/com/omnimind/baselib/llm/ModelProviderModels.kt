@@ -79,7 +79,8 @@ data class SceneModelOverrideEntry(
 data class SceneModelBindingEntry(
     val sceneId: String,
     val providerProfileId: String,
-    val modelId: String
+    val modelId: String,
+    val toolCall: Boolean? = null
 )
 
 data class SceneVoiceConfig(

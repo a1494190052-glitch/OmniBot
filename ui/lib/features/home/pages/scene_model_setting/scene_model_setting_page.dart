@@ -392,11 +392,13 @@ class _SceneModelSettingPageState extends State<SceneModelSettingPage> {
     required SceneCatalogItem scene,
     required String providerProfileId,
     required String modelId,
+    bool? toolCall,
   }) async {
     final sceneId = scene.sceneId;
     final current = _bindingMap[sceneId];
     if (current?.providerProfileId == providerProfileId &&
-        current?.modelId == modelId) {
+        current?.modelId == modelId &&
+        current?.toolCall == toolCall) {
       return;
     }
     if (!SceneModelConfigService.isValidModelName(modelId)) {
@@ -412,6 +414,7 @@ class _SceneModelSettingPageState extends State<SceneModelSettingPage> {
         sceneId: sceneId,
         providerProfileId: providerProfileId,
         modelId: modelId,
+        toolCall: toolCall,
       );
       if (!mounted) return;
       setState(() {
@@ -636,6 +639,7 @@ class _SceneModelSettingPageState extends State<SceneModelSettingPage> {
         scene: scene,
         providerProfileId: result.providerProfileId,
         modelId: result.modelId,
+        toolCall: result.toolCall,
       );
     }
   }
@@ -1333,15 +1337,18 @@ class _SceneSelectionAction {
   final bool restoreDefault;
   final String providerProfileId;
   final String modelId;
+  final bool? toolCall;
 
   const _SceneSelectionAction.restore()
     : restoreDefault = true,
       providerProfileId = '',
-      modelId = '';
+      modelId = '',
+      toolCall = null;
 
   const _SceneSelectionAction.select({
     required this.providerProfileId,
     required this.modelId,
+    this.toolCall,
   }) : restoreDefault = false;
 }
 
@@ -1622,6 +1629,7 @@ class _SceneSelectionPopupEntryState extends State<_SceneSelectionPopupEntry> {
               _SceneSelectionAction.select(
                 providerProfileId: profile.id,
                 modelId: item.id,
+                toolCall: item.toolCall,
               ),
             );
           },

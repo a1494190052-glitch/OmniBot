@@ -90,6 +90,8 @@ data class VLMTokenUsage(
     val reasoningTokens: Int? = null,
     @SerialName("text_tokens")
     val textTokens: Int? = null,
+    @SerialName("image_tokens")
+    val imageTokens: Int? = null,
     @SerialName("cached_tokens")
     val cachedTokens: Int? = null,
     @SerialName("prefill_tokens_per_second")

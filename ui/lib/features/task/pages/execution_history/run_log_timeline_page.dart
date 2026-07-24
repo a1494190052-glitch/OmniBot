@@ -543,20 +543,18 @@ class _RunLogTimelinePageState extends State<RunLogTimelinePage> {
       if (functionSpec.isEmpty) {
         throw Exception('Function conversion returned no Function');
       }
-      final specJson = functionSpec;
-      final spec = FunctionSpec(
-        json: specJson,
-        agentPrompt: functionAgentPrompt(specJson),
-        aiEnhanced: false,
-      );
+      final spec = _functionSpecFromConversionResult(result, functionSpec);
       final importResult = UtgRunLogImportResult.fromMap(result);
       if (!mounted) return;
       setState(() {
         _isConvertingFunction = false;
         _savedFunctionSpec = spec;
         _savedFunctionImportResult = importResult;
-        _functionPanelStatus = _RunLogFunctionPanelStatus.saved;
-        _functionPanelMessage = _text(context, '已保存为复用指令', 'Function saved');
+        _functionPanelStatus = _panelStatusFromFunctionSpec(spec);
+        _functionPanelMessage = _firstNonBlank([
+          spec.enhancementMessage,
+          _conversionEnhancementMessage(context, spec.enhancementStatus),
+        ]);
         _functionPanelError = null;
       });
     } catch (e) {
@@ -846,6 +844,52 @@ _RunLogFunctionPanelStatus _panelStatusFromFunctionSpec(FunctionSpec spec) {
   }
 }
 
+FunctionEnhancementStatus _functionEnhancementStatus(dynamic value) {
+  final status = (value ?? '').toString().trim().toLowerCase();
+  for (final candidate in FunctionEnhancementStatus.values) {
+    if (candidate.wireName == status) return candidate;
+  }
+  return FunctionEnhancementStatus.none;
+}
+
+FunctionSpec _functionSpecFromConversionResult(
+  Map<String, dynamic> result,
+  Map<String, dynamic> functionJson,
+) {
+  final status = _functionEnhancementStatus(result['enhancement_status']);
+  final message = _firstNonBlank([result['message']]);
+  return FunctionSpec(
+    json: functionJson,
+    agentPrompt: functionAgentPrompt(functionJson),
+    aiEnhanced: status.isApplied,
+    enhancementStatus: status,
+    enhancementMessage: message.isEmpty ? null : message,
+  );
+}
+
+String _conversionEnhancementMessage(
+  BuildContext context,
+  FunctionEnhancementStatus status,
+) {
+  switch (status) {
+    case FunctionEnhancementStatus.enhanced:
+    case FunctionEnhancementStatus.partial:
+      return _text(context, '复用指令已增强', 'Function enhanced');
+    case FunctionEnhancementStatus.unchanged:
+      return _text(context, '已检查，无需修改', 'Checked, no change');
+    case FunctionEnhancementStatus.failed:
+      return _text(
+        context,
+        '增强失败，复用指令已保存，可重试',
+        'Enhancement failed. The Function was saved and can be retried.',
+      );
+    case FunctionEnhancementStatus.enhancing:
+      return _text(context, '正在增强复用指令', 'Enhancing Function');
+    case FunctionEnhancementStatus.none:
+      return _text(context, '已保存为复用指令', 'Function saved');
+  }
+}
+
 FunctionSpec _functionSpecFromEnhancementResult(
   Map<String, dynamic> result, {
   required FunctionSpec fallback,
@@ -861,12 +905,14 @@ FunctionSpec _functionSpecFromEnhancementResult(
   if (updatedJson.isEmpty) {
     throw Exception('Function enhancement returned no updated Function');
   }
-  final status = _firstNonBlank([result['enhancement_status']]).toLowerCase();
+  final status = _functionEnhancementStatus(result['enhancement_status']);
+  final message = _firstNonBlank([result['message']]);
   return FunctionSpec(
     json: updatedJson,
     agentPrompt: functionAgentPrompt(updatedJson),
-    aiEnhanced:
-        fallback.aiEnhanced || status == 'enhanced' || status == 'partial',
+    aiEnhanced: fallback.aiEnhanced || status.isApplied,
+    enhancementStatus: status,
+    enhancementMessage: message.isEmpty ? null : message,
   );
 }
 
@@ -1767,7 +1813,7 @@ class _StepCard extends StatelessWidget {
                                   color: palette.textSecondary,
                                 ),
                               ),
-                            if (snapshot.tokenUsageIsVlmCost) ...[
+                            if (snapshot.totalTokens != null) ...[
                               const SizedBox(width: 6),
                               Text(
                                 _formatTokens(snapshot.totalTokens!),
@@ -1825,8 +1871,24 @@ class _StepCard extends StatelessWidget {
                             ),
                           ),
                         ],
-                        if (snapshot.isVlmStep &&
-                            snapshot.thinking.isNotEmpty) ...[
+                        if (snapshot.summary.isNotEmpty &&
+                            snapshot.summary != displayTitle) ...[
+                          const SizedBox(height: 6),
+                          Text(
+                            snapshot.summary,
+                            key: ValueKey(
+                              'run-log-step-summary-${snapshot.stepNumber}',
+                            ),
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: palette.textSecondary,
+                              height: 1.3,
+                            ),
+                          ),
+                        ],
+                        if (snapshot.thinking.isNotEmpty) ...[
                           const SizedBox(height: 8),
                           _StepTracePreview(
                             key: ValueKey(
@@ -1837,8 +1899,7 @@ class _StepCard extends StatelessWidget {
                             maxLines: 4,
                           ),
                         ],
-                        if (snapshot.isVlmStep &&
-                            !_isEmptyJsonValue(snapshot.args)) ...[
+                        if (!_isEmptyJsonValue(snapshot.args)) ...[
                           const SizedBox(height: 8),
                           _StepTracePreview(
                             key: ValueKey(
@@ -1850,7 +1911,8 @@ class _StepCard extends StatelessWidget {
                             monospace: true,
                           ),
                         ],
-                        if (preview.isNotEmpty && !snapshot.isVlmStep) ...[
+                        if (preview.isNotEmpty &&
+                            _isEmptyJsonValue(snapshot.args)) ...[
                           const SizedBox(height: 4),
                           Text(
                             preview,
@@ -2382,7 +2444,7 @@ class _StepDetailSheetState extends State<_StepDetailSheet> {
                             const SizedBox(height: 10),
                             // Status / route / duration pills
                             _SummaryGrid(snapshot: snapshot),
-                            if (snapshot.tokenUsageIsVlmCost) ...[
+                            if (snapshot.hasTokenUsage) ...[
                               const SizedBox(height: 8),
                               _CollapsibleSection(
                                 title: _text(
@@ -2440,6 +2502,26 @@ class _StepDetailSheetState extends State<_StepDetailSheet> {
                                     fontSize: 12,
                                     color: palette.textSecondary,
                                     height: 1.3,
+                                  ),
+                                ),
+                              ),
+                            ],
+                            if (snapshot.summary.isNotEmpty) ...[
+                              const SizedBox(height: 12),
+                              _CollapsibleSection(
+                                title: _text(
+                                  context,
+                                  '动作说明',
+                                  'Action rationale',
+                                ),
+                                copyValue: snapshot.summary,
+                                initiallyExpanded: true,
+                                child: SelectableText(
+                                  snapshot.summary,
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    color: palette.textPrimary,
+                                    height: 1.45,
                                   ),
                                 ),
                               ),
@@ -3525,9 +3607,24 @@ class _ReusableFunctionSpecSheetState
   ) {
     final savedJson = _functionSpecJsonFromSavePayload(payload);
     if (savedJson.isEmpty) return current;
+    if (!payload.containsKey('enhancement_status')) {
+      return current.copyWith(
+        json: savedJson,
+        agentPrompt: functionAgentPrompt(savedJson),
+      );
+    }
+    final enhancementStatus = _functionEnhancementStatus(
+      payload['enhancement_status'],
+    );
+    final enhancementMessage = _firstNonBlank([payload['message']]);
     return current.copyWith(
       json: savedJson,
       agentPrompt: functionAgentPrompt(savedJson),
+      aiEnhanced: enhancementStatus.isApplied,
+      enhancementStatus: enhancementStatus,
+      enhancementMessage: enhancementMessage.isEmpty
+          ? null
+          : enhancementMessage,
     );
   }
 
@@ -5212,7 +5309,7 @@ class _SummaryGrid extends StatelessWidget {
           _text(context, '耗时', 'Duration'),
           _formatMs(snapshot.durationMs!),
         ),
-      if (snapshot.tokenUsageIsVlmCost)
+      if (snapshot.hasTokenUsage)
         MapEntry(
           _text(context, '模型用量', 'Model usage'),
           snapshot.tokenUsageLabel(context),
@@ -5632,6 +5729,7 @@ class _RunLogStepSnapshot {
     required this.success,
     required this.durationMs,
     required this.packageName,
+    required this.summary,
     required this.thinking,
     required this.tokenUsage,
     required this.tokenUsageAttempts,
@@ -5652,6 +5750,7 @@ class _RunLogStepSnapshot {
   final bool? success;
   final int? durationMs;
   final String packageName;
+  final String summary;
   final String thinking;
   final Map<String, dynamic> tokenUsage;
   final List<Map<String, dynamic>> tokenUsageAttempts;
@@ -5715,6 +5814,7 @@ class _RunLogStepSnapshot {
       success: success,
       durationMs: durationMs,
       packageName: packageName,
+      summary: summary,
       thinking: thinking,
       tokenUsage: tokenUsage,
       tokenUsageAttempts: tokenUsageAttempts,
@@ -5746,7 +5846,7 @@ class _RunLogStepSnapshot {
     return toolName;
   }
 
-  bool get tokenUsageIsVlmCost => isVlmStep && totalTokens != null;
+  bool get hasTokenUsage => tokenUsage.isNotEmpty;
 
   String statusLabel(BuildContext context) {
     if (status == 'running') {
@@ -5780,13 +5880,20 @@ class _RunLogStepSnapshot {
     final total = totalTokens;
     final promptTokens = _asInt(tokenUsage['prompt_tokens']);
     final completionTokens = _asInt(tokenUsage['completion_tokens']);
+    final imageTokens = _asInt(tokenUsage['image_tokens']);
     final cachedTokens = _asInt(tokenUsage['cached_tokens']);
+    final resolvedModel = tokenUsage['resolved_model']?.toString().trim() ?? '';
     final parts = <String>[];
     if (total != null) {
       parts.add(_formatTokens(total));
     }
     if (promptTokens != null || completionTokens != null) {
       parts.add('P${promptTokens ?? 0}/C${completionTokens ?? 0}');
+    }
+    if (imageTokens != null && imageTokens > 0) {
+      parts.add(
+        _localeValue(context, zh: '图片 $imageTokens', en: 'image $imageTokens'),
+      );
     }
     if (cachedTokens != null && cachedTokens > 0) {
       parts.add(
@@ -5796,6 +5903,9 @@ class _RunLogStepSnapshot {
           en: 'cached $cachedTokens',
         ),
       );
+    }
+    if (resolvedModel.isNotEmpty) {
+      parts.add(resolvedModel);
     }
     return parts.isEmpty ? _text(context, '未知', 'Unknown') : parts.join(' · ');
   }
@@ -5809,7 +5919,8 @@ class _RunLogStepSnapshot {
         'Execution: ${_userVisibleString(compileKind)}',
       if (success != null) 'Success: $success',
       if (durationMs != null) 'Duration: ${_formatMs(durationMs!)}',
-      if (tokenUsageIsVlmCost) 'Model usage: ${tokenUsageLabelTextOnly()}',
+      if (summary.isNotEmpty) 'Summary: $summary',
+      if (hasTokenUsage) 'Model usage: ${tokenUsageLabelTextOnly()}',
       if (packageName.isNotEmpty) 'Package: $packageName',
     ];
 
@@ -5838,16 +5949,22 @@ class _RunLogStepSnapshot {
     final total = totalTokens;
     final promptTokens = _asInt(tokenUsage['prompt_tokens']);
     final completionTokens = _asInt(tokenUsage['completion_tokens']);
+    final imageTokens = _asInt(tokenUsage['image_tokens']);
     final cachedTokens = _asInt(tokenUsage['cached_tokens']);
+    final resolvedModel = tokenUsage['resolved_model']?.toString().trim() ?? '';
     final parts = <String>[];
     if (total != null) parts.add(_formatTokens(total));
     if (promptTokens != null || completionTokens != null) {
       parts.add('prompt=${promptTokens ?? 0}');
       parts.add('completion=${completionTokens ?? 0}');
     }
+    if (imageTokens != null && imageTokens > 0) {
+      parts.add('image=$imageTokens');
+    }
     if (cachedTokens != null && cachedTokens > 0) {
       parts.add('cached=$cachedTokens');
     }
+    if (resolvedModel.isNotEmpty) parts.add('model=$resolvedModel');
     return parts.join(', ');
   }
 }

@@ -38,7 +38,12 @@ object SceneModelBindingStore {
         return getBindingMap()[sceneId.trim()]
     }
 
-    fun saveBinding(sceneId: String, providerProfileId: String, modelId: String) {
+    fun saveBinding(
+        sceneId: String,
+        providerProfileId: String,
+        modelId: String,
+        toolCall: Boolean? = null
+    ) {
         require(isValidSceneId(sceneId)) { "不支持的 sceneId: $sceneId" }
         require(providerProfileId.trim().isNotEmpty()) { "providerProfileId is empty" }
         require(isValidModelName(modelId)) { "非法模型名: $modelId" }
@@ -47,7 +52,8 @@ object SceneModelBindingStore {
         current[sceneId.trim()] = SceneModelBindingEntry(
             sceneId = sceneId.trim(),
             providerProfileId = providerProfileId.trim(),
-            modelId = modelId.trim()
+            modelId = modelId.trim(),
+            toolCall = toolCall
         )
         writeBindingMap(mmkv, current)
     }
@@ -76,7 +82,8 @@ object SceneModelBindingStore {
             map[normalizedSceneId] = SceneModelBindingEntry(
                 sceneId = normalizedSceneId,
                 providerProfileId = normalizedProfileId,
-                modelId = normalizedModelId
+                modelId = normalizedModelId,
+                toolCall = entry.toolCall
             )
         }
         writeBindingMap(mmkv, map)
@@ -140,7 +147,8 @@ object SceneModelBindingStore {
                 normalizedSceneId to SceneModelBindingEntry(
                     sceneId = normalizedSceneId,
                     providerProfileId = normalizedProfileId,
-                    modelId = normalizedModelId
+                    modelId = normalizedModelId,
+                    toolCall = binding.toolCall
                 )
             }.toMap()
         } catch (t: Throwable) {
@@ -162,7 +170,8 @@ object SceneModelBindingStore {
             normalizedSceneId to SceneModelBindingEntry(
                 sceneId = normalizedSceneId,
                 providerProfileId = normalizedProfileId,
-                modelId = normalizedModelId
+                modelId = normalizedModelId,
+                toolCall = binding.toolCall
             )
         }.toMap()
         mmkv.encode(KEY_SCENE_BINDING_MAP, gson.toJson(normalized))

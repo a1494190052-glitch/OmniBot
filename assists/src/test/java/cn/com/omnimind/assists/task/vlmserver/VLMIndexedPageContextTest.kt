@@ -30,9 +30,28 @@ class VLMIndexedPageContextTest {
         assertEquals(60f, target?.centerY)
 
         val rendered = VLMIndexedPageContext.render(xml, 1080, 2400)
-        assertTrue(rendered.contains("click c=(139,25)"))
+        assertTrue(rendered.contains("click x=139 y=25"))
+        assertFalse(rendered.contains("c=("))
         assertTrue(rendered.contains("label=\"保存联系人\""))
         assertFalse(rendered.contains("#0"))
         assertFalse(rendered.contains("node_id"))
+    }
+
+    @Test
+    fun renderedCoordinatesMatchCanonicalActionFields() {
+        val xml = """
+            <hierarchy>
+              <node class="android.widget.ScrollView" bounds="[0,0][1080,2400]" scrollable="true">
+                <node class="android.widget.TextView" bounds="[100,200][900,400]" text="应用" clickable="true" />
+              </node>
+            </hierarchy>
+        """.trimIndent()
+
+        val rendered = VLMIndexedPageContext.render(xml, 1080, 2400)
+
+        assertTrue(rendered.contains("click x=463 y=125"))
+        assertTrue(rendered.contains("swipe direction=down x1=500 y1=860 x2=500 y2=220"))
+        assertFalse(rendered.contains("=("))
+        assertFalse(rendered.contains(")->("))
     }
 }

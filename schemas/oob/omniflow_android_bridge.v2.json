@@ -52,10 +52,11 @@
           "agent_visible",
           "function_id",
           "name",
-          "description"
+          "description",
+          "enhance"
         ]
       },
-      "host_calls": ["get_run_log"],
+      "host_calls": ["get_run_log", "complete_json"],
       "response": {
         "required": [
           "success",
@@ -64,6 +65,8 @@
           "function_id",
           "function",
           "registered",
+          "enhancement_status",
+          "changes",
           "error"
         ]
       }

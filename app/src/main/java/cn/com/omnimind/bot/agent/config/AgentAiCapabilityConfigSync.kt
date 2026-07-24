@@ -41,7 +41,8 @@ private data class AgentAiCapabilityProviderSnapshot(
 
 private data class AgentAiCapabilitySceneModelSnapshot(
     val providerId: String = "",
-    val model: String = ""
+    val model: String = "",
+    val toolCall: Boolean? = null
 )
 
 private data class AgentAiCapabilitySceneSettingsSnapshot(
@@ -295,7 +296,8 @@ class AgentAiCapabilityConfigSync private constructor(
             .forEach { binding ->
                 sceneModels[binding.sceneId] = AgentAiCapabilitySceneModelSnapshot(
                     providerId = binding.providerProfileId,
-                    model = binding.modelId
+                    model = binding.modelId,
+                    toolCall = binding.toolCall
                 )
             }
 
@@ -339,7 +341,8 @@ class AgentAiCapabilityConfigSync private constructor(
                 SceneModelBindingEntry(
                     sceneId = sceneId.trim(),
                     providerProfileId = providerId,
-                    modelId = model
+                    modelId = model,
+                    toolCall = sceneModel.toolCall
                 )
             }
         )
@@ -446,7 +449,8 @@ class AgentAiCapabilityConfigSync private constructor(
                 }
                 resolved[normalizedSceneId] = AgentAiCapabilitySceneModelSnapshot(
                     providerId = providerId,
-                    model = model
+                    model = model,
+                    toolCall = bindingObj.readBoolean("toolCall")
                 )
             }
         return resolved
@@ -499,7 +503,8 @@ class AgentAiCapabilityConfigSync private constructor(
             }
             resolved[sceneId] = AgentAiCapabilitySceneModelSnapshot(
                 providerId = providerId,
-                model = model
+                model = model,
+                toolCall = obj.readBoolean("toolCall")
             )
         }
         return resolved
@@ -543,7 +548,9 @@ class AgentAiCapabilityConfigSync private constructor(
             }
             resolved[sceneId] = AgentAiCapabilitySceneModelSnapshot(
                 providerId = providerId,
-                model = model
+                model = model,
+                toolCall = binding?.readBoolean("toolCall")
+                    ?: obj.readBoolean("toolCall")
             )
         }
         return resolved
@@ -597,6 +604,11 @@ class AgentAiCapabilityConfigSync private constructor(
         } else {
             ""
         }
+    }
+
+    private fun JsonObject.readBoolean(name: String): Boolean? {
+        val raw = get(name) ?: return null
+        return raw.takeIf { it.isJsonPrimitive && it.asJsonPrimitive.isBoolean }?.asBoolean
     }
 
     private fun JsonObject.getAsJsonObjectOrNull(name: String): JsonObject? {

@@ -79,11 +79,13 @@ class SceneModelBindingEntry {
   final String sceneId;
   final String providerProfileId;
   final String modelId;
+  final bool? toolCall;
 
   const SceneModelBindingEntry({
     required this.sceneId,
     required this.providerProfileId,
     required this.modelId,
+    this.toolCall,
   });
 
   factory SceneModelBindingEntry.fromMap(Map<dynamic, dynamic>? map) {
@@ -91,6 +93,7 @@ class SceneModelBindingEntry {
       sceneId: (map?['sceneId'] ?? '').toString(),
       providerProfileId: (map?['providerProfileId'] ?? '').toString(),
       modelId: (map?['modelId'] ?? '').toString(),
+      toolCall: map?['toolCall'] as bool?,
     );
   }
 }
@@ -214,12 +217,14 @@ class SceneModelConfigService {
     required String sceneId,
     required String providerProfileId,
     required String modelId,
+    bool? toolCall,
   }) async {
     final result = await AssistsMessageService.assistCore
         .invokeMethod<List<dynamic>>('saveSceneModelBinding', {
           'sceneId': sceneId,
           'providerProfileId': providerProfileId,
           'modelId': modelId,
+          if (toolCall != null) 'toolCall': toolCall,
         });
     return (result ?? const [])
         .map((item) => SceneModelBindingEntry.fromMap(item as Map?))

@@ -75,27 +75,27 @@ object VLMIndexedPageContext {
             appendLine("OOB page state (0..1000 coords):")
             candidates.forEach { node ->
                 append(node.actionHint())
-                    .append(" c=(").append(norm(node.bounds.centerX, screen.left, screen.width))
-                    .append(",").append(norm(node.bounds.centerY, screen.top, screen.height)).append(")")
+                    .append(" x=").append(norm(node.bounds.centerX, screen.left, screen.width))
+                    .append(" y=").append(norm(node.bounds.centerY, screen.top, screen.height))
                     .append(" flags=").append(node.flags())
                     .append(" role=").append(node.semanticRole())
                     .append(" label=\"").append(node.displayLabel.take(MAX_LABEL_CHARS)).append("\"")
                     .appendLine()
             }
             if (focusedEditable != null) {
-                append("Focused edit: c=(")
+                append("Focused edit: x=")
                     .append(norm(focusedEditable.bounds.centerX, screen.left, screen.width))
-                    .append(",")
+                    .append(" y=")
                     .append(norm(focusedEditable.bounds.centerY, screen.top, screen.height))
-                    .append(") label=\"")
+                    .append(" label=\"")
                     .append(focusedEditable.displayLabel.take(MAX_LABEL_CHARS))
                     .appendLine("\"")
             }
             if (formFields.isNotEmpty()) {
                 appendLine("Forms:")
                 formFields.forEach { node ->
-                    append("c=(").append(norm(node.bounds.centerX, screen.left, screen.width))
-                        .append(",").append(norm(node.bounds.centerY, screen.top, screen.height)).append(")")
+                    append("x=").append(norm(node.bounds.centerX, screen.left, screen.width))
+                        .append(" y=").append(norm(node.bounds.centerY, screen.top, screen.height))
                         .append(" role=").append(node.formRole())
                         .append(" ").append(node.actionHint())
                         .append(" label=\"").append(node.formLabel.take(MAX_LABEL_CHARS)).append("\"")
@@ -112,8 +112,9 @@ object VLMIndexedPageContext {
                     val y1 = norm(node.bounds.bottom - node.bounds.height * 0.14f, screen.top, screen.height)
                     val y2 = norm(node.bounds.top + node.bounds.height * 0.22f, screen.top, screen.height)
                     append("swipe")
-                        .append(" down=(").append(x).append(",").append(y1)
-                        .append(")->(").append(x).append(",").append(y2).append(")")
+                        .append(" direction=down")
+                        .append(" x1=").append(x).append(" y1=").append(y1)
+                        .append(" x2=").append(x).append(" y2=").append(y2)
                         .append(" label=\"").append(node.displayLabel.take(MAX_LABEL_CHARS)).append("\"")
                         .appendLine()
                 }

@@ -64,6 +64,12 @@ internal class AndroidGuiToolbox(
         val content: String,
     )
 
+    private data class ActionOutcome(
+        val code: String,
+        val stateChanged: Boolean,
+        val needsReview: Boolean,
+    )
+
     private val appContext = context?.applicationContext
     private val recordedSteps = mutableListOf<Map<String, Any?>>()
     private val androidHost: OmniFlowPythonHostCall = androidHostOverride
@@ -84,6 +90,8 @@ internal class AndroidGuiToolbox(
     private var turnMetadata: Map<String, Any?> = emptyMap()
     private var turnIndex = 0
     private var attachTurnMetadataToNextFunctionStep = false
+    private var pendingReviewState: Map<String, Any?>? = null
+    private var failureStreak = 0
 
     override var toolsForModel: List<ChatCompletionTool> = emptyList()
         private set
@@ -162,6 +170,12 @@ internal class AndroidGuiToolbox(
             toolType = if (toolName in dynamicFunctionMappings) "oob_function" else "vlm_action",
         )
 
+    override fun modelTurnContractViolation(turn: ChatCompletionTurn): String? =
+        policy.modelTurnContractViolation(turn)
+
+    override fun adaptModelArguments(toolName: String, arguments: JsonObject): JsonObject =
+        policy.adaptModelArguments(toolName, arguments)
+
     override fun validateArguments(toolName: String, arguments: JsonObject) {
         policy.validateArguments(currentTurnRequest, toolName, arguments)
     }
@@ -175,7 +189,10 @@ internal class AndroidGuiToolbox(
         toolHandle: AgentToolExecutionHandle,
     ): ToolExecutionResult {
         val toolName = toolCall.function.name
-        val arguments = AgentToolJson.jsonObjectToMap(args)
+        AndroidGuiModelAdapter.summary(toolName, args).takeIf(String::isNotBlank)?.let { summary ->
+            turnMetadata = turnMetadata.toMutableMap().apply { put("summary", summary) }
+        }
+        val arguments = AgentToolJson.jsonObjectToMap(policy.executionArguments(toolName, args))
         return try {
             when {
                 toolName in dynamicFunctionMappings -> executeFunction(toolName, arguments)
@@ -200,6 +217,7 @@ internal class AndroidGuiToolbox(
 
     private suspend fun buildTurnEnvelope(): AndroidGuiTurnRequest {
         host.beforeStep()
+        val reviewState = pendingReviewState
         val state = if (reuseCurrentState) {
             requireNotNull(currentState)
         } else {
@@ -253,8 +271,10 @@ internal class AndroidGuiToolbox(
         val envelope = policy.buildRequest(
             context = context,
             screenshot = screenshot,
+            previousScreenshot = screenshotDataUri(reviewState?.get("screenshot_path")?.toString()),
             model = config.model,
         )
+        pendingReviewState = null
         toolsForModel = envelope.request.tools
         dynamicFunctionMappings = envelope.dynamicFunctionToolMappings
         currentTurnRequest = envelope
@@ -270,9 +290,22 @@ internal class AndroidGuiToolbox(
         }
         val before = requireNotNull(currentState) { "vlm_before_state_required" }
         val action = linkedMapOf<String, Any?>("tool" to toolName, "args" to arguments)
-        val actionResult = androidHost.invoke("act", mapOf("action" to action, "state" to before))
+        val actionResult = try {
+            androidHost.invoke("act", mapOf("action" to action, "state" to before))
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Exception) {
+            mapOf(
+                "success" to false,
+                "error" to error.message.orEmpty().ifBlank { error.javaClass.simpleName },
+            )
+        }
         var afterCaptureError: String? = null
-        val after = runCatching { observe() }.getOrElse { error ->
+        val after = try {
+            observe()
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Exception) {
             afterCaptureError = error.message.orEmpty().ifBlank { error.javaClass.simpleName }
             before
         }
@@ -284,15 +317,24 @@ internal class AndroidGuiToolbox(
             actionResult["message"],
             actionResult["extra"].asStringMap()["message"],
         ).ifBlank { "action_failed:$toolName" }
+        val outcome = actionOutcome(
+            toolName = toolName,
+            success = success,
+            before = before,
+            after = after,
+            afterCaptureError = afterCaptureError,
+        )
+        updateFailureContext(outcome, before)
         val step = canonicalStep(
             beforeStateId = requiredStateId(before),
             action = action,
             success = success,
             error = error,
             afterStateId = requiredStateId(after),
-            metadata = turnMetadata + linkedMapOf<String, Any?>().apply {
+            metadata = metadataForAction(toolName, arguments) + linkedMapOf<String, Any?>().apply {
                 put("step_id", "${config.runId}-vlm-${recordedSteps.size}")
                 put("status", if (success) "succeeded" else "failed")
+                put("outcome", outcome.code)
                 afterCaptureError?.let { put("after_state_capture_error", it) }
             },
         )
@@ -301,10 +343,14 @@ internal class AndroidGuiToolbox(
         return contextResult(
             toolName = toolName,
             success = success,
-            summary = if (success) "$toolName completed" else error.orEmpty(),
-            payload = mapOf(
+            summary = outcomeSummary(outcome, error),
+            payload = linkedMapOf<String, Any?>(
                 "success" to success,
+                "before_state_id" to requiredStateId(before),
                 "after_state_id" to requiredStateId(after),
+                "outcome" to outcome.code,
+                "state_changed" to outcome.stateChanged,
+                "failure_streak" to failureStreak.takeIf { it > 0 },
                 "error" to error,
             ).filterValues { it != null },
         )
@@ -317,6 +363,7 @@ internal class AndroidGuiToolbox(
         if (recordedSteps.size >= (config.maxSteps ?: DEFAULT_MAX_STEPS)) {
             return stopForStepLimit()
         }
+        val before = requireNotNull(currentState) { "vlm_before_state_required" }
         val functionId = requireNotNull(dynamicFunctionMappings[toolName])
         attachTurnMetadataToNextFunctionStep = true
         val result = try {
@@ -332,7 +379,15 @@ internal class AndroidGuiToolbox(
         } finally {
             attachTurnMetadataToNextFunctionStep = false
         }
-        val after = runCatching { observe() }.getOrNull()
+        var afterCaptureError: String? = null
+        val after = try {
+            observe()
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Exception) {
+            afterCaptureError = error.message.orEmpty().ifBlank { error.javaClass.simpleName }
+            null
+        }
         if (after != null) {
             currentState = after
             reuseCurrentState = true
@@ -341,15 +396,27 @@ internal class AndroidGuiToolbox(
         }
         val success = result["success"] == true
         val error = firstNonBlank(result["error_message"], result["error"])
+        val resolvedAfter = after ?: before
+        val outcome = actionOutcome(
+            toolName = toolName,
+            success = success,
+            before = before,
+            after = resolvedAfter,
+            afterCaptureError = afterCaptureError,
+        )
+        updateFailureContext(outcome, before)
         return contextResult(
             toolName = toolName,
             success = success,
-            summary = if (success) "Recalled workflow completed" else error.ifBlank {
-                "Recalled workflow failed"
-            },
-            payload = mapOf(
+            summary = outcomeSummary(outcome, error),
+            payload = linkedMapOf<String, Any?>(
                 "success" to success,
                 "function_id" to functionId,
+                "before_state_id" to requiredStateId(before),
+                "after_state_id" to requiredStateId(resolvedAfter),
+                "outcome" to outcome.code,
+                "state_changed" to outcome.stateChanged,
+                "failure_streak" to failureStreak.takeIf { it > 0 },
                 "error" to error.takeIf(String::isNotBlank),
             ).filterValues { it != null },
         )
@@ -365,6 +432,9 @@ internal class AndroidGuiToolbox(
         if (attachTurnMetadataToNextFunctionStep) {
             metadata.putAll(turnMetadata)
             attachTurnMetadataToNextFunctionStep = false
+        }
+        if (metadata["summary"]?.toString()?.isNotBlank() != true) {
+            metadata["summary"] = actionSummary(action)
         }
         metadata.putIfAbsent("step_id", "${config.runId}-vlm-${recordedSteps.size}")
         metadata.putIfAbsent("status", if (result["success"] == true) "succeeded" else "failed")
@@ -523,8 +593,108 @@ internal class AndroidGuiToolbox(
     private fun firstNonBlank(vararg values: Any?): String =
         values.firstNotNullOfOrNull { it?.toString()?.trim()?.takeIf(String::isNotEmpty) }.orEmpty()
 
+    private fun metadataForAction(
+        toolName: String,
+        arguments: Map<String, Any?>,
+    ): Map<String, Any?> = turnMetadata.toMutableMap().apply {
+        putIfAbsent("summary", actionSummary(mapOf("tool" to toolName, "args" to arguments)))
+    }
+
+    private fun actionOutcome(
+        toolName: String,
+        success: Boolean,
+        before: Map<String, Any?>,
+        after: Map<String, Any?>,
+        afterCaptureError: String?,
+    ): ActionOutcome {
+        val stateChanged = requiredStateId(before) != requiredStateId(after)
+        val packageChanged = firstNonBlank(before["package_name"]) != firstNonBlank(after["package_name"])
+        val activityChanged = firstNonBlank(before["activity_name"]) != firstNonBlank(after["activity_name"])
+        val code = when {
+            afterCaptureError != null -> OUTCOME_OBSERVE_FAILED
+            !success -> OUTCOME_ACTION_FAILED
+            packageChanged -> OUTCOME_PACKAGE_CHANGED
+            activityChanged -> OUTCOME_ACTIVITY_CHANGED
+            stateChanged -> OUTCOME_STATE_CHANGED
+            else -> OUTCOME_STATE_UNCHANGED
+        }
+        val needsReview = afterCaptureError != null ||
+            !success ||
+            (!stateChanged && toolName in CHANGE_EXPECTED_TOOLS)
+        return ActionOutcome(
+            code = code,
+            stateChanged = stateChanged,
+            needsReview = needsReview,
+        )
+    }
+
+    private fun updateFailureContext(
+        outcome: ActionOutcome,
+        before: Map<String, Any?>,
+    ) {
+        if (outcome.needsReview) {
+            failureStreak += 1
+            pendingReviewState = before
+        } else {
+            failureStreak = 0
+            pendingReviewState = null
+        }
+    }
+
+    private fun outcomeSummary(outcome: ActionOutcome, error: String?): String = when (outcome.code) {
+        OUTCOME_ACTION_FAILED -> "Action failed: ${error.orEmpty().ifBlank { "unknown error" }}"
+        OUTCOME_OBSERVE_FAILED -> "Action completed, but the current page could not be observed; inspect again"
+        OUTCOME_PACKAGE_CHANGED -> "The foreground app changed; inspect the current page"
+        OUTCOME_ACTIVITY_CHANGED -> "The page activity changed; inspect the current page"
+        OUTCOME_STATE_CHANGED -> "The page state changed"
+        OUTCOME_STATE_UNCHANGED -> if (failureStreak >= 2) {
+            "No structural change after $failureStreak attempts; re-plan from the user goal"
+        } else {
+            "No structural change; compare the previous and current screenshots"
+        }
+        else -> outcome.code
+    }
+
+    private fun actionSummary(action: Map<String, Any?>): String {
+        val tool = action["tool"]?.toString()?.trim().orEmpty()
+        val args = action["args"].asStringMap()
+        val target = firstNonBlank(
+            args["target_description"],
+            args["app_name"],
+            args["package_name"],
+        )
+        return when (tool) {
+            "click" -> target.takeIf(String::isNotBlank)?.let { "点击「$it」" }
+                ?: "点击 (${firstNonBlank(args["x"])}, ${firstNonBlank(args["y"])})"
+            "long_press" -> target.takeIf(String::isNotBlank)?.let { "长按「$it」" }
+                ?: "长按目标位置"
+            "input_text" -> "输入「${firstNonBlank(args["text"])}」"
+            "press_key" -> "按下 ${firstNonBlank(args["key"])}"
+            "open_app" -> "打开「${target.ifBlank { "应用" }}」"
+            "swipe" -> firstNonBlank(args["direction"]).takeIf(String::isNotBlank)
+                ?.let { "向${it}滑动" }
+                ?: "滑动页面"
+            "wait" -> "等待 ${firstNonBlank(args["duration_ms"])}ms"
+            else -> tool
+        }
+    }
+
     private companion object {
         const val DEFAULT_MAX_STEPS = 20
+        const val OUTCOME_ACTION_FAILED = "action_failed"
+        const val OUTCOME_OBSERVE_FAILED = "observe_failed"
+        const val OUTCOME_PACKAGE_CHANGED = "package_changed"
+        const val OUTCOME_ACTIVITY_CHANGED = "activity_changed"
+        const val OUTCOME_STATE_CHANGED = "state_changed"
+        const val OUTCOME_STATE_UNCHANGED = "state_unchanged"
+        val CHANGE_EXPECTED_TOOLS = setOf(
+            OobActionSchema.TOOL_CLICK,
+            OobActionSchema.TOOL_LONG_PRESS,
+            OobActionSchema.TOOL_INPUT_TEXT,
+            OobActionSchema.TOOL_SWIPE,
+            OobActionSchema.TOOL_OPEN_APP,
+            OobActionSchema.TOOL_PRESS_KEY,
+        )
         val CANONICAL_STEP_FIELDS = setOf(
             "step_index",
             "before_state_id",
