@@ -187,10 +187,7 @@ class ManualVlmTraceRecorder(
     private val stateLock = Any()
     private val journal = ManualRecordingJournal()
     private val deviceOperator = AndroidDeviceOperator(null, context)
-    private val actionExecutor = ActionExecutor(
-        deviceOperator = deviceOperator,
-        contextManager = UIContextManager(),
-    )
+    private val actionExecutor = ActionExecutor(deviceOperator)
     private val observationCapture = ManualObservationCapture(
         context = context,
         sessionLabel = sessionLabel,

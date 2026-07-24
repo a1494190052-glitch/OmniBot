@@ -4,7 +4,6 @@ import cn.com.omnimind.baselib.runlog.OobActionSchema
 import android.content.Context
 import cn.com.omnimind.assists.task.vlmserver.ActionExecutor
 import cn.com.omnimind.assists.task.vlmserver.AndroidDeviceOperator
-import cn.com.omnimind.assists.task.vlmserver.UIContextManager
 import android.hardware.display.DisplayManager
 import android.util.DisplayMetrics
 import android.view.Display
@@ -320,7 +319,6 @@ object McpToolExecutors {
             .coerceIn(0L, 10_000L)
         val result = ActionExecutor(
             AndroidDeviceOperator(null, context),
-            UIContextManager(),
         ).act(
             action = normalized.tool,
             args = normalized.args,

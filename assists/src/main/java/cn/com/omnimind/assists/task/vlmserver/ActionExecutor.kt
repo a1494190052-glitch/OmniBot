@@ -5,14 +5,10 @@ package cn.com.omnimind.assists.task.vlmserver
  * 对应Python中的 act 方法
  */
 
-import cn.com.omnimind.baselib.util.OmniLog
 import cn.com.omnimind.baselib.runlog.ActionCoordinateCodec
 import cn.com.omnimind.baselib.runlog.OobActionSchema
 import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.ensureActive
-import kotlinx.serialization.json.Json
 
 internal const val MAX_CANONICAL_WAIT_MS = 60_000L
 
@@ -57,127 +53,9 @@ interface TargetedInputDeviceOperator : DeviceOperator {
     ): OperationResult
 }
 
-fun interface FunctionRunExecutor {
-    suspend fun run(invocation: FunctionInvocation, context: VLMFunctionRunContext): OperationResult
-}
-
 class ActionExecutor(
     private val deviceOperator: DeviceOperator,
-    private val contextManager: UIContextManager,
-    private val functionRunExecutor: FunctionRunExecutor? = null,
 ) {
-    private val TAG = "ActionExecutor"
-    private val json = Json { ignoreUnknownKeys = true }
-
-    private suspend fun ensureActionActive() {
-        currentCoroutineContext().ensureActive()
-    }
-
-    /**
-     * 执行VLM推理出的动作
-     * 对应Python中的 act 方法
-     * 注意：只执行动作，不更新上下文
-     */
-    suspend fun executeAction(
-        vlmStep: UIStep,
-        functionRunContext: VLMFunctionRunContext = VLMFunctionRunContext(),
-    ): UIStep {
-
-        val actionStart = System.currentTimeMillis()
-        ensureActionActive()
-        val rawResult = when (val command = vlmStep.action) {
-            is Action -> {
-                executeCanonicalAction(
-                    tool = command.tool,
-                    args = command.argsMap(),
-                    state = vlmStep.beforeState,
-                )
-            }
-
-            is Observe -> {
-                OperationResult(
-                    success = true,
-                    message = command.reason.ifBlank { "已重新获取当前页面状态" },
-                    data = null
-                )
-            }
-
-            is FunctionInvocation -> {
-                functionRunExecutor?.run(command, functionRunContext)
-                    ?: OperationResult(
-                        success = false,
-                        message = "复用指令执行器未注册",
-                        data = null,
-                    )
-            }
-
-            is RecordMemory -> {
-                // 特殊处理：记录动作不调用设备，返回成功结果
-                OperationResult(
-                    success = true,
-                    message = "记忆关键信息成功",
-                    data = null
-                )
-            }
-
-            is FinishedDecision -> {
-                OperationResult(
-                    success = true,
-                    message = command.content.ifEmpty { "任务完成" },
-                    data = null
-                )
-            }
-
-            is InfoDecision -> {
-                OperationResult(
-                    success = true,
-                    message = "Agent询问: ${command.value}",
-                    data = null
-                )
-            }
-
-            is AbortDecision -> {
-                OperationResult(
-                    success = true,
-                    message = "任务终止: ${command.value}",
-                    data = null
-                )
-            }
-        }
-
-        val totalMs = System.currentTimeMillis() - actionStart
-        val result = rawResult.copy(
-            diagnostics = rawResult.diagnostics + linkedMapOf(
-                "action_executor_total_ms" to totalMs.toString(),
-            )
-        )
-        runCatching {
-            OmniLog.i(
-                "TimeRecord",
-                "VLM-actionExecutor ${vlmStep.action.name} took $totalMs ms"
-            )
-        }
-
-        return UIStep(
-            observation = vlmStep.observation,
-            thought = vlmStep.thought,
-            action = vlmStep.action,
-            result = if (result.success) result.message else "执行失败: ${result.message}",
-            actionResultData = result.data,
-            pageDiagnostics = result.diagnostics,
-            beforeState = result.beforeState,
-            afterState = result.afterState,
-        )
-    }
-
-
-    suspend fun act(
-        vlmStep: UIStep,
-        functionRunContext: VLMFunctionRunContext = VLMFunctionRunContext(),
-    ): UIStep {
-        return executeAction(vlmStep, functionRunContext)
-    }
-
     suspend fun act(
         action: String,
         args: Map<String, Any?>,
@@ -222,26 +100,6 @@ class ActionExecutor(
                 data = null,
                 diagnostics = actionFailureDiagnostics(message),
             )
-        }
-    }
-
-    private suspend fun executeCanonicalAction(
-        tool: String,
-        args: Map<String, Any?>,
-        state: State?,
-    ): OperationResult {
-        val dispatched = act(
-            action = tool,
-            args = args,
-            source = SOURCE_VLM_ONLINE,
-        )
-        return if (dispatched.success) {
-            dispatched.copy(
-                message = actionSuccessMessage(tool, args),
-                beforeState = dispatched.beforeState ?: state,
-            )
-        } else {
-            dispatched.copy(beforeState = dispatched.beforeState ?: state)
         }
     }
 
@@ -405,20 +263,6 @@ class ActionExecutor(
         }
     }
 
-    private fun actionSuccessMessage(tool: String, args: Map<String, Any?>): String =
-        when (tool) {
-            OobActionSchema.TOOL_CLICK -> "点击 ${args["target_description"].orEmpty()} 成功"
-            OobActionSchema.TOOL_LONG_PRESS -> "长按 ${args["target_description"].orEmpty()} 成功"
-            OobActionSchema.TOOL_INPUT_TEXT -> "输入文本成功"
-            OobActionSchema.TOOL_SWIPE -> "滑动成功"
-            OobActionSchema.TOOL_OPEN_APP -> "打开应用成功"
-            OobActionSchema.TOOL_PRESS_KEY -> "按键成功"
-            OobActionSchema.TOOL_WAIT -> "等待完成"
-            else -> "动作执行成功"
-        }
-
-    private fun Any?.orEmpty(): String = this?.toString() ?: ""
-
     private fun Map<String, Any?>.toStringDiagnostics(): Map<String, String> =
         mapValues { (_, value) -> value?.toString().orEmpty() }
             .filterValues { it.isNotBlank() }
@@ -433,7 +277,6 @@ class ActionExecutor(
 
     private companion object {
         private const val SOURCE_AGENT_ACTION = "agent_local_action"
-        private const val SOURCE_VLM_ONLINE = "vlm_online"
         private const val CLICK_POST_DELAY_MS = 300L
         private const val KEY_POST_DELAY_MS = 250L
         private const val INPUT_FOCUS_DELAY_MS = 250L
@@ -483,10 +326,5 @@ class ActionExecutor(
         }
     }
 }
-
-data class VLMFunctionRunContext(
-    val taskId: String = "",
-    val runId: String = "",
-)
 
 class ActionStoppedException(message: String) : IllegalStateException(message)

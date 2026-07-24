@@ -19,10 +19,6 @@ object PromptTemplate {
         }
     }
 
-    fun getPrompt(context: UIContext, sceneId: String? = null): String {
-        return buildTurnUserPrompt(context, sceneId = sceneId)
-    }
-
     @Suppress("UNUSED_PARAMETER")
     fun buildSystemPrompt(sceneId: String? = null): String {
         return buildToolActionSystemPrompt(currentLocale())
@@ -70,7 +66,6 @@ object PromptTemplate {
     fun buildTurnUserPrompt(
         context: UIContext,
         sceneId: String? = null,
-        runLogSteps: List<Map<String, Any?>> = emptyList(),
     ): String {
         val locale = currentLocale()
         val installedApps = renderFocusedInstalledApps(context, locale)
@@ -115,14 +110,12 @@ object PromptTemplate {
         } else {
             ""
         }
-        val runLogHistory = VLMRunLogPlannerHistory.render(runLogSteps)
-
         return buildString {
             appendLine(
                 t(
                     locale,
-                    "请根据用户任务、当前截图和 RunLog 中更早动作的文本摘要，只选择一个下一步动作。原始 XML 只供系统内部使用。",
-                    "Choose exactly one next action from the user task, current screenshot, and textual summaries of earlier RunLog actions. Raw XML is internal-only."
+                    "请根据用户任务、当前截图和对话中的工具结果，只选择一个下一步动作。原始 XML 只供系统内部使用。",
+                    "Choose exactly one next action from the user task, current screenshot, and tool results in the conversation. Raw XML is internal-only."
                 )
             )
             appendLine("${t(locale, "用户任务", "User task")}: ${context.overallTask}")
@@ -138,8 +131,6 @@ object PromptTemplate {
             renderPageExplanationBlock(context, locale).takeIf { it.isNotBlank() }?.let {
                 appendLine(it)
             }
-            appendLine(t(locale, "【更早动作（来自当前 RunLog）】", "[Earlier actions from the current RunLog]"))
-            appendLine(runLogHistory)
             if (context.keyMemory.isNotEmpty()) {
                 appendLine("${t(locale, "关键记忆", "Key memory")}: $keyMemory")
             }
@@ -301,161 +292,6 @@ object PromptTemplate {
                 .forEach { terms += it }
         }
         return terms.take(MAX_APP_QUERY_TERMS).toSet()
-    }
-
-    fun buildToolCallRetryPrompt(context: UIContext, retryState: VLMToolCallRetryState): String {
-        val locale = currentLocale()
-        val thinking = retryState.thinking
-        return buildString {
-            val failureReason = retryState.failureReason?.trim().orEmpty()
-            if (failureReason.isNotEmpty()) {
-                appendLine(
-                    t(
-                        locale,
-                        "系统检查到你上一轮的 tool_call 参数不合规：$failureReason",
-                        "The system detected that the tool_call arguments from your previous turn were invalid: $failureReason"
-                    )
-                )
-            } else {
-                appendLine(
-                    t(
-                        locale,
-                        "系统检查到你上一轮没有返回标准 tool_calls，但当前任务仍是执行型 GUI 自动化。",
-                        "The system detected that your previous turn did not return standard tool_calls, but the current task is still an execution-oriented GUI automation task."
-                    )
-                )
-            }
-            retryState.toolCallFailure?.let { failure ->
-                failure.toolName?.takeIf(String::isNotBlank)?.let {
-                    appendLine("${t(locale, "上一轮实际工具", "Previous actual tool")}: $it")
-                }
-                if (failure.requiredFields.isNotEmpty()) {
-                    appendLine(
-                        "${t(locale, "该工具必填字段", "Required fields for this tool")}: " +
-                            failure.requiredFields.joinToString(", ")
-                    )
-                }
-                if (failure.providedFields.isNotEmpty()) {
-                    val providedShape = failure.providedFields.joinToString(", ") { field ->
-                        "$field:${failure.argumentTypes[field] ?: "unknown"}"
-                    }
-                    appendLine("${t(locale, "上一轮实际字段与类型", "Previous argument fields and types")}: $providedShape")
-                }
-                if (failure.missingFields.isNotEmpty()) {
-                    appendLine(
-                        "${t(locale, "上一轮缺失字段", "Missing fields in the previous turn")}: " +
-                            failure.missingFields.joinToString(", ")
-                    )
-                }
-                if (failure.toolName != null && failure.requiredFields.isNotEmpty()) {
-                    val minimalShape = failure.requiredFields.joinToString(
-                        prefix = "{",
-                        postfix = "}",
-                    ) { field -> "\"$field\":${retryArgumentExample(field)}" }
-                    appendLine(
-                        t(
-                            locale,
-                            "强制纠错：若本轮仍调用 ${failure.toolName}，function.arguments 至少必须具有这个完整 JSON 形状：$minimalShape。任何 required 字段缺失都会被拒绝，且动作不会执行。",
-                            "Mandatory correction: if you call ${failure.toolName} again, function.arguments must at least have this complete JSON shape: $minimalShape. Any missing required field will be rejected and the action will not execute."
-                        )
-                    )
-                }
-                failure.safeArgumentsPreview?.takeIf(String::isNotBlank)?.let {
-                    appendLine("${t(locale, "上一轮安全参数预览", "Safe previous arguments preview")}: $it")
-                }
-                appendLine(
-                    t(
-                        locale,
-                        "保留上一轮仍然正确的字段，只修正缺失或类型错误的字段；不要再次提交同一个非法结构。",
-                        "Keep fields that were already valid and correct only missing or mistyped fields; do not submit the same invalid structure again."
-                    )
-                )
-            }
-            appendLine(
-                t(
-                    locale,
-                    "请在本轮严格返回一个原生 tool_call，并让 function.arguments 满足所选工具的 tools[] JSON schema。",
-                    "In this turn, return exactly one native tool_call and make function.arguments satisfy the selected tool's tools[] JSON schema."
-                )
-            )
-            appendLine(
-                t(
-                    locale,
-                    "必须改用原生 tool_calls，且工具名必须来自本轮 tools[]；不要用文本 JSON 表达动作。",
-                    "Switch to native tool_calls, and the tool name must come from this turn's tools[]; do not express actions as text JSON."
-                )
-            )
-            appendLine(
-                t(
-                    locale,
-                    "不要只输出 observation/thought/summary JSON，不要提前宣布任务完成。",
-                    "Do not output only observation/thought/summary JSON and do not announce completion prematurely."
-                )
-            )
-            appendLine(
-                t(
-                    locale,
-                    "只有当用户目标已经真正完成时，才能调用 finished。",
-                    "Call finished only when the user's goal is truly complete."
-                )
-            )
-            appendLine(
-                t(
-                    locale,
-                    "若你判断下一步是点击、输入、滑动、返回或结束，请直接使用对应工具；不要使用停留、延时或空操作类动作，稳定停留由系统内部处理。",
-                    "If the next step should be tap, type, swipe, press_key, or finish, call the matching tool directly. Do not use idle, delay, or no-op actions; stable settling is handled internally."
-                )
-            )
-            appendLine(
-                t(
-                    locale,
-                    "schema.required 里的字段必须全部填写；若 required 包含坐标，必须分别写入 x/y 或 x1/y1/x2/y2，每个字段都只能是单个数值，不要返回 [x,y]、coordinates 或对象。",
-                    "Every schema.required field must be present. If required fields include coordinates, write them separately into x/y or x1/y1/x2/y2. Each field must be a single numeric scalar; do not return [x,y], coordinates, or objects."
-                )
-            )
-            appendLine(
-                t(
-                    locale,
-                    "本次为第 ${retryState.retryIndex} 次协议纠偏。",
-                    "This is protocol correction attempt #${retryState.retryIndex}."
-                )
-            )
-            appendLine("${t(locale, "用户原始任务", "Original user task")}: ${context.overallTask}")
-            appendLine("${t(locale, "当前子目标", "Current sub-goal")}: ${context.activeGoal()}")
-            thinking.finishReason?.takeIf { it.isNotBlank() }?.let {
-                appendLine("${t(locale, "上一轮 finish_reason", "Previous finish_reason")}: $it")
-            }
-            thinking.observation.takeIf { it.isNotBlank() }?.let {
-                appendLine("${t(locale, "上一轮 observation", "Previous observation")}: ${truncateForRetry(it)}")
-            }
-            thinking.thought.takeIf { it.isNotBlank() }?.let {
-                appendLine("${t(locale, "上一轮 thought", "Previous thought")}: ${truncateForRetry(it)}")
-            }
-            thinking.summary.takeIf { it.isNotBlank() }?.let {
-                appendLine("${t(locale, "上一轮 summary", "Previous summary")}: ${truncateForRetry(it)}")
-            }
-            thinking.reasoning.takeIf { it.isNotBlank() }?.let {
-                appendLine("${t(locale, "上一轮 reasoning_content", "Previous reasoning_content")}: ${truncateForRetry(it, maxLen = 900)}")
-            }
-        }.trim()
-    }
-
-    private fun truncateForRetry(text: String, maxLen: Int = 280): String {
-        val normalized = text.replace("\r\n", "\n").trim()
-        return if (normalized.length <= maxLen) normalized else normalized.take(maxLen) + "..."
-    }
-
-    private fun retryArgumentExample(field: String): String {
-        return when (field) {
-            "x", "y", "x1", "y1", "x2", "y2", "distance" -> "500"
-            "duration_ms" -> "1000"
-            "direction" -> "\"up\""
-            "key" -> "\"back\""
-            "package_name" -> "\"com.example.app\""
-            "options" -> "[\"option\"]"
-            "text" -> "\"required text\""
-            else -> "\"value\""
-        }
     }
 
     private const val MAX_FOCUSED_INSTALLED_APPS = 12

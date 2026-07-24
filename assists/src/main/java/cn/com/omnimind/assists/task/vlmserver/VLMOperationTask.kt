@@ -40,7 +40,7 @@ open class VLMOperationTask(
     private val needSummary: Boolean = false,
     override val taskManager: TaskManager,
     private val recordStepExecutor: OmniFlowRecordStepExecutor,
-) : Task(taskChangeListener,taskManager), DeviceOperator {
+) : Task(taskChangeListener, taskManager) {
     private val Tag = "VLMOperationTask"
     private companion object {
         private const val SUMMARY_GENERATION_TIMEOUT_MS = 20_000L
@@ -352,30 +352,19 @@ open class VLMOperationTask(
         }
     }
 
-    private fun extractFinishedContent(report: TaskExecutionReport): String {
-        val finishedStep = report.executionTrace.lastOrNull { it.action is FinishedDecision }
-        val fromResult = finishedStep?.result?.trim().orEmpty()
-        if (fromResult.isNotEmpty()) return fromResult
+    private fun terminalContent(result: VlmTaskEngineResult): String =
+        result.finishedContent?.trim().orEmpty().ifBlank {
+            if (result.success) "任务完成" else result.error.orEmpty().ifBlank { "任务执行失败" }
+        }
 
-        val fromAction = (finishedStep?.action as? FinishedDecision)?.content?.trim().orEmpty()
-        if (fromAction.isNotEmpty()) return fromAction
-
-        val lastResult = report.executionTrace.asReversed()
-            .mapNotNull { it.result?.trim()?.takeIf { value -> value.isNotEmpty() } }
-            .firstOrNull()
-        if (!lastResult.isNullOrEmpty()) return lastResult
-
-        return "任务完成"
-    }
-
-    private suspend fun appendInternalRunLog(context: Context, report: TaskExecutionReport) {
+    private suspend fun appendInternalRunLog(context: Context, result: VlmTaskEngineResult) {
         InternalRunLogStore.finishRun(
             context = context,
             runId = id,
-            success = report.success,
-            doneReason = report.doneReason ?: if (report.success) "finished" else "error",
-            errorMessage = report.error,
-            finalStateId = report.finalStateId,
+            success = result.success,
+            doneReason = result.doneReason ?: if (result.success) "finished" else "error",
+            errorMessage = result.error,
+            finalStateId = result.finalStateId,
         )
     }
 
@@ -575,7 +564,7 @@ open class VLMOperationTask(
                 taskStartTime = System.currentTimeMillis()
                 val shouldSummary = needSummary
                 val resolvedModel = model ?: VLMRuntimeConfigRegistry.get().primarySceneId
-                val taskExecutionReport = executeExternalEngine(
+                val engineResult = executeExternalEngine(
                     engine = externalEngineExecutor,
                     context = context,
                     goal = goal,
@@ -585,29 +574,26 @@ open class VLMOperationTask(
                     skipGoHome = skipGoHome,
                     stepSkillGuidance = stepSkillGuidance,
                     disableFunctionRecall = disableFunctionRecall,
-                    needSummary = shouldSummary,
                 )
-                OmniLog.d(Tag, "VLM Operation Task Finished: $taskExecutionReport")
+                OmniLog.d(Tag, "VLM Operation Task Finished: $engineResult")
                 throwIfCancellationRequested("task_report_ready")
-                val finishType = when {
-                    taskExecutionReport.success -> TaskFinishType.FINISH
-                    else -> TaskFinishType.ERROR
-                }
-                val finishMessage = taskExecutionReport.error.orEmpty()
+                val finishType = if (engineResult.success) TaskFinishType.FINISH else TaskFinishType.ERROR
+                val finishMessage = engineResult.error.orEmpty()
                 OmniLog.i(
                     Tag,
-                    "VLM task terminal state: finishType=$finishType success=${taskExecutionReport.success} error=${taskExecutionReport.error.orEmpty()}"
+                    "VLM task terminal state: finishType=$finishType success=${engineResult.success} error=${engineResult.error.orEmpty()}"
                 )
 
-                appendInternalRunLog(context, taskExecutionReport)
+                appendInternalRunLog(context, engineResult)
 
                 finalizeTerminalOnce {
-                    if (taskExecutionReport.success) {
+                    if (engineResult.success) {
+                        val content = terminalContent(engineResult)
                         notifyTerminalResult(
                             VlmTaskTerminalResult(
                                 status = VlmTaskTerminalStatus.FINISHED,
-                                message = extractFinishedContent(taskExecutionReport),
-                                finishedContent = extractFinishedContent(taskExecutionReport),
+                                message = content,
+                                finishedContent = content,
                                 summaryText = null,
                                 needSummary = shouldSummary,
                                 summaryUnavailable = true
@@ -631,9 +617,16 @@ open class VLMOperationTask(
                     onTaskDestroy()
                 }
 
-                if (shouldSummary && taskExecutionReport.summaryScreenshotList != null) {
+                if (shouldSummary) {
                     cancelScope.launch {
-                        pushSummary(goal = goal, model = model, report = taskExecutionReport)
+                        val screenshots = runCatching {
+                            listOf(androidDeviceOperator.captureScreenshot())
+                        }.getOrNull()
+                        pushSummary(
+                            goal = goal,
+                            traceSummary = terminalContent(engineResult),
+                            screenshots = screenshots,
+                        )
                     }
                 }
             } catch (e: PrivacyBlockedException) {
@@ -720,8 +713,7 @@ open class VLMOperationTask(
         skipGoHome: Boolean,
         stepSkillGuidance: String,
         disableFunctionRecall: Boolean,
-        needSummary: Boolean,
-    ): TaskExecutionReport {
+    ): VlmTaskEngineResult {
         prepareExternalEngineStart(packageName, skipGoHome)
         val result = engine.execute(
             request = VlmTaskEngineRequest(
@@ -735,7 +727,7 @@ open class VLMOperationTask(
                 disableFunctionRecall = disableFunctionRecall,
             ),
             host = object : VlmTaskEngineHost {
-                override val deviceOperator: DeviceOperator = this@VLMOperationTask
+                override val deviceOperator: DeviceOperator = androidDeviceOperator
 
                 override suspend fun beforeStep() {
                     throwIfCancellationRequested("external_engine_step")
@@ -802,35 +794,7 @@ open class VLMOperationTask(
                 }
             },
         )
-        val terminalContent = result.finishedContent?.trim().orEmpty().ifBlank {
-            if (result.success) "任务完成" else result.error.orEmpty().ifBlank { "任务执行失败" }
-        }
-        val terminalAction: VLMCommand = if (result.success) {
-            FinishedDecision(terminalContent)
-        } else {
-            AbortDecision(terminalContent)
-        }
-        val summaryScreenshots = if (needSummary) {
-            runCatching { listOf(androidDeviceOperator.captureScreenshot()) }.getOrNull()
-        } else {
-            null
-        }
-        return TaskExecutionReport(
-            success = result.success,
-            executionTrace = listOf(
-                UIStep(
-                    observation = "",
-                    thought = "",
-                    action = terminalAction,
-                    result = terminalContent,
-                    summary = terminalContent,
-                )
-            ),
-            error = result.error,
-            summaryScreenshotList = summaryScreenshots,
-            doneReason = result.doneReason,
-            finalStateId = result.finalStateId,
-        )
+        return result
     }
 
     private suspend fun prepareExternalEngineStart(
@@ -897,22 +861,22 @@ open class VLMOperationTask(
         val summaryUnavailable: Boolean = false
     )
 
-    private suspend fun pushSummary(goal: String, model: String?, report: TaskExecutionReport): SummaryPushResult {
+    private suspend fun pushSummary(
+        goal: String,
+        traceSummary: String,
+        screenshots: List<String>?,
+    ): SummaryPushResult {
         val listener = onMessagePushListener ?: return SummaryPushResult(summaryUnavailable = true)
         var summaryTaskId: String? = null
         var summaryStarted = false
 
         try {
-            val finishedFromTrace = report.executionTrace.lastOrNull { it.action.name == "finished" }
-            val traceSummary = finishedFromTrace?.result
-                ?: (finishedFromTrace?.action as? FinishedDecision)?.content.orEmpty()
             val prompt = PromptTemplate.summaryPrompt(goal)
 
             val modelToUse = "scene.compactor.context"
-            val screenshots = report.summaryScreenshotList
-                ?: return SummaryPushResult(summaryUnavailable = true)
+            val summaryImages = screenshots ?: return SummaryPushResult(summaryUnavailable = true)
             val vlmPayload = AgentRequest.Payload.VLMChatPayload(
-                model = modelToUse, text = prompt, images = screenshots
+                model = modelToUse, text = prompt, images = summaryImages
             )
 
             val summaryText = withTimeoutOrNull(SUMMARY_GENERATION_TIMEOUT_MS) {
@@ -992,118 +956,6 @@ open class VLMOperationTask(
                 }
             }
         }
-    }
-
-    override suspend fun clickCoordinate(x: Float, y: Float): OperationResult {
-        return androidDeviceOperator.clickCoordinate(x, y)
-    }
-
-    override suspend fun longClickCoordinate(x: Float, y: Float, duration: Long): OperationResult {
-        return androidDeviceOperator.longClickCoordinate(x, y, duration)
-    }
-
-    override suspend fun inputText(text: String): OperationResult {
-        return androidDeviceOperator.inputText(text)
-    }
-
-    override suspend fun pressHotKey(key: String): OperationResult {
-        return androidDeviceOperator.pressHotKey(key)
-    }
-
-    suspend fun inputTextViaShell(text: String): OperationResult {
-        return androidDeviceOperator.inputTextViaShell(text)
-    }
-
-    override suspend fun copyToClipboard(text: String): OperationResult {
-        return androidDeviceOperator.copyToClipboard(text)
-    }
-
-    override suspend fun getClipboard(): String? {
-        return androidDeviceOperator.getClipboard()
-    }
-
-    override suspend fun slideCoordinate(
-        x1: Float,
-        y1: Float,
-        x2: Float,
-        y2: Float,
-        duration: Long
-    ): OperationResult {
-        return androidDeviceOperator.slideCoordinate(x1, y1, x2, y2, duration)
-    }
-
-    suspend fun slideCoordinateWithContext(
-        x1: Float,
-        y1: Float,
-        x2: Float,
-        y2: Float,
-        duration: Long,
-        targetDescription: String,
-    ): OperationResult {
-        return androidDeviceOperator.slideCoordinateWithContext(
-            x1 = x1,
-            y1 = y1,
-            x2 = x2,
-            y2 = y2,
-            duration = duration,
-            targetDescription = targetDescription,
-        )
-    }
-
-    override suspend fun goHome(): OperationResult {
-        return androidDeviceOperator.goHome()
-    }
-
-    override suspend fun goBack(): OperationResult {
-        return androidDeviceOperator.goBack()
-    }
-
-    override suspend fun launchApplication(packageName: String): OperationResult {
-        return androidDeviceOperator.launchApplication(packageName)
-    }
-
-    override suspend fun captureScreenshot(): String {
-        return androidDeviceOperator.captureScreenshot()
-    }
-
-    override fun getLastScreenshotWidth(): Int {
-        return androidDeviceOperator.getLastScreenshotWidth()
-    }
-
-    override fun getLastScreenshotHeight(): Int {
-        return androidDeviceOperator.getLastScreenshotHeight()
-    }
-
-    override fun getDisplayWidth(): Int {
-        return androidDeviceOperator.getDisplayWidth()
-    }
-
-    override fun getDisplayHeight(): Int {
-        return androidDeviceOperator.getDisplayHeight()
-    }
-
-    override suspend fun showInfo(message: String) {
-        androidDeviceOperator.showInfo(message)
-    }
-
-    override fun isReady(): Boolean {
-        return androidDeviceOperator.isReady()
-    }
-
-    override fun currentXml(): String? {
-        return androidDeviceOperator.currentXml()
-    }
-
-    override fun currentPackageName(): String? {
-        return androidDeviceOperator.currentPackageName()
-    }
-
-    override fun currentActivityName(): String? {
-        return androidDeviceOperator.currentActivityName()
-    }
-
-    override suspend fun hideKeyboard(): OperationResult {
-        return androidDeviceOperator.hideKeyboard()
     }
 
     fun finishTask() {

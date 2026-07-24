@@ -3,19 +3,16 @@ package cn.com.omnimind.bot.vlm
 import android.content.Context
 import cn.com.omnimind.assists.controller.accessibility.AccessibilityController
 import cn.com.omnimind.assists.task.vlmserver.UIContext
-import cn.com.omnimind.assists.task.vlmserver.VLMClient
 import cn.com.omnimind.assists.task.vlmserver.VLMContextEvent
 import cn.com.omnimind.assists.task.vlmserver.VLMCurrentPageSnapshot
 import cn.com.omnimind.assists.task.vlmserver.VLMIndexedPageContext
 import cn.com.omnimind.assists.task.vlmserver.VLMRecallContextProviderRegistry
 import cn.com.omnimind.assists.task.vlmserver.VLMRecallContextRequest
 import cn.com.omnimind.assists.task.vlmserver.VLMTokenUsageMapper
-import cn.com.omnimind.assists.task.vlmserver.VLMToolDefinitions
 import cn.com.omnimind.assists.task.vlmserver.VlmTaskEngineHost
 import cn.com.omnimind.baselib.llm.ChatCompletionMessage
 import cn.com.omnimind.baselib.llm.ChatCompletionTool
 import cn.com.omnimind.baselib.llm.ChatCompletionTurn
-import cn.com.omnimind.baselib.llm.ModelSceneRegistry
 import cn.com.omnimind.baselib.runlog.OobActionSchema
 import cn.com.omnimind.bot.agent.AgentCallback
 import cn.com.omnimind.bot.agent.AgentExecutionEnvironment
@@ -32,16 +29,8 @@ import cn.com.omnimind.bot.omniflow.OmniFlowPythonHostCall
 import cn.com.omnimind.bot.omniflow.OmniFlowPythonRuntime
 import cn.com.omnimind.bot.omniflow.omniFlowAndroidHostCall
 import kotlinx.coroutines.CancellationException
-import kotlinx.serialization.json.JsonArray
-import kotlinx.serialization.json.JsonElement
-import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
-import kotlinx.serialization.json.booleanOrNull
-import kotlinx.serialization.json.contentOrNull
-import kotlinx.serialization.json.doubleOrNull
-import kotlinx.serialization.json.jsonPrimitive
-import kotlinx.serialization.json.longOrNull
 import java.io.File
 import java.util.Base64
 
@@ -59,7 +48,7 @@ internal class AndroidGuiToolbox(
     context: Context?,
     private val config: AndroidGuiTaskConfig,
     private val host: VlmTaskEngineHost,
-    private val vlmClient: VLMClient = VLMClient(),
+    private val policy: AndroidGuiPolicy = AndroidGuiPolicy(),
     private val installedApps: suspend () -> Map<String, String> = {
         AccessibilityController.mapInstalledApplications()
     },
@@ -91,8 +80,7 @@ internal class AndroidGuiToolbox(
     private var currentState: Map<String, Any?>? = null
     private var reuseCurrentState = false
     private var dynamicFunctionMappings: Map<String, String> = emptyMap()
-    private var dynamicRequiredArguments: Map<String, Set<String>> = emptyMap()
-    private var toolSchemas: Map<String, JsonObject> = emptyMap()
+    private lateinit var currentTurnRequest: AndroidGuiTurnRequest
     private var turnMetadata: Map<String, Any?> = emptyMap()
     private var turnIndex = 0
     private var attachTurnMetadataToNextFunctionStep = false
@@ -151,22 +139,16 @@ internal class AndroidGuiToolbox(
 
     override suspend fun onTurn(turn: ChatCompletionTurn) {
         turnIndex += 1
-        val metadata = vlmClient.metadataFromTurn(turn)
+        val metadata = policy.metadata(turn)
         val usage = VLMTokenUsageMapper.fromTurn(
-            turn = cn.com.omnimind.assists.task.vlmserver.SceneChatCompletionTurn(
-                parser = ModelSceneRegistry.ResponseParser.OPENAI_TOOL_ACTIONS,
-                resolvedModel = requestOptions().modelOverride ?: requestOptions().model.orEmpty(),
-                turn = turn,
-                requestHadTools = toolsForModel.isNotEmpty(),
-                requestToolChoice = requestOptions().toolChoice?.toString(),
-                requestParallelToolCalls = false,
-            ),
+            turn = turn,
+            resolvedModel = requestOptions().modelOverride ?: requestOptions().model,
             attemptIndex = turnIndex,
             stabilityAttempt = 0,
             toolRetryIndex = 0,
         )?.let(VLMTokenUsageMapper::toRunLogMap)
         turnMetadata = linkedMapOf<String, Any?>().apply {
-            metadata.thought.trim().takeIf(String::isNotEmpty)?.let { put("thinking", it) }
+            metadata.thinking.trim().takeIf(String::isNotEmpty)?.let { put("thinking", it) }
             metadata.summary.trim().takeIf(String::isNotEmpty)?.let { put("summary", it) }
             usage?.takeIf(Map<String, Any?>::isNotEmpty)?.let { put("token_usage", it) }
         }
@@ -181,15 +163,7 @@ internal class AndroidGuiToolbox(
         )
 
     override fun validateArguments(toolName: String, arguments: JsonObject) {
-        require(toolName in toolSchemas) { "Unknown VLM tool: $toolName" }
-        if (toolName !in dynamicFunctionMappings) {
-            VLMToolDefinitions.validateArguments(toolName, arguments)
-            return
-        }
-        require(arguments.keys.none { it == "function_id" || it == "tool_title" || it == "toolTitle" }) {
-            "Recalled workflow $toolName contains a reserved argument"
-        }
-        validateDynamicArguments(toolName, arguments)
+        policy.validateArguments(currentTurnRequest, toolName, arguments)
     }
 
     override suspend fun execute(
@@ -224,7 +198,7 @@ internal class AndroidGuiToolbox(
         }
     }
 
-    private suspend fun buildTurnEnvelope(): cn.com.omnimind.assists.task.vlmserver.VLMRequestEnvelope {
+    private suspend fun buildTurnEnvelope(): AndroidGuiTurnRequest {
         host.beforeStep()
         val state = if (reuseCurrentState) {
             requireNotNull(currentState)
@@ -276,16 +250,14 @@ internal class AndroidGuiToolbox(
                 disableFunctionRecall = config.disableFunctionRecall,
             )
         )
-        val envelope = vlmClient.buildUIOperationRequest(
+        val envelope = policy.buildRequest(
             context = context,
             screenshot = screenshot,
-            runLogSteps = emptyList(),
             model = config.model,
         )
         toolsForModel = envelope.request.tools
         dynamicFunctionMappings = envelope.dynamicFunctionToolMappings
-        dynamicRequiredArguments = envelope.dynamicFunctionRequiredArguments
-        toolSchemas = toolsForModel.associate { it.function.name to it.function.parameters }
+        currentTurnRequest = envelope
         return envelope
     }
 
@@ -495,35 +467,6 @@ internal class AndroidGuiToolbox(
             "after_state_id" to afterStateId,
             "metadata" to metadata.filterValues { it != null },
         )
-    }
-
-    private fun validateDynamicArguments(toolName: String, arguments: JsonObject) {
-        val schema = requireNotNull(toolSchemas[toolName])
-        val properties = schema["properties"] as? JsonObject ?: JsonObject(emptyMap())
-        dynamicRequiredArguments[toolName].orEmpty().forEach { field ->
-            require(arguments[field] != null && arguments[field] !is JsonNull) {
-                "Recalled workflow $toolName missing required argument: $field"
-            }
-        }
-        arguments.forEach { (field, value) ->
-            val fieldSchema = properties[field] as? JsonObject
-                ?: throw IllegalArgumentException("Recalled workflow $toolName has unknown argument: $field")
-            val expected = fieldSchema["type"]?.jsonPrimitive?.contentOrNull.orEmpty()
-            require(expected.isBlank() || matchesType(expected, value)) {
-                "Recalled workflow $toolName argument $field expected $expected"
-            }
-        }
-    }
-
-    private fun matchesType(expected: String, value: JsonElement): Boolean = when (expected) {
-        "string" -> value is JsonPrimitive && value.isString
-        "number" -> value is JsonPrimitive && !value.isString && value.doubleOrNull != null
-        "integer" -> value is JsonPrimitive && !value.isString && value.longOrNull != null
-        "boolean" -> value is JsonPrimitive && !value.isString && value.booleanOrNull != null
-        "array" -> value is JsonArray
-        "object" -> value is JsonObject
-        "null" -> value is JsonNull
-        else -> true
     }
 
     private fun contextResult(

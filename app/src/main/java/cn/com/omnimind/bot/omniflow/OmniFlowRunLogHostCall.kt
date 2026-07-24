@@ -3,7 +3,6 @@ package cn.com.omnimind.bot.omniflow
 import android.content.Context
 import cn.com.omnimind.assists.task.vlmserver.ActionExecutor
 import cn.com.omnimind.assists.task.vlmserver.DeviceOperator
-import cn.com.omnimind.assists.task.vlmserver.UIContextManager
 import cn.com.omnimind.baselib.runlog.InternalRunLogStore
 import cn.com.omnimind.baselib.runlog.OobActionSchema
 import cn.com.omnimind.bot.runlog.ReplayHelper
@@ -45,7 +44,7 @@ internal fun omniFlowAndroidHostCall(
     onStep: suspend (Map<String, Any?>) -> Unit = {},
 ): OmniFlowPythonHostCall {
     val appContext = context.applicationContext
-    val actionExecutor = ActionExecutor(deviceOperator, UIContextManager())
+    val actionExecutor = ActionExecutor(deviceOperator)
     return omniFlowAndroidHostCall(
         loadState = { stateId -> InternalRunLogStore.statePayload(appContext, stateId) },
         observe = {

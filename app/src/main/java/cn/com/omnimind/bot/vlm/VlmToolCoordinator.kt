@@ -8,32 +8,19 @@ import cn.com.omnimind.assists.api.bean.VlmTaskTerminalResult
 import cn.com.omnimind.assists.api.interfaces.OnMessagePushListener
 import cn.com.omnimind.assists.api.interfaces.VlmStepProgress
 import cn.com.omnimind.assists.controller.accessibility.AccessibilityController
-import cn.com.omnimind.assists.controller.http.HttpController
-import cn.com.omnimind.assists.task.vlmserver.AbortDecision
-import cn.com.omnimind.assists.task.vlmserver.Action
-import cn.com.omnimind.assists.task.vlmserver.FinishedDecision
-import cn.com.omnimind.assists.task.vlmserver.FunctionInvocation
-import cn.com.omnimind.assists.task.vlmserver.HttpVLMStreamClient
-import cn.com.omnimind.assists.task.vlmserver.InfoDecision
-import cn.com.omnimind.assists.task.vlmserver.Observe
-import cn.com.omnimind.assists.task.vlmserver.RecordMemory
 import cn.com.omnimind.assists.task.vlmserver.UIContext
-import cn.com.omnimind.assists.task.vlmserver.VLMCommand
-import cn.com.omnimind.assists.task.vlmserver.VLMClient
 import cn.com.omnimind.assists.task.vlmserver.VLMCurrentPageSnapshot
 import cn.com.omnimind.assists.task.vlmserver.VLMIndexedPageContext
 import cn.com.omnimind.assists.task.vlmserver.VLMRecallContextProviderRegistry
 import cn.com.omnimind.assists.task.vlmserver.VLMRecallContextRequest
-import cn.com.omnimind.assists.task.vlmserver.VLMStreamClient
-import cn.com.omnimind.assists.task.vlmserver.toCanonicalMap
 import cn.com.omnimind.baselib.util.ImageQuality
 import cn.com.omnimind.baselib.util.OmniLog
 import cn.com.omnimind.bot.mcp.McpTaskManager
 import cn.com.omnimind.bot.mcp.TaskState
 import cn.com.omnimind.bot.mcp.TaskStatus
 import cn.com.omnimind.bot.mcp.VlmTaskRequest
-import cn.com.omnimind.bot.function.FunctionService
-import cn.com.omnimind.bot.runlog.firstNonBlank
+import cn.com.omnimind.bot.agent.AgentLlmClient
+import cn.com.omnimind.bot.agent.HttpAgentLlmClient
 import cn.com.omnimind.bot.util.AssistsUtil
 import cn.com.omnimind.bot.util.AndroidAutomationPermissionGate
 import kotlinx.coroutines.CompletableDeferred
@@ -391,7 +378,7 @@ object VlmToolCoordinator {
         context: Context,
         request: VlmTaskRequest,
         scope: CoroutineScope,
-        streamClient: VLMStreamClient = HttpVLMStreamClient(scope),
+        llmClient: AgentLlmClient = HttpAgentLlmClient(scope),
     ): VlmParseOnlyResult = withContext(Dispatchers.IO) {
         val phaseStartedAt = System.currentTimeMillis()
         val phaseMs = linkedMapOf<String, Long>()
@@ -420,7 +407,7 @@ object VlmToolCoordinator {
             snapshot = snapshot,
             config = config,
             model = boundedRequest.model ?: config.primaryModel,
-            streamClient = streamClient,
+            llmClient = llmClient,
             disableFunctionRecall = boundedRequest.disableFunctionRecall,
             phaseMs = phaseMs,
         )
@@ -432,8 +419,8 @@ object VlmToolCoordinator {
         context: UIContext,
         snapshot: VLMCurrentPageSnapshot,
         model: String = VlmWorkspaceConfig.defaultSnapshot().primaryModel,
-        streamClient: VLMStreamClient,
-        vlmClient: VLMClient = VLMClient(),
+        llmClient: AgentLlmClient,
+        policy: AndroidGuiPolicy = AndroidGuiPolicy(),
         disableFunctionRecall: Boolean = false,
         phaseMs: MutableMap<String, Long> = linkedMapOf(),
         config: VlmWorkspaceConfig.Snapshot = VlmWorkspaceConfig.defaultSnapshot(),
@@ -474,60 +461,63 @@ object VlmToolCoordinator {
             )
         }
         val contextBudgetDiagnostics = budgetDiagnostics(workingContext)
-        val requestEnvelope = timed("build_request_ms") {
-            vlmClient.buildUIOperationRequest(
+        val turnRequest = timed("build_request_ms") {
+            policy.buildRequest(
                 context = workingContext,
                 screenshot = snapshot.screenshotBase64,
-                markedScreenshot = null,
-                runLogSteps = emptyList(),
                 model = model,
-                includeMarkedScreenshot = false,
             )
         }
         val turn = timed("vlm_stream_ms") {
-            streamClient.streamTurn(requestEnvelope.request)
+            llmClient.streamTurn(turnRequest.request)
         }
-        val parsed = timed("parse_response_ms") {
-            vlmClient.parseVLMResponse(
-                response = turn,
-                modelOrScene = model,
-                dynamicFunctionToolNames = requestEnvelope.dynamicFunctionToolNames,
-                dynamicFunctionToolMappings = requestEnvelope.dynamicFunctionToolMappings,
-                dynamicFunctionRequiredArguments = requestEnvelope.dynamicFunctionRequiredArguments,
+        val metadata = policy.metadata(turn)
+        val toolCalls = turn.message.toolCalls.orEmpty()
+        var parsedArguments: JsonObject? = null
+        val parseError = timed("parse_response_ms") {
+            when {
+                toolCalls.isEmpty() -> "provider_tool_call_contract_violation: provider returned no native tool_calls"
+                toolCalls.size > 1 -> "provider_tool_call_contract_violation: expected one native tool_call, got ${toolCalls.size}"
+                else -> runCatching {
+                    parsedArguments = policy.parseAndValidateArguments(
+                        turnRequest = turnRequest,
+                        toolName = toolCalls.single().function.name,
+                        rawArguments = toolCalls.single().function.arguments,
+                    )
+                }.exceptionOrNull()?.message
+            }
+        }
+        val toolCall = toolCalls.singleOrNull()
+        val action = parsedArguments?.let { arguments ->
+            linkedMapOf<String, Any?>(
+                "tool" to toolCall?.function?.name,
+                "args" to arguments.entries.associateTo(linkedMapOf()) { (key, value) ->
+                    key to value.toPlainAny()
+                },
             )
         }
-        val action = parsed.step?.action
-        val thinking = parsed.thinking
-        val responseContentPreview = thinking?.rawContent
-            .orEmpty()
-            .ifBlank { thinking?.reasoning.orEmpty() }
+        val responseContentPreview = metadata.rawContent
+            .ifBlank { metadata.reasoning }
             .trim()
             .take(4000)
         val requestDiagnostics = linkedMapOf(
-            "vlm_request_has_tools" to requestEnvelope.request.tools.isNotEmpty().toString(),
-            "vlm_request_tool_choice" to requestEnvelope.request.toolChoice?.toString().orEmpty(),
-            "vlm_request_parallel_tool_calls" to requestEnvelope.request.parallelToolCalls?.toString().orEmpty(),
-            "vlm_request_tool_count" to requestEnvelope.toolNames.size.toString(),
-            "vlm_request_tool_names" to requestEnvelope.toolNames.joinToString(",").take(4000),
-            "vlm_request_default_tool_count" to requestEnvelope.defaultToolCount.toString(),
-            "vlm_request_selected_base_tool_names" to requestEnvelope.selectedBaseToolNames.joinToString(",").take(4000),
-            "vlm_request_dynamic_function_tool_count" to requestEnvelope.dynamicFunctionToolNames.size.toString(),
-            "vlm_request_dynamic_function_tool_names" to requestEnvelope.dynamicFunctionToolNames.joinToString(",").take(4000),
-            "vlm_request_dynamic_function_mapping_count" to requestEnvelope.dynamicFunctionToolMappings.size.toString(),
-            "vlm_request_system_prompt_chars" to requestEnvelope.systemPromptChars.toString(),
-            "vlm_request_current_user_text_chars" to requestEnvelope.currentUserTextChars.toString(),
+            "vlm_request_has_tools" to turnRequest.request.tools.isNotEmpty().toString(),
+            "vlm_request_tool_choice" to turnRequest.request.toolChoice?.toString().orEmpty(),
+            "vlm_request_parallel_tool_calls" to turnRequest.request.parallelToolCalls?.toString().orEmpty(),
+            "vlm_request_tool_count" to turnRequest.request.tools.size.toString(),
+            "vlm_request_tool_names" to turnRequest.request.tools.joinToString(",") { it.function.name }.take(4000),
+            "vlm_request_selected_base_tool_names" to turnRequest.selectedBaseToolNames.joinToString(",").take(4000),
+            "vlm_request_dynamic_function_tool_count" to turnRequest.dynamicFunctionToolNames.size.toString(),
+            "vlm_request_dynamic_function_tool_names" to turnRequest.dynamicFunctionToolNames.joinToString(",").take(4000),
+            "vlm_request_dynamic_function_mapping_count" to turnRequest.dynamicFunctionToolMappings.size.toString(),
+            "vlm_request_system_prompt_chars" to turnRequest.systemPromptChars.toString(),
+            "vlm_request_current_user_text_chars" to turnRequest.currentUserText.length.toString(),
         )
         val responseDiagnostics = linkedMapOf(
-            "vlm_stream_request_variant" to turn.requestVariant.orEmpty(),
-            "vlm_stream_request_had_tools" to turn.requestHadTools?.toString().orEmpty(),
-            "vlm_stream_request_tool_choice" to turn.requestToolChoice.orEmpty(),
-            "vlm_stream_request_parallel_tool_calls" to turn.requestParallelToolCalls?.toString().orEmpty(),
-            "vlm_response_route" to turn.route.orEmpty(),
-            "vlm_response_resolved_model" to turn.resolvedModel,
-            "vlm_response_finish_reason" to turn.turn.finishReason.orEmpty(),
-            "vlm_response_tool_call_count" to (turn.turn.message.toolCalls?.size ?: 0).toString(),
-            "vlm_response_tool_names" to turn.turn.message.toolCalls
-                .orEmpty()
+            "vlm_response_model" to model,
+            "vlm_response_finish_reason" to turn.finishReason.orEmpty(),
+            "vlm_response_tool_call_count" to toolCalls.size.toString(),
+            "vlm_response_tool_names" to toolCalls
                 .map { it.function.name }
                 .joinToString(",")
                 .take(4000),
@@ -537,31 +527,31 @@ object VlmToolCoordinator {
             }
         }
         return VlmParseOnlyResult(
-            success = parsed.success,
+            success = parseError == null && action != null,
             model = model,
             packageName = snapshot.packageName,
             xmlChars = snapshot.xml?.length ?: 0,
             screenshotIncluded = !snapshot.screenshotBase64.isNullOrBlank(),
-            promptChars = requestEnvelope.currentUserText.length,
-            parsed = parsed.success && action != null,
-            toolName = action?.name,
-            action = action?.toDebugMap(),
-            error = parsed.error,
-            finishReason = thinking?.finishReason,
-            rawContentPreview = thinking?.rawContent.orEmpty().take(4000),
-            reasoningPreview = thinking?.reasoning.orEmpty().take(4000),
-            observationPreview = thinking?.observation.orEmpty().take(1000),
-            thoughtPreview = thinking?.thought.orEmpty().take(2000),
-            summaryPreview = thinking?.summary.orEmpty().take(1000),
-            toolNames = requestEnvelope.toolNames,
-            dynamicFunctionToolNames = requestEnvelope.dynamicFunctionToolNames.toList(),
-            requestVariant = turn.requestVariant,
-            requestHadTools = turn.requestHadTools,
-            requestToolChoice = turn.requestToolChoice,
-            requestParallelToolCalls = turn.requestParallelToolCalls,
-            currentUserTextPreview = requestEnvelope.currentUserText
+            promptChars = turnRequest.currentUserText.length,
+            parsed = parseError == null && action != null,
+            toolName = toolCall?.function?.name,
+            action = action,
+            error = parseError,
+            finishReason = metadata.finishReason,
+            rawContentPreview = metadata.rawContent.take(4000),
+            reasoningPreview = metadata.reasoning.take(4000),
+            observationPreview = metadata.observation.take(1000),
+            thoughtPreview = metadata.thinking.take(2000),
+            summaryPreview = metadata.summary.take(1000),
+            toolNames = turnRequest.request.tools.map { it.function.name },
+            dynamicFunctionToolNames = turnRequest.dynamicFunctionToolNames.toList(),
+            requestVariant = null,
+            requestHadTools = turnRequest.request.tools.isNotEmpty(),
+            requestToolChoice = turnRequest.request.toolChoice?.toString(),
+            requestParallelToolCalls = turnRequest.request.parallelToolCalls,
+            currentUserTextPreview = turnRequest.currentUserText
                 .take(config.vlmDryRunPromptPreviewChars),
-            pageDiagnostics = recalledFunctionDiagnostics(requestEnvelope.dynamicFunctionToolNames) +
+            pageDiagnostics = recalledFunctionDiagnostics(turnRequest.dynamicFunctionToolNames) +
                 workingContext.pageDiagnostics +
                 contextBudgetDiagnostics +
                 requestDiagnostics +
@@ -1038,21 +1028,6 @@ object VlmToolCoordinator {
         )
     }
 
-
-    private fun VLMCommand.toDebugMap(): Map<String, Any?> =
-        when (this) {
-            is Action -> toCanonicalMap()
-            is Observe -> linkedMapOf("command" to name, "reason" to reason)
-            is FunctionInvocation -> linkedMapOf(
-                "tool" to name,
-                "function_id" to functionId,
-                "arguments" to arguments.toPlainAny(),
-            )
-            is FinishedDecision -> linkedMapOf("decision" to name, "content" to content)
-            is InfoDecision -> linkedMapOf("decision" to name, "value" to value)
-            is AbortDecision -> linkedMapOf("decision" to name, "value" to value)
-            is RecordMemory -> linkedMapOf("command" to name, "content" to content)
-        }.filterValues { it != null }
 
     private fun recalledFunctionDiagnostics(functionNames: Collection<String>): Map<String, String> {
         val names = functionNames.mapNotNull { it.trim().takeIf(String::isNotEmpty) }

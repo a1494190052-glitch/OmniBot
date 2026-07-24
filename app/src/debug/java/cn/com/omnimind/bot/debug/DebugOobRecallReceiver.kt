@@ -6,11 +6,12 @@ import android.content.Intent
 import android.util.Base64
 import cn.com.omnimind.assists.controller.accessibility.AccessibilityController
 import cn.com.omnimind.assists.task.vlmserver.UIContext
-import cn.com.omnimind.assists.task.vlmserver.VLMClient
 import cn.com.omnimind.assists.task.vlmserver.VLMRecallContextRequest
+import cn.com.omnimind.assists.task.vlmserver.VLMRuntimeConfigRegistry
 import cn.com.omnimind.baselib.util.OmniLog
 import cn.com.omnimind.bot.omniflow.OmniFlowFunctionRecallAdapter
 import cn.com.omnimind.bot.omniflow.OmniFlowPythonRuntime
+import cn.com.omnimind.bot.vlm.AndroidGuiPolicy
 import cn.com.omnimind.bot.vlm.VlmFunctionRecall
 import com.google.gson.GsonBuilder
 import java.io.File
@@ -109,15 +110,15 @@ class DebugOobRecallReceiver : BroadcastReceiver() {
                 disableFunctionRecall = false,
             )
         )
-        val envelope = VLMClient(
+        val envelope = AndroidGuiPolicy(
             systemPromptBuilder = { "debug recall preview" },
-            turnPromptBuilder = { context, _, _ -> context.overallTask }
-        ).buildUIOperationRequest(
+            turnPromptBuilder = { context, _ -> context.overallTask }
+        ).buildRequest(
             context = enriched,
             screenshot = null,
-            runLogSteps = emptyList(),
+            model = VLMRuntimeConfigRegistry.get().primarySceneId,
         )
-        val modelToolNames = envelope.request.tools.orEmpty().map { it.function.name }
+        val modelToolNames = envelope.request.tools.map { it.function.name }
         return linkedMapOf(
             "page_diagnostics" to enriched.pageDiagnostics,
             "dynamic_tool_definitions" to enriched.dynamicToolDefinitions.map(::dynamicToolSummary),
@@ -127,7 +128,7 @@ class DebugOobRecallReceiver : BroadcastReceiver() {
             "dynamic_function_tool_mappings" to envelope.dynamicFunctionToolMappings,
             "dynamic_function_required_arguments" to envelope.dynamicFunctionRequiredArguments
                 .mapValues { (_, value) -> value.toList() },
-            "tool_summaries" to envelope.request.tools.orEmpty().map { tool ->
+            "tool_summaries" to envelope.request.tools.map { tool ->
                 val parameters = tool.function.parameters
                 linkedMapOf(
                     "name" to tool.function.name,
@@ -140,7 +141,7 @@ class DebugOobRecallReceiver : BroadcastReceiver() {
             "contains_call_tool" to modelToolNames.any { it.equals("call_tool", ignoreCase = true) },
             "contains_raw_function_id_tool" to modelToolNames.any { it.startsWith("oob_fn_") },
             "system_prompt_chars" to envelope.systemPromptChars,
-            "current_user_text_chars" to envelope.currentUserTextChars,
+            "current_user_text_chars" to envelope.currentUserText.length,
         )
     }
 

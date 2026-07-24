@@ -3,7 +3,6 @@ package cn.com.omnimind.bot.agent
 import android.content.Context
 import cn.com.omnimind.assists.task.vlmserver.ActionExecutor
 import cn.com.omnimind.assists.task.vlmserver.AndroidDeviceOperator
-import cn.com.omnimind.assists.task.vlmserver.UIContextManager
 import cn.com.omnimind.bot.agent.tool.handlers.BrowserToolHandler
 import cn.com.omnimind.bot.agent.tool.handlers.ContextToolHandler
 import cn.com.omnimind.bot.agent.tool.handlers.FileToolHandler
@@ -43,7 +42,7 @@ class AgentToolRouter(
 
     private val helper = SharedHelper(context, json)
     private val deviceOperator = AndroidDeviceOperator(null, context)
-    private val actionExecutor = ActionExecutor(deviceOperator, UIContextManager())
+    private val actionExecutor = ActionExecutor(deviceOperator)
 
     private val terminalHandler = TerminalToolHandler(helper, workspaceManager, scope)
     private val privilegedHandler = PrivilegedToolHandler(helper, workspaceManager, terminalHandler)

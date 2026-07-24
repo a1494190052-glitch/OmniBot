@@ -1,6 +1,7 @@
 package cn.com.omnimind.assists.task.vlmserver
 
 import cn.com.omnimind.baselib.llm.ChatCompletionUsage
+import cn.com.omnimind.baselib.llm.ChatCompletionTurn
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.contentOrNull
@@ -9,12 +10,14 @@ import kotlinx.serialization.json.jsonPrimitive
 
 object VLMTokenUsageMapper {
     fun fromTurn(
-        turn: SceneChatCompletionTurn,
+        turn: ChatCompletionTurn,
+        resolvedModel: String? = null,
+        route: String? = null,
         attemptIndex: Int,
         stabilityAttempt: Int,
         toolRetryIndex: Int
     ): VLMTokenUsage? {
-        val usage = turn.turn.usage ?: return null
+        val usage = turn.usage ?: return null
         if (!usage.hasTokenPayload()) return null
         return VLMTokenUsage(
             promptTokens = usage.promptTokens,
@@ -25,8 +28,8 @@ object VLMTokenUsageMapper {
             cachedTokens = intField(usage.promptTokensDetails, "cached_tokens"),
             prefillTokensPerSecond = usage.prefillTokensPerSecond,
             decodeTokensPerSecond = usage.decodeTokensPerSecond,
-            resolvedModel = turn.resolvedModel.takeIf { it.isNotBlank() },
-            route = turn.route?.takeIf { it.isNotBlank() },
+            resolvedModel = resolvedModel?.takeIf { it.isNotBlank() },
+            route = route?.takeIf { it.isNotBlank() },
             attemptIndex = attemptIndex,
             stabilityAttempt = stabilityAttempt,
             toolRetryIndex = toolRetryIndex,

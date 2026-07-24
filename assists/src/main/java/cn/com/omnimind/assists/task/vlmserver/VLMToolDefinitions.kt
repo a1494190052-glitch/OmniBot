@@ -1,7 +1,6 @@
 package cn.com.omnimind.assists.task.vlmserver
 
 import cn.com.omnimind.baselib.i18n.AppLocaleManager
-import cn.com.omnimind.baselib.llm.AssistantToolCall
 import cn.com.omnimind.baselib.runlog.OobActionSchema
 import cn.com.omnimind.baselib.llm.ChatCompletionFunction
 import cn.com.omnimind.baselib.llm.ChatCompletionTool
@@ -380,74 +379,6 @@ object VLMToolDefinitions {
         return vlmOutputArgs(schema).map { it.name }
     }
 
-    fun describeInvalidToolCall(
-        toolCall: AssistantToolCall,
-        message: String,
-        requiredFieldsOverride: Set<String>? = null,
-    ): VLMToolCallFailure {
-        val toolName = toolCall.function.name.trim().takeIf(String::isNotEmpty)
-        val parsedArguments = toolName?.let {
-            runCatching {
-                parseRawArgumentsObject(
-                    toolName = it,
-                    rawArguments = toolCall.function.arguments,
-                    allowEmpty = true,
-                )
-            }.getOrNull()
-        }
-        val requiredFields = when {
-            requiredFieldsOverride != null -> requiredFieldsOverride.sorted()
-            toolName != null -> requiredFieldsFor(toolName)
-            else -> emptyList()
-        }
-        val providedFields = parsedArguments?.keys?.sorted().orEmpty()
-        return VLMToolCallFailure(
-            code = if (parsedArguments == null) "invalid_arguments_json" else "invalid_arguments",
-            toolName = toolName,
-            requiredFields = requiredFields,
-            providedFields = providedFields,
-            argumentTypes = parsedArguments
-                ?.entries
-                ?.sortedBy { it.key }
-                ?.associate { (field, value) -> field to describeType(value) }
-                .orEmpty(),
-            missingFields = parsedArguments?.let { parsed ->
-                requiredFields.filter { field -> parsed[field] == null || parsed[field] is JsonNull }
-            }.orEmpty(),
-            safeArgumentsPreview = parsedArguments?.let(::safeArgumentsPreview)
-                ?: "invalid_json(chars=${toolCall.function.arguments.length})",
-            message = sanitizeToolCallFailureMessage(message),
-        )
-    }
-
-    fun sanitizeToolCallFailureMessage(message: String): String {
-        return message
-            .replace(Regex(";\\s*raw=.*$", RegexOption.DOT_MATCHES_ALL), "; raw=<redacted>")
-            .take(MAX_SAFE_FAILURE_MESSAGE_CHARS)
-    }
-
-    fun safeToolCallSummary(toolCalls: List<AssistantToolCall>): String {
-        if (toolCalls.isEmpty()) return "[]"
-        return toolCalls.joinToString(prefix = "[", postfix = "]") { toolCall ->
-            val toolName = toolCall.function.name.trim().ifBlank { "<missing>" }
-            val arguments = runCatching {
-                parseRawArgumentsObject(toolName, toolCall.function.arguments, allowEmpty = true)
-            }.getOrNull()
-            val shape = arguments
-                ?.entries
-                ?.sortedBy { it.key }
-                ?.joinToString(",") { (field, value) -> "$field:${describeType(value)}" }
-                ?: "invalid_json"
-            "$toolName{$shape}"
-        }
-    }
-
-    fun parseArguments(toolName: String, rawArguments: String): JsonObject {
-        val parsed = parseRawArgumentsObject(toolName, rawArguments)
-        validateArguments(toolName, parsed)
-        return parsed
-    }
-
     internal fun parseRawArgumentsObject(
         toolName: String,
         rawArguments: String,
@@ -570,36 +501,6 @@ object VLMToolDefinitions {
         }
     }
 
-    private fun safeArgumentsPreview(arguments: JsonObject): String {
-        val safeArguments = buildJsonObject {
-            arguments.entries.sortedBy { it.key }.forEach { (field, value) ->
-                put(field, safePreviewValue(field, value))
-            }
-        }
-        return safeArguments.toString().take(MAX_SAFE_ARGUMENT_PREVIEW_CHARS)
-    }
-
-    private fun safePreviewValue(field: String, value: JsonElement): JsonElement {
-        if (field.lowercase() in SENSITIVE_ARGUMENT_FIELDS) {
-            return JsonPrimitive("<redacted>")
-        }
-        if (field.lowercase() !in SAFE_ARGUMENT_VALUE_FIELDS) {
-            return JsonPrimitive("<${describeType(value)}>")
-        }
-        return when (value) {
-            is JsonPrimitive -> {
-                if (value.isString) {
-                    JsonPrimitive(value.contentOrNull.orEmpty().take(MAX_SAFE_STRING_VALUE_CHARS))
-                } else {
-                    value
-                }
-            }
-            is JsonArray -> JsonPrimitive("<array:${value.size}>")
-            is JsonObject -> JsonPrimitive("<object:${value.keys.sorted().joinToString(",")}>")
-            is JsonNull -> JsonNull
-        }
-    }
-
     private fun objectSchema(
         properties: Map<String, JsonObject> = emptyMap(),
         required: List<String> = emptyList(),
@@ -713,32 +614,5 @@ object VLMToolDefinitions {
             )
         }
     }
-
-    private const val MAX_SAFE_ARGUMENT_PREVIEW_CHARS = 800
-    private const val MAX_SAFE_FAILURE_MESSAGE_CHARS = 1200
-    private const val MAX_SAFE_STRING_VALUE_CHARS = 120
-    private val SENSITIVE_ARGUMENT_FIELDS = setOf(
-        "text",
-        "content",
-        "value",
-        "prompt",
-        "arguments",
-    )
-    private val SAFE_ARGUMENT_VALUE_FIELDS = setOf(
-        "target_description",
-        "x",
-        "y",
-        "x1",
-        "y1",
-        "x2",
-        "y2",
-        "node_id",
-        "node_resource_id",
-        "direction",
-        "distance",
-        "duration_ms",
-        "key",
-        "package_name",
-    )
 
 }
