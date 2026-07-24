@@ -296,10 +296,55 @@ def test_catalog_and_recall_round_trip(tmp_path: Path) -> None:
     assert candidate["function"]["function_id"] == "enter_name"
     assert "score" not in candidate["function"]
     assert candidate["retrieval"] == {
-        "score": 0.5,
+        "score": 1.0,
         "source": "goal_token_jaccard",
         "rank": 1,
     }
+
+
+def test_recall_matches_chinese_when_punctuation_differs(tmp_path: Path) -> None:
+    bridge = OobOmniFlowBridge(tmp_path / "store.json")
+    chinese_function = function()
+    chinese_function.update(
+        {
+            "function_id": "open_app_settings",
+            "name": "点击设置首页中的“应用”并进入应用设置列表",
+            "description": "打开 Android 应用设置列表",
+        }
+    )
+    bridge._handle(
+        "put",
+        "catalog",
+        {"action": "put", "function": chinese_function},
+    )
+    unrelated_function = function()
+    unrelated_function.update(
+        {
+            "function_id": "open_network_settings",
+            "name": "打开网络与互联网设置",
+            "description": "进入网络设置页面",
+        }
+    )
+    bridge._handle(
+        "put",
+        "catalog",
+        {"action": "put", "function": unrelated_function},
+    )
+
+    recalled = bridge._handle(
+        "recall",
+        "recall",
+        {
+            "goal": "点击设置首页中的应用并进入应用设置列表",
+            "state": {"state_id": "live-state"},
+        },
+    )
+
+    assert recalled["retrieval_state"] == "has_candidates"
+    assert [
+        candidate["function"]["function_id"] for candidate in recalled["candidates"]
+    ] == ["open_app_settings"]
+    assert recalled["candidates"][0]["retrieval"]["score"] == 1.0
 
 
 def test_compile_registers_enhanced_function(tmp_path: Path) -> None:
@@ -353,6 +398,7 @@ def test_compile_registers_enhanced_function(tmp_path: Path) -> None:
             "register": True,
             "agent_visible": True,
             "function_id": "wait_once",
+            "enhance": True,
         },
     )
 
@@ -419,7 +465,12 @@ def test_compile_registers_semantic_parameters_and_bindings(tmp_path: Path) -> N
     result = bridge._handle(
         "compile",
         "compile",
-        {"run_id": "source", "register": True, "function_id": "enter_name"},
+        {
+            "run_id": "source",
+            "register": True,
+            "function_id": "enter_name",
+            "enhance": True,
+        },
     )
 
     registered = bridge.flow.store.get_function("enter_name")
@@ -496,7 +547,7 @@ def test_compile_can_skip_optional_enhancement(tmp_path: Path) -> None:
     assert result["changes"] == []
 
 
-def test_compile_keeps_function_when_default_enhancement_fails(tmp_path: Path) -> None:
+def test_compile_keeps_function_when_explicit_enhancement_fails(tmp_path: Path) -> None:
     run_log = {
         "schema_version": "omniflow.canonical_run_log.v1",
         "run_id": "source",
@@ -538,7 +589,12 @@ def test_compile_keeps_function_when_default_enhancement_fails(tmp_path: Path) -
     result = bridge._handle(
         "compile",
         "compile",
-        {"run_id": "source", "register": True, "function_id": "wait_once"},
+        {
+            "run_id": "source",
+            "register": True,
+            "function_id": "wait_once",
+            "enhance": True,
+        },
     )
 
     calls = [json.loads(line) for line in writer.getvalue().splitlines()]

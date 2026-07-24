@@ -435,7 +435,7 @@ class DebugHumanRunRecordingReceiver : BroadcastReceiver() {
                 mapOf(
                     "run_id" to runId,
                     "register" to true,
-                    "agent_visible" to false,
+                    "agent_visible" to true,
                     "name" to name,
                     "description" to description,
                 )

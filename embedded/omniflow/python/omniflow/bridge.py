@@ -24,6 +24,7 @@ from omniflow.trajectory import canonicalize_state
 
 PROTOCOL_VERSION = "omniflow.bridge.v2"
 _COORDINATE_TOOLS = {"click", "input_text", "long_press", "swipe"}
+_MIN_RECALL_SCORE = 0.1
 
 
 class JsonLineBridge:
@@ -282,7 +283,7 @@ class JsonLineBridge:
         changes: list[dict[str, Any]] = []
         enhancement_status = "none"
         enhancement_message = ""
-        if body.get("enhance") is not False:
+        if body.get("enhance") is True:
             try:
                 value, changes, enhancement_status = enhance_function(
                     value,
@@ -466,11 +467,11 @@ class JsonLineBridge:
         for function in self.flow.store.functions.values():
             if not function.agent_visible:
                 continue
-            candidate_tokens = _tokens(f"{function.name} {function.description}")
-            if not goal_tokens or not candidate_tokens:
-                continue
-            score = len(goal_tokens & candidate_tokens) / len(goal_tokens | candidate_tokens)
-            if score > 0:
+            score = max(
+                _jaccard(goal_tokens, _tokens(function.name)),
+                _jaccard(goal_tokens, _tokens(function.description)),
+            )
+            if score >= _MIN_RECALL_SCORE:
                 scored.append((score, function))
         ranked = sorted(scored, key=lambda item: (-item[0], item[1].function_id))
         candidates = [
@@ -884,7 +885,20 @@ def _blocked(
 
 
 def _tokens(value: str) -> set[str]:
-    return set(re.findall(r"[\w\u4e00-\u9fff]+", value.lower()))
+    normalized = value.lower()
+    tokens = set(re.findall(r"[a-z0-9_]+", normalized))
+    chinese = "".join(re.findall(r"[\u4e00-\u9fff]+", normalized))
+    if len(chinese) == 1:
+        tokens.add(chinese)
+    else:
+        tokens.update(chinese[index : index + 2] for index in range(len(chinese) - 1))
+    return tokens
+
+
+def _jaccard(left: set[str], right: set[str]) -> float:
+    if not left or not right:
+        return 0.0
+    return len(left & right) / len(left | right)
 
 
 def _require_contract(
