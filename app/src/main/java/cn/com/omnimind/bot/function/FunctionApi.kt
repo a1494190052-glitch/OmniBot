@@ -140,7 +140,7 @@ object FunctionApi {
 
     private val updateFunctionMcpTool = mapOf(
         "name" to FUNCTION_UPDATE,
-        "description" to "Apply explicit action edits or retry semantic enhancement for one saved Function. RunLog conversion enhances by default; direct canonical Function registration only persists the supplied Function.",
+        "description" to "Apply explicit action edits or retry semantic enhancement for one saved Function. RunLog conversion registers the base Function first, then queues enhancement by default; direct canonical Function registration only persists the supplied Function.",
         "inputSchema" to updateFunctionInputSchema()
     )
 
@@ -200,7 +200,7 @@ object FunctionApi {
                 "run_id" to mapOf("type" to "string", "description" to "RunLog id to convert."),
                 "register" to mapOf("type" to "boolean", "description" to "Register the converted Function. Default false."),
                 "agent_visible" to mapOf("type" to "boolean", "description" to "Publish the registered Function for runtime recall. Default false."),
-                "enhance" to mapOf("type" to "boolean", "description" to "Run offline semantic enhancement before registration. Default true."),
+                "enhance" to mapOf("type" to "boolean", "description" to "After base registration, queue offline semantic enhancement. Default true."),
                 "function_id" to mapOf("type" to "string", "description" to "Optional Function id override."),
                 "name" to mapOf("type" to "string", "description" to "Optional Function name override."),
                 "description" to mapOf("type" to "string", "description" to "Optional Function description override.")

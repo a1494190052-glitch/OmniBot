@@ -75,6 +75,7 @@ class FunctionApiContractTest {
 
         assertEquals("boolean", enhance["type"])
         assertTrue(enhance["description"].toString().contains("Default true"))
-        assertTrue(updateTool["description"].toString().contains("RunLog conversion enhances by default"))
+        assertTrue(enhance["description"].toString().contains("After base registration"))
+        assertTrue(updateTool["description"].toString().contains("registers the base Function first"))
     }
 }

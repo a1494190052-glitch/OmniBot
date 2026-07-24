@@ -54,6 +54,10 @@ internal object OmniFlowPythonRuntime {
 
     fun isReady(): Boolean = ready
 
+    fun launchBackground(block: suspend () -> Unit) {
+        runtimeScope.launch { block() }
+    }
+
     suspend fun call(
         context: Context,
         operation: String,
@@ -63,6 +67,25 @@ internal object OmniFlowPythonRuntime {
         ensureReady(context.applicationContext)
         return requireNotNull(client) { "omniflow_python_client_unavailable" }
             .call(operation, payload, hostCall)
+    }
+
+    suspend fun callIsolated(
+        context: Context,
+        operation: String,
+        payload: Map<String, Any?> = emptyMap(),
+        hostCall: OmniFlowPythonHostCall? = null,
+    ): Map<String, Any?> {
+        ensureReady(context.applicationContext)
+        val embeddedRuntime = OmniFlowEmbeddedRuntime.prepare(context.applicationContext)
+        val candidate = OmniFlowPythonClient(
+            context = context.applicationContext,
+            shellSitePackagesPath = embeddedRuntime.shellSitePackagesPath,
+        )
+        return try {
+            candidate.call(operation, payload, hostCall)
+        } finally {
+            runCatching { candidate.close() }
+        }
     }
 
     private suspend fun ensureReady(context: Context): OmniFlowRuntimeManifest {

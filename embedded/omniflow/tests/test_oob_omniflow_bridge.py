@@ -347,7 +347,9 @@ def test_recall_matches_chinese_when_punctuation_differs(tmp_path: Path) -> None
     assert recalled["candidates"][0]["retrieval"]["score"] == 1.0
 
 
-def test_compile_registers_enhanced_function(tmp_path: Path) -> None:
+def test_compile_registers_base_function_without_default_enhancement(
+    tmp_path: Path,
+) -> None:
     run_log = {
         "schema_version": "omniflow.canonical_run_log.v1",
         "run_id": "source",
@@ -370,18 +372,6 @@ def test_compile_registers_enhanced_function(tmp_path: Path) -> None:
             {"call_id": "compile:1", "ok": True, "result": run_log}
         )
         + "\n"
-        + json.dumps(
-            {
-                "call_id": "compile:2",
-                "ok": True,
-                "result": {
-                    "content": json.dumps(
-                        {"name": "Pause once", "checker_rules": []}
-                    )
-                },
-            }
-        )
-        + "\n"
     )
     writer = StringIO()
     bridge = OobOmniFlowBridge(
@@ -398,18 +388,18 @@ def test_compile_registers_enhanced_function(tmp_path: Path) -> None:
             "register": True,
             "agent_visible": True,
             "function_id": "wait_once",
-            "enhance": True,
         },
     )
 
     calls = [json.loads(line) for line in writer.getvalue().splitlines()]
-    assert [call["method"] for call in calls] == ["get_run_log", "complete_json"]
+    assert [call["method"] for call in calls] == ["get_run_log"]
     assert result["registered"] is True
     assert result["function_id"] == "wait_once"
-    assert result["function"]["name"] == "Pause once"
-    assert result["enhancement_status"] == "enhanced"
-    assert result["changes"] == [{"part": "function", "field": "name"}]
-    assert bridge.flow.store.get_function("wait_once").name == "Pause once"
+    assert result["enhancement_status"] == "none"
+    assert result["changes"] == []
+    registered = bridge.flow.store.get_function("wait_once")
+    assert registered is not None
+    assert registered.to_dict() == result["function"]
 
 
 def test_compile_registers_semantic_parameters_and_bindings(tmp_path: Path) -> None:
@@ -649,6 +639,77 @@ def test_update_function_uses_the_single_enhancement_interface(tmp_path: Path) -
     assert result["success"] is True
     assert result["updated_function"]["name"] == "Enter a contact name"
     assert result["enhancement_status"] == "enhanced"
+
+
+def test_update_function_dry_run_returns_preview_without_saving(tmp_path: Path) -> None:
+    reader = StringIO(
+        json.dumps(
+            {
+                "call_id": "update:1",
+                "ok": True,
+                "result": {"run_id": "source", "goal": "enter name", "steps": []},
+            }
+        )
+        + "\n"
+        + json.dumps(
+            {
+                "call_id": "update:2",
+                "ok": True,
+                "result": {
+                    "content": json.dumps(
+                        {"name": "Enter a contact name", "checker_rules": []}
+                    )
+                },
+            }
+        )
+        + "\n"
+    )
+    bridge = OobOmniFlowBridge(
+        tmp_path / "store.json",
+        reader=reader,
+        writer=StringIO(),
+    )
+    bridge._handle("put", "catalog", {"action": "put", "function": function()})
+
+    result = bridge._handle(
+        "update",
+        "update_function",
+        {
+            "function_id": "enter_name",
+            "mode": "enhance",
+            "run_id": "source",
+            "dry_run": True,
+        },
+    )
+
+    assert result["success"] is True
+    assert result["saved"] is False
+    assert result["dry_run"] is True
+    assert result["updated_function"]["name"] == "Enter a contact name"
+    assert bridge.flow.store.get_function("enter_name").name == "Enter name"
+
+
+def test_catalog_put_rejects_stale_enhancement_preview(tmp_path: Path) -> None:
+    bridge = OobOmniFlowBridge(tmp_path / "store.json")
+    original = function()
+    bridge._handle("put", "catalog", {"action": "put", "function": original})
+    edited = {**original, "name": "User edited name"}
+    bridge._handle("edit", "catalog", {"action": "put", "function": edited})
+    enhanced = {**original, "description": "Enhanced description"}
+
+    result = bridge._handle(
+        "commit",
+        "catalog",
+        {
+            "action": "put",
+            "function": enhanced,
+            "expected_function": original,
+        },
+    )
+
+    assert result["success"] is False
+    assert result["error_code"] == "FUNCTION_ENHANCEMENT_CONFLICT"
+    assert bridge.flow.store.get_function("enter_name").name == "User edited name"
 
 
 def test_omnitransfer_fails_closed_when_matcher_is_unavailable(monkeypatch) -> None:

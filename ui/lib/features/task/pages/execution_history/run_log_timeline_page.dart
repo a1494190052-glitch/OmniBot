@@ -252,6 +252,9 @@ class _RunLogTimelinePageState extends State<RunLogTimelinePage> {
       );
       final steps = _extractTimelineSteps(payload);
       final stepGroups = _groupTimelineSteps(steps);
+      final completedEnhancementSpec = await _loadCompletedFunctionEnhancement(
+        payload,
+      );
       if (!mounted) return;
       setState(() {
         _payload = payload;
@@ -259,14 +262,36 @@ class _RunLogTimelinePageState extends State<RunLogTimelinePage> {
         _stepGroups = stepGroups;
         final error = _runLogPayloadError(context, payload);
         _error = error;
-        if (_functionPanelStatus == _RunLogFunctionPanelStatus.saved) {
+        if (completedEnhancementSpec != null) {
+          final diagnostics = _functionEnhancementDiagnostics(payload);
+          _savedFunctionSpec = completedEnhancementSpec;
+          _functionPanelStatus = _panelStatusFromFunctionSpec(
+            completedEnhancementSpec,
+          );
+          _functionPanelMessage = _firstNonBlank([
+            diagnostics['message'],
+            completedEnhancementSpec.enhancementMessage,
+            _conversionEnhancementMessage(
+              context,
+              completedEnhancementSpec.enhancementStatus,
+            ),
+          ]);
+          _functionPanelError =
+              completedEnhancementSpec.enhancementStatus ==
+                  FunctionEnhancementStatus.failed
+              ? _firstNonBlank([
+                  diagnostics['error_message'],
+                  diagnostics['error_code'],
+                ])
+              : null;
+        } else if (_functionPanelStatus == _RunLogFunctionPanelStatus.saved) {
           _functionPanelStatus = _RunLogFunctionPanelStatus.idle;
           _functionPanelMessage = null;
           _functionPanelError = null;
         }
         _isLoading = false;
       });
-      _scheduleRefreshIfRunning(payload);
+      _scheduleRefreshIfNeeded(payload);
     } catch (e) {
       if (!mounted) return;
       setState(() {
@@ -277,9 +302,43 @@ class _RunLogTimelinePageState extends State<RunLogTimelinePage> {
     }
   }
 
-  void _scheduleRefreshIfRunning(Map<String, dynamic> payload) {
+  Future<FunctionSpec?> _loadCompletedFunctionEnhancement(
+    Map<String, dynamic> payload,
+  ) async {
+    final currentSpec = _savedFunctionSpec;
+    if (currentSpec?.enhancementStatus != FunctionEnhancementStatus.enhancing) {
+      return null;
+    }
+    final diagnostics = _functionEnhancementDiagnostics(payload);
+    final status = _functionEnhancementStatus(diagnostics['status']);
+    if (status == FunctionEnhancementStatus.none ||
+        status == FunctionEnhancementStatus.enhancing) {
+      return null;
+    }
+    var functionJson = currentSpec!.json;
+    final stored = await RunLogFunctionService.getFunction(
+      currentSpec.functionId,
+    );
+    final storedFunction = _asStringKeyMap(stored?['function']);
+    if (storedFunction.isNotEmpty) {
+      functionJson = storedFunction;
+    }
+    final message = _firstNonBlank([diagnostics['message']]);
+    return FunctionSpec(
+      json: functionJson,
+      agentPrompt: functionAgentPrompt(functionJson),
+      aiEnhanced: currentSpec.aiEnhanced || status.isApplied,
+      enhancementStatus: status,
+      enhancementMessage: message.isEmpty ? null : message,
+    );
+  }
+
+  void _scheduleRefreshIfNeeded(Map<String, dynamic> payload) {
     _refreshTimer?.cancel();
-    if (!mounted || _isRunLogFinished(payload)) return;
+    final enhancementPending =
+        _savedFunctionSpec?.enhancementStatus ==
+        FunctionEnhancementStatus.enhancing;
+    if (!mounted || (_isRunLogFinished(payload) && !enhancementPending)) return;
     _refreshTimer = Timer(_refreshInterval, () {
       if (mounted) {
         unawaited(_load(showLoading: false));
@@ -557,6 +616,7 @@ class _RunLogTimelinePageState extends State<RunLogTimelinePage> {
         ]);
         _functionPanelError = null;
       });
+      _scheduleRefreshIfNeeded(_payload);
     } catch (e) {
       if (!mounted) return;
       final message = _text(context, '注册失败', 'Registration failed');
@@ -6502,6 +6562,10 @@ bool _isCanonicalRunLog(Map<String, dynamic> payload) {
 
 Map<String, dynamic> _runLogDiagnostics(Map<String, dynamic> payload) =>
     _asStringKeyMap(payload['diagnostics']);
+
+Map<String, dynamic> _functionEnhancementDiagnostics(
+  Map<String, dynamic> payload,
+) => _asStringKeyMap(_runLogDiagnostics(payload)['function_enhancement']);
 
 Map<String, dynamic> _functionStepAsRunLogStep(
   Map<String, dynamic> step,

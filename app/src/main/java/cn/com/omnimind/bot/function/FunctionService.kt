@@ -20,6 +20,18 @@ class FunctionService(
 ) {
     private val recallAdapter = OmniFlowFunctionRecallAdapter(::bridgeCall)
     private val runLogHostCall = omniFlowRunLogHostCall(context)
+    private val registrationCoordinator = FunctionRegistrationCoordinator(
+        managementCall = ::managementCall,
+        enhancementCall = ::enhanceInBackground,
+        launchBackground = OmniFlowPythonRuntime::launchBackground,
+        updateEnhancementDiagnostics = { runId, diagnostics ->
+            InternalRunLogStore.updateDiagnostics(
+                context = context.applicationContext,
+                runId = runId,
+                diagnostics = mapOf("function_enhancement" to diagnostics),
+            )
+        },
+    )
 
     suspend fun executeTool(name: String?, args: Map<String, Any?>?): Map<String, Any?> =
         when (name) {
@@ -104,7 +116,7 @@ class FunctionService(
     }
 
     suspend fun convertRunLog(args: Map<String, Any?>?): Map<String, Any?> =
-        managementCall("compile", args.orEmpty())
+        registrationCoordinator.convert(args.orEmpty())
 
     private suspend fun functionSpec(functionId: String): Map<String, Any?>? =
         mapArg(catalog("get", mapOf("function_id" to functionId))["function"])
@@ -139,6 +151,62 @@ class FunctionService(
             error.message ?: "OmniFlow Function operation failed",
             firstNonBlank(payload["function_id"]),
         )
+    }
+
+    private suspend fun enhanceInBackground(
+        functionId: String,
+        runId: String,
+    ): Map<String, Any?> {
+        val preview = runCatching {
+            OmniFlowPythonRuntime.callIsolated(
+                context = context,
+                operation = "update_function",
+                payload = mapOf(
+                    "function_id" to functionId,
+                    "mode" to "enhance",
+                    "run_id" to runId,
+                    "dry_run" to true,
+                ),
+                hostCall = functionManagementHostCall(),
+            )
+        }.getOrElse { error ->
+            return errorPayload(
+                "OOB_OMNIFLOW_FUNCTION_ENHANCEMENT_FAILED",
+                error.message ?: "OmniFlow Function enhancement failed",
+                functionId,
+            )
+        }
+        if (preview["success"] != true) return preview
+
+        val original = mapArg(preview["function"])
+        val updated = mapArg(preview["updated_function"])
+        if (original.isEmpty() || updated.isEmpty()) {
+            return errorPayload(
+                "OOB_FUNCTION_ENHANCEMENT_PREVIEW_INVALID",
+                "Function enhancement returned no valid Function preview",
+                functionId,
+            )
+        }
+        val commit = catalog(
+            "put",
+            mapOf(
+                "function" to updated,
+                "expected_function" to original,
+            ),
+        )
+        if (commit["success"] != true) {
+            return linkedMapOf<String, Any?>().apply {
+                putAll(preview)
+                put("success", false)
+                put("saved", false)
+                put("error_code", commit["error_code"])
+                put("error_message", commit["error_message"])
+            }
+        }
+        return linkedMapOf<String, Any?>().apply {
+            putAll(preview)
+            put("saved", true)
+        }
     }
 
     private fun functionManagementHostCall(): OmniFlowPythonHostCall =

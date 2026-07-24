@@ -179,6 +179,23 @@ class JsonLineBridge:
         if action == "put":
             value = dict(body.get("function") or {})
             function_id = str(value.get("function_id") or "").strip()
+            expected_value = body.get("expected_function")
+            if expected_value is not None:
+                try:
+                    expected = parse_function_artifact(dict(expected_value)).to_dict()
+                except (TypeError, ValueError) as error:
+                    return _management_error("FUNCTION_SCHEMA_INVALID", str(error))
+                current = self.flow.store.get_function(function_id)
+                if (
+                    expected.get("function_id") != function_id
+                    or current is None
+                    or current.to_dict() != expected
+                ):
+                    return _management_error(
+                        "FUNCTION_ENHANCEMENT_CONFLICT",
+                        "Function changed before offline enhancement could be saved",
+                        function_id=function_id,
+                    )
             already_exists = bool(
                 function_id and self.flow.store.get_function(function_id) is not None
             )
@@ -401,7 +418,11 @@ class JsonLineBridge:
                 run_log = loaded
         return self._enhance(
             request_id,
-            {"function_id": function_id, "run_log": run_log},
+            {
+                "function_id": function_id,
+                "run_log": run_log,
+                "dry_run": body.get("dry_run") is True,
+            },
         )
 
     def _enhance(self, request_id: str, body: dict[str, Any]) -> dict[str, Any]:
@@ -425,7 +446,9 @@ class JsonLineBridge:
             run_log,
             complete_json,
         )
-        self.flow.store.put_function(updated)
+        dry_run = body.get("dry_run") is True
+        if not dry_run:
+            self.flow.store.put_function(updated)
         return {
             "success": True,
             "function_id": function_id,
@@ -433,7 +456,8 @@ class JsonLineBridge:
             "function": function.to_dict(),
             "updated_function": updated,
             "changed": bool(changes),
-            "saved": True,
+            "saved": not dry_run,
+            "dry_run": dry_run,
             "changes": changes,
             "enhancement_status": status,
             "message": "Function enhancement completed.",

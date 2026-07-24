@@ -312,4 +312,110 @@ void main() {
       findsNothing,
     );
   });
+
+  testWidgets('polls queued enhancement and loads the stored Function', (
+    tester,
+  ) async {
+    final methods = <String>[];
+    var timelineCalls = 0;
+    messenger.setMockMethodCallHandler(channel, (call) async {
+      methods.add(call.method);
+      if (call.method == 'getInternalRunLogTimeline') {
+        timelineCalls += 1;
+        return <String, dynamic>{
+          'schema_version': 'omniflow.canonical_run_log.v1',
+          'run_id': 'queued-run',
+          'goal': '等待一次',
+          'status': 'succeeded',
+          'success': true,
+          'steps': <Map<String, dynamic>>[
+            <String, dynamic>{
+              'step_index': 0,
+              'before_state_id': 'state-0',
+              'action': <String, dynamic>{
+                'tool': 'wait',
+                'args': <String, dynamic>{'duration_ms': 1000},
+              },
+              'result': <String, dynamic>{'success': true},
+              'after_state_id': 'state-1',
+              'metadata': <String, dynamic>{},
+            },
+          ],
+          if (timelineCalls > 1)
+            'diagnostics': <String, dynamic>{
+              'function_enhancement': <String, dynamic>{
+                'status': 'enhanced',
+                'function_id': 'wait_once',
+                'message': 'Function enhancement completed.',
+              },
+            },
+        };
+      }
+      if (call.method == 'convertInternalRunLogToFunction') {
+        return <String, dynamic>{
+          'success': true,
+          'run_id': 'queued-run',
+          'function_id': 'wait_once',
+          'registered': true,
+          'enhancement_status': 'enhancing',
+          'enhancement_queued': true,
+          'function': <String, dynamic>{
+            'function_id': 'wait_once',
+            'name': 'wait once',
+            'description': 'wait once',
+            'steps': <Map<String, dynamic>>[],
+          },
+        };
+      }
+      if (call.method == 'getFunction') {
+        return <String, dynamic>{
+          'success': true,
+          'function': <String, dynamic>{
+            'function_id': 'wait_once',
+            'name': '等待一次',
+            'description': '等待一秒钟',
+            'steps': <Map<String, dynamic>>[],
+          },
+        };
+      }
+      fail('Unexpected method: ${call.method}');
+    });
+
+    await tester.pumpWidget(
+      const MaterialApp(
+        locale: Locale('zh'),
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
+        home: RunLogTimelinePage(runId: 'queued-run', title: '后台增强轨迹'),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(
+      find.byKey(const ValueKey('run-log-action-save-function')),
+    );
+    await tester.pump();
+    await tester.pump();
+
+    expect(find.text('正在增强复用指令'), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('run-log-action-save-function')),
+      findsOneWidget,
+    );
+
+    await tester.pump(const Duration(seconds: 2));
+    await tester.pumpAndSettle();
+
+    expect(methods, <String>[
+      'getInternalRunLogTimeline',
+      'convertInternalRunLogToFunction',
+      'getInternalRunLogTimeline',
+      'getFunction',
+    ]);
+    expect(find.text('Function enhancement completed.'), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('run-log-function-enhance')),
+      findsNothing,
+    );
+  });
 }

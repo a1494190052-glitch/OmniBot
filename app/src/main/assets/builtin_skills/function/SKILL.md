@@ -31,16 +31,18 @@ For requests such as “保存刚才的操作” or “把上一条轨迹变成�
 1. Call `oob_run_log_list` when the RunLog id is unknown.
 2. Choose the newest successful RunLog that matches the user request.
 3. Call `oob_run_log_convert` with its `run_id` and `register=true`.
-4. Check the returned `enhancement_status` and `changes`.
+4. Treat the returned base Function as registered immediately. If
+   `enhancement_status=enhancing`, offline enhancement is still running.
 5. Report the real `function_id` and action count.
 
-Conversion attempts offline enhancement by default before registration. Pass
-`enhance=false` only when the user explicitly chooses to skip it. Enhancement
-is optional: if it fails, the base Function is still registered with
-`enhancement_status=failed`; retry with `update_function` using
-`mode=enhance`. Enhancement may refine the Function's name, description,
-semantic parameters, bindings, and evidence-backed checker rules. It preserves
-every successful recorded action and never merges input, removes behavior, or
+Conversion registers the original compiled Function first, returns without
+waiting for a model, and queues offline enhancement by default. Pass
+`enhance=false` only when the user explicitly chooses to skip it. The queued
+enhancement may later overwrite that same Function with refined name,
+description, semantic parameters, bindings, and evidence-backed checker rules.
+If enhancement fails, the original registered Function remains available;
+retry with `update_function` using `mode=enhance`. Enhancement preserves every
+successful recorded action and never merges input, removes behavior, or
 invents recovery evidence. Use `update_function` only for later edits or to
 retry enhancement of an existing Function.
 
