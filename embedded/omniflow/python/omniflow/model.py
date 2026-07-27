@@ -197,6 +197,13 @@ class FunctionResolution:
 
 
 @dataclass(frozen=True)
+class RunRequest:
+    goal: str = ""
+    function_id: str | None = None
+    arguments: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
 class RunResult:
     success: bool
     function_id: str | None = None

@@ -17,9 +17,11 @@ DEFAULT_PLANNER_SYSTEM_PROMPT = (
     "For open_app, use the exact "
     "package_name supplied by the runtime and never guess one. If "
     "screen_context contains previous_action_error, correct that action through "
-    "the same normal tool path. Use recent_actions to advance the goal and never "
-    "repeat an already successful action on an unchanged screen. Never call a "
-    "stored Function directly."
+    "the same normal tool path. Treat execution_history as the shared history of "
+    "all canonical actions, regardless of whether they came from Function replay "
+    "or the planner. Use recent_actions to advance the goal and never repeat an "
+    "already successful action on an unchanged screen. Never call a stored "
+    "Function directly."
 )
 
 
@@ -46,6 +48,7 @@ class PluginSet:
 @dataclass(frozen=True)
 class RuntimeSettings:
     max_steps: int = 20
+    max_fallback_steps: int | None = None
 
 
 @dataclass(frozen=True)

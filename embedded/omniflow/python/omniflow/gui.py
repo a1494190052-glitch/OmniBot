@@ -308,7 +308,9 @@ def _turn_text(
         else raw_extra
     )
     if not lightweight_retry and isinstance(extra, dict) and extra:
-        recent_actions = extra.get("recent_actions")
+        context = dict(extra)
+        execution_history = str(context.pop("execution_history", "") or "").strip()
+        recent_actions = context.get("recent_actions")
         if isinstance(recent_actions, list) and any(
             isinstance(item, dict)
             and item.get("success") is True
@@ -321,18 +323,21 @@ def _turn_text(
                 "workflow once, the requested operation is already complete: "
                 "choose finished now. Do not add extra GUI actions merely to verify it."
             )
-        if extra.get("previous_action_error") or extra.get("recent_actions"):
+        if context.get("previous_action_error") or context.get("recent_actions"):
             lines.append(
                 "Use the recent action history and error before selecting again. "
                 "Do not repeat the same action when it already succeeded or made no "
                 "progress; choose a different schema-valid action, finish, or abort."
             )
-        lines.extend(
-            (
-                "Recent execution context:",
-                json.dumps(extra, ensure_ascii=False, separators=(",", ":")),
+        if execution_history:
+            lines.extend(("Completed tool-call history:", execution_history))
+        if context:
+            lines.extend(
+                (
+                    "Recent execution context:",
+                    json.dumps(context, ensure_ascii=False, separators=(",", ":")),
+                )
             )
-        )
     if not lightweight_retry:
         lines.extend(
             (

@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import argparse
-import asyncio
 import hashlib
 import json
 from pathlib import Path
@@ -20,7 +19,14 @@ from omniflow.gui import (
     build_model_turn_request,
     parse_model_turn_response,
 )
-from omniflow.model import Action, ActionResult, Function, FunctionResolution, Observation
+from omniflow.model import (
+    Action,
+    ActionResult,
+    Function,
+    FunctionResolution,
+    Observation,
+    RunRequest,
+)
 from omniflow.resolvers.llm_resolver import SYSTEM_PROMPT, parse_resolution
 from omniflow.runtime import InputRequired, OmniFlow
 from omniflow.trajectory import canonicalize_state
@@ -154,15 +160,13 @@ class JsonLineBridge:
                 config=OmniFlowConfig(runtime=RuntimeSettings(max_steps=max_steps)),
             )
             function = flow.store.get_function(function_id) if function_id else None
-            if function_id:
-                result = asyncio.run(
-                    flow.arun_function(
-                        function_id,
-                        arguments=dict(body.get("arguments") or {}),
-                    )
+            result = flow.run(
+                RunRequest(
+                    goal=goal,
+                    function_id=function_id or None,
+                    arguments=dict(body.get("arguments") or {}),
                 )
-            else:
-                result = flow.run(goal)
+            )
             return _run_result(result, body=body, function=function)
         raise ValueError(f"unsupported_operation:{operation}")
 

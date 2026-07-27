@@ -26,6 +26,7 @@ from omniflow.model import (
     Observation,
     Planner,
     RecallResult,
+    RunRequest,
     RunResult,
     StepResult,
 )
@@ -65,6 +66,7 @@ __all__ = [
     "PluginSet",
     "PromptSet",
     "RecallResult",
+    "RunRequest",
     "RunResult",
     "RuntimeSettings",
     "StepResult",

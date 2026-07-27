@@ -4,6 +4,8 @@ import json
 from pathlib import Path
 import re
 
+import pytest
+
 from omniflow.bridge import _BridgePlanner
 from omniflow.gui import (
     build_model_turn_request,
@@ -13,7 +15,6 @@ from omniflow.gui import (
 )
 from omniflow.model import Observation
 from omniflow.schemas import VLM_ACTION_TOOL_NAMES, load_canonical_action_schema
-import pytest
 
 _DATASET = json.loads(
     (Path(__file__).with_name("data") / "vlm_tool_call_cases.v1.json").read_text(
@@ -352,6 +353,41 @@ def test_model_request_tells_vlm_to_finish_after_successful_recalled_function() 
     text = request["messages"][1]["content"][0]["text"]
     assert "A recalled Function completed successfully" in text
     assert "choose finished now" in text
+
+
+def test_model_request_renders_shared_execution_history_as_natural_language() -> None:
+    history = (
+        "Tool-call execution history on the target device:\n"
+        "1. [Function `saved_workflow`] Clicked the recorded target successfully."
+    )
+    request = build_model_turn_request(
+        goal="Use the saved workflow once",
+        model="gui-model",
+        state={
+            "state_id": "state-4",
+            "package_name": "com.android.settings",
+            "activity_name": "Settings",
+            "display": {"width": 1080, "height": 2400},
+            "xml": "<hierarchy />",
+            "extra": {
+                "execution_history": history,
+                "recent_actions": [
+                    {
+                        "tool": "click",
+                        "args": {"x": 500, "y": 500},
+                        "success": True,
+                        "function_id": "saved_workflow",
+                    }
+                ],
+            },
+        },
+        max_steps=12,
+        turn_index=2,
+    )
+
+    text = request["messages"][1]["content"][0]["text"]
+    assert f"Completed tool-call history:\n{history}" in text
+    assert '"execution_history"' not in text
 
 
 def test_schema_retry_uses_verbatim_bad_call_without_images(tmp_path: Path) -> None:

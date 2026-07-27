@@ -21,6 +21,7 @@ from omniflow.model import (
     Host,
     Observation,
     Planner,
+    RunRequest,
     RunResult,
 )
 from omniflow.store import FunctionStore
@@ -51,12 +52,24 @@ class OmniFlow:
 
     async def arun(
         self,
-        goal: str,
+        request: str | RunRequest,
         *,
         experiment: Experiment | str | None = None,
     ) -> RunResult:
+        if isinstance(request, RunRequest):
+            goal = str(request.goal).strip()
+            explicit_function_id = str(request.function_id or "").strip()
+            explicit_arguments = dict(request.arguments)
+        else:
+            goal = str(request).strip()
+            explicit_function_id = ""
+            explicit_arguments = {}
         if self.host is None:
-            return RunResult(False, error="host_not_set")
+            return RunResult(
+                False,
+                function_id=explicit_function_id or None,
+                error="host_not_set",
+            )
         profile = _experiment(experiment)
         actions_executed = 0
         model_calls = 0
@@ -70,12 +83,28 @@ class OmniFlow:
         bound_function: Function | None = None
         failed_step_index: int | None = None
         fallback_observations: list[Observation] = []
+        completed_function: Function | None = None
         observation = await self._observe(screenshot=False)
 
         functions = sorted(self.store.functions.values(), key=lambda item: item.id)
         selected_function: Function | None = None
         resolved_arguments: dict[str, Any] = {}
-        if functions and self.resolver is not None:
+        if explicit_function_id:
+            selected_function = self.store.get_function(explicit_function_id)
+            resolved_arguments = explicit_arguments
+            if selected_function is None:
+                return self._result(
+                    False,
+                    profile=profile,
+                    trace=trace,
+                    function_id=explicit_function_id,
+                    actions_executed=actions_executed,
+                    model_calls=model_calls,
+                    llm_usage=llm_usage,
+                    error="function_not_found",
+                    final_state=observation,
+                )
+        elif functions and self.resolver is not None:
             try:
                 resolution = await _await(self.resolver.resolve(goal, functions))
                 resolver_usage = _take_llm_usage(self.resolver)
@@ -131,6 +160,8 @@ class OmniFlow:
             if replay.success:
                 observation = replay.final_state or observation
                 last_error = "function_replay_completed_e2e_unverified"
+                if bound_function is not None:
+                    completed_function = bound_function
             else:
                 failed_function_id = selected_function.id
             observation = replay.final_state or observation
@@ -141,6 +172,24 @@ class OmniFlow:
                 )
                 if bound_function is not None and failed_step_index is not None:
                     fallback_observations = [observation]
+
+            if explicit_function_id:
+                return self._result(
+                    replay.success,
+                    profile=profile,
+                    trace=trace,
+                    function_id=explicit_function_id,
+                    actions_executed=actions_executed,
+                    model_calls=model_calls,
+                    llm_usage=llm_usage,
+                    error=None if replay.success else last_error,
+                    final_state=observation,
+                    terminal_detail={
+                        "done_reason": (
+                            "function_completed" if replay.success else "error"
+                        )
+                    },
+                )
 
         if self.planner is None:
             return self._result(
@@ -165,9 +214,38 @@ class OmniFlow:
         pending_user_input: str | None = None
         planner_diagnostics: dict[str, Any] = {}
         while runtime_steps_used < self.config.runtime.max_steps:
+            max_fallback_steps = self.config.runtime.max_fallback_steps
+            if (
+                max_fallback_steps is not None
+                and fallback_steps >= max(0, int(max_fallback_steps))
+            ):
+                return self._result(
+                    False,
+                    profile=profile,
+                    trace=trace,
+                    function_id=replayed_function_id or failed_function_id,
+                    actions_executed=actions_executed,
+                    model_calls=model_calls,
+                    llm_usage=llm_usage,
+                    fallback_steps=fallback_steps,
+                    error="fallback_budget_exhausted",
+                    final_state=observation,
+                    function_resolution=resolution_detail,
+                    planner_diagnostics=planner_diagnostics,
+                )
             observation = await self._observe(screenshot=True)
             recent_actions = _recent_actions(trace)
-            if previous_action_error or recent_actions or pending_user_input:
+            execution_history = (
+                _execution_history(trace, completed_function=completed_function)
+                if trace
+                else None
+            )
+            if (
+                previous_action_error
+                or recent_actions
+                or pending_user_input
+                or execution_history
+            ):
                 observation = Observation(
                     xml=observation.xml,
                     package_name=observation.package_name,
@@ -181,6 +259,11 @@ class OmniFlow:
                         else None,
                         **(
                             {"recent_actions": recent_actions} if recent_actions else {}
+                        ),
+                        **(
+                            {"execution_history": execution_history}
+                            if execution_history
+                            else {}
                         ),
                         **(
                             {"user_input": pending_user_input}
@@ -221,6 +304,16 @@ class OmniFlow:
             runtime_steps_used += 1
             planner_metadata = _take_planner_metadata(self.planner)
             _merge_planner_diagnostics(planner_diagnostics, planner_metadata)
+            if _action_already_succeeded_on_current_state(
+                trace,
+                planned,
+                observation,
+            ):
+                previous_action_error = (
+                    "action_already_succeeded_on_current_state"
+                )
+                previous_action = planned
+                continue
             if stalled_action is not None and planned == stalled_action:
                 previous_action_error = "repeated_action_without_progress"
                 previous_action = planned
@@ -368,6 +461,7 @@ class OmniFlow:
                         failed_step_index = None
                         fallback_observations = []
                         last_error = "function_replay_completed_e2e_unverified"
+                        completed_function = bound_function
                         previous_action_error = None
                         previous_action = None
                     else:
@@ -416,60 +510,29 @@ class OmniFlow:
             )
         )
 
-    async def _execute_selected_function(
-        self,
-        function: Function,
-        *,
-        arguments: dict[str, Any],
-        observation: Observation,
-        max_actions: int,
-    ) -> RunResult:
-        try:
-            bound_function = bind_function(function, arguments)
-        except ValueError as error:
-            return RunResult(
-                False,
-                function_id=function.id,
-                error=str(error),
-                final_state=observation,
-            )
-        return await execute_function(
-            bound_function,
-            host=self.host,
-            plugins=self.plugins,
-            observation=observation,
-            max_actions=max_actions,
-        )
-
     async def arun_function(
         self,
         function_id: str,
         *,
         arguments: dict[str, Any] | None = None,
     ) -> RunResult:
-        if self.host is None:
-            return RunResult(False, function_id=function_id, error="host_not_set")
-        function = self.store.get_function(function_id)
-        if function is None:
-            return RunResult(False, function_id=function_id, error="function_not_found")
-        observation = await self._observe(screenshot=False)
-        return await self._execute_selected_function(
-            function,
-            arguments=dict(arguments or {}),
-            observation=observation,
-            max_actions=self.config.runtime.max_steps,
+        return await self.arun(
+            RunRequest(
+                function_id=function_id,
+                arguments=dict(arguments or {}),
+            )
         )
 
     def run(
         self,
-        goal: str,
+        request: str | RunRequest,
         *,
         experiment: Experiment | str | None = None,
     ) -> RunResult:
         try:
             asyncio.get_running_loop()
         except RuntimeError:
-            return asyncio.run(self.arun(goal, experiment=experiment))
+            return asyncio.run(self.arun(request, experiment=experiment))
         raise RuntimeError("OmniFlow.run cannot run inside an event loop; await arun")
 
     def _result(
@@ -548,6 +611,100 @@ def _recent_actions(
     return history
 
 
+def _execution_history(
+    trace: list[dict[str, Any]],
+    *,
+    completed_function: Function | None = None,
+) -> str:
+    lines = ["Tool-call execution history on the target device:"]
+    if completed_function is not None:
+        lines.extend(
+            [
+                (
+                    f"Function `{completed_function.id}` "
+                    f"({completed_function.name}) completed successfully."
+                ),
+                f"Function purpose: {completed_function.description}",
+            ]
+        )
+    for index, step in enumerate(trace, start=1):
+        if not isinstance(step, dict):
+            continue
+        try:
+            action = Action.from_value(step.get("action"))
+        except (TypeError, ValueError):
+            continue
+        metadata = step.get("metadata")
+        function_id = (
+            str(metadata.get("function_id") or "").strip()
+            if isinstance(metadata, dict)
+            else ""
+        )
+        source = f"Function `{function_id}`" if function_id else "Planner"
+        result = step.get("result")
+        success = isinstance(result, dict) and result.get("success") is True
+        if success:
+            description = _describe_completed_action(action)
+        else:
+            error = (
+                str(result.get("error") or "unknown execution error")
+                if isinstance(result, dict)
+                else "unknown execution error"
+            )
+            description = f"Tool call `{action.tool}` failed: {error}."
+        lines.append(f"{index}. [{source}] {description}")
+    lines.extend(
+        [
+            (
+                "This history records tool execution only, not independent task "
+                "validation."
+            ),
+            (
+                "Before making any further tool call, verify whether the complete "
+                "user goal is already satisfied."
+            ),
+            (
+                "Do not repeat successful tool calls. If the goal is complete, "
+                "call `finished`."
+            ),
+        ]
+    )
+    return "\n".join(lines)
+
+
+def _describe_completed_action(action: Action) -> str:
+    args = action.args
+    target = str(args.get("target_description") or "").strip()
+    if action.tool == "open_app":
+        package_name = str(args.get("package_name") or "").strip()
+        return f'Opened app package "{package_name}" successfully.'
+    if action.tool == "click":
+        if target:
+            return f'Clicked target "{target}" successfully.'
+        return "Clicked the recorded target position successfully."
+    if action.tool == "long_press":
+        if target:
+            return f'Long-pressed target "{target}" successfully.'
+        return "Long-pressed the recorded screen position successfully."
+    if action.tool == "input_text":
+        if target:
+            return f'Entered text into target "{target}" successfully.'
+        return "Entered the required text successfully."
+    if action.tool == "swipe":
+        direction = str(args.get("direction") or "").strip()
+        return (
+            f"Swiped {direction} successfully."
+            if direction
+            else "Completed the recorded swipe successfully."
+        )
+    if action.tool == "press_key":
+        key = str(args.get("key") or "").strip()
+        return f'Pressed key "{key}" successfully.'
+    if action.tool == "wait":
+        return f"Waited for {args.get('duration_ms')} ms successfully."
+    return f"Completed action `{action.tool}` successfully."
+
+
 def _same_observation(
     before: Observation | None,
     after: Observation | None,
@@ -565,6 +722,34 @@ def _same_observation(
         after.xml,
         after.image_base64,
     )
+
+
+def _action_already_succeeded_on_current_state(
+    trace: list[dict[str, Any]],
+    action: Action,
+    observation: Observation,
+) -> bool:
+    state_id = str(observation.extra.get("state_id") or "").strip()
+    if not state_id:
+        return False
+    for step in reversed(trace):
+        if not isinstance(step, dict):
+            continue
+        if (
+            str(step.get("before_state_id") or "") != state_id
+            or str(step.get("after_state_id") or "") != state_id
+        ):
+            continue
+        result = step.get("result")
+        if not isinstance(result, dict) or result.get("success") is not True:
+            continue
+        try:
+            completed = Action.from_value(step.get("action"))
+        except (TypeError, ValueError):
+            continue
+        if completed == action:
+            return True
+    return False
 
 
 def _optional_step_index(value: Any) -> int | None:
