@@ -10,6 +10,20 @@ from typing import Any
 CANONICAL_ACTION_SCHEMA_FILENAME = "oob_canonical_actions.v1.json"
 CANONICAL_RUN_LOG_SCHEMA_FILENAME = "omniflow_canonical_run_log.v1.json"
 CHECKER_RULE_SCHEMA_FILENAME = "omniflow_checker_rule.v1.json"
+VLM_ACTION_TOOL_NAMES = (
+    "click",
+    "input_text",
+    "swipe",
+    "press_key",
+    "finished",
+)
+_VLM_ACTION_ARGUMENT_NAMES = {
+    "click": ("x", "y"),
+    "input_text": ("text", "x", "y"),
+    "swipe": ("direction", "x1", "y1", "x2", "y2"),
+    "press_key": ("key",),
+    "finished": ("content",),
+}
 
 
 def canonical_action_schema_path() -> Path:
@@ -119,6 +133,29 @@ def openai_action_tools(*, include_summary: bool = False) -> list[dict[str, Any]
     return tools
 
 
+def vlm_action_tools(*, include_summary: bool = False) -> list[dict[str, Any]]:
+    tools: list[dict[str, Any]] = []
+    for tool in openai_action_tools(include_summary=include_summary):
+        function = tool.get("function", {})
+        name = str(function.get("name") or "")
+        allowed_arguments = _VLM_ACTION_ARGUMENT_NAMES.get(name)
+        if allowed_arguments is None:
+            continue
+        parameters = function.get("parameters", {})
+        properties = parameters.get("properties", {})
+        allowed = ({"summary"} if include_summary else set()).union(
+            allowed_arguments
+        )
+        parameters["properties"] = {
+            key: value for key, value in properties.items() if key in allowed
+        }
+        parameters["required"] = [
+            key for key in parameters.get("required", ()) if key in allowed
+        ]
+        tools.append(tool)
+    return tools
+
+
 def canonicalize_action(
     value: Any,
     *,
@@ -217,6 +254,7 @@ __all__ = [
     "CANONICAL_ACTION_SCHEMA_FILENAME",
     "CANONICAL_RUN_LOG_SCHEMA_FILENAME",
     "CHECKER_RULE_SCHEMA_FILENAME",
+    "VLM_ACTION_TOOL_NAMES",
     "canonical_action_schema_path",
     "canonical_run_log_schema_path",
     "canonicalize_action",
@@ -225,4 +263,5 @@ __all__ = [
     "load_canonical_run_log_schema",
     "load_checker_rule_schema",
     "openai_action_tools",
+    "vlm_action_tools",
 ]

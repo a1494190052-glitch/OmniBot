@@ -2,7 +2,8 @@
 
 OpenOmniBot builds this directory into one versioned Python bundle. The bundle
 contains OmniFlow, the canonical OmniTransfer runtime, the shared OOB schemas,
-and the pinned ARM64 musllinux NumPy wheel.
+the pinned ARM64 musllinux NumPy wheel, and the pinned pure-Python json_repair
+wheel used only at the native tool-argument parsing boundary.
 
 The phone never installs OmniFlow or OmniTransfer with pip. On first use the
 Android adapter verifies and atomically extracts the bundle under
@@ -27,6 +28,12 @@ for Android. The NumPy backend executes the same trained mutual-assignment model
 for XML graphs; PyTorch remains the training and screenshot-inference backend.
 Runtime health performs one real mapping before Android marks the process ready.
 Transfer still fails closed and never replays source coordinates.
+
+VLM calls use raw pixels in the current original device display frame so their
+coordinates match XML bounds. `omniflow.vlm_coordinates` converts canonical
+recent-action context to pixels before each call and converts validated model
+pixels back to canonical `0..1000` coordinates immediately afterward. Screenshot
+compression does not change this declared coordinate frame.
 
 The source-controlled snapshots remain the reproducible default. For a fast
 APK replacement without changing this directory, build directly from local

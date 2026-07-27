@@ -1101,7 +1101,10 @@ def evaluate_historical_vlm_reselection(
         for item in build_model_turn_request(
             goal="historical validation",
             model=model,
-            state={"xml": "<hierarchy />"},
+            state={
+                "xml": "<hierarchy />",
+                "display": {"width": 1000, "height": 1000},
+            },
             max_steps=1,
             turn_index=0,
         )["tools"]
@@ -1204,7 +1207,7 @@ def evaluate_historical_vlm_reselection(
             selected_action: dict[str, Any] | None = None
             metadata: dict[str, Any] = {}
             case_error = ""
-            for attempt in range(3):
+            for attempt in range(2):
                 turn_index += 1
                 request_payload = build_model_turn_request(
                     goal=goal,
@@ -1222,6 +1225,11 @@ def evaluate_historical_vlm_reselection(
                         response,
                         requested_model=model,
                         turn_index=turn_index,
+                        display=(
+                            state.get("display")
+                            if isinstance(state.get("display"), dict)
+                            else None
+                        ),
                     )
                     break
                 except ModelToolCallError as error:
@@ -1235,7 +1243,7 @@ def evaluate_historical_vlm_reselection(
                     if error.arguments is not None:
                         rejected_entry["arguments"] = error.arguments
                     rejected_calls.append(rejected_entry)
-                    if attempt == 2:
+                    if attempt == 1:
                         break
                     validation_error = str(error)
                     retry_tool_name = error.tool_name

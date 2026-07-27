@@ -26,6 +26,15 @@ Production writers, compilers, stores, and replay code accept only these
 contracts. Historical AndroidWorld data is normalized at its import adapter,
 not inside the core runtime.
 
+Canonical Actions use `0..1000` relative coordinates, but the VLM wire boundary
+uses raw pixels in the current original device display frame so it matches XML
+bounds. `omniflow.vlm_coordinates` is the only VLM conversion owner: it converts
+canonical recent-action context to pixels before the call and converts validated
+raw-pixel tool arguments back to canonical coordinates after the call. Manual
+touch capture performs its raw-pixel-to-canonical conversion when the Action is
+created. Screenshot transport resizing never changes the declared VLM coordinate
+frame.
+
 Checker rules are generated only during offline RunLog enhancement from an
 explicit successful recovery step. The recovery step is omitted from the main
 Function path; its `before_state_id` and canonical Action become the rule's

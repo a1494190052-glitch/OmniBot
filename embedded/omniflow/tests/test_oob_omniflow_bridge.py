@@ -4,10 +4,9 @@ from io import StringIO
 import json
 from pathlib import Path
 from types import SimpleNamespace
-import pytest
 
-from omniflow.bridge import JsonLineBridge
 from omniflow import transfer as transfer_module
+from omniflow.bridge import JsonLineBridge
 from omnitransfer import action_transfer
 from oob_omniflow_bridge import (
     BRIDGE_CONTRACT,
@@ -16,6 +15,7 @@ from oob_omniflow_bridge import (
     PROTOCOL_VERSION,
     OobOmniFlowBridge,
 )
+import pytest
 
 
 def model_turn(tool: str, args: dict, summary: str) -> dict:
@@ -120,6 +120,15 @@ def test_health_advertises_the_complete_oob_contract(tmp_path: Path) -> None:
         "required": ["step"],
         "step_schema_ref": "omniflow_canonical_run_log.v1.json#/$defs/step",
     }
+    invariants = BRIDGE_CONTRACT["invariants"]
+    assert invariants["action_coordinate_space"] == "relative_0_1000"
+    assert invariants["vlm_tool_coordinate_space"] == "current_display_pixels"
+    assert invariants["vlm_coordinate_conversion_owner"] == (
+        "omniflow.vlm_coordinates"
+    )
+    assert invariants["manual_coordinate_conversion_owner"] == (
+        "canonicalManualScreenAction"
+    )
 
 
 def test_health_loads_functions_after_action_canonicalization(tmp_path: Path) -> None:
@@ -257,7 +266,9 @@ def test_goal_run_uses_explicit_model_and_records_step(tmp_path: Path) -> None:
     assert result["finished_content"] == "Search opened"
 
 
-def test_goal_run_returns_info_answer_to_the_next_model_turn(tmp_path: Path) -> None:
+def test_goal_run_corrects_hidden_info_to_finished_without_request_input(
+    tmp_path: Path,
+) -> None:
     state = {
         "state_id": "live-0",
         "package_name": "demo.app",
@@ -299,12 +310,10 @@ def test_goal_run_returns_info_answer_to_the_next_model_turn(tmp_path: Path) -> 
                 "result": model_turn("info", {"value": "Continue?"}, "Ask permission"),
             }
         )
-        + line({"id": "run", "call_id": "run:5", "ok": True, "result": {"value": "yes"}})
-        + line({"id": "run", "call_id": "run:6", "ok": True, "result": state})
         + line(
             {
                 "id": "run",
-                "call_id": "run:7",
+                "call_id": "run:5",
                 "ok": True,
                 "result": model_turn("finished", {"content": "Confirmed"}, "Done"),
             }
@@ -320,11 +329,8 @@ def test_goal_run_returns_info_answer_to_the_next_model_turn(tmp_path: Path) -> 
         "observe",
         "observe",
         "model_turn",
-        "request_input",
-        "observe",
         "model_turn",
     ]
-    assert calls[6]["payload"]["state"]["extra"]["user_input"] == "yes"
     result = next(message["result"] for message in messages if "ok" in message)
     assert result["success"] is True
     assert result["finished_content"] == "Confirmed"

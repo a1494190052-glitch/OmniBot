@@ -20,6 +20,61 @@ import org.junit.Test
 
 class OmniFlowModelHostTest {
     @Test
+    fun `model turn compresses data uri screenshots before provider call`() = runBlocking {
+        var compressedInput = ""
+        val client = object : OmniFlowModelClient {
+            override suspend fun streamTurn(
+                request: ChatCompletionRequest,
+                onReasoningUpdate: (suspend (String) -> Unit)?,
+            ): ChatCompletionTurn {
+                val image = request.messages.single().content
+                    ?.jsonArray
+                    ?.last()
+                    ?.jsonObject
+                    ?.get("image_url")
+                    ?.jsonObject
+                    ?.get("url")
+                    ?.jsonPrimitive
+                    ?.content
+                assertEquals("data:image/jpeg;base64,COMPRESSED", image)
+                return ChatCompletionTurn(message = ChatCompletionMessage(role = "assistant"))
+            }
+        }
+        val host = OmniFlowModelHost(
+            modelClient = client,
+            imageCompressor = { value ->
+                compressedInput = value
+                "data:image/jpeg;base64,COMPRESSED"
+            },
+        )
+
+        host.modelTurn(
+            mapOf(
+                "model" to "gui-model",
+                "request" to mapOf(
+                    "model" to "gui-model",
+                    "messages" to listOf(
+                        mapOf(
+                            "role" to "user",
+                            "content" to listOf(
+                                mapOf("type" to "text", "text" to "inspect"),
+                                mapOf(
+                                    "type" to "image_url",
+                                    "image_url" to mapOf(
+                                        "url" to "data:image/png;base64,ORIGINAL",
+                                    ),
+                                ),
+                            ),
+                        ),
+                    ),
+                ),
+            ),
+        )
+
+        assertEquals("data:image/png;base64,ORIGINAL", compressedInput)
+    }
+
+    @Test
     fun `model turn forwards Python request and returns raw native tool call`() = runBlocking {
         val reasoningUpdates = mutableListOf<String>()
         val client = object : OmniFlowModelClient {
@@ -72,7 +127,10 @@ class OmniFlowModelHostTest {
                 )
             }
         }
-        val host = OmniFlowModelHost(client, reasoningUpdates::add)
+        val host = OmniFlowModelHost(
+            modelClient = client,
+            onReasoningUpdate = reasoningUpdates::add,
+        )
 
         val result = host.modelTurn(
             mapOf(

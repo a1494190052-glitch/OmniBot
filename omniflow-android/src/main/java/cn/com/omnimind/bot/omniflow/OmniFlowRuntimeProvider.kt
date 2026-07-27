@@ -148,6 +148,7 @@ class OmniFlowRuntimeProvider {
         "site-packages/omnitransfer/numpy_matcher.py",
         "site-packages/omnitransfer/${manifest.omniTransferCheckpoint}",
         "site-packages/numpy/__init__.py",
+        "site-packages/json_repair/__init__.py",
         "site-packages/schemas/oob/oob_canonical_actions.v1.json",
         "site-packages/schemas/oob/omniflow_canonical_run_log.v1.json",
         "site-packages/schemas/oob/omniflow_function.v2.json",
@@ -167,6 +168,7 @@ class OmniFlowRuntimeProvider {
         omniTransferCommit,
         omniTransferSourceSha256,
         omniTransferCheckpoint,
+        jsonRepairVersion,
     ).joinToString(":")
 
     private data class RuntimeSource(

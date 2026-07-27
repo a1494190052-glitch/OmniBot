@@ -3,16 +3,15 @@
 from __future__ import annotations
 
 import argparse
+from dataclasses import dataclass
 import hashlib
 import json
+from pathlib import Path, PurePosixPath
 import shutil
 import subprocess
-from dataclasses import dataclass
-from pathlib import Path, PurePosixPath
 from tempfile import TemporaryDirectory
 from urllib.request import urlopen
 from zipfile import ZIP_DEFLATED, ZipFile, ZipInfo
-
 
 IGNORED_NAMES = {".DS_Store"}
 IGNORED_SUFFIXES = {".pyc", ".pyo"}
@@ -200,7 +199,9 @@ def extract_zip(archive: Path, target: Path) -> None:
         for entry in source.infolist():
             relative = PurePosixPath(entry.filename)
             if relative.is_absolute() or ".." in relative.parts:
-                raise RuntimeError(f"zip entry escapes runtime directory: {entry.filename}")
+                raise RuntimeError(
+                    f"zip entry escapes runtime directory: {entry.filename}"
+                )
         source.extractall(target)
 
 
@@ -226,7 +227,9 @@ def build(args: argparse.Namespace) -> dict[str, str]:
         relative="omniflow",
         package_name="omniflow",
         embedded=embedded_root / "omniflow",
-        embedded_commit=required(properties, "omniflow.commit", runtime_properties_file),
+        embedded_commit=required(
+            properties, "omniflow.commit", runtime_properties_file
+        ),
         embedded_sha256=required(
             properties, "omniflow.source.sha256", runtime_properties_file
         ),
@@ -238,7 +241,9 @@ def build(args: argparse.Namespace) -> dict[str, str]:
         relative="src/omnitransfer",
         package_name="omnitransfer",
         embedded=embedded_root / "omnitransfer",
-        embedded_commit=required(properties, "omnitransfer.commit", runtime_properties_file),
+        embedded_commit=required(
+            properties, "omnitransfer.commit", runtime_properties_file
+        ),
         embedded_sha256=required(
             properties, "omnitransfer.source.sha256", runtime_properties_file
         ),
@@ -254,7 +259,9 @@ def build(args: argparse.Namespace) -> dict[str, str]:
 
     output = args.output_dir.resolve()
     cache = args.cache_dir.resolve()
-    checkpoint = required(properties, "omnitransfer.checkpoint", runtime_properties_file)
+    checkpoint = required(
+        properties, "omnitransfer.checkpoint", runtime_properties_file
+    )
     checkpoint_path = PurePosixPath(checkpoint)
     if checkpoint_path.is_absolute() or ".." in checkpoint_path.parts:
         raise RuntimeError("OmniTransfer checkpoint path must be package-relative")
@@ -263,6 +270,14 @@ def build(args: argparse.Namespace) -> dict[str, str]:
     numpy_sha256 = required(properties, "numpy.sha256", runtime_properties_file)
     numpy_wheel = cache / f"numpy-{numpy_sha256}.whl"
     download_verified(numpy_wheel, numpy_url, numpy_sha256)
+    json_repair_url = required(properties, "json_repair.url", runtime_properties_file)
+    json_repair_sha256 = required(
+        properties,
+        "json_repair.sha256",
+        runtime_properties_file,
+    )
+    json_repair_wheel = cache / f"json-repair-{json_repair_sha256}.whl"
+    download_verified(json_repair_wheel, json_repair_url, json_repair_sha256)
 
     with TemporaryDirectory(prefix="oob-omniflow-runtime-") as temporary:
         staging = Path(temporary)
@@ -293,6 +308,14 @@ def build(args: argparse.Namespace) -> dict[str, str]:
         for name in SCHEMA_NAMES:
             shutil.copyfile(repo / f"schemas/oob/{name}", schema_target / name)
         extract_zip(numpy_wheel, site_packages)
+        extract_zip(json_repair_wheel, site_packages)
+        for required_file in (
+            site_packages / "json_repair/__init__.py",
+            site_packages
+            / f"json_repair-{required(properties, 'json_repair.version', runtime_properties_file)}.dist-info/licenses/LICENSE",
+        ):
+            if not required_file.is_file():
+                raise RuntimeError(f"runtime dependency is incomplete: {required_file}")
 
         effective_properties = dict(properties)
         effective_properties.update(
@@ -310,7 +333,10 @@ def build(args: argparse.Namespace) -> dict[str, str]:
             }
         )
         (staging / "runtime.properties").write_text(
-            "".join(f"{key}={effective_properties[key]}\n" for key in sorted(effective_properties)),
+            "".join(
+                f"{key}={effective_properties[key]}\n"
+                for key in sorted(effective_properties)
+            ),
             encoding="utf-8",
         )
 
@@ -318,11 +344,17 @@ def build(args: argparse.Namespace) -> dict[str, str]:
         bundle = output / "bundle.zip"
         write_reproducible_zip(staging, bundle)
         manifest = {
-            "runtime.version": required(properties, "runtime.version", runtime_properties_file),
+            "runtime.version": required(
+                properties, "runtime.version", runtime_properties_file
+            ),
             "runtime.protocol": str(contract.get("protocol_version") or ""),
             "runtime.capabilities": ",".join(capabilities),
-            "runtime.python": required(properties, "runtime.python", runtime_properties_file),
-            "runtime.platform": required(properties, "runtime.platform", runtime_properties_file),
+            "runtime.python": required(
+                properties, "runtime.python", runtime_properties_file
+            ),
+            "runtime.platform": required(
+                properties, "runtime.platform", runtime_properties_file
+            ),
             "bridge.contract.sha256": sha256_file(contract_file),
             "omniflow.commit": omniflow.commit,
             "omniflow.source.sha256": effective_properties["omniflow.source.sha256"],
@@ -331,7 +363,14 @@ def build(args: argparse.Namespace) -> dict[str, str]:
                 "omnitransfer.source.sha256"
             ],
             "omnitransfer.checkpoint": checkpoint,
-            "numpy.version": required(properties, "numpy.version", runtime_properties_file),
+            "numpy.version": required(
+                properties, "numpy.version", runtime_properties_file
+            ),
+            "json_repair.version": required(
+                properties,
+                "json_repair.version",
+                runtime_properties_file,
+            ),
             "bundle.sha256": sha256_file(bundle),
         }
         if not manifest["runtime.protocol"]:

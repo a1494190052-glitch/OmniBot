@@ -3,11 +3,17 @@ package cn.com.omnimind.bot.omniflow
 import cn.com.omnimind.baselib.llm.ChatCompletionMessage
 import cn.com.omnimind.baselib.llm.ChatCompletionRequest
 import cn.com.omnimind.baselib.llm.ChatCompletionTurn
+import cn.com.omnimind.baselib.util.ImageCompressor
 import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.decodeFromJsonElement
+import kotlinx.serialization.json.jsonPrimitive
 
 interface OmniFlowModelClient {
     suspend fun streamTurn(
@@ -18,6 +24,7 @@ interface OmniFlowModelClient {
 
 class OmniFlowModelHost(
     private val modelClient: OmniFlowModelClient,
+    private val imageCompressor: (String) -> String = ::compressVlmImage,
     private val onReasoningUpdate: suspend (String) -> Unit = {},
 ) {
     private val json = Json {
@@ -34,7 +41,11 @@ class OmniFlowModelHost(
         )
         require(request.model == requestedModel) { "model_turn_request_model_mismatch" }
         val turn = modelClient.streamTurn(
-            request = request,
+            request = request.copy(
+                messages = request.messages.map { message ->
+                    message.copy(content = compressImages(message.content))
+                },
+            ),
             onReasoningUpdate = { thinking ->
                 thinking.trim().takeIf(String::isNotEmpty)?.let { onReasoningUpdate(it) }
             },
@@ -70,7 +81,40 @@ class OmniFlowModelHost(
         ).filterValues { it != null }.takeIf(Map<String, Any?>::isNotEmpty)
     }
 
+    private fun compressImages(content: JsonElement?): JsonElement? {
+        val blocks = content as? JsonArray ?: return content
+        return JsonArray(
+            blocks.map { item ->
+                val block = item as? JsonObject ?: return@map item
+                if (block["type"]?.jsonPrimitive?.contentOrNull != "image_url") {
+                    return@map item
+                }
+                val imageUrl = block["image_url"] as? JsonObject ?: return@map item
+                val url = imageUrl["url"]?.jsonPrimitive?.contentOrNull.orEmpty()
+                if (!url.startsWith("data:image/")) return@map item
+                JsonObject(
+                    block + (
+                        "image_url" to JsonObject(
+                            imageUrl + ("url" to JsonPrimitive(imageCompressor(url))),
+                        )
+                    ),
+                )
+            },
+        )
+    }
+
     companion object {
+        private fun compressVlmImage(value: String): String {
+            val compressed = ImageCompressor.compressBase64Image(
+                base64String = value,
+                scale = 0.3f,
+                quality = 70,
+                bypassThreshold = 0L,
+            ).base64
+            val payload = compressed.substringAfter(",", "")
+            return if (payload.isBlank()) value else "data:image/jpeg;base64,$payload"
+        }
+
         suspend fun completeJson(payload: Map<String, Any?>): Map<String, Any?> {
             val request = ChatCompletionRequest(
                 model = firstText(payload["model"], "scene.dispatch.model"),

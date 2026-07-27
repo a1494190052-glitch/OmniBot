@@ -36,6 +36,32 @@ must load `source_state_id` and use the canonical OmniTransfer implementation;
 transfer failure returns control to the VLM and must never replay source-device
 coordinates directly.
 
+## VLM Coordinate Boundary Long-Term Rule
+
+Canonical Actions, RunLogs, and Functions continue to store coordinates in the
+`0..1000` relative coordinate space. The VLM boundary is deliberately different:
+every coordinate shown to or returned by a VLM is a raw pixel in the current
+original device `display` frame. XML bounds use that same raw-pixel frame.
+Screenshot compression or resizing must never change the coordinate frame
+described to the VLM.
+
+All VLM coordinate conversion belongs in
+`omniflow.vlm_coordinates`: canonical recent-action context is converted to raw
+screen pixels immediately before the model call, and raw model tool arguments
+are range-checked against the current display and converted to canonical
+`0..1000` immediately after the call. Conversion is unconditional, including
+when a valid raw pixel value is numerically below `1000`; do not infer a
+coordinate space from magnitude. A coordinate VLM call without a valid current
+display must fail instead of guessing.
+
+Manual recording follows the same generation-boundary rule in Kotlin: raw touch
+pixels are converted exactly once by `ActionCoordinateCodec.toRelative` inside
+`canonicalManualScreenAction` when the canonical Action is created. Do not move
+this conversion into persistence, replay, schema aliases, or provider-specific
+heuristics. Provider adapters may repair an explicitly recognized argument
+shape, but must leave scalar values in the raw VLM pixel frame for the shared
+boundary converter.
+
 ## Large Refactor Acceptance Rule
 
 Any large runtime, schema, VLM, RunLog, or Function refactor must be validated

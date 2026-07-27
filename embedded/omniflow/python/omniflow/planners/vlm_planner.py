@@ -8,11 +8,20 @@ from typing import Any
 from omniflow.config import PromptSet
 from omniflow.llm_usage import LLMUsageTracker
 from omniflow.model import Action, Observation
-from omniflow.schemas import canonicalize_action, openai_action_tools
+from omniflow.model_adapter import adapt_tool_arguments
+from omniflow.schemas import canonicalize_action, vlm_action_tools
+from omniflow.tool_argument_repair import load_tool_arguments
+from omniflow.ui_projection import project_ui
+from omniflow.vlm_coordinates import (
+    display_size,
+    screen_context_to_pixels,
+    screen_pixel_args_to_canonical,
+    screen_pixel_tools,
+)
 
 _ORPHANED_Y_COORDINATE = re.compile(
     r'^(?P<prefix>\{.*"x"\s*:\s*-?(?:\d+(?:\.\d*)?|\.\d+))'
-    r'\s*,\s*(?P<y>-?(?:\d+(?:\.\d*)?|\.\d+))\s*\}$',
+    r"\s*,\s*(?P<y>-?(?:\d+(?:\.\d*)?|\.\d+))\s*\}$",
     re.DOTALL,
 )
 
@@ -22,20 +31,19 @@ def _parse_tool_arguments(tool_name: str, raw_arguments: Any) -> dict[str, Any]:
     try:
         arguments = json.loads(text)
     except json.JSONDecodeError as error:
-        if tool_name not in {"click", "long_press"}:
-            raise
-        match = _ORPHANED_Y_COORDINATE.fullmatch(text.strip())
-        if match is None:
-            raise
-        repaired = f'{match.group("prefix")}, "y": {match.group("y")}}}'
-        try:
-            arguments = json.loads(repaired)
-            canonicalize_action(
-                {"tool": tool_name, "args": arguments},
-                persisted_only=False,
-            )
-        except (json.JSONDecodeError, ValueError, TypeError):
-            raise error
+        match = (
+            _ORPHANED_Y_COORDINATE.fullmatch(text.strip())
+            if tool_name in {"click", "long_press"}
+            else None
+        )
+        if match is not None:
+            repaired = f'{match.group("prefix")}, "y": {match.group("y")}}}'
+            try:
+                arguments = json.loads(repaired)
+            except (json.JSONDecodeError, TypeError):
+                raise error
+        else:
+            arguments, _repaired = load_tool_arguments(text)
     if not isinstance(arguments, dict):
         raise ValueError("planner_tool_arguments_must_be_object")
     return arguments
@@ -65,20 +73,34 @@ class VLMPlanner:
 
     async def one_step_action(self, goal: str, observation: Observation) -> Action:
         client = self._client or self._build_client()
+        projection = project_ui(str(observation.xml or ""), goal)
+        display = (
+            observation.extra.get("display")
+            if isinstance(observation.extra.get("display"), dict)
+            else None
+        )
+        width, height = display_size(display)
+        screen_context = screen_context_to_pixels(
+            {key: value for key, value in observation.extra.items() if key != "display"},
+            display,
+        )
         content: list[dict[str, Any]] = [
             {
                 "type": "text",
                 "text": json.dumps(
                     {
                         "goal": goal,
-                        "visible_ui_xml": str(observation.xml or "")[:30000],
-                        "screen_context": observation.extra,
+                        "relevant_ui_elements": projection.text,
+                        "ui_candidate_count": projection.candidate_count,
+                        "display": {"width": width, "height": height},
+                        "coordinate_space": "current_display_pixels",
+                        "screen_context": screen_context,
                     },
                     ensure_ascii=False,
                 ),
             }
         ]
-        if observation.image_base64:
+        if observation.image_base64 and projection.requires_screenshot:
             image = str(observation.image_base64)
             image_url = (
                 image
@@ -87,7 +109,17 @@ class VLMPlanner:
             )
             content.append({"type": "image_url", "image_url": {"url": image_url}})
         messages: list[dict[str, Any]] = [
-            {"role": "system", "content": self.prompts.planner_system},
+            {
+                "role": "system",
+                "content": (
+                    f"{self.prompts.planner_system}\n\n"
+                    "Mandatory coordinate contract: all tool coordinates are raw "
+                    f"pixels in the current original Display (X 0..{int(width)}, "
+                    f"Y 0..{int(height)}), never normalized 0..1000 values. XML "
+                    "bounds use the same frame. Transport image resizing does not "
+                    "change the coordinate frame."
+                ),
+            },
             {"role": "user", "content": content},
         ]
         for attempt in range(2):
@@ -96,7 +128,7 @@ class VLMPlanner:
                 response = client.chat.completions.create(
                     model=self.model,
                     messages=messages,
-                    tools=openai_action_tools(),
+                    tools=screen_pixel_tools(vlm_action_tools(), display),
                     tool_choice="required",
                     temperature=0,
                     timeout=self.timeout,
@@ -115,6 +147,18 @@ class VLMPlanner:
                     str(call.name or ""),
                     call.arguments,
                 )
+                arguments, _adapter_metadata = adapt_tool_arguments(
+                    tool=str(call.name or ""),
+                    arguments=arguments,
+                    requested_model=self.model,
+                    resolved_model=self.model,
+                    display=display,
+                )
+                arguments, _coordinate_metadata = screen_pixel_args_to_canonical(
+                    tool=str(call.name or ""),
+                    args=arguments,
+                    display=display,
+                )
                 canonical = canonicalize_action(
                     {"tool": str(call.name or ""), "args": arguments},
                     persisted_only=False,
@@ -131,7 +175,7 @@ class VLMPlanner:
                                 f"({exc}). "
                                 "Return exactly one provided GUI tool call whose "
                                 "arguments are valid JSON and satisfy its schema, "
-                                "including 0..1000 relative coordinates."
+                                "including raw current-Display pixel coordinates."
                             ),
                         },
                     ]

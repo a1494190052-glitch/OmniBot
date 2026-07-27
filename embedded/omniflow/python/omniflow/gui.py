@@ -6,18 +6,29 @@ from pathlib import Path
 from typing import Any
 
 from omniflow.model_adapter import adapt_tool_arguments
-from omniflow.schemas import canonicalize_action, openai_action_tools
-
+from omniflow.schemas import canonicalize_action, vlm_action_tools
+from omniflow.tool_argument_repair import load_tool_arguments
+from omniflow.ui_projection import UIProjection, project_ui
+from omniflow.vlm_coordinates import (
+    display_size,
+    screen_context_to_pixels,
+    screen_pixel_args_to_canonical,
+    screen_pixel_tools,
+)
 
 SYSTEM_PROMPT = """
-You are an Android GUI agent. Complete the user goal from the current screenshot
-and accessibility XML. Return exactly one native tool_call each turn. Never put
+You are an Android GUI agent. Complete the user goal from the compact relevant UI
+elements and optional current screenshot. Return exactly one native tool_call each turn. Never put
 action JSON or tool syntax in assistant text. Choose one action, wait for its
 result, then inspect the fresh state before choosing another action. Coordinates
-are relative numbers in the 0..1000 range, not screen pixels. Every tool call
+are raw pixels in the current original Display coordinate frame, never normalized
+0..1000 values. XML bounds use that same raw-pixel frame. A screenshot may be
+resized for transport, but its coordinates must still refer to the original
+Display. Every tool call
 must include a concise summary explaining why that action is the best next step.
+Every coordinate is one scalar raw-pixel number, never an array, object, string,
+boolean, normalized value, or combined coordinate pair.
 Use finished only when current evidence directly proves the goal is complete.
-Use info only when user input is required.
 """.strip()
 
 
@@ -29,6 +40,7 @@ class ModelToolCallError(ValueError):
         tool_name: str = "",
         arguments: Any = None,
     ):
+        self.code = str(message)
         self.tool_name = str(tool_name).strip()
         self.arguments = arguments
         super().__init__(message)
@@ -48,7 +60,13 @@ def build_model_turn_request(
     validation_error: str = "",
     retry_tool_name: str = "",
     rejected_tool_call: dict[str, Any] | None = None,
+    lightweight_retry: bool = False,
 ) -> dict[str, Any]:
+    projection = (
+        UIProjection("<omitted>", 0, 0, 0)
+        if lightweight_retry
+        else project_ui(str(state.get("xml") or ""), goal)
+    )
     text = _turn_text(
         goal=goal,
         state=state,
@@ -59,25 +77,19 @@ def build_model_turn_request(
         installed_apps=installed_apps or {},
         validation_error=validation_error,
         rejected_tool_call=rejected_tool_call,
+        lightweight_retry=lightweight_retry,
+        projection=projection,
     )
     content: list[dict[str, Any]] = [{"type": "text", "text": text}]
-    include_images = not validation_error.strip()
-    previous_image = _image_data_uri(previous_screenshot_path) if include_images else ""
+    include_images = not validation_error.strip() and projection.requires_screenshot
     current_image = _state_image_data_uri(state) if include_images else ""
-    if previous_image:
-        content.extend(
-            (
-                {"type": "text", "text": "Previous screenshot before the last action:"},
-                {"type": "image_url", "image_url": {"url": previous_image}},
-            )
-        )
-        if current_image:
-            content.append(
-                {"type": "text", "text": "Current screenshot after the last action:"}
-            )
     if current_image:
         content.append({"type": "image_url", "image_url": {"url": current_image}})
-    tools = openai_action_tools(include_summary=True)
+    display = state.get("display") if isinstance(state.get("display"), dict) else None
+    tools = screen_pixel_tools(
+        vlm_action_tools(include_summary=True),
+        display,
+    )
     if retry_tool_name:
         tools = [
             tool
@@ -108,6 +120,7 @@ def parse_model_turn_response(
     *,
     requested_model: str,
     turn_index: int,
+    display: dict[str, Any] | None = None,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     if not isinstance(value, dict):
         raise ValueError("model_turn_response_invalid")
@@ -129,7 +142,7 @@ def parse_model_turn_response(
     tool = str(function.get("name") or "").strip()
     model_visible_tools = {
         str(item.get("function", {}).get("name") or "")
-        for item in openai_action_tools()
+        for item in vlm_action_tools()
         if isinstance(item, dict) and isinstance(item.get("function"), dict)
     }
     if tool not in model_visible_tools:
@@ -142,7 +155,7 @@ def parse_model_turn_response(
             arguments=raw_arguments,
         )
     try:
-        arguments = json.loads(raw_arguments)
+        arguments, arguments_repaired = load_tool_arguments(raw_arguments)
     except json.JSONDecodeError as error:
         raise ModelToolCallError(
             "model_turn_tool_arguments_must_be_json",
@@ -169,8 +182,14 @@ def parse_model_turn_response(
         arguments=arguments,
         requested_model=requested_model,
         resolved_model=resolved_model,
+        display=display,
     )
     try:
+        arguments, coordinate_metadata = screen_pixel_args_to_canonical(
+            tool=tool,
+            args=arguments,
+            display=display,
+        )
         action = canonicalize_action(
             {"tool": tool, "args": arguments},
             persisted_only=False,
@@ -183,8 +202,15 @@ def parse_model_turn_response(
             arguments=rejected_arguments,
         ) from error
     metadata: dict[str, Any] = {"summary": summary}
+    if arguments_repaired:
+        metadata["json_repair"] = {
+            "name": "json_repair",
+            "applied": True,
+        }
     if adapter_metadata is not None:
         metadata["model_adapter"] = adapter_metadata
+    if coordinate_metadata is not None:
+        metadata["coordinate_conversion"] = coordinate_metadata
     thinking = str(value.get("reasoning") or "").strip()
     if thinking:
         metadata["thinking"] = thinking
@@ -210,33 +236,50 @@ def _turn_text(
     installed_apps: dict[str, str],
     validation_error: str,
     rejected_tool_call: dict[str, Any] | None,
+    lightweight_retry: bool,
+    projection: UIProjection,
 ) -> str:
     display = state.get("display") if isinstance(state.get("display"), dict) else {}
+    width, height = display_size(display)
+    center_x = int(width / 2)
+    center_y = int(height / 2)
+    upper_y = int(height * 0.7)
+    lower_y = int(height * 0.3)
     lines = [
         f"Goal: {goal}",
         f"Progress: {turn_index}/{max_steps} model turns used",
         f"Current package: {state.get('package_name') or ''}",
         f"Current activity: {state.get('activity_name') or ''}",
         f"Display: {display.get('width') or ''}x{display.get('height') or ''}",
+        (
+            "Coordinate contract: every tool coordinate is one raw pixel in the "
+            f"current original Display frame (X 0..{int(width)}, Y 0..{int(height)}). "
+            "Do not output normalized 0..1000 coordinates."
+        ),
+        (
+            'Raw-pixel examples: click {"summary":"Tap center","x":'
+            f'{center_x},"y":{center_y}'
+            '}; swipe {"summary":"Scroll up","direction":"up","x1":'
+            f'{center_x},"y1":{upper_y},"x2":{center_x},"y2":{lower_y}'
+            "}."
+        ),
     ]
     if target_package_name:
         lines.append(f"Target package: {target_package_name}")
-    if step_skill_guidance.strip():
+    if step_skill_guidance.strip() and not lightweight_retry:
         lines.extend(("Task guidance:", step_skill_guidance.strip()))
-    if installed_apps:
-        lines.extend(
-            (
-                "Installed apps (label=package):",
-                "; ".join(f"{label}={package}" for label, package in installed_apps.items()),
-            )
-        )
     if validation_error.strip():
         lines.extend(
             (
                 "Your previous native tool_call was rejected by the registered schema:",
                 validation_error.strip(),
                 "Return one corrected native tool_call using the schema exactly. Do not rename, wrap, combine, or infer fields.",
-                "Coordinate fields such as x and y must each be one JSON number from 0 to 1000. Never use [x, y], an object, string, or boolean for a coordinate field.",
+                (
+                    "Coordinate fields such as x and y must each be one raw-pixel "
+                    f"JSON number in the current Display (X 0..{int(width)}, "
+                    f"Y 0..{int(height)}). Never use normalized 0..1000 values, "
+                    "[x, y], an object, string, or boolean."
+                ),
             )
         )
         if rejected_tool_call:
@@ -249,12 +292,22 @@ def _turn_text(
                         separators=(",", ":"),
                     ),
                     "Do not repeat that argument shape. Return a new tool_call; do not explain or repair it in text.",
-                    'Valid scalar coordinate shape: {"x":500,"y":464,"x1":500,"y1":800,"x2":500,"y2":400}. Invalid array shape: {"x":[500],"y":[464],"x1":[500,800]}.',
+                    (
+                        'Valid raw-pixel scalar shape: {"x":'
+                        f'{center_x},"y":{center_y},"x1":{center_x},'
+                        f'"y1":{upper_y},"x2":{center_x},"y2":{lower_y}'
+                        '}. Invalid array shape: {"x":[500],"y":[464],"x1":[500,800]}.'
+                    ),
                     "If your rejected call placed one intended point in x as [X,Y], choose the scalars yourself and emit x:X and y:Y in the new call. The runtime will not transform the array for you.",
                 )
             )
-    extra = state.get("extra")
-    if isinstance(extra, dict) and extra:
+    raw_extra = state.get("extra")
+    extra = (
+        screen_context_to_pixels(raw_extra, display)
+        if isinstance(raw_extra, dict)
+        else raw_extra
+    )
+    if not lightweight_retry and isinstance(extra, dict) and extra:
         recent_actions = extra.get("recent_actions")
         if isinstance(recent_actions, list) and any(
             isinstance(item, dict)
@@ -280,14 +333,24 @@ def _turn_text(
                 json.dumps(extra, ensure_ascii=False, separators=(",", ":")),
             )
         )
-    lines.extend(("Accessibility XML:", str(state.get("xml") or "<empty/>")))
+    if not lightweight_retry:
+        lines.extend(
+            (
+                f"Relevant UI elements (1-{projection.selected_count}); {projection.candidate_count} candidates:",
+                projection.text,
+            )
+        )
     return "\n".join(lines)
 
 
 def _state_image_data_uri(state: dict[str, Any]) -> str:
     image = str(state.get("image_base64") or "").strip()
     if image:
-        return image if image.startswith("data:image/") else f"data:image/jpeg;base64,{image}"
+        return (
+            image
+            if image.startswith("data:image/")
+            else f"data:image/jpeg;base64,{image}"
+        )
     return _image_data_uri(str(state.get("screenshot_path") or ""))
 
 

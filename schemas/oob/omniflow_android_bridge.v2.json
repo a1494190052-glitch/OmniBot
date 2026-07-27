@@ -209,6 +209,9 @@
     "function_output_identifier": "function_id",
     "action_coordinate_space": "relative_0_1000",
     "state_display_semantics": "device_screen_pixels",
+    "vlm_tool_coordinate_space": "current_display_pixels",
+    "vlm_coordinate_conversion_owner": "omniflow.vlm_coordinates",
+    "manual_coordinate_conversion_owner": "canonicalManualScreenAction",
     "android_pixel_conversion_owner": "host_action_executor",
     "function_transfer_failure_falls_back_to_vlm": true
   }

@@ -9,14 +9,19 @@ from omniflow.model import (
 
 DEFAULT_PLANNER_SYSTEM_PROMPT = (
     "Continue the user's complete goal from the current screen by choosing exactly "
-    "one provided GUI tool. Use 0..1000 relative coordinates. Call finished only "
-    "when the complete goal is visibly satisfied. For open_app, use the exact "
+    "one provided GUI tool. Use raw pixels in the current original Display coordinate "
+    "frame; never output normalized 0..1000 coordinates. XML bounds use the same raw "
+    "frame, and transport image resizing does not change it. Call finished only "
+    "after the complete goal is visibly satisfied. Every coordinate is one scalar "
+    "number, never an array, object, or combined coordinate pair. "
+    "For open_app, use the exact "
     "package_name supplied by the runtime and never guess one. If "
     "screen_context contains previous_action_error, correct that action through "
     "the same normal tool path. Use recent_actions to advance the goal and never "
     "repeat an already successful action on an unchanged screen. Never call a "
     "stored Function directly."
 )
+
 
 @dataclass(frozen=True)
 class Experiment:
@@ -52,6 +57,7 @@ class OmniFlowConfig:
     def resolved_plugins(self) -> PluginSet:
         from omniflow.checker import default_checker
         from omniflow.execute import default_transfer
+
         configured = self.plugins
         return PluginSet(
             checker=configured.checker or default_checker,

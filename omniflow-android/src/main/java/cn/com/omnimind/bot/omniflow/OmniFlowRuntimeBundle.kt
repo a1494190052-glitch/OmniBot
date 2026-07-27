@@ -20,6 +20,7 @@ data class OmniFlowRuntimeManifest(
     val omniTransferSourceSha256: String,
     val omniTransferCheckpoint: String,
     val numpyVersion: String,
+    val jsonRepairVersion: String,
     val bundleSha256: String,
 )
 
@@ -62,6 +63,7 @@ fun parseOmniFlowRuntimeManifest(input: InputStream): OmniFlowRuntimeManifest {
         omniTransferSourceSha256 = sourceSha256("omnitransfer.source.sha256"),
         omniTransferCheckpoint = omniTransferCheckpoint,
         numpyVersion = required("numpy.version"),
+        jsonRepairVersion = required("json_repair.version"),
         bundleSha256 = bundleSha256,
     )
 }

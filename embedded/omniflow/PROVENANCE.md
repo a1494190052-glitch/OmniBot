@@ -15,6 +15,8 @@ This directory contains the Python runtime shipped with OpenOmniBot.
   runtime; training, dataset, benchmark, and offline evaluation modules are not
   bundled.
 - NumPy is downloaded from PyPI at the pinned URL and verified by SHA-256.
+- json_repair is downloaded from PyPI at the pinned URL and verified by SHA-256;
+  its wheel carries the upstream MIT license in the bundled dist-info metadata.
 
 `runtime.properties` pins the content hash of both embedded Python packages.
 Gradle rejects source drift, so a runtime update and its provenance update
@@ -24,6 +26,9 @@ The canonical mutual matcher ships its frozen weights as a pickle-free NumPy
 archive. Android runs the same learned XML-graph network without bundling
 PyTorch; screenshot inference and training remain in the canonical repository.
 No heuristic matcher or coordinate passthrough is retained in the APK.
+VLM coordinate conversion is centralized in `omniflow.vlm_coordinates`; model
+adapters only repair recognized argument shapes and do not infer coordinate
+space from numeric magnitude.
 
 The OmniFlow license is preserved under `LICENSES/OmniFlow-LICENSE`. The
 embedded OmniTransfer snapshot is distributed as part of OpenOmniBot under the

@@ -9,7 +9,6 @@ import json
 from pathlib import Path, PurePosixPath
 from zipfile import ZipFile
 
-
 MANIFEST_ENTRY = "assets/omniflow-runtime/manifest.properties"
 BUNDLE_ENTRY = "assets/omniflow-runtime/bundle.zip"
 RUNTIME_PROPERTIES_ENTRY = "runtime.properties"
@@ -69,6 +68,33 @@ def verify(apk: Path) -> dict[str, object]:
         )
         if runtime_checkpoint != manifest_checkpoint:
             raise RuntimeError("manifest and runtime checkpoint paths differ")
+        manifest_json_repair = required(
+            manifest,
+            "json_repair.version",
+            "manifest",
+        )
+        runtime_json_repair = required(
+            runtime_properties,
+            "json_repair.version",
+            "runtime.properties",
+        )
+        if runtime_json_repair != manifest_json_repair:
+            raise RuntimeError("manifest and runtime json_repair versions differ")
+        json_repair_entries = {
+            "site-packages/json_repair/__init__.py",
+            (
+                "site-packages/"
+                f"json_repair-{manifest_json_repair}.dist-info/licenses/LICENSE"
+            ),
+        }
+        missing_json_repair_entries = sorted(
+            json_repair_entries.difference(bundle.namelist())
+        )
+        if missing_json_repair_entries:
+            raise RuntimeError(
+                "packaged json_repair files are missing: "
+                + ", ".join(missing_json_repair_entries)
+            )
         checkpoint_entry = f"site-packages/omnitransfer/{manifest_checkpoint}"
         checkpoint_entries = sorted(
             name
@@ -88,6 +114,7 @@ def verify(apk: Path) -> dict[str, object]:
         "apk": str(apk.resolve()),
         "checkpoint": manifest_checkpoint,
         "checkpoint_sha256": checkpoint_sha256,
+        "json_repair_version": manifest_json_repair,
         "bundle_sha256": bundle_sha256,
     }
 

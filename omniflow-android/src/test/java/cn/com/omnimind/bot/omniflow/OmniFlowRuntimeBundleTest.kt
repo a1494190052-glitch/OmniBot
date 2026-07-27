@@ -27,6 +27,7 @@ class OmniFlowRuntimeBundleTest {
                     omnitransfer.source.sha256=${"c".repeat(64)}
                     omnitransfer.checkpoint=checkpoints/matcher.npz
                     numpy.version=2.2.6
+                    json_repair.version=0.61.7
                     bundle.sha256=${"a".repeat(64)}
                 """.trimIndent().toByteArray()
             )
@@ -41,6 +42,7 @@ class OmniFlowRuntimeBundleTest {
         assertEquals("transfer", manifest.omniTransferCommit)
         assertEquals("c".repeat(64), manifest.omniTransferSourceSha256)
         assertEquals("checkpoints/matcher.npz", manifest.omniTransferCheckpoint)
+        assertEquals("0.61.7", manifest.jsonRepairVersion)
     }
 
     @Test

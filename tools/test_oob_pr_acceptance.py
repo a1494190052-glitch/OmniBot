@@ -537,8 +537,11 @@ class HistoricalVlmReselectionTest(unittest.TestCase):
         state_stem = storage_artifact_stem(state_id)
         requests = []
         responses = [
-            self._model_turn("click", {"summary": "Tap", "x": [1, 2], "y": 1}),
-            self._model_turn("click", {"summary": "Tap", "x": 1, "y": 1}),
+            self._model_turn(
+                "click",
+                {"summary": "Tap", "x": [1.08, 2.4], "y": 1.08},
+            ),
+            self._model_turn("click", {"summary": "Tap", "x": 1.08, "y": 2.4}),
         ]
 
         with tempfile.TemporaryDirectory() as temporary_dir:

@@ -27,7 +27,7 @@ from omniflow.trajectory import canonicalize_state
 
 PROTOCOL_VERSION = "omniflow.bridge.v2"
 _DEFAULT_GUI_MAX_STEPS = 12
-_MODEL_TOOL_CALL_ATTEMPTS = 3
+_MODEL_TOOL_CALL_ATTEMPTS = 2
 
 _FUNCTION_CATALOG_ACTIONS = {
     "oob_function_list": "list",
@@ -942,13 +942,28 @@ class _BridgePlanner:
         self._metadata: dict[str, Any] = {}
         self._rejected_tool_calls: list[dict[str, Any]] = []
         self._turn_index = 0
-        self._previous_screenshot_path = ""
+        self._local_app_bootstrap_attempted = False
 
     def one_step_action(self, goal: str, observation: Observation) -> Action:
+        bootstrap = self._local_app_bootstrap(str(goal), observation)
+        if bootstrap is not None:
+            package_name, label = bootstrap
+            self._metadata = {
+                "summary": f"打开{label}",
+                "execution": "local_app_bootstrap",
+            }
+            self.host.current_action_metadata = dict(self._metadata)
+            return _action(
+                {
+                    "tool": "open_app",
+                    "args": {"package_name": package_name},
+                }
+            )
         state = _planner_state(observation)
         validation_error = ""
         retry_tool_name = ""
         rejected_tool_call: dict[str, Any] | None = None
+        lightweight_retry = False
         self._rejected_tool_calls.clear()
         for attempt in range(_MODEL_TOOL_CALL_ATTEMPTS):
             self._turn_index += 1
@@ -961,10 +976,10 @@ class _BridgePlanner:
                 installed_apps=self.installed_apps,
                 max_steps=self.max_steps,
                 turn_index=self._turn_index,
-                previous_screenshot_path=self._previous_screenshot_path,
                 validation_error=validation_error,
                 retry_tool_name=retry_tool_name,
                 rejected_tool_call=rejected_tool_call,
+                lightweight_retry=lightweight_retry,
             )
             response = self.bridge.host_call(
                 self.request_id,
@@ -984,6 +999,11 @@ class _BridgePlanner:
                     response,
                     requested_model=self.model,
                     turn_index=self._turn_index,
+                    display=(
+                        state.get("display")
+                        if isinstance(state.get("display"), dict)
+                        else None
+                    ),
                 )
                 break
             except ModelToolCallError as error:
@@ -1006,17 +1026,60 @@ class _BridgePlanner:
                     "tool": error.tool_name or None,
                     "arguments": error.arguments,
                 }
+                lightweight_retry = error.code.endswith(
+                    "expected_one_native_tool_call:got_0"
+                )
         if self._rejected_tool_calls:
             metadata["rejected_tool_calls"] = list(self._rejected_tool_calls)
         self._metadata = metadata
         self.host.current_action_metadata = dict(self._metadata)
-        self._previous_screenshot_path = str(state.get("screenshot_path") or "")
         return _action(action)
+
+    def _local_app_bootstrap(
+        self,
+        goal: str,
+        observation: Observation,
+    ) -> tuple[str, str] | None:
+        if self._local_app_bootstrap_attempted:
+            return None
+        self._local_app_bootstrap_attempted = True
+        current_package = str(observation.package_name or "").strip()
+        target_package = self.target_package_name
+        if target_package and target_package != current_package:
+            label = next(
+                (
+                    label
+                    for label, package in self.installed_apps.items()
+                    if package == target_package
+                ),
+                target_package,
+            )
+            return target_package, label
+        normalized_goal = _compact_match_text(goal)
+        candidates = sorted(
+            (
+                (label, package)
+                for label, package in self.installed_apps.items()
+                if _compact_match_text(label)
+                and _compact_match_text(label) in normalized_goal
+                and package != current_package
+            ),
+            key=lambda item: len(_compact_match_text(item[0])),
+            reverse=True,
+        )
+        if not candidates:
+            return None
+        label, package = candidates[0]
+        return package, label
 
     def take_metadata(self) -> dict[str, Any]:
         metadata = dict(self._metadata)
         self._metadata.clear()
         return metadata
+
+
+def _compact_match_text(value: str) -> str:
+    return re.sub(r"[^0-9a-z\u4e00-\u9fff]+", "", str(value).casefold())
 
 
 class _BridgeResolver:
