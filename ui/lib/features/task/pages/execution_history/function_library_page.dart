@@ -214,7 +214,6 @@ class _FunctionLibraryPageState extends State<FunctionLibraryPage> {
       final result = await RunLogFunctionService.runFunction(
         functionId: group.primary.functionId,
         arguments: arguments,
-        taskId: 'oob-function-run-${DateTime.now().millisecondsSinceEpoch}',
       );
       if (!mounted) return;
       setState(() {

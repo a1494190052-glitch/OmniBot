@@ -338,8 +338,6 @@ class ProviderModelGroup {
 }
 
 class ModelProviderConfigService {
-  static const String _kBuiltinOmniInferProfileId = 'omniinfer-local';
-  static const String _kLegacyBuiltinMnnLocalProfileId = 'mnn-local';
   static const String _kManualModelIdsKey = 'manual_provider_model_ids_v2';
   static const String _kHiddenChatModelIdsKey =
       'hidden_chat_provider_model_ids_v1';
@@ -371,18 +369,8 @@ class ModelProviderConfigService {
     '/compatible-mode/v1',
   ];
 
-  static bool _isBuiltinLocalProfileId(String profileId) {
-    final normalized = profileId.trim();
-    return normalized == _kBuiltinOmniInferProfileId ||
-        normalized == _kLegacyBuiltinMnnLocalProfileId;
-  }
-
   static String _canonicalProfileId(String profileId) {
-    final normalized = profileId.trim();
-    if (_isBuiltinLocalProfileId(normalized)) {
-      return _kBuiltinOmniInferProfileId;
-    }
-    return normalized;
+    return profileId.trim();
   }
 
   static Future<ModelProviderConfig> getConfig() async {
@@ -774,20 +762,9 @@ class ModelProviderConfigService {
     final manualModelIds = await getManualModelIds(
       profileId: normalizedProfileId,
     );
-    List<ProviderModelOption> remoteModels;
-    if (_isBuiltinLocalProfileId(normalizedProfileId)) {
-      try {
-        remoteModels = await fetchModels(profileId: normalizedProfileId);
-      } catch (_) {
-        remoteModels = await getCachedFetchedModels(
-          profileId: normalizedProfileId,
-        );
-      }
-    } else {
-      remoteModels = await getCachedFetchedModels(
-        profileId: normalizedProfileId,
-      );
-    }
+    final remoteModels = await getCachedFetchedModels(
+      profileId: normalizedProfileId,
+    );
     final merged = mergeModelOptions(
       remoteModels: remoteModels,
       manualModelIds: manualModelIds,
@@ -943,17 +920,6 @@ class ModelProviderConfigService {
     }
 
     final currentManual = _readJsonMap(_kManualModelIdsKey);
-    if (targetProfileId == _kBuiltinOmniInferProfileId &&
-        !currentManual.containsKey(targetProfileId) &&
-        currentManual.containsKey(_kLegacyBuiltinMnnLocalProfileId)) {
-      currentManual[targetProfileId] =
-          currentManual[_kLegacyBuiltinMnnLocalProfileId];
-      currentManual.remove(_kLegacyBuiltinMnnLocalProfileId);
-      await StorageService.setString(
-        _kManualModelIdsKey,
-        jsonEncode(currentManual),
-      );
-    }
     if (!currentManual.containsKey(targetProfileId)) {
       final legacyManual = StorageService.getStringList(
         _kLegacyManualModelIdsKey,
@@ -969,31 +935,7 @@ class ModelProviderConfigService {
       }
     }
 
-    final currentHidden = _readJsonMap(_kHiddenChatModelIdsKey);
-    if (targetProfileId == _kBuiltinOmniInferProfileId &&
-        !currentHidden.containsKey(targetProfileId) &&
-        currentHidden.containsKey(_kLegacyBuiltinMnnLocalProfileId)) {
-      currentHidden[targetProfileId] =
-          currentHidden[_kLegacyBuiltinMnnLocalProfileId];
-      currentHidden.remove(_kLegacyBuiltinMnnLocalProfileId);
-      await StorageService.setString(
-        _kHiddenChatModelIdsKey,
-        jsonEncode(currentHidden),
-      );
-    }
-
     final currentCached = _readJsonMap(_kCachedFetchedModelsKey);
-    if (targetProfileId == _kBuiltinOmniInferProfileId &&
-        !currentCached.containsKey(targetProfileId) &&
-        currentCached.containsKey(_kLegacyBuiltinMnnLocalProfileId)) {
-      currentCached[targetProfileId] =
-          currentCached[_kLegacyBuiltinMnnLocalProfileId];
-      currentCached.remove(_kLegacyBuiltinMnnLocalProfileId);
-      await StorageService.setString(
-        _kCachedFetchedModelsKey,
-        jsonEncode(currentCached),
-      );
-    }
     if (!currentCached.containsKey(targetProfileId)) {
       final legacyRaw = StorageService.getString(
         _kLegacyCachedFetchedModelsKey,

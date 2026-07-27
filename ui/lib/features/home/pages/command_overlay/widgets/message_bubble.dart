@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:async';
 import 'dart:typed_data';
+import 'package:dotted_border/dotted_border.dart';
 import 'package:flutter/material.dart';
 import 'package:ui/features/home/pages/omnibot_workspace/omnibot_artifact_preview_page.dart';
 import 'package:ui/l10n/l10n.dart';
@@ -52,6 +53,9 @@ class MessageBubble extends StatelessWidget {
   /// 思考卡片完成后是否自动折叠
   final bool thinkingAutoCollapseOnComplete;
 
+  /// 是否允许使用 ACP Agent 的行内工具调用样式。
+  final bool useAgentToolPresentation;
+
   /// 强制覆盖深度思考卡片的头像显示
   final bool? showThinkingAvatarOverride;
 
@@ -63,10 +67,7 @@ class MessageBubble extends StatelessWidget {
   onUserMessageLongPressStart;
   final VoidCallback? onRetryAgentMessage;
   final VoidCallback? onContinueAgentMessage;
-  final bool isUserMessageEditing;
-  final TextEditingController? userMessageEditController;
-  final VoidCallback? onCancelUserEdit;
-  final VoidCallback? onSaveUserEdit;
+  final VoidCallback? onUserMessageEditTap;
   final VoidCallback? onStreamingTextLayoutChanged;
   final AppBackgroundVisualProfile visualProfile;
   final AppBackgroundConfig appearanceConfig;
@@ -78,6 +79,7 @@ class MessageBubble extends StatelessWidget {
     this.onCancelTask,
     this.enableThinkingCollapse = false,
     this.thinkingAutoCollapseOnComplete = true,
+    this.useAgentToolPresentation = true,
     this.showThinkingAvatarOverride,
     this.parentScrollController,
     this.onParentScrollHandoff,
@@ -85,10 +87,7 @@ class MessageBubble extends StatelessWidget {
     this.onUserMessageLongPressStart,
     this.onRetryAgentMessage,
     this.onContinueAgentMessage,
-    this.isUserMessageEditing = false,
-    this.userMessageEditController,
-    this.onCancelUserEdit,
-    this.onSaveUserEdit,
+    this.onUserMessageEditTap,
     this.onStreamingTextLayoutChanged,
     this.visualProfile = AppBackgroundVisualProfile.defaultProfile,
     this.appearanceConfig = AppBackgroundConfig.defaults,
@@ -232,8 +231,7 @@ class MessageBubble extends StatelessWidget {
           final maxBubbleWidth = availableWidth * 0.78;
           return GestureDetector(
             behavior: HitTestBehavior.opaque,
-            onLongPressStart:
-                isUserMessageEditing || onUserMessageLongPressStart == null
+            onLongPressStart: onUserMessageLongPressStart == null
                 ? null
                 : (details) => onUserMessageLongPressStart!(message, details),
             child: Container(
@@ -249,20 +247,17 @@ class MessageBubble extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  if (isUserMessageEditing && userMessageEditController != null)
-                    _buildUserEditComposer(
+                  if (text.isNotEmpty)
+                    _buildUserText(
                       context,
-                      userMessageEditController!,
-                      attachments,
-                    )
-                  else ...[
-                    if (text.isNotEmpty) _buildUserText(context, text),
-                    if (attachments.isNotEmpty) ...[
-                      if (text.isNotEmpty) const SizedBox(height: 8),
-                      _buildUserAttachmentList(context, attachments),
-                    ],
+                      text,
+                      onEditTap: onUserMessageEditTap,
+                    ),
+                  if (attachments.isNotEmpty) ...[
+                    if (text.isNotEmpty) const SizedBox(height: 8),
+                    _buildUserAttachmentList(context, attachments),
                   ],
-                  if (!isUserMessageEditing && linkPreviews.isNotEmpty) ...[
+                  if (linkPreviews.isNotEmpty) ...[
                     if (text.isNotEmpty || attachments.isNotEmpty)
                       const SizedBox(height: 8),
                     _buildLinkPreviewList(
@@ -959,88 +954,13 @@ class MessageBubble extends StatelessWidget {
     return '${(size / (1024 * 1024)).toStringAsFixed(1)}MB';
   }
 
-  Widget _buildUserEditComposer(
-    BuildContext context,
-    TextEditingController controller,
-    List<Map<String, dynamic>> attachments,
-  ) {
-    return ValueListenableBuilder<TextEditingValue>(
-      valueListenable: controller,
-      builder: (context, value, _) {
-        final hasText = value.text.trim().isNotEmpty;
-        final canSave = hasText || attachments.isNotEmpty;
-        return Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            TextField(
-              controller: controller,
-              minLines: 1,
-              maxLines: 6,
-              autofocus: true,
-              scrollPadding: EdgeInsets.only(
-                top: 24,
-                bottom: MediaQuery.of(context).viewInsets.bottom + 96,
-              ),
-              style: TextStyle(
-                color: _resolvedUserPrimaryTextColor(context),
-                fontSize: _chatTextSize,
-                fontFamily: 'PingFang SC',
-                fontWeight: FontWeight.w400,
-                height: 1.43,
-                letterSpacing: 0.33,
-              ),
-              decoration: InputDecoration(
-                filled: false,
-                fillColor: Colors.transparent,
-                border: InputBorder.none,
-                enabledBorder: InputBorder.none,
-                focusedBorder: InputBorder.none,
-                disabledBorder: InputBorder.none,
-                errorBorder: InputBorder.none,
-                focusedErrorBorder: InputBorder.none,
-                isDense: true,
-                contentPadding: EdgeInsets.zero,
-                hintText: context.trLegacy('编辑你的消息'),
-                hintStyle: TextStyle(
-                  color: _resolvedUserPrimaryTextColor(
-                    context,
-                  ).withValues(alpha: 0.6),
-                  fontSize: _chatTextSize,
-                ),
-              ),
-            ),
-            if (attachments.isNotEmpty) ...[
-              const SizedBox(height: 8),
-              _buildUserAttachmentList(context, attachments),
-            ],
-            const SizedBox(height: 8),
-            OverflowBar(
-              alignment: MainAxisAlignment.end,
-              spacing: 8,
-              overflowAlignment: OverflowBarAlignment.end,
-              children: [
-                TextButton(
-                  onPressed: onCancelUserEdit,
-                  child: Text(context.trLegacy('取消'), softWrap: false),
-                ),
-                FilledButton(
-                  onPressed: canSave ? onSaveUserEdit : null,
-                  style: FilledButton.styleFrom(
-                    visualDensity: VisualDensity.compact,
-                  ),
-                  child: Text(context.trLegacy('保存并发送'), softWrap: false),
-                ),
-              ],
-            ),
-          ],
-        );
-      },
-    );
-  }
-
   /// 构建用户文本（不使用流式效果）
-  Widget _buildUserText(BuildContext context, String text) {
-    return Text(
+  Widget _buildUserText(
+    BuildContext context,
+    String text, {
+    VoidCallback? onEditTap,
+  }) {
+    final textWidget = Text(
       text,
       style: TextStyle(
         color: _resolvedUserPrimaryTextColor(context),
@@ -1051,6 +971,34 @@ class MessageBubble extends StatelessWidget {
         letterSpacing: 0.33,
       ),
       textAlign: TextAlign.left,
+    );
+    if (onEditTap == null) {
+      return textWidget;
+    }
+    final underlineColor = _resolvedUserPrimaryTextColor(
+      context,
+    ).withValues(alpha: 0.52);
+    return Semantics(
+      button: true,
+      label: context.trLegacy('编辑消息'),
+      child: GestureDetector(
+        key: ValueKey('user-message-edit-trigger-${message.id}'),
+        behavior: HitTestBehavior.opaque,
+        onTap: onEditTap,
+        child: DottedBorder(
+          options: CustomPathDottedBorderOptions(
+            padding: const EdgeInsets.only(bottom: 2),
+            color: underlineColor,
+            strokeWidth: 1,
+            dashPattern: const <double>[3, 3],
+            strokeCap: StrokeCap.round,
+            customPath: (size) => Path()
+              ..moveTo(0, size.height)
+              ..lineTo(size.width, size.height),
+          ),
+          child: textWidget,
+        ),
+      ),
     );
   }
 
@@ -1599,6 +1547,7 @@ class MessageBubble extends StatelessWidget {
         onCancelTask: onCancelTask,
         enableThinkingCollapse: enableThinkingCollapse,
         thinkingAutoCollapseOnComplete: thinkingAutoCollapseOnComplete,
+        useAgentToolPresentation: useAgentToolPresentation,
         showThinkingAvatarOverride: showThinkingAvatarOverride,
         parentScrollController: parentScrollController,
         onParentScrollHandoff: onParentScrollHandoff,

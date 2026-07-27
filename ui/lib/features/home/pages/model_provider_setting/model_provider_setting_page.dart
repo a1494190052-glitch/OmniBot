@@ -6,7 +6,6 @@ import 'package:ui/l10n/l10n.dart';
 import 'package:flutter_slidable/flutter_slidable.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
-import 'package:ui/services/assists_core_service.dart';
 import 'package:ui/services/builtin_official_provider_catalog.dart';
 import 'package:ui/services/model_provider_config_service.dart';
 import 'package:ui/services/model_vendor_catalog.dart';
@@ -225,7 +224,6 @@ class _ModelProviderSettingPageState extends State<ModelProviderSettingPage> {
   String _selectedWireApi = 'chat_completions';
 
   Timer? _autoSaveTimer;
-  StreamSubscription<AgentAiConfigChangedEvent>? _configChangedSubscription;
 
   List<ModelProviderProfileSummary> _profiles = const [];
   String _editingProfileId = '';
@@ -449,19 +447,6 @@ class _ModelProviderSettingPageState extends State<ModelProviderSettingPage> {
   void initState() {
     super.initState();
     _loadData();
-    _configChangedSubscription = AssistsMessageService
-        .agentAiConfigChangedStream
-        .listen((event) {
-          if (event.source != 'file' || !mounted) {
-            return;
-          }
-          if (_hasAnyProfileFieldFocus ||
-              _isSavingProfile ||
-              _isSwitchingProfile) {
-            return;
-          }
-          unawaited(_loadData());
-        });
     _nameController.addListener(_onProfileChanged);
     _baseUrlController.addListener(_onProfileChanged);
     _apiKeyController.addListener(_onProfileChanged);
@@ -472,7 +457,6 @@ class _ModelProviderSettingPageState extends State<ModelProviderSettingPage> {
 
   @override
   void dispose() {
-    _configChangedSubscription?.cancel();
     _autoSaveTimer?.cancel();
     if (_shouldAutoSaveDraft) {
       unawaited(_persistProfileDraft());
@@ -744,21 +728,6 @@ class _ModelProviderSettingPageState extends State<ModelProviderSettingPage> {
   Future<List<ProviderModelOption>> _loadRemoteModelsForProfile(
     ModelProviderProfileSummary profile,
   ) async {
-    final isBuiltinLocalProvider =
-        profile.readOnly && profile.sourceType == 'omniinfer';
-    if (isBuiltinLocalProvider) {
-      try {
-        return await ModelProviderConfigService.fetchModels(
-          profileId: profile.id,
-          providerName: profile.name,
-        );
-      } catch (_) {
-        final cached = await ModelProviderConfigService.getCachedFetchedModels(
-          profileId: profile.id,
-        );
-        return _enrichModelsForProfile(profile, cached);
-      }
-    }
     final cached = await ModelProviderConfigService.getCachedFetchedModels(
       profileId: profile.id,
       apiBase: profile.baseUrl,
@@ -1104,7 +1073,7 @@ class _ModelProviderSettingPageState extends State<ModelProviderSettingPage> {
       });
       if (!silentError) {
         final message = models.isEmpty
-            ? context.l10n.localModelsNoAvailableModels
+            ? context.l10n.modelsNoAvailableModels
             : context.l10n.modelProviderFetchedModels(models.length);
         showToast(
           message,

@@ -139,10 +139,7 @@ class PermissionGuideRepository {
             title: '点击“悬浮窗权限”',
             description: '在小万的权限引导页点击该权限，系统会跳转到设置页。',
           ),
-          PermissionGuideStep(
-            title: '开启悬浮窗权限',
-            description: '找到小万，打开悬浮窗开关。',
-          ),
+          PermissionGuideStep(title: '开启悬浮窗权限', description: '找到小万，打开悬浮窗开关。'),
         ],
         'xiaomi': [
           PermissionGuideStep(
@@ -165,114 +162,11 @@ class PermissionGuideRepository {
           ),
         ],
         'other': [
-          PermissionGuideStep(
-            title: '打开系统设置',
-            description: '进入手机“设置”应用。',
-          ),
-          PermissionGuideStep(
-            title: '进入应用管理',
-            description: '找到“应用”或“应用管理”入口。',
-          ),
+          PermissionGuideStep(title: '打开系统设置', description: '进入手机“设置”应用。'),
+          PermissionGuideStep(title: '进入应用管理', description: '找到“应用”或“应用管理”入口。'),
           PermissionGuideStep(
             title: '开启悬浮窗权限',
             description: '找到小万，在权限设置中开启“悬浮窗”或“显示在其他应用上层”。',
-          ),
-        ],
-      },
-    ),
-    PermissionGuideTopicInfo(
-      id: 'accessibility',
-      title: '无障碍辅助权限',
-      subtitle: '允许小万执行自动化操作，这是多数任务的核心权限。',
-      iconPath: 'assets/welcome/permission_accessibility.svg',
-      openMethod: 'openAccessibilitySettings',
-      brandSteps: {
-        'oppo': [
-          PermissionGuideStep(
-            title: '点击“无障碍辅助权限”',
-            description: '在小万的权限引导页点击该权限，系统会跳转到无障碍设置页。',
-          ),
-          PermissionGuideStep(
-            title: '找到“已下载的应用”',
-            description: '在无障碍页面向下滑动，找到“已下载的应用”分类。',
-          ),
-          PermissionGuideStep(
-            title: '选择“小万”',
-            description: '在应用列表中找到并点击小万。',
-          ),
-          PermissionGuideStep(
-            title: '开启无障碍权限',
-            description: '点击开关，开启小万的无障碍服务，并在弹窗中点击“允许”。',
-          ),
-        ],
-        'huawei': [
-          PermissionGuideStep(
-            title: '点击“无障碍辅助权限”',
-            description: '在小万的权限引导页点击该权限，系统会跳转到无障碍设置页。',
-          ),
-          PermissionGuideStep(
-            title: '找到“已安装的服务”',
-            description: '在无障碍页面里找到“已安装的服务”或“已下载的服务”。',
-          ),
-          PermissionGuideStep(
-            title: '开启“小万”权限',
-            description: '找到小万，打开开关并允许权限。',
-          ),
-        ],
-        'honor': [
-          PermissionGuideStep(
-            title: '点击“无障碍辅助权限”',
-            description: '在小万的权限引导页点击该权限，系统会跳转到无障碍设置页。',
-          ),
-          PermissionGuideStep(
-            title: '找到“已下载的服务”',
-            description: '在无障碍页面找到“已下载的服务”。',
-          ),
-          PermissionGuideStep(
-            title: '开启“小万”权限',
-            description: '找到小万，打开开关并允许权限。',
-          ),
-        ],
-        'xiaomi': [
-          PermissionGuideStep(
-            title: '点击“无障碍辅助权限”',
-            description: '在小万的权限引导页点击该权限，系统会跳转到无障碍设置页。',
-          ),
-          PermissionGuideStep(
-            title: '找到“已下载的服务”',
-            description: '在无障碍页面找到“已下载的服务”。',
-          ),
-          PermissionGuideStep(
-            title: '开启“小万”权限',
-            description: '找到小万，打开开关并允许权限。',
-          ),
-        ],
-        'vivo': [
-          PermissionGuideStep(
-            title: '点击“无障碍辅助权限”',
-            description: '在小万的权限引导页点击该权限，系统会跳转到无障碍设置页。',
-          ),
-          PermissionGuideStep(
-            title: '找到“已下载的服务”',
-            description: '在无障碍页面找到“已下载的服务”。',
-          ),
-          PermissionGuideStep(
-            title: '开启“小万”权限',
-            description: '找到小万，打开开关并允许权限。',
-          ),
-        ],
-        'other': [
-          PermissionGuideStep(
-            title: '打开系统设置',
-            description: '进入手机“设置”应用。',
-          ),
-          PermissionGuideStep(
-            title: '进入无障碍设置',
-            description: '找到“辅助功能”或“无障碍”入口。',
-          ),
-          PermissionGuideStep(
-            title: '开启小万服务',
-            description: '在已安装服务列表中找到小万并打开开关。',
           ),
         ],
       },
@@ -283,19 +177,10 @@ class PermissionGuideRepository {
       subtitle: '防止系统过早回收小万，保证后台运行和唤起稳定性。',
       iconPath: 'assets/welcome/permission_battery.svg',
       openMethod: 'openBatteryOptimizationSettings',
-      supportedBrands: {
-        'oppo',
-        'xiaomi',
-        'vivo',
-        'meizu',
-        'other',
-      },
+      supportedBrands: {'oppo', 'xiaomi', 'vivo', 'meizu', 'other'},
       brandSteps: {
         'oppo': [
-          PermissionGuideStep(
-            title: '打开设置',
-            description: '进入手机“设置”应用。',
-          ),
+          PermissionGuideStep(title: '打开设置', description: '进入手机“设置”应用。'),
           PermissionGuideStep(
             title: '进入“电池”设置',
             description: '在设置页面中找到并点击“电池”选项。',
@@ -314,28 +199,19 @@ class PermissionGuideRepository {
           ),
         ],
         'xiaomi': [
-          PermissionGuideStep(
-            title: '打开设置',
-            description: '进入手机“设置”应用。',
-          ),
+          PermissionGuideStep(title: '打开设置', description: '进入手机“设置”应用。'),
           PermissionGuideStep(
             title: '进入“应用设置”',
             description: '点击“应用设置”并继续进入“应用管理”。',
           ),
-          PermissionGuideStep(
-            title: '找到小万',
-            description: '在应用列表中找到并点击小万。',
-          ),
+          PermissionGuideStep(title: '找到小万', description: '在应用列表中找到并点击小万。'),
           PermissionGuideStep(
             title: '设置“省电策略”',
             description: '点击“省电策略”，选择“无限制”。',
           ),
         ],
         'vivo': [
-          PermissionGuideStep(
-            title: '打开设置',
-            description: '进入手机“设置”应用。',
-          ),
+          PermissionGuideStep(title: '打开设置', description: '进入手机“设置”应用。'),
           PermissionGuideStep(
             title: '进入“电池”设置',
             description: '点击“电池”，再进入“后台耗电管理”。',
@@ -346,10 +222,7 @@ class PermissionGuideRepository {
           ),
         ],
         'other': [
-          PermissionGuideStep(
-            title: '打开系统设置',
-            description: '进入手机“设置”应用。',
-          ),
+          PermissionGuideStep(title: '打开系统设置', description: '进入手机“设置”应用。'),
           PermissionGuideStep(
             title: '找到电池或电量管理',
             description: '查找“电池”“电量管理”或“后台管理”。',
@@ -367,10 +240,7 @@ class PermissionGuideRepository {
       subtitle: '华为 / 荣耀机型常见的额外保活设置，建议和后台运行权限一起检查。',
       iconPath: 'assets/welcome/permission_autostart.svg',
       openMethod: 'openAutoStartSettings',
-      supportedBrands: {
-        'huawei',
-        'honor',
-      },
+      supportedBrands: {'huawei', 'honor'},
       brandSteps: {
         'huawei': [
           PermissionGuideStep(

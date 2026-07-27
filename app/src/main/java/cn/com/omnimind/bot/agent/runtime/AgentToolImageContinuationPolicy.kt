@@ -1,7 +1,6 @@
 package cn.com.omnimind.bot.agent
 
 import cn.com.omnimind.assists.controller.http.HttpController
-import cn.com.omnimind.baselib.llm.LocalModelProviderBridge
 import java.util.Locale
 
 data class AgentToolImageContinuationPolicy(
@@ -23,12 +22,6 @@ object AgentToolImageContinuationPolicyResolver {
             return AgentToolImageContinuationPolicy.DEFAULT
         }
         val routeLabel = buildRouteLabel(routeInfo)
-        if (LocalModelProviderBridge.isBuiltinLocalProvider(routeInfo.providerProfileId, routeInfo.apiBase)) {
-            return AgentToolImageContinuationPolicy(
-                supportsToolImageContinuation = true,
-                routeLabel = routeLabel
-            )
-        }
         return AgentToolImageContinuationPolicy(
             supportsToolImageContinuation = !isKnownIncompatibleRoute(routeInfo),
             routeLabel = routeLabel

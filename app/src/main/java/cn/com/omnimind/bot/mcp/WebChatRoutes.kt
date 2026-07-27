@@ -4,6 +4,7 @@ import cn.com.omnimind.bot.webchat.AgentRunService
 import cn.com.omnimind.bot.webchat.BrowserMirrorService
 import cn.com.omnimind.bot.webchat.ConversationDomainService
 import cn.com.omnimind.bot.webchat.RealtimeHub
+import cn.com.omnimind.bot.webchat.WebChatAvatarService
 import cn.com.omnimind.bot.webchat.WorkspaceFileService
 import com.google.gson.Gson
 import io.ktor.http.ContentType
@@ -31,7 +32,8 @@ object WebChatRoutes {
         conversationService: ConversationDomainService,
         workspaceFileService: WorkspaceFileService,
         browserMirrorService: BrowserMirrorService,
-        agentRunService: AgentRunService
+        agentRunService: AgentRunService,
+        webChatAvatarService: WebChatAvatarService
     ) {
         route("/webchat/api") {
             get("/bootstrap") {
@@ -54,6 +56,13 @@ object WebChatRoutes {
                         "browser" to browserMirrorService.snapshot()
                     )
                 )
+            }
+
+            get("/avatar") {
+                if (!McpServerManager.requireWebChatAuth(call)) return@get
+                val avatar = webChatAvatarService.load()
+                call.response.header(HttpHeaders.CacheControl, "private, max-age=300")
+                call.respondBytes(avatar.bytes, avatar.contentType)
             }
 
             get("/conversations") {
@@ -118,10 +127,15 @@ object WebChatRoutes {
                     return@get
                 }
                 val mode = call.request.queryParameters["mode"] ?: "normal"
+                val finalizeInterruptedEntries = !agentRunService.hasActiveConversationRun(
+                    conversationId = conversationId,
+                    conversationMode = mode
+                )
                 call.respond(
                     conversationService.listConversationMessages(
                         conversationId = conversationId,
-                        conversationMode = mode
+                        conversationMode = mode,
+                        finalizeInterruptedEntries = finalizeInterruptedEntries
                     )
                 )
             }

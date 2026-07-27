@@ -2,46 +2,14 @@ import 'package:flutter/material.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:ui/models/scheduled_task.dart';
 import 'package:ui/theme/theme_context.dart';
-import 'package:uuid/uuid.dart';
 import 'package:ui/l10n/legacy_text_localizer.dart';
 
 /// 定时任务配置底部弹窗
 class ScheduleTaskSheet extends StatefulWidget {
-  /// 任务标题
-  final String taskTitle;
-
-  /// 包名
-  final String packageName;
-
-  /// nodeId
-  final String nodeId;
-
-  /// suggestionId
-  final String suggestionId;
-
-  /// suggestion数据
-  final Map<String, dynamic>? suggestionData;
-
-  /// 应用图标URL
-  final String? appIconUrl;
-
-  /// 类型图标URL
-  final String? typeIconUrl;
-
   /// 现有的定时任务（用于编辑）
-  final ScheduledTask? existingTask;
+  final ScheduledTask existingTask;
 
-  const ScheduleTaskSheet({
-    super.key,
-    required this.taskTitle,
-    required this.packageName,
-    required this.nodeId,
-    required this.suggestionId,
-    this.suggestionData,
-    this.appIconUrl,
-    this.typeIconUrl,
-    this.existingTask,
-  });
+  const ScheduleTaskSheet({super.key, required this.existingTask});
 
   @override
   State<ScheduleTaskSheet> createState() => _ScheduleTaskSheetState();
@@ -49,29 +17,13 @@ class ScheduleTaskSheet extends StatefulWidget {
   /// 显示定时任务配置弹窗
   static Future<ScheduledTask?> show({
     required BuildContext context,
-    required String taskTitle,
-    required String packageName,
-    required String nodeId,
-    required String suggestionId,
-    Map<String, dynamic>? suggestionData,
-    String? appIconUrl,
-    String? typeIconUrl,
-    ScheduledTask? existingTask,
+    required ScheduledTask existingTask,
   }) {
     return showModalBottomSheet<ScheduledTask>(
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
-      builder: (context) => ScheduleTaskSheet(
-        taskTitle: taskTitle,
-        packageName: packageName,
-        nodeId: nodeId,
-        suggestionId: suggestionId,
-        suggestionData: suggestionData,
-        appIconUrl: appIconUrl,
-        typeIconUrl: typeIconUrl,
-        existingTask: existingTask,
-      ),
+      builder: (context) => ScheduleTaskSheet(existingTask: existingTask),
     );
   }
 }
@@ -95,28 +47,24 @@ class _ScheduleTaskSheetState extends State<ScheduleTaskSheet> {
   @override
   void initState() {
     super.initState();
-    _pageController = PageController(initialPage: _selectedTabIndex);
 
-    // 如果有现有任务，初始化数据
-    if (widget.existingTask != null) {
-      final task = widget.existingTask!;
-      _selectedTabIndex = task.type == ScheduledTaskType.fixedTime ? 0 : 1;
-      _repeatDaily = task.repeatDaily;
+    final task = widget.existingTask;
+    _selectedTabIndex = task.type == ScheduledTaskType.fixedTime ? 0 : 1;
+    _repeatDaily = task.repeatDaily;
 
-      if (task.type == ScheduledTaskType.fixedTime && task.fixedTime != null) {
-        final parts = task.fixedTime!.split(':');
-        if (parts.length == 2) {
-          _selectedTime = TimeOfDay(
-            hour: int.tryParse(parts[0]) ?? 0,
-            minute: int.tryParse(parts[1]) ?? 0,
-          );
-        }
-      } else if (task.type == ScheduledTaskType.countdown) {
-        _countdownMinutes = task.countdownMinutes ?? 30;
+    if (task.type == ScheduledTaskType.fixedTime && task.fixedTime != null) {
+      final parts = task.fixedTime!.split(':');
+      if (parts.length == 2) {
+        _selectedTime = TimeOfDay(
+          hour: int.tryParse(parts[0]) ?? 0,
+          minute: int.tryParse(parts[1]) ?? 0,
+        );
       }
-
-      _pageController = PageController(initialPage: _selectedTabIndex);
+    } else if (task.type == ScheduledTaskType.countdown) {
+      _countdownMinutes = task.countdownMinutes ?? 30;
     }
+
+    _pageController = PageController(initialPage: _selectedTabIndex);
   }
 
   @override
@@ -192,7 +140,7 @@ class _ScheduleTaskSheetState extends State<ScheduleTaskSheet> {
                   const SizedBox(width: 8),
                   Expanded(
                     child: Text(
-                      widget.taskTitle,
+                      widget.existingTask.title,
                       style: TextStyle(
                         fontSize: 14,
                         color: palette.textPrimary,
@@ -528,17 +476,14 @@ class _ScheduleTaskSheetState extends State<ScheduleTaskSheet> {
   /// 确认创建定时任务
   void _onConfirm() {
     final task = ScheduledTask(
-      id: widget.existingTask?.id ?? const Uuid().v4(),
-      title: widget.taskTitle,
-      packageName: widget.packageName,
-      nodeId: widget.nodeId,
-      suggestionId: widget.suggestionId,
-      targetKind: widget.existingTask?.targetKind ?? 'vlm',
-      subagentConversationId: widget.existingTask?.subagentConversationId,
-      parentConversationId: widget.existingTask?.parentConversationId,
-      parentConversationMode: widget.existingTask?.parentConversationMode,
-      subagentPrompt: widget.existingTask?.subagentPrompt,
-      notificationEnabled: widget.existingTask?.notificationEnabled ?? true,
+      id: widget.existingTask.id,
+      title: widget.existingTask.title,
+      targetKind: 'subagent',
+      subagentConversationId: widget.existingTask.subagentConversationId,
+      parentConversationId: widget.existingTask.parentConversationId,
+      parentConversationMode: widget.existingTask.parentConversationMode,
+      subagentPrompt: widget.existingTask.subagentPrompt,
+      notificationEnabled: widget.existingTask.notificationEnabled,
       type: _selectedTabIndex == 0
           ? ScheduledTaskType.fixedTime
           : ScheduledTaskType.countdown,
@@ -548,12 +493,7 @@ class _ScheduleTaskSheetState extends State<ScheduleTaskSheet> {
       countdownMinutes: _selectedTabIndex == 1 ? _countdownMinutes : null,
       repeatDaily: _repeatDaily,
       isEnabled: true,
-      createdAt:
-          widget.existingTask?.createdAt ??
-          DateTime.now().millisecondsSinceEpoch,
-      suggestionData: widget.suggestionData,
-      appIconUrl: widget.appIconUrl,
-      typeIconUrl: widget.typeIconUrl,
+      createdAt: widget.existingTask.createdAt,
     );
 
     // 计算下次执行时间

@@ -10,18 +10,18 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
   const channel = MethodChannel('cn.com.omnimind.bot/AssistCoreEvent');
-  const codexChannel = MethodChannel('cn.com.omnimind.bot/CodexAppServer');
+  const agentRuntimeChannel = MethodChannel('cn.com.omnimind.bot/AgentRuntime');
   final messenger =
       TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
   late List<Map<String, dynamic>> nativeConversations;
-  late List<MethodCall> codexCalls;
-  late bool codexArchiveShouldThrow;
+  late List<MethodCall> agentRuntimeCalls;
+  late bool agentRuntimeArchiveShouldThrow;
 
   setUp(() async {
     SharedPreferences.setMockInitialValues(<String, Object>{});
     nativeConversations = <Map<String, dynamic>>[];
-    codexCalls = <MethodCall>[];
-    codexArchiveShouldThrow = false;
+    agentRuntimeCalls = <MethodCall>[];
+    agentRuntimeArchiveShouldThrow = false;
     messenger.setMockMethodCallHandler(channel, (call) async {
       final args = Map<String, dynamic>.from(
         (call.arguments as Map?) ?? const {},
@@ -94,9 +94,9 @@ void main() {
           return null;
       }
     });
-    messenger.setMockMethodCallHandler(codexChannel, (call) async {
-      codexCalls.add(call);
-      if (codexArchiveShouldThrow &&
+    messenger.setMockMethodCallHandler(agentRuntimeChannel, (call) async {
+      agentRuntimeCalls.add(call);
+      if (agentRuntimeArchiveShouldThrow &&
           (call.method == 'thread/archive' ||
               call.method == 'thread/unarchive')) {
         throw PlatformException(
@@ -110,7 +110,7 @@ void main() {
 
   tearDown(() async {
     messenger.setMockMethodCallHandler(channel, null);
-    messenger.setMockMethodCallHandler(codexChannel, null);
+    messenger.setMockMethodCallHandler(agentRuntimeChannel, null);
   });
 
   test('loads conversations from native source', () async {
@@ -135,6 +135,37 @@ void main() {
     expect(conversations.single.mode, ConversationMode.openclaw);
     expect(conversations.single.title, 'openclaw hello');
   });
+
+  test(
+    'keeps the bound ACP agent in conversation and thread targets',
+    () async {
+      nativeConversations = <Map<String, dynamic>>[
+        {
+          'id': 50,
+          'title': 'Claude conversation',
+          'mode': ConversationMode.agent.storageValue,
+          'agentCwd': '/workspace',
+          'agentId': 'claude-code-acp',
+          'summary': null,
+          'status': 0,
+          'lastMessage': 'hello',
+          'messageCount': 1,
+          'createdAt': 1,
+          'updatedAt': 2,
+        },
+      ];
+
+      final conversation =
+          (await ConversationService.getAllConversations()).single;
+      final target = await ConversationService.getLatestConversationTarget(
+        mode: ConversationMode.agent,
+      );
+
+      expect(conversation.agentCwd, '/workspace');
+      expect(conversation.agentId, 'claude-code-acp');
+      expect(target?.agentId, 'claude-code-acp');
+    },
+  );
 
   test('loads chat_only conversations without collapsing mode', () async {
     nativeConversations = <Map<String, dynamic>>[
@@ -384,7 +415,7 @@ void main() {
         {
           'id': 9,
           'title': 'Codex thread',
-          'mode': ConversationMode.codex.storageValue,
+          'mode': ConversationMode.agent.storageValue,
           'summary': null,
           'isArchived': false,
           'status': 0,
@@ -394,14 +425,14 @@ void main() {
           'updatedAt': 2,
         },
       ];
-      codexArchiveShouldThrow = true;
+      agentRuntimeArchiveShouldThrow = true;
 
       final archived = await ConversationService.archiveConversation(
         ConversationModel.fromJson(nativeConversations.single),
       );
 
       expect(archived, isTrue);
-      expect(codexCalls.single.method, 'thread/archive');
+      expect(agentRuntimeCalls.single.method, 'thread/archive');
       expect(nativeConversations.single['isArchived'], isTrue);
     },
   );
@@ -413,7 +444,7 @@ void main() {
         {
           'id': 10,
           'title': 'Codex stale binding',
-          'mode': ConversationMode.codex.storageValue,
+          'mode': ConversationMode.agent.storageValue,
           'summary': null,
           'isArchived': false,
           'status': 0,
@@ -423,15 +454,15 @@ void main() {
           'updatedAt': 2,
         },
       ];
-      codexArchiveShouldThrow = true;
+      agentRuntimeArchiveShouldThrow = true;
 
       final deleted = await ConversationService.deleteConversation(
         10,
-        mode: ConversationMode.codex,
+        mode: ConversationMode.agent,
       );
 
       expect(deleted, isTrue);
-      expect(codexCalls.single.method, 'thread/archive');
+      expect(agentRuntimeCalls.single.method, 'thread/archive');
       expect(nativeConversations.single['isArchived'], isTrue);
 
       final visibleConversations =

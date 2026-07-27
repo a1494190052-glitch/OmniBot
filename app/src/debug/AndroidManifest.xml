@@ -2,19 +2,11 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <application>
         <receiver
-            android:name=".debug.DebugVlmRunLogReceiver"
+            android:name=".debug.DebugAgentCancelReceiver"
             android:enabled="true"
             android:exported="true">
             <intent-filter>
-                <action android:name="cn.com.omnimind.bot.debug.RUN_VLM_RUNLOG" />
-            </intent-filter>
-        </receiver>
-        <receiver
-            android:name=".debug.DebugVlmCancelReceiver"
-            android:enabled="true"
-            android:exported="true">
-            <intent-filter>
-                <action android:name="cn.com.omnimind.bot.debug.CANCEL_VLM_TASK" />
+                <action android:name="cn.com.omnimind.bot.debug.CANCEL_AGENT_TASK" />
             </intent-filter>
         </receiver>
         <receiver
@@ -87,19 +79,11 @@
             </intent-filter>
         </receiver>
         <receiver
-            android:name=".debug.DebugAgentVlmReceiver"
+            android:name=".debug.DebugGuiTaskReceiver"
             android:enabled="true"
             android:exported="true">
             <intent-filter>
-                <action android:name="cn.com.omnimind.bot.debug.RUN_AGENT_VLM_VALIDATION" />
-            </intent-filter>
-        </receiver>
-        <receiver
-            android:name=".debug.DebugOobRecallReceiver"
-            android:enabled="true"
-            android:exported="true">
-            <intent-filter>
-                <action android:name="cn.com.omnimind.bot.debug.RUN_OOB_RECALL" />
+                <action android:name="cn.com.omnimind.bot.debug.RUN_GUI_TASK_VALIDATION" />
             </intent-filter>
         </receiver>
         <receiver

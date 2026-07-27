@@ -81,6 +81,15 @@ class ChatMessageModel {
     return value == null ? null : value.toString();
   }
 
+  /// 生成此消息的 ACP Agent。旧消息可能为空，渲染层使用通用 Agent 外观。
+  String? get agentId => _normalizeOptionalString(
+    content?['agentId'] ?? cardData?['agentId'] ?? streamMeta?['agentId'],
+  );
+
+  String? get agentName => _normalizeOptionalString(
+    content?['agentName'] ?? cardData?['agentName'] ?? streamMeta?['agentName'],
+  );
+
   /// 获取数据库ID（用于本地存储和渲染key）
   int? get dbId => _asNullableInt(content?['dbId']);
 

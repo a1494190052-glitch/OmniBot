@@ -209,11 +209,25 @@ class RunResult:
 
     @property
     def execution_summary(self) -> dict[str, Any]:
+        usage = self.detail.get("llm_usage")
+        usage = usage if isinstance(usage, dict) else {}
+        prompt_tokens = max(0, _coerce_int(usage.get("prompt_tokens")))
+        completion_tokens = max(0, _coerce_int(usage.get("completion_tokens")))
+        total_tokens = max(0, _coerce_int(usage.get("total_tokens")))
+        if total_tokens <= 0:
+            total_tokens = prompt_tokens + completion_tokens
         return {
             "success": self.success,
             "steps": self.actions_executed,
             "model_calls": self.model_calls,
             "fallback_steps": self.fallback_steps,
+            "prompt_tokens": prompt_tokens,
+            "completion_tokens": completion_tokens,
+            "total_tokens": total_tokens,
+            "tokens": total_tokens,
+            "token_usage_status": str(
+                usage.get("token_usage_status") or "not_applicable"
+            ),
             "failure_reason": self.error,
         }
 
@@ -286,3 +300,10 @@ class FunctionResolver(Protocol):
         goal: str,
         functions: list[Function],
     ) -> FunctionResolution | Awaitable[FunctionResolution]: ...
+
+
+def _coerce_int(value: Any) -> int:
+    try:
+        return int(value or 0)
+    except (TypeError, ValueError):
+        return 0

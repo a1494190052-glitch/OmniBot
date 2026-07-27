@@ -1,12 +1,9 @@
 import 'package:flutter/material.dart';
-import 'package:ui/services/app_font_effect_service.dart';
 
 /// 应用文本样式系统 - 基于 Figma 设计令牌
 class AppTextStyles {
   // 字体家族
-  static String get fontFamily => AppFontEffectService.currentFontFamily;
-  static List<String>? get fontFamilyFallback =>
-      AppFontEffectService.currentFontFamilyFallback;
+  static const String fontFamily = 'PingFang SC';
 
   // 字体大小
   static const double fontSizeH1 = 30.0;

@@ -4,19 +4,18 @@ import BaseApplication
 import cn.com.omnimind.baselib.database.DatabaseHelper
 import cn.com.omnimind.baselib.i18n.AppLocaleManager
 import cn.com.omnimind.baselib.util.OmniLog
-import cn.com.omnimind.bot.agent.AgentAiCapabilityConfigSync
+import cn.com.omnimind.bot.agent.AgentPromptSettingsStore
 import cn.com.omnimind.bot.agent.AgentWorkspaceManager
 import cn.com.omnimind.bot.agent.SkillIndexService
 import cn.com.omnimind.bot.agent.WorkspaceMemoryRollupScheduler
 import cn.com.omnimind.bot.agent.WorkspaceScheduledTaskScheduler
 import cn.com.omnimind.bot.activity.StartupThemeResolver
-import cn.com.omnimind.bot.im.ImChannelManager
-import cn.com.omnimind.bot.localmodel.LocalModelFeatureInstaller
+import cn.com.omnimind.bot.cleanup.LegacyLocalModelDataCleanup
 import cn.com.omnimind.bot.llm.BundledDebugModelConfigInstaller
-import cn.com.omnimind.bot.manager.AssistsCoreManager
 import cn.com.omnimind.bot.mcp.McpServerManager
-import cn.com.omnimind.bot.omniflow.OmniFlowPythonRuntime
-import cn.com.omnimind.bot.omniflow.omniFlowRecordStepExecutor
+import cn.com.omnimind.bot.manager.AssistsCoreManager
+import cn.com.omnimind.bot.omniflow.OmniFlow
+import cn.com.omnimind.bot.omniflow.OmniFlowAppPlatform
 import cn.com.omnimind.bot.quicklog.QuickLogWidgetUpdater
 import cn.com.omnimind.bot.terminal.EmbeddedTerminalRuntime
 import cn.com.omnimind.bot.update.AppUpdateManager
@@ -24,11 +23,8 @@ import cn.com.omnimind.bot.util.NestedBackgroundStateUtil
 import cn.com.omnimind.baselib.shizuku.ShizukuCapabilityManager
 import com.rk.resources.Res
 import com.tencent.mmkv.MMKV
-import io.flutter.FlutterInjector
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.embedding.engine.FlutterEngineGroup
-import io.flutter.embedding.engine.dart.DartExecutor
-import io.flutter.plugins.GeneratedPluginRegistrant
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.DelicateCoroutinesApi
 import kotlinx.coroutines.Dispatchers
@@ -64,30 +60,6 @@ class App : BaseApplication() {
             return cachedMainEngine!!
         }
 
-        fun createEngineFromGroup(): FlutterEngine {
-            val engineStart = System.currentTimeMillis()
-            OmniLog.d(
-                "AppStartup",
-                "Creating secondary engine from FlutterEngineGroup with subEngineMain entry point"
-            )
-
-            val dartEntrypoint = DartExecutor.DartEntrypoint(
-                FlutterInjector.instance().flutterLoader().findAppBundlePath(),
-                "subEngineMain"
-            )
-
-            val options = FlutterEngineGroup.Options(instance)
-                .setDartEntrypoint(dartEntrypoint)
-
-            val engine = getFlutterEngineGroup().createAndRunEngine(options)
-            GeneratedPluginRegistrant.registerWith(engine)
-
-            OmniLog.d(
-                "AppStartup",
-                "Secondary engine created with subEngineMain, cost: ${System.currentTimeMillis() - engineStart}ms"
-            )
-            return engine
-        }
     }
 
     @OptIn(DelicateCoroutinesApi::class)
@@ -106,17 +78,12 @@ class App : BaseApplication() {
         Res.application = this
 
         MMKV.initialize(this)
+        AgentPromptSettingsStore.initializeAndCleanupLegacyFiles(this)
+        LegacyLocalModelDataCleanup.start(this)
         setupUncaughtExceptionHandler()
 
         DatabaseHelper.init(this)
-        LocalModelFeatureInstaller.install(this)
         AssistsCoreManager.installRunLogFinishListener()
-        cn.com.omnimind.assists.runlog.OmniFlowRecordStepExecutorRegistry.register(
-            omniFlowRecordStepExecutor()
-        )
-        cn.com.omnimind.assists.task.vlmserver.VlmTaskEngineRegistry.register(
-            cn.com.omnimind.bot.vlm.NativeVlmTaskEngine()
-        )
 
         val nestedStart = System.currentTimeMillis()
         NestedBackgroundStateUtil.init(this)
@@ -131,17 +98,11 @@ class App : BaseApplication() {
             "AppStartup",
             "ModelSceneRegistry.init cost: ${System.currentTimeMillis() - registryStart}ms"
         )
+        runCatching { BundledDebugModelConfigInstaller.installIfNeeded() }
         runCatching {
             val workspaceManager = AgentWorkspaceManager(this)
             workspaceManager.ensureRuntimeDirectories()
             SkillIndexService(this, workspaceManager).seedBuiltinSkillsIfNeeded()
-        }
-        runCatching {
-            val configSync = AgentAiCapabilityConfigSync.get(this)
-            configSync.initialize()
-            if (BundledDebugModelConfigInstaller.installIfNeeded()) {
-                configSync.syncFileFromStores()
-            }
         }
         runCatching {
             WorkspaceMemoryRollupScheduler(this).ensureScheduledIfEnabled()
@@ -153,26 +114,17 @@ class App : BaseApplication() {
             QuickLogWidgetUpdater.updateAll(this)
         }
         runCatching {
-            cn.com.omnimind.assists.task.vlmserver.VLMRecallContextProviderRegistry.register(
-                cn.com.omnimind.bot.vlm.VlmFunctionRecall(this)
-            )
-        }
-        runCatching {
-            val guidanceManager = cn.com.omnimind.bot.vlm.VlmGuidanceManager.getInstance(this)
-            guidanceManager.initialize()
-        }
-        runCatching {
             ShizukuCapabilityManager.get(this)
         }
 
         initSDKsAfterPrivacyConsent()
         McpServerManager.restoreIfEnabled(this)
-        ImChannelManager.restoreIfEnabled(this)
+        OmniFlow.configure(OmniFlowAppPlatform)
         CoroutineScope(Dispatchers.IO).launch {
             runCatching {
                 EmbeddedTerminalRuntime.warmup(this@App)
+                OmniFlow.warmup(this@App)
             }
-            OmniFlowPythonRuntime.start(this@App)
         }
         OmniLog.d(
             "AppStartup",

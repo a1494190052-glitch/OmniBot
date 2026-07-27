@@ -111,7 +111,7 @@ AGENT_RUNTIME_TOOL_REVIEW_PATHS=(
   "app/src/main/java/cn/com/omnimind/bot/agent/tool/handlers/FunctionToolHandler.kt"
   "app/src/main/java/cn/com/omnimind/bot/agent/tool/handlers/ImagePickerToolHandler.kt"
   "app/src/main/java/cn/com/omnimind/bot/agent/tool/handlers/LocalActionToolHandler.kt"
-  "app/src/main/java/cn/com/omnimind/bot/agent/tool/handlers/VlmToolHandler.kt"
+  "app/src/main/java/cn/com/omnimind/bot/agent/tool/handlers/GuiTaskToolHandler.kt"
   "app/src/main/java/cn/com/omnimind/bot/agent/tool/handlers/WebSearchToolHandler.kt"
 )
 

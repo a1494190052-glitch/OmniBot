@@ -63,7 +63,8 @@ class AgentOrchestrator(
         val executionEnv: AgentExecutionEnvironment,
         val conversationId: Long? = null,
         val contextCompactor: AgentConversationContextCompactor? = null,
-        val contextSegmentId: String? = null,
+        val maxModelRounds: Int? = null,
+        val maxCompletionTokens: Int = 16384,
         val turnContextProvider: AgentTurnContextProvider? = null,
         val turnObserver: AgentTurnObserver? = null,
         val requestOptions: AgentTurnRequestOptions = AgentTurnRequestOptions(),
@@ -136,10 +137,14 @@ class AgentOrchestrator(
 
         try {
             roundLoop@ while (true) {
-                val maxModelRounds = input.requestOptions.maxModelRounds
+                val maxModelRounds = (input.requestOptions.maxModelRounds ?: input.maxModelRounds)
+                    ?.coerceAtLeast(1)
                 if (maxModelRounds != null && completedModelRounds >= maxModelRounds) {
-                    val message = "max_model_rounds_exceeded:$maxModelRounds"
-                    callback.onError(message)
+                    val message = t(
+                        "Agent 已达到 $maxModelRounds 轮模型调用上限。",
+                        "Agent reached the $maxModelRounds-round model-call limit."
+                    )
+                    callback.onError(message, false)
                     terminalError = AgentResult.Error(message)
                     terminated = true
                     break@roundLoop
@@ -168,7 +173,9 @@ class AgentOrchestrator(
                             messages = requestMessages,
                             model = input.requestOptions.model ?: model,
                             modelOverride = input.requestOptions.modelOverride,
-                            maxCompletionTokens = input.requestOptions.maxCompletionTokens ?: 16384,
+                            maxCompletionTokens = (
+                                input.requestOptions.maxCompletionTokens ?: input.maxCompletionTokens
+                                ).coerceIn(1, 16384),
                             temperature = input.requestOptions.temperature,
                             stream = true,
                             streamOptions = ChatCompletionStreamOptions(includeUsage = true),
@@ -249,7 +256,6 @@ class AgentOrchestrator(
                         promptTokens = latestPromptTokens,
                         messages = memory.snapshot(),
                         promptTokenThresholdOverride = latestPromptTokenThreshold,
-                        contextSegmentId = input.contextSegmentId,
                         callback = callback
                     )
                     memory.replaceAll(compacted)

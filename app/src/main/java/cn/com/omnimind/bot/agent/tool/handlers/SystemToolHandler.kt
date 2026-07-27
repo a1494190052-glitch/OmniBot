@@ -63,17 +63,10 @@ class SystemToolHandler(
                 "schedule_task_create" -> {
                     helper.reportToolProgress(callback, toolName, "正在创建定时任务")
                     val payload = helper.jsonObjectToMap(args).toMutableMap()
-                    val targetKind = payload["targetKind"]?.toString()?.trim().orEmpty()
-                    if (targetKind != "vlm" && targetKind != "subagent") { throw IllegalArgumentException("targetKind 仅支持 vlm 或 subagent") }
-                    if (targetKind == "vlm") {
-                        val goal = payload["goal"]?.toString()?.trim().orEmpty()
-                        if (goal.isEmpty()) { throw IllegalArgumentException("vlm 定时任务缺少 goal") }
-                    }
-                    if (targetKind == "subagent") {
-                        val prompt = payload["subagentPrompt"]?.toString()?.trim().orEmpty()
-                        if (prompt.isEmpty()) { throw IllegalArgumentException("subagent 定时任务缺少 subagentPrompt") }
-                        if (!payload.containsKey("notificationEnabled")) { payload["notificationEnabled"] = true }
-                    }
+                    payload["targetKind"] = "subagent"
+                    val prompt = payload["subagentPrompt"]?.toString()?.trim().orEmpty()
+                    if (prompt.isEmpty()) { throw IllegalArgumentException("subagent 定时任务缺少 subagentPrompt") }
+                    if (!payload.containsKey("notificationEnabled")) { payload["notificationEnabled"] = true }
                     if (!payload.containsKey("enabled")) { payload["enabled"] = true }
                     val result = scheduleToolBridge.createTask(payload)
                     ToolExecutionResult.ScheduleResult(
@@ -94,8 +87,7 @@ class SystemToolHandler(
                 "schedule_task_update" -> {
                     helper.reportToolProgress(callback, toolName, "正在更新定时任务")
                     val payload = helper.jsonObjectToMap(args).toMutableMap()
-                    val targetKind = payload["targetKind"]?.toString()?.trim()
-                    if (targetKind != null && targetKind != "vlm" && targetKind != "subagent") { throw IllegalArgumentException("targetKind 仅支持 vlm 或 subagent") }
+                    payload["targetKind"] = "subagent"
                     val result = scheduleToolBridge.updateTask(payload)
                     ToolExecutionResult.ScheduleResult(
                         toolName = toolName,

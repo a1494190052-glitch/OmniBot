@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_svg/flutter_svg.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:ui/features/home/pages/chat/tool_activity_utils.dart';
 import 'package:ui/features/home/pages/chat/utils/agent_run_timeline.dart';
@@ -10,13 +9,16 @@ import 'package:ui/features/home/pages/command_overlay/widgets/message_bubble.da
 import 'package:ui/models/chat_message_model.dart';
 import 'package:ui/services/agent_avatar_service.dart';
 import 'package:ui/services/app_background_service.dart';
+import 'package:ui/services/agent_message_kinds.dart';
 import 'package:ui/theme/theme_context.dart';
+import 'package:ui/widgets/agent_brand_icon.dart';
 import 'package:ui/widgets/agent_avatar.dart';
 
 class AgentRunGroupMessage extends StatefulWidget {
   const AgentRunGroupMessage({
     super.key,
     required this.group,
+    this.useAcpPresentation = false,
     required this.expanded,
     required this.onToggleExpanded,
     required this.onBeforeTaskExecute,
@@ -32,6 +34,7 @@ class AgentRunGroupMessage extends StatefulWidget {
   });
 
   final AgentRunTimelineGroup group;
+  final bool useAcpPresentation;
   final bool expanded;
   final VoidCallback onToggleExpanded;
   final OnBeforeTaskExecute onBeforeTaskExecute;
@@ -153,6 +156,7 @@ class _AgentRunGroupMessageState extends State<AgentRunGroupMessage>
             key: ValueKey('agent-run-summary-${widget.group.taskId}'),
             group: widget.group,
             taskId: widget.group.taskId,
+            useAcpPresentation: widget.useAcpPresentation,
             expanded: widget.expanded,
             onTap: widget.onToggleExpanded,
           ),
@@ -169,6 +173,7 @@ class _AgentRunGroupMessageState extends State<AgentRunGroupMessage>
             onContinueAgentMessage: () =>
                 widget.onContinueAgentMessage?.call(message),
             enableThinkingCollapse: false,
+            useAgentToolPresentation: widget.useAcpPresentation,
             parentScrollController: widget.parentScrollController,
             onParentScrollHandoff: widget.onParentScrollHandoff,
             onRequestAuthorize: widget.onRequestAuthorize,
@@ -234,7 +239,7 @@ class _AgentRunGroupMessageState extends State<AgentRunGroupMessage>
     var index = 0;
     while (index < processMessages.length) {
       final message = processMessages[index];
-      if (_isAgentToolSummaryMessage(message)) {
+      if (_isAgentToolSummaryMessage(message) && widget.useAcpPresentation) {
         final toolMessages = <ChatMessageModel>[message];
         var nextIndex = index + 1;
         while (nextIndex < processMessages.length &&
@@ -294,6 +299,7 @@ class _AgentRunGroupMessageState extends State<AgentRunGroupMessage>
           widget.onContinueAgentMessage?.call(message),
       enableThinkingCollapse: true,
       thinkingAutoCollapseOnComplete: true,
+      useAgentToolPresentation: widget.useAcpPresentation,
       showThinkingAvatarOverride: hideAvatar ? false : null,
       parentScrollController: widget.parentScrollController,
       onParentScrollHandoff: widget.onParentScrollHandoff,
@@ -328,28 +334,30 @@ bool _isAgentToolSummaryMessage(ChatMessageModel message) {
       kAgentToolSummaryCardType;
 }
 
-const String _kCodexAgentRunAvatarAsset = 'assets/home/chat/codex.svg';
-
-/// A run group is treated as "codex" if any of its messages (visible or
-/// collapsed) was produced by the codex reducer. Tool cards carry
-/// cardData.uiStyle == 'codex_tool', while text-only codex turns use stable
-/// entry ids like `*-codex-agent` / `*-codex-thinking`.
-bool _agentRunGroupIsCodex(AgentRunTimelineGroup group) {
+/// 头像始终按消息记录的 Agent 身份渲染；无法从旧历史记录恢复身份时使用
+/// 通用 Agent 图标，避免把 Claude Code、OpenCode 等错误标成 Codex。
+String? _agentRunGroupAcpAgentId(AgentRunTimelineGroup group) {
   for (final message in group.processMessagesNewestFirst) {
-    if (_isCodexRunMessage(message)) return true;
+    if (message.agentId != null) return message.agentId;
   }
   for (final message in group.visibleMessagesNewestFirst) {
-    if (_isCodexRunMessage(message)) return true;
+    if (message.agentId != null) return message.agentId;
   }
-  return false;
+  for (final message in group.processMessagesNewestFirst) {
+    if (_isAcpRunMessage(message)) return 'generic-agent';
+  }
+  for (final message in group.visibleMessagesNewestFirst) {
+    if (_isAcpRunMessage(message)) return 'generic-agent';
+  }
+  return null;
 }
 
-bool _isCodexRunMessage(ChatMessageModel message) {
+bool _isAcpRunMessage(ChatMessageModel message) {
   final cardData = message.cardData;
-  if ((cardData?['uiStyle'] ?? '').toString().trim() == 'codex_tool') {
+  if (isAgentToolUiStyle(cardData?['uiStyle'])) {
     return true;
   }
-  if ((cardData?['type'] ?? '').toString().trim() == 'codex_request') {
+  if (isAgentRequestCardType(cardData?['type'])) {
     return true;
   }
   for (final rawId in <Object?>[
@@ -359,7 +367,7 @@ bool _isCodexRunMessage(ChatMessageModel message) {
     cardData?['cardId'],
   ]) {
     final id = rawId?.toString().trim() ?? '';
-    if (id.contains('-codex-')) {
+    if (id.contains('-agent-') || id.contains('-codex-')) {
       return true;
     }
   }
@@ -550,12 +558,14 @@ class _AgentRunSummaryHeader extends StatelessWidget {
     super.key,
     required this.group,
     required this.taskId,
+    required this.useAcpPresentation,
     required this.expanded,
     required this.onTap,
   });
 
   final AgentRunTimelineGroup group;
   final String taskId;
+  final bool useAcpPresentation;
   final bool expanded;
   final VoidCallback onTap;
 
@@ -564,7 +574,9 @@ class _AgentRunSummaryHeader extends StatelessWidget {
     final isEnglish =
         Localizations.maybeLocaleOf(context)?.languageCode == 'en';
     final palette = context.omniPalette;
-    final isCodexGroup = _agentRunGroupIsCodex(group);
+    final acpAgentId = useAcpPresentation
+        ? _agentRunGroupAcpAgentId(group)
+        : null;
     // Both collapsed AND expanded show the same "已处理 <elapsed>" label.
     // The per-tool count summary was deliberately retired — the user wants
     // the header noise-free in both states. The elapsed-time suffix is
@@ -577,13 +589,6 @@ class _AgentRunSummaryHeader extends StatelessWidget {
         ? baseLabel
         : '$baseLabel  $elapsedLabel';
     final labelColor = expanded ? palette.textSecondary : palette.textTertiary;
-    final lineColor = expanded
-        ? palette.textSecondary.withValues(
-            alpha: context.isDarkTheme ? 0.32 : 0.28,
-          )
-        : palette.borderSubtle.withValues(
-            alpha: context.isDarkTheme ? 0.56 : 0.8,
-          );
 
     return Padding(
       padding: const EdgeInsets.only(top: 8, bottom: 4),
@@ -592,16 +597,17 @@ class _AgentRunSummaryHeader extends StatelessWidget {
         child: InkWell(
           onTap: onTap,
           borderRadius: BorderRadius.circular(10),
-          splashColor: palette.accentPrimary.withValues(alpha: 0.06),
-          highlightColor: Colors.transparent,
+          splashFactory: NoSplash.splashFactory,
+          overlayColor: const WidgetStatePropertyAll(Colors.transparent),
           child: Padding(
             padding: const EdgeInsets.fromLTRB(2, 4, 2, 4),
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.center,
               children: [
-                if (isCodexGroup)
-                  _CodexAgentRunAvatar(
-                    key: ValueKey('agent-run-codex-avatar-$taskId'),
+                if (acpAgentId != null)
+                  _AcpAgentRunAvatar(
+                    key: ValueKey('agent-run-acp-avatar-$taskId'),
+                    agentId: acpAgentId,
                     color: labelColor,
                   )
                 else
@@ -612,20 +618,11 @@ class _AgentRunSummaryHeader extends StatelessWidget {
                         key: ValueKey('agent-run-avatar-$taskId'),
                         state: state,
                         size: 30,
+                        showBorder: false,
                       );
                     },
                   ),
                 const SizedBox(width: 8),
-                // NOTE: deliberately NOT wrapping the label in Flexible. The
-                // previous implementation gave Flexible(flex:1) + Expanded
-                // (flex:1) the remaining row width 50/50, which left a large
-                // blank gap between the label and the divider when the label
-                // was short ("已处理" — the user's reported "横线长度有问题"
-                // bug). Letting the label take its intrinsic width lets the
-                // Expanded(line) below truly consume ALL remaining horizontal
-                // space, so the chevron is glued to the right edge in every
-                // state. Long labels are clipped at 60% of the row width to
-                // avoid pushing the chevron off-screen.
                 ConstrainedBox(
                   constraints: BoxConstraints(
                     maxWidth: MediaQuery.sizeOf(context).width * 0.6,
@@ -643,15 +640,14 @@ class _AgentRunSummaryHeader extends StatelessWidget {
                     ),
                   ),
                 ),
-                const SizedBox(width: 10),
-                Expanded(child: Container(height: 1, color: lineColor)),
-                const SizedBox(width: 6),
+                const SizedBox(width: 2),
                 AnimatedRotation(
                   turns: expanded ? 0 : -0.25,
                   duration: _AgentRunGroupMessageState._kToggleDuration,
                   curve: Curves.easeInOutCubicEmphasized,
                   child: Icon(
                     LucideIcons.chevronDown,
+                    key: ValueKey('agent-run-summary-chevron-$taskId'),
                     size: 18,
                     color: labelColor,
                   ),
@@ -717,12 +713,15 @@ String _agentRunElapsedLabel(AgentRunTimelineGroup group) {
   return '${hours}h ${remainingMinutes}m';
 }
 
-/// Drop-in replacement for `AgentAvatarCircle` used by codex agent runs:
-/// renders the codex glyph (`assets/home/chat/codex.svg`) inside a 30px
-/// circular surface so the visual rhythm matches the user-avatar variant.
-class _CodexAgentRunAvatar extends StatelessWidget {
-  const _CodexAgentRunAvatar({super.key, required this.color});
+/// ACP Agent 的品牌头像，外层尺寸与小万头像保持一致。
+class _AcpAgentRunAvatar extends StatelessWidget {
+  const _AcpAgentRunAvatar({
+    super.key,
+    required this.agentId,
+    required this.color,
+  });
 
+  final String agentId;
   final Color color;
 
   @override
@@ -743,12 +742,7 @@ class _CodexAgentRunAvatar extends StatelessWidget {
         shape: BoxShape.circle,
         border: Border.all(color: borderColor, width: 0.5),
       ),
-      child: SvgPicture.asset(
-        _kCodexAgentRunAvatarAsset,
-        width: 18,
-        height: 18,
-        colorFilter: ColorFilter.mode(color, BlendMode.srcIn),
-      ),
+      child: AgentBrandIcon(agentId: agentId, size: 18, tint: color),
     );
   }
 }

@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:ui/services/app_font_effect_service.dart';
 import 'package:ui/theme/app_colors.dart';
 import 'package:ui/theme/omni_theme_palette.dart';
 
@@ -9,28 +8,6 @@ class AppTheme {
 
   static ThemeData get lightTheme => _lightTheme;
   static ThemeData get darkTheme => _darkTheme;
-
-  static ThemeData lightThemeFor({required bool enhancedFonts}) {
-    if (!enhancedFonts) {
-      return _lightTheme;
-    }
-    return _buildTheme(
-      brightness: Brightness.light,
-      palette: OmniThemePalette.light,
-      enhancedFonts: true,
-    );
-  }
-
-  static ThemeData darkThemeFor({required bool enhancedFonts}) {
-    if (!enhancedFonts) {
-      return _darkTheme;
-    }
-    return _buildTheme(
-      brightness: Brightness.dark,
-      palette: OmniThemePalette.dark,
-      enhancedFonts: true,
-    );
-  }
 
   static final ThemeData _lightTheme = _buildTheme(
     brightness: Brightness.light,
@@ -45,16 +22,9 @@ class AppTheme {
   static ThemeData _buildTheme({
     required Brightness brightness,
     required OmniThemePalette palette,
-    bool enhancedFonts = false,
   }) {
     final isDark = brightness == Brightness.dark;
     final onAccentColor = _foregroundForAccent(palette.accentPrimary);
-    final fontFamily = AppFontEffectService.fontFamilyFor(
-      enhancedFonts: enhancedFonts,
-    );
-    final fontFamilyFallback = AppFontEffectService.fontFallbackFor(
-      enhancedFonts: enhancedFonts,
-    );
     final globalInputDecorationTheme = _buildInputDecorationTheme(
       palette: palette,
       isDark: isDark,
@@ -88,8 +58,6 @@ class AppTheme {
       shadowColor: palette.shadowColor,
       splashColor: palette.accentPrimary.withValues(alpha: isDark ? 0.1 : 0.08),
       highlightColor: Colors.transparent,
-      fontFamily: fontFamily,
-      fontFamilyFallback: fontFamilyFallback,
       extensions: <ThemeExtension<dynamic>>[palette],
       appBarTheme: AppBarTheme(
         backgroundColor: palette.pageBackground,
@@ -104,8 +72,7 @@ class AppTheme {
           fontSize: 17,
           fontWeight: FontWeight.w600,
           color: palette.textPrimary,
-          fontFamily: fontFamily,
-          fontFamilyFallback: fontFamilyFallback,
+          fontFamily: 'SF Pro',
         ),
         iconTheme: IconThemeData(color: palette.textPrimary, size: 24),
       ),
@@ -181,8 +148,6 @@ class AppTheme {
       textTheme: baseTheme.textTheme.apply(
         bodyColor: palette.textPrimary,
         displayColor: palette.textPrimary,
-        fontFamily: fontFamily,
-        fontFamilyFallback: fontFamilyFallback,
       ),
     );
   }

@@ -151,7 +151,7 @@ class EmbeddedTerminalAutoStartManager(
                 }.onFailure { error ->
                     OmniLog.e(
                         TAG,
-                        "Failed to start Alpine auto-start task: ${task.name}",
+                        "Failed to start terminal auto-start task: ${task.name}",
                         error
                     )
                 }
@@ -183,7 +183,7 @@ class EmbeddedTerminalAutoStartManager(
         return runCatching {
             json.decodeFromString<List<StoredAutoStartTask>>(raw)
         }.getOrElse {
-            OmniLog.e(TAG, "Failed to parse Alpine auto-start tasks", it)
+            OmniLog.e(TAG, "Failed to parse terminal auto-start tasks", it)
             emptyList()
         }
     }

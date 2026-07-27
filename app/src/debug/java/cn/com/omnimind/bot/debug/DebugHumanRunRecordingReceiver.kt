@@ -4,19 +4,18 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.util.Base64
-import cn.com.omnimind.accessibility.service.AssistsService
+import cn.com.omnimind.androidgui.AndroidGuiEnvironment
 import cn.com.omnimind.assists.HumanTrajectoryLearningResult
 import cn.com.omnimind.assists.HumanTrajectoryLearningSession
+import cn.com.omnimind.assists.ManualInputTarget
 import cn.com.omnimind.assists.ManualRecordingRunLogRecovery
 import cn.com.omnimind.assists.ManualOverlayTouchGesture
-import cn.com.omnimind.assists.controller.accessibility.AccessibilityController
 import cn.com.omnimind.baselib.runlog.OobActionSchema
 import cn.com.omnimind.baselib.runlog.InternalRunLogStore
 import cn.com.omnimind.baselib.util.OmniLog
+import cn.com.omnimind.bot.function.FunctionApi
 import cn.com.omnimind.bot.function.FunctionService
 import cn.com.omnimind.bot.manager.buildManualRecordingFinalizedPayload
-import cn.com.omnimind.bot.omniflow.omniFlowRecordStepExecutor
-import cn.com.omnimind.bot.util.AssistsUtil
 import com.google.gson.GsonBuilder
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
@@ -59,6 +58,7 @@ class DebugHumanRunRecordingReceiver : BroadcastReceiver() {
                         )
                         "pause" -> pauseRecording()
                         "resume" -> resumeRecording()
+                        "input_text" -> recordManualInputText(appContext, intent)
                         "wait" -> recordManualWait(intent)
                         "gesture", "overlay_gesture" -> recordOverlayGesture(intent, recoverRunId)
                         "finish", "stop", "complete" -> finishRecording(appContext)
@@ -105,7 +105,6 @@ class DebugHumanRunRecordingReceiver : BroadcastReceiver() {
             context = context,
             name = name,
             description = description.ifBlank { name },
-            recordStepExecutor = omniFlowRecordStepExecutor(),
             enableRawTouch = enableRawTouch,
             enableDebugScreenshots = enableDebugScreenshots
         )
@@ -197,6 +196,41 @@ class DebugHumanRunRecordingReceiver : BroadcastReceiver() {
             "error_code" to if (recorded) null else "WAIT_NOT_RECORDED",
             "error_message" to if (recorded) null else "Manual wait was not recorded",
             "source" to "oob_debug_human_run_recording"
+        ).filterValues { it != null }
+    }
+
+    private suspend fun recordManualInputText(
+        context: Context,
+        intent: Intent?,
+    ): Map<String, Any?> {
+        if (!HumanTrajectoryLearningSession.isActive()) {
+            return errorPayload("NO_ACTIVE_RECORDING", "No active human recording session")
+        }
+        if (HumanTrajectoryLearningSession.isPaused()) {
+            return errorPayload("RECORDING_PAUSED", "Resume the human recording before typing")
+        }
+        val text = decodeBase64Extra(intent, "textBase64")
+            ?: stringExtra(intent, "text")
+            ?: return errorPayload("INPUT_TEXT_EMPTY", "text is required")
+        val target = AndroidGuiEnvironment(context).inputTarget()?.let {
+            ManualInputTarget(
+                description = it.description,
+                x = it.x,
+                y = it.y,
+                nodeResourceId = it.nodeResourceId.takeIf(String::isNotBlank),
+                password = it.password,
+            )
+        } ?: return errorPayload("INPUT_TARGET_NOT_FOUND", "Focused input target is required")
+        val recorded = HumanTrajectoryLearningSession.recordManualInputText(text, target)
+        val status = HumanTrajectoryLearningSession.status().asMap()
+        return linkedMapOf(
+            "success" to recorded,
+            "phase" to "input_text_recorded",
+            "action_count" to status["action_count"],
+            "latest_action_summary" to status["latest_action_summary"],
+            "error_code" to if (recorded) null else "INPUT_TEXT_NOT_RECORDED",
+            "error_message" to if (recorded) null else "Manual input_text was not recorded",
+            "source" to "oob_debug_human_run_recording",
         ).filterValues { it != null }
     }
 
@@ -431,14 +465,15 @@ class DebugHumanRunRecordingReceiver : BroadcastReceiver() {
         description: String
     ): Map<String, Any?> =
         runCatching {
-            FunctionService(context).convertRunLog(
+            FunctionService(context).executeTool(
+                FunctionApi.RUN_LOG_CONVERT,
                 mapOf(
                     "run_id" to runId,
                     "register" to true,
                     "agent_visible" to true,
                     "name" to name,
                     "description" to description,
-                )
+                ),
             )
         }.getOrElse { error ->
             OmniLog.e(TAG, "debug human recording conversion failed: ${error.fullMessage()}", error)
@@ -453,14 +488,15 @@ class DebugHumanRunRecordingReceiver : BroadcastReceiver() {
         }
 
     private suspend fun waitForAccessibility(context: Context) {
-        if (!AssistsUtil.Core.isInitialized()) {
-            AssistsUtil.Core.initCore(context)
+        val environment = AndroidGuiEnvironment(context)
+        if (!environment.isAccessibilityEnabled()) {
+            error("android_gui_accessibility_disabled")
         }
         repeat(50) {
-            if (AssistsService.instance != null && AccessibilityController.initController()) return
+            if (environment.isReady()) return
             delay(200L)
         }
-        error("OOB accessibility service is not bound")
+        error("android_gui_accessibility_not_ready")
     }
 
     private fun statusPayload(): Map<String, Any?> {

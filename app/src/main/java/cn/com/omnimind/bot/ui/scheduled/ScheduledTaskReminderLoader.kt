@@ -1,18 +1,17 @@
 package cn.com.omnimind.bot.ui.scheduled
 
-import android.accessibilityservice.AccessibilityService
 import android.annotation.SuppressLint
 import android.content.Context
 import android.graphics.PixelFormat
 import android.view.Gravity
 import android.view.View
 import android.view.WindowManager
-import cn.com.omnimind.accessibility.service.AssistsService
 import cn.com.omnimind.baselib.util.OmniLog
 import cn.com.omnimind.baselib.util.VibrationUtil
+import cn.com.omnimind.bot.App
 
 class ScheduledTaskReminderLoader private constructor(
-    private val service: AccessibilityService,
+    private val context: Context,
 ) {
 
     companion object {
@@ -22,18 +21,11 @@ class ScheduledTaskReminderLoader private constructor(
         @Volatile
         private var instance: ScheduledTaskReminderLoader? = null
 
-        @SuppressLint("StaticFieldLeak")
-        @Volatile
-        private var boundService: AccessibilityService? = null
-
-        private fun getInstance(): ScheduledTaskReminderLoader? {
-            val currentService = AssistsService.instance ?: return null
-            if (instance == null || boundService !== currentService) {
-                instance?.destroy()
-                boundService = currentService
-                instance = ScheduledTaskReminderLoader(currentService)
+        private fun getInstance(): ScheduledTaskReminderLoader {
+            if (instance == null) {
+                instance = ScheduledTaskReminderLoader(App.instance.applicationContext)
             }
-            return instance
+            return instance!!
         }
 
         fun show(
@@ -43,23 +35,22 @@ class ScheduledTaskReminderLoader private constructor(
             onCancel: (String) -> Unit,
             onExecuteNow: (String) -> Unit,
         ): Boolean {
-            return getInstance()?.show(
+            return getInstance().show(
                 taskId = taskId,
                 taskName = taskName,
                 countdownSeconds = countdownSeconds,
                 onCancel = onCancel,
                 onExecuteNow = onExecuteNow,
-            ) ?: false
+            )
         }
 
         fun hide() {
-            getInstance()?.hide()
+            instance?.hide()
         }
 
         fun destroyInstance() {
             instance?.destroy()
             instance = null
-            boundService = null
         }
     }
 
@@ -104,7 +95,7 @@ class ScheduledTaskReminderLoader private constructor(
         onExecuteNow: (String) -> Unit,
     ) {
         if (reminderView == null) {
-            reminderView = ScheduledTaskReminderView(service)
+            reminderView = ScheduledTaskReminderView(context)
         }
 
         reminderView?.setOnCancelClickListener {
@@ -129,13 +120,13 @@ class ScheduledTaskReminderLoader private constructor(
             return
         }
         if (windowManager == null) {
-            windowManager = service.getSystemService(Context.WINDOW_SERVICE) as WindowManager
+            windowManager = context.getSystemService(Context.WINDOW_SERVICE) as WindowManager
         }
 
         val params = WindowManager.LayoutParams(
             WindowManager.LayoutParams.MATCH_PARENT,
             WindowManager.LayoutParams.WRAP_CONTENT,
-            WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
+            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
                 WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
             PixelFormat.TRANSLUCENT,

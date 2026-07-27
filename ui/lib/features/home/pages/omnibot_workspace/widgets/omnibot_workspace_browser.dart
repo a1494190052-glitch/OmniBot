@@ -840,16 +840,12 @@ class OmnibotWorkspaceBrowserState extends State<OmnibotWorkspaceBrowser> {
                     itemBuilder: (context, index) {
                       final isFirst = index == 0;
                       final isLast = index == itemCount - 1;
-                      final borderRadius = BorderRadius.vertical(
-                        top: isFirst
-                            ? const Radius.circular(_itemCornerRadius)
-                            : Radius.zero,
-                        bottom: isLast
-                            ? const Radius.circular(_itemCornerRadius)
-                            : Radius.zero,
-                      );
 
                       if (showParentEntry && index == 0) {
+                        final borderRadius = _itemRadius(
+                          roundTop: true,
+                          roundBottom: isLast,
+                        );
                         final parentRow = _buildWorkspaceItem(
                           title: '..',
                           leading: Icon(
@@ -872,7 +868,8 @@ class OmnibotWorkspaceBrowserState extends State<OmnibotWorkspaceBrowser> {
                         entry: entry,
                         depth: 0,
                         currentShellPath: currentShellPath,
-                        borderRadius: borderRadius,
+                        roundTop: isFirst,
+                        roundBottom: isLast,
                       );
                     },
                   ),
@@ -898,13 +895,23 @@ class OmnibotWorkspaceBrowserState extends State<OmnibotWorkspaceBrowser> {
     );
   }
 
+  BorderRadius _itemRadius({
+    required bool roundTop,
+    required bool roundBottom,
+  }) {
+    const radius = Radius.circular(_itemCornerRadius);
+    return BorderRadius.vertical(
+      top: roundTop ? radius : Radius.zero,
+      bottom: roundBottom ? radius : Radius.zero,
+    );
+  }
+
   Widget _buildEntryNode({
     required FileSystemEntity entry,
     required int depth,
     required String? currentShellPath,
-    BorderRadius borderRadius = const BorderRadius.all(
-      Radius.circular(_itemCornerRadius),
-    ),
+    bool roundTop = true,
+    bool roundBottom = true,
   }) {
     final name = entry.path.split('/').last;
     final mountEntry = _workspaceMountEntryFor(entry);
@@ -923,20 +930,12 @@ class OmnibotWorkspaceBrowserState extends State<OmnibotWorkspaceBrowser> {
     final expandedChildren = isExpanded
         ? (_directoryChildrenCache[entry.path] ?? const <FileSystemEntity>[])
         : const <FileSystemEntity>[];
-    final hasExpandedChildren = expandedChildren.isNotEmpty;
-    final shouldRoundExpandedLeftEdge = depth > 0;
-    final itemBorderRadius = isExpanded
-        ? BorderRadius.only(
-            topLeft: borderRadius.topLeft,
-            topRight: borderRadius.topRight,
-            bottomLeft: shouldRoundExpandedLeftEdge
-                ? const Radius.circular(_itemCornerRadius)
-                : borderRadius.bottomLeft,
-            bottomRight: hasExpandedChildren
-                ? Radius.zero
-                : borderRadius.bottomRight,
-          )
-        : borderRadius;
+
+    // 展开后本行底部与下方子项(或空文件夹占位)相接,底部圆角交给展开块的最后一行。
+    final itemBorderRadius = _itemRadius(
+      roundTop: roundTop,
+      roundBottom: roundBottom && !isExpanded,
+    );
 
     final trailing = selectionMode
         ? null
@@ -954,6 +953,7 @@ class OmnibotWorkspaceBrowserState extends State<OmnibotWorkspaceBrowser> {
 
     Widget row = _buildWorkspaceItem(
       title: name,
+      depth: depth,
       leading: selectionMode
           ? _buildSelectionLeadingIcon(isSelected: isSelected)
           : _buildDraggableLeadingIcon(
@@ -994,7 +994,7 @@ class OmnibotWorkspaceBrowserState extends State<OmnibotWorkspaceBrowser> {
       );
     }
 
-    if (!isDirectory || !isExpanded) {
+    if (!isExpanded) {
       return row;
     }
 
@@ -1006,6 +1006,7 @@ class OmnibotWorkspaceBrowserState extends State<OmnibotWorkspaceBrowser> {
           entries: expandedChildren,
           depth: depth + 1,
           currentShellPath: currentShellPath,
+          roundLastChildBottom: roundBottom,
         ),
       ],
     );
@@ -1725,81 +1726,63 @@ class OmnibotWorkspaceBrowserState extends State<OmnibotWorkspaceBrowser> {
     required List<FileSystemEntity> entries,
     required int depth,
     required String? currentShellPath,
+    required bool roundLastChildBottom,
   }) {
-    final indent = _indentStep * depth;
-
     if (entries.isEmpty) {
-      return Padding(
-        padding: EdgeInsets.only(left: indent + 12, top: 0, bottom: 6),
-        child: Text(
-          '空文件夹',
-          style: TextStyle(
-            fontSize: 12,
-            color: context.omniPalette.textSecondary,
+      // 整宽占位,与上方父行背景拉通,避免出现缺口;若父级是列表末行则收底部圆角。
+      final palette = context.omniPalette;
+      return DecoratedBox(
+        decoration: BoxDecoration(
+          color: _surfaceColor(),
+          borderRadius: _itemRadius(
+            roundTop: false,
+            roundBottom: roundLastChildBottom,
+          ),
+        ),
+        child: SizedBox(
+          height: _itemHeight,
+          child: Padding(
+            padding: EdgeInsets.only(left: 12 + depth * _indentStep, right: 12),
+            child: Align(
+              alignment: Alignment.centerLeft,
+              child: Text(
+                '空文件夹',
+                style: TextStyle(fontSize: 12, color: palette.textSecondary),
+              ),
+            ),
           ),
         ),
       );
     }
 
     Widget buildItem(BuildContext context, int index) {
-      final entry = entries[index];
-      final previousEntry = index > 0 ? entries[index - 1] : null;
       final isLast = index == entries.length - 1;
-      final isExpandedDirectory =
-          _isDirectoryLikeEntry(entry) &&
-          _expandedDirectoryPaths.contains(entry.path);
-      final hasExpandedDirectoryAbove =
-          previousEntry != null &&
-          _isDirectoryLikeEntry(previousEntry) &&
-          _expandedDirectoryPaths.contains(previousEntry.path);
-      final shouldRoundTrailingCorners =
-          depth <= 1 &&
-          isLast &&
-          !(depth > 0 && _isDirectoryLikeEntry(entry) && !isExpandedDirectory);
-      final shouldRoundTopLeft =
-          depth > 0 &&
-          _isDirectoryLikeEntry(entry) &&
-          isExpandedDirectory &&
-          hasExpandedDirectoryAbove;
       return _buildEntryNode(
-        entry: entry,
+        entry: entries[index],
         depth: depth,
         currentShellPath: currentShellPath,
-        borderRadius: BorderRadius.only(
-          topLeft: shouldRoundTopLeft
-              ? const Radius.circular(_itemCornerRadius)
-              : Radius.zero,
-          bottomLeft: shouldRoundTrailingCorners
-              ? const Radius.circular(_itemCornerRadius)
-              : Radius.zero,
-          bottomRight: shouldRoundTrailingCorners
-              ? const Radius.circular(_itemCornerRadius)
-              : Radius.zero,
-        ),
+        roundTop: false,
+        roundBottom: isLast && roundLastChildBottom,
       );
     }
 
-    final listContent = entries.length > _maxExpandedItemsBeforeScroll
-        ? SizedBox(
-            height: _itemHeight * _maxExpandedItemsBeforeScroll,
-            child: ListView.builder(
-              primary: false,
-              physics: const ClampingScrollPhysics(),
-              itemCount: entries.length,
-              itemBuilder: buildItem,
-            ),
-          )
-        : Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              for (var index = 0; index < entries.length; index++)
-                buildItem(context, index),
-            ],
-          );
-
-    return Padding(
-      padding: EdgeInsets.only(left: indent),
-      child: listContent,
+    if (entries.length > _maxExpandedItemsBeforeScroll) {
+      return SizedBox(
+        height: _itemHeight * _maxExpandedItemsBeforeScroll,
+        child: ListView.builder(
+          primary: false,
+          physics: const ClampingScrollPhysics(),
+          itemCount: entries.length,
+          itemBuilder: buildItem,
+        ),
+      );
+    }
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        for (var index = 0; index < entries.length; index++)
+          buildItem(context, index),
+      ],
     );
   }
 
@@ -1826,6 +1809,7 @@ class OmnibotWorkspaceBrowserState extends State<OmnibotWorkspaceBrowser> {
     required Widget leading,
     required BorderRadius borderRadius,
     required VoidCallback onTap,
+    int depth = 0,
     VoidCallback? onLongPress,
     Widget? trailing,
   }) {
@@ -1845,7 +1829,8 @@ class OmnibotWorkspaceBrowserState extends State<OmnibotWorkspaceBrowser> {
           child: SizedBox(
             height: _itemHeight,
             child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 12),
+              // 背景整宽拉通,层级只靠内容左缩进体现,展开父子间不再出现背景缺口。
+              padding: EdgeInsets.only(left: 12 + depth * _indentStep, right: 12),
               child: Row(
                 children: [
                   leading,

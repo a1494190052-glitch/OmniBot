@@ -21,12 +21,64 @@ class AgentConversationHistorySupportTest {
     private val gson = Gson()
 
     @Test
+    fun `stale ui snapshot cannot delete a pending external user message`() {
+        val externalUser = mapOf<String, Any?>(
+            "id" to "web-run-user",
+            "type" to 1,
+            "user" to 1,
+            "content" to mapOf("id" to "web-run-user", "text" to "来自 WebUI"),
+            "streamMeta" to AgentConversationHistorySupport.externalUserMessageStreamMeta(),
+            "createAt" to "2026-07-23T05:00:00Z"
+        )
+        val assistant = mapOf<String, Any?>(
+            "id" to "reply-1",
+            "type" to 1,
+            "user" to 2,
+            "content" to mapOf("id" to "reply-1", "text" to "已收到"),
+            "createAt" to "2026-07-23T05:00:01Z"
+        )
+
+        val merged = AgentConversationHistorySupport.mergePendingExternalUserMessages(
+            existingMessages = listOf(externalUser),
+            incomingMessages = listOf(assistant)
+        )
+
+        assertEquals(listOf("web-run-user", "reply-1"), merged.map { it["id"] })
+    }
+
+    @Test
+    fun `ui snapshot acknowledges an external user message before later removal`() {
+        val externalUser = mapOf<String, Any?>(
+            "id" to "web-run-user",
+            "type" to 1,
+            "user" to 1,
+            "content" to mapOf("id" to "web-run-user", "text" to "来自 WebUI"),
+            "streamMeta" to AgentConversationHistorySupport.externalUserMessageStreamMeta()
+        )
+
+        val acknowledged = AgentConversationHistorySupport
+            .mergePendingExternalUserMessages(
+                existingMessages = listOf(externalUser),
+                incomingMessages = listOf(externalUser)
+            )
+            .single()
+        assertNull(acknowledged["streamMeta"])
+
+        val laterSnapshot = AgentConversationHistorySupport
+            .mergePendingExternalUserMessages(
+                existingMessages = listOf(acknowledged),
+                incomingMessages = emptyList()
+            )
+        assertTrue(laterSnapshot.isEmpty())
+    }
+
+    @Test
     fun `mergeToolPayload keeps args and final status across tool lifecycle`() {
         val startPayload = mapOf(
             "toolName" to "browser_use",
             "displayName" to "浏览器自动化",
             "toolType" to "builtin",
-            "childRunId" to "vlm-run-1",
+            "run_id" to "vlm-run-1",
             "argsJson" to """{"url":"https://example.com","steps":2}""",
             "summary" to "打开页面"
         )
@@ -64,8 +116,7 @@ class AgentConversationHistorySupportTest {
             mergedComplete["status"]
         )
         assertEquals("已完成页面分析", mergedComplete["summary"])
-        assertEquals("vlm-run-1", mergedComplete["childRunId"])
-        assertEquals("vlm-run-1", mergedComplete["child_run_id"])
+        assertEquals("vlm-run-1", mergedComplete["run_id"])
         assertEquals("""{"message":"done"}""", mergedComplete["resultPreviewJson"])
     }
 
@@ -323,12 +374,17 @@ class AgentConversationHistorySupportTest {
             "user" to 3,
             "content" to mapOf(
                 "id" to "task-1-tool-1",
+                "agentId" to "claude-code-acp",
+                "agentName" to "Claude Code",
                 "cardData" to mapOf(
                     "type" to "agent_tool_summary",
+                    "uiStyle" to "agent_tool",
+                    "agentId" to "claude-code-acp",
+                    "agentName" to "Claude Code",
                     "taskId" to "task-1",
-                    "child_run_id" to "vlm-run-2",
+                    "run_id" to "vlm-run-2",
                     "cardId" to "task-1-tool-1",
-                    "toolName" to "browser_use",
+                    "toolName" to "codex.browser_use",
                     "displayName" to "浏览器自动化",
                     "toolType" to "builtin",
                     "status" to "success",
@@ -343,11 +399,13 @@ class AgentConversationHistorySupportTest {
 
         val restored = AgentConversationHistorySupport.restoreToolPayloadFromUiMessage(message)
 
-        assertEquals("browser_use", restored?.get("toolName"))
+        assertEquals("agent.browser_use", restored?.get("toolName"))
+        assertEquals("claude-code-acp", restored?.get("agentId"))
+        assertEquals("Claude Code", restored?.get("agentName"))
+        assertEquals("agent_tool", restored?.get("uiStyle"))
         assertEquals("success", restored?.get("status"))
         assertEquals("抓取成功", restored?.get("summary"))
-        assertEquals("vlm-run-2", restored?.get("childRunId"))
-        assertEquals("vlm-run-2", restored?.get("child_run_id"))
+        assertEquals("vlm-run-2", restored?.get("run_id"))
         assertEquals(
             """{"url":"https://example.com"}""",
             restored?.get("argsJson")
@@ -377,8 +435,10 @@ class AgentConversationHistorySupportTest {
         )
         val payload = mapOf<String, Any?>(
             "taskId" to "task-1",
+            "agentId" to "claude-code-acp",
+            "agentName" to "Claude Code",
             "cardId" to "task-1-tool-1",
-            "toolName" to "terminal_execute",
+            "toolName" to "codex.terminal_execute",
             "displayName" to "执行命令",
             "toolType" to "terminal",
             "argsJson" to gson.toJson(mapOf("command" to longScript)),
@@ -398,6 +458,10 @@ class AgentConversationHistorySupportTest {
         )
 
         assertEquals("agent_tool_summary", cardData["type"])
+        assertEquals("agent_tool", cardData["uiStyle"])
+        assertEquals("claude-code-acp", cardData["agentId"])
+        assertEquals("Claude Code", cardData["agentName"])
+        assertEquals("agent.terminal_execute", cardData["toolName"])
         assertEquals(true, cardData["isHistorical"])
         assertEquals("compact", cardData["historyRenderMode"])
         assertEquals("", cardData["terminalOutputDelta"])
@@ -853,7 +917,9 @@ class AgentConversationHistorySupportTest {
             summary = "终端执行完成",
             payloadJson = gson.toJson(
                 mapOf(
-                    "toolName" to "terminal_execute",
+                    "agentId" to "claude-code-acp",
+                    "agentName" to "Claude Code",
+                    "toolName" to "codex.terminal_execute",
                     "displayName" to "执行命令",
                     "toolType" to "terminal",
                     "summary" to "终端执行完成",
@@ -872,7 +938,10 @@ class AgentConversationHistorySupportTest {
 
         assertTrue(stored.payloadJson.length <= AgentConversationHistorySupport.MAX_STORAGE_ENTRY_PAYLOAD_CHARS)
         assertEquals(true, payload["payloadCompacted"])
-        assertEquals("terminal_execute", payload["toolName"])
+        assertEquals("agent_tool", payload["uiStyle"])
+        assertEquals("claude-code-acp", payload["agentId"])
+        assertEquals("Claude Code", payload["agentName"])
+        assertEquals("agent.terminal_execute", payload["toolName"])
         assertTrue(payload["rawResultJson"].toString().length < longRaw.length)
         assertTrue(payload["terminalOutput"].toString().contains("line-5000"))
     }
@@ -1165,32 +1234,11 @@ class AgentConversationHistorySupportTest {
     }
 
     @Test
-    fun `prompt history is isolated by context segment`() {
-        val taskA = listOf(
-            withContextSegment(buildUserEntry(1, "task-a-user", "任务 A 用户输入"), "task-a"),
-            withContextSegment(buildAssistantEntry(2, "task-a-assistant", "任务 A 助手输出"), "task-a")
-        )
-        val taskB = listOf(
-            withContextSegment(buildUserEntry(3, "task-b-user", "任务 B 用户输入"), "task-b"),
-            withContextSegment(buildAssistantEntry(4, "task-b-assistant", "任务 B 助手输出"), "task-b")
-        )
-
-        val messages = AgentConversationHistorySupport.buildPromptRelevantMessages(
-            entries = taskA + taskB,
-            contextSegmentId = "task-a"
-        )
-
-        assertEquals(listOf("任务 A 用户输入", "任务 A 助手输出"), messages.map {
-            it.content?.jsonPrimitive?.content
-        })
-    }
-
-    @Test
-    fun `unscoped prompt history includes every task in the conversation`() {
+    fun `prompt history includes the full conversation`() {
         val entries = listOf(
-            withContextSegment(buildUserEntry(1, "task-a-user", "任务 A 用户输入"), "task-a"),
-            withContextSegment(buildAssistantEntry(2, "task-a-assistant", "任务 A 助手输出"), "task-a"),
-            withContextSegment(buildUserEntry(3, "task-b-user", "任务 B 用户输入"), "task-b")
+            buildUserEntry(1, "task-a-user", "任务 A 用户输入"),
+            buildAssistantEntry(2, "task-a-assistant", "任务 A 助手输出"),
+            buildUserEntry(3, "task-b-user", "任务 B 用户输入")
         )
 
         val messages = AgentConversationHistorySupport.buildPromptRelevantMessages(entries)
@@ -1202,46 +1250,12 @@ class AgentConversationHistorySupportTest {
     }
 
     @Test
-    fun `legacy entries without a segment are not read by segmented task`() {
-        val legacy = buildUserEntry(1, "legacy-user", "旧任务内容")
-        val current = withContextSegment(
-            buildUserEntry(2, "task-current-user", "当前任务内容"),
-            "task-current"
-        )
-
-        val messages = AgentConversationHistorySupport.buildPromptRelevantMessages(
-            entries = listOf(legacy, current),
-            contextSegmentId = "task-current"
-        )
-
-        assertEquals(listOf("当前任务内容"), messages.map {
-            it.content?.jsonPrimitive?.content
-        })
-    }
-
-    @Test
-    fun `entry id fallback keeps marker words inside task id`() {
-        val taskId = "task-tool-text-42"
-        val entry = buildUserEntry(1, "$taskId-user", "当前任务")
-
-        val messages = AgentConversationHistorySupport.buildPromptRelevantMessages(
-            entries = listOf(entry),
-            contextSegmentId = taskId
-        )
-
-        assertEquals(listOf("当前任务"), messages.map {
-            it.content?.jsonPrimitive?.content
-        })
-    }
-
-    @Test
-    fun `continue mode reuses the filtered task history`() {
+    fun `continue mode reuses conversation history`() {
         val history = AgentConversationHistorySupport.buildPromptRelevantMessages(
             entries = listOf(
-                withContextSegment(buildUserEntry(1, "task-a-user", "原始任务"), "task-a"),
-                withContextSegment(buildAssistantEntry(2, "task-a-assistant", "执行失败"), "task-a")
-            ),
-            contextSegmentId = "task-a"
+                buildUserEntry(1, "task-a-user", "原始任务"),
+                buildAssistantEntry(2, "task-a-assistant", "执行失败")
+            )
         )
         val resumed = OmniAgentExecutor.mergeInitialPromptMessages(
             leadingMessages = emptyList(),
@@ -1259,34 +1273,19 @@ class AgentConversationHistorySupportTest {
     }
 
     @Test
-    fun `compaction selection only includes the requested segment`() {
+    fun `compaction selection keeps the latest user turn live`() {
         val entries = listOf(
-            withContextSegment(buildUserEntry(1, "task-a-user-1", "A1"), "task-a"),
-            withContextSegment(buildAssistantEntry(2, "task-a-assistant-1", "A2"), "task-a"),
-            withContextSegment(buildUserEntry(3, "task-a-user-2", "A3"), "task-a"),
-            withContextSegment(buildUserEntry(4, "task-b-user-1", "B1"), "task-b"),
-            withContextSegment(buildAssistantEntry(5, "task-b-assistant-1", "B2"), "task-b"),
-            withContextSegment(buildUserEntry(6, "task-b-user-2", "B3"), "task-b")
+            buildUserEntry(1, "user-1", "A1"),
+            buildAssistantEntry(2, "assistant-1", "A2"),
+            buildUserEntry(3, "user-2", "B1")
         )
 
-        val selection = AgentConversationHistorySupport.selectEntriesToCompact(
-            entries = entries,
-            contextSegmentId = "task-a"
-        )
+        val selection = AgentConversationHistorySupport.selectEntriesToCompact(entries)
 
-        assertEquals(listOf("task-a-user-1", "task-a-assistant-1"), selection?.entriesToCompact?.map {
+        assertEquals(listOf("user-1", "assistant-1"), selection?.entriesToCompact?.map {
             it.entryId
         })
         assertEquals(2L, selection?.cutoffEntryDbId)
-    }
-
-    private fun withContextSegment(
-        entry: AgentConversationEntry,
-        contextSegmentId: String
-    ): AgentConversationEntry {
-        val payload = AgentConversationHistorySupport.readMap(entry.payloadJson).toMutableMap()
-        payload[AgentConversationHistorySupport.CONTEXT_SEGMENT_ID_KEY] = contextSegmentId
-        return entry.copy(payloadJson = gson.toJson(payload))
     }
 
     private fun buildUserEntry(

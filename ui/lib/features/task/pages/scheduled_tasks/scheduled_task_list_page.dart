@@ -1,9 +1,6 @@
-import 'dart:io';
-
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:ui/features/task/pages/scheduled_tasks/widgets/schedule_task_sheet.dart';
-import 'package:ui/models/app_icons.dart';
 import 'package:ui/models/scheduled_task.dart';
 import 'package:ui/services/assists_core_service.dart';
 import 'package:ui/services/scheduled_task_scheduler_service.dart';
@@ -11,9 +8,7 @@ import 'package:ui/services/scheduled_task_storage_service.dart';
 import 'package:ui/theme/app_colors.dart';
 import 'package:ui/theme/theme_context.dart';
 import 'package:ui/utils/ui.dart';
-import 'package:ui/utils/cache_util.dart';
 import 'package:ui/widgets/common_app_bar.dart';
-import 'package:ui/widgets/image/cached_image.dart';
 import 'package:ui/l10n/legacy_text_localizer.dart';
 
 /// 定时任务列表页面
@@ -29,29 +24,6 @@ class ScheduledTaskListPage extends StatefulWidget {
 class _ScheduledTaskListPageState extends State<ScheduledTaskListPage> {
   static const int _scheduleTab = 0;
   static const int _alarmTab = 1;
-
-  static const List<double> _grayscaleColorMatrix = <double>[
-    0.2126,
-    0.7152,
-    0.0722,
-    0,
-    0,
-    0.2126,
-    0.7152,
-    0.0722,
-    0,
-    0,
-    0.2126,
-    0.7152,
-    0.0722,
-    0,
-    0,
-    0,
-    0,
-    0,
-    1,
-    0,
-  ];
 
   late final PageController _pageController;
   int _currentTab = _scheduleTab;
@@ -187,15 +159,23 @@ class _ScheduledTaskListPageState extends State<ScheduledTaskListPage> {
                 ? BorderSide(color: palette.borderSubtle)
                 : BorderSide.none,
           ),
-          title: Text(LegacyTextLocalizer.isEnglish ? 'Delete scheduled task' : '删除定时任务', style: TextStyle(color: palette.textPrimary)),
+          title: Text(
+            LegacyTextLocalizer.isEnglish ? 'Delete scheduled task' : '删除定时任务',
+            style: TextStyle(color: palette.textPrimary),
+          ),
           content: Text(
-            LegacyTextLocalizer.isEnglish ? 'Are you sure you want to delete the scheduled task "${task.title}"?' : '确定要删除"${task.title}"的定时任务吗？',
+            LegacyTextLocalizer.isEnglish
+                ? 'Are you sure you want to delete the scheduled task "${task.title}"?'
+                : '确定要删除"${task.title}"的定时任务吗？',
             style: TextStyle(color: palette.textSecondary),
           ),
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(context, false),
-              child: Text(LegacyTextLocalizer.localize('取消'), style: TextStyle(color: palette.textSecondary)),
+              child: Text(
+                LegacyTextLocalizer.localize('取消'),
+                style: TextStyle(color: palette.textSecondary),
+              ),
             ),
             TextButton(
               onPressed: () => Navigator.pop(context, true),
@@ -215,7 +195,11 @@ class _ScheduledTaskListPageState extends State<ScheduledTaskListPage> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(LegacyTextLocalizer.isEnglish ? 'Scheduled task deleted' : '定时任务已删除'),
+            content: Text(
+              LegacyTextLocalizer.isEnglish
+                  ? 'Scheduled task deleted'
+                  : '定时任务已删除',
+            ),
             behavior: SnackBarBehavior.floating,
             backgroundColor: context.isDarkTheme
                 ? context.omniPalette.surfaceElevated
@@ -247,15 +231,23 @@ class _ScheduledTaskListPageState extends State<ScheduledTaskListPage> {
                 ? BorderSide(color: palette.borderSubtle)
                 : BorderSide.none,
           ),
-          title: Text(LegacyTextLocalizer.isEnglish ? 'Delete alarm' : '删除闹钟', style: TextStyle(color: palette.textPrimary)),
+          title: Text(
+            LegacyTextLocalizer.isEnglish ? 'Delete alarm' : '删除闹钟',
+            style: TextStyle(color: palette.textPrimary),
+          ),
           content: Text(
-            LegacyTextLocalizer.isEnglish ? 'Are you sure you want to delete "${alarm.title}"?' : '确定要删除"${alarm.title}"吗？',
+            LegacyTextLocalizer.isEnglish
+                ? 'Are you sure you want to delete "${alarm.title}"?'
+                : '确定要删除"${alarm.title}"吗？',
             style: TextStyle(color: palette.textSecondary),
           ),
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(context, false),
-              child: Text(LegacyTextLocalizer.localize('取消'), style: TextStyle(color: palette.textSecondary)),
+              child: Text(
+                LegacyTextLocalizer.localize('取消'),
+                style: TextStyle(color: palette.textSecondary),
+              ),
             ),
             TextButton(
               onPressed: () => Navigator.pop(context, true),
@@ -276,11 +268,19 @@ class _ScheduledTaskListPageState extends State<ScheduledTaskListPage> {
 
     if (deleted) {
       await _reloadExactAlarmsOnly();
-      showToast(LegacyTextLocalizer.isEnglish ? 'Alarm deleted' : '闹钟已删除', type: ToastType.success);
+      showToast(
+        LegacyTextLocalizer.isEnglish ? 'Alarm deleted' : '闹钟已删除',
+        type: ToastType.success,
+      );
       return;
     }
 
-    showToast(LegacyTextLocalizer.isEnglish ? 'Failed to delete alarm, please try again later' : '删除闹钟失败，请稍后重试', type: ToastType.error);
+    showToast(
+      LegacyTextLocalizer.isEnglish
+          ? 'Failed to delete alarm, please try again later'
+          : '删除闹钟失败，请稍后重试',
+      type: ToastType.error,
+    );
   }
 
   void _showSuccessOverlay(ScheduledTask task) {
@@ -357,7 +357,9 @@ class _ScheduledTaskListPageState extends State<ScheduledTaskListPage> {
                       mainAxisSize: MainAxisSize.min,
                       children: [
                         Text(
-                          LegacyTextLocalizer.isEnglish ? 'Scheduled task updated' : '定时任务已更新',
+                          LegacyTextLocalizer.isEnglish
+                              ? 'Scheduled task updated'
+                              : '定时任务已更新',
                           style: TextStyle(
                             fontSize: 14,
                             fontWeight: FontWeight.w600,
@@ -368,7 +370,9 @@ class _ScheduledTaskListPageState extends State<ScheduledTaskListPage> {
                         ),
                         const SizedBox(height: 2),
                         Text(
-                          LegacyTextLocalizer.isEnglish ? 'Will execute at ${task.getDisplayTimeText()}' : '将在 ${task.getDisplayTimeText()} 执行',
+                          LegacyTextLocalizer.isEnglish
+                              ? 'Will execute at ${task.getDisplayTimeText()}'
+                              : '将在 ${task.getDisplayTimeText()} 执行',
                           style: TextStyle(
                             fontSize: 12,
                             color: rootContext.isDarkTheme
@@ -399,13 +403,6 @@ class _ScheduledTaskListPageState extends State<ScheduledTaskListPage> {
   Future<void> _editScheduledTask(ScheduledTask task) async {
     final result = await ScheduleTaskSheet.show(
       context: context,
-      taskTitle: task.title,
-      packageName: task.packageName,
-      nodeId: task.nodeId,
-      suggestionId: task.suggestionId,
-      suggestionData: task.suggestionData,
-      appIconUrl: task.appIconUrl,
-      typeIconUrl: task.typeIconUrl,
       existingTask: task,
     );
 
@@ -427,7 +424,10 @@ class _ScheduledTaskListPageState extends State<ScheduledTaskListPage> {
       backgroundColor: context.isDarkTheme
           ? palette.pageBackground
           : AppColors.background,
-      appBar: CommonAppBar(title: LegacyTextLocalizer.isEnglish ? 'Scheduled' : '定时', primary: true),
+      appBar: CommonAppBar(
+        title: LegacyTextLocalizer.isEnglish ? 'Scheduled' : '定时',
+        primary: true,
+      ),
       body: Column(
         children: [
           const SizedBox(height: 8),
@@ -539,8 +539,16 @@ class _ScheduledTaskListPageState extends State<ScheduledTaskListPage> {
                 ),
                 Row(
                   children: [
-                    _buildTabButton(label: LegacyTextLocalizer.isEnglish ? 'Scheduled Tasks' : '定时任务', tabIndex: _scheduleTab),
-                    _buildTabButton(label: LegacyTextLocalizer.isEnglish ? 'Alarms' : '闹钟列表', tabIndex: _alarmTab),
+                    _buildTabButton(
+                      label: LegacyTextLocalizer.isEnglish
+                          ? 'Scheduled Tasks'
+                          : '定时任务',
+                      tabIndex: _scheduleTab,
+                    ),
+                    _buildTabButton(
+                      label: LegacyTextLocalizer.isEnglish ? 'Alarms' : '闹钟列表',
+                      tabIndex: _alarmTab,
+                    ),
                   ],
                 ),
               ],
@@ -632,7 +640,9 @@ class _ScheduledTaskListPageState extends State<ScheduledTaskListPage> {
           ),
           const SizedBox(height: 8),
           Text(
-            LegacyTextLocalizer.isEnglish ? 'Tap the alarm icon in task records to add' : '在任务记录中点击闹钟图标添加',
+            LegacyTextLocalizer.isEnglish
+                ? 'Tap the alarm icon in task records to add'
+                : '在任务记录中点击闹钟图标添加',
             style: TextStyle(
               fontSize: 14,
               color: context.isDarkTheme
@@ -670,7 +680,9 @@ class _ScheduledTaskListPageState extends State<ScheduledTaskListPage> {
           ),
           const SizedBox(height: 8),
           Text(
-            LegacyTextLocalizer.isEnglish ? 'Alarms created via Agent will appear here' : '通过统一 Agent 创建 exact_alarm 后会显示在这里',
+            LegacyTextLocalizer.isEnglish
+                ? 'Alarms created via Agent will appear here'
+                : '通过统一 Agent 创建 exact_alarm 后会显示在这里',
             style: TextStyle(
               fontSize: 14,
               color: context.isDarkTheme
@@ -841,23 +853,7 @@ class _ScheduledTaskListPageState extends State<ScheduledTaskListPage> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Row(
-                      children: [
-                        _buildAppIcon(task.packageName, isExpired: isExpired),
-                        const SizedBox(width: 8),
-                        if (task.typeIconUrl != null &&
-                            task.typeIconUrl!.isNotEmpty)
-                          _buildGrayFiltered(
-                            enabled: isExpired,
-                            child: CachedImage(
-                              imageUrl: task.typeIconUrl!,
-                              width: 20,
-                              height: 20,
-                              fit: BoxFit.cover,
-                            ),
-                          ),
-                      ],
-                    ),
+                    Row(children: [_buildTaskIcon(isExpired: isExpired)]),
                     const SizedBox(height: 12),
                     Text(
                       task.title,
@@ -878,17 +874,9 @@ class _ScheduledTaskListPageState extends State<ScheduledTaskListPage> {
                           ),
                           decoration: BoxDecoration(
                             color:
-                                (task.targetKind == 'subagent'
-                                        ? (context.isDarkTheme
-                                              ? palette.surfaceElevated
-                                              : Colors.teal)
-                                        : (context.isDarkTheme
-                                              ? Color.lerp(
-                                                  palette.surfaceSecondary,
-                                                  palette.accentPrimary,
-                                                  0.12,
-                                                )!
-                                              : AppColors.primaryBlue))
+                                (context.isDarkTheme
+                                        ? palette.surfaceElevated
+                                        : Colors.teal)
                                     .withValues(alpha: 0.12),
                             borderRadius: BorderRadius.circular(4),
                             border: context.isDarkTheme
@@ -896,22 +884,17 @@ class _ScheduledTaskListPageState extends State<ScheduledTaskListPage> {
                                 : null,
                           ),
                           child: Text(
-                            task.targetKind == 'subagent' ? 'SubAgent' : 'VLM',
+                            'SubAgent',
                             style: TextStyle(
                               fontSize: 10,
-                              color: task.targetKind == 'subagent'
-                                  ? (context.isDarkTheme
-                                        ? palette.textSecondary
-                                        : Colors.teal)
-                                  : (context.isDarkTheme
-                                        ? palette.accentPrimary
-                                        : AppColors.primaryBlue),
+                              color: context.isDarkTheme
+                                  ? palette.textSecondary
+                                  : Colors.teal,
                               fontWeight: FontWeight.w600,
                             ),
                           ),
                         ),
-                        if (task.targetKind == 'subagent' &&
-                            !task.notificationEnabled) ...[
+                        if (!task.notificationEnabled) ...[
                           const SizedBox(width: 6),
                           Text(
                             Localizations.localeOf(context).languageCode == 'en'
@@ -1027,35 +1010,7 @@ class _ScheduledTaskListPageState extends State<ScheduledTaskListPage> {
     );
   }
 
-  Widget _buildAppIcon(String packageName, {required bool isExpired}) {
-    return FutureBuilder<AppIcons?>(
-      future: CacheUtil.getAppIconByPackageName(packageName),
-      builder: (context, snapshot) {
-        if (snapshot.hasData && snapshot.data != null) {
-          final iconPath = snapshot.data!.icon_path;
-          if (iconPath.isNotEmpty) {
-            return _buildGrayFiltered(
-              enabled: isExpired,
-              child: ClipRRect(
-                borderRadius: BorderRadius.circular(4),
-                child: Image.file(
-                  File(iconPath),
-                  width: 20,
-                  height: 20,
-                  fit: BoxFit.cover,
-                  errorBuilder: (context, error, stackTrace) =>
-                      _buildDefaultIcon(isExpired: isExpired),
-                ),
-              ),
-            );
-          }
-        }
-        return _buildDefaultIcon(isExpired: isExpired);
-      },
-    );
-  }
-
-  Widget _buildDefaultIcon({required bool isExpired}) {
+  Widget _buildTaskIcon({required bool isExpired}) {
     final palette = context.omniPalette;
     return Container(
       width: 20,
@@ -1070,7 +1025,7 @@ class _ScheduledTaskListPageState extends State<ScheduledTaskListPage> {
             : null,
       ),
       child: Icon(
-        Icons.apps,
+        Icons.smart_toy_outlined,
         size: 14,
         color: context.isDarkTheme
             ? (isExpired ? palette.textTertiary : palette.textSecondary)
@@ -1095,16 +1050,6 @@ class _ScheduledTaskListPageState extends State<ScheduledTaskListPage> {
     final hour = dateTime.hour.toString().padLeft(2, '0');
     final minute = dateTime.minute.toString().padLeft(2, '0');
     return '$month-$day $hour:$minute';
-  }
-
-  Widget _buildGrayFiltered({required bool enabled, required Widget child}) {
-    if (!enabled) {
-      return child;
-    }
-    return ColorFiltered(
-      colorFilter: const ColorFilter.matrix(_grayscaleColorMatrix),
-      child: Opacity(opacity: 0.78, child: child),
-    );
   }
 }
 

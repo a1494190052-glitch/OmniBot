@@ -54,6 +54,21 @@ class OverlayService {
     }
   }
 
+  static Future<bool> playPetAction(String action, {bool loop = true}) async {
+    try {
+      final result = await _channel.invokeMethod<bool>('playPetAction', {
+        'action': action,
+        'loop': loop,
+      });
+      return result == true;
+    } on PlatformException catch (e) {
+      if (kDebugMode) {
+        print('Failed to play pet action: ${e.message}');
+      }
+      return false;
+    }
+  }
+
   static Future<bool> hidePetOverlay() async {
     try {
       final result = await _channel.invokeMethod<bool>('hidePetOverlay');

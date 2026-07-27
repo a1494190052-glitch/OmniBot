@@ -33,7 +33,6 @@ class AgentConversationModePolicyTest {
         // subagent_dispatch 的防递归已下沉到 SubagentProfileRegistry.FORBIDDEN
         // (每个子 Agent 的工具白名单都不含 subagent_dispatch)，外层不再过滤。
         assertTrue(toolNames.contains("subagent_dispatch"))
-        assertTrue(toolNames.contains("vlm_task"))
         assertTrue(toolNames.contains("memory_search"))
     }
 }

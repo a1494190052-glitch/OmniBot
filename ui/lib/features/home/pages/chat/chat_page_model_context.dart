@@ -533,18 +533,6 @@ mixin _ChatPageModelContextMixin on _ChatPageStateBase {
         currentSelection.modelId == modelId) {
       return;
     }
-    final isOmniInferLocalModel = localModelFeature.isBuiltinLocalProvider(
-      providerProfileId,
-    );
-    if (isOmniInferLocalModel &&
-        activeConversationModeValue != ConversationMode.chatOnly) {
-      _dispatchSceneModelSelectionSerial++;
-      showToast(
-        LegacyTextLocalizer.localize('本地模型仅支持纯聊天模式，请开启新的纯聊天对话后再使用本地模型'),
-        type: ToastType.warning,
-      );
-      return;
-    }
     final selectionSerial = ++_dispatchSceneModelSelectionSerial;
     try {
       await SceneModelConfigService.saveSceneModelBinding(
@@ -556,57 +544,10 @@ mixin _ChatPageModelContextMixin on _ChatPageStateBase {
       if (!mounted || selectionSerial != _dispatchSceneModelSelectionSerial) {
         return;
       }
-      if (!isOmniInferLocalModel) {
-        showToast(
-          LegacyTextLocalizer.localize('Agent 模型已切换到 $modelId'),
-          type: ToastType.success,
-        );
-        return;
-      }
-
-      final loadingToast = AppToast.loading(
-        LegacyTextLocalizer.localize('模型加载中...'),
+      showToast(
+        LegacyTextLocalizer.localize('Agent 模型已切换到 $modelId'),
+        type: ToastType.success,
       );
-      try {
-        await _waitForLocalModelLoadingStatusFrame();
-        if (!mounted || selectionSerial != _dispatchSceneModelSelectionSerial) {
-          return;
-        }
-        final result = await localModelFeature.preloadModelIfNeeded(
-          providerProfileId: providerProfileId,
-          modelId: modelId,
-        );
-        if (!mounted ||
-            selectionSerial != _dispatchSceneModelSelectionSerial ||
-            result == null) {
-          return;
-        }
-        if (result['cancelled'] == true) return;
-        if (result['success'] == true) {
-          showToast(
-            LegacyTextLocalizer.localize('模型加载完成'),
-            type: ToastType.success,
-          );
-        } else {
-          final error = (result['error'] ?? '').toString().trim();
-          showToast(
-            LegacyTextLocalizer.localize(
-              error.isEmpty ? '模型加载失败' : '模型加载失败：$error',
-            ),
-            type: ToastType.error,
-          );
-        }
-      } catch (e) {
-        if (!mounted || selectionSerial != _dispatchSceneModelSelectionSerial) {
-          return;
-        }
-        showToast(
-          LegacyTextLocalizer.localize('模型加载失败：$e'),
-          type: ToastType.error,
-        );
-      } finally {
-        loadingToast.dismiss();
-      }
     } catch (e) {
       if (!mounted || selectionSerial != _dispatchSceneModelSelectionSerial) {
         return;
@@ -616,11 +557,6 @@ mixin _ChatPageModelContextMixin on _ChatPageStateBase {
         type: ToastType.error,
       );
     }
-  }
-
-  Future<void> _waitForLocalModelLoadingStatusFrame() async {
-    await SchedulerBinding.instance.endOfFrame;
-    await Future<void>.delayed(Duration.zero);
   }
 
   @override

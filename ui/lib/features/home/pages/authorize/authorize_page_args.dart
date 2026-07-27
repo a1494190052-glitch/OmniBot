@@ -1,5 +1,5 @@
 const String kOverlayPermissionId = 'overlay';
-const String kAccessibilityPermissionId = 'accessibility';
+const String kAccessibilityPermissionId = 'android_gui_accessibility';
 const String kInstalledAppsPermissionId = 'installed_apps';
 const String kShizukuPermissionId = 'shizuku';
 const String kWorkspaceStoragePermissionId = 'workspace_storage';
@@ -7,7 +7,6 @@ const String kPublicStoragePermissionId = 'public_storage';
 
 const List<String> kTaskExecutionRequiredPermissionIds = <String>[
   kOverlayPermissionId,
-  kAccessibilityPermissionId,
 ];
 
 List<String> normalizeRequiredPermissionIds(Iterable<dynamic>? rawIds) {
@@ -22,9 +21,7 @@ List<String> normalizeRequiredPermissionIds(Iterable<dynamic>? rawIds) {
 class AuthorizePageArgs {
   final List<String> requiredPermissionIds;
 
-  const AuthorizePageArgs({
-    this.requiredPermissionIds = const <String>[],
-  });
+  const AuthorizePageArgs({this.requiredPermissionIds = const <String>[]});
 
   static const AuthorizePageArgs taskExecution = AuthorizePageArgs(
     requiredPermissionIds: kTaskExecutionRequiredPermissionIds,

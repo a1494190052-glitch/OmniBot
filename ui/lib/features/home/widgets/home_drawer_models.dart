@@ -41,8 +41,8 @@ class _ScheduledConversationGroup {
   final int taskCount;
 }
 
-class _CodexProjectConversationGroup {
-  const _CodexProjectConversationGroup({
+class _AgentProjectConversationGroup {
+  const _AgentProjectConversationGroup({
     required this.projectKey,
     required this.label,
     required this.results,

@@ -35,7 +35,6 @@
         tools:ignore="QueryAllPackagesPermission" /><!--查询安装包权限-->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" /><!--后台服务权限-->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" /><!--后台服务数据更新权限-->
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
     <!-- 悬浮窗权限 -->
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
     <!-- Android 10及以上后台启动权限 -->
@@ -67,8 +66,6 @@
     <uses-permission android:name="android.permission.WRITE_CALENDAR" />
     <!-- 前台服务权限 -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
-    <uses-permission android:name="android.permission.BIND_ACCESSIBILITY_SERVICE"
-        tools:ignore="ProtectedPermissions,WrongManifestParent" />
 
     <queries>
         <intent>
@@ -142,25 +139,6 @@
             android:theme="@style/Theme.OmnibotApp"
             android:windowSoftInputMode="adjustResize" />
 
-        <!-- 伪装为 Google SelectToSpeak 无障碍服务，绕过微信等应用的反无障碍检测 -->
-        <service
-            android:name="com.google.android.accessibility.selecttospeak.SelectToSpeakService"
-            android:exported="false"
-            android:label="@string/omni_app_name"
-            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE"
-            tools:ignore="AccessibilityPolicy">
-            <intent-filter>
-                <action android:name="android.accessibilityservice.AccessibilityService"/>
-            </intent-filter>
-            <meta-data
-                android:name="android.accessibilityservice"
-                android:resource="@xml/service_config"/>
-        </service>
-
-        <receiver
-            android:name="cn.com.omnimind.uikit.util.receiver.NotificationActionReceiver"
-            android:enabled="true"
-            android:exported="false" />
         <receiver
             android:name="cn.com.omnimind.bot.agent.AgentAlarmReceiver"
             android:enabled="true"
@@ -181,15 +159,6 @@
             android:name="cn.com.omnimind.bot.agent.WorkspaceScheduledTaskReceiver"
             android:enabled="true"
             android:exported="false" />
-        <receiver
-            android:name=".im.ImChannelBootReceiver"
-            android:enabled="true"
-            android:exported="true">
-            <intent-filter>
-                <action android:name="android.intent.action.BOOT_COMPLETED" />
-                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
-            </intent-filter>
-        </receiver>
         <receiver
             android:name="cn.com.omnimind.bot.agent.WorkspaceScheduleBootReceiver"
             android:enabled="true"
@@ -231,21 +200,6 @@
             android:enabled="true"
             android:exported="false"
             android:foregroundServiceType="mediaPlayback" />
-        <service
-            android:name=".im.ImChannelForegroundService"
-            android:enabled="true"
-            android:exported="false"
-            android:foregroundServiceType="dataSync" />
-
-        <!-- 透明剪贴板辅助Activity，用于在前台获取焦点访问剪贴板 -->
-        <activity
-            android:name=".activity.ClipboardHelperActivity"
-            android:exported="false"
-            android:theme="@style/Theme.OmnibotApp.Transparent"
-            android:launchMode="singleTask"
-            android:excludeFromRecents="true"
-            android:noHistory="true"
-            android:taskAffinity="" />
         <activity
             android:name="cn.com.omnimind.bot.agent.BrowserFileChooserRequestActivity"
             android:exported="false"
@@ -289,11 +243,6 @@
                 android:name="android.support.FILE_PROVIDER_PATHS"
                 android:resource="@xml/file_paths" />
         </provider>
-        <service
-            android:name=".manager.OmniForegroundService"
-            android:enabled="true"
-            android:foregroundServiceType="specialUse"
-            android:exported="false" />
         <provider
             android:name="rikka.shizuku.ShizukuProvider"
             android:authorities="${applicationId}.shizuku"

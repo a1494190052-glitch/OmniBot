@@ -1,23 +1,17 @@
 import 'package:flutter/material.dart';
 import 'package:ui/features/home/pages/chat/utils/stream_text_merge.dart';
 import 'package:ui/models/chat_message_model.dart';
-import 'package:ui/services/assists_core_service.dart';
 import 'package:ui/utils/data_parser.dart';
 
 import '../../command_overlay/constants/messages.dart';
 
 /// 聊天消息处理 Mixin
-/// 负责处理 AI 消息流、VLM 用户输入等功能
+/// 负责处理 AI 消息流。
 mixin ChatMessageHandler<T extends StatefulWidget> on State<T> {
   List<ChatMessageModel> get messages;
   bool get isAiResponding;
   set isAiResponding(bool value);
   Map<String, String> get currentAiMessages;
-  TextEditingController get vlmAnswerController;
-  String? get vlmInfoQuestion;
-  set vlmInfoQuestion(String? value);
-  bool get isSubmittingVlmReply;
-  set isSubmittingVlmReply(bool value);
 
   Future<void> saveConversation();
 
@@ -192,36 +186,6 @@ mixin ChatMessageHandler<T extends StatefulWidget> on State<T> {
     }
     currentAiMessages.remove(taskId);
     saveConversation();
-  }
-
-  Future<void> onSubmitVlmInfo() async {
-    if (isSubmittingVlmReply || vlmInfoQuestion == null) return;
-    final reply = vlmAnswerController.text.trim().isEmpty
-        ? (Localizations.localeOf(context).languageCode == 'en'
-              ? 'Completed action, continue execution'
-              : '已完成操作，继续执行')
-        : vlmAnswerController.text.trim();
-    setState(() {
-      isSubmittingVlmReply = true;
-    });
-    final success = await AssistsMessageService.provideUserInputToVLMTask(
-      reply,
-    );
-    if (!mounted) return;
-    setState(() {
-      isSubmittingVlmReply = false;
-      if (success) {
-        vlmInfoQuestion = null;
-        vlmAnswerController.clear();
-      }
-    });
-  }
-
-  void dismissVlmInfo() {
-    setState(() {
-      vlmInfoQuestion = null;
-      vlmAnswerController.clear();
-    });
   }
 
   List<Map<String, dynamic>> _parseAttachments(dynamic raw) {

@@ -84,6 +84,18 @@ const List<_EnvironmentDefinition> _environmentDefinitions =
         groupKey: 'alpineAiAgent',
       ),
       _EnvironmentDefinition(
+        id: 'claude_code',
+        title: 'Claude Code',
+        descriptionKey: 'alpineClaudeCode',
+        groupKey: 'alpineAiAgent',
+      ),
+      _EnvironmentDefinition(
+        id: 'opencode',
+        title: 'OpenCode',
+        descriptionKey: 'alpineOpenCode',
+        groupKey: 'alpineAiAgent',
+      ),
+      _EnvironmentDefinition(
         id: 'ssh_client',
         title: 'ssh',
         descriptionKey: 'alpineSshClient',
@@ -116,6 +128,8 @@ class _TermuxSettingPageState extends State<TermuxSettingPage>
     with WidgetsBindingObserver {
   bool _isOpeningSetup = false;
   bool _isDetecting = true;
+  bool _isDistributionLoading = true;
+  bool _isDistributionSwitching = false;
   bool _isAutoStartLoading = true;
   bool _isAutoStartBusy = false;
   bool _isMountsLoading = true;
@@ -130,6 +144,8 @@ class _TermuxSettingPageState extends State<TermuxSettingPage>
       const <EmbeddedTerminalAutoStartTask>[];
   List<WorkspaceMountEntry> _workspaceMounts = const <WorkspaceMountEntry>[];
   Set<String> _selectedPackageIds = <String>{};
+  EmbeddedTerminalDistribution _selectedDistribution =
+      EmbeddedTerminalDistribution.alpine;
 
   List<_EnvironmentViewModel> get _items {
     return _environmentDefinitions
@@ -153,7 +169,8 @@ class _TermuxSettingPageState extends State<TermuxSettingPage>
         .length;
   }
 
-  bool get _canStartSetup => !_isDetecting && _selectedLostCount > 0;
+  bool get _canStartSetup =>
+      !_isDetecting && !_isDistributionLoading && _selectedLostCount > 0;
 
   bool get _isDarkTheme => context.isDarkTheme;
   bool get _isEnglish => Localizations.localeOf(context).languageCode == 'en';
@@ -174,8 +191,8 @@ class _TermuxSettingPageState extends State<TermuxSettingPage>
   String get _workspaceMountSectionTitle =>
       _isEnglish ? 'Workspace mounts' : 'Workspace 挂载';
   String get _workspaceMountSectionDesc => _isEnglish
-      ? 'Link a readable host directory into `/workspace`. Alpine, chat resource previews, and the workspace browser will all see the same files. Unmount only removes the mount entry and never deletes the real directory.'
-      : '把一个可访问的宿主目录挂到 `/workspace` 下。Alpine、聊天资源预览和文件浏览器都会看到同一份文件。卸载只会删除挂载入口，不会删除真实目录。';
+      ? 'Link a readable host directory into `/workspace`. The selected terminal system, chat resource previews, and the workspace browser will all see the same files. Unmount only removes the mount entry and never deletes the real directory.'
+      : '把一个可访问的宿主目录挂到 `/workspace` 下。当前终端系统、聊天资源预览和文件浏览器都会看到同一份文件。卸载只会删除挂载入口，不会删除真实目录。';
   String get _workspaceMountAddLabel => _isEnglish ? 'Add mount' : '新增挂载';
   String get _workspaceMountEmptyDesc =>
       _isEnglish ? 'No mounted directories yet.' : '还没有挂载任何宿主目录。';
@@ -217,6 +234,10 @@ class _TermuxSettingPageState extends State<TermuxSettingPage>
         return l10n.alpinePipInstall;
       case 'alpineCodex':
         return l10n.alpineCodex;
+      case 'alpineClaudeCode':
+        return l10n.alpineClaudeCode;
+      case 'alpineOpenCode':
+        return l10n.alpineOpenCode;
       case 'alpineSshClient':
         return l10n.alpineSshClient;
       case 'alpineSshpass':
@@ -238,7 +259,7 @@ class _TermuxSettingPageState extends State<TermuxSettingPage>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    unawaited(_refreshInventory(selectMissingByDefault: true));
+    unawaited(_loadDistributionAndInventory(selectMissingByDefault: true));
     unawaited(_refreshAutoStartTasks());
     unawaited(_refreshWorkspaceMounts());
   }
@@ -252,9 +273,94 @@ class _TermuxSettingPageState extends State<TermuxSettingPage>
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
-      unawaited(_refreshInventory());
+      unawaited(_loadDistributionAndInventory());
       unawaited(_refreshAutoStartTasks());
       unawaited(_refreshWorkspaceMounts());
+    }
+  }
+
+  Future<void> _loadDistributionAndInventory({
+    bool selectMissingByDefault = false,
+  }) async {
+    try {
+      final distribution = await getEmbeddedTerminalDistribution();
+      if (!mounted) return;
+      final changed = distribution != _selectedDistribution;
+      setState(() {
+        _selectedDistribution = distribution;
+        _isDistributionLoading = false;
+        if (changed) {
+          _hasInitializedSelection = false;
+          _inventory = const <String, EmbeddedTerminalSetupInventoryItem>{};
+          _selectedPackageIds = <String>{};
+        }
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _isDistributionLoading = false;
+      });
+    }
+    await _refreshInventory(selectMissingByDefault: selectMissingByDefault);
+  }
+
+  Future<void> _switchDistribution(
+    EmbeddedTerminalDistribution distribution,
+  ) async {
+    if (_isDistributionLoading ||
+        _isDistributionSwitching ||
+        distribution == _selectedDistribution) {
+      return;
+    }
+    final previous = _selectedDistribution;
+    setState(() {
+      _selectedDistribution = distribution;
+      _isDistributionSwitching = true;
+      _hasInitializedSelection = false;
+      _inventory = const <String, EmbeddedTerminalSetupInventoryItem>{};
+      _selectedPackageIds = <String>{};
+    });
+    try {
+      final saved = await setEmbeddedTerminalDistribution(distribution);
+      if (!mounted) return;
+      setState(() {
+        _selectedDistribution = saved;
+      });
+      await _refreshInventory(selectMissingByDefault: true);
+      await _refreshAutoStartTasks();
+      if (!mounted) return;
+      showToast(
+        _isEnglish
+            ? 'Terminal system switched to ${saved == EmbeddedTerminalDistribution.ubuntu ? 'Ubuntu' : 'Alpine'}'
+            : '终端系统已切换为 ${saved == EmbeddedTerminalDistribution.ubuntu ? 'Ubuntu' : 'Alpine'}',
+      );
+    } on PlatformException catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _selectedDistribution = previous;
+      });
+      showToast(
+        error.message ??
+            (_isEnglish ? 'Failed to switch terminal system' : '切换终端系统失败'),
+        type: ToastType.error,
+      );
+      await _refreshInventory();
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _selectedDistribution = previous;
+      });
+      showToast(
+        _isEnglish ? 'Failed to switch terminal system' : '切换终端系统失败',
+        type: ToastType.error,
+      );
+      await _refreshInventory();
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isDistributionSwitching = false;
+        });
+      }
     }
   }
 
@@ -689,6 +795,8 @@ class _TermuxSettingPageState extends State<TermuxSettingPage>
           child: ListView(
             padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
             children: [
+              _buildDistributionCard(),
+              const SizedBox(height: 14),
               _buildIntroCard(),
               const SizedBox(height: 14),
               if (_detectError != null) ...[
@@ -746,6 +854,57 @@ class _TermuxSettingPageState extends State<TermuxSettingPage>
             ],
           ),
         ),
+      ),
+    );
+  }
+
+  Widget _buildDistributionCard() {
+    final busy = _isDistributionLoading || _isDistributionSwitching;
+    return _buildSectionCard(
+      title: _isEnglish ? 'Terminal system' : '终端系统',
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            _isEnglish
+                ? 'Choose the Linux rootfs used by environment detection, commands, Agent tools, and ReTerminal.'
+                : '选择环境检测、命令执行、Agent 工具与 ReTerminal 共用的 Linux rootfs。',
+            style: TextStyle(
+              color: _secondaryTextColor,
+              fontSize: 13,
+              fontWeight: FontWeight.w500,
+              height: 1.6,
+            ),
+          ),
+          const SizedBox(height: 14),
+          SizedBox(
+            width: double.infinity,
+            child: SegmentedButton<EmbeddedTerminalDistribution>(
+              segments: const [
+                ButtonSegment(
+                  value: EmbeddedTerminalDistribution.alpine,
+                  label: Text('Alpine'),
+                ),
+                ButtonSegment(
+                  value: EmbeddedTerminalDistribution.ubuntu,
+                  label: Text('Ubuntu'),
+                ),
+              ],
+              selected: <EmbeddedTerminalDistribution>{_selectedDistribution},
+              onSelectionChanged: busy
+                  ? null
+                  : (selection) {
+                      if (selection.isNotEmpty) {
+                        unawaited(_switchDistribution(selection.first));
+                      }
+                    },
+            ),
+          ),
+          if (busy) ...[
+            const SizedBox(height: 12),
+            const LinearProgressIndicator(minHeight: 2),
+          ],
+        ],
       ),
     );
   }

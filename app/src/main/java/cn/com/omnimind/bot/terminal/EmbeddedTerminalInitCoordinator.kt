@@ -129,7 +129,7 @@ object EmbeddedTerminalInitCoordinator {
         try {
             emitEmbeddedTerminalInitProgress(
                 kind = "status",
-                message = "开始准备内嵌 Alpine 终端环境"
+                message = "开始准备内嵌终端环境"
             )
             val status = TermuxCommandRunner.prepareLiveEnvironment(context) { progress ->
                 emitEmbeddedTerminalInitProgress(
@@ -203,7 +203,7 @@ object EmbeddedTerminalInitCoordinator {
             success = null,
             progress = 0.02,
             stage = "准备开始",
-            logLines = listOf("[系统] 正在启动内嵌 Alpine 环境初始化..."),
+            logLines = listOf("[系统] 正在启动内嵌终端环境初始化..."),
             startedAt = now,
             updatedAt = now
         )
@@ -272,7 +272,7 @@ object EmbeddedTerminalInitCoordinator {
     ) {
         val normalizedMessage = finalMessage.trim().ifBlank {
             if (success) {
-                "内嵌 Alpine 终端和基础 Agent CLI 包均已就绪。"
+                "内嵌终端环境和基础 Agent CLI 包均已就绪。"
             } else {
                 "检查内嵌终端环境失败"
             }
@@ -358,11 +358,11 @@ object EmbeddedTerminalInitCoordinator {
         val normalizedMessage = message.trim()
         val stageProgress =
             when {
-                normalizedMessage.contains("开始准备内嵌 Alpine 终端环境") -> 0.04
+                normalizedMessage.contains("开始准备内嵌终端环境") -> 0.04
                 normalizedMessage.contains("正在准备 workspace 和运行目录") -> 0.10
                 normalizedMessage.contains("正在初始化宿主终端运行时") -> 0.14
-                normalizedMessage.contains("正在校验 Alpine 终端运行资源") -> 0.24
-                normalizedMessage.contains("正在安装 Alpine 终端运行资源") -> 0.42
+                normalizedMessage.contains("正在校验终端环境运行资源") -> 0.24
+                normalizedMessage.contains("正在安装终端环境运行资源") -> 0.42
                 normalizedMessage.contains("宿主终端环境校验完成") -> 0.60
                 normalizedMessage.contains("正在检查基础 Agent CLI 包") -> 0.68
                 normalizedMessage.contains("基础 Agent CLI 包已就绪") -> 0.96

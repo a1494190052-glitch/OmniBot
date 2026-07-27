@@ -4,7 +4,7 @@ import 'package:ui/features/home/pages/chat/utils/agent_run_timeline.dart';
 import 'package:ui/features/home/pages/command_overlay/widgets/cards/terminal_output_utils.dart';
 import 'package:ui/l10n/legacy_text_localizer.dart';
 import 'package:ui/models/chat_message_model.dart';
-import 'package:ui/services/codex_diff_parser.dart';
+import 'package:ui/services/agent_diff_parser.dart';
 
 const String kAgentToolSummaryCardType = 'agent_tool_summary';
 const String kAgentToolTitleField = 'toolTitle';
@@ -308,7 +308,7 @@ String resolveAgentToolPreview(Map<String, dynamic> cardData) {
       final fileLabel = changedFiles <= 1
           ? LegacyTextLocalizer.localize('1 个文件')
           : LegacyTextLocalizer.localize('$changedFiles 个文件');
-      return '$fileLabel · ${formatCodexDiffStat(additions: additions, deletions: deletions)}';
+      return '$fileLabel · ${formatAgentDiffStat(additions: additions, deletions: deletions)}';
     }
     final filePath = (cardData['filePath'] ?? '').toString().trim();
     if (filePath.isNotEmpty) {

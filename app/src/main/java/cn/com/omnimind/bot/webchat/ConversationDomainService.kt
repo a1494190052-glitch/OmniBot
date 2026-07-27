@@ -5,7 +5,26 @@ import cn.com.omnimind.baselib.database.Conversation
 import cn.com.omnimind.baselib.database.DatabaseHelper
 import cn.com.omnimind.bot.agent.AgentConversationContextCompactor
 import cn.com.omnimind.bot.agent.AgentConversationHistoryRepository
+import cn.com.omnimind.bot.agent.AgentConversationHistorySupport
 import cn.com.omnimind.bot.agent.AgentModelOverride
+import cn.com.omnimind.bot.agent.AgentTextSanitizer
+import cn.com.omnimind.bot.agent.runtime.AcpAgentProfileStore
+
+private const val WEB_CONVERSATION_TITLE_LIMIT = 20
+
+internal fun deriveWebConversationTitle(firstUserMessage: String?): String? {
+    val normalized = AgentTextSanitizer.sanitizeUtf16(firstUserMessage.orEmpty()).trim()
+    if (normalized.isEmpty()) return null
+    return if (normalized.length > WEB_CONVERSATION_TITLE_LIMIT) {
+        "${normalized.substring(0, WEB_CONVERSATION_TITLE_LIMIT)}..."
+    } else {
+        normalized
+    }
+}
+
+private fun isDefaultWebConversationTitle(title: String): Boolean {
+    return title.trim().lowercase() in setOf("", "新对话", "new chat", "new conversation")
+}
 
 class ConversationDomainService(
     private val context: Context
@@ -13,9 +32,12 @@ class ConversationDomainService(
     private val historyRepository by lazy {
         AgentConversationHistoryRepository(context)
     }
+    private val acpAgentProfileStore by lazy {
+        AcpAgentProfileStore(context)
+    }
 
     private companion object {
-        const val CODEX_MODE = "codex"
+        const val AGENT_MODE_STORAGE_VALUE = "codex"
     }
 
     suspend fun listConversationPayloads(
@@ -30,28 +52,46 @@ class ConversationDomainService(
                     else -> !conversation.isArchived
                 }
             }
-        val codexCwdByConversationId = if (conversations.any { it.mode == CODEX_MODE }) {
-            DatabaseHelper.getAllCodexThreadBindings()
-                .associate { binding -> binding.conversationId to binding.cwd }
-        } else {
-            emptyMap()
-        }
+        val agentBindings =
+            if (conversations.any { it.mode == AGENT_MODE_STORAGE_VALUE }) {
+                DatabaseHelper.getAllAgentSessionBindings()
+            } else {
+                emptyList()
+            }
+        val agentCwdByConversationId =
+            agentBindings.associate { binding -> binding.conversationId to binding.cwd }
+        val agentIdByConversationId =
+            agentBindings.associate { binding ->
+                binding.conversationId to
+                    acpAgentProfileStore.agentIdForSession(binding.threadId)
+                        .orEmpty()
+                        .ifEmpty { AcpAgentProfileStore.DEFAULT_CODEX_AGENT_ID }
+            }
         return conversations.map { conversation ->
             conversationToPayload(
                 conversation,
-                codexCwd = codexCwdByConversationId[conversation.id]
+                agentCwd = agentCwdByConversationId[conversation.id],
+                agentId = agentIdByConversationId[conversation.id]
             )
         }
     }
 
     suspend fun getConversationPayload(conversationId: Long): Map<String, Any?>? {
         val conversation = DatabaseHelper.getConversationById(conversationId) ?: return null
-        val codexCwd = if (conversation.mode == CODEX_MODE) {
-            DatabaseHelper.getCodexThreadBindingByConversationId(conversation.id)?.cwd
+        val agentBinding = if (conversation.mode == AGENT_MODE_STORAGE_VALUE) {
+            DatabaseHelper.getAgentSessionBindingByConversationId(conversation.id)
         } else {
             null
         }
-        return conversationToPayload(conversation, codexCwd = codexCwd)
+        val agentId = agentBinding?.let { binding ->
+            acpAgentProfileStore.agentIdForSession(binding.threadId)
+                ?: AcpAgentProfileStore.DEFAULT_CODEX_AGENT_ID
+        }
+        return conversationToPayload(
+            conversation,
+            agentCwd = agentBinding?.cwd,
+            agentId = agentId
+        )
     }
 
     suspend fun createConversation(
@@ -121,7 +161,11 @@ class ConversationDomainService(
             } else {
                 existing.scheduledTaskId
             },
-            summary = conversationMap["summary"]?.toString(),
+            summary = if (conversationMap.containsKey("summary")) {
+                conversationMap["summary"]?.toString()
+            } else {
+                existing.summary
+            },
             contextSummary = incomingContextSummary
                 ?.takeIf { it.isNotEmpty() }
                 ?: existing.contextSummary,
@@ -156,6 +200,29 @@ class ConversationDomainService(
             ?: throw IllegalArgumentException("Conversation not found")
         val updated = existing.copy(
             title = newTitle.ifBlank { existing.title },
+            updatedAt = System.currentTimeMillis()
+        )
+        DatabaseHelper.updateConversation(updated)
+        publishConversationEvent("conversation_updated", updated)
+        return conversationToPayload(updated)
+    }
+
+    suspend fun applyFirstUserMessageTitle(
+        conversationId: Long,
+        firstUserMessage: String?
+    ): Map<String, Any?> {
+        val existing = DatabaseHelper.getConversationById(conversationId)
+            ?: throw IllegalArgumentException("Conversation not found")
+        val nextTitle = deriveWebConversationTitle(firstUserMessage)
+        if (
+            nextTitle == null ||
+            existing.messageCount > 0 ||
+            !isDefaultWebConversationTitle(existing.title)
+        ) {
+            return conversationToPayload(existing)
+        }
+        val updated = existing.copy(
+            title = nextTitle,
             updatedAt = System.currentTimeMillis()
         )
         DatabaseHelper.updateConversation(updated)
@@ -232,11 +299,13 @@ class ConversationDomainService(
 
     suspend fun listConversationMessages(
         conversationId: Long,
-        conversationMode: String
+        conversationMode: String,
+        finalizeInterruptedEntries: Boolean = true
     ): List<Map<String, Any?>> {
         return historyRepository.listConversationMessages(
             conversationId = conversationId,
-            conversationMode = normalizeConversationMode(conversationMode)
+            conversationMode = normalizeConversationMode(conversationMode),
+            finalizeInterruptedEntries = finalizeInterruptedEntries
         )
     }
 
@@ -284,6 +353,7 @@ class ConversationDomainService(
             entryId = entryId,
             text = text,
             attachments = attachments,
+            streamMeta = AgentConversationHistorySupport.externalUserMessageStreamMeta(),
             createdAt = createdAt
         )
         // 来自 IM 等外部入口的用户消息：除了通过常规 messagesChanged 事件让聊天页重载，
@@ -322,8 +392,7 @@ class ConversationDomainService(
         conversationId: Long,
         conversationMode: String,
         modelOverride: AgentModelOverride?,
-        reasoningEffort: String? = null,
-        contextSegmentId: String? = null
+        reasoningEffort: String? = null
     ): Map<String, Any?> {
         val normalizedMode = normalizeConversationMode(conversationMode)
         val compactor = AgentConversationContextCompactor(
@@ -334,8 +403,7 @@ class ConversationDomainService(
         )
         val outcome = compactor.compactConversationContext(
             conversationId = conversationId,
-            conversationMode = normalizedMode,
-            contextSegmentId = contextSegmentId
+            conversationMode = normalizedMode
         )
         val updatedConversation = DatabaseHelper.getConversationById(conversationId)
         if (outcome.compacted && updatedConversation != null) {
@@ -363,13 +431,15 @@ class ConversationDomainService(
 
     fun conversationToPayload(
         conversation: Conversation,
-        codexCwd: String? = null
+        agentCwd: String? = null,
+        agentId: String? = null
     ): Map<String, Any?> {
         return linkedMapOf(
             "id" to conversation.id,
             "title" to conversation.title,
             "mode" to conversation.mode,
-            "codexCwd" to codexCwd?.trim()?.takeIf { it.isNotEmpty() },
+            "agentCwd" to agentCwd?.trim()?.takeIf { it.isNotEmpty() },
+            "agentId" to agentId?.trim()?.takeIf { it.isNotEmpty() },
             "isArchived" to conversation.isArchived,
             "isPinned" to conversation.isPinned,
             "parentConversationId" to conversation.parentConversationId,

@@ -29,6 +29,9 @@ val libtallocDebChecksum = "ac81ad623d74c209718b9f3acb2dd702cc8a88c431e820d21222
 val alpineMiniRootfsUrl =
     "https://dl-cdn.alpinelinux.org/alpine/v3.21/releases/aarch64/alpine-minirootfs-3.21.0-aarch64.tar.gz"
 val alpineMiniRootfsChecksum = "f31202c4070c4ef7de9e157e1bd01cb4da3a2150035d74ea5372c5e86f1efac1"
+val ubuntuBaseRootfsUrl =
+    "https://cdimage.ubuntu.com/ubuntu-base/releases/24.04.4/release/ubuntu-base-24.04.4-base-arm64.tar.gz"
+val ubuntuBaseRootfsChecksum = "04207713ece899c3740823d33690441ad3a7f0ded1101aca744e2b0f37ac7ff2"
 
 android {
     namespace = "com.rk.terminal"
@@ -209,6 +212,8 @@ val prepareEmbeddedTerminalRuntime by tasks.registering {
     inputs.property("libtallocDebChecksum", libtallocDebChecksum)
     inputs.property("alpineMiniRootfsUrl", alpineMiniRootfsUrl)
     inputs.property("alpineMiniRootfsChecksum", alpineMiniRootfsChecksum)
+    inputs.property("ubuntuBaseRootfsUrl", ubuntuBaseRootfsUrl)
+    inputs.property("ubuntuBaseRootfsChecksum", ubuntuBaseRootfsChecksum)
     outputs.dir(outputDir)
     outputs.dir(jniOutputDir)
     doLast {
@@ -264,6 +269,11 @@ val prepareEmbeddedTerminalRuntime by tasks.registering {
             localPath = root.resolve("alpine.tar.gz").absolutePath,
             remoteUrl = alpineMiniRootfsUrl,
             expectedChecksum = alpineMiniRootfsChecksum
+        )
+        downloadRuntimeFile(
+            localPath = root.resolve("ubuntu.tar.gz").absolutePath,
+            remoteUrl = ubuntuBaseRootfsUrl,
+            expectedChecksum = ubuntuBaseRootfsChecksum
         )
     }
 }

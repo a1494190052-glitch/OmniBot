@@ -5,7 +5,6 @@ import android.graphics.Color
 import android.graphics.PixelFormat
 import android.graphics.Point
 import android.graphics.PointF
-import android.graphics.Rect
 import android.os.Build
 import android.os.SystemClock
 import android.view.Gravity
@@ -13,8 +12,7 @@ import android.view.MotionEvent
 import android.view.View
 import android.view.ViewConfiguration
 import android.view.WindowManager
-import android.view.accessibility.AccessibilityWindowInfo
-import cn.com.omnimind.accessibility.service.AssistsService
+import cn.com.omnimind.androidgui.AndroidGuiEnvironment
 import cn.com.omnimind.assists.HumanTrajectoryLearningSession
 import cn.com.omnimind.assists.ManualInputTarget
 import cn.com.omnimind.assists.ManualOverlayTouchGesture
@@ -537,14 +535,9 @@ object ManualTouchRecordLoader {
     }
 
     private fun accessibilityImeTopLocked(displayHeight: Int): Int? {
-        return runCatching {
-            val service = AssistsService.instance ?: return null
-            val rect = Rect()
-            service.windows
-                ?.firstOrNull { it.type == AccessibilityWindowInfo.TYPE_INPUT_METHOD }
-                ?.getBoundsInScreen(rect)
-            trustedImeTopLocked(rect.top, displayHeight).takeIf { rect.top > 0 }
-        }.getOrNull()
+        val context = overlayView?.context ?: UIKit.appContext ?: return null
+        val top = AndroidGuiEnvironment(context).inputMethodTop() ?: return null
+        return trustedImeTopLocked(top, displayHeight)
     }
 
     private fun trustedImeTopLocked(top: Int, displayHeight: Int): Int? {

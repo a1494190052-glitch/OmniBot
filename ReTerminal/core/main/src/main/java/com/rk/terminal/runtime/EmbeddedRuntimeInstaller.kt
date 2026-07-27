@@ -43,6 +43,10 @@ object EmbeddedRuntimeInstaller {
         RuntimeAssetSpec(
             outputName = "alpine.tar.gz",
             assetCandidates = listOf("alpine.tar.gz", "alpine.tar")
+        ),
+        RuntimeAssetSpec(
+            outputName = "ubuntu.tar.gz",
+            assetCandidates = listOf("ubuntu.tar.gz", "ubuntu.tar")
         )
     )
 
@@ -52,7 +56,7 @@ object EmbeddedRuntimeInstaller {
     ): InstallStatus = withContext(Dispatchers.IO) {
         installMutex.withLock {
             try {
-                onProgress("正在校验 Alpine 终端运行资源")
+                onProgress("正在校验终端环境运行资源")
                 val resolvedAssets = runtimeAssets.associateWith { spec ->
                     spec.assetCandidates.firstOrNull { assetName ->
                         runCatching {
@@ -65,11 +69,11 @@ object EmbeddedRuntimeInstaller {
                     return@withLock InstallStatus(
                         success = false,
                         installed = false,
-                        message = "缺少内置 Alpine 运行资源，请重新安装包含终端资源的构建。"
+                        message = "缺少内置终端环境运行资源，请重新安装包含终端资源的构建。"
                     )
                 }
 
-                onProgress("正在安装 Alpine 终端运行资源")
+                onProgress("正在安装终端环境运行资源")
                 var refreshedFiles = 0
                 val installedFiles = mutableMapOf<String, File>()
                 runtimeAssets.forEach { spec ->
@@ -113,16 +117,16 @@ object EmbeddedRuntimeInstaller {
                     success = true,
                     installed = true,
                     message = if (refreshedFiles > 0) {
-                        "Alpine 终端运行资源已刷新。"
+                        "终端环境运行资源已刷新。"
                     } else {
-                        "Alpine 终端运行资源已就绪。"
+                        "终端环境运行资源已就绪。"
                     }
                 )
             } catch (error: Exception) {
                 InstallStatus(
                     success = false,
                     installed = false,
-                    message = error.message ?: "安装 Alpine 终端运行资源失败。"
+                    message = error.message ?: "安装终端环境运行资源失败。"
                 )
             }
         }

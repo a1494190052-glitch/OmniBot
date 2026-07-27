@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:ui/features/home/pages/authorize/authorize_page_args.dart';
 import 'package:ui/l10n/legacy_text_localizer.dart';
 import 'package:ui/services/storage_service.dart';
 import 'package:ui/constants/storage_keys.dart';
@@ -8,8 +9,8 @@ import 'package:ui/services/special_permission.dart';
 /// 权限层级枚举
 /// 用于按场景分层检查权限
 enum PermissionLevel {
-  /// 陪伴宠物展示：仅需要悬浮窗。任务执行权限在真正执行任务时再检查。
-  companionAutomation,
+  /// 宠物、半屏聊天和提醒的悬浮显示。
+  overlayDisplay,
 
   /// 聊天任务执行：全量权限
   fullExecution,
@@ -106,6 +107,18 @@ class PermissionRegistry {
         checkMethod: 'isOverlayPermission',
       ),
       PermissionSpec(
+        id: kAccessibilityPermissionId,
+        iconPath: 'assets/welcome/permission_installed_apps.svg',
+        iconWidth: 32.0,
+        iconHeight: 32.0,
+        name: LegacyTextLocalizer.isEnglish ? 'Accessibility' : '无障碍辅助权限',
+        description: LegacyTextLocalizer.isEnglish
+            ? 'Observe and operate Android interfaces for GUI tasks'
+            : '用于观察和操作 Android 界面，执行 GUI 任务',
+        openMethod: 'openAndroidGuiAccessibilitySettings',
+        checkMethod: 'isAndroidGuiAccessibilityReady',
+      ),
+      PermissionSpec(
         id: 'battery',
         iconPath: 'assets/welcome/permission_battery.svg',
         iconWidth: 32.0,
@@ -128,23 +141,10 @@ class PermissionRegistry {
             ? 'Installed Apps Access'
             : '应用列表读取',
         description: LegacyTextLocalizer.isEnglish
-            ? 'Enable cross-app automation'
-            : '支持跨应用自动操作',
+            ? 'Identify installed apps for app context'
+            : '识别已安装应用并提供应用上下文',
         openMethod: 'openInstalledAppsSettings',
         checkMethod: 'isInstalledAppsPermissionGranted',
-      ),
-      PermissionSpec(
-        id: 'accessibility',
-        iconPath: 'assets/welcome/permission_accessibility.svg',
-        iconWidth: 30.0,
-        iconHeight: 30.0,
-        name: LegacyTextLocalizer.isEnglish ? 'Accessibility' : '无障碍辅助权限',
-        description: LegacyTextLocalizer.isEnglish
-            ? 'Persistent automation for complex tasks'
-            : '持久化自动操作，轻松完成复杂任务',
-        openMethod: 'openAccessibilitySettings',
-        checkMethod: 'isAccessibilityServiceEnabled',
-        infoLabel: LegacyTextLocalizer.isEnglish ? 'Persistent' : '持久化',
       ),
     ];
     final optionalPermissions = <PermissionSpec>[
@@ -201,9 +201,7 @@ class PermissionRegistry {
                 ? 'Prevent Omnibot from being killed by system'
                 : '防止小万被系统关闭',
             openMethod: 'openAutoStartSettings',
-            applicableLevels: const {
-              PermissionLevel.fullExecution,
-            },
+            applicableLevels: const {PermissionLevel.fullExecution},
             customCheckMethod: () async {
               return StorageService.getBool(
                     StorageKeys.autoStartPermissionGranted,
@@ -234,15 +232,8 @@ class PermissionRegistry {
 
   /// 各权限层级对应的权限ID列表
   static const Map<PermissionLevel, List<String>> _levelPermissionIds = {
-    PermissionLevel.companionAutomation: [
-      'overlay',
-    ],
-    PermissionLevel.fullExecution: [
-      'overlay',
-      'battery',
-      'installed_apps',
-      'accessibility',
-    ],
+    PermissionLevel.overlayDisplay: ['overlay'],
+    PermissionLevel.fullExecution: ['overlay', 'battery', 'installed_apps'],
   };
 
   /// 根据权限层级获取权限规格列表

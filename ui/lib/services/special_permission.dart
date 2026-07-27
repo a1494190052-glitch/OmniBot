@@ -13,6 +13,22 @@ const _specialPermissionEvents = EventChannel(
   'cn.com.omnimind.bot/SpecialPermissionEvents',
 );
 
+enum EmbeddedTerminalDistribution {
+  alpine('alpine'),
+  ubuntu('ubuntu');
+
+  const EmbeddedTerminalDistribution(this.id);
+
+  final String id;
+
+  static EmbeddedTerminalDistribution fromId(String? id) {
+    return values.firstWhere(
+      (distribution) => distribution.id == id?.trim().toLowerCase(),
+      orElse: () => alpine,
+    );
+  }
+}
+
 class EmbeddedTerminalInitProgress {
   const EmbeddedTerminalInitProgress({
     required this.kind,
@@ -376,6 +392,23 @@ getEmbeddedTerminalSetupInventory() async {
   return EmbeddedTerminalSetupInventory.fromMap(result ?? const {});
 }
 
+Future<EmbeddedTerminalDistribution> getEmbeddedTerminalDistribution() async {
+  final result = await spePermission.invokeMethod<String>(
+    'getEmbeddedTerminalDistribution',
+  );
+  return EmbeddedTerminalDistribution.fromId(result);
+}
+
+Future<EmbeddedTerminalDistribution> setEmbeddedTerminalDistribution(
+  EmbeddedTerminalDistribution distribution,
+) async {
+  final result = await spePermission.invokeMethod<String>(
+    'setEmbeddedTerminalDistribution',
+    <String, dynamic>{'distribution': distribution.id},
+  );
+  return EmbeddedTerminalDistribution.fromId(result);
+}
+
 Future<EmbeddedTerminalSetupSessionSnapshot>
 getEmbeddedTerminalSetupSessionSnapshot() async {
   final result = await spePermission.invokeMethod<Map<dynamic, dynamic>>(
@@ -602,11 +635,13 @@ class ShizukuHealthCheckSnapshot {
     final probe = map?['probe'];
     final probeMap = probe is Map ? Map<dynamic, dynamic>.from(probe) : null;
     final rawShellProbe = map?['rawShellProbe'];
-    final rawShellProbeMap =
-        rawShellProbe is Map ? Map<dynamic, dynamic>.from(rawShellProbe) : null;
+    final rawShellProbeMap = rawShellProbe is Map
+        ? Map<dynamic, dynamic>.from(rawShellProbe)
+        : null;
     final sessionProbe = map?['sessionProbe'];
-    final sessionProbeMap =
-        sessionProbe is Map ? Map<dynamic, dynamic>.from(sessionProbe) : null;
+    final sessionProbeMap = sessionProbe is Map
+        ? Map<dynamic, dynamic>.from(sessionProbe)
+        : null;
     final sessionStart = _asNestedMap(sessionProbeMap?['start']);
     final sessionExec = _asNestedMap(sessionProbeMap?['exec']);
     final sessionRead = _asNestedMap(sessionProbeMap?['read']);
@@ -627,9 +662,10 @@ class ShizukuHealthCheckSnapshot {
       sessionProbeSuccess:
           sessionStages.isNotEmpty &&
           sessionStages.every((stage) => stage['success'] == true),
-      sessionProbeMessage: ((sessionExec ?? sessionStart)?['message'] as String? ??
-              (sessionStop?['message'] as String? ?? ''))
-          .trim(),
+      sessionProbeMessage:
+          ((sessionExec ?? sessionStart)?['message'] as String? ??
+                  (sessionStop?['message'] as String? ?? ''))
+              .trim(),
     );
   }
 }
@@ -732,46 +768,6 @@ Future<bool> ensureShizukuPermission(BuildContext context) async {
   return requestShizukuPermission();
 }
 
-/// 检查无障碍权限，如果没有权限则弹出授权对话框
-/// 返回 true 表示有权限，false 表示没有权限
-Future<bool> checkAccessibilityPermission(BuildContext context) async {
-  try {
-    final hasPermission = await spePermission.invokeMethod(
-      'isAccessibilityServiceEnabled',
-    );
-    if (hasPermission == true) {
-      return true;
-    }
-
-    if (!context.mounted) {
-      return false;
-    }
-
-    // 没有权限，弹出对话框
-    final result = await AppDialog.confirm(
-      context,
-      title: LegacyTextLocalizer.isEnglish ? 'Accessibility' : '无障碍权限',
-      content: LegacyTextLocalizer.isEnglish
-          ? 'Accessibility permission needs to be re-granted each time the app starts for your security.'
-          : '每次开启App需重新授权无障碍的权限，这也是为了你的安全～',
-      cancelText: LegacyTextLocalizer.isEnglish ? 'Cancel' : '取消',
-      confirmText: LegacyTextLocalizer.isEnglish ? 'Authorize' : '去授权',
-    );
-
-    if (!context.mounted) {
-      return false;
-    }
-    if (result == true) {
-      await spePermission.invokeMethod('openAccessibilitySettings');
-    }
-
-    return false;
-  } catch (e) {
-    debugPrint('检查无障碍权限失败: $e');
-    return false;
-  }
-}
-
 Future<bool> requestPermission(List<String> permissions) async {
   try {
     final hasPermission = await spePermission.invokeMethod(
@@ -780,7 +776,7 @@ Future<bool> requestPermission(List<String> permissions) async {
     );
     return hasPermission == "Success";
   } catch (e) {
-    debugPrint('检查无障碍权限失败: $e');
+    debugPrint('请求权限失败: $e');
     return false;
   }
 }

@@ -32,9 +32,6 @@ void main() {
     final task = ScheduledTask(
       id: 'task-subagent-1',
       title: '新闻整理',
-      packageName: '',
-      nodeId: 'n1',
-      suggestionId: 's1',
       targetKind: 'subagent',
       subagentConversationId: '12345',
       parentConversationId: '7',
@@ -47,10 +44,6 @@ void main() {
       isEnabled: true,
       createdAt: now,
       nextExecutionTime: now + 3600 * 1000,
-      suggestionData: const {
-        'targetKind': 'subagent',
-        'subagentPrompt': '每晚整理一下今天的新闻',
-      },
     );
 
     final restored = ScheduledTask.fromJson(task.toJson());
@@ -64,6 +57,5 @@ void main() {
     );
     expect(restored.subagentPrompt, '每晚整理一下今天的新闻');
     expect(restored.notificationEnabled, true);
-    expect(restored.suggestionData?['targetKind'], 'subagent');
   });
 }

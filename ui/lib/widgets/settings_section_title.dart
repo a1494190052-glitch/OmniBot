@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:ui/l10n/l10n.dart';
-import 'package:ui/theme/app_font_effect_scope.dart';
 import 'package:ui/theme/theme_context.dart';
 
 class SettingsSectionTitle extends StatelessWidget {
@@ -34,6 +33,7 @@ class SettingsSectionTitle extends StatelessWidget {
                   fontWeight: FontWeight.w600,
                   letterSpacing: 0.6,
                   color: palette.textTertiary,
+                  fontFamily: 'PingFang SC',
                 ),
               ),
               const SizedBox(width: 10),
@@ -55,10 +55,7 @@ class SettingsSectionTitle extends StatelessWidget {
                 fontSize: 12,
                 height: 1.5,
                 color: palette.textSecondary,
-                fontWeight: AppFontEffectScope.resolveNonChatWeight(
-                  context,
-                  FontWeight.w400,
-                ),
+                fontWeight: FontWeight.w400,
               ),
             ),
           ],

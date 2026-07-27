@@ -45,11 +45,6 @@ data class CanonicalRunLogRecord(
     }
 }
 
-data class RunLogStepRecord(
-    val step: Map<String, Any?>,
-    val states: List<Map<String, Any?>>,
-)
-
 data class InternalRunLogFinishEvent(
     val runId: String,
     val goal: String,
@@ -83,6 +78,7 @@ object InternalRunLogStore {
         .create()
     private val mapType = object : TypeToken<Map<String, Any?>>() {}.type
     private val lastEventSeqByRun = mutableMapOf<String, Long>()
+    private val reportedRunFileFailures = mutableSetOf<String>()
     @Volatile
     private var finishListener: ((InternalRunLogFinishEvent) -> Unit)? = null
 
@@ -229,39 +225,10 @@ object InternalRunLogStore {
     }
 
     @Synchronized
-    fun appendStep(context: Context, runId: String, step: Map<String, Any?>) {
-        val normalizedRunId = runId.trim()
-        if (normalizedRunId.isEmpty()) return
-        val record = readRunLocked(context, normalizedRunId)
-            ?: CanonicalRunLogRecord(runId = normalizedRunId)
-        val sanitizedStep = canonicalStep(step)
-        val eventSeq = appendRunEventLocked(
-            context = context,
-            runId = normalizedRunId,
-            eventType = "step_appended",
-            payload = linkedMapOf("step" to sanitizedStep)
-        )
-        saveRunLocked(
-            context,
-            record.copy(
-                steps = record.steps + sanitizedStep,
-            ).withEventSeq(eventSeq),
-        )
-        pruneLocked(context, preserveRunId = normalizedRunId)
-    }
-
-    @Synchronized
-    fun appendRecordedStep(context: Context, runId: String, record: RunLogStepRecord) {
-        record.states.forEach { persistStateLocked(context, stateId(it), sanitizeMap(it)) }
-        appendStep(context, runId, record.step)
-    }
-
-    @Synchronized
-    fun appendSteps(
+    private fun appendSteps(
         context: Context,
         runId: String,
         steps: List<Map<String, Any?>>,
-        saveSnapshot: Boolean = true
     ) {
         val normalizedRunId = runId.trim()
         if (normalizedRunId.isEmpty() || steps.isEmpty()) return
@@ -274,28 +241,13 @@ object InternalRunLogStore {
             eventType = "steps_appended",
             payload = linkedMapOf("steps" to sanitizedSteps)
         )
-        if (saveSnapshot) {
-            saveRunLocked(
-                context,
-                record.copy(
-                    steps = record.steps + sanitizedSteps,
-                ).withEventSeq(eventSeq),
-            )
-        }
+        saveRunLocked(
+            context,
+            record.copy(
+                steps = record.steps + sanitizedSteps,
+            ).withEventSeq(eventSeq),
+        )
         pruneLocked(context, preserveRunId = normalizedRunId)
-    }
-
-    @Synchronized
-    fun appendRecordedSteps(
-        context: Context,
-        runId: String,
-        records: List<RunLogStepRecord>,
-        saveSnapshot: Boolean = true,
-    ) {
-        records.flatMap(RunLogStepRecord::states).forEach { state ->
-            persistStateLocked(context, stateId(state), sanitizeMap(state))
-        }
-        appendSteps(context, runId, records.map(RunLogStepRecord::step), saveSnapshot)
     }
 
     @Synchronized
@@ -303,7 +255,6 @@ object InternalRunLogStore {
         context: Context,
         runId: String,
         diagnostics: Map<String, Any?>,
-        saveSnapshot: Boolean = true
     ) {
         val normalizedRunId = runId.trim()
         if (normalizedRunId.isEmpty() || diagnostics.isEmpty()) return
@@ -317,19 +268,17 @@ object InternalRunLogStore {
             eventType = "diagnostics_updated",
             payload = linkedMapOf("diagnostics" to sanitizedDiagnostics)
         )
-        if (saveSnapshot) {
-            saveRunLocked(
-                context,
-                record.copy(
-                    diagnostics = mergedDiagnostics,
-                ).withEventSeq(eventSeq),
-            )
-        }
+        saveRunLocked(
+            context,
+            record.copy(
+                diagnostics = mergedDiagnostics,
+            ).withEventSeq(eventSeq),
+        )
         pruneLocked(context, preserveRunId = normalizedRunId)
     }
 
     @Synchronized
-    fun upsertStep(
+    private fun upsertStep(
         context: Context,
         runId: String,
         step: Map<String, Any?>
@@ -381,7 +330,6 @@ object InternalRunLogStore {
         success: Boolean,
         doneReason: String,
         errorMessage: String? = null,
-        saveSnapshot: Boolean = true,
         finishedAtMs: Long = System.currentTimeMillis(),
         finalStateId: String? = null,
     ) {
@@ -403,23 +351,21 @@ object InternalRunLogStore {
                 "final_state_id" to normalizedFinalStateId.takeIf { it.isNotEmpty() },
             ).filterValues { it != null }
         )
-        if (saveSnapshot) {
-            val finishedRecord = record.copy(
-                status = when {
-                    doneReason == "cancelled" -> "cancelled"
-                    success -> "succeeded"
-                    else -> "failed"
-                },
-                success = success,
-                error = errorMessage?.takeIf(String::isNotBlank),
-                finishedAtMs = normalizedFinishedAtMs,
-                finalStateId = normalizedFinalStateId.takeIf(String::isNotEmpty),
-                diagnostics = sanitizeMap(
-                    record.diagnostics + mapOf("done_reason" to doneReason),
-                ),
-            ).withEventSeq(eventSeq)
-            saveRunLocked(context, finishedRecord)
-        }
+        val finishedRecord = record.copy(
+            status = when {
+                doneReason == "cancelled" -> "cancelled"
+                success -> "succeeded"
+                else -> "failed"
+            },
+            success = success,
+            error = errorMessage?.takeIf(String::isNotBlank),
+            finishedAtMs = normalizedFinishedAtMs,
+            finalStateId = normalizedFinalStateId.takeIf(String::isNotEmpty),
+            diagnostics = sanitizeMap(
+                record.diagnostics + mapOf("done_reason" to doneReason),
+            ),
+        ).withEventSeq(eventSeq)
+        saveRunLocked(context, finishedRecord)
         pruneLocked(context, preserveRunId = normalizedRunId)
         notifyFinishListener(
             InternalRunLogFinishEvent(
@@ -570,11 +516,20 @@ object InternalRunLogStore {
     }
 
     @Synchronized
-    fun persistState(context: Context, state: Map<String, Any?>): String {
-        val sanitized = sanitizeMap(state)
-        val stateId = stateId(sanitized)
-        persistStateLocked(context, stateId, sanitized)
-        return stateId
+    fun persistState(
+        context: Context,
+        state: State,
+        screenshotJpeg: ByteArray? = null,
+    ): State {
+        val payload = state.asMap().toMutableMap().apply {
+            screenshotJpeg?.takeIf(ByteArray::isNotEmpty)?.let { bytes ->
+                put("screenshot_base64", Base64.encodeToString(bytes, Base64.NO_WRAP))
+            }
+        }
+        val stored = persistStateLocked(context, state.stateId, sanitizeMap(payload))
+        return state.copy(
+            screenshotPath = textValue(stored["screenshot_path"]).takeIf(String::isNotEmpty),
+        )
     }
 
     private fun persistStateLocked(
@@ -887,7 +842,7 @@ object InternalRunLogStore {
             runCatching {
                 parseRunSnapshot(file.readText())
             }.getOrElse {
-                OmniLog.w(TAG, "read run log failed: ${file.absolutePath}, ${it.message}")
+                reportRunFileFailureOnce("read", file, it)
                 null
             }
         } else {
@@ -905,8 +860,22 @@ object InternalRunLogStore {
                 events = events
             )
         }.getOrElse {
-            OmniLog.w(TAG, "apply run log events failed: ${file.absolutePath}, ${it.message}")
+            reportRunFileFailureOnce("apply events", file, it)
             snapshot
+        }
+    }
+
+    private fun reportRunFileFailureOnce(phase: String, file: File, error: Throwable) {
+        val reason = error.message.orEmpty().ifBlank { error.javaClass.simpleName }
+        val fingerprint = "$phase:${error.javaClass.name}:$reason"
+        val shouldReport = synchronized(reportedRunFileFailures) {
+            reportedRunFileFailures.add(fingerprint)
+        }
+        if (shouldReport) {
+            OmniLog.w(
+                TAG,
+                "$phase run log failed: ${file.absolutePath}, $reason; identical failures suppressed",
+            )
         }
     }
 

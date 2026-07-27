@@ -23,7 +23,7 @@ data class ToolBatch(
  *
  * Default = SERIAL_BARRIER. Only tools on the explicit whitelist below
  * (pure-read, no shared mutable side-effects) are declared PARALLEL_SAFE.
- * MCP remote tools, write/edit tools, privileged actions, terminal, VLM,
+ * MCP remote tools, write/edit tools, privileged actions, terminal,
  * subagent_dispatch — all stay serial.
  *
  * Handlers can override per-tool by implementing [ToolHandlerConcurrencyHint].

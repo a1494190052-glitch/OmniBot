@@ -4,6 +4,7 @@ import android.content.Context
 import cn.com.omnimind.bot.App
 import cn.com.omnimind.bot.agent.AgentWorkspaceManager
 import cn.com.omnimind.bot.terminal.EmbeddedTerminalRuntime
+import com.rk.terminal.runtime.TerminalDistribution
 
 data class TermuxCommandSpec(
     val command: String,
@@ -16,7 +17,6 @@ data class TermuxCommandSpec(
     companion object {
         const val EXECUTION_MODE_TERMUX = "termux"
         const val EXECUTION_MODE_PROOT = "proot"
-        const val DEFAULT_PROOT_DISTRO = "alpine"
         const val DEFAULT_TIMEOUT_SECONDS = 60
     }
 }
@@ -168,13 +168,18 @@ object TermuxCommandRunner {
 
     private fun normalizeSpec(spec: TermuxCommandSpec): TermuxCommandSpec {
         val executionMode = spec.executionMode.trim().lowercase()
+        val prootDistro = spec.prootDistro
+            ?.trim()
+            ?.takeIf { it.isNotEmpty() }
+            ?.let { TerminalDistribution.fromId(it).id }
+            ?: TerminalDistribution.selected().id
         return spec.copy(
             executionMode = if (executionMode.isBlank()) {
                 TermuxCommandSpec.EXECUTION_MODE_PROOT
             } else {
                 executionMode
             },
-            prootDistro = TermuxCommandSpec.DEFAULT_PROOT_DISTRO
+            prootDistro = prootDistro
         )
     }
 }

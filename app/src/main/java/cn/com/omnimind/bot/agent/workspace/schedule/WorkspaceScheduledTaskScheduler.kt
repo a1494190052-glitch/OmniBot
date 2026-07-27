@@ -5,16 +5,11 @@ import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.os.Build
-import android.os.Handler
-import android.os.Looper
-import android.provider.Settings
 import android.util.Base64
-import android.widget.Toast
 import cn.com.omnimind.baselib.database.Conversation
 import cn.com.omnimind.baselib.database.DatabaseHelper
 import cn.com.omnimind.baselib.util.OmniLog
 import cn.com.omnimind.bot.manager.AssistsCoreManager
-import cn.com.omnimind.bot.util.AssistsUtil
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
 import io.flutter.plugin.common.MethodCall
@@ -49,15 +44,13 @@ class WorkspaceScheduledTaskScheduler(
     private data class StoredTask(
         val taskId: String,
         val title: String,
-        val targetKind: String = "vlm",
+        val targetKind: String = SUBAGENT_MODE,
         val scheduleType: String = "fixed_time",
         val fixedTime: String? = null,
         val countdownMinutes: Int? = null,
         val repeatDaily: Boolean = false,
         val enabled: Boolean = true,
         val nextExecutionTime: Long? = null,
-        val packageName: String? = null,
-        val goal: String? = null,
         val subagentConversationId: String? = null,
         val parentConversationId: String? = null,
         val parentConversationMode: String? = null,
@@ -231,12 +224,7 @@ class WorkspaceScheduledTaskScheduler(
     }
 
     private fun executeTask(task: StoredTask): StoredTask {
-        return if (task.targetKind.equals("subagent", ignoreCase = true)) {
-            executeSubagentTask(task)
-        } else {
-            executeVlmTask(task)
-            task
-        }
+        return executeSubagentTask(task)
     }
 
     private fun executeSubagentTask(task: StoredTask): StoredTask {
@@ -257,39 +245,6 @@ class WorkspaceScheduledTaskScheduler(
             NoopResult(task.taskId, "createAgentTask")
         )
         return task
-    }
-
-    private fun executeVlmTask(task: StoredTask) {
-        val goal = task.goal?.trim().orEmpty()
-        require(goal.isNotEmpty()) { "vlm goal is empty" }
-
-        val missingPermissions = mutableListOf<String>()
-        if (!AssistsUtil.Core.isAccessibilityServiceEnabled()) {
-            missingPermissions.add("无障碍权限")
-        }
-        if (!Settings.canDrawOverlays(appContext)) {
-            missingPermissions.add("悬浮窗权限")
-        }
-        if (missingPermissions.isNotEmpty()) {
-            val msg = "定时任务「${task.title}」执行失败，缺少权限：${missingPermissions.joinToString("、")}"
-            Handler(Looper.getMainLooper()).post {
-                Toast.makeText(appContext, msg, Toast.LENGTH_LONG).show()
-            }
-            OmniLog.w(TAG, "VLM scheduled task skipped: taskId=${task.taskId} missing=$missingPermissions")
-            return
-        }
-
-        val args = mutableMapOf<String, Any?>(
-            "goal" to goal,
-            "skipGoHome" to false
-        )
-        task.packageName?.trim()?.takeIf { it.isNotEmpty() }?.let {
-            args["packageName"] = it
-        }
-        AssistsCoreManager(appContext).createVLMOperationTask(
-            MethodCall("createVLMOperationTask", args),
-            NoopResult(task.taskId, "createVLMOperationTask")
-        )
     }
 
     private fun createSubagentRunConversation(task: StoredTask): Long {
@@ -325,13 +280,10 @@ class WorkspaceScheduledTaskScheduler(
             ?: rawTask["id"]?.toString()?.trim().orEmpty()
         require(taskId.isNotEmpty()) { "taskId is empty" }
 
-        val suggestionData = rawTask["suggestionData"] as? Map<*, *>
-        val targetKind = rawTask["targetKind"]?.toString()?.trim().orEmpty()
-            .ifEmpty {
-                suggestionData?.get("targetKind")?.toString()?.trim().orEmpty()
-            }
-            .ifEmpty { existing?.targetKind ?: "vlm" }
+        val requestedTargetKind = rawTask["targetKind"]?.toString()?.trim().orEmpty()
+            .ifEmpty { existing?.targetKind ?: SUBAGENT_MODE }
             .lowercase()
+        require(requestedTargetKind == SUBAGENT_MODE) { "targetKind only supports subagent" }
         val scheduleType = normalizeScheduleType(
             rawTask["scheduleType"]?.toString()
                 ?: rawTask["type"]?.toString()
@@ -349,11 +301,6 @@ class WorkspaceScheduledTaskScheduler(
 
         val title = rawTask["title"]?.toString()?.trim().orEmpty()
             .ifEmpty { existing?.title ?: "定时任务" }
-        val packageName = rawTask["packageName"]?.toString()?.trim()?.ifEmpty { null }
-            ?: existing?.packageName
-        val goal = rawTask["goal"]?.toString()?.trim()?.ifEmpty { null }
-            ?: suggestionData?.get("goal")?.toString()?.trim()?.ifEmpty { null }
-            ?: existing?.goal
         val subagentConversationId =
             rawTask["subagentConversationId"]?.toString()?.trim()?.ifEmpty { null }
                 ?: existing?.subagentConversationId
@@ -366,7 +313,6 @@ class WorkspaceScheduledTaskScheduler(
                 ?: rawTask["subagentParentConversationMode"]?.toString()?.trim()?.ifEmpty { null }
                 ?: existing?.parentConversationMode
         val subagentPrompt = rawTask["subagentPrompt"]?.toString()?.trim()?.ifEmpty { null }
-            ?: suggestionData?.get("subagentPrompt")?.toString()?.trim()?.ifEmpty { null }
             ?: existing?.subagentPrompt
         val notificationEnabled = (rawTask["notificationEnabled"] as? Boolean)
             ?: existing?.notificationEnabled
@@ -375,15 +321,13 @@ class WorkspaceScheduledTaskScheduler(
         return StoredTask(
             taskId = taskId,
             title = title,
-            targetKind = targetKind,
+            targetKind = SUBAGENT_MODE,
             scheduleType = scheduleType,
             fixedTime = fixedTime,
             countdownMinutes = countdownMinutes,
             repeatDaily = repeatDaily,
             enabled = enabled,
             nextExecutionTime = nextExecutionTime,
-            packageName = packageName,
-            goal = goal,
             subagentConversationId = subagentConversationId,
             parentConversationId = parentConversationId,
             parentConversationMode = parentConversationMode,
@@ -479,25 +423,11 @@ class WorkspaceScheduledTaskScheduler(
         payload["repeatDaily"] = task.repeatDaily
         payload["isEnabled"] = task.enabled
         payload["nextExecutionTime"] = task.nextExecutionTime
-        payload["packageName"] = task.packageName ?: ""
         payload["subagentConversationId"] = task.subagentConversationId
         payload["parentConversationId"] = task.parentConversationId
         payload["parentConversationMode"] = task.parentConversationMode
         payload["subagentPrompt"] = task.subagentPrompt
         payload["notificationEnabled"] = task.notificationEnabled
-        if (task.targetKind == "subagent") {
-            payload["suggestionData"] = mapOf(
-                "targetKind" to "subagent",
-                "subagentPrompt" to (task.subagentPrompt ?: "")
-            )
-        } else {
-            payload["suggestionData"] = mapOf(
-                "targetKind" to "vlm",
-                "goal" to (task.goal ?: ""),
-                "packageName" to task.packageName
-            )
-        }
-
         if (index >= 0) {
             list[index] = payload
         } else {
@@ -615,7 +545,13 @@ class WorkspaceScheduledTaskScheduler(
             OmniLog.w(TAG, "parse scheduled tasks failed: ${it.message}")
             emptyList()
         }
-        return list.associateBy { it.taskId }.toMutableMap()
+        return list
+            .filter {
+                it.targetKind.equals(SUBAGENT_MODE, ignoreCase = true) &&
+                    !it.subagentPrompt.isNullOrBlank()
+            }
+            .associateBy { it.taskId }
+            .toMutableMap()
     }
 
     private fun persistTaskMap(tasks: Map<String, StoredTask>) {

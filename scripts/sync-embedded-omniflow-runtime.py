@@ -26,6 +26,10 @@ OMNITRANSFER_RUNTIME_PATHS = (
     "checkpoints/pair_evidence_mutual_no_null_v3_20260723/README.md",
     OMNITRANSFER_CHECKPOINT_PATH,
 )
+OMNIFLOW_TEST_PATHS = (
+    "test_gui.py",
+    "data/vlm_tool_call_cases.v1.json",
+)
 SCHEMA_NAMES = (
     "README.md",
     "oob_canonical_actions.v1.json",
@@ -118,14 +122,30 @@ def assert_source_paths(omniflow_repo: Path, omnitransfer_repo: Path) -> None:
         raise SystemExit("Missing canonical runtime sources:\n" + "\n".join(missing))
 
 
-def copy_tree(source: Path, target: Path) -> None:
-    if target.exists():
-        shutil.rmtree(target)
-    target.mkdir(parents=True)
-    for relative_path, source_file in files_by_relative_path(source).items():
+def sync_files(source_files: dict[str, Path], target: Path) -> None:
+    target.mkdir(parents=True, exist_ok=True)
+    target_files = files_by_relative_path(target)
+    for relative_path in sorted(target_files.keys() - source_files.keys()):
+        target_files[relative_path].unlink()
+    for relative_path, source_file in source_files.items():
         target_file = target / relative_path
+        if target_file.is_file() and file_sha256(source_file) == file_sha256(target_file):
+            continue
         target_file.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(source_file, target_file)
+    for directory in sorted(
+        (path for path in target.rglob("*") if path.is_dir()),
+        key=lambda path: len(path.parts),
+        reverse=True,
+    ):
+        try:
+            directory.rmdir()
+        except OSError:
+            pass
+
+
+def copy_tree(source: Path, target: Path) -> None:
+    sync_files(files_by_relative_path(source), target)
 
 
 def copy_overlay(source: Path, target: Path) -> None:
@@ -137,14 +157,27 @@ def copy_overlay(source: Path, target: Path) -> None:
 
 
 def copy_selected(source: Path, target: Path, relative_paths: tuple[str, ...]) -> None:
-    if target.exists():
-        shutil.rmtree(target)
-    target.mkdir(parents=True)
+    source_files = {}
     for relative_path in relative_paths:
         source_file = source / relative_path
         if not source_file.is_file():
             raise SystemExit(f"Missing canonical runtime file: {source_file}")
+        source_files[relative_path] = source_file
+    sync_files(source_files, target)
+
+
+def copy_named_files(
+    source: Path,
+    target: Path,
+    relative_paths: tuple[str, ...],
+) -> None:
+    for relative_path in relative_paths:
+        source_file = source / relative_path
+        if not source_file.is_file():
+            raise SystemExit(f"Missing canonical file: {source_file}")
         target_file = target / relative_path
+        if target_file.is_file() and file_sha256(source_file) == file_sha256(target_file):
+            continue
         target_file.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(source_file, target_file)
 
@@ -174,6 +207,24 @@ def compare_selected(source: Path, target: Path) -> list[str]:
         source_file = source / relative_path
         target_file = target_files.get(relative_path)
         if target_file is None:
+            differences.append(f"missing embedded file: {relative_path}")
+        elif file_sha256(source_file) != file_sha256(target_file):
+            differences.append(f"content differs: {relative_path}")
+    return differences
+
+
+def compare_named_files(
+    source: Path,
+    target: Path,
+    relative_paths: tuple[str, ...],
+) -> list[str]:
+    differences = []
+    for relative_path in relative_paths:
+        source_file = source / relative_path
+        target_file = target / relative_path
+        if not source_file.is_file():
+            differences.append(f"missing canonical file: {relative_path}")
+        elif not target_file.is_file():
             differences.append(f"missing embedded file: {relative_path}")
         elif file_sha256(source_file) != file_sha256(target_file):
             differences.append(f"content differs: {relative_path}")
@@ -263,6 +314,7 @@ def main() -> int:
     embedded_root = repo_root / "embedded/omniflow/python"
     embedded_omniflow = embedded_root / "omniflow"
     embedded_omnitransfer = embedded_root / "omnitransfer"
+    embedded_omniflow_tests = repo_root / "embedded/omniflow/tests"
     runtime_properties = repo_root / "embedded/omniflow/runtime.properties"
 
     selected_modes = sum(
@@ -287,6 +339,7 @@ def main() -> int:
     assert_source_paths(omniflow_repo, omnitransfer_repo)
     canonical_omniflow = omniflow_repo / "omniflow"
     canonical_omnitransfer = omnitransfer_repo / "src/omnitransfer"
+    canonical_omniflow_tests = omniflow_repo / "tests/omniflow"
 
     if args.check:
         differences = []
@@ -297,6 +350,14 @@ def main() -> int:
         differences.extend(
             f"OmniTransfer {difference}"
             for difference in compare_selected(canonical_omnitransfer, embedded_omnitransfer)
+        )
+        differences.extend(
+            f"OmniFlow test {difference}"
+            for difference in compare_named_files(
+                canonical_omniflow_tests,
+                embedded_omniflow_tests,
+                OMNIFLOW_TEST_PATHS,
+            )
         )
         differences.extend(
             sync_schemas(repo_root / "schemas/oob", omniflow_repo / "schemas/oob", True)
@@ -325,6 +386,11 @@ def main() -> int:
     sync_schemas(repo_root / "schemas/oob", omniflow_repo / "schemas/oob", False)
     copy_tree(canonical_omniflow, embedded_omniflow)
     copy_selected(canonical_omnitransfer, embedded_omnitransfer, OMNITRANSFER_RUNTIME_PATHS)
+    copy_named_files(
+        canonical_omniflow_tests,
+        embedded_omniflow_tests,
+        OMNIFLOW_TEST_PATHS,
+    )
     write_properties(
         runtime_properties,
         {

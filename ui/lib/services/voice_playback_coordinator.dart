@@ -1,7 +1,6 @@
 import 'dart:async';
 
 import 'package:flutter/foundation.dart';
-import 'package:ui/services/assists_core_service.dart';
 import 'package:ui/services/scene_model_config_service.dart';
 import 'package:ui/services/scene_voice_text_processing.dart';
 import 'package:ui/services/voice_playback_channel_service.dart';
@@ -56,7 +55,6 @@ class VoicePlaybackCoordinator extends ChangeNotifier {
       <String, VoiceMessagePlaybackState>{};
   final Map<String, _VoiceStreamingTracker> _trackers =
       <String, _VoiceStreamingTracker>{};
-  StreamSubscription<AgentAiConfigChangedEvent>? _configSubscription;
   StreamSubscription<VoicePlaybackEvent>? _playbackSubscription;
 
   Future<void> ensureInitialized() async {
@@ -65,11 +63,17 @@ class VoicePlaybackCoordinator extends ChangeNotifier {
     }
     _initialized = true;
     await _reloadConfig();
-    _configSubscription = AssistsMessageService.agentAiConfigChangedStream
-        .listen((_) => unawaited(_reloadConfig()));
     _playbackSubscription = VoicePlaybackChannelService.events.listen(
       _handlePlaybackEvent,
     );
+  }
+
+  Future<void> refreshConfiguration() async {
+    if (!_initialized) {
+      await ensureInitialized();
+      return;
+    }
+    await _reloadConfig();
   }
 
   bool get isVoiceSceneBound {
@@ -207,16 +211,21 @@ class VoicePlaybackCoordinator extends ChangeNotifier {
           binding.providerProfileId.trim().isNotEmpty &&
           binding.modelId.trim().isNotEmpty,
     );
+    // 自定义 curl 模式无需绑定 Provider：只要命令非空即视为可用。
+    final customCurlReady =
+        voiceConfig.isCustomCurl &&
+        voiceConfig.customCurlCommand.trim().isNotEmpty;
+    final nextAvailable = nextBound || customCurlReady;
     var shouldNotify = false;
-    if (_isVoiceSceneBound != nextBound) {
-      _isVoiceSceneBound = nextBound;
+    if (_isVoiceSceneBound != nextAvailable) {
+      _isVoiceSceneBound = nextAvailable;
       shouldNotify = true;
     }
     if (_voiceConfig != voiceConfig) {
       _voiceConfig = voiceConfig;
       shouldNotify = true;
     }
-    if (!nextBound) {
+    if (!nextAvailable) {
       _trackers.clear();
     }
     if (shouldNotify) {
@@ -238,9 +247,7 @@ class VoicePlaybackCoordinator extends ChangeNotifier {
 
   @visibleForTesting
   Future<void> debugResetForTest() async {
-    await _configSubscription?.cancel();
     await _playbackSubscription?.cancel();
-    _configSubscription = null;
     _playbackSubscription = null;
     _initialized = false;
     _isVoiceSceneBound = false;

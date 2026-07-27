@@ -7,7 +7,7 @@ Download the latest APK from the [Releases Section](https://github.com/RohitKush
 - [x] Basic Terminal
 - [x] Virtual Keys
 - [x] Multiple Sessions
-- [x] Alpine Linux support
+- [x] Alpine Linux and Ubuntu rootfs support
 - [x] Configurable Keyboard Shortcuts (Paste, Session Management)
 
 # Screenshots

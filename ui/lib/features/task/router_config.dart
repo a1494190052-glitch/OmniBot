@@ -1,9 +1,6 @@
 import 'package:go_router/go_router.dart';
 import 'pages/task_center/task_center_page.dart';
 import 'pages/task_edit/task_edit_page.dart';
-import 'pages/task_history/task_execution_history_page.dart';
-import 'pages/execution_history/trajectory_page.dart';
-import 'pages/execution_history/task_execution_detail_page.dart';
 import 'pages/execution_history/run_log_list_page.dart';
 import 'pages/execution_history/run_log_timeline_page.dart';
 import 'pages/execution_history/function_library_page.dart';
@@ -12,14 +9,11 @@ import 'pages/task_modify/task_modify_page.dart';
 
 /// Task模块路由配置
 List<GoRoute> taskRoutes = [
-  // 任务中心页
   GoRoute(
     path: '/task/task_center',
     name: 'task/task_center',
     builder: (context, state) => const TaskCenterPage(),
   ),
-
-  // 任务编辑页
   GoRoute(
     path: '/task/task_edit/:taskId',
     name: 'task/task_edit',
@@ -28,13 +22,11 @@ List<GoRoute> taskRoutes = [
       return TaskEditPage(taskId: taskId);
     },
   ),
-  // 任务执行历史页(新)
   GoRoute(
     path: '/task/execution_history',
     name: 'task/execution_history',
-    builder: (context, state) => TrajectoryPage(),
+    builder: (context, state) => const RunLogListPage(),
   ),
-  // Function RunLog 列表页
   GoRoute(
     path: '/task/run_logs',
     name: 'task/run_logs',
@@ -43,7 +35,6 @@ List<GoRoute> taskRoutes = [
       return RunLogListPage(baseUrl: params?['baseUrl']?.toString());
     },
   ),
-  // Function RunLog 时间线详情页
   GoRoute(
     path: '/task/run_log_timeline',
     name: 'task/run_log_timeline',
@@ -64,13 +55,11 @@ List<GoRoute> taskRoutes = [
       );
     },
   ),
-  // Function library page
   GoRoute(
     path: '/task/function_library',
     name: 'task/function_library',
     builder: (context, state) => const FunctionLibraryPage(),
   ),
-
   // 定时任务列表页
   GoRoute(
     path: '/task/scheduled_tasks',
@@ -78,25 +67,16 @@ List<GoRoute> taskRoutes = [
     builder: (context, state) =>
         ScheduledTaskListPage(initialTab: state.uri.queryParameters['tab']),
   ),
-  // 任务执行记录详情页
   GoRoute(
     path: '/task/execution_detail',
     name: 'task/execution_detail',
-    builder: (context, state) {
-      final params = state.extra as Map<String, dynamic>?;
-      return TaskExecutionDetailPage(
-        params: TaskExecutionDetailParams.fromMap(params),
-      );
-    },
+    builder: (context, state) => const RunLogListPage(),
   ),
-  // 任务执行历史页
   GoRoute(
     path: '/task/task_history',
     name: 'task/task_history',
-    builder: (context, state) => const TaskExecutionHistoryPage(),
+    builder: (context, state) => const RunLogListPage(),
   ),
-
-  // 任务修改页
   GoRoute(
     path: '/task/task_modify',
     name: 'task/task_modify',

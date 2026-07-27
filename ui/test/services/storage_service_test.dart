@@ -40,18 +40,4 @@ void main() {
       ChatStartupBehavior.resumeLast,
     );
   });
-
-  test('defaults enhanced font effects to off', () {
-    expect(StorageService.isEnhancedFontEffectsEnabled(), isFalse);
-  });
-
-  test('round-trips enhanced font effects preference', () async {
-    await StorageService.setEnhancedFontEffectsEnabled(true);
-
-    expect(StorageService.isEnhancedFontEffectsEnabled(), isTrue);
-
-    await StorageService.setEnhancedFontEffectsEnabled(false);
-
-    expect(StorageService.isEnhancedFontEffectsEnabled(), isFalse);
-  });
 }

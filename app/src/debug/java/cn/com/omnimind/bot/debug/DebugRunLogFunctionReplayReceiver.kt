@@ -5,16 +5,12 @@ import android.content.Context
 import android.content.Intent
 import android.util.Base64
 import com.google.gson.reflect.TypeToken
-import cn.com.omnimind.accessibility.service.AssistsService
-import cn.com.omnimind.assists.controller.accessibility.AccessibilityController
+import cn.com.omnimind.androidgui.AndroidGuiEnvironment
 import cn.com.omnimind.baselib.runlog.InternalRunLogStore
-import cn.com.omnimind.baselib.runlog.RunLogStepRecord
 import cn.com.omnimind.baselib.util.OmniLog
+import cn.com.omnimind.bot.function.FunctionApi
 import cn.com.omnimind.bot.function.FunctionRun
 import cn.com.omnimind.bot.function.FunctionService
-import cn.com.omnimind.bot.omniflow.omniFlowRecordStepExecutor
-import cn.com.omnimind.bot.util.AssistsUtil
-import cn.com.omnimind.uikit.settings.CompanionOverlaySettings
 import com.google.gson.GsonBuilder
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -41,6 +37,7 @@ class DebugRunLogFunctionReplayReceiver : BroadcastReceiver() {
             ?: intent?.getStringExtra("goal").orEmpty()
         val effectiveGoal = goal.ifBlank { description }
         val shouldRun = intent?.getBooleanExtra("run", true) ?: true
+        val enhanceRequested = intent.booleanExtra("enhance") ?: false
         val agentVisible = intent.booleanExtra("agentVisible")
             ?: intent.booleanExtra("agent_visible")
             ?: false
@@ -59,9 +56,6 @@ class DebugRunLogFunctionReplayReceiver : BroadcastReceiver() {
         scope.launch {
             val result = runCatching {
                 if (shouldRun) waitForAccessibility(appContext)
-                CompanionOverlaySettings.init(appContext)
-                CompanionOverlaySettings.dismissFloatingUi()
-                delay(300L)
                 val service = FunctionService(appContext)
                 val sourceRunId = if (rawRunLogHasReplayableSteps) {
                     persistInlineRunLog(appContext, runId, rawRunLog, effectiveGoal)
@@ -72,6 +66,7 @@ class DebugRunLogFunctionReplayReceiver : BroadcastReceiver() {
                     "run_id" to sourceRunId,
                     "register" to true,
                     "agent_visible" to agentVisible,
+                    "enhance" to enhanceRequested,
                 )
                 val inlineFunctionId = firstNonBlank(
                     functionId,
@@ -88,14 +83,17 @@ class DebugRunLogFunctionReplayReceiver : BroadcastReceiver() {
                 }
 
                 val convert = when {
-                    rawRunLogHasReplayableSteps -> service.convertRunLog(convertArgs)
+                    rawRunLogHasReplayableSteps -> service.executeTool(
+                        FunctionApi.RUN_LOG_CONVERT,
+                        convertArgs,
+                    )
                     rawFunctionSpec.isNotEmpty() -> linkedMapOf<String, Any?>(
                         "success" to true,
                         "function_id" to inlineFunctionId,
                         "function" to rawFunctionSpec,
                         "source" to "omniflow.function.v2",
                     )
-                    else -> service.convertRunLog(convertArgs)
+                    else -> service.executeTool(FunctionApi.RUN_LOG_CONVERT, convertArgs)
                 }
                 val inlineFunctionSpec = when {
                     rawRunLogHasReplayableSteps -> {
@@ -112,7 +110,10 @@ class DebugRunLogFunctionReplayReceiver : BroadcastReceiver() {
                     convert["success"] == true &&
                     inlineFunctionSpec != null
                 ) {
-                    service.registerFunction(linkedMapOf("function" to inlineFunctionSpec))
+                    service.executeTool(
+                        FunctionApi.FUNCTION_REGISTER,
+                        linkedMapOf("function" to inlineFunctionSpec),
+                    )
                 } else {
                     null
                 }
@@ -136,7 +137,10 @@ class DebugRunLogFunctionReplayReceiver : BroadcastReceiver() {
                     inlineRegistration?.get("success") != false &&
                     resolvedFunctionId.isNotBlank()
                 val functionSpecBeforeReplay = if (canReplay) {
-                    service.getFunction(linkedMapOf("function_id" to resolvedFunctionId))
+                    service.executeTool(
+                        FunctionApi.FUNCTION_GET,
+                        linkedMapOf("function_id" to resolvedFunctionId),
+                    )
                 } else {
                     null
                 }
@@ -154,7 +158,6 @@ class DebugRunLogFunctionReplayReceiver : BroadcastReceiver() {
                             "goal" to effectiveGoal,
                             "arguments" to replayArguments,
                             "confirmed" to true,
-                            "frontend_parent" to "debug_replay",
                         )
                     )
                 } else {
@@ -184,6 +187,12 @@ class DebugRunLogFunctionReplayReceiver : BroadcastReceiver() {
                     ),
                     "function_id" to resolvedFunctionId,
                     "agent_visible" to agentVisible,
+                    "enhance_requested" to enhanceRequested,
+                    "enhancement_policy" to if (enhanceRequested) {
+                        "offline_background"
+                    } else {
+                        "disabled"
+                    },
                     "convert" to convert,
                     "inline_registration" to inlineRegistration,
                     "enhance" to enhancement,
@@ -224,16 +233,15 @@ class DebugRunLogFunctionReplayReceiver : BroadcastReceiver() {
     }
 
     private suspend fun waitForAccessibility(context: Context) {
-        if (!AssistsUtil.Core.isInitialized()) {
-            AssistsUtil.Core.initCore(context)
+        val environment = AndroidGuiEnvironment(context)
+        if (!environment.isAccessibilityEnabled()) {
+            error("android_gui_accessibility_disabled")
         }
         repeat(ACCESSIBILITY_ATTEMPTS) {
-            if (AssistsService.instance != null && AccessibilityController.initController()) {
-                return
-            }
+            if (environment.isReady()) return
             delay(ACCESSIBILITY_INTERVAL_MS)
         }
-        error("OOB accessibility service is not bound")
+        error("android_gui_accessibility_not_ready")
     }
 
     private fun Intent?.decodeBase64Extra(name: String): String? {
@@ -302,14 +310,11 @@ class DebugRunLogFunctionReplayReceiver : BroadcastReceiver() {
             .ifBlank { "debug_inline_${System.currentTimeMillis()}" }
         val goal = firstNonBlank(runLog["goal"], fallbackGoal)
         val rawSteps = (runLog["steps"] as? List<*>) ?: emptyList<Any?>()
-        val stepConverter = omniFlowRecordStepExecutor()
         val steps = rawSteps.mapNotNull { raw ->
             val step = (raw as? Map<*, *>)?.entries
                 ?.associate { (key, value) -> key.toString() to value }
                 ?: return@mapNotNull null
-            stepConverter.recordStep(
-                RunLogStepRecord(step = step, states = emptyList()),
-            ).step
+            InternalRunLogStore.canonicalStep(step)
         }
         InternalRunLogStore.replaceRun(
             context = context,

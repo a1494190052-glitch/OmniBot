@@ -4,7 +4,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:ui/features/home/pages/settings/workspace_memory_setting_page.dart';
-import 'package:ui/services/assists_core_service.dart';
 import 'package:ui/theme/app_theme.dart';
 
 class _SvgTestAssetBundle extends CachingAssetBundle {
@@ -46,7 +45,6 @@ void main() {
   late List<MethodCall> recordedCalls;
 
   setUp(() {
-    AssistsMessageService.initialize();
     soulContent = '# SOUL\ninitial soul\n';
     chatContent = '# CHAT\ninitial chat prompt\n';
     memoryContent = '# MEMORY\ninitial memory\n';
@@ -56,14 +54,14 @@ void main() {
         .setMockMethodCallHandler(channel, (call) async {
           recordedCalls.add(call);
           switch (call.method) {
-            case 'getWorkspaceSoul':
+            case 'getAgentSoulSetting':
               return <String, Object?>{'content': soulContent};
-            case 'getWorkspaceChatPrompt':
+            case 'getChatPromptSetting':
               return <String, Object?>{'content': chatContent};
-            case 'saveWorkspaceSoul':
+            case 'saveAgentSoulSetting':
               soulContent = (call.arguments as Map)['content'].toString();
               return <String, Object?>{'content': soulContent};
-            case 'saveWorkspaceChatPrompt':
+            case 'saveChatPromptSetting':
               chatContent = (call.arguments as Map)['content'].toString();
               return <String, Object?>{'content': chatContent};
             case 'getWorkspaceLongMemory':
@@ -100,7 +98,7 @@ void main() {
         .setMockMethodCallHandler(channel, null);
   });
 
-  testWidgets('loads, saves, and refreshes CHAT.md content', (tester) async {
+  testWidgets('loads and saves chat prompt setting', (tester) async {
     await tester.pumpWidget(buildTestApp(const WorkspaceMemorySettingPage()));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 50));
@@ -108,7 +106,7 @@ void main() {
     expect(find.text('Workspace 记忆'), findsOneWidget);
     await tester.drag(find.byType(ListView), const Offset(0, -520));
     await tester.pump();
-    final chatTitleFinder = find.text('CHAT.md（纯聊天系统提示词）');
+    final chatTitleFinder = find.text('纯聊天系统提示词');
     await tester.ensureVisible(chatTitleFinder);
     await tester.pump();
     expect(chatTitleFinder, findsOneWidget);
@@ -139,24 +137,8 @@ void main() {
     expect(chatContent, '# CHAT\nsaved from test\n');
     expect(readChatField().controller!.text, '# CHAT\nsaved from test\n');
     expect(
-      recordedCalls.where((call) => call.method == 'saveWorkspaceChatPrompt'),
+      recordedCalls.where((call) => call.method == 'saveChatPromptSetting'),
       hasLength(1),
-    );
-
-    chatContent = '# CHAT\nrefreshed from file\n';
-    AssistsMessageService.dispatchAgentAiConfigChanged(
-      const AgentAiConfigChangedEvent(
-        source: 'file',
-        path: '/workspace/.omnibot/agent/CHAT.md',
-      ),
-    );
-    await tester.pump();
-    await tester.pump(const Duration(milliseconds: 50));
-
-    expect(readChatField().controller!.text, '# CHAT\nrefreshed from file\n');
-    expect(
-      recordedCalls.where((call) => call.method == 'getWorkspaceChatPrompt'),
-      hasLength(greaterThanOrEqualTo(2)),
     );
   });
 }

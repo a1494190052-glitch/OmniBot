@@ -148,14 +148,11 @@ class StorageUsageChannel {
         val cacheExternalDir: File?,
         val sharedDraftsDir: File,
         val mcpInboxDir: File,
-        val localModelsRoots: List<File>,
-        val localModelsMmapDir: File,
-        val localModelsTempsDir: File,
-        val localModelsBuiltinTempsDir: File,
         val terminalLocalRoot: File,
         val terminalProotFile: File,
         val terminalLibFile: File,
         val terminalAlpineArchive: File,
+        val terminalUbuntuArchive: File,
         val appBinaryFiles: List<File>,
         val databaseFiles: List<File>,
     )
@@ -256,16 +253,17 @@ class StorageUsageChannel {
         val workspaceAttachmentsBytes = sumUniquePaths(listOf(File(paths.workspaceInternalRoot, "attachments")))
         val workspaceSharedBytes = sumUniquePaths(listOf(File(paths.workspaceInternalRoot, "shared")))
         val workspaceMemoryBytes = sumUniquePaths(listOf(File(paths.workspaceInternalRoot, "memory")))
+        val workspaceVoiceAudioBytes = sumUniquePaths(listOf(File(paths.workspaceInternalRoot, "audio")))
         val workspaceUserFilesBytes = sumWorkspaceUserFiles(paths.workspaceRoot)
-
-        val localModelsFilesBytes = sumUniquePaths(paths.localModelsRoots)
-        val localModelsCacheBytes = sumUniquePaths(
-            listOf(paths.localModelsMmapDir, paths.localModelsTempsDir, paths.localModelsBuiltinTempsDir)
-        )
 
         val terminalLocalBytes = sumUniquePaths(listOf(paths.terminalLocalRoot))
         val terminalBootstrapBytes = sumUniquePaths(
-            listOf(paths.terminalProotFile, paths.terminalLibFile, paths.terminalAlpineArchive)
+            listOf(
+                paths.terminalProotFile,
+                paths.terminalLibFile,
+                paths.terminalAlpineArchive,
+                paths.terminalUbuntuArchive,
+            )
         )
 
         val sharedDraftsBytes = sumUniquePaths(listOf(paths.sharedDraftsDir))
@@ -369,6 +367,16 @@ class StorageUsageChannel {
                 order = 9,
             ),
             CategoryEntry(
+                id = "workspace_voice_audio",
+                name = "语音合成音频",
+                description = "内置/自定义 TTS 生成的 wav 语音缓存（workspace/.omnibot/audio）",
+                bytes = workspaceVoiceAudioBytes,
+                cleanable = true,
+                riskLevel = "safe",
+                cleanupHint = "会删除已合成的语音文件，下次播放时会重新生成",
+                order = 18,
+            ),
+            CategoryEntry(
                 id = "workspace_user_files",
                 name = "Workspace 用户文件",
                 description = "用户主动保存到 workspace 的文件",
@@ -378,29 +386,9 @@ class StorageUsageChannel {
                 order = 10,
             ),
             CategoryEntry(
-                id = "local_models_files",
-                name = "本地模型文件",
-                description = ".mnnmodels 与 workspace/.omnibot/models 下的模型文件",
-                bytes = localModelsFilesBytes,
-                cleanable = true,
-                riskLevel = "dangerous",
-                cleanupHint = "会删除模型文件，后续需重新下载",
-                order = 11,
-            ),
-            CategoryEntry(
-                id = "local_models_cache",
-                name = "模型推理缓存",
-                description = "mmap 与本地推理临时目录",
-                bytes = localModelsCacheBytes,
-                cleanable = true,
-                riskLevel = "caution",
-                cleanupHint = "清理后会在推理时重新生成",
-                order = 12,
-            ),
-            CategoryEntry(
                 id = "terminal_runtime_local",
                 name = "终端运行时（local）",
-                description = "Alpine 终端 local 运行目录",
+                description = "Alpine/Ubuntu 终端 local 运行目录",
                 bytes = terminalLocalBytes,
                 cleanable = true,
                 riskLevel = "dangerous",
@@ -410,7 +398,7 @@ class StorageUsageChannel {
             CategoryEntry(
                 id = "terminal_runtime_bootstrap",
                 name = "终端运行时（引导文件）",
-                description = "proot/lib/alpine 引导文件",
+                description = "proot/lib/rootfs 引导文件",
                 bytes = terminalBootstrapBytes,
                 cleanable = true,
                 riskLevel = "dangerous",
@@ -678,9 +666,9 @@ class StorageUsageChannel {
                     StrategyAction("cache"),
                     StrategyAction("workspace_browser"),
                     StrategyAction("workspace_offloads"),
+                    StrategyAction("workspace_voice_audio"),
                     StrategyAction("shared_drafts"),
                     StrategyAction("mcp_inbox"),
-                    StrategyAction("local_models_cache", required = false),
                 ),
             ),
             CleanupStrategyPreset(
@@ -693,12 +681,12 @@ class StorageUsageChannel {
                     StrategyAction("cache"),
                     StrategyAction("workspace_browser"),
                     StrategyAction("workspace_offloads"),
+                    StrategyAction("workspace_voice_audio"),
                     StrategyAction("workspace_attachments"),
                     StrategyAction("workspace_shared"),
                     StrategyAction("shared_drafts"),
                     StrategyAction("mcp_inbox"),
                     StrategyAction("legacy_workspace", required = false),
-                    StrategyAction("local_models_cache", required = false),
                 ),
             ),
             CleanupStrategyPreset(
@@ -711,10 +699,8 @@ class StorageUsageChannel {
                     StrategyAction("cache"),
                     StrategyAction("workspace_browser"),
                     StrategyAction("workspace_offloads"),
-                    StrategyAction("local_models_cache"),
                     StrategyAction("terminal_runtime_local", required = false),
                     StrategyAction("terminal_runtime_bootstrap", required = false),
-                    StrategyAction("local_models_files", required = false),
                 ),
             ),
         )
@@ -737,6 +723,7 @@ class StorageUsageChannel {
             "workspace_offloads" -> clearWorkspaceInternalSubDir(context, "offloads", cutoffMillis)
             "workspace_attachments" -> clearWorkspaceInternalSubDir(context, "attachments", cutoffMillis)
             "workspace_shared" -> clearWorkspaceInternalSubDir(context, "shared", cutoffMillis)
+            "workspace_voice_audio" -> clearWorkspaceInternalSubDir(context, "audio", cutoffMillis)
 
             "shared_drafts" -> {
                 val directory = File(context.filesDir, "shared_open_drafts")
@@ -758,21 +745,11 @@ class StorageUsageChannel {
                 clearDirectoryContents(File(context.filesDir, "proot")),
                 clearDirectoryContents(File(context.filesDir, "libtalloc.so.2")),
                 clearDirectoryContents(File(context.filesDir, "alpine.tar.gz")),
+                clearDirectoryContents(File(context.filesDir, "ubuntu.tar.gz")),
             )
             "terminal_runtime" -> mergeOutcomes(
                 clearCategoryInternal(context, "terminal_runtime_local", olderThanDays),
                 clearCategoryInternal(context, "terminal_runtime_bootstrap", olderThanDays),
-            )
-
-            "local_models_files" -> clearUniqueDirectories(resolveLocalModelRoots(context))
-            "local_models_cache" -> mergeOutcomes(
-                clearDirectoryContents(File(context.filesDir, "tmps")),
-                clearDirectoryContents(File(context.filesDir, "local_temps")),
-                clearDirectoryContents(File(context.filesDir, "builtin_temps")),
-            )
-            "local_models" -> mergeOutcomes(
-                clearCategoryInternal(context, "local_models_files", olderThanDays),
-                clearCategoryInternal(context, "local_models_cache", olderThanDays),
             )
 
             "conversation_history" -> clearConversationHistory()
@@ -837,16 +814,11 @@ class StorageUsageChannel {
                 zh = "如历史未释放，请重新进入页面执行“重新分析”",
                 en = "If history size does not drop, open this page again and run Analyze again.",
             )
-            "local_models_files", "local_models" -> text(
-                context,
-                zh = "模型被清理后，可在“本地模型服务”页面重新下载",
-                en = "After cleanup, model files can be downloaded again in Local Models.",
-            )
             "terminal_runtime_local", "terminal_runtime_bootstrap", "terminal_runtime" ->
                 text(
                     context,
-                    zh = "终端运行时被清理后，可在 Alpine 环境页重新初始化",
-                    en = "After cleanup, terminal runtime can be re-initialized in Alpine Environment.",
+                    zh = "终端运行时被清理后，可在终端环境页重新初始化",
+                    en = "After cleanup, terminal runtime can be re-initialized in Terminal Environment.",
                 )
             else -> text(
                 context,
@@ -946,28 +918,23 @@ class StorageUsageChannel {
                 name = "Workspace memory data",
                 description = "Long/short-term memory and index data.",
             )
+            "workspace_voice_audio" -> entry.copy(
+                name = "Voice audio cache",
+                description = "TTS-generated wav files (workspace/.omnibot/audio).",
+                cleanupHint = "Deletes synthesized voice files; regenerated on next playback.",
+            )
             "workspace_user_files" -> entry.copy(
                 name = "Workspace user files",
                 description = "Files explicitly saved by user into workspace.",
             )
-            "local_models_files" -> entry.copy(
-                name = "Local model files",
-                description = "Model files under .mnnmodels and workspace/.omnibot/models.",
-                cleanupHint = "Deletes model files; they need to be downloaded again later.",
-            )
-            "local_models_cache" -> entry.copy(
-                name = "Model inference cache",
-                description = "mmap and local inference temp directories.",
-                cleanupHint = "Will be regenerated during inference.",
-            )
             "terminal_runtime_local" -> entry.copy(
                 name = "Terminal runtime (local)",
-                description = "Alpine terminal local runtime directory.",
+                description = "Alpine/Ubuntu terminal local runtime directory.",
                 cleanupHint = "Deletes terminal local directory and requires re-initialization.",
             )
             "terminal_runtime_bootstrap" -> entry.copy(
                 name = "Terminal runtime (bootstrap)",
-                description = "proot/lib/alpine bootstrap files.",
+                description = "proot/lib/rootfs bootstrap files.",
                 cleanupHint = "Deletes terminal bootstrap files and requires re-initialization.",
             )
             "shared_drafts" -> entry.copy(
@@ -1163,23 +1130,13 @@ class StorageUsageChannel {
             cacheExternalDir = context.externalCacheDir,
             sharedDraftsDir = File(context.filesDir, "shared_open_drafts"),
             mcpInboxDir = File(context.filesDir, "mcp_inbox"),
-            localModelsRoots = resolveLocalModelRoots(context),
-            localModelsMmapDir = File(context.filesDir, "tmps"),
-            localModelsTempsDir = File(context.filesDir, "local_temps"),
-            localModelsBuiltinTempsDir = File(context.filesDir, "builtin_temps"),
             terminalLocalRoot = File(dataDir, "local"),
             terminalProotFile = File(context.filesDir, "proot"),
             terminalLibFile = File(context.filesDir, "libtalloc.so.2"),
             terminalAlpineArchive = File(context.filesDir, "alpine.tar.gz"),
+            terminalUbuntuArchive = File(context.filesDir, "ubuntu.tar.gz"),
             appBinaryFiles = appBinaryFiles,
             databaseFiles = databaseFiles,
-        )
-    }
-
-    private fun resolveLocalModelRoots(context: Context): List<File> {
-        return listOf(
-            File(context.filesDir, ".mnnmodels"),
-            AgentWorkspaceManager.modelsDirectory(context),
         )
     }
 

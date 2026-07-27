@@ -411,7 +411,7 @@ object TaskRuntimeSettings {
                 "Task completion reminders",
                 NotificationManager.IMPORTANCE_HIGH
             ).apply {
-                description = "Reminders after Agent, Codex, and chat tasks finish"
+                description = "Reminders after OmniAi, Agent, and chat tasks finish"
                 enableLights(true)
                 enableVibration(true)
                 vibrationPattern = longArrayOf(0, 250, 120, 250)

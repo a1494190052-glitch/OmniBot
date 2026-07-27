@@ -214,7 +214,7 @@ class _TermuxGuideBottomSheetState extends State<TermuxGuideBottomSheet>
           ),
           const SizedBox(height: 12),
           const Text(
-            '开启后，小万会直接在应用内的 Alpine（proot）环境执行终端命令，不需要再单独安装 Termux；/workspace 会映射到 Omnibot 应用内部工作区。',
+            '开启后，小万会直接在应用内所选的 Alpine 或 Ubuntu（proot）环境执行终端命令，不需要再单独安装 Termux；/workspace 会映射到 Omnibot 应用内部工作区。',
             style: TextStyle(
               color: AppColors.text,
               fontSize: 14,
@@ -224,7 +224,7 @@ class _TermuxGuideBottomSheetState extends State<TermuxGuideBottomSheet>
           ),
           const SizedBox(height: 6),
           Text(
-            '这是一个可选增强能力，不影响基础无障碍自动化。',
+            '这是一个可选增强能力，不影响基础 Agent 功能。',
             style: TextStyle(
               color: AppColors.text.withValues(alpha: 0.65),
               fontSize: 12,
@@ -250,14 +250,14 @@ class _TermuxGuideBottomSheetState extends State<TermuxGuideBottomSheet>
           index: '2',
           title: '首次会自动初始化',
           description:
-              '首次使用时，应用会在后台解压 Alpine rootfs，并按需准备 git、python、node 等基础 CLI 依赖。',
+              '首次使用时，应用会在后台解压所选的 Alpine 或 Ubuntu rootfs，并按需准备 git、python、node 等基础 CLI 依赖。',
         ),
         SizedBox(height: 12),
         _GuideItem(
           index: '3',
           title: '工作区仍叫 /workspace',
           description:
-              'Alpine 内依然使用 /workspace 这套路径语义，但底层已经切到 Omnibot 应用内部目录，更适合运行 uv、venv 和其它开发工具。',
+              '所选终端系统内依然使用 /workspace 这套路径语义，但底层已经切到 Omnibot 应用内部目录，更适合运行 uv、venv 和其它开发工具。',
         ),
         SizedBox(height: 12),
         _GuideItem(

@@ -8,6 +8,7 @@ import android.media.AudioTrack
 import android.media.MediaPlayer
 import android.os.Handler
 import android.os.Looper
+import cn.com.omnimind.bot.agent.AgentWorkspaceManager
 import cn.com.omnimind.baselib.http.OkHttpManager
 import cn.com.omnimind.baselib.llm.ChatCompletionRequest
 import cn.com.omnimind.baselib.llm.ModelProviderConfigStore
@@ -41,11 +42,14 @@ import java.util.Base64
 private data class VoicePlaybackQueueItem(
     val messageId: String,
     val text: String,
-    val binding: SceneVoiceResolvedBinding,
+    val binding: SceneVoiceResolvedBinding?,
     val config: SceneVoiceConfig,
     val cacheKey: String,
-    val preferStreaming: Boolean
-)
+    val preferStreaming: Boolean,
+    val customCurlCommand: String? = null
+) {
+    val isCustomCurl: Boolean get() = customCurlCommand != null
+}
 
 private data class VoiceCacheEntry(
     val key: String,
@@ -223,8 +227,36 @@ class SceneVoicePlaybackManager(
         if (normalizedText.isEmpty()) {
             throw IllegalArgumentException("text is empty")
         }
-        val binding = resolveVoiceBinding()
         val config = SceneVoiceConfigStore.getConfig()
+        if (config.ttsMode == SceneVoiceConfigStore.TTS_MODE_CUSTOM_CURL) {
+            val curl = config.customCurlCommand.trim()
+            if (curl.isEmpty()) {
+                throw IllegalStateException("未配置自定义 TTS curl 命令")
+            }
+            if (!curl.contains(SceneVoiceConfigStore.TEXT_PLACEHOLDER)) {
+                throw IllegalStateException(
+                    "curl 命令缺少 ${SceneVoiceConfigStore.TEXT_PLACEHOLDER} 占位符"
+                )
+            }
+            val cacheKey = SceneVoiceTtsProtocol.buildCacheKey(
+                messageId = normalizedMessageId,
+                text = normalizedText,
+                providerProfileId = "custom_curl",
+                modelId = "custom_curl",
+                voiceId = "",
+                stylePayload = curl
+            )
+            return VoicePlaybackQueueItem(
+                messageId = normalizedMessageId,
+                text = normalizedText,
+                binding = null,
+                config = config,
+                cacheKey = cacheKey,
+                preferStreaming = false,
+                customCurlCommand = curl
+            )
+        }
+        val binding = resolveVoiceBinding()
         val stylePayload = SceneVoiceTtsProtocol.composeStylePayload(config)
         val cacheKey = SceneVoiceTtsProtocol.buildCacheKey(
             messageId = normalizedMessageId,
@@ -307,6 +339,18 @@ class SceneVoicePlaybackManager(
         }
 
         emitState(item.messageId, "synthesizing")
+        if (item.isCustomCurl) {
+            val custom = synthesizeCustomCurl(item)
+                ?: throw IllegalStateException("自定义 TTS 合成失败")
+            synchronized(lock) {
+                cache[item.cacheKey] = custom
+                replayableKeysByMessageId
+                    .getOrPut(item.messageId) { linkedSetOf() }
+                    .add(item.cacheKey)
+            }
+            playCachedEntry(item, custom)
+            return
+        }
         if (item.preferStreaming) {
             val streamed = synthesizeStreaming(item)
             if (streamed != null) {
@@ -333,8 +377,9 @@ class SceneVoicePlaybackManager(
     }
 
     private suspend fun synthesizeStreaming(item: VoicePlaybackQueueItem): VoiceCacheEntry? {
+        val binding = item.binding ?: return null
         val request = buildRequest(
-            binding = item.binding,
+            binding = binding,
             request = SceneVoiceTtsProtocol.buildChatCompletionRequest(
                 text = item.text,
                 modelId = item.binding.modelId,
@@ -421,8 +466,9 @@ class SceneVoicePlaybackManager(
     }
 
     private suspend fun synthesizeNonStreaming(item: VoicePlaybackQueueItem): VoiceCacheEntry? {
+        val binding = item.binding ?: return null
         val request = buildRequest(
-            binding = item.binding,
+            binding = binding,
             request = SceneVoiceTtsProtocol.buildChatCompletionRequest(
                 text = item.text,
                 modelId = item.binding.modelId,
@@ -448,6 +494,72 @@ class SceneVoicePlaybackManager(
             format = parsed.format ?: FALLBACK_WAV_FORMAT,
             wavFile = file
         )
+    }
+
+    private suspend fun synthesizeCustomCurl(item: VoicePlaybackQueueItem): VoiceCacheEntry? {
+        val command = item.customCurlCommand ?: return null
+        val substituted = CustomTtsCurlCommand.substituteText(command, item.text)
+        val parsed = CustomTtsCurlCommand.parse(substituted)
+
+        val requestBuilder = Request.Builder().url(parsed.url)
+        var contentType: String? = null
+        parsed.headers.forEach { (name, value) ->
+            if (name.equals("Content-Type", ignoreCase = true)) {
+                contentType = value
+            }
+            requestBuilder.addHeader(name, value)
+        }
+        val body = parsed.body
+        if (body != null) {
+            val mediaType = (contentType ?: "application/json; charset=utf-8").toMediaType()
+            requestBuilder.method(parsed.method, body.toRequestBody(mediaType))
+        } else {
+            requestBuilder.method(parsed.method, null)
+        }
+
+        val response = OkHttpManager.enqueue(requestBuilder.build())
+        val bytes = response.body?.bytes()
+        if (currentStopRequested) {
+            return null
+        }
+        if (bytes == null || bytes.isEmpty()) {
+            throw IllegalStateException("自定义 TTS 未返回音频数据")
+        }
+        if (!looksLikeWav(bytes)) {
+            val preview = runCatching { String(bytes, Charsets.UTF_8) }.getOrNull()
+                ?.trim()
+                ?.take(200)
+                .orEmpty()
+            throw IllegalStateException(
+                if (preview.isEmpty()) {
+                    "自定义 TTS 返回的不是 wav 音频"
+                } else {
+                    "自定义 TTS 返回异常：$preview"
+                }
+            )
+        }
+        val file = audioFileFor(item.cacheKey)
+        file.parentFile?.mkdirs()
+        file.writeBytes(bytes)
+        return VoiceCacheEntry(
+            key = item.cacheKey,
+            format = FALLBACK_WAV_FORMAT,
+            wavFile = file
+        )
+    }
+
+    private fun looksLikeWav(bytes: ByteArray): Boolean {
+        if (bytes.size < 12) {
+            return false
+        }
+        return bytes[0] == 'R'.code.toByte() &&
+            bytes[1] == 'I'.code.toByte() &&
+            bytes[2] == 'F'.code.toByte() &&
+            bytes[3] == 'F'.code.toByte() &&
+            bytes[8] == 'W'.code.toByte() &&
+            bytes[9] == 'A'.code.toByte() &&
+            bytes[10] == 'V'.code.toByte() &&
+            bytes[11] == 'E'.code.toByte()
     }
 
     private suspend fun playCachedEntry(item: VoicePlaybackQueueItem, entry: VoiceCacheEntry) {
@@ -568,11 +680,15 @@ class SceneVoicePlaybackManager(
     }
 
     private fun cacheFileFor(cacheKey: String, format: String): File {
-        val extension = when (format.lowercase()) {
-            STREAM_PCM_FORMAT -> "pcm"
-            else -> "wav"
+        return if (format.lowercase() == STREAM_PCM_FORMAT) {
+            File(File(appContext.cacheDir, "scene_voice"), "$cacheKey.pcm")
+        } else {
+            audioFileFor(cacheKey)
         }
-        return File(File(appContext.cacheDir, "scene_voice"), "$cacheKey.$extension")
+    }
+
+    private fun audioFileFor(cacheKey: String): File {
+        return File(AgentWorkspaceManager.audioDirectory(appContext), "$cacheKey.wav")
     }
 
     private fun hasReplayableCache(messageId: String): Boolean {

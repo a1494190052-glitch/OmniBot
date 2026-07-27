@@ -26,12 +26,12 @@ enum class ImageQuality(
     ORIGINAL(1.0f, 100, Long.MAX_VALUE),
 
     /**
-     * 高质量 - 适合精细操作（如复杂 UI 点击）
+     * 高质量 - 适合需要保留更多图像细节的附件
      */
     HIGH(0.75f, 100, ImageCompressor.RESIZE_BYPASS_PIXEL_THRESHOLD),
 
     /**
-     * 中等质量 - 默认 VLM 操作（点击/滑动/输入）
+     * 中等质量 - 默认图片附件
      */
     MEDIUM(0.5f, 100, ImageCompressor.RESIZE_BYPASS_PIXEL_THRESHOLD),
 
@@ -54,9 +54,9 @@ enum class ImageQuality(
 }
 
 /**
- * 图片压缩工具类 - 用于 VLM 截图压缩
+ * 图片附件压缩工具。
  *
- * 提供 Base64 图片的解码、缩放、压缩功能，主要用于减小传输给大模型的图片体积。
+ * 提供 Base64 图片的解码、缩放、压缩功能，主要用于减小发送给模型的图片体积。
  * 包含智能跳过机制（像素过少不压缩）和详细的尺寸元数据返回。
  */
 object ImageCompressor {
@@ -86,14 +86,7 @@ object ImageCompressor {
         val originalHeight: Int,
         val scaledWidth: Int,
         val scaledHeight: Int
-    ) {
-        /**
-         * 将基于缩放图片的坐标还原到原始分辨率
-         */
-        fun scaleCoordinatesToOriginal(coords: Pair<Float, Float>): Pair<Float, Float> {
-            return ImageCompressor.scaleCoordinatesToOriginal(coords, appliedScale)
-        }
-    }
+    )
 
     /**
      * 压缩结果数据类（用于生成 Base64）
@@ -111,32 +104,7 @@ object ImageCompressor {
         val originalHeight: Int,
         val compressedWidth: Int,
         val compressedHeight: Int
-    ) {
-        /**
-         * 将基于压缩图片的坐标缩放到原始分辨率
-         */
-        fun scaleCoordinatesToOriginal(coords: Pair<Float, Float>): Pair<Float, Float> {
-            return ImageCompressor.scaleCoordinatesToOriginal(coords, appliedScale)
-        }
-    }
-
-    /**
-     * 将基于压缩图片的坐标缩放到原始分辨率（静态方法）
-     * 
-     * VLM 返回的坐标是基于压缩后图片的，需要放大到原始分辨率才能正确点击
-     * 
-     * @param coords 基于压缩图片的坐标
-     * @param appliedScale 应用的缩放比例
-     * @return 放大到原始分辨率的坐标
-     */
-    @JvmStatic
-    fun scaleCoordinatesToOriginal(coords: Pair<Float, Float>, appliedScale: Float): Pair<Float, Float> {
-        // 如果没有压缩（appliedScale >= 1.0），直接返回原坐标
-        if (appliedScale >= 1.0f) {
-            return coords
-        }
-        return Pair(coords.first / appliedScale, coords.second / appliedScale)
-    }
+    )
 
     // ==================== 仅缩放 Bitmap（不生成 Base64）====================
 

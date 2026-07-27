@@ -4,7 +4,6 @@ import 'package:flutter/services.dart';
 class TokenUsageRecord {
   final int id;
   final int conversationId;
-  final bool isLocal;
   final String model;
   final int promptTokens;
   final int completionTokens;
@@ -16,7 +15,6 @@ class TokenUsageRecord {
   TokenUsageRecord({
     required this.id,
     required this.conversationId,
-    required this.isLocal,
     required this.model,
     required this.promptTokens,
     required this.completionTokens,
@@ -40,7 +38,6 @@ class TokenUsageRecord {
     return TokenUsageRecord(
       id: (json['id'] as num?)?.toInt() ?? 0,
       conversationId: (json['conversationId'] as num?)?.toInt() ?? 0,
-      isLocal: json['isLocal'] as bool? ?? false,
       model: json['model'] as String? ?? '',
       promptTokens: (json['promptTokens'] as num?)?.toInt() ?? 0,
       completionTokens: (json['completionTokens'] as num?)?.toInt() ?? 0,

@@ -15,6 +15,7 @@ class OmniGlassPanel extends StatelessWidget {
     this.forceDark = false,
     this.omitTopBorder = false,
     this.showTopHighlight = true,
+    this.surfaceColor,
   });
 
   final Widget child;
@@ -23,6 +24,13 @@ class OmniGlassPanel extends StatelessWidget {
   final double? width;
   final double? height;
   final bool forceDark;
+
+  /// 不透明磨砂底色。传入后面板不再做背后模糊 + 渐变 tint,而是铺一层
+  /// 这个实心色——用于"胶囊"类拼接菜单:触发按钮在 app bar 上、面板在
+  /// 内容上,两者背后不同,半透明玻璃会把这种差异透出来读作"上下不一致";
+  /// 实心底让上下两截合成结果完全相同,接缝也因此不再有渐变断层。
+  /// 默认 null 即保持原来的半透明玻璃(不影响其它调用点)。
+  final Color? surfaceColor;
 
   /// 是否省略**顶边**的 1px 边线（默认 false 即画完整四边）。
   /// 当 popup 紧贴在另一块玻璃下方（如下拉模式列表贴在触发按钮下边）需要拼成
@@ -66,6 +74,51 @@ class OmniGlassPanel extends StatelessWidget {
           )
         : Border.all(color: borderColor);
 
+    // 磨砂模式:实心底 + 去掉渐变 tint(渐变在拼接胶囊里会让接缝两截深浅
+    // 断层),背后模糊也省掉——底既然不透明,模糊看不见还白费 GPU。
+    final bool frosted = surfaceColor != null;
+
+    final Widget decorated = DecoratedBox(
+      decoration: BoxDecoration(
+        borderRadius: borderRadius,
+        border: border,
+        color: frosted ? surfaceColor : null,
+        gradient: frosted
+            ? null
+            : LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [topTint, bottomTint],
+              ),
+      ),
+      child: Stack(
+        children: [
+          if (showTopHighlight)
+            // 顶部高光横向覆盖更广(8 vs 之前 18),让"光面"延伸出去,
+            // 不再只是中段一小截亮线——配合深色模式下基本消失的边框,
+            // 视觉上更接近真实玻璃顶边的反光。
+            Positioned(
+              left: 8,
+              right: 8,
+              top: 0,
+              child: Container(
+                height: 1,
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    colors: [
+                      Colors.transparent,
+                      highlightColor,
+                      Colors.transparent,
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          Padding(padding: padding, child: child),
+        ],
+      ),
+    );
+
     return Container(
       width: width,
       height: height,
@@ -86,46 +139,12 @@ class OmniGlassPanel extends StatelessWidget {
       ),
       child: ClipRRect(
         borderRadius: borderRadius,
-        child: BackdropFilter(
-          filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
-          child: DecoratedBox(
-            decoration: BoxDecoration(
-              borderRadius: borderRadius,
-              border: border,
-              gradient: LinearGradient(
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-                colors: [topTint, bottomTint],
+        child: frosted
+            ? decorated
+            : BackdropFilter(
+                filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
+                child: decorated,
               ),
-            ),
-            child: Stack(
-              children: [
-                if (showTopHighlight)
-                  // 顶部高光横向覆盖更广(8 vs 之前 18),让"光面"延伸出去,
-                  // 不再只是中段一小截亮线——配合深色模式下基本消失的边框,
-                  // 视觉上更接近真实玻璃顶边的反光。
-                  Positioned(
-                    left: 8,
-                    right: 8,
-                    top: 0,
-                    child: Container(
-                      height: 1,
-                      decoration: BoxDecoration(
-                        gradient: LinearGradient(
-                          colors: [
-                            Colors.transparent,
-                            highlightColor,
-                            Colors.transparent,
-                          ],
-                        ),
-                      ),
-                    ),
-                  ),
-                Padding(padding: padding, child: child),
-              ],
-            ),
-          ),
-        ),
       ),
     );
   }

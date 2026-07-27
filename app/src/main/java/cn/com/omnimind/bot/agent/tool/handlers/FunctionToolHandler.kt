@@ -13,6 +13,8 @@ import cn.com.omnimind.bot.function.FunctionApi
 import cn.com.omnimind.bot.function.FunctionService
 import kotlinx.coroutines.CancellationException
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.jsonPrimitive
 
 class FunctionToolHandler(
     context: Context,
@@ -30,7 +32,8 @@ class FunctionToolHandler(
     ): ToolExecutionResult {
         val toolName = toolCall.function.name
         return try {
-            val argsMap = AgentToolJson.jsonObjectToMap(args)
+            val toolTitle = args["tool_title"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty()
+            val argsMap = AgentToolJson.jsonObjectToMap(args) - "tool_title"
             val result = service.executeTool(toolName, argsMap)
             val payloadJson = AgentToolJson.mapToJsonElement(result).toString()
             val success = result["success"] != false
@@ -39,6 +42,7 @@ class FunctionToolHandler(
                 result["message"],
                 result["error_message"],
                 result["retrieval_state"],
+                toolTitle,
                 toolName,
             ).map { it?.toString()?.trim().orEmpty() }
                 .firstOrNull { it.isNotEmpty() }

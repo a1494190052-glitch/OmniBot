@@ -50,12 +50,19 @@ class SkillsToolHandler(
                     val compatibility = SkillCompatibilityChecker.evaluate(entry)
                     if (!compatibility.available) return@filter false
                     if (normalizedQuery.isBlank()) true
-                    else listOf(entry.id, entry.name, entry.description, entry.shellSkillFilePath, entry.shellRootPath).any { it.lowercase().contains(normalizedQuery) }
+                    else listOf(
+                        entry.id,
+                        entry.name,
+                        resolveDistributionText(entry.description),
+                        entry.shellSkillFilePath,
+                        entry.shellRootPath
+                    ).any { it.lowercase().contains(normalizedQuery) }
                 }
                 .take(limit)
             val items = entries.map { entry ->
                 mapOf(
-                    "id" to entry.id, "name" to entry.name, "description" to entry.description,
+                    "id" to entry.id, "name" to entry.name,
+                    "description" to resolveDistributionText(entry.description),
                     "enabled" to entry.enabled, "source" to entry.source, "installed" to entry.installed,
                     "rootPath" to entry.shellRootPath, "androidRootPath" to entry.rootPath,
                     "skillFilePath" to entry.shellSkillFilePath, "androidSkillFilePath" to entry.skillFilePath,
@@ -65,7 +72,7 @@ class SkillsToolHandler(
                         if (entry.hasAssets) add("assets")
                         if (entry.hasEvals) add("evals")
                     },
-                    "metadata" to entry.metadata
+                    "metadata" to entry.metadata.mapValues { (_, value) -> resolveDistributionText(value) }
                 )
             }
             val payload = linkedMapOf<String, Any?>(
@@ -102,14 +109,16 @@ class SkillsToolHandler(
             val skillFile = File(entry.skillFilePath)
             val artifact = workspaceManager.buildArtifactForFile(skillFile, toolName)
             val payload = linkedMapOf<String, Any?>(
-                "id" to entry.id, "name" to entry.name, "description" to entry.description,
+                "id" to entry.id, "name" to entry.name,
+                "description" to resolveDistributionText(entry.description),
                 "enabled" to entry.enabled, "source" to entry.source, "installed" to entry.installed,
                 "rootPath" to entry.shellRootPath, "androidRootPath" to entry.rootPath,
                 "skillFilePath" to entry.shellSkillFilePath, "androidSkillFilePath" to entry.skillFilePath,
                 "scriptsDir" to resolved.scriptsDir, "assetsDir" to resolved.assetsDir,
-                "references" to resolved.loadedReferences, "metadata" to resolved.metadata,
-                "frontmatter" to resolved.frontmatter,
-                "bodyMarkdown" to helper.truncateText(resolved.bodyMarkdown, maxChars),
+                "references" to resolved.loadedReferences,
+                "metadata" to resolved.metadata.mapValues { (_, value) -> resolveDistributionText(value) },
+                "frontmatter" to resolved.frontmatter.mapValues { (_, value) -> resolveDistributionText(value) },
+                "bodyMarkdown" to helper.truncateText(resolveDistributionText(resolved.bodyMarkdown), maxChars),
                 "uri" to artifact.uri
             )
             ToolExecutionResult.ContextResult(
@@ -124,5 +133,9 @@ class SkillsToolHandler(
             helper.workspacePermissionResult(e, callback)?.let { return it }
             helper.errorResult(toolName, e.message, "读取 skill 失败")
         }
+    }
+
+    private fun resolveDistributionText(text: String): String {
+        return AgentTerminalDistributionText.resolve(text, helper.terminalDistribution)
     }
 }

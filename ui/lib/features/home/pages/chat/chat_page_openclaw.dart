@@ -69,6 +69,23 @@ mixin _ChatPageOpenClawMixin on _ChatPageStateBase {
 
   @override
   void _handleSlashCommandInput() {
+    if (_editingUserMessageId != null) {
+      if (!mounted ||
+          (!_showSlashCommandPanel &&
+              !_showModelMentionPanel &&
+              !_openClawPanelExpanded &&
+              !_isSlashCommandExpanded)) {
+        return;
+      }
+      setState(() {
+        _showSlashCommandPanel = false;
+        _showModelMentionPanel = false;
+        _activeModelMentionToken = null;
+        _openClawPanelExpanded = false;
+        _slashCommandExpandedByMode[_activeMode] = false;
+      });
+      return;
+    }
     final value = _messageController.value;
     final shouldShowSlash = value.text.trimLeft().startsWith('/');
     final nextMentionToken = shouldShowSlash
@@ -156,11 +173,22 @@ mixin _ChatPageOpenClawMixin on _ChatPageStateBase {
         _isPointerInside(_openClawPanelKey, position) ||
         _isPointerInside(_slashCommandStripKey, position) ||
         insideToolActivityStrip;
+    final insideHomeDrawerSearch = _isPointerInside(
+      _drawerSearchFieldKey,
+      position,
+    );
     if (!insideInputArea &&
         !insideInputAuxiliarySurface &&
+        !insideHomeDrawerSearch &&
         _inputFocusNode.hasFocus) {
       await SchedulerBinding.instance.endOfFrame;
-      if (!_suppressNextOutsideTapKeyboardHide) {
+      if (!mounted) {
+        return;
+      }
+      // The pointer target may have transferred focus to another TextField
+      // during this frame (notably HomeDrawer search). Do not race that
+      // field's TextInput.show with a stale global TextInput.hide.
+      if (_inputFocusNode.hasFocus && !_suppressNextOutsideTapKeyboardHide) {
         await SystemChannels.textInput.invokeMethod<void>('TextInput.hide');
       }
       _suppressNextOutsideTapKeyboardHide = false;
@@ -221,11 +249,14 @@ mixin _ChatPageOpenClawMixin on _ChatPageStateBase {
   }
 
   @override
-  Future<bool> _tryHandleSlashCommand(String messageText) async {
+  Future<bool> _tryHandleSlashCommand(
+    String messageText, {
+    List<Map<String, dynamic>> attachments = const [],
+  }) async {
     final trimmed = messageText.trim();
     if (!trimmed.startsWith('/')) return false;
-    if (_activeMode == ChatPageMode.codex) {
-      return _tryHandleCodexSlashCommand(trimmed);
+    if (_activeMode == ChatPageMode.agent) {
+      return _tryHandleAgentSlashCommand(trimmed, attachments: attachments);
     }
 
     if (trimmed == '/compact' || trimmed.startsWith('/compact ')) {

@@ -9,6 +9,11 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.boolean
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import okhttp3.Protocol
 import okhttp3.Request
 import okhttp3.Response
@@ -166,6 +171,7 @@ class HttpAgentLlmClientTest {
 
             assertEquals("需要先查工具", turn.reasoning)
             assertEquals("需要先查工具", turn.message.reasoningContent)
+            assertEquals("deepseek-v4-flash", turn.resolvedModel)
         } finally {
             scope.cancel()
         }
@@ -319,6 +325,109 @@ class HttpAgentLlmClientTest {
 
             assertEquals("selected-vlm-model", routedExplicitModel)
             assertEquals("selected-vlm-model", streamedExplicitModel)
+        } finally {
+            scope.cancel()
+        }
+    }
+
+    @Test
+    fun `disabled thinking variant never sends none reasoning effort`() = runBlocking {
+        val scope = CoroutineScope(Job() + Dispatchers.Default)
+        var requestBody = ""
+        try {
+            val client = HttpAgentLlmClient(
+                scope = scope,
+                modelOverride = testOverride(),
+                resolveRouteInfoOp = { model, _, _, _, _, protocolType, _ ->
+                    routeInfo(
+                        requestedModel = model,
+                        resolvedModel = "moonshotai/kimi-k2.6",
+                        protocolType = protocolType ?: "openai_compatible",
+                        requiresReasoningEcho = false,
+                        apiBase = "https://integrate.api.nvidia.com/v1",
+                    )
+                },
+                streamRequestOp = { _, body, listener, _, _, _, _, _, _, _ ->
+                    requestBody = body
+                    val source = dummyEventSource()
+                    listener.onOpen(source, okResponse())
+                    listener.onEvent(
+                        source,
+                        null,
+                        "message",
+                        """{"choices":[{"delta":{"content":"ok"},"finish_reason":"stop"}]}"""
+                    )
+                    listener.onEvent(source, null, "message", "[DONE]")
+                    source
+                },
+                json = json,
+            )
+
+            client.streamTurn(
+                request = simpleRequest().copy(
+                    model = "kimi-k2.6",
+                    reasoningEffort = "none",
+                )
+            )
+
+            val root = json.parseToJsonElement(requestBody).jsonObject
+            assertNull(root["reasoning_effort"])
+            assertEquals(false, root["enable_thinking"]?.jsonPrimitive?.boolean)
+        } finally {
+            scope.cancel()
+        }
+    }
+
+    @Test
+    fun `required native tool calls never downgrade after provider 400`() = runBlocking {
+        val scope = CoroutineScope(Job() + Dispatchers.Default)
+        val requestBodies = mutableListOf<String>()
+        try {
+            val client = HttpAgentLlmClient(
+                scope = scope,
+                modelOverride = testOverride(),
+                streamRequestOp = { _, body, _, _, _, _, _, _, _, _ ->
+                    requestBodies += body
+                    throw AgentStreamRequestException(
+                        statusCode = 400,
+                        reason = "provider rejected request variant",
+                        responseBody = "{}",
+                    )
+                },
+                json = json,
+            )
+
+            val error = runCatching {
+                client.streamTurn(
+                    request = simpleRequest().copy(
+                        streamOptions = cn.com.omnimind.baselib.llm.ChatCompletionStreamOptions(),
+                        tools = listOf(
+                            cn.com.omnimind.baselib.llm.ChatCompletionTool(
+                                function = cn.com.omnimind.baselib.llm.ChatCompletionFunction(
+                                    name = "click",
+                                    parameters = kotlinx.serialization.json.buildJsonObject {
+                                        put("type", JsonPrimitive("object"))
+                                    },
+                                    strict = true,
+                                ),
+                            ),
+                        ),
+                        toolChoice = JsonPrimitive("required"),
+                        parallelToolCalls = false,
+                    ),
+                )
+            }.exceptionOrNull()
+
+            requireNotNull(error)
+            assertEquals(2, requestBodies.size)
+            requestBodies.forEach { body ->
+                val root = json.parseToJsonElement(body).jsonObject
+                assertEquals("required", root["tool_choice"]?.jsonPrimitive?.content)
+                assertEquals(false, root["parallel_tool_calls"]?.jsonPrimitive?.boolean)
+                assertEquals(1, root["tools"]?.jsonArray?.size)
+                assertNull(root["functions"])
+                assertNull(root["function_call"])
+            }
         } finally {
             scope.cancel()
         }

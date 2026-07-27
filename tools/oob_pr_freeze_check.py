@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""Check the OmniFlow/VLM PR freeze line.
+"""Check the OmniFlow/GUI PR freeze line.
 
 This is intentionally a read-only gate. It answers two questions:
 
 1. Did the device acceptance run prove the required end-to-end behavior?
-2. Is the PR diff still confined to the approved VLM/Function/RunLog surface?
+2. Is the PR diff still confined to the approved GUI/Function/RunLog surface?
 """
 
 from __future__ import annotations
@@ -21,13 +21,17 @@ REQUIRED_CHECKS = (
     "manual_recording",
     "convert_register_replay",
     "function_update_enhance",
+    "semantic_parameter_binding",
+    "semantic_parameter_replay",
     "direct_function_run",
     "function_recall",
     "vlm_provider_ready",
     "vlm_recall_function_run",
+    "historical_runlog_archive",
+    "historical_vlm_reselection",
+    "vlm_argument_reselection",
     "function_stop_port",
     "stop_port",
-    "pre_replay_foreground_not_oob",
     "no_no_anchor_match",
     "function_progress_step_detail",
 )
@@ -35,9 +39,10 @@ REQUIRED_CHECKS = (
 
 CORE_PREFIXES = (
     "app/src/main/java/cn/com/omnimind/bot/function/",
+    "app/src/main/java/cn/com/omnimind/bot/gui/",
     "app/src/main/java/cn/com/omnimind/bot/runlog/",
-    "app/src/main/java/cn/com/omnimind/bot/vlm/",
-    "assists/src/main/java/cn/com/omnimind/assists/task/vlmserver/",
+    "androidgui/",
+    "omniflow-android/",
     "baselib/src/main/java/cn/com/omnimind/baselib/runlog/",
     "schemas/oob/",
     "app/src/main/assets/omniflow/",
@@ -54,22 +59,22 @@ FRONTEND_PREFIXES = (
 ADAPTER_EXACT = {
     "accessibility/src/main/java/cn/com/omnimind/accessibility/action/OmniAction.kt",
     "app/build.gradle.kts",
+    "settings.gradle.kts",
     "app/src/main/java/cn/com/omnimind/bot/App.kt",
-    "app/src/main/java/cn/com/omnimind/bot/agent/tool/handlers/VlmToolHandler.kt",
+    "app/src/main/java/cn/com/omnimind/bot/agent/tool/handlers/GuiTaskToolHandler.kt",
+    "app/src/main/java/cn/com/omnimind/bot/omniflow/OmniFlowAppPlatform.kt",
     "app/src/main/java/cn/com/omnimind/bot/manager/AssistsCoreManager.kt",
     "app/src/main/java/cn/com/omnimind/bot/ui/channel/AssistsCoreChannel.kt",
     "app/src/main/java/cn/com/omnimind/bot/ui/channel/ChannelManager.kt",
     "app/src/main/java/cn/com/omnimind/bot/ui/channel/ScreenDialogChannel.kt",
     "app/src/main/java/cn/com/omnimind/bot/util/AssistsUtil.kt",
     "assists/src/main/java/cn/com/omnimind/assists/AssistsCore.kt",
-    "assists/src/main/java/cn/com/omnimind/assists/FunctionUiSession.kt",
     "assists/src/main/java/cn/com/omnimind/assists/HumanTrajectoryLearningSession.kt",
     "assists/src/main/java/cn/com/omnimind/assists/ManualOverlayTouchGesture.kt",
     "assists/src/main/java/cn/com/omnimind/assists/ManualRecordingRunLogRecovery.kt",
     "assists/src/main/java/cn/com/omnimind/assists/TaskManager.kt",
     "assists/src/main/java/cn/com/omnimind/assists/api/bean/TaskParams.kt",
     "assists/src/main/java/cn/com/omnimind/assists/controller/accessibility/AccessibilityController.kt",
-    "assists/src/main/java/cn/com/omnimind/assists/task/scheduled/ScheduledVLMOperationTask.kt",
     "assists/src/main/java/cn/com/omnimind/assists/util/PollUtil.kt",
     "baselib/src/main/java/BaseApplication.kt",
     "baselib/src/main/java/cn/com/omnimind/baselib/llm/OpenAIChatCompletionModels.kt",
@@ -80,7 +85,7 @@ ADAPTER_EXACT = {
     "baselib/src/main/java/cn/com/omnimind/baselib/shizuku/ShizukuCapabilityManager.kt",
     "ui/lib/services/run_log_function_enhancement_job_service.dart",
     "ui/lib/services/screen_dialog_service.dart",
-    # Thin generic running-task stop port used by VLM and Function sessions.
+    # Thin generic running-task stop port used by GUI and Function sessions.
     # Function/RunLog business logic must stay out of UIKit.
     "uikit/src/main/java/cn/com/omnimind/uikit/api/callbackimpl/CatStepLayoutApiImpl.kt",
     "uikit/src/main/java/cn/com/omnimind/uikit/loader/cat/DraggableBallInstance.kt",
@@ -92,6 +97,7 @@ ADAPTER_EXACT = {
 TOOL_EXACT = {
     "tools/oob_pr_acceptance.py",
     "tools/oob_pr_freeze_check.py",
+    "tools/test_oob_pr_acceptance.py",
 }
 
 
@@ -117,6 +123,7 @@ ALLOWED_EXACT = {
     *FRONTEND_ENTRY_EXACT,
     *TOOL_EXACT,
     *DEBUG_EXACT,
+    "app/src/test/java/cn/com/omnimind/bot/omniflow/OmniFlowExecutionOverlayContractTest.kt",
 }
 
 
@@ -150,8 +157,8 @@ ARCHITECTURE_CHECKS = (
         "allowed_prefixes": (),
     },
     {
-        "name": "vlm_tool_handler_is_thin_adapter",
-        "roots": ("app/src/main/java/cn/com/omnimind/bot/agent/tool/handlers/VlmToolHandler.kt",),
+        "name": "gui_task_tool_handler_is_thin_adapter",
+        "roots": ("app/src/main/java/cn/com/omnimind/bot/agent/tool/handlers/GuiTaskToolHandler.kt",),
         "pattern": r"\b(FunctionService|FunctionRun|ActionExecutor)\b",
         "allowed_prefixes": (),
     },

@@ -152,7 +152,6 @@ class SubagentDispatcher(
             val subEnv = DefaultAgentExecutionEnvironment(
                 agentRunId = subagentId,
                 userMessage = spec.instruction,
-                currentPackageName = parentEnv.currentPackageName,
                 runtimeContextRepository = parentEnv.runtimeContextRepository,
                 workspaceDescriptor = parentEnv.workspaceDescriptor,
                 resolvedSkills = emptyList(),
@@ -187,7 +186,11 @@ class SubagentDispatcher(
                     initialMessages = listOf(systemMessage, userMessage),
                     executionEnv = subEnv,
                     conversationId = null,
-                    contextCompactor = null
+                    contextCompactor = null,
+                    maxModelRounds = spec.budgetRounds
+                        ?.coerceIn(1, profile.maxRounds)
+                        ?: profile.maxRounds,
+                    maxCompletionTokens = profile.maxOutputTokens
                 )
             )
             when (result) {

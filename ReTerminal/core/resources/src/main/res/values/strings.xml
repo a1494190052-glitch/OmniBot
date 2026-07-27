@@ -5,6 +5,7 @@
     <string name="use_shizuku_desc">Automatically execute rish command</string>
     <string name="default_working_mode">Default Working mode</string>
     <string name="alpine_desc">Alpine Linux</string>
+    <string name="ubuntu_desc">Ubuntu Linux</string>
     <string name="android_desc">ReTerminal Android shell</string>
     <string name="customizations">Customizations</string>
     <string name="seccomp">SECCOMP</string>
@@ -27,7 +28,7 @@
     <string name="horizontal_statusbar">Horizontal StatusBar</string>
     <string name="horizontal_statusbar_desc">Show statusbar in horizontal mode</string>
     <string name="attention">Attention</string>
-    <string name="toolbar_warning">Turning off the toolbar may prevent the drawer from opening on some devices. If this happens, you\'ll need to clear the app data to fix it.</string>
+    <string name="toolbar_warning">The session drawer can only be opened from the toolbar menu button. Turning off the toolbar will make the drawer unavailable.</string>
     <string name="titlebar">TitleBar</string>
     <string name="titlebar_desc">Show titlebar</string>
     <string name="horizontal_titlebar">Horizontal TitleBar</string>
@@ -74,4 +75,12 @@
     <string name="alpine_package_mirror_applied">Alpine package mirror updated.</string>
     <string name="alpine_package_mirror_pending">Mirror saved. It will be applied after Alpine initializes.</string>
     <string name="alpine_package_mirror_failed">Failed to update mirror: %1$s</string>
+    <string name="ubuntu_package_mirror">Ubuntu Package Mirror</string>
+    <string name="ubuntu_package_mirror_official">Official source</string>
+    <string name="ubuntu_package_mirror_official_desc">ports.ubuntu.com/ubuntu-ports</string>
+    <string name="ubuntu_package_mirror_tsinghua">Tsinghua mirror</string>
+    <string name="ubuntu_package_mirror_tsinghua_desc">mirrors.tuna.tsinghua.edu.cn/ubuntu-ports (default; security updates stay official)</string>
+    <string name="ubuntu_package_mirror_applied">Ubuntu package mirror updated.</string>
+    <string name="ubuntu_package_mirror_pending">Mirror saved. It will be applied after Ubuntu initializes.</string>
+    <string name="ubuntu_package_mirror_failed">Failed to update mirror: %1$s</string>
 </resources>

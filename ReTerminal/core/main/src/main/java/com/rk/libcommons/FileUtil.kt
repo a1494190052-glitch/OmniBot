@@ -3,6 +3,7 @@ package com.rk.libcommons
 import android.content.Context
 import java.io.File
 import com.rk.terminal.BuildConfig
+import com.rk.terminal.runtime.TerminalDistribution
 
 private fun getFilesDir(): File{
     return if (application == null){
@@ -38,6 +39,27 @@ fun alpineHomeDir(): File{
             it.mkdirs()
         }
     }
+}
+
+fun terminalRootfsDir(workingMode: Int): File {
+    val distribution = TerminalDistribution.fromWorkingMode(workingMode)
+    return localDir().child(distribution.rootfsDirectoryName).also {
+        if (!it.exists()) {
+            it.mkdirs()
+        }
+    }
+}
+
+fun terminalHomeDir(workingMode: Int): File {
+    return terminalRootfsDir(workingMode).child("root").also {
+        if (!it.exists()) {
+            it.mkdirs()
+        }
+    }
+}
+
+fun selectedTerminalHomeDir(): File {
+    return terminalHomeDir(TerminalDistribution.selected().workingMode)
 }
 
 fun localBinDir(): File {

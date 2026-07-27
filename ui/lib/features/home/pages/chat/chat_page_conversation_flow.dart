@@ -28,6 +28,7 @@ mixin _ChatPageConversationFlowMixin on _ChatPageStateBase {
     ChatPageMode mode, {
     ConversationModel? conversation,
     List<ChatMessageModel>? messages,
+    bool preserveLiveStreamingState = false,
   }) {
     final conversationId = _currentConversationIdByMode[mode];
     if (conversationId == null) return;
@@ -53,10 +54,6 @@ mixin _ChatPageConversationFlowMixin on _ChatPageStateBase {
       isCheckingExecutableTask:
           runtime?.isCheckingExecutableTask ??
           (_isCheckingExecutableTaskByMode[mode] ?? false),
-      isSubmittingVlmReply:
-          runtime?.isSubmittingVlmReply ??
-          (_isSubmittingVlmReplyByMode[mode] ?? false),
-      vlmInfoQuestion: runtime?.vlmInfoQuestion ?? _vlmInfoQuestionByMode[mode],
       currentAiMessages: Map<String, String>.from(
         runtime?.currentAiMessages ?? _currentAiMessagesByMode[mode]!,
       ),
@@ -94,6 +91,7 @@ mixin _ChatPageConversationFlowMixin on _ChatPageStateBase {
       browserSessionSnapshot:
           runtime?.browserSessionSnapshot ??
           _browserSessionSnapshotByMode[mode],
+      preserveLiveStreamingState: preserveLiveStreamingState,
     );
     _rememberRuntimeUiSnapshot(mode);
   }
@@ -489,17 +487,11 @@ mixin _ChatPageConversationFlowMixin on _ChatPageStateBase {
       return;
     }
 
-    if (_isOmniInferLocalModelSelected &&
-        activeConversationModeValue != ConversationMode.chatOnly) {
-      showToast(
-        LegacyTextLocalizer.localize('本地模型仅支持纯聊天模式，请开启新的纯聊天对话后再使用本地模型'),
-        type: ToastType.warning,
-      );
-      return;
-    }
-
     if (runSlashCommand) {
-      final handledSlash = await _tryHandleSlashCommand(messageText);
+      final handledSlash = await _tryHandleSlashCommand(
+        messageText,
+        attachments: attachments,
+      );
       if (handledSlash) return;
     }
 
@@ -522,8 +514,12 @@ mixin _ChatPageConversationFlowMixin on _ChatPageStateBase {
       return;
     }
 
-    if (_activeConversationMode == ChatPageMode.codex) {
-      await _sendCodexMessage(messageIds.aiMessageId, messageText);
+    if (_activeConversationMode == ChatPageMode.agent) {
+      await _sendAgentMessage(
+        messageIds.aiMessageId,
+        messageText,
+        attachments: attachments,
+      );
       return;
     }
 
@@ -980,8 +976,8 @@ mixin _ChatPageConversationFlowMixin on _ChatPageStateBase {
   @override
   void _onCancelTask() {
     try {
-      if (_activeConversationMode == ChatPageMode.codex) {
-        unawaited(_interruptCodexTurn());
+      if (_activeConversationMode == ChatPageMode.agent) {
+        unawaited(_interruptAgentTurn());
         final taskId =
             _currentDispatchTaskId ?? _activeRuntime?.lastAgentTaskId;
         if (taskId != null) {
@@ -1181,14 +1177,25 @@ mixin _ChatPageConversationFlowMixin on _ChatPageStateBase {
 
     _isAwaitingAuthorizeResult = true;
     try {
-      final result = await GoRouterManager.pushForResult<bool>(
-        '/home/authorize',
-        extra: AuthorizePageArgs(
-          requiredPermissionIds: requiredPermissionIds.isEmpty
-              ? kTaskExecutionRequiredPermissionIds
-              : requiredPermissionIds,
-        ),
-      );
+      final unresolvedPermissionIds = <String>[
+        ...(requiredPermissionIds.isEmpty
+            ? kTaskExecutionRequiredPermissionIds
+            : requiredPermissionIds),
+      ];
+      var result = true;
+      if (unresolvedPermissionIds.remove(kAccessibilityPermissionId)) {
+        result = await showAccessibilityPermissionPrompt(context);
+      }
+      if (result && unresolvedPermissionIds.isNotEmpty) {
+        result =
+            await GoRouterManager.pushForResult<bool>(
+              '/home/authorize',
+              extra: AuthorizePageArgs(
+                requiredPermissionIds: unresolvedPermissionIds,
+              ),
+            ) ??
+            false;
+      }
       if (result == true && mounted) {
         await _retryLatestInstructionAfterAuth();
       }

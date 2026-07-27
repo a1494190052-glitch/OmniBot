@@ -120,7 +120,7 @@ class _TrajectoryPageState extends State<TrajectoryPage>
 
   /// 加载 Suggestion 数据并缓存到 _suggestionMap
   Future<void> _loadSuggestionMap() async {
-    // 开源版仅保留 VLM 回放能力。
+    // 开源版统一通过 Agent GUI 工具重放。
     _suggestionMap = {};
   }
 
@@ -423,9 +423,9 @@ class _TrajectoryPageState extends State<TrajectoryPage>
       return;
     }
 
-    final success = await AssistsMessageService.createVLMOperationTask(
-      goal,
-      packageName: info.packageName,
+    final success = await AssistsMessageService.createAgentTask(
+      taskId: 'gui-${DateTime.now().microsecondsSinceEpoch}',
+      userMessage: goal,
     );
     if (!mounted) return;
     if (success) {

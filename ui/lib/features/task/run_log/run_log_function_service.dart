@@ -549,15 +549,11 @@ class RunLogFunctionService {
   static Future<UtgManualRunResult> runFunction({
     required String functionId,
     Map<String, dynamic> arguments = const {},
-    String? taskId,
   }) async {
     final args = <String, dynamic>{
       'function_id': functionId.trim(),
       'arguments': _jsonSafeMap(arguments),
     };
-    if (taskId != null && taskId.trim().isNotEmpty) {
-      args['frontend_task_id'] = taskId.trim();
-    }
     final result = await AssistsMessageService.assistCore.invokeMethod(
       'runFunction',
       {...args},

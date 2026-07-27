@@ -70,7 +70,10 @@ object OmnibotTerminalEnvironment {
         val normalized = linkedMapOf<String, String>()
         variables.forEach { (rawKey, value) ->
             val key = rawKey.trim()
-            if (key.isEmpty() || !envKeyPattern.matches(key)) {
+            if (
+                key.isEmpty() ||
+                !envKeyPattern.matches(key)
+            ) {
                 return@forEach
             }
             normalized.remove(key)
@@ -169,4 +172,5 @@ object OmnibotTerminalEnvironment {
     private fun quoteForShell(value: String): String {
         return "'" + value.replace("'", "'\"'\"'") + "'"
     }
+
 }

@@ -10,16 +10,6 @@ import kotlinx.serialization.json.JsonObject
  */
 
 /**
- * Agent 上下文信息
- */
-@Serializable
-data class AgentContext(
-    val installedApps: Map<String, String>,  // appName -> packageName
-    val currentPackageName: String?,
-    val currentTime: String
-)
-
-/**
  * Agent 最终响应
  */
 @Serializable
@@ -71,11 +61,6 @@ sealed class ToolExecutionResult {
     open val artifacts: List<ArtifactRef> = emptyList()
     open val workspaceId: String? = null
     open val actions: List<ArtifactAction> = emptyList()
-
-    data class VlmTaskStarted(
-        val taskId: String,
-        val goal: String
-    ) : ToolExecutionResult()
 
     data class ChatMessage(
         val message: String
@@ -230,7 +215,7 @@ interface AgentCallback {
     }
 
     /**
-     * 聊天消息（支持流式增量 + 本地推理吞吐）
+     * 聊天消息（支持流式增量与吞吐统计）
      */
     suspend fun onChatMessage(
         message: String,
@@ -292,12 +277,7 @@ interface AgentCallback {
     }
 
     /**
-     * 执行任务前缺少权限（陪伴模式未开启 或 无障碍权限未授予）
+     * 执行任务前缺少权限。
      */
     suspend fun onPermissionRequired(missing: List<String>)
-
-    /**
-     * 仅供旧版异步 VLM 任务链路使用；阻塞式统一 Agent 工具不应触发该回调。
-     */
-    suspend fun onVlmTaskFinished() = Unit
 }

@@ -1,3 +1,4 @@
+import 'package:dotted_border/dotted_border.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:ui/features/home/pages/command_overlay/widgets/cards/deep_thinking_card.dart';
@@ -5,6 +6,7 @@ import 'package:ui/features/home/pages/chat/chat_page_models.dart';
 import 'package:ui/features/home/pages/chat/widgets/chat_widgets.dart';
 import 'package:ui/l10n/generated/app_localizations.dart';
 import 'package:ui/models/chat_message_model.dart';
+import 'package:ui/widgets/agent_brand_icon.dart';
 import 'package:ui/widgets/agent_avatar.dart';
 import 'package:ui/widgets/streaming_text.dart';
 
@@ -31,41 +33,6 @@ void main() {
 
     expect(animatedPadding.padding, const EdgeInsets.only(bottom: 128));
     expect(find.text('有什么可以帮助你的？'), findsOneWidget);
-  });
-
-  testWidgets('notifies parent when an internal input gains focus', (
-    tester,
-  ) async {
-    final controller = ScrollController();
-    final editController = TextEditingController(text: 'Hello');
-    final focusStates = <bool>[];
-    addTearDown(controller.dispose);
-    addTearDown(editController.dispose);
-
-    await tester.pumpWidget(
-      _buildLocalizedApp(
-        child: SizedBox(
-          width: 400,
-          height: 320,
-          child: ChatMessageList(
-            messages: [ChatMessageModel.userMessage('Hello', id: 'user-1')],
-            scrollController: controller,
-            editingUserMessageId: 'user-1',
-            userMessageEditController: editController,
-            onUserMessageEditCancelled: () {},
-            onUserMessageEditSaved: (_) {},
-            onInternalInputFocusChanged: focusStates.add,
-            onBeforeTaskExecute: () async {},
-          ),
-        ),
-      ),
-    );
-    await tester.pumpAndSettle();
-
-    await tester.tap(find.byType(TextField));
-    await tester.pump();
-
-    expect(focusStates, contains(true));
   });
 
   testWidgets(
@@ -243,10 +210,11 @@ void main() {
     },
   );
 
-  testWidgets('latest user message no longer shows inline edit button', (
+  testWidgets('latest user message exposes dashed tap-to-edit affordance', (
     tester,
   ) async {
     final controller = ScrollController();
+    ChatMessageModel? tappedMessage;
     final messages = <ChatMessageModel>[
       ChatMessageModel.userMessage('最新用户消息', id: 'latest-user'),
       ChatMessageModel.assistantMessage('收到', id: 'assistant-1'),
@@ -254,7 +222,20 @@ void main() {
     ];
 
     await tester.pumpWidget(
-      _buildChatMessageListHarness(controller: controller, messages: messages),
+      _buildLocalizedApp(
+        child: SizedBox(
+          width: 400,
+          height: 520,
+          child: ChatMessageList(
+            messages: messages,
+            scrollController: controller,
+            onLatestUserMessageEditTap: (message) {
+              tappedMessage = message;
+            },
+            onBeforeTaskExecute: () async {},
+          ),
+        ),
+      ),
     );
     await tester.pumpAndSettle();
 
@@ -268,46 +249,25 @@ void main() {
       findsNothing,
     );
     expect(find.byIcon(Icons.edit_outlined), findsNothing);
-  });
-
-  testWidgets('latest user message editing reuses bubble content area', (
-    tester,
-  ) async {
-    final controller = ScrollController();
-    final editingController = TextEditingController(text: '最新用户消息');
-    final messages = <ChatMessageModel>[
-      ChatMessageModel.userMessage('最新用户消息', id: 'latest-user'),
-      ChatMessageModel.assistantMessage('收到', id: 'assistant-1'),
-    ];
-
-    addTearDown(editingController.dispose);
-
-    await tester.pumpWidget(
-      _buildLocalizedApp(
-        child: SizedBox(
-          width: 400,
-          height: 520,
-          child: ChatMessageList(
-            messages: messages,
-            scrollController: controller,
-            editingUserMessageId: 'latest-user',
-            userMessageEditController: editingController,
-            onBeforeTaskExecute: () async {},
-          ),
-        ),
-      ),
+    final editTrigger = find.byKey(
+      const ValueKey('user-message-edit-trigger-latest-user'),
     );
-    await tester.pump();
-    await tester.pump(const Duration(milliseconds: 32));
-
+    expect(editTrigger, findsOneWidget);
     expect(
-      find.byKey(const ValueKey('user-message-bubble-latest-user')),
+      find.descendant(of: editTrigger, matching: find.byType(DottedBorder)),
       findsOneWidget,
     );
-    expect(find.byType(TextField), findsOneWidget);
-    expect(find.text('取消'), findsOneWidget);
-    expect(find.text('保存并发送'), findsOneWidget);
-    expect(find.byIcon(Icons.edit_outlined), findsNothing);
+    expect(
+      find.byKey(const ValueKey('user-message-edit-trigger-older-user')),
+      findsNothing,
+    );
+    expect(find.byType(TextField), findsNothing);
+
+    await tester.tap(editTrigger);
+    await tester.pump();
+
+    expect(tappedMessage?.id, 'latest-user');
+    expect(find.byType(TextField), findsNothing);
   });
 
   testWidgets(
@@ -574,7 +534,7 @@ void main() {
     expect(find.byType(RefreshIndicator), findsNothing);
   });
 
-  testWidgets('completed agent run collapses to summary and final answer', (
+  testWidgets('completed Xiaowan run keeps Xiaowan presentation', (
     tester,
   ) async {
     final controller = ScrollController();
@@ -625,11 +585,236 @@ void main() {
     expect(find.byType(AgentAvatarButton), findsNothing);
   });
 
+  testWidgets('ACP Agent run shows its own brand avatar and processed label', (
+    tester,
+  ) async {
+    final controller = ScrollController();
+    final messages = _buildCompletedAcpAgentRunMessages();
+
+    await tester.pumpWidget(
+      _buildLocalizedApp(
+        child: SizedBox(
+          width: 400,
+          height: 520,
+          child: ChatMessageList(
+            messages: messages,
+            useAcpPresentation: true,
+            scrollController: controller,
+            onBeforeTaskExecute: () async {},
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    // Collapsed: header reads "已处理 …" (possibly suffixed with an
+    // elapsed-time string), NEVER "已探索 N 次搜索 …".
+    expect(find.textContaining('已处理'), findsOneWidget);
+    expect(find.text('已探索 2 次搜索'), findsNothing);
+    final acpAvatar = find.byKey(const ValueKey('agent-run-acp-avatar-task-1'));
+    expect(acpAvatar, findsOneWidget);
+    final brandIcon = tester.widget<AgentBrandIcon>(
+      find.descendant(of: acpAvatar, matching: find.byType(AgentBrandIcon)),
+    );
+    expect(brandIcon.agentId, 'claude-code-acp');
+    expect(find.byKey(const ValueKey('agent-run-avatar-task-1')), findsNothing);
+
+    // Expanded: header still says "已处理 …" — and any inner tool-group
+    // capsule (when consecutive tool cards group together) ALSO says
+    // "已处理" instead of the previous count summary. So we expect AT
+    // LEAST one widget with "已处理" (could be the outer header alone,
+    // or outer + inner capsule depending on the messages).
+    await tester.tap(find.byKey(const ValueKey('agent-run-summary-task-1')));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('已处理'), findsWidgets);
+    expect(find.textContaining('已探索'), findsNothing);
+    final acpToolGroupToggle = find.byKey(
+      const ValueKey(
+        'agent-tool-call-group-toggle-task-1-task-1-tool-search-2-task-1-tool-search-1',
+      ),
+    );
+    expect(acpToolGroupToggle, findsOneWidget);
+
+    await tester.tap(acpToolGroupToggle);
+    await tester.pumpAndSettle();
+
+    expect(
+      find.byKey(const ValueKey('inline-file-diff-title-toggle')),
+      findsNWidgets(2),
+    );
+    expect(
+      find.byKey(
+        const ValueKey('agent-tool-summary-capsule-task-1-tool-search-1'),
+      ),
+      findsNothing,
+    );
+  });
+
   testWidgets(
-    'codex agent run shows codex avatar and "已处理" label when collapsed',
+    'ACP run shows its avatar and processing timer before the first response',
     (tester) async {
       final controller = ScrollController();
-      final messages = _buildCompletedCodexAgentRunMessages();
+      final startedAt = DateTime.now().subtract(const Duration(seconds: 3));
+      final userMessageId = '${startedAt.millisecondsSinceEpoch}-user';
+      final taskId = '${startedAt.millisecondsSinceEpoch}-ai';
+
+      await tester.pumpWidget(
+        _buildLocalizedApp(
+          child: SizedBox(
+            width: 400,
+            height: 520,
+            child: ChatMessageList(
+              messages: <ChatMessageModel>[
+                ChatMessageModel.userMessage(
+                  '请检查项目',
+                  id: userMessageId,
+                ).copyWith(createAt: startedAt),
+              ],
+              activeAgentTaskIds: <String>{taskId},
+              useAcpPresentation: true,
+              activeAcpAgentId: 'codex-acp',
+              scrollController: controller,
+              onBeforeTaskExecute: () async {},
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+
+      final processingHeader = find.byKey(ValueKey('acp-processing-$taskId'));
+      expect(processingHeader, findsOneWidget);
+      expect(find.textContaining('正在处理 3s'), findsOneWidget);
+      expect(
+        tester.getTopLeft(find.text('请检查项目')).dy,
+        lessThan(tester.getTopLeft(processingHeader).dy),
+      );
+      expect(
+        find.descendant(
+          of: processingHeader,
+          matching: find.byType(ShaderMask),
+        ),
+        findsOneWidget,
+      );
+      final brandIcon = tester.widget<AgentBrandIcon>(
+        find.descendant(
+          of: processingHeader,
+          matching: find.byType(AgentBrandIcon),
+        ),
+      );
+      expect(brandIcon.agentId, 'codex-acp');
+
+      await tester.pump(const Duration(seconds: 1));
+      expect(find.textContaining('正在处理 4s'), findsOneWidget);
+    },
+  );
+
+  testWidgets(
+    'active Claude response shows its brand icon before text and keeps it after folding',
+    (tester) async {
+      final controller = ScrollController();
+      final messages = <ChatMessageModel>[
+        ChatMessageModel(
+          id: 'task-1-text-2',
+          type: 1,
+          user: 2,
+          content: const <String, dynamic>{
+            'text': '工具完成后的正文',
+            'id': 'task-1-text-2',
+            'agentId': 'claude-code-acp',
+            'agentName': 'Claude Code',
+          },
+          streamMeta: const <String, dynamic>{
+            'parentTaskId': 'task-1',
+            'kind': 'text_snapshot',
+            'seq': 31,
+            'entryId': 'task-1-text-2',
+            'isFinal': true,
+          },
+        ),
+        ..._buildCompletedAcpAgentRunMessages(),
+      ];
+      var activeTaskIds = <String>{'task-1'};
+      late StateSetter setState;
+
+      await tester.pumpWidget(
+        _buildLocalizedApp(
+          child: StatefulBuilder(
+            builder: (context, stateSetter) {
+              setState = stateSetter;
+              return SizedBox(
+                width: 400,
+                height: 520,
+                child: ChatMessageList(
+                  messages: messages,
+                  activeAgentTaskIds: activeTaskIds,
+                  useAcpPresentation: true,
+                  scrollController: controller,
+                  onBeforeTaskExecute: () async {},
+                ),
+              );
+            },
+          ),
+        ),
+      );
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 320));
+
+      final activeAvatar = find.byKey(
+        const ValueKey('acp-message-avatar-task-1-thinking'),
+      );
+      expect(activeAvatar, findsOneWidget);
+      expect(
+        find.byKey(const ValueKey('acp-message-avatar-task-1-text')),
+        findsNothing,
+      );
+      expect(
+        find.byKey(const ValueKey('acp-message-avatar-task-1-text-2')),
+        findsNothing,
+      );
+      expect(
+        find.byKey(const ValueKey('acp-message-avatar-task-1-tool-search-1')),
+        findsNothing,
+      );
+      final activeBrandIcon = tester.widget<AgentBrandIcon>(
+        find.descendant(
+          of: activeAvatar,
+          matching: find.byType(AgentBrandIcon),
+        ),
+      );
+      expect(activeBrandIcon.agentId, 'claude-code-acp');
+      expect(
+        tester.getTopLeft(activeAvatar).dy,
+        lessThan(tester.getTopLeft(find.text('最终回答')).dy),
+      );
+      expect(
+        find.byKey(const ValueKey('agent-run-summary-task-1')),
+        findsNothing,
+      );
+      expect(find.byType(AgentBrandIcon), findsOneWidget);
+
+      setState(() {
+        activeTaskIds = <String>{};
+      });
+      await tester.pumpAndSettle();
+
+      expect(activeAvatar, findsNothing);
+      expect(
+        find.byKey(const ValueKey('agent-run-acp-avatar-task-1')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const ValueKey('agent-run-summary-task-1')),
+        findsOneWidget,
+      );
+      expect(find.text('工具完成后的正文'), findsOneWidget);
+    },
+  );
+
+  testWidgets(
+    'legacy ACP text run falls back to generic Agent avatar when identity is absent',
+    (tester) async {
+      final controller = ScrollController();
+      final messages = _buildCompletedLegacyAcpTextRunMessages();
 
       await tester.pumpWidget(
         _buildLocalizedApp(
@@ -638,54 +823,7 @@ void main() {
             height: 520,
             child: ChatMessageList(
               messages: messages,
-              scrollController: controller,
-              onBeforeTaskExecute: () async {},
-            ),
-          ),
-        ),
-      );
-      await tester.pumpAndSettle();
-
-      // Collapsed: header reads "已处理 …" (possibly suffixed with an
-      // elapsed-time string), NEVER "已探索 N 次搜索 …".
-      expect(find.textContaining('已处理'), findsOneWidget);
-      expect(find.text('已探索 2 次搜索'), findsNothing);
-      // Codex group must surface the codex glyph instead of the default
-      // user-configurable agent avatar.
-      expect(
-        find.byKey(const ValueKey('agent-run-codex-avatar-task-1')),
-        findsOneWidget,
-      );
-      expect(
-        find.byKey(const ValueKey('agent-run-avatar-task-1')),
-        findsNothing,
-      );
-
-      // Expanded: header still says "已处理 …" — and any inner tool-group
-      // capsule (when consecutive tool cards group together) ALSO says
-      // "已处理" instead of the previous count summary. So we expect AT
-      // LEAST one widget with "已处理" (could be the outer header alone,
-      // or outer + inner capsule depending on the messages).
-      await tester.tap(find.byKey(const ValueKey('agent-run-summary-task-1')));
-      await tester.pumpAndSettle();
-      expect(find.textContaining('已处理'), findsWidgets);
-      expect(find.textContaining('已探索'), findsNothing);
-    },
-  );
-
-  testWidgets(
-    'codex text run without tool cards still shows codex avatar when collapsed',
-    (tester) async {
-      final controller = ScrollController();
-      final messages = _buildCompletedCodexTextRunMessages();
-
-      await tester.pumpWidget(
-        _buildLocalizedApp(
-          child: SizedBox(
-            width: 400,
-            height: 520,
-            child: ChatMessageList(
-              messages: messages,
+              useAcpPresentation: true,
               scrollController: controller,
               onBeforeTaskExecute: () async {},
             ),
@@ -696,20 +834,26 @@ void main() {
 
       expect(find.textContaining('已处理'), findsOneWidget);
       expect(
-        find.byKey(const ValueKey('agent-run-codex-avatar-task-1')),
+        find.byKey(const ValueKey('agent-run-acp-avatar-task-1')),
         findsOneWidget,
       );
       expect(
         find.byKey(const ValueKey('agent-run-avatar-task-1')),
         findsNothing,
       );
-      expect(find.text('Codex 纯文本回答'), findsOneWidget);
+      final genericBrandIcon = tester.widget<AgentBrandIcon>(
+        find.descendant(
+          of: find.byKey(const ValueKey('agent-run-acp-avatar-task-1')),
+          matching: find.byType(AgentBrandIcon),
+        ),
+      );
+      expect(genericBrandIcon.agentId, 'generic-agent');
+      expect(find.text('旧 Agent 纯文本回答'), findsOneWidget);
     },
   );
 
   testWidgets(
-    'agent run summary chevron stays glued to the right edge regardless of '
-    'label length',
+    'agent run summary removes divider and keeps chevron beside label',
     (tester) async {
       final controller = ScrollController();
       final messages = _buildCompletedAgentRunMessages();
@@ -729,25 +873,25 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      // Regression for the "横线长度有问题" bug: the horizontal divider
-      // must extend almost to the chevron — before the fix
-      // Flexible(Text)+Expanded(line) split the remaining row 50/50, so
-      // the line stopped near the middle of the row. We assert this
-      // structurally by sampling the Expanded(Container(height:1)) widget
-      // that draws the line and verifying it stretches across the bulk of
-      // the row.
       final summaryToggle = find.byKey(
         const ValueKey('agent-run-summary-task-1'),
       );
       expect(summaryToggle, findsOneWidget);
-      final toggleRect = tester.getRect(summaryToggle);
+      final summaryInkWell = tester.widget<InkWell>(
+        find.descendant(of: summaryToggle, matching: find.byType(InkWell)),
+      );
+      expect(summaryInkWell.splashFactory, same(NoSplash.splashFactory));
+      expect(
+        summaryInkWell.overlayColor?.resolve(const <WidgetState>{
+          WidgetState.pressed,
+        }),
+        Colors.transparent,
+      );
       final rowFinder = find.descendant(
         of: summaryToggle,
         matching: find.byType(Row),
       );
       expect(rowFinder, findsOneWidget);
-      final rowRect = tester.getRect(rowFinder);
-      // The Container(height:1) wrapped by Expanded is the divider line.
       final dividerFinder = find.descendant(
         of: rowFinder,
         matching: find.byWidgetPredicate((widget) {
@@ -756,43 +900,31 @@ void main() {
           return constraints != null && constraints.maxHeight == 1.0;
         }),
       );
-      expect(dividerFinder, findsOneWidget);
-      final dividerRect = tester.getRect(dividerFinder);
-      // The divider should fill at least 35% of the row width, regardless
-      // of how short the label text is (the 50/50 split bug capped this
-      // at ~50% minus padding; without the fix a short label like "已处理"
-      // would leave a huge blank between the label and the divider).
-      final minDividerWidth = rowRect.width * 0.35;
-      expect(
-        dividerRect.width,
-        greaterThan(minDividerWidth),
-        reason:
-            'divider width=${dividerRect.width} must take at least '
-            '${minDividerWidth.toStringAsFixed(1)} of row width '
-            '(${rowRect.width.toStringAsFixed(1)}).',
+      expect(dividerFinder, findsNothing);
+
+      final labelFinder = find.descendant(
+        of: summaryToggle,
+        matching: find.textContaining('已处理'),
       );
-      // And it must extend close to the right edge of the row so the
-      // chevron is glued to the right side. We allow up to chevron(18) +
-      // gap(6) + inner padding(2) + safety(10) ≈ 36px from the rightmost
-      // row pixel.
-      expect(
-        rowRect.right - dividerRect.right,
-        lessThan(40),
-        reason:
-            'divider right=${dividerRect.right} must be within 40px of row '
-            'right=${rowRect.right} (gap = chevron+spacer+padding).',
+      final chevronFinder = find.byKey(
+        const ValueKey('agent-run-summary-chevron-task-1'),
       );
-      // Sanity: also confirm the entire summary fills the available list
-      // width (proves the row width itself is not being collapsed).
+      expect(labelFinder, findsOneWidget);
+      expect(chevronFinder, findsOneWidget);
+
+      final labelRect = tester.getRect(labelFinder);
+      final chevronRect = tester.getRect(chevronFinder);
       expect(
-        rowRect.width,
-        greaterThan(toggleRect.width * 0.8),
-        reason: 'row should fill most of the toggle width',
+        chevronRect.left - labelRect.right,
+        inInclusiveRange(0, 4),
+        reason:
+            'chevron should immediately follow the processed label without '
+            'a divider or flexible gap',
       );
     },
   );
 
-  testWidgets('adjacent tool calls collapse into an expandable group', (
+  testWidgets('adjacent Xiaowan tool calls render as independent capsules', (
     tester,
   ) async {
     final controller = ScrollController();
@@ -816,26 +948,37 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('agent-run-summary-task-1')));
     await tester.pumpAndSettle();
 
-    // The per-tool count summary is no longer surfaced anywhere — both the
-    // outer run header AND the inner tool-group capsule now read "已处理"
-    // (the user asked for the expanded UI to match the collapsed UI).
-    // There should be at least two "已处理" labels visible: the run header
-    // and the inner tool group capsule.
+    // 小万完成后的 turn 仍由外层“已处理”统一折叠，但展开后每次工具调用
+    // 必须保持为独立胶囊，不能套用 ACP 的并行工具合并胶囊。
     expect(find.text('已运行 1 条命令 · 已读取 1 个文件'), findsNothing);
-    expect(find.textContaining('已处理'), findsWidgets);
+    expect(find.textContaining('已处理'), findsOneWidget);
 
     final toolGroupToggle = find.byKey(
       const ValueKey(
         'agent-tool-call-group-toggle-task-1-task-1-tool-1-task-1-tool-2',
       ),
     );
-    expect(toolGroupToggle, findsOneWidget);
-    expect(find.text('运行 git status'), findsNothing);
-    expect(find.text('读取 README.md'), findsNothing);
-
-    await tester.tap(toolGroupToggle);
-    await tester.pumpAndSettle();
-
+    expect(toolGroupToggle, findsNothing);
+    expect(
+      find.byKey(const ValueKey('agent-run-task-1-task-1-tool-1')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey('agent-run-task-1-task-1-tool-2')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey('inline-file-diff-title-toggle')),
+      findsNothing,
+    );
+    expect(
+      find.byKey(const ValueKey('agent-tool-summary-capsule-task-1-tool-1')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey('agent-tool-summary-capsule-task-1-tool-2')),
+      findsOneWidget,
+    );
     expect(find.text('运行 git status'), findsOneWidget);
     expect(find.text('读取 README.md'), findsOneWidget);
   });
@@ -1062,34 +1205,76 @@ void main() {
     },
   );
 
-  testWidgets('active agent run remains expanded while task is in flight', (
-    tester,
-  ) async {
-    final controller = ScrollController();
-    final messages = _buildActiveAgentRunMessages();
+  testWidgets(
+    'thinking auto-collapses before the run folds at task completion',
+    (tester) async {
+      final controller = ScrollController();
+      var messages = _buildActiveAgentRunMessages();
+      var activeTaskIds = <String>{'task-1'};
+      late StateSetter setState;
 
-    await tester.pumpWidget(
-      _buildLocalizedApp(
-        child: SizedBox(
-          width: 400,
-          height: 520,
-          child: ChatMessageList(
-            messages: messages,
-            activeAgentTaskIds: const <String>{'task-1'},
-            scrollController: controller,
-            onBeforeTaskExecute: () async {},
+      await tester.pumpWidget(
+        _buildLocalizedApp(
+          child: StatefulBuilder(
+            builder: (context, stateSetter) {
+              setState = stateSetter;
+              return SizedBox(
+                width: 400,
+                height: 520,
+                child: ChatMessageList(
+                  messages: messages,
+                  activeAgentTaskIds: activeTaskIds,
+                  scrollController: controller,
+                  onBeforeTaskExecute: () async {},
+                ),
+              );
+            },
           ),
         ),
-      ),
-    );
-    await tester.pump();
-    await tester.pump(const Duration(milliseconds: 32));
+      );
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 32));
 
-    expect(find.text('已折叠运行过程'), findsNothing);
-    expect(find.text('详细思考过程'), findsOneWidget);
-    expect(find.text('运行 git status'), findsOneWidget);
-    expect(find.text('最终回答'), findsOneWidget);
-  });
+      expect(
+        find.byKey(const ValueKey('agent-run-summary-task-1')),
+        findsNothing,
+      );
+      expect(find.text('详细思考过程'), findsOneWidget);
+      expect(find.text('运行 git status'), findsOneWidget);
+      expect(find.text('最终回答'), findsOneWidget);
+
+      // Finishing one thinking/content stage collapses that thinking card, but
+      // must not fold the whole run while the task is still active.
+      setState(() {
+        messages = _buildCompletedAgentRunMessages();
+      });
+      await tester.pumpAndSettle();
+
+      expect(
+        find.byKey(const ValueKey('agent-run-summary-task-1')),
+        findsNothing,
+      );
+      expect(find.byType(DeepThinkingCard), findsOneWidget);
+      expect(find.text('详细思考过程'), findsNothing);
+      expect(find.text('运行 git status'), findsOneWidget);
+      expect(find.text('最终回答'), findsOneWidget);
+
+      setState(() {
+        activeTaskIds = <String>{};
+      });
+      await tester.pumpAndSettle();
+
+      expect(
+        find.byKey(const ValueKey('agent-run-summary-task-1')),
+        findsOneWidget,
+      );
+      expect(find.text('已处理'), findsOneWidget);
+      expect(find.byType(DeepThinkingCard), findsNothing);
+      expect(find.text('详细思考过程'), findsNothing);
+      expect(find.text('运行 git status'), findsNothing);
+      expect(find.text('最终回答'), findsOneWidget);
+    },
+  );
 
   testWidgets('reaching top auto-loads older messages without jumping to top', (
     tester,
@@ -1299,6 +1484,9 @@ List<ChatMessageModel> _buildCompletedAgentRunMessages({bool isFinal = true}) {
     ChatMessageModel.cardMessage(
       <String, dynamic>{
         'type': 'agent_tool_summary',
+        // 原生历史恢复层会给小万工具卡补上这个通用渲染样式；
+        // 它不能被当成 ACP Agent 身份标记。
+        'uiStyle': 'agent_tool',
         'status': 'success',
         'toolType': 'terminal',
         'toolTitle': '运行 git status',
@@ -1354,6 +1542,7 @@ List<ChatMessageModel> _buildCompletedAgentRunMessagesWithToolGroup() {
     ChatMessageModel.cardMessage(
       <String, dynamic>{
         'type': 'agent_tool_summary',
+        'uiStyle': 'agent_tool',
         'status': 'success',
         'toolType': 'workspace',
         'toolTitle': '读取 README.md',
@@ -1371,6 +1560,7 @@ List<ChatMessageModel> _buildCompletedAgentRunMessagesWithToolGroup() {
     ChatMessageModel.cardMessage(
       <String, dynamic>{
         'type': 'agent_tool_summary',
+        'uiStyle': 'agent_tool',
         'status': 'success',
         'toolType': 'terminal',
         'toolTitle': '运行 git status',
@@ -1408,16 +1598,20 @@ List<ChatMessageModel> _buildCompletedAgentRunMessagesWithToolGroup() {
   ];
 }
 
-List<ChatMessageModel> _buildCompletedCodexAgentRunMessages() {
-  // Same shape as _buildCompletedAgentRunMessages but every tool card carries
-  // cardData.uiStyle = 'codex_tool', so the AgentRunGroup widget classifies
-  // the group as a codex run (collapsed → "已处理", avatar → codex SVG).
+List<ChatMessageModel> _buildCompletedAcpAgentRunMessages() {
+  // Legacy snapshots remain readable, while the persisted Agent identity
+  // drives the visible avatar.
   return <ChatMessageModel>[
     ChatMessageModel(
       id: 'task-1-text',
       type: 1,
       user: 2,
-      content: const <String, dynamic>{'text': '最终回答', 'id': 'task-1-text'},
+      content: const <String, dynamic>{
+        'text': '最终回答',
+        'id': 'task-1-text',
+        'agentId': 'claude-code-acp',
+        'agentName': 'Claude Code',
+      },
       streamMeta: const <String, dynamic>{
         'parentTaskId': 'task-1',
         'kind': 'text_snapshot',
@@ -1430,6 +1624,8 @@ List<ChatMessageModel> _buildCompletedCodexAgentRunMessages() {
       <String, dynamic>{
         'type': 'agent_tool_summary',
         'uiStyle': 'codex_tool',
+        'agentId': 'claude-code-acp',
+        'agentName': 'Claude Code',
         'status': 'success',
         'toolType': 'search',
         'toolTitle': 'rg foo',
@@ -1448,6 +1644,8 @@ List<ChatMessageModel> _buildCompletedCodexAgentRunMessages() {
       <String, dynamic>{
         'type': 'agent_tool_summary',
         'uiStyle': 'codex_tool',
+        'agentId': 'claude-code-acp',
+        'agentName': 'Claude Code',
         'status': 'success',
         'toolType': 'search',
         'toolTitle': 'rg bar',
@@ -1465,7 +1663,9 @@ List<ChatMessageModel> _buildCompletedCodexAgentRunMessages() {
     ChatMessageModel.cardMessage(
       <String, dynamic>{
         'type': 'deep_thinking',
-        'thinkingContent': 'codex 在思考',
+        'agentId': 'claude-code-acp',
+        'agentName': 'Claude Code',
+        'thinkingContent': 'Agent 在思考',
         'stage': 4,
         'isLoading': false,
         'taskID': 'task-1',
@@ -1484,14 +1684,14 @@ List<ChatMessageModel> _buildCompletedCodexAgentRunMessages() {
   ];
 }
 
-List<ChatMessageModel> _buildCompletedCodexTextRunMessages() {
+List<ChatMessageModel> _buildCompletedLegacyAcpTextRunMessages() {
   return <ChatMessageModel>[
     ChatMessageModel(
       id: 'task-1-codex-agent',
       type: 1,
       user: 2,
       content: const <String, dynamic>{
-        'text': 'Codex 纯文本回答',
+        'text': '旧 Agent 纯文本回答',
         'id': 'task-1-codex-agent',
       },
       streamMeta: const <String, dynamic>{
@@ -1505,7 +1705,7 @@ List<ChatMessageModel> _buildCompletedCodexTextRunMessages() {
     ChatMessageModel.cardMessage(
       <String, dynamic>{
         'type': 'deep_thinking',
-        'thinkingContent': 'codex 在思考',
+        'thinkingContent': '旧 Agent 在思考',
         'stage': 4,
         'isLoading': false,
         'taskID': 'task-1',

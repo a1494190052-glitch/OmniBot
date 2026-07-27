@@ -60,45 +60,6 @@ die () {
     exit 1
 }
 
-should_bootstrap_omniinfer=false
-for arg in "$@" ; do
-    case "$arg" in
-        -*)
-            ;;
-        *Omniinfer*|*omniinfer*|build|:build|assemble|:assemble|check|:check|test|:test)
-            should_bootstrap_omniinfer=true
-            ;;
-    esac
-done
-
-bootstrap_omniinfer_submodules () {
-    OMNIINFER_ROOT="$APP_HOME/third_party/omniinfer"
-    OMNIINFER_SERVER_MARKER="$OMNIINFER_ROOT/android/omniinfer-server/build.gradle.kts"
-    OMNIINFER_MNN_MARKER="$OMNIINFER_ROOT/framework/mnn/CMakeLists.txt"
-    OMNIINFER_MODEL_DOWNLOADER_MARKER="$OMNIINFER_ROOT/framework/mnn/apps/frameworks/model_downloader/android/build.gradle"
-    OMNIINFER_LLAMA_MARKER="$OMNIINFER_ROOT/framework/llama.cpp/CMakeLists.txt"
-
-    if [ -f "$OMNIINFER_SERVER_MARKER" ] \
-        && [ -f "$OMNIINFER_MNN_MARKER" ] \
-        && [ -f "$OMNIINFER_MODEL_DOWNLOADER_MARKER" ] \
-        && [ -f "$OMNIINFER_LLAMA_MARKER" ] ; then
-        return 0
-    fi
-
-    command -v git >/dev/null 2>&1 || die "ERROR: git is required to initialize OmniInfer submodules for OmniInfer builds."
-    [ -e "$APP_HOME/.git" ] || die "ERROR: Missing .git metadata; cannot auto-initialize OmniInfer submodules in this checkout."
-
-    echo "Bootstrapping required OmniInfer submodules..."
-
-    if [ ! -f "$OMNIINFER_SERVER_MARKER" ] ; then
-        git -C "$APP_HOME" submodule update --init third_party/omniinfer || die "ERROR: Failed to initialize third_party/omniinfer."
-    fi
-
-    if [ ! -f "$OMNIINFER_MNN_MARKER" ] || [ ! -f "$OMNIINFER_MODEL_DOWNLOADER_MARKER" ] || [ ! -f "$OMNIINFER_LLAMA_MARKER" ] ; then
-        git -C "$OMNIINFER_ROOT" submodule update --init framework/mnn framework/llama.cpp || die "ERROR: Failed to initialize required OmniInfer nested submodules."
-    fi
-}
-
 # OS specific support (must be 'true' or 'false').
 cygwin=false
 msys=false
@@ -118,10 +79,6 @@ case "`uname`" in
     nonstop=true
     ;;
 esac
-
-if [ "$should_bootstrap_omniinfer" = true ] ; then
-    bootstrap_omniinfer_submodules
-fi
 
 # Flutter native-assets resolves NDK from environment first, then picks the
 # newest sdk/ndk/<version>. If a higher version is only partially installed

@@ -4,6 +4,7 @@ import android.annotation.SuppressLint
 import android.content.Context
 import cn.com.omnimind.baselib.util.OmniLog
 import cn.com.omnimind.bot.App
+import cn.com.omnimind.bot.function.FunctionService
 import cn.com.omnimind.bot.manager.AssistsCoreManager
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
@@ -11,7 +12,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 
 /**
- * 无障碍核心能力通道
+ * Native task and Agent bridge.
  */
 class AssistsCoreChannel {
     var TAG = "[AssistsCoreChannel]"
@@ -21,8 +22,10 @@ class AssistsCoreChannel {
 
     @SuppressLint("StaticFieldLeak")
     private var assistsCoreManager: AssistsCoreManager? = null
+    private var functionService: FunctionService? = null
     fun onCreate(context: Context) {
         assistsCoreManager = AssistsCoreManager(context)
+        functionService = FunctionService(context)
         assistsCoreManager?.setChannel(channel!!);
 
     }
@@ -37,11 +40,11 @@ class AssistsCoreChannel {
         }
         channel!!.setMethodCallHandler { call, result ->
             OmniLog.d(TAG, "setMethodCallHandler " + call.method)
+            if (FunctionService.isChannelMethod(call.method)) {
+                functionService!!.handleChannelMethod(call, result)
+                return@setMethodCallHandler
+            }
             when (call.method) {
-                "createCompanionTask" -> {
-                    assistsCoreManager!!.createCompanionTask( call, result)
-                }
-
                 "createChatTask" -> {
                     assistsCoreManager!!.createChatTask( call, result)
                 }
@@ -118,54 +121,6 @@ class AssistsCoreChannel {
                 "saveSceneVoiceConfig" -> {
                     assistsCoreManager!!.saveSceneVoiceConfig(call, result)
                 }
-                "getSceneOperationConfig" -> {
-                    assistsCoreManager!!.getSceneOperationConfig(call, result)
-                }
-                "saveSceneOperationConfig" -> {
-                    assistsCoreManager!!.saveSceneOperationConfig(call, result)
-                }
-                "getInternalRunLogs" -> {
-                    assistsCoreManager!!.getInternalRunLogs(call, result)
-                }
-                "getInternalRunLogTimeline" -> {
-                    assistsCoreManager!!.getInternalRunLogTimeline(call, result)
-                }
-                "getInternalRunLogState" -> {
-                    assistsCoreManager!!.getInternalRunLogState(call, result)
-                }
-                "convertInternalRunLogToFunction" -> {
-                    assistsCoreManager!!.convertInternalRunLogToFunction(call, result)
-                }
-                "startHumanTrajectoryLearning" -> {
-                    assistsCoreManager!!.startHumanTrajectoryLearning(call, result)
-                }
-                "pauseHumanTrajectoryLearning" -> {
-                    assistsCoreManager!!.pauseHumanTrajectoryLearning(call, result)
-                }
-                "resumeHumanTrajectoryLearning" -> {
-                    assistsCoreManager!!.resumeHumanTrajectoryLearning(call, result)
-                }
-                "getHumanTrajectoryLearningStatus" -> {
-                    assistsCoreManager!!.getHumanTrajectoryLearningStatus(call, result)
-                }
-                "listFunctions" -> {
-                    assistsCoreManager!!.listFunctions(call, result)
-                }
-                "getFunction" -> {
-                    assistsCoreManager!!.getFunction(call, result)
-                }
-                "registerFunction" -> {
-                    assistsCoreManager!!.registerFunction(call, result)
-                }
-                "updateFunction" -> {
-                    assistsCoreManager!!.updateFunction(call, result)
-                }
-                "deleteFunction" -> {
-                    assistsCoreManager!!.deleteFunction(call, result)
-                }
-                "runFunction" -> {
-                    assistsCoreManager!!.runFunction(call, result)
-                }
                 "getSceneModelOverrides" -> {
                     assistsCoreManager!!.getSceneModelOverrides(call, result)
                 }
@@ -175,20 +130,17 @@ class AssistsCoreChannel {
                 "clearSceneModelOverride" -> {
                     assistsCoreManager!!.clearSceneModelOverride(call, result)
                 }
-                "checkVlmModelAvailability" -> {
-                    assistsCoreManager!!.checkVlmModelAvailability(call, result)
+                "getAgentSoulSetting" -> {
+                    assistsCoreManager!!.getAgentSoulSetting(call, result)
                 }
-                "getWorkspaceSoul" -> {
-                    assistsCoreManager!!.getWorkspaceSoul(call, result)
+                "getChatPromptSetting" -> {
+                    assistsCoreManager!!.getChatPromptSetting(call, result)
                 }
-                "getWorkspaceChatPrompt" -> {
-                    assistsCoreManager!!.getWorkspaceChatPrompt(call, result)
+                "saveAgentSoulSetting" -> {
+                    assistsCoreManager!!.saveAgentSoulSetting(call, result)
                 }
-                "saveWorkspaceSoul" -> {
-                    assistsCoreManager!!.saveWorkspaceSoul(call, result)
-                }
-                "saveWorkspaceChatPrompt" -> {
-                    assistsCoreManager!!.saveWorkspaceChatPrompt(call, result)
+                "saveChatPromptSetting" -> {
+                    assistsCoreManager!!.saveChatPromptSetting(call, result)
                 }
                 "getWorkspaceLongMemory" -> {
                     assistsCoreManager!!.getWorkspaceLongMemory(call, result)
@@ -241,14 +193,6 @@ class AssistsCoreChannel {
                     assistsCoreManager!!.cancelChatTask( call, result)
                 }
 
-                "createVLMOperationTask" -> {
-                    assistsCoreManager!!.createVLMOperationTask( call, result)
-                }
-
-
-                "cancelTask" -> {
-                    assistsCoreManager!!.cancelTask( call, result)
-                }
                 "cancelRunningTask" -> {
                     assistsCoreManager!!.cancelRunningTask( call, result)
                 }
@@ -261,39 +205,11 @@ class AssistsCoreChannel {
                 "continueAgentTask" -> {
                     assistsCoreManager!!.continueAgentTask(call, result)
                 }
-                "isCompanionTaskRunning" -> {
-                    assistsCoreManager!!.isCompanionTaskRunning( call, result)
-                }
-                "cancelCompanionGoHome" -> {
-                    assistsCoreManager!!.cancelCompanionGoHome( call, result)
-                }
-                "pressHome" -> {
-                    assistsCoreManager!!.pressHome(call, result)
-                }
-
                 "getInstalledApplications" -> {
                     assistsCoreManager!!.getInstalledApplications( call, result)
                 }
                 "getInstalledApplicationsWithIconUpdate" -> {
                     assistsCoreManager!!.getInstalledApplicationsWithIconUpdate( call, result)
-                }
-                "isPackageAuthorized" -> {
-                    assistsCoreManager!!.isPackageAuthorized( call, result)
-                }
-                "scheduleVLMOperationTask" -> {
-                    assistsCoreManager!!.scheduleVLMOperationTask( call, result)
-                }
-                "getScheduleInfo"->{
-                    assistsCoreManager!!.getScheduleInfo( call, result)
-                }
-                "clearScheduleTask"->{
-                    assistsCoreManager!!.clearScheduleTask( call, result)
-                }
-                "doScheduleNow"->{
-                    assistsCoreManager!!.doScheduleNow( call, result)
-                }
-                "cancelScheduleTask"->{
-                    assistsCoreManager!!.cancelScheduleTask( call, result)
                 }
                 "listAgentExactAlarms" -> {
                     assistsCoreManager!!.listAgentExactAlarms(call, result)
@@ -316,12 +232,6 @@ class AssistsCoreChannel {
                 "getClipboardText"->{
                     assistsCoreManager!!.getClipboardText(call, result)
                 }
-                "provideUserInputToVLMTask" -> {
-                    assistsCoreManager!!.provideUserInputToVLMTask(call, result)
-                }
-                "startFirstUse"->{
-                    assistsCoreManager!!.startFirstUse( call, result)
-                }
                 "postLLMChat"->{
                     assistsCoreManager!!.postLLMChat( call, result)
                 }
@@ -331,17 +241,8 @@ class AssistsCoreChannel {
                 "openAPPMarket"->{
                     assistsCoreManager!!.openAPPMarket( call, result)
                 }
-                "isDesktop"->{
-                    assistsCoreManager!!.isDesktop( call, result)
-                }
                 "getDeskTopPackageName"->{
                     assistsCoreManager!!.getDeskTopPackageName( call, result)
-                }
-                "getCurrentPackageName"->{
-                    assistsCoreManager!!.getCurrentPackageName( call, result)
-                }
-                "setAutoBackToChatAfterTaskEnabled" -> {
-                    assistsCoreManager!!.setAutoBackToChatAfterTaskEnabled(call, result)
                 }
                 "setPreventScreenSleepDuringTasksEnabled" -> {
                     assistsCoreManager!!.setPreventScreenSleepDuringTasksEnabled(call, result)

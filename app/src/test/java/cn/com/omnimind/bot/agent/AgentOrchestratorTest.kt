@@ -1,13 +1,11 @@
 package cn.com.omnimind.bot.agent
 
 import cn.com.omnimind.baselib.llm.ChatCompletionUsage
-import cn.com.omnimind.baselib.llm.ChatCompletionThinking
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
-import kotlinx.serialization.json.jsonPrimitive
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -35,132 +33,6 @@ class AgentOrchestratorTest {
     @After
     fun tearDownLocale() {
         Locale.setDefault(originalLocale)
-    }
-
-    @Test
-    fun perTurnContextIsFreshAndNeverStoredInConversationMemory() = runBlocking {
-        val llmClient = FakeLlmClient(
-            turns = listOf(
-                assistantTurn(toolCalls = listOf(toolCall("file_read"))),
-                assistantTurn(content = "完成")
-            )
-        )
-        val toolExecutor = FakeToolExecutor(
-            results = mapOf(
-                "file_read" to listOf(
-                    ToolExecutionResult.ContextResult(
-                        toolName = "file_read",
-                        summaryText = "已读取",
-                        previewJson = "{}",
-                        rawResultJson = "{}"
-                    )
-                )
-            )
-        )
-        val contexts = ArrayDeque(
-            listOf(
-                ChatCompletionMessage(role = "user", content = JsonPrimitive("gui-state-1")),
-                ChatCompletionMessage(role = "user", content = JsonPrimitive("gui-state-2"))
-            )
-        )
-
-        createOrchestrator(llmClient, toolExecutor).run(
-            AgentOrchestrator.Input(
-                callback = RecordingCallback(),
-                initialMessages = initialMessages("执行 GUI 任务"),
-                executionEnv = FakeExecutionEnvironment("执行 GUI 任务"),
-                turnContextProvider = AgentTurnContextProvider { contexts.removeFirst() }
-            )
-        )
-
-        assertEquals(2, llmClient.requests.size)
-        assertTrue(llmClient.requests[0].messages.any { it.contentText() == "gui-state-1" })
-        assertFalse(llmClient.requests[1].messages.any { it.contentText() == "gui-state-1" })
-        assertTrue(llmClient.requests[1].messages.any { it.contentText() == "gui-state-2" })
-    }
-
-    @Test
-    fun turnRequestOptionsConfigureGuiPolicyWithoutChangingRuntime() = runBlocking {
-        val turn = assistantTurn(toolCalls = listOf(toolCall("finished")))
-        val llmClient = FakeLlmClient(turns = listOf(turn))
-        val toolExecutor = FakeToolExecutor(
-            results = mapOf(
-                "finished" to listOf(ToolExecutionResult.ChatMessage("任务完成"))
-            )
-        )
-        val observedTurns = mutableListOf<ChatCompletionTurn>()
-
-        createOrchestrator(llmClient, toolExecutor).run(
-            AgentOrchestrator.Input(
-                callback = RecordingCallback(),
-                initialMessages = initialMessages("执行 GUI 任务"),
-                executionEnv = FakeExecutionEnvironment("执行 GUI 任务"),
-                requestOptions = AgentTurnRequestOptions(
-                    model = "scene.vlm",
-                    modelOverride = "vision-model",
-                    maxCompletionTokens = 512,
-                    temperature = 0.1,
-                    toolChoice = JsonPrimitive("required"),
-                    parallelToolCalls = false,
-                    enableThinking = false,
-                    reasoningEffort = "none",
-                    thinking = ChatCompletionThinking(type = "disabled"),
-                    maxModelRounds = 8,
-                    maxToolCallsPerTurn = 1,
-                ),
-                turnObserver = AgentTurnObserver(observedTurns::add),
-            )
-        )
-
-        val request = llmClient.requests.single()
-        assertEquals("scene.vlm", request.model)
-        assertEquals("vision-model", request.modelOverride)
-        assertEquals(512, request.maxCompletionTokens)
-        assertEquals(0.1, request.temperature)
-        assertEquals("required", request.toolChoice?.jsonPrimitive?.content)
-        assertEquals(false, request.parallelToolCalls)
-        assertEquals(false, request.enableThinking)
-        assertEquals("none", request.reasoningEffort)
-        assertEquals("disabled", request.thinking?.type)
-        assertEquals(listOf(turn), observedTurns)
-    }
-
-    @Test
-    fun guiPolicyRejectsMultipleToolCallsBeforeExecution() = runBlocking {
-        val llmClient = FakeLlmClient(
-            turns = listOf(
-                assistantTurn(
-                    toolCalls = listOf(
-                        toolCall("click", id = "call-click"),
-                        toolCall("swipe", id = "call-swipe"),
-                    )
-                ),
-                assistantTurn(toolCalls = listOf(toolCall("finished"))),
-            )
-        )
-        val toolExecutor = FakeToolExecutor(
-            results = mapOf(
-                "finished" to listOf(ToolExecutionResult.ChatMessage("任务完成"))
-            )
-        )
-
-        createOrchestrator(llmClient, toolExecutor).run(
-            AgentOrchestrator.Input(
-                callback = RecordingCallback(),
-                initialMessages = initialMessages("执行 GUI 任务"),
-                executionEnv = FakeExecutionEnvironment("执行 GUI 任务"),
-                requestOptions = AgentTurnRequestOptions(
-                    toolChoice = JsonPrimitive("required"),
-                    parallelToolCalls = false,
-                    maxModelRounds = 4,
-                    maxToolCallsPerTurn = 1,
-                ),
-            )
-        )
-
-        assertEquals(listOf("finished"), toolExecutor.executeCalls)
-        assertEquals(2, llmClient.requests.size)
-        assertEquals(2, llmClient.requests[1].messages.count { it.role == "tool" })
     }
 
     @Test
@@ -207,6 +79,44 @@ class AgentOrchestratorTest {
         )
         assertTrue(callback.finalChatMessages().last().contains("继续处理"))
         assertTrue(result is AgentResult.Success)
+    }
+
+    @Test
+    fun inputLimitsModelRoundsAndCompletionTokens() = runBlocking {
+        val llmClient = FakeLlmClient(
+            turns = listOf(
+                assistantTurn(toolCalls = listOf(toolCall("file_read")))
+            )
+        )
+        val toolExecutor = FakeToolExecutor(
+            results = mapOf(
+                "file_read" to listOf(
+                    ToolExecutionResult.ContextResult(
+                        toolName = "file_read",
+                        summaryText = "read",
+                        previewJson = "{}",
+                        rawResultJson = "{}",
+                        success = true
+                    )
+                )
+            )
+        )
+        val callback = RecordingCallback()
+
+        val result = createOrchestrator(llmClient, toolExecutor).run(
+            AgentOrchestrator.Input(
+                callback = callback,
+                initialMessages = initialMessages("读取文件后继续"),
+                executionEnv = FakeExecutionEnvironment("读取文件后继续"),
+                maxModelRounds = 1,
+                maxCompletionTokens = 4096
+            )
+        )
+
+        assertTrue(result is AgentResult.Error)
+        assertEquals(1, llmClient.requests.size)
+        assertEquals(4096, llmClient.requests.single().maxCompletionTokens)
+        assertTrue(callback.errors.single().contains("1 轮模型调用上限"))
     }
 
     @Test
@@ -650,100 +560,6 @@ class AgentOrchestratorTest {
         assertEquals(2, llmClient.requests.size)
         assertEquals("tool", llmClient.requests[1].messages.last().role)
         assertTrue(callback.finalChatMessages().last().contains("参数不合法"))
-    }
-
-    @Test
-    fun modelArgumentsAreAdaptedBeforeValidationAndExecution() = runBlocking {
-        val llmClient = FakeLlmClient(
-            turns = listOf(
-                assistantTurn(
-                    toolCalls = listOf(
-                        toolCall(name = "click", arguments = """{"point":[500,561]}""")
-                    )
-                ),
-                assistantTurn(content = "已完成。")
-            )
-        )
-        val toolCatalog = FakeToolCatalog(
-            argumentAdapter = { _, arguments ->
-                val point = arguments.getValue("point") as kotlinx.serialization.json.JsonArray
-                JsonObject(mapOf("x" to point[0], "y" to point[1]))
-            }
-        )
-        val toolExecutor = FakeToolExecutor(
-            results = mapOf(
-                "click" to listOf(
-                    ToolExecutionResult.ContextResult(
-                        toolName = "click",
-                        summaryText = "页面已变化",
-                        previewJson = "{}",
-                        rawResultJson = "{}"
-                    )
-                )
-            )
-        )
-
-        AgentOrchestrator(
-            llmClient = llmClient,
-            toolRegistry = toolCatalog,
-            toolRouter = toolExecutor,
-            eventAdapter = AgentEventAdapter(eventJson),
-            model = "test-model"
-        ).run(
-            AgentOrchestrator.Input(
-                callback = RecordingCallback(),
-                initialMessages = initialMessages("点击目标"),
-                executionEnv = FakeExecutionEnvironment("点击目标")
-            )
-        )
-
-        assertEquals(setOf("x", "y"), toolCatalog.validatedArguments.single().keys)
-        assertEquals(setOf("x", "y"), toolExecutor.executeArguments.single().keys)
-    }
-
-    @Test
-    fun modelTurnContractViolationStopsBeforeTextRecoveryOrExecution() = runBlocking {
-        val llmClient = FakeLlmClient(
-            turns = listOf(
-                assistantTurn(
-                    content = """{"tool_call":{"name":"click","arguments":{"x":500,"y":561}}}""",
-                    finishReason = "stop",
-                )
-            )
-        )
-        val toolCatalog = FakeToolCatalog(
-            turnContractViolation = {
-                "model_native_tool_calls_unsupported: " +
-                    "model returned a tool call in assistant.content instead of native tool_calls"
-            }
-        )
-        val toolExecutor = FakeToolExecutor()
-        val callback = RecordingCallback()
-
-        val result = AgentOrchestrator(
-            llmClient = llmClient,
-            toolRegistry = toolCatalog,
-            toolRouter = toolExecutor,
-            eventAdapter = AgentEventAdapter(eventJson),
-            model = "test-model",
-        ).run(
-            AgentOrchestrator.Input(
-                callback = callback,
-                initialMessages = initialMessages("点击应用"),
-                executionEnv = FakeExecutionEnvironment("点击应用"),
-            )
-        )
-
-        assertTrue(result is AgentResult.Error)
-        assertEquals(1, llmClient.requests.size)
-        assertTrue(toolExecutor.executeCalls.isEmpty())
-        assertEquals(
-            "model_native_tool_calls_unsupported: " +
-                "model returned a tool call in assistant.content instead of native tool_calls",
-            callback.errors.single(),
-        )
-        assertFalse(callback.lastErrorRetryable)
-        assertTrue(callback.finalChatMessages().isEmpty())
     }
 
     @Test
@@ -1278,12 +1094,9 @@ class AgentOrchestratorTest {
     }
 
     private class FakeToolCatalog(
-        private val validationErrors: Map<String, String> = emptyMap(),
-        private val argumentAdapter: (String, JsonObject) -> JsonObject = { _, arguments -> arguments },
-        private val turnContractViolation: (ChatCompletionTurn) -> String? = { null },
+        private val validationErrors: Map<String, String> = emptyMap()
     ) : AgentToolCatalog {
         override val toolsForModel: List<ChatCompletionTool> = emptyList()
-        val validatedArguments = mutableListOf<JsonObject>()
 
         override fun runtimeDescriptor(toolName: String): AgentToolRegistry.RuntimeToolDescriptor {
             return AgentToolRegistry.RuntimeToolDescriptor(
@@ -1293,14 +1106,7 @@ class AgentOrchestratorTest {
             )
         }
 
-        override fun adaptModelArguments(toolName: String, arguments: JsonObject): JsonObject =
-            argumentAdapter(toolName, arguments)
-
-        override fun modelTurnContractViolation(turn: ChatCompletionTurn): String? =
-            turnContractViolation(turn)
-
         override fun validateArguments(toolName: String, arguments: JsonObject) {
-            validatedArguments += arguments
             val message = validationErrors[toolName] ?: return
             throw IllegalArgumentException(message)
         }
@@ -1311,7 +1117,6 @@ class AgentOrchestratorTest {
     ) : AgentToolExecutor {
         private val queuedResults = results.mapValues { (_, value) -> ArrayDeque(value) }
         val executeCalls = mutableListOf<String>()
-        val executeArguments = mutableListOf<JsonObject>()
 
         override suspend fun execute(
             toolCall: AssistantToolCall,
@@ -1322,7 +1127,6 @@ class AgentOrchestratorTest {
             toolHandle: AgentToolExecutionHandle
         ): ToolExecutionResult {
             executeCalls += toolCall.function.name
-            executeArguments += args
             val queue = queuedResults[toolCall.function.name]
             return if (queue != null && queue.isNotEmpty()) {
                 queue.removeFirst()
@@ -1444,8 +1248,6 @@ class AgentOrchestratorTest {
         override val runControl: AgentRunControl = NoOpAgentRunControl
     ) : AgentExecutionEnvironment {
         override val agentRunId: String = "test-run"
-        override val attachments: List<Map<String, Any?>> = emptyList()
-        override val currentPackageName: String? = null
         override val runtimeContextRepository: AgentRuntimeContextRepository
             get() = throw UnsupportedOperationException("unused in test")
         override val workspaceDescriptor: AgentWorkspaceDescriptor

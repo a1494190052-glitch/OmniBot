@@ -19,9 +19,6 @@ object ModelProviderConfigStore {
     private const val KEY_DELETED_OFFICIAL_PROFILE_IDS =
         "model_provider_deleted_official_profile_ids_v1"
 
-    internal const val LEGACY_MODEL_OVERRIDE_KEY = "vlm_operation_model_override"
-    internal const val LEGACY_API_BASE_OVERRIDE_KEY = "vlm_operation_api_base_override"
-    internal const val LEGACY_API_KEY_OVERRIDE_KEY = "vlm_operation_api_key_override"
     internal const val MIGRATION_DONE_KEY = "model_provider_scene_config_flattened_v3"
     internal const val LEGACY_DEFAULT_PROFILE_ID = "legacy-default"
 
@@ -71,13 +68,13 @@ object ModelProviderConfigStore {
             deletedOfficialProfileIds
         )
         if (current.isNotEmpty()) {
-            ensureEditingProfile(mmkv, withBuiltin(current))
-            return withBuiltin(current)
+            ensureEditingProfile(mmkv, current)
+            return current
         }
         val created = defaultProfiles(deletedOfficialProfileIds)
         writeProfiles(mmkv, created)
         mmkv.encode(KEY_EDITING_PROFILE_ID, created.first().id)
-        return withBuiltin(created)
+        return created
     }
 
     fun getEditingProfileId(): String {
@@ -118,7 +115,6 @@ object ModelProviderConfigStore {
 
         val sanitized = buildList<ModelProviderProfile> {
             profiles
-                .filterNot { MnnLocalProviderStateStore.isBuiltinProfileId(it.id) }
                 .filterNot { isDeletedOfficialProfile(it.id, deletedOfficialProfileIds) }
                 .forEach { profile ->
                     val existing = toList()
@@ -155,17 +151,14 @@ object ModelProviderConfigStore {
 
         val resolvedEditingId = editingProfileId
             ?.trim()
-            ?.takeIf { candidate ->
-                sanitized.any { it.id == candidate } ||
-                    MnnLocalProviderStateStore.isBuiltinProfileId(candidate)
-            }
+            ?.takeIf { candidate -> sanitized.any { it.id == candidate } }
             ?: sanitized.first().id
 
         writeProfiles(mmkv, sanitized)
         mmkv.encode(KEY_EDITING_PROFILE_ID, resolvedEditingId)
         getProfile(resolvedEditingId)?.let { syncLegacyFlatConfig(mmkv, it) }
 
-        return withBuiltin(sanitized)
+        return sanitized
     }
 
     fun saveProfile(
@@ -179,7 +172,6 @@ object ModelProviderConfigStore {
         wireApi: String = OpenAiWireApi.CHAT_COMPLETIONS
     ): ModelProviderProfile {
         ModelProviderMigration.ensureMigrated()
-        require(!MnnLocalProviderStateStore.isBuiltinProfileId(id)) { "builtin provider is read only" }
         val normalizedProtocolType = normalizeProtocolType(protocolType)
         val normalizedWireApi = resolveWireApiForSave(
             baseUrl = baseUrl,
@@ -231,7 +223,6 @@ object ModelProviderConfigStore {
 
     fun deleteProfile(profileId: String): List<ModelProviderProfile> {
         ModelProviderMigration.ensureMigrated()
-        require(!MnnLocalProviderStateStore.isBuiltinProfileId(profileId)) { "builtin provider is read only" }
         val mmkv = MMKV.defaultMMKV()
         val normalizedId = profileId.trim()
         val deletedOfficialProfileIds = readDeletedOfficialProfileIds(mmkv)
@@ -249,14 +240,11 @@ object ModelProviderConfigStore {
             mmkv.encode(KEY_EDITING_PROFILE_ID, current.first().id)
             syncLegacyFlatConfig(mmkv, current.first())
         }
-        return withBuiltin(current)
+        return current
     }
 
     fun getConfig(): ModelProviderConfig {
         val profile = getEditingProfile()
-        if (profile.readOnly && MnnLocalProviderStateStore.isBuiltinProfileId(profile.id)) {
-            return MnnLocalProviderStateStore.getConfig()
-        }
         return ModelProviderConfig(
             id = profile.id,
             name = profile.name,
@@ -391,19 +379,6 @@ object ModelProviderConfigStore {
         )
     }
 
-    internal fun readLegacyConfigForScope(mmkv: MMKV, userId: String?): ModelProviderConfig {
-        val baseUrl = readScopedString(mmkv, LEGACY_API_BASE_OVERRIDE_KEY, userId)
-            ?.let(::normalizeBaseUrl)
-            .orEmpty()
-        val apiKey = readScopedString(mmkv, LEGACY_API_KEY_OVERRIDE_KEY, userId).orEmpty()
-        return ModelProviderConfig(
-            baseUrl = baseUrl,
-            apiKey = apiKey,
-            customHeaders = emptyMap(),
-            source = "legacy_vlm"
-        )
-    }
-
     internal fun scopedKey(key: String, userId: String?): String {
         return if (userId.isNullOrBlank()) key else "user_${userId}_$key"
     }
@@ -523,9 +498,6 @@ object ModelProviderConfigStore {
         if (normalizedRequested == "custom") {
             return "custom"
         }
-        if (normalizedRequested == "omniinfer") {
-            return normalizedRequested
-        }
         OfficialProviderRegistry.findByKey(normalizedRequested)?.let { return it.key }
         OfficialProviderRegistry.findByKey(existingSourceType)?.let { return it.key }
         OfficialProviderRegistry.findByProfileId(profileId)?.let { return it.key }
@@ -586,20 +558,6 @@ object ModelProviderConfigStore {
             OfficialProviderRegistry.findByProfileId(normalizedId) != null
     }
 
-    private fun withBuiltin(profiles: List<ModelProviderProfile>): List<ModelProviderProfile> {
-        if (!MnnLocalProviderStateStore.isEnabled()) {
-            return profiles.filterNot { MnnLocalProviderStateStore.isBuiltinProfileId(it.id) }
-                .ifEmpty { defaultProfiles() }
-        }
-        val builtIn = MnnLocalProviderStateStore.getProfile()
-        return buildList {
-            add(builtIn)
-            profiles
-                .filterNot { it.id == builtIn.id }
-                .forEach(::add)
-        }
-    }
-
     private fun generateProfileId(profiles: List<ModelProviderProfile>): String {
         var nextIndex = profiles.size + 1
         while (true) {
@@ -657,9 +615,6 @@ object ModelProviderConfigStore {
         val normalized = profiles.mapIndexedNotNull { index, profile ->
             val id = profile.id.trim().takeIf { it.isNotEmpty() }
                 ?: return@mapIndexedNotNull null
-            if (MnnLocalProviderStateStore.isBuiltinProfileId(id)) {
-                return@mapIndexedNotNull null
-            }
             StoredModelProviderProfile(
                 id = id,
                 name = profile.name.trim().ifEmpty { "Provider ${index + 1}" },
@@ -812,13 +767,7 @@ object ModelProviderConfigStore {
                     )
                 }
 
-                val legacyModel = readScopedString(mmkv, LEGACY_MODEL_OVERRIDE_KEY, legacyUserId)
-                    ?.takeIf { SceneModelOverrideStore.isValidModelName(it) }
-                    ?: readScopedString(mmkv, LEGACY_MODEL_OVERRIDE_KEY, null)
-                        ?.takeIf { SceneModelOverrideStore.isValidModelName(it) }
-                if (legacyModel != null) {
-                    mergedOverrides.putIfAbsent(PRIMARY_SCENE, legacyModel)
-                } else if (
+                if (
                     (providerConfig.baseUrl.isNotBlank() || providerConfig.apiKey.isNotBlank()) &&
                     !mergedOverrides.containsKey(PRIMARY_SCENE)
                 ) {
@@ -843,10 +792,6 @@ object ModelProviderConfigStore {
                     add(readConfigForScope(mmkv, userId))
                 }
                 add(readConfigForScope(mmkv, null))
-                if (!userId.isNullOrBlank()) {
-                    add(readLegacyConfigForScope(mmkv, userId))
-                }
-                add(readLegacyConfigForScope(mmkv, null))
                 add(readConfig(mmkv))
             }
             return candidates.firstOrNull { it.baseUrl.isNotBlank() || it.apiKey.isNotBlank() }

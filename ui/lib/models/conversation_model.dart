@@ -5,7 +5,7 @@ enum ConversationMode {
   chatOnly('chat_only'),
   openclaw('openclaw'),
   subagent('subagent'),
-  codex('codex');
+  agent('codex');
 
   const ConversationMode(this.storageValue);
 
@@ -22,11 +22,12 @@ enum ConversationMode {
   }
 
   String get displayLabel => switch (this) {
-    ConversationMode.normal => LegacyTextLocalizer.localize('普通'),
+    ConversationMode.normal => LegacyTextLocalizer.localize('小万'),
     ConversationMode.chatOnly => LegacyTextLocalizer.localize('纯聊天'),
     ConversationMode.openclaw => 'OpenClaw',
     ConversationMode.subagent => 'SubAgent',
-    ConversationMode.codex => 'Codex',
+    // `codex` 仅保留为旧数据库的持久化值，代码语义统一使用 Agent。
+    ConversationMode.agent => 'Agent',
   };
 }
 
@@ -34,9 +35,13 @@ class ConversationModel {
   final int id;
   final ConversationMode mode;
 
-  /// codex 模式会话绑定的工作目录（来自原生 codex_thread_bindings 表），
+  /// Agent 模式会话绑定的工作目录。
   /// 其余模式恒为 null。
-  final String? codexCwd;
+  final String? agentCwd;
+
+  /// Agent 模式会话绑定的 ACP Agent。
+  /// 用于在切换会话时立即恢复正确的品牌和运行时。
+  final String? agentId;
   final bool isArchived;
   final bool isPinned;
   final int? parentConversationId;
@@ -59,7 +64,8 @@ class ConversationModel {
   ConversationModel({
     required this.id,
     this.mode = ConversationMode.normal,
-    this.codexCwd,
+    this.agentCwd,
+    this.agentId,
     this.isArchived = false,
     this.isPinned = false,
     this.parentConversationId,
@@ -84,8 +90,15 @@ class ConversationModel {
     return ConversationModel(
       id: (json['id'] as num?)?.toInt() ?? 0,
       mode: ConversationMode.fromStorageValue(json['mode'] as String?),
-      codexCwd: (json['codexCwd'] as String?)?.trim().isNotEmpty == true
-          ? (json['codexCwd'] as String).trim()
+      agentCwd:
+          ((json['agentCwd'] ?? json['codexCwd']) as String?)
+                  ?.trim()
+                  .isNotEmpty ==
+              true
+          ? ((json['agentCwd'] ?? json['codexCwd']) as String).trim()
+          : null,
+      agentId: json['agentId']?.toString().trim().isNotEmpty == true
+          ? json['agentId'].toString().trim()
           : null,
       isArchived: json['isArchived'] as bool? ?? false,
       isPinned: json['isPinned'] as bool? ?? false,
@@ -120,7 +133,8 @@ class ConversationModel {
     return {
       'id': id,
       'mode': mode.storageValue,
-      'codexCwd': codexCwd,
+      'agentCwd': agentCwd,
+      'agentId': agentId,
       'isArchived': isArchived,
       'isPinned': isPinned,
       'parentConversationId': parentConversationId,
@@ -145,7 +159,8 @@ class ConversationModel {
   ConversationModel copyWith({
     int? id,
     ConversationMode? mode,
-    String? codexCwd,
+    String? agentCwd,
+    String? agentId,
     bool? isArchived,
     bool? isPinned,
     int? parentConversationId,
@@ -168,7 +183,8 @@ class ConversationModel {
     return ConversationModel(
       id: id ?? this.id,
       mode: mode ?? this.mode,
-      codexCwd: codexCwd ?? this.codexCwd,
+      agentCwd: agentCwd ?? this.agentCwd,
+      agentId: agentId ?? this.agentId,
       isArchived: isArchived ?? this.isArchived,
       isPinned: isPinned ?? this.isPinned,
       parentConversationId: parentConversationId ?? this.parentConversationId,
@@ -227,11 +243,11 @@ class ConversationModel {
 
   DateTime get updatedDate => DateTime.fromMillisecondsSinceEpoch(updatedAt);
 
-  /// codex 会话所属项目名：工作目录的最后一段路径（如 /root/blog → blog）。
-  String? get codexProjectName {
-    final normalized = (codexCwd ?? '').trim().replaceAll(RegExp(r'/+$'), '');
+  /// Agent 会话所属项目名：工作目录的最后一段路径（如 /root/blog → blog）。
+  String? get agentProjectName {
+    final normalized = (agentCwd ?? '').trim().replaceAll(RegExp(r'/+$'), '');
     if (normalized.isEmpty) {
-      return (codexCwd ?? '').trim() == '/' ? '/' : null;
+      return (agentCwd ?? '').trim() == '/' ? '/' : null;
     }
     final segments = normalized
         .split('/')

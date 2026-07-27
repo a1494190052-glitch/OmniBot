@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:ui';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
@@ -11,9 +10,7 @@ import 'package:ui/services/storage_service.dart';
 import 'package:ui/constants/openclaw/openclaw_keys.dart';
 import 'package:ui/features/home/pages/common/openclaw_connection_checker.dart';
 import 'package:ui/theme/theme_context.dart';
-import 'package:ui/utils/data_parser.dart';
 import 'package:ui/utils/ui.dart';
-import 'package:ui/widgets/image/cached_image.dart';
 
 import 'chat_bot_sheet.dart';
 import 'widgets/chat_input_area.dart';
@@ -37,8 +34,6 @@ class _CommandOverlayState extends State<CommandOverlay> {
   final List<ChatInputAttachment> _pendingAttachments = <ChatInputAttachment>[];
 
   bool _isPopupVisible = false;
-  Map<String, dynamic>? _scheduleInfo;
-  int _countdownSeconds = 0;
   double _chatInputAreaHeight = 44;
   bool _openClawEnabled = false;
   String _openClawBaseUrl = '';
@@ -59,7 +54,6 @@ class _CommandOverlayState extends State<CommandOverlay> {
     super.initState();
     _inputFocusNode.addListener(_onFocusChange);
     _messageController.addListener(_handleSlashCommandInput);
-    _onGetScheduleTaskInfo();
     _loadOpenClawConfig();
 
     // 预热 Suggestion 图标到内存缓存
@@ -337,70 +331,8 @@ class _CommandOverlayState extends State<CommandOverlay> {
     return true;
   }
 
-  Future<void> _onGetScheduleTaskInfo() async {
-    final result = await AssistsMessageService.getScheduleTaskInfo();
-    debugPrint('<<< getScheduleTaskInfo 返回: $result');
-
-    if (result != null && mounted) {
-      final hasScheduleTask = result['hasScheduleTask'] as bool? ?? false;
-      if (hasScheduleTask) {
-        setState(() {
-          _scheduleInfo = result;
-        });
-        // 计算并启动倒计时
-        await _calculateRemainingTime();
-        _startCountdown();
-      }
-    }
-  }
-
-  Timer? _countdownTimer;
-
-  Future<void> _calculateRemainingTime() async {
-    if (_scheduleInfo == null) return;
-
-    final startTimeStamp = _scheduleInfo!['startTimeStamp'] as int? ?? 0;
-    final delayTimes = _scheduleInfo!['delayTimes'] as int? ?? 0;
-
-    if (startTimeStamp > 0 && delayTimes > 0) {
-      final currentNanoTime = await AssistsMessageService.getNanoTime();
-      if (currentNanoTime != null) {
-        final elapsedMs = currentNanoTime - startTimeStamp;
-        final remainingMs = (delayTimes * 1000) - elapsedMs;
-        _countdownSeconds = remainingMs > 0 ? (remainingMs / 1000).ceil() : 0;
-      } else {
-        _countdownSeconds = 0;
-      }
-    } else {
-      _countdownSeconds = 0;
-    }
-    if (mounted) {
-      setState(() {});
-    }
-  }
-
-  void _startCountdown() {
-    _countdownTimer?.cancel();
-    _countdownTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
-      if (_countdownSeconds > 0 && mounted) {
-        setState(() {
-          _countdownSeconds--;
-        });
-      } else {
-        timer.cancel();
-      }
-    });
-  }
-
-  String _formatCountdown() {
-    final minutes = _countdownSeconds ~/ 60;
-    final seconds = _countdownSeconds % 60;
-    return '${minutes.toString().padLeft(2, '0')}:${seconds.toString().padLeft(2, '0')}';
-  }
-
   @override
   void dispose() {
-    _countdownTimer?.cancel();
     _messageController.removeListener(_handleSlashCommandInput);
     _messageController.dispose();
     _inputFocusNode.dispose();
@@ -803,104 +735,7 @@ class _CommandOverlayState extends State<CommandOverlay> {
                     _chatInputAreaKey.currentState?.buildPopupMenu() ??
                     const SizedBox.shrink(),
               ),
-            if (_scheduleInfo != null &&
-                (_scheduleInfo!['scheduleStatus'] == 'SCHEDULED' ||
-                    _scheduleInfo!['scheduleStatus'] == 'FAILED'))
-              Positioned(
-                right: 24,
-                bottom: bottomPadding + 52 + inputHeaderOffset,
-                child: _buildScheduleBubble(),
-              ),
           ],
-        ),
-      ),
-    );
-  }
-
-  /// 点击预约气泡后显示预约卡片
-  void _showScheduleSheet() {
-    final wasFailedOnEnter = _scheduleInfo?['scheduleStatus'] == 'FAILED';
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      barrierColor: Colors.black.withValues(alpha: 0),
-      // 禁用 showModalBottomSheet 的默认拖动关闭行为
-      enableDrag: false,
-      builder: (context) => ChatBotSheet(
-        initialScheduleInfo: _scheduleInfo,
-        openClawEnabled: _openClawEnabled,
-      ),
-    ).then((_) {
-      ScreenDialogService.closeChatBotDialog();
-      if (wasFailedOnEnter) {
-        AssistsMessageService.clearScheduleTask();
-      }
-    });
-  }
-
-  Widget _buildScheduleBubble() {
-    final extraJsonStr =
-        safeDecodeMap(_scheduleInfo?['taskParamsJson'])?['extraJson'] ?? '';
-    final extraJson = safeDecodeMap(extraJsonStr);
-    final taskIconUrl = extraJson['taskIconUrl'] as String? ?? '';
-    final scheduleStatus = _scheduleInfo?['scheduleStatus'] as String? ?? '';
-    final bool isFailed = scheduleStatus == 'FAILED';
-    final String statusText;
-    if (isFailed) {
-      statusText = '任务失败';
-    } else if (_countdownSeconds <= 0) {
-      statusText = '正在执行';
-    } else {
-      statusText = '${_formatCountdown()} 后下单';
-    }
-
-    return GestureDetector(
-      onTap: _showScheduleSheet,
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(21),
-        child: BackdropFilter(
-          filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
-          child: Container(
-            height: 26,
-            padding: const EdgeInsets.fromLTRB(6, 4, 12, 4),
-            decoration: ShapeDecoration(
-              color: const Color(0x99353E53), // rgba(53,62,83,0.6)
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(21),
-              ),
-            ),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              mainAxisAlignment: MainAxisAlignment.start,
-              crossAxisAlignment: CrossAxisAlignment.center,
-              children: [
-                if (taskIconUrl.isNotEmpty) ...[
-                  ClipRRect(
-                    borderRadius: BorderRadius.circular(99),
-                    child: CachedImage(
-                      imageUrl: taskIconUrl,
-                      width: 16,
-                      height: 16,
-                      fit: BoxFit.cover,
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                ],
-                Text(
-                  statusText,
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 12,
-                    fontFamily: 'PingFang SC',
-                    fontWeight: FontWeight.w400,
-                    height: 1.50,
-                    letterSpacing: 0.333,
-                  ),
-                ),
-              ],
-            ),
-          ),
         ),
       ),
     );

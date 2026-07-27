@@ -78,12 +78,17 @@ class MemoryToolHandler(
                     helper.reportToolProgress(callback, toolName, "正在写入当日记忆")
                     val text = args["text"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty()
                     require(text.isNotEmpty()) { "text 不能为空" }
-                    val file = env.workspaceMemoryService.appendDailyMemory(text)
-                    val payload = mapOf("path" to file.absolutePath, "summary" to "已写入当日记忆")
+                    val inserted = env.workspaceMemoryService.appendDailyMemoryIfNovel(text)
+                    val payload = mapOf(
+                        "inserted" to inserted,
+                        "summary" to if (inserted) "已写入当日记忆" else "检测到重复，已跳过"
+                    )
                     val payloadJson = helper.encodeLocalizedPayload(payload)
                     ToolExecutionResult.ContextResult(
                         toolName = toolName,
-                        summaryText = helper.localized("已写入当日短期记忆。"),
+                        summaryText = helper.localized(
+                            if (inserted) "已写入当日短期记忆。" else "当日短期记忆已存在同类条目，跳过写入。"
+                        ),
                         previewJson = payloadJson, rawResultJson = payloadJson, success = true
                     )
                 }

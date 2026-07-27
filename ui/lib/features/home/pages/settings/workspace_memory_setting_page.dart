@@ -1,10 +1,7 @@
-import 'dart:async';
-
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:ui/core/router/go_router_manager.dart';
 import 'package:ui/l10n/l10n.dart';
-import 'package:ui/services/assists_core_service.dart';
 import 'package:ui/services/workspace_memory_service.dart';
 import 'package:ui/theme/app_colors.dart';
 import 'package:ui/theme/theme_context.dart';
@@ -34,33 +31,15 @@ class _WorkspaceMemorySettingPageState
   bool _rollupEnabled = true;
   WorkspaceMemoryEmbeddingConfig? _embeddingConfig;
   WorkspaceMemoryRollupStatus? _rollupStatus;
-  StreamSubscription<AgentAiConfigChangedEvent>? _configChangedSubscription;
 
   @override
   void initState() {
     super.initState();
     _loadAll();
-    _configChangedSubscription = AssistsMessageService
-        .agentAiConfigChangedStream
-        .listen((event) {
-          if (event.source != 'file' || !mounted) {
-            return;
-          }
-          if (event.path.endsWith('/SOUL.md')) {
-            unawaited(_refreshSoulDocument());
-            return;
-          }
-          if (event.path.endsWith('/CHAT.md')) {
-            unawaited(_refreshChatDocument());
-            return;
-          }
-          unawaited(_refreshCapabilityState());
-        });
   }
 
   @override
   void dispose() {
-    _configChangedSubscription?.cancel();
     _soulController.dispose();
     _chatController.dispose();
     _memoryController.dispose();
@@ -71,8 +50,8 @@ class _WorkspaceMemorySettingPageState
     setState(() => _loading = true);
     try {
       final results = await Future.wait([
-        WorkspaceMemoryService.getSoul(),
-        WorkspaceMemoryService.getChatPrompt(),
+        WorkspaceMemoryService.getAgentSoulSetting(),
+        WorkspaceMemoryService.getChatPromptSetting(),
         WorkspaceMemoryService.getLongMemory(),
         WorkspaceMemoryService.getEmbeddingConfig(),
         WorkspaceMemoryService.getRollupStatus(),
@@ -101,55 +80,17 @@ class _WorkspaceMemorySettingPageState
     }
   }
 
-  Future<void> _refreshCapabilityState() async {
-    try {
-      final results = await Future.wait([
-        WorkspaceMemoryService.getEmbeddingConfig(),
-        WorkspaceMemoryService.getRollupStatus(),
-      ]);
-      if (!mounted) return;
-      final embedding = results[0] as WorkspaceMemoryEmbeddingConfig;
-      final rollup = results[1] as WorkspaceMemoryRollupStatus;
-      setState(() {
-        _embeddingConfig = embedding;
-        _rollupStatus = rollup;
-        _embeddingEnabled = embedding.enabled;
-        _rollupEnabled = rollup.enabled;
-      });
-    } catch (_) {
-      // Keep current UI state when passive refresh fails.
-    }
-  }
-
-  Future<void> _refreshSoulDocument() async {
-    try {
-      final soul = await WorkspaceMemoryService.getSoul();
-      if (!mounted) return;
-      _soulController.text = soul;
-    } catch (_) {
-      // Keep current UI state when passive refresh fails.
-    }
-  }
-
-  Future<void> _refreshChatDocument() async {
-    try {
-      final chatPrompt = await WorkspaceMemoryService.getChatPrompt();
-      if (!mounted) return;
-      _chatController.text = chatPrompt;
-    } catch (_) {
-      // Keep current UI state when passive refresh fails.
-    }
-  }
-
   Future<void> _saveSoul() async {
     setState(() => _savingSoul = true);
     try {
-      final saved = await WorkspaceMemoryService.saveSoul(_soulController.text);
+      final saved = await WorkspaceMemoryService.saveAgentSoulSetting(
+        _soulController.text,
+      );
       if (!mounted) return;
       _soulController.text = saved;
-      showToast(context.l10n.workspaceSoulSaved, type: ToastType.success);
+      showToast(context.l10n.agentSoulSaved, type: ToastType.success);
     } catch (e) {
-      showToast(context.l10n.workspaceSoulSaveFailed, type: ToastType.error);
+      showToast(context.l10n.agentSoulSaveFailed, type: ToastType.error);
     } finally {
       if (mounted) {
         setState(() => _savingSoul = false);
@@ -160,14 +101,14 @@ class _WorkspaceMemorySettingPageState
   Future<void> _saveChatPrompt() async {
     setState(() => _savingChat = true);
     try {
-      final saved = await WorkspaceMemoryService.saveChatPrompt(
+      final saved = await WorkspaceMemoryService.saveChatPromptSetting(
         _chatController.text,
       );
       if (!mounted) return;
       _chatController.text = saved;
-      showToast(context.l10n.workspaceChatSaved, type: ToastType.success);
+      showToast(context.l10n.chatPromptSaved, type: ToastType.success);
     } catch (e) {
-      showToast(context.l10n.workspaceChatSaveFailed, type: ToastType.error);
+      showToast(context.l10n.chatPromptSaveFailed, type: ToastType.error);
     } finally {
       if (mounted) {
         setState(() => _savingChat = false);
@@ -204,7 +145,10 @@ class _WorkspaceMemorySettingPageState
     } catch (e) {
       if (!mounted) return;
       setState(() => _embeddingEnabled = !enabled);
-      showToast(context.l10n.workspaceEmbeddingToggleFailed, type: ToastType.error);
+      showToast(
+        context.l10n.workspaceEmbeddingToggleFailed,
+        type: ToastType.error,
+      );
     }
   }
 
@@ -217,7 +161,10 @@ class _WorkspaceMemorySettingPageState
     } catch (e) {
       if (!mounted) return;
       setState(() => _rollupEnabled = !enabled);
-      showToast(context.l10n.workspaceRollupToggleFailed, type: ToastType.error);
+      showToast(
+        context.l10n.workspaceRollupToggleFailed,
+        type: ToastType.error,
+      );
     }
   }
 
@@ -225,7 +172,9 @@ class _WorkspaceMemorySettingPageState
     try {
       final result = await WorkspaceMemoryService.runRollupNow();
       if (!mounted) return;
-      showToast((result?['summary'] ?? context.l10n.workspaceRollupDone).toString());
+      showToast(
+        (result?['summary'] ?? context.l10n.workspaceRollupDone).toString(),
+      );
       await _loadAll();
     } on PlatformException catch (e) {
       final message = e.message?.trim();
@@ -234,7 +183,10 @@ class _WorkspaceMemorySettingPageState
           : '${context.l10n.workspaceRollupFailed}：$message';
       showToast(errorText, type: ToastType.error);
     } catch (e) {
-      showToast('${context.l10n.workspaceRollupFailed}：$e', type: ToastType.error);
+      showToast(
+        '${context.l10n.workspaceRollupFailed}：$e',
+        type: ToastType.error,
+      );
     }
   }
 
@@ -252,13 +204,18 @@ class _WorkspaceMemorySettingPageState
       backgroundColor: context.isDarkTheme
           ? palette.pageBackground
           : AppColors.background,
-      appBar: CommonAppBar(title: context.l10n.workspaceMemoryTitle, primary: true),
+      appBar: CommonAppBar(
+        title: context.l10n.workspaceMemoryTitle,
+        primary: true,
+      ),
       body: _loading
           ? const Center(child: CircularProgressIndicator())
           : ListView(
               padding: const EdgeInsets.fromLTRB(18, 12, 18, 28),
               children: [
-                SettingsSectionTitle(label: context.l10n.workspaceMemoryCapability),
+                SettingsSectionTitle(
+                  label: context.l10n.workspaceMemoryCapability,
+                ),
                 _buildSwitchCard(
                   title: context.l10n.workspaceEmbeddingRetrieval,
                   subtitle: _embeddingConfig?.configured == true
@@ -289,16 +246,18 @@ class _WorkspaceMemorySettingPageState
                   ),
                 ),
                 const SizedBox(height: 18),
-                SettingsSectionTitle(label: context.l10n.workspaceDocContent),
+                SettingsSectionTitle(
+                  label: context.l10n.workspaceSettingsAndMemory,
+                ),
                 _buildEditorCard(
-                  title: context.l10n.workspaceSoulMd,
+                  title: context.l10n.agentSoulSetting,
                   controller: _soulController,
                   saving: _savingSoul,
                   onSave: _saveSoul,
                 ),
                 const Divider(height: 24),
                 _buildEditorCard(
-                  title: context.l10n.workspaceChatMd,
+                  title: context.l10n.chatPromptSetting,
                   controller: _chatController,
                   saving: _savingChat,
                   onSave: _saveChatPrompt,

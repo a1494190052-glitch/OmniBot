@@ -254,34 +254,6 @@ class McpFileReceiverActivity : ComponentActivity() {
         if (records.isEmpty()) return 0
         val fileNames = records.map { it.fileName }.distinct()
 
-        val message = if (fileNames.size == 1) {
-            """
-            |═══════════════════════════════════════
-            |✅ 文件接收成功
-            |═══════════════════════════════════════
-            |文件: ${fileNames.first()}
-            |状态: 已在小万中完全接收
-            |提示: 任务目标已达成，可以使用 COMPLETE 动作结束
-            |═══════════════════════════════════════
-            """.trimMargin()
-        } else {
-            """
-            |═══════════════════════════════════════
-            |✅ 批量文件接收成功
-            |═══════════════════════════════════════
-            |数量: ${fileNames.size}个文件
-            |文件: ${fileNames.joinToString("、")}
-            |状态: 已在小万中完全接收
-            |提示: 任务目标已达成，可以使用 COMPLETE 动作结束
-            |═══════════════════════════════════════
-            """.trimMargin()
-        }
-
-        cn.com.omnimind.bot.util.AssistsUtil.Core.appendVlmPriorityEvent(
-            memory = message,
-            eventType = "file_received",
-            suggestCompletion = true,
-        )
         return records.size
     }
 

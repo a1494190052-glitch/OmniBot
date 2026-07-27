@@ -37,8 +37,8 @@ class ChatEmptyGreeting extends StatelessWidget {
   final List<HomeQuickPrompt> quickPrompts;
   final List<String> pinnedQuickPromptIds;
   final ValueChanged<HomeQuickPrompt>? onQuickPromptSelected;
-  final String? codexWorkspaceName;
-  final VoidCallback? onCodexWorkspaceTap;
+  final String? agentWorkspaceName;
+  final VoidCallback? onAgentWorkspaceTap;
 
   const ChatEmptyGreeting({
     super.key,
@@ -49,8 +49,8 @@ class ChatEmptyGreeting extends StatelessWidget {
     this.quickPrompts = const <HomeQuickPrompt>[],
     this.pinnedQuickPromptIds = const <String>[],
     this.onQuickPromptSelected,
-    this.codexWorkspaceName,
-    this.onCodexWorkspaceTap,
+    this.agentWorkspaceName,
+    this.onAgentWorkspaceTap,
   });
 
   @override
@@ -64,8 +64,8 @@ class ChatEmptyGreeting extends StatelessWidget {
         MediaQuery.maybeOf(context)?.disableAnimations ?? false;
     final headline = isEnglish ? "Hi 👋, I'm Omnibot" : '你好👋，我是小万';
     final prefix = isEnglish ? 'I can help you' : '我可以帮助你';
-    final workspaceName = codexWorkspaceName?.trim() ?? '';
-    final useCodexWorkspaceGreeting = workspaceName.isNotEmpty;
+    final workspaceName = agentWorkspaceName?.trim() ?? '';
+    final useAgentWorkspaceGreeting = workspaceName.isNotEmpty;
     final words = isEnglish ? _kChatGreetingWordsEn : _kChatGreetingWordsZh;
     final fontSize = compact ? 17.0 : 19.0;
     final headlineStyle = TextStyle(
@@ -101,7 +101,7 @@ class ChatEmptyGreeting extends StatelessWidget {
     );
 
     return Semantics(
-      label: useCodexWorkspaceGreeting
+      label: useAgentWorkspaceGreeting
           ? (isEnglish
                 ? '$headline\nWhat can we do in $workspaceName?'
                 : '$headline\n可以在$workspaceName中做点什么')
@@ -136,7 +136,7 @@ class ChatEmptyGreeting extends StatelessWidget {
               children: [
                 Text(headline, textAlign: TextAlign.left, style: headlineStyle),
                 const SizedBox(height: 6),
-                if (useCodexWorkspaceGreeting)
+                if (useAgentWorkspaceGreeting)
                   Wrap(
                     alignment: WrapAlignment.start,
                     crossAxisAlignment: WrapCrossAlignment.center,
@@ -147,10 +147,10 @@ class ChatEmptyGreeting extends StatelessWidget {
                         isEnglish ? 'What can we do in' : '可以在',
                         style: helperStyle,
                       ),
-                      _CodexWorkspaceNameButton(
+                      _AgentWorkspaceNameButton(
                         label: workspaceName,
                         style: keywordStyle,
-                        onTap: onCodexWorkspaceTap,
+                        onTap: onAgentWorkspaceTap,
                       ),
                       Text(isEnglish ? '?' : '中做点什么', style: helperStyle),
                     ],
@@ -186,8 +186,8 @@ class ChatEmptyGreeting extends StatelessWidget {
   }
 }
 
-class _CodexWorkspaceNameButton extends StatelessWidget {
-  const _CodexWorkspaceNameButton({
+class _AgentWorkspaceNameButton extends StatelessWidget {
+  const _AgentWorkspaceNameButton({
     required this.label,
     required this.style,
     this.onTap,

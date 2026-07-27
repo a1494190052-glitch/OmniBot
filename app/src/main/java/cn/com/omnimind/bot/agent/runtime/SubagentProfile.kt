@@ -70,8 +70,6 @@ object SubagentProfileRegistry {
                 "skills_list", "skills_read",
                 // 网络
                 "browser_use",
-                // 视觉自动化
-                "vlm_task",
                 // 媒体
                 "music_playback_control",
                 // 调度只读(查询不写)

@@ -93,9 +93,6 @@ object OfficialProviderRegistry {
         baseUrl: String?
     ): String {
         val normalized = sourceType?.trim()?.lowercase().orEmpty()
-        if (normalized == "omniinfer") {
-            return normalized
-        }
         findByKey(normalized)?.let { return it.key }
         findByProfileId(profileId)?.let { return it.key }
         findByBaseUrl(baseUrl)?.let { return it.key }

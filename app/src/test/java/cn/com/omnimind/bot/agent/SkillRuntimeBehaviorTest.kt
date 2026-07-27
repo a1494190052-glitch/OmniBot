@@ -9,7 +9,6 @@ import org.junit.Test
 import cn.com.omnimind.bot.agent.tool.handlers.decodeImageWriteContentForFileName
 import cn.com.omnimind.bot.agent.tool.handlers.ImageGenerationToolHandler
 import cn.com.omnimind.bot.agent.tool.handlers.normalizeSvgWriteContentForFileName
-import cn.com.omnimind.bot.agent.tool.handlers.normalizeHatchPetWrite
 import java.io.File
 import java.nio.file.Files
 
@@ -74,74 +73,30 @@ class SkillRuntimeBehaviorTest {
     }
 
     @Test
-    fun resolveMatchesHatchPetFromStructuredChinesePetPrompt() {
+    fun resolveMatchesInstallCodexPetFromCliRequest() {
         val matches = SkillTriggerMatcher.resolveMatches(
-            userMessage = """
-                帮我创建一只电子宠物。
-                宠物名称：mimibear
-                宠物类型：像素风小白熊
-                视觉风格：极简，圆润可爱，轮廓清晰，适合桌面悬浮
-                性格设定：温柔但认真
-            """.trimIndent(),
+            userMessage = "帮我执行 npx codex-pets add claude-pixel 安装宠物",
             entries = listOf(
                 entry(
-                    id = "hatch-pet",
-                    description = "Create an Omnibot 电子宠物 / 悬浮窗宠物 from prompts with 宠物名称, 宠物类型, 视觉风格, 性格设定."
+                    id = "install-codex-pet",
+                    description = "Install shared Codex pet packages into Omnibot. Use for commands such as \"npx codex-pets add\"."
                 )
             )
         )
 
-        assertTrue(matches.any { it.entry.id == "hatch-pet" })
+        assertTrue(matches.any { it.entry.id == "install-codex-pet" })
     }
 
     @Test
-    fun resolveMatchesHatchPetWhenUserOmitsHyphen() {
-        val matches = SkillTriggerMatcher.resolveMatches(
-            userMessage = "我想用 hatch pet 功能生成一个金毛宠物",
-            entries = listOf(
-                entry(
-                    id = "hatch-pet",
-                    description = "Create custom pets."
-                )
-            )
-        )
-
-        assertTrue(matches.any { it.entry.id == "hatch-pet" })
-    }
-
-    @Test
-    fun builtinFunctionSkillOwnsRunLogEnhancementRules() {
-        val skillFile = File("src/main/assets/builtin_skills/function/SKILL.md")
-        val text = skillFile.readText()
-        val manifest = File("src/main/assets/builtin_skills/manifest.json").readText()
-
-        assertTrue(manifest.contains("\"id\": \"function\""))
-        assertTrue(text.contains("oob_run_log_get"))
-        assertTrue(text.contains("update_function"))
-        assertTrue(text.contains("patch.action_edits"))
-        assertTrue(text.contains("Conversion attempts offline enhancement by default"))
-        assertTrue(text.contains("retry with `update_function`"))
-        assertTrue(text.contains("Use `update_function` only for later"))
-        assertTrue(text.contains("copy XML, screenshots"))
-    }
-
-    @Test
-    fun builtinHatchPetSkillKeepsStandardPetOutputContract() {
-        val skillFile = File("src/main/assets/builtin_skills/hatch-pet/SKILL.md")
+    fun builtinInstallCodexPetSkillUsesCompatibleWorkspacePath() {
+        val skillFile = File("src/main/assets/builtin_skills/install-codex-pet/SKILL.md")
         val text = skillFile.readText()
 
-        assertTrue(text.contains("宠物名称"))
-        assertTrue(text.contains("use that exact name") || text.contains("exact name"))
-        assertTrue(text.contains("/workspace/.omnibot/pets/<pet-id>/spritesheet.webp"))
-        assertTrue(text.contains("/workspace/.omnibot/pets/<pet-id>/pet.json"))
-        assertTrue(text.contains("\"displayName\": \"mimibear\""))
-        assertTrue(text.contains("\"spritesheetPath\": \"spritesheet.webp\""))
-        assertTrue(text.contains("https://cloud.omnimind.com.cn"))
-        assertTrue(text.contains("gpt-image-2"))
-        assertFalse(Regex("""sk-[A-Za-z0-9]{20,}""").containsMatchIn(text))
-        assertTrue(text.contains("Do not create files outside `/workspace/.omnibot/pets/<pet-id>/`"))
-        assertTrue(text.contains("Never write"))
-        assertTrue(text.contains("/workspace/.codex/pets"))
+        assertTrue(text.contains("export CODEX_HOME=/workspace/.omnibot"))
+        assertTrue(text.contains("npx --yes codex-pets add claude-pixel"))
+        assertTrue(text.contains("validate_codex_pet.sh"))
+        assertTrue(File("src/main/assets/builtin_skills/install-codex-pet/scripts/validate_codex_pet.sh").isFile)
+        assertFalse(File("src/main/assets/builtin_skills/hatch-pet").exists())
     }
 
     @Test
@@ -180,140 +135,25 @@ class SkillRuntimeBehaviorTest {
     }
 
     @Test
-    fun hatchPetImageGenerationUsesBundledProviderEvenWhenUserProviderHasKey() {
+    fun imageGenerationUsesBundledProviderOnlyWhenUserProviderHasNoKey() {
+        assertFalse(
+            ImageGenerationToolHandler.shouldUseBundledImageProvider(
+                profileApiKey = "dashscope-user-key",
+                bundledApiKey = "sk-bundled"
+            )
+        )
         assertTrue(
             ImageGenerationToolHandler.shouldUseBundledImageProvider(
-                activeSkillIds = setOf("hatch-pet"),
-                profileApiKey = "dashscope-user-key",
+                profileApiKey = "",
                 bundledApiKey = "sk-bundled"
             )
         )
         assertFalse(
             ImageGenerationToolHandler.shouldUseBundledImageProvider(
-                activeSkillIds = emptySet(),
-                profileApiKey = "dashscope-user-key",
-                bundledApiKey = "sk-bundled"
-            )
-        )
-        assertTrue(
-            ImageGenerationToolHandler.shouldUseBundledImageProvider(
-                activeSkillIds = emptySet(),
                 profileApiKey = "",
-                bundledApiKey = "sk-bundled"
+                bundledApiKey = ""
             )
         )
-    }
-
-    @Test
-    fun normalizeHatchPetWritePinsFilesToPromptPetName() {
-        val override = normalizeHatchPetWrite(
-            rawPath = "/workspace/.omnibot/pets/white-bear/pet.json",
-            rawContent = """
-                {
-                  "id": "white-bear",
-                  "displayName": "小白熊",
-                  "imagePath": "pet.svg"
-                }
-            """.trimIndent(),
-            userMessage = """
-                帮我创建一只电子宠物。
-                宠物名称：mimibear
-                宠物类型：像素风小白熊
-                视觉风格：极简，圆润可爱，轮廓清晰，适合桌面悬浮
-                性格设定：温柔但认真，发现任务完成会开心提醒
-            """.trimIndent(),
-            activeSkillIds = setOf("hatch-pet")
-        )
-
-        assertNotNull(override)
-        assertEquals("/workspace/.omnibot/pets/mimibear/pet.json", override!!.path)
-        assertTrue(override.content.contains("\"id\": \"mimibear\""))
-        assertTrue(override.content.contains("\"displayName\": \"mimibear\""))
-        assertTrue(override.content.contains("\"imagePath\": \"current.svg\""))
-    }
-
-    @Test
-    fun normalizeHatchPetWriteUsesChinesePromptNameForInlineFields() {
-        val override = normalizeHatchPetWrite(
-            rawPath = "/workspace/.omnibot/pets/pet-1cb4cefe6f/current.svg",
-            rawContent = "<svg viewBox=\"0 0 512 512\"></svg>",
-            userMessage = "帮我创建一只电子宠物。 宠物名称：我是猫头鹰  宠物类型：像素风小猫头鹰 视觉风格：极简，聪明安静，眼睛明显，适合桌面悬浮 性格设定：稳重但贴心，等待输入时会安静陪伴 主要颜色：棕色 + 米白色脸盘 标志元素：脖子上戴一个小绿色书签吊坠",
-            activeSkillIds = setOf("hatch-pet")
-        )
-
-        assertNotNull(override)
-        assertEquals("/workspace/.omnibot/pets/我是猫头鹰/current.svg", override!!.path)
-        assertEquals("/workspace/.omnibot/pets/我是猫头鹰/pet.json", override.petJsonPath)
-        assertTrue(override.petJsonContent!!.contains("\"displayName\": \"我是猫头鹰\""))
-        assertTrue(override.petJsonContent!!.contains("\"petType\": \"像素风小猫头鹰\""))
-        assertTrue(override.petJsonContent!!.contains("\"mainColors\": \"棕色 + 米白色脸盘\""))
-        assertTrue(override.petJsonContent!!.contains("\"signatureElements\": \"脖子上戴一个小绿色书签吊坠\""))
-    }
-
-    @Test
-    fun normalizeHatchPetWriteCreatesMetadataForImageOnlyPetWrites() {
-        val override = normalizeHatchPetWrite(
-            rawPath = "/workspace/pets/jinmao.svg",
-            rawContent = "<svg viewBox=\"0 0 512 512\"></svg>",
-            userMessage = """
-                帮我创建一只电子宠物。
-                宠物名称：jinmao
-                宠物类型：像素风金毛
-                视觉风格：极简，轮廓清晰，适合桌面悬浮
-                性格设定：活泼但靠谱
-            """.trimIndent(),
-            activeSkillIds = setOf("hatch-pet")
-        )
-
-        assertNotNull(override)
-        assertEquals("/workspace/.omnibot/pets/jinmao/current.svg", override!!.path)
-        assertEquals("/workspace/.omnibot/pets/jinmao/pet.json", override.petJsonPath)
-        assertTrue(override.petJsonContent!!.contains("\"displayName\": \"jinmao\""))
-        assertTrue(override.petJsonContent!!.contains("\"imagePath\": \"current.svg\""))
-        assertTrue(override.petJsonContent!!.contains("像素风金毛"))
-    }
-
-    @Test
-    fun normalizeHatchPetWriteKeepsGeneratedDescriptionShort() {
-        val override = normalizeHatchPetWrite(
-            rawPath = "/workspace/pets/mini-bear.svg",
-            rawContent = "<svg viewBox=\"0 0 512 512\"></svg>",
-            userMessage = """
-                pet name: mini-bear
-                pet type: pixel white bear
-                visual style: minimal, round and cute, clear outline, suitable for desktop floating
-                personality: gentle but serious, happily reminds you when tasks are done
-                main colors: white + pale blue ears
-                signature elements: small blue star badge on the chest
-            """.trimIndent(),
-            activeSkillIds = setOf("hatch-pet")
-        )
-
-        assertNotNull(override)
-        val description = Regex("\"description\"\\s*:\\s*\"([^\"]+)\"")
-            .find(override!!.petJsonContent!!)
-            ?.groupValues
-            ?.get(1)
-        assertNotNull(description)
-        assertTrue(description!!.length <= 34)
-        assertFalse(description.contains("main colors"))
-        assertFalse(description.contains("signature"))
-    }
-
-    @Test
-    fun normalizeHatchPetWriteUsesPathNameWhenPromptNameIsMissing() {
-        val override = normalizeHatchPetWrite(
-            rawPath = "/workspace/.codex/pets/sparkfox/spritesheet.webp",
-            rawContent = "webp-bytes-placeholder",
-            userMessage = "用 hatch pet 生成一个红狐狸宠物",
-            activeSkillIds = setOf("hatch-pet")
-        )
-
-        assertNotNull(override)
-        assertEquals("/workspace/.omnibot/pets/sparkfox/spritesheet.webp", override!!.path)
-        assertEquals("/workspace/.omnibot/pets/sparkfox/pet.json", override.petJsonPath)
-        assertTrue(override.petJsonContent!!.contains("\"displayName\": \"sparkfox\""))
-        assertTrue(override.petJsonContent!!.contains("\"spritesheetPath\": \"spritesheet.webp\""))
     }
 
     @Test
@@ -373,18 +213,6 @@ class SkillRuntimeBehaviorTest {
         assertTrue(svg.contains("""fill="#ffdc50""""))
         assertTrue(svg.contains("""fill="#8b5a2b""""))
         assertTrue(svg.contains("""stroke="#111111""""))
-    }
-
-    @Test
-    fun normalizeHatchPetWriteIgnoresNonPetWrites() {
-        val override = normalizeHatchPetWrite(
-            rawPath = "/workspace/.omnibot/skills/skill-creator/SKILL.md",
-            rawContent = "hello",
-            userMessage = "帮我创建一只电子宠物。",
-            activeSkillIds = setOf("hatch-pet")
-        )
-
-        assertEquals(null, override)
     }
 
     @Test

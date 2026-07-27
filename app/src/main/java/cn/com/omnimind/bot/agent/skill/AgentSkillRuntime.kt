@@ -21,6 +21,7 @@ private const val SKILL_REGISTRY_FILE_NAME = ".skill_registry.json"
 private const val OFFICIAL_SKILLS_GITHUB_REPOSITORY_URL = "https://github.com/omnimind-ai/OmniBotSkills"
 private const val OFFICIAL_SKILLS_CNB_REPOSITORY_URL = "https://cnb.cool/o.a/OmniBotSkills"
 private const val OFFICIAL_SKILLS_DIRECTORY_NAME = "OmniBotSkills"
+private val RETIRED_BUILTIN_SKILL_IDS = setOf("hatch-pet")
 
 private data class BuiltinSkillManifest(
     val skills: List<BuiltinSkillAsset> = emptyList()
@@ -147,6 +148,27 @@ private class BuiltinSkillAssetStore(
         }
     }
 
+    fun pruneRetiredBuiltins(registryStore: SkillRegistryStore) {
+        val registry = registryStore.read()
+        var changed = false
+        RETIRED_BUILTIN_SKILL_IDS.forEach { skillId ->
+            val targetDir = File(workspaceManager.skillsRoot(), skillId)
+            val registryEntry = registry[skillId]
+            val isBundledCopy = registryEntry?.source == BUILTIN_SOURCE ||
+                (registryEntry == null && looksLikeRetiredBundledCopy(targetDir, skillId))
+            if (!isBundledCopy) {
+                return@forEach
+            }
+            val deleted = !targetDir.exists() || targetDir.deleteRecursively()
+            if (deleted && registry.remove(skillId) != null) {
+                changed = true
+            }
+        }
+        if (changed) {
+            registryStore.write(registry)
+        }
+    }
+
     fun installBuiltin(skillId: String, registryStore: SkillRegistryStore) {
         val builtin = findBuiltin(skillId)
             ?: throw IllegalArgumentException("未找到内置 skill：$skillId")
@@ -175,6 +197,15 @@ private class BuiltinSkillAssetStore(
             assetPath = builtin.assetPath,
             target = targetDir
         )
+    }
+
+    private fun looksLikeRetiredBundledCopy(targetDir: File, skillId: String): Boolean {
+        if (!targetDir.isDirectory) return false
+        val skillFile = File(targetDir, "SKILL.md")
+        if (!skillFile.isFile) return false
+        val text = runCatching { skillFile.readText() }.getOrDefault("")
+        return text.contains("name: $skillId") &&
+            text.contains("/workspace/.omnibot/pets/<pet-id>")
     }
 
     private fun copyAssetRecursively(
@@ -219,7 +250,10 @@ class SkillIndexService(
     }
 
     fun seedBuiltinSkillsIfNeeded() {
-        builtinStore().seedMissingBuiltins(registryStore())
+        val registryStore = registryStore()
+        val builtinStore = builtinStore()
+        builtinStore.pruneRetiredBuiltins(registryStore)
+        builtinStore.seedMissingBuiltins(registryStore)
     }
 
     fun listSkillsForManagement(): List<SkillIndexEntry> {
@@ -685,50 +719,7 @@ object SkillTriggerMatcher {
                 score += 0.35
             }
         }
-        if (entry.id == "hatch-pet" && looksLikePetCreationRequest(normalizedMessage)) {
-            score += 1.0
-        }
         return min(score, 1.5)
-    }
-
-    private fun looksLikePetCreationRequest(normalizedMessage: String): Boolean {
-        val hasPetTarget = listOf(
-            "电子宠物",
-            "悬浮窗宠物",
-            "自定义宠物",
-            "宠物名称",
-            "宠物类型",
-            "视觉风格",
-            "性格设定",
-            "生成宠物",
-            "创建宠物",
-            "设计宠物",
-            "做一个宠物",
-            "hatchpet"
-        ).any { normalizedMessage.contains(normalize(it)) }
-        if (!hasPetTarget) {
-            return false
-        }
-        val hasCreationIntent = listOf(
-            "创建",
-            "生成",
-            "设计",
-            "做一",
-            "做个",
-            "新建",
-            "替换",
-            "换成",
-            "hatchpet"
-        ).any { normalizedMessage.contains(normalize(it)) }
-        val hasStructuredPetSpec = listOf(
-            "宠物名称",
-            "宠物类型",
-            "视觉风格",
-            "性格设定",
-            "标志元素",
-            "主要颜色"
-        ).count { normalizedMessage.contains(normalize(it)) } >= 2
-        return hasCreationIntent || hasStructuredPetSpec
     }
 
     private fun extractCandidatePhrases(description: String): List<String> {

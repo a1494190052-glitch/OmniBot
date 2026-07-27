@@ -22,7 +22,7 @@ class _GuidePageData {
 class AutoStartGuideBottomSheet extends StatefulWidget {
   /// 点击"我已了解 去设置"的回调
   final VoidCallback? onGoToSettings;
-  
+
   /// 点击"已完成"的回调
   final VoidCallback? onCompleted;
 
@@ -63,7 +63,7 @@ class _AutoStartGuideBottomSheetState extends State<AutoStartGuideBottomSheet>
   static const List<_GuidePageData> _guidePages = [
     _GuidePageData(
       title: '打开"设置",搜索"应用启动管理"',
-      subtitle: '开启该权限后，可保证小万在后台持续为您提供陪伴，不会被系统识别为异常应用，您可通过搜索找到该功能',
+      subtitle: '开启该权限后，可保证后台任务和浮窗交互持续运行，不会被系统识别为异常应用，您可通过搜索找到该功能',
       imagePath: 'assets/welcome/auto_start_guide_1.png',
     ),
     _GuidePageData(
@@ -181,7 +181,7 @@ class _AutoStartGuideBottomSheetState extends State<AutoStartGuideBottomSheet>
           ),
           _buildSlideHint(),
           const SizedBox(height: 24),
-          _buildBottomButton(),            
+          _buildBottomButton(),
           // 安全区域
           SizedBox(height: bottomInset + 12),
         ],
@@ -215,7 +215,7 @@ class _AutoStartGuideBottomSheetState extends State<AutoStartGuideBottomSheet>
                 fontWeight: FontWeight.w400,
                 height: 1.50,
               ),
-            )
+            ),
           ),
         ],
       ),
@@ -294,33 +294,33 @@ class _AutoStartGuideBottomSheetState extends State<AutoStartGuideBottomSheet>
   }
 
   /// 构建滑动提示
-  Widget _buildSlideHint(){
+  Widget _buildSlideHint() {
     return Padding(
       padding: const EdgeInsets.only(top: 4),
       child: Center(
         child: _currentPage < _guidePages.length - 1
-          ? Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Text(
-                '滑动查看下一页',
-                style: TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w400,
-                  color: Color(0xFF3B74FF),
-                  height: 1.5,
-                ),
-              ),
-              const SizedBox(width: 4),
-              SvgPicture.asset(
-                'assets/welcome/next_page.svg',
-                width: 16,
-                height: 11,
-                color: const Color(0xFF3B74FF),
-              ),
-            ],
-          )
-          : const SizedBox(height: 18)
+            ? Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Text(
+                    '滑动查看下一页',
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w400,
+                      color: Color(0xFF3B74FF),
+                      height: 1.5,
+                    ),
+                  ),
+                  const SizedBox(width: 4),
+                  SvgPicture.asset(
+                    'assets/welcome/next_page.svg',
+                    width: 16,
+                    height: 11,
+                    color: const Color(0xFF3B74FF),
+                  ),
+                ],
+              )
+            : const SizedBox(height: 18),
       ),
     );
   }
@@ -339,10 +339,7 @@ class _AutoStartGuideBottomSheetState extends State<AutoStartGuideBottomSheet>
                 decoration: BoxDecoration(
                   color: Colors.white,
                   borderRadius: BorderRadius.circular(8),
-                  border: Border.all(
-                    color: AppColors.buttonPrimary,
-                    width: 1,
-                  ),
+                  border: Border.all(color: AppColors.buttonPrimary, width: 1),
                 ),
                 alignment: Alignment.center,
                 child: const Text(
@@ -367,7 +364,7 @@ class _AutoStartGuideBottomSheetState extends State<AutoStartGuideBottomSheet>
                 height: 40,
                 borderRadius: 8,
                 onTap: () {
-                  if(_showCompletedButton) {
+                  if (_showCompletedButton) {
                     _onCompleted();
                   }
                 },
@@ -376,12 +373,12 @@ class _AutoStartGuideBottomSheetState extends State<AutoStartGuideBottomSheet>
                   fontWeight: FontWeight.w500,
                   color: Colors.white,
                   letterSpacing: 0.39,
-                )
+                ),
+              ),
             ),
-            )
           ),
         ],
-      )
+      ),
     );
   }
 }

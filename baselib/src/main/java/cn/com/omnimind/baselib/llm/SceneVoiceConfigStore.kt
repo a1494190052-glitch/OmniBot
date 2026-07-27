@@ -22,6 +22,10 @@ object SceneVoiceConfigStore {
     const val STYLE_BEDTIME = "睡前轻声"
     const val STYLE_SING = "唱歌"
 
+    const val TTS_MODE_BUILTIN = "builtin"
+    const val TTS_MODE_CUSTOM_CURL = "custom_curl"
+    const val TEXT_PLACEHOLDER = "{{text}}"
+
     private val gson = Gson()
     private val defaultConfig = SceneVoiceConfig()
     private val allowedVoices = setOf(
@@ -37,6 +41,10 @@ object SceneVoiceConfigStore {
         STYLE_LIVELY,
         STYLE_BEDTIME,
         STYLE_SING
+    )
+    private val allowedTtsModes = setOf(
+        TTS_MODE_BUILTIN,
+        TTS_MODE_CUSTOM_CURL
     )
 
     fun getConfig(): SceneVoiceConfig {
@@ -65,11 +73,16 @@ object SceneVoiceConfigStore {
         val normalizedStylePreset = config.stylePreset.trim()
             .takeIf { allowedStylePresets.contains(it) }
             ?: defaultConfig.stylePreset
+        val normalizedTtsMode = config.ttsMode.trim()
+            .takeIf { allowedTtsModes.contains(it) }
+            ?: defaultConfig.ttsMode
         return SceneVoiceConfig(
             autoPlay = config.autoPlay,
             voiceId = normalizedVoiceId,
             stylePreset = normalizedStylePreset,
-            customStyle = config.customStyle.trim()
+            customStyle = config.customStyle.trim(),
+            ttsMode = normalizedTtsMode,
+            customCurlCommand = config.customCurlCommand.trim()
         )
     }
 

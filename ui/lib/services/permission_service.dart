@@ -293,18 +293,6 @@ class PermissionService {
               onAuthorize: () async {},
               checkAuthorization: () async => false,
             ),
-            kAccessibilityPermissionId => PermissionData(
-              id: kAccessibilityPermissionId,
-              iconPath: 'assets/welcome/permission_accessibility.svg',
-              iconWidth: 30,
-              iconHeight: 30,
-              name: LegacyTextLocalizer.isEnglish ? 'Accessibility' : '无障碍辅助权限',
-              description: LegacyTextLocalizer.isEnglish
-                  ? 'Persistent automation for complex tasks'
-                  : '持久化自动操作，轻松完成复杂任务',
-              onAuthorize: () async {},
-              checkAuthorization: () async => false,
-            ),
             kInstalledAppsPermissionId => PermissionData(
               id: kInstalledAppsPermissionId,
               iconPath: 'assets/welcome/permission_installed_apps.svg',
@@ -314,8 +302,8 @@ class PermissionService {
                   ? 'Installed Apps Access'
                   : '应用列表读取',
               description: LegacyTextLocalizer.isEnglish
-                  ? 'Enable cross-app automation'
-                  : '支持跨应用自动操作',
+                  ? 'Identify installed apps for app context'
+                  : '识别已安装应用并提供应用上下文',
               onAuthorize: () async {},
               checkAuthorization: () async => false,
             ),

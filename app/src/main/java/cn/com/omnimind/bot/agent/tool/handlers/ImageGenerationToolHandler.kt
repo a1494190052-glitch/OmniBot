@@ -72,12 +72,7 @@ class ImageGenerationToolHandler(
                 ?: ModelProviderConfigStore.getEditingProfile()
             val bundledImageConfig = bundledImageProviderConfig()
             val profileApiKey = profile.apiKey.trim()
-            val hatchPetImageRequest = env.resolvedSkills.any { it.skillId == HATCH_PET_SKILL_ID }
-            require(!hatchPetImageRequest || bundledImageConfig.apiKey.isNotEmpty()) {
-                "Hatch-pet image provider is not bundled. Build the app with OMNIBOT_IMAGE_API_KEY so hatch-pet can generate images independently of the user's model provider."
-            }
             val useBundledImageProvider = shouldUseBundledImageProvider(
-                activeSkillIds = env.resolvedSkills.mapTo(mutableSetOf()) { it.skillId },
                 profileApiKey = profileApiKey,
                 bundledApiKey = bundledImageConfig.apiKey
             )
@@ -97,7 +92,6 @@ class ImageGenerationToolHandler(
             val requestedModel = normalizeImageModelId(args["model"]?.jsonPrimitive?.contentOrNull)
                 ?.takeIf { it.isNotEmpty() }
             val model = when {
-                hatchPetImageRequest -> bundledImageConfig.model
                 requestedModel != null -> requestedModel
                 useBundledImageProvider -> bundledImageConfig.model
                 else -> DEFAULT_IMAGE_MODEL
@@ -309,7 +303,6 @@ class ImageGenerationToolHandler(
     }
 
     companion object {
-        private const val HATCH_PET_SKILL_ID = "hatch-pet"
         private const val BUNDLED_IMAGE_PROVIDER_ID = "bundled-image-provider"
         private const val BUNDLED_IMAGE_PROVIDER_NAME = "Xiaowan Image Provider"
         internal const val DEFAULT_IMAGE_BASE_URL = "https://cloud.omnimind.com.cn"
@@ -321,12 +314,10 @@ class ImageGenerationToolHandler(
         )
 
         internal fun shouldUseBundledImageProvider(
-            activeSkillIds: Set<String>,
             profileApiKey: String,
             bundledApiKey: String
         ): Boolean {
-            return bundledApiKey.isNotBlank() &&
-                (HATCH_PET_SKILL_ID in activeSkillIds || profileApiKey.isBlank())
+            return bundledApiKey.isNotBlank() && profileApiKey.isBlank()
         }
 
         internal fun resolveImageGenerationEndpoint(baseUrl: String, apiKey: String): String {

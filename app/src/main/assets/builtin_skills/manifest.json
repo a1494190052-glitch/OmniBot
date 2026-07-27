@@ -13,7 +13,7 @@
     {
       "id": "skill-creator",
       "name": "skill-creator",
-      "description": "Guide for creating and updating effective Omnibot skills. Use when the user wants to add a new skill or improve an existing skill for the built-in Alpine workspace, tool workflows, or reusable domain knowledge.",
+      "description": "Guide for creating and updating effective Omnibot skills. Use when the user wants to add a new skill or improve an existing skill for the built-in {{OMNIBOT_TERMINAL_DISTRIBUTION}} workspace, tool workflows, or reusable domain knowledge.",
       "assetPath": "builtin_skills/skill-creator",
       "hasScripts": false,
       "hasReferences": false,
@@ -31,11 +31,11 @@
       "hasEvals": false
     },
     {
-      "id": "function",
-      "name": "function",
-      "description": "Manage and improve Omnibot reusable Functions from recorded RunLogs. Use whenever the user asks to save, register, inspect, clean, enhance, repair, parameterize, or delete a 复用指令 / Function / recorded trajectory, including duplicate input cleanup, noisy actions, optional popup checkers, 保存刚才的操作, 增强这个 Function, and 应该点 A 而不是 B.",
-      "assetPath": "builtin_skills/function",
-      "hasScripts": false,
+      "id": "install-codex-pet",
+      "name": "install-codex-pet",
+      "description": "Install shared Codex pet packages into Omnibot with the official codex-pets npm CLI. Use when the user asks to add, install, download, import, or sync a pet by slug or collection, especially commands such as \"npx codex-pets add\".",
+      "assetPath": "builtin_skills/install-codex-pet",
+      "hasScripts": true,
       "hasReferences": false,
       "hasAssets": false,
       "hasEvals": false

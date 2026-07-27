@@ -17,16 +17,7 @@ class ScheduledTask {
   /// 任务标题
   final String title;
 
-  /// 关联的包名
-  final String packageName;
-
-  /// 关联的nodeId
-  final String nodeId;
-
-  /// 关联的suggestionId
-  final String suggestionId;
-
-  /// 目标类型：vlm
+  /// 目标类型：subagent
   final String targetKind;
 
   /// 旧版 subagent 固定线程 conversationId，升级后仅作兼容回填
@@ -66,22 +57,10 @@ class ScheduledTask {
   /// 下次执行时间（毫秒时间戳）
   final int? nextExecutionTime;
 
-  /// 完整的suggestion数据，用于执行任务
-  final Map<String, dynamic>? suggestionData;
-
-  /// 应用图标URL
-  final String? appIconUrl;
-
-  /// 任务类型图标URL
-  final String? typeIconUrl;
-
   ScheduledTask({
     required this.id,
     required this.title,
-    required this.packageName,
-    required this.nodeId,
-    required this.suggestionId,
-    this.targetKind = 'vlm',
+    this.targetKind = 'subagent',
     this.subagentConversationId,
     this.parentConversationId,
     this.parentConversationMode,
@@ -94,24 +73,15 @@ class ScheduledTask {
     this.isEnabled = true,
     required this.createdAt,
     this.nextExecutionTime,
-    this.suggestionData,
-    this.appIconUrl,
-    this.typeIconUrl,
   });
 
   /// 从JSON创建
   factory ScheduledTask.fromJson(Map<String, dynamic> json) {
-    final targetKindFromJson = json['targetKind'] as String? ?? 'vlm';
-    final rawSuggestionData = json['suggestionData'] != null
-        ? Map<String, dynamic>.from(json['suggestionData'] as Map)
-        : <String, dynamic>{};
+    final targetKindFromJson = json['targetKind'] as String? ?? '';
 
     return ScheduledTask(
       id: json['id'] as String,
       title: json['title'] as String,
-      packageName: json['packageName'] as String,
-      nodeId: json['nodeId'] as String? ?? '',
-      suggestionId: json['suggestionId'] as String? ?? '',
       targetKind: targetKindFromJson,
       subagentConversationId: json['subagentConversationId'] as String?,
       parentConversationId:
@@ -130,9 +100,6 @@ class ScheduledTask {
       isEnabled: json['isEnabled'] as bool? ?? true,
       createdAt: json['createdAt'] as int,
       nextExecutionTime: json['nextExecutionTime'] as int?,
-      suggestionData: rawSuggestionData,
-      appIconUrl: json['appIconUrl'] as String?,
-      typeIconUrl: json['typeIconUrl'] as String?,
     );
   }
 
@@ -141,9 +108,6 @@ class ScheduledTask {
     return {
       'id': id,
       'title': title,
-      'packageName': packageName,
-      'nodeId': nodeId,
-      'suggestionId': suggestionId,
       'targetKind': targetKind,
       'subagentConversationId': subagentConversationId,
       'parentConversationId': parentConversationId,
@@ -157,9 +121,6 @@ class ScheduledTask {
       'isEnabled': isEnabled,
       'createdAt': createdAt,
       'nextExecutionTime': nextExecutionTime,
-      'suggestionData': suggestionData,
-      'appIconUrl': appIconUrl,
-      'typeIconUrl': typeIconUrl,
     };
   }
 
@@ -167,9 +128,6 @@ class ScheduledTask {
   ScheduledTask copyWith({
     String? id,
     String? title,
-    String? packageName,
-    String? nodeId,
-    String? suggestionId,
     String? targetKind,
     String? subagentConversationId,
     String? parentConversationId,
@@ -183,16 +141,10 @@ class ScheduledTask {
     bool? isEnabled,
     int? createdAt,
     int? nextExecutionTime,
-    Map<String, dynamic>? suggestionData,
-    String? appIconUrl,
-    String? typeIconUrl,
   }) {
     return ScheduledTask(
       id: id ?? this.id,
       title: title ?? this.title,
-      packageName: packageName ?? this.packageName,
-      nodeId: nodeId ?? this.nodeId,
-      suggestionId: suggestionId ?? this.suggestionId,
       targetKind: targetKind ?? this.targetKind,
       subagentConversationId:
           subagentConversationId ?? this.subagentConversationId,
@@ -208,9 +160,6 @@ class ScheduledTask {
       isEnabled: isEnabled ?? this.isEnabled,
       createdAt: createdAt ?? this.createdAt,
       nextExecutionTime: nextExecutionTime ?? this.nextExecutionTime,
-      suggestionData: suggestionData ?? this.suggestionData,
-      appIconUrl: appIconUrl ?? this.appIconUrl,
-      typeIconUrl: typeIconUrl ?? this.typeIconUrl,
     );
   }
 

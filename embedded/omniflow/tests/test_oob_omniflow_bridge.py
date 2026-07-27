@@ -18,6 +18,26 @@ from oob_omniflow_bridge import (
 )
 
 
+def model_turn(tool: str, args: dict, summary: str) -> dict:
+    return {
+        "requested_model": "selected-vlm-model",
+        "resolved_model": "selected-vlm-model",
+        "tool_calls": [
+            {
+                "id": f"call-{tool}",
+                "type": "function",
+                "function": {
+                    "name": tool,
+                    "arguments": json.dumps(
+                        {"summary": summary, **args},
+                        ensure_ascii=False,
+                    ),
+                },
+            }
+        ],
+    }
+
+
 def function() -> dict:
     return {
         "schema_version": "omniflow.function.v2",
@@ -71,24 +91,32 @@ def test_health_advertises_the_complete_oob_contract(tmp_path: Path) -> None:
     assert health["omnitransfer_ready"] is True
     assert health["omnitransfer_backend"] in {"numpy", "pytorch"}
 
-    recall_response = BRIDGE_CONTRACT["operations"]["recall"]["response"]
-    assert recall_response["required"] == [
-        "success",
-        "retrieval_state",
-        "candidates",
-        "count",
-        "reason",
-        "runtime_source",
-        "duration_ms",
-    ]
-    assert recall_response["candidate"]["required"] == ["function", "retrieval"]
-    assert recall_response["candidate"]["retrieval"]["required"] == [
-        "score",
-        "source",
-        "rank",
-    ]
+    assert set(BRIDGE_CONTRACT["operations"]) == {
+        "function_tool",
+        "health",
+        "run",
+        "shutdown",
+    }
+    function_request = BRIDGE_CONTRACT["operations"]["function_tool"]["request"]
+    assert function_request["required"] == ["tool"]
+    assert function_request["optional"] == ["args"]
+    assert "function.recall" in function_request["tools"]
     assert "record_step" not in BRIDGE_CONTRACT["operations"]
     assert BRIDGE_CONTRACT["host_call"]["record_step_payload"] == {
+        "required": ["fact"],
+        "fact": {
+            "required": [
+                "before_state_id",
+                "action",
+                "result",
+                "after_state_id",
+            ],
+            "optional": ["metadata"],
+            "result_schema_ref": "omniflow_canonical_run_log.v1.json#/$defs/result",
+            "action_schema_ref": "oob_canonical_actions.v1.json",
+        },
+    }
+    assert BRIDGE_CONTRACT["host_call"]["record_step_response"] == {
         "required": ["step"],
         "step_schema_ref": "omniflow_canonical_run_log.v1.json#/$defs/step",
     }
@@ -146,37 +174,61 @@ def test_goal_run_uses_explicit_model_and_records_step(tmp_path: Path) -> None:
                 },
             }
         )
-        + line({"id": "run", "call_id": "run:1", "ok": True, "result": state_0})
-        + line({"id": "run", "call_id": "run:2", "ok": True, "result": state_0})
         + line(
             {
                 "id": "run",
-                "call_id": "run:3",
+                "call_id": "run:1",
+                "ok": True,
+                "result": {"apps": {"Demo": "demo.app"}},
+            }
+        )
+        + line({"id": "run", "call_id": "run:2", "ok": True, "result": state_0})
+        + line({"id": "run", "call_id": "run:3", "ok": True, "result": state_0})
+        + line(
+            {
+                "id": "run",
+                "call_id": "run:4",
+                "ok": True,
+                "result": model_turn(
+                    "click",
+                    {"x": 500, "y": 300, "target_description": "Search"},
+                    "Tap search",
+                ),
+            }
+        )
+        + line({"id": "run", "call_id": "run:5", "ok": True, "result": {"success": True}})
+        + line({"id": "run", "call_id": "run:6", "ok": True, "result": state_1})
+        + line(
+            {
+                "id": "run",
+                "call_id": "run:7",
                 "ok": True,
                 "result": {
-                    "requested_model": "selected-vlm-model",
-                    "action": {
-                        "tool": "click",
-                        "args": {"x": 500, "y": 300, "target_description": "Search"},
-                    },
-                    "metadata": {"summary": "Tap search"},
+                    "step": {
+                        "step_index": 0,
+                        "before_state_id": "live-0",
+                        "action": {
+                            "tool": "click",
+                            "args": {
+                                "x": 500,
+                                "y": 300,
+                                "target_description": "Search",
+                            },
+                        },
+                        "result": {"success": True},
+                        "after_state_id": "live-1",
+                        "metadata": {},
+                    }
                 },
             }
         )
-        + line({"id": "run", "call_id": "run:4", "ok": True, "result": {"success": True}})
-        + line({"id": "run", "call_id": "run:5", "ok": True, "result": state_1})
-        + line({"id": "run", "call_id": "run:6", "ok": True, "result": {"recorded": True}})
-        + line({"id": "run", "call_id": "run:7", "ok": True, "result": state_1})
+        + line({"id": "run", "call_id": "run:8", "ok": True, "result": state_1})
         + line(
             {
                 "id": "run",
-                "call_id": "run:8",
+                "call_id": "run:9",
                 "ok": True,
-                "result": {
-                    "requested_model": "selected-vlm-model",
-                    "action": {"tool": "finished", "args": {"content": "Search opened"}},
-                    "metadata": {"summary": "Done"},
-                },
+                "result": model_turn("finished", {"content": "Search opened"}, "Done"),
             }
         )
     )
@@ -186,6 +238,7 @@ def test_goal_run_uses_explicit_model_and_records_step(tmp_path: Path) -> None:
 
     calls = [message for message in messages if message.get("event") == "host_call"]
     assert [message["method"] for message in calls] == [
+        "installed_apps",
         "observe",
         "observe",
         "model_turn",
@@ -195,8 +248,10 @@ def test_goal_run_uses_explicit_model_and_records_step(tmp_path: Path) -> None:
         "observe",
         "model_turn",
     ]
-    assert calls[2]["payload"]["model"] == "selected-vlm-model"
-    assert calls[5]["payload"]["step"]["metadata"]["summary"] == "Tap search"
+    assert calls[3]["payload"]["model"] == "selected-vlm-model"
+    assert calls[6]["payload"]["fact"]["metadata"]["summary"] == "Tap search"
+    assert calls[6]["payload"]["fact"]["result"] == {"success": True}
+    assert "step_index" not in calls[6]["payload"]["fact"]
     result = next(message["result"] for message in messages if "ok" in message)
     assert result["success"] is True
     assert result["finished_content"] == "Search opened"
@@ -226,32 +281,32 @@ def test_goal_run_returns_info_answer_to_the_next_model_turn(tmp_path: Path) -> 
                 },
             }
         )
-        + line({"id": "run", "call_id": "run:1", "ok": True, "result": state})
-        + line({"id": "run", "call_id": "run:2", "ok": True, "result": state})
         + line(
             {
                 "id": "run",
-                "call_id": "run:3",
+                "call_id": "run:1",
                 "ok": True,
-                "result": {
-                    "requested_model": "selected-vlm-model",
-                    "action": {"tool": "info", "args": {"value": "Continue?"}},
-                    "metadata": {"summary": "Ask permission"},
-                },
+                "result": {"apps": {"Demo": "demo.app"}},
             }
         )
-        + line({"id": "run", "call_id": "run:4", "ok": True, "result": {"value": "yes"}})
-        + line({"id": "run", "call_id": "run:5", "ok": True, "result": state})
+        + line({"id": "run", "call_id": "run:2", "ok": True, "result": state})
+        + line({"id": "run", "call_id": "run:3", "ok": True, "result": state})
         + line(
             {
                 "id": "run",
-                "call_id": "run:6",
+                "call_id": "run:4",
                 "ok": True,
-                "result": {
-                    "requested_model": "selected-vlm-model",
-                    "action": {"tool": "finished", "args": {"content": "Confirmed"}},
-                    "metadata": {"summary": "Done"},
-                },
+                "result": model_turn("info", {"value": "Continue?"}, "Ask permission"),
+            }
+        )
+        + line({"id": "run", "call_id": "run:5", "ok": True, "result": {"value": "yes"}})
+        + line({"id": "run", "call_id": "run:6", "ok": True, "result": state})
+        + line(
+            {
+                "id": "run",
+                "call_id": "run:7",
+                "ok": True,
+                "result": model_turn("finished", {"content": "Confirmed"}, "Done"),
             }
         )
     )
@@ -261,6 +316,7 @@ def test_goal_run_returns_info_answer_to_the_next_model_turn(tmp_path: Path) -> 
 
     calls = [message for message in messages if message.get("event") == "host_call"]
     assert [message["method"] for message in calls] == [
+        "installed_apps",
         "observe",
         "observe",
         "model_turn",
@@ -268,7 +324,7 @@ def test_goal_run_returns_info_answer_to_the_next_model_turn(tmp_path: Path) -> 
         "observe",
         "model_turn",
     ]
-    assert calls[5]["payload"]["state"]["extra"]["user_input"] == "yes"
+    assert calls[6]["payload"]["state"]["extra"]["user_input"] == "yes"
     result = next(message["result"] for message in messages if "ok" in message)
     assert result["success"] is True
     assert result["finished_content"] == "Confirmed"
@@ -278,13 +334,19 @@ def test_catalog_and_recall_round_trip(tmp_path: Path) -> None:
     bridge = OobOmniFlowBridge(tmp_path / "store.json")
     stored = bridge._handle(
         "put",
-        "catalog",
-        {"action": "put", "function": function()},
+        "function_tool",
+        {
+            "tool": "oob_function_register",
+            "args": {"function": function()},
+        },
     )
     recalled = bridge._handle(
         "recall",
-        "recall",
-        {"goal": "enter name", "state": {"state_id": "live-state"}},
+        "function_tool",
+        {
+            "tool": "function.recall",
+            "args": {"goal": "enter name", "state": {"state_id": "live-state"}},
+        },
     )
 
     candidate = recalled["candidates"][0]
@@ -293,8 +355,12 @@ def test_catalog_and_recall_round_trip(tmp_path: Path) -> None:
     assert recalled["success"] is True
     assert recalled["retrieval_state"] == "has_candidates"
     assert recalled["count"] == 1
-    assert candidate["function"]["function_id"] == "enter_name"
-    assert "score" not in candidate["function"]
+    assert candidate["function_id"] == "enter_name"
+    assert candidate["tool"]["function"]["name"] == "recalled_function_1"
+    assert candidate["tool"]["function"]["parameters"]["required"] == [
+        "summary",
+        "name",
+    ]
     assert candidate["retrieval"] == {
         "score": 1.0,
         "source": "goal_token_jaccard",
@@ -314,8 +380,11 @@ def test_recall_matches_chinese_when_punctuation_differs(tmp_path: Path) -> None
     )
     bridge._handle(
         "put",
-        "catalog",
-        {"action": "put", "function": chinese_function},
+        "function_tool",
+        {
+            "tool": "oob_function_register",
+            "args": {"function": chinese_function},
+        },
     )
     unrelated_function = function()
     unrelated_function.update(
@@ -327,22 +396,28 @@ def test_recall_matches_chinese_when_punctuation_differs(tmp_path: Path) -> None
     )
     bridge._handle(
         "put",
-        "catalog",
-        {"action": "put", "function": unrelated_function},
+        "function_tool",
+        {
+            "tool": "oob_function_register",
+            "args": {"function": unrelated_function},
+        },
     )
 
     recalled = bridge._handle(
         "recall",
-        "recall",
+        "function_tool",
         {
-            "goal": "点击设置首页中的应用并进入应用设置列表",
-            "state": {"state_id": "live-state"},
+            "tool": "function.recall",
+            "args": {
+                "goal": "点击设置首页中的应用并进入应用设置列表",
+                "state": {"state_id": "live-state"},
+            },
         },
     )
 
     assert recalled["retrieval_state"] == "has_candidates"
     assert [
-        candidate["function"]["function_id"] for candidate in recalled["candidates"]
+        candidate["function_id"] for candidate in recalled["candidates"]
     ] == ["open_app_settings"]
     assert recalled["candidates"][0]["retrieval"]["score"] == 1.0
 
@@ -372,6 +447,14 @@ def test_compile_registers_base_function_without_default_enhancement(
             {"call_id": "compile:1", "ok": True, "result": run_log}
         )
         + "\n"
+        + json.dumps(
+            {
+                "call_id": "compile:2",
+                "ok": True,
+                "result": {"state_id": "state-0"},
+            }
+        )
+        + "\n"
     )
     writer = StringIO()
     bridge = OobOmniFlowBridge(
@@ -382,17 +465,20 @@ def test_compile_registers_base_function_without_default_enhancement(
 
     result = bridge._handle(
         "compile",
-        "compile",
+        "function_tool",
         {
-            "run_id": "source",
-            "register": True,
-            "agent_visible": True,
-            "function_id": "wait_once",
+            "tool": "oob_run_log_convert",
+            "args": {
+                "run_id": "source",
+                "register": True,
+                "agent_visible": True,
+                "function_id": "wait_once",
+            },
         },
     )
 
     calls = [json.loads(line) for line in writer.getvalue().splitlines()]
-    assert [call["method"] for call in calls] == ["get_run_log"]
+    assert [call["method"] for call in calls] == ["get_run_log", "get_state"]
     assert result["registered"] is True
     assert result["function_id"] == "wait_once"
     assert result["enhancement_status"] == "none"
@@ -402,7 +488,62 @@ def test_compile_registers_base_function_without_default_enhancement(
     assert registered.to_dict() == result["function"]
 
 
-def test_compile_registers_semantic_parameters_and_bindings(tmp_path: Path) -> None:
+def test_compile_rejects_function_with_missing_source_state(tmp_path: Path) -> None:
+    run_log = {
+        "schema_version": "omniflow.canonical_run_log.v1",
+        "run_id": "source",
+        "goal": "open settings",
+        "status": "succeeded",
+        "success": True,
+        "steps": [
+            {
+                "step_index": 0,
+                "before_state_id": "missing-state",
+                "action": {
+                    "tool": "open_app",
+                    "args": {"package_name": "com.android.settings"},
+                },
+                "result": {"success": True},
+                "after_state_id": "after-state",
+                "metadata": {},
+            }
+        ],
+    }
+    reader = StringIO(
+        json.dumps({"call_id": "compile:1", "ok": True, "result": run_log})
+        + "\n"
+        + json.dumps(
+            {
+                "call_id": "compile:2",
+                "ok": False,
+                "error": {"code": "state_not_found:missing-state"},
+            }
+        )
+        + "\n"
+    )
+    bridge = OobOmniFlowBridge(
+        tmp_path / "store.json",
+        reader=reader,
+        writer=StringIO(),
+    )
+
+    result = bridge._handle(
+        "compile",
+        "function_tool",
+        {
+            "tool": "oob_run_log_convert",
+            "args": {"run_id": "source", "register": True, "enhance": False},
+        },
+    )
+
+    assert result["success"] is False
+    assert result["registered"] is False
+    assert result["error_code"] == "FUNCTION_SOURCE_STATE_NOT_FOUND"
+    assert result["error_message"] == "state_not_found:missing-state"
+    assert bridge.flow.store.functions == {}
+
+
+def test_compile_registers_base_function_and_schedules_enhancement(tmp_path: Path) -> None:
     run_log = {
         "schema_version": "omniflow.canonical_run_log.v1",
         "run_id": "source",
@@ -427,64 +568,63 @@ def test_compile_registers_semantic_parameters_and_bindings(tmp_path: Path) -> N
             {
                 "call_id": "compile:2",
                 "ok": True,
-                "result": {
-                    "content": json.dumps(
-                        {
-                            "parameters": [
-                                {
-                                    "name": "contact_name",
-                                    "description": "Contact name to enter",
-                                    "step_index": 0,
-                                    "arg_name": "text",
-                                }
-                            ],
-                            "checker_rules": [],
-                        }
-                    )
-                },
+                "result": {"state_id": "state-0"},
+            }
+        )
+        + "\n"
+        + json.dumps(
+            {
+                "call_id": "compile:3",
+                "ok": True,
+                "result": {"accepted": True},
             }
         )
         + "\n"
     )
+    writer = StringIO()
     bridge = OobOmniFlowBridge(
         tmp_path / "store.json",
         reader=reader,
-        writer=StringIO(),
+        writer=writer,
     )
 
     result = bridge._handle(
         "compile",
-        "compile",
+        "function_tool",
         {
-            "run_id": "source",
-            "register": True,
-            "function_id": "enter_name",
-            "enhance": True,
+            "tool": "oob_run_log_convert",
+            "args": {
+                "run_id": "source",
+                "register": True,
+                "function_id": "enter_name",
+                "enhance": True,
+            },
         },
     )
 
     registered = bridge.flow.store.get_function("enter_name")
-    assert result["enhancement_status"] == "enhanced"
-    assert result["changes"] == [{"part": "function", "field": "parameters"}]
+    calls = [json.loads(line) for line in writer.getvalue().splitlines()]
+    assert [call["method"] for call in calls] == [
+        "get_run_log",
+        "get_state",
+        "schedule_operation",
+    ]
+    assert result["enhancement_status"] == "enhancing"
+    assert result["changes"] == []
     assert registered is not None
-    assert registered.input_schema == {
-        "type": "object",
-        "properties": {
-            "contact_name": {
-                "type": "string",
-                "description": "Contact name to enter",
-            }
+    assert registered.bindings == ()
+    assert registered.steps[0].action.args == {"text": "Alice"}
+    assert calls[-1]["payload"] == {
+        "operation": "function_tool",
+        "payload": {
+            "tool": "update_function",
+            "args": {
+                "function_id": "enter_name",
+                "mode": "enhance",
+                "run_id": "source",
+            },
         },
-        "required": ["contact_name"],
-        "additionalProperties": False,
     }
-    assert registered.bindings == (
-        {
-            "source": "$.arguments.contact_name",
-            "target": "$.steps[0].action.args.text",
-        },
-    )
-    assert registered.steps[0].action.args == {"text": ""}
 
 
 def test_compile_can_skip_optional_enhancement(tmp_path: Path) -> None:
@@ -510,6 +650,14 @@ def test_compile_can_skip_optional_enhancement(tmp_path: Path) -> None:
             {"call_id": "compile:1", "ok": True, "result": run_log}
         )
         + "\n"
+        + json.dumps(
+            {
+                "call_id": "compile:2",
+                "ok": True,
+                "result": {"state_id": "state-0"},
+            }
+        )
+        + "\n"
     )
     writer = StringIO()
     bridge = OobOmniFlowBridge(
@@ -520,24 +668,27 @@ def test_compile_can_skip_optional_enhancement(tmp_path: Path) -> None:
 
     result = bridge._handle(
         "compile",
-        "compile",
+        "function_tool",
         {
-            "run_id": "source",
-            "register": True,
-            "function_id": "wait_once",
-            "enhance": False,
+            "tool": "oob_run_log_convert",
+            "args": {
+                "run_id": "source",
+                "register": True,
+                "function_id": "wait_once",
+                "enhance": False,
+            },
         },
     )
 
     calls = [json.loads(line) for line in writer.getvalue().splitlines()]
-    assert [call["method"] for call in calls] == ["get_run_log"]
+    assert [call["method"] for call in calls] == ["get_run_log", "get_state"]
     assert result["success"] is True
     assert result["registered"] is True
     assert result["enhancement_status"] == "none"
     assert result["changes"] == []
 
 
-def test_compile_keeps_function_when_explicit_enhancement_fails(tmp_path: Path) -> None:
+def test_compile_keeps_function_when_background_schedule_fails(tmp_path: Path) -> None:
     run_log = {
         "schema_version": "omniflow.canonical_run_log.v1",
         "run_id": "source",
@@ -563,8 +714,16 @@ def test_compile_keeps_function_when_explicit_enhancement_fails(tmp_path: Path) 
         + json.dumps(
             {
                 "call_id": "compile:2",
+                "ok": True,
+                "result": {"state_id": "state-0"},
+            }
+        )
+        + "\n"
+        + json.dumps(
+            {
+                "call_id": "compile:3",
                 "ok": False,
-                "error": {"code": "offline_model_unavailable"},
+                "error": {"code": "background_scheduler_unavailable"},
             }
         )
         + "\n"
@@ -578,22 +737,29 @@ def test_compile_keeps_function_when_explicit_enhancement_fails(tmp_path: Path) 
 
     result = bridge._handle(
         "compile",
-        "compile",
+        "function_tool",
         {
-            "run_id": "source",
-            "register": True,
-            "function_id": "wait_once",
-            "enhance": True,
+            "tool": "oob_run_log_convert",
+            "args": {
+                "run_id": "source",
+                "register": True,
+                "function_id": "wait_once",
+                "enhance": True,
+            },
         },
     )
 
     calls = [json.loads(line) for line in writer.getvalue().splitlines()]
-    assert [call["method"] for call in calls] == ["get_run_log", "complete_json"]
+    assert [call["method"] for call in calls] == [
+        "get_run_log",
+        "get_state",
+        "schedule_operation",
+    ]
     assert result["success"] is True
     assert result["registered"] is True
     assert result["enhancement_status"] == "failed"
     assert result["changes"] == []
-    assert result["message"] == "offline_model_unavailable"
+    assert result["message"] == "background_scheduler_unavailable"
     assert bridge.flow.store.get_function("wait_once") is not None
 
 
@@ -603,7 +769,7 @@ def test_update_function_uses_the_single_enhancement_interface(tmp_path: Path) -
             {
                 "call_id": "update:1",
                 "ok": True,
-                "result": {"run_id": "source", "goal": "enter name", "steps": []},
+                "result": {"updated": True},
             }
         )
         + "\n"
@@ -611,11 +777,27 @@ def test_update_function_uses_the_single_enhancement_interface(tmp_path: Path) -
             {
                 "call_id": "update:2",
                 "ok": True,
+                "result": {"run_id": "source", "goal": "enter name", "steps": []},
+            }
+        )
+        + "\n"
+        + json.dumps(
+            {
+                "call_id": "update:3",
+                "ok": True,
                 "result": {
                     "content": json.dumps(
                         {"name": "Enter a contact name", "checker_rules": []}
                     )
                 },
+            }
+        )
+        + "\n"
+        + json.dumps(
+            {
+                "call_id": "update:4",
+                "ok": True,
+                "result": {"updated": True},
             }
         )
         + "\n"
@@ -626,19 +808,81 @@ def test_update_function_uses_the_single_enhancement_interface(tmp_path: Path) -
         reader=reader,
         writer=writer,
     )
-    bridge._handle("put", "catalog", {"action": "put", "function": function()})
+    bridge._handle(
+        "put",
+        "function_tool",
+        {"tool": "oob_function_register", "args": {"function": function()}},
+    )
 
     result = bridge._handle(
         "update",
-        "update_function",
-        {"function_id": "enter_name", "mode": "enhance", "run_id": "source"},
+        "function_tool",
+        {
+            "tool": "update_function",
+            "args": {
+                "function_id": "enter_name",
+                "mode": "enhance",
+                "run_id": "source",
+            },
+        },
     )
 
     calls = [json.loads(line) for line in writer.getvalue().splitlines()]
-    assert [call["method"] for call in calls] == ["get_run_log", "complete_json"]
+    assert [call["method"] for call in calls] == [
+        "update_run_log_diagnostics",
+        "get_run_log",
+        "complete_json",
+        "update_run_log_diagnostics",
+    ]
     assert result["success"] is True
     assert result["updated_function"]["name"] == "Enter a contact name"
     assert result["enhancement_status"] == "enhanced"
+
+
+def test_update_function_does_not_overwrite_concurrent_change(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    store_path = tmp_path / "store.json"
+    bridge = OobOmniFlowBridge(store_path)
+    bridge._handle(
+        "put",
+        "function_tool",
+        {"tool": "oob_function_register", "args": {"function": function()}},
+    )
+
+    def complete_json(_request_id: str, _prompt: str) -> str:
+        concurrent = function()
+        concurrent["description"] = "Changed while enhancement was running."
+        OobOmniFlowBridge(store_path)._handle(
+            "put",
+            "function_tool",
+            {
+                "tool": "oob_function_register",
+                "args": {"function": concurrent},
+            },
+        )
+        return json.dumps(
+            {"name": "Enter a contact name", "checker_rules": []}
+        )
+
+    monkeypatch.setattr(bridge, "_complete_json", complete_json)
+    result = bridge._handle(
+        "update",
+        "function_tool",
+        {
+            "tool": "update_function",
+            "args": {"function_id": "enter_name", "mode": "enhance"},
+        },
+    )
+
+    assert result["success"] is False
+    assert result["saved"] is False
+    assert result["error_code"] == "FUNCTION_ENHANCEMENT_CONFLICT"
+    bridge.flow.store.reload()
+    assert bridge.flow.store.get_function("enter_name").description == (
+        "Changed while enhancement was running."
+    )
 
 
 def test_update_function_dry_run_returns_preview_without_saving(tmp_path: Path) -> None:
@@ -647,13 +891,21 @@ def test_update_function_dry_run_returns_preview_without_saving(tmp_path: Path) 
             {
                 "call_id": "update:1",
                 "ok": True,
-                "result": {"run_id": "source", "goal": "enter name", "steps": []},
+                "result": {"updated": True},
             }
         )
         + "\n"
         + json.dumps(
             {
                 "call_id": "update:2",
+                "ok": True,
+                "result": {"run_id": "source", "goal": "enter name", "steps": []},
+            }
+        )
+        + "\n"
+        + json.dumps(
+            {
+                "call_id": "update:3",
                 "ok": True,
                 "result": {
                     "content": json.dumps(
@@ -663,22 +915,37 @@ def test_update_function_dry_run_returns_preview_without_saving(tmp_path: Path) 
             }
         )
         + "\n"
+        + json.dumps(
+            {
+                "call_id": "update:4",
+                "ok": True,
+                "result": {"updated": True},
+            }
+        )
+        + "\n"
     )
     bridge = OobOmniFlowBridge(
         tmp_path / "store.json",
         reader=reader,
         writer=StringIO(),
     )
-    bridge._handle("put", "catalog", {"action": "put", "function": function()})
+    bridge._handle(
+        "put",
+        "function_tool",
+        {"tool": "oob_function_register", "args": {"function": function()}},
+    )
 
     result = bridge._handle(
         "update",
-        "update_function",
+        "function_tool",
         {
-            "function_id": "enter_name",
-            "mode": "enhance",
-            "run_id": "source",
-            "dry_run": True,
+            "tool": "update_function",
+            "args": {
+                "function_id": "enter_name",
+                "mode": "enhance",
+                "run_id": "source",
+                "dry_run": True,
+            },
         },
     )
 
@@ -692,18 +959,28 @@ def test_update_function_dry_run_returns_preview_without_saving(tmp_path: Path) 
 def test_catalog_put_rejects_stale_enhancement_preview(tmp_path: Path) -> None:
     bridge = OobOmniFlowBridge(tmp_path / "store.json")
     original = function()
-    bridge._handle("put", "catalog", {"action": "put", "function": original})
+    bridge._handle(
+        "put",
+        "function_tool",
+        {"tool": "oob_function_register", "args": {"function": original}},
+    )
     edited = {**original, "name": "User edited name"}
-    bridge._handle("edit", "catalog", {"action": "put", "function": edited})
+    bridge._handle(
+        "edit",
+        "function_tool",
+        {"tool": "oob_function_register", "args": {"function": edited}},
+    )
     enhanced = {**original, "description": "Enhanced description"}
 
     result = bridge._handle(
         "commit",
-        "catalog",
+        "function_tool",
         {
-            "action": "put",
-            "function": enhanced,
-            "expected_function": original,
+            "tool": "oob_function_register",
+            "args": {
+                "function": enhanced,
+                "expected_function": original,
+            },
         },
     )
 
@@ -765,288 +1042,22 @@ def test_omnitransfer_maps_equivalent_ui_graph_without_matcher(monkeypatch) -> N
     assert (result["new_x"], result["new_y"]) == (30.0, 40.0)
 
 
-def test_prepare_action_uses_source_state_id_and_real_omnitransfer(
-    tmp_path: Path,
-    monkeypatch,
-) -> None:
-    import omnitransfer.runtime as runtime
-
-    class Matcher:
-        def predict(self, source, target, **_kwargs):
-            target_node = next(
-                node for node in target.nodes if node.resource_id == "demo:id/search"
-            )
-            return SimpleNamespace(
-                target_node=target_node,
-                probability=0.99,
-                margin=0.8,
-                reason="learned_match",
-                scores=((target_node.node_id, 0.99), ("__NULL__", 0.01)),
-            )
-
-    monkeypatch.setattr(runtime, "_get_matcher", lambda: Matcher())
-    source_xml = (
-        '<hierarchy bounds="[0,0][100,100]">'
-        '<node resource-id="demo:id/search" text="Search" '
-        'class="android.widget.Button" clickable="true" enabled="true" '
-        'bounds="[10,20][50,60]" />'
-        '</hierarchy>'
-    )
-    target_xml = (
-        '<hierarchy bounds="[0,0][200,400]">'
-        '<node resource-id="demo:id/search" text="Search" '
-        'class="android.widget.Button" clickable="true" enabled="true" '
-        'bounds="[40,100][120,260]" />'
-        '</hierarchy>'
-    )
-    reader = StringIO(
-        json.dumps(
-            {
-                "call_id": "prepare:1",
-                "ok": True,
-                "result": {
-                    "state_id": "state-0",
-                    "xml": source_xml,
-                    "display": {"width": 100, "height": 100},
-                },
-            }
-        )
-        + "\n"
-    )
-    bridge = OobOmniFlowBridge(
-        tmp_path / "store.json",
-        reader=reader,
-        writer=StringIO(),
-    )
-
-    prepared = bridge._handle(
-        "prepare",
-        "prepare_action",
-        {
-            "function_id": "tap_search",
-            "source_state_id": "state-0",
-            "action": {"tool": "click", "args": {"x": 300, "y": 400}},
-            "state": {
-                "state_id": "live-state",
-                "xml": target_xml,
-                "display": {"width": 200, "height": 400},
-            },
-        },
-    )
-
-    assert prepared["success"] is True
-    assert prepared["decision"] == "ready"
-    assert "coordinate_space" not in prepared
-    assert prepared["action"]["args"]["x"] == 400
-    assert prepared["action"]["args"]["y"] == 450
-
-
-def test_control_act_owns_direct_action_loop(tmp_path: Path) -> None:
-    xml = '<hierarchy><node bounds="[0,0][100,200]" /></hierarchy>'
-    reader = StringIO(
-        json.dumps(
-            {"call_id": "control:1", "ok": True, "result": {"success": True}}
-        )
-        + "\n"
-        + json.dumps(
-            {
-                "call_id": "control:2",
-                "ok": True,
-                "result": {
-                    "state_id": "live-1",
-                    "xml": xml,
-                    "display": {"width": 100, "height": 200},
-                },
-            }
-        )
-        + "\n"
-    )
-    writer = StringIO()
-    bridge = OobOmniFlowBridge(
-        tmp_path / "store.json",
-        reader=reader,
-        writer=writer,
-    )
-
-    result = bridge._handle(
-        "control",
+@pytest.mark.parametrize(
+    "operation",
+    [
+        "catalog",
+        "compile",
         "control_act",
-        {
-            "action": {
-                "tool": "click",
-                "args": {"target_description": "Search", "x": 250, "y": 750},
-            },
-            "state": {
-                "state_id": "live-0",
-                "xml": xml,
-                "display": {"width": 100, "height": 200},
-            },
-        },
-    )
-
-    calls = [json.loads(line) for line in writer.getvalue().splitlines()]
-    assert [call["method"] for call in calls] == ["act", "observe"]
-    assert result["success"] is True
-    assert result["before_state"]["state_id"] == "live-0"
-    assert result["before_state"]["xml"] == xml
-    assert result["after_state"]["state_id"] == "live-1"
-    assert result["after_state"]["xml"] == xml
-
-
-def test_control_act_keeps_runtime_input_target_coordinates(tmp_path: Path) -> None:
-    xml = '<hierarchy><node bounds="[0,0][100,200]" /></hierarchy>'
-    reader = StringIO(
-        json.dumps(
-            {"call_id": "control:1", "ok": True, "result": {"success": True}}
-        )
-        + "\n"
-        + json.dumps(
-            {
-                "call_id": "control:2",
-                "ok": True,
-                "result": {
-                    "state_id": "live-1",
-                    "xml": xml,
-                    "display": {"width": 100, "height": 200},
-                },
-            }
-        )
-        + "\n"
-    )
-    writer = StringIO()
-    bridge = OobOmniFlowBridge(
-        tmp_path / "store.json",
-        reader=reader,
-        writer=writer,
-    )
-
-    bridge._handle(
-        "control",
-        "control_act",
-        {
-            "action": {
-                "tool": "input_text",
-                "args": {
-                    "target_description": "Search",
-                    "text": "coffee",
-                    "x": 500,
-                    "y": 250,
-                },
-            },
-            "state": {
-                "state_id": "live-0",
-                "xml": xml,
-                "display": {"width": 100, "height": 200},
-            },
-        },
-    )
-
-    calls = [json.loads(line) for line in writer.getvalue().splitlines()]
-    assert calls[0]["payload"] == {
-        "action": {
-            "tool": "input_text",
-            "args": {
-                "target_description": "Search",
-                "text": "coffee",
-                "x": 500,
-                "y": 250,
-            },
-        },
-        "state": {
-            "state_id": "live-0",
-            "xml": xml,
-            "display": {"width": 100, "height": 200},
-        },
-        "metadata": {},
-    }
-
-
-def test_prepare_action_blocks_without_source_state(tmp_path: Path) -> None:
-    result = OobOmniFlowBridge(tmp_path / "store.json")._handle(
-        "prepare",
         "prepare_action",
-        {
-            "function_id": "tap_search",
-            "source_state_id": "",
-            "action": {"tool": "click", "args": {"x": 300, "y": 400}},
-            "state": {"state_id": "live", "xml": "<hierarchy />"},
-        },
-    )
-
-    assert result["decision"] == "block"
-    assert result["action"] is None
-
-
-def test_prepare_action_reports_source_and_top_three_targets(
+        "recall",
+        "update_function",
+    ],
+)
+def test_bridge_rejects_removed_one_step_operations(
     tmp_path: Path,
-    monkeypatch,
+    operation: str,
 ) -> None:
-    import omnitransfer.runtime as runtime
+    bridge = OobOmniFlowBridge(tmp_path / "store.json")
 
-    class Matcher:
-        def predict(self, _source, target, **_kwargs):
-            candidates = [node for node in target.nodes if node.text == "Date"]
-            return SimpleNamespace(
-                target_node=None,
-                probability=0.45,
-                margin=0.0,
-                reason="learned_low_confidence",
-                scores=tuple(
-                    (node.node_id, 0.45 - index * 0.05)
-                    for index, node in enumerate(candidates)
-                ),
-            )
-
-    monkeypatch.setattr(runtime, "_get_matcher", lambda: Matcher())
-    source_xml = (
-        '<hierarchy bounds="[0,0][100,100]">'
-        '<node text="Date" clickable="true" bounds="[10,10][90,90]" />'
-        '</hierarchy>'
-    )
-    target_xml = (
-        '<hierarchy bounds="[0,0][300,300]">'
-        '<node text="Date" clickable="true" bounds="[10,10][90,90]" />'
-        '<node text="Date" clickable="true" bounds="[110,10][190,90]" />'
-        '<node text="Date" clickable="true" bounds="[210,10][290,90]" />'
-        '</hierarchy>'
-    )
-    reader = StringIO(
-        json.dumps(
-            {
-                "call_id": "prepare:1",
-                "ok": True,
-                "result": {"state_id": "state-0", "xml": source_xml},
-            }
-        )
-        + "\n"
-    )
-    bridge = OobOmniFlowBridge(
-        tmp_path / "store.json",
-        reader=reader,
-        writer=StringIO(),
-    )
-
-    result = bridge._handle(
-        "prepare",
-        "prepare_action",
-        {
-            "function_id": "tap_date",
-            "source_state_id": "state-0",
-            "action": {"tool": "click", "args": {"x": 500, "y": 500}},
-            "state": {
-                "state_id": "live",
-                "xml": target_xml,
-                "display": {"width": 300, "height": 300},
-            },
-        },
-    )
-
-    assert result["decision"] == "block"
-    assert result["reason"] == "omnitransfer_learned_low_confidence"
-    assert result["transfer"]["source"]["text"] == "Date"
-    assert result["transfer"]["source"]["display"] == {
-        "width": 100.0,
-        "height": 100.0,
-    }
-    assert len(result["transfer"]["candidates"]) == 3
-    assert [item["rank"] for item in result["transfer"]["candidates"]] == [1, 2, 3]
+    with pytest.raises(ValueError, match=f"unsupported_operation:{operation}"):
+        bridge._handle("removed", operation, {})

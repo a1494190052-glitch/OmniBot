@@ -91,7 +91,7 @@ void main() {
     Map<String, dynamic>? selectedCommand;
     final commands = [
       {
-        'cardId': 'slash-command-codex-model',
+        'cardId': 'slash-command-agent-model',
         'toolTitle': '/model',
         'toolType': 'command',
         'toolTypeLabel': '模型',
@@ -100,7 +100,7 @@ void main() {
         'summary': '选择 Codex 模型',
       },
       {
-        'cardId': 'slash-command-codex-plan',
+        'cardId': 'slash-command-agent-plan',
         'toolTitle': '/plan',
         'toolType': 'command',
         'toolTypeLabel': '计划',
@@ -125,7 +125,7 @@ void main() {
     await tester.pumpAndSettle();
 
     final planToggleKey = ValueKey<String>(
-      '$kChatCommandToggleKeyPrefix-slash-command-codex-plan',
+      '$kChatCommandToggleKeyPrefix-slash-command-agent-plan',
     );
     expect(find.byKey(planToggleKey), findsOneWidget);
     expect(find.text('/chat'), findsNothing);
@@ -776,6 +776,72 @@ void main() {
     );
     expect(
       find.descendant(of: sheet, matching: find.textContaining('终端 · 成功')),
+      findsNothing,
+    );
+  });
+
+  testWidgets('Claude tool detail hides legacy Codex command namespace', (
+    tester,
+  ) async {
+    final messages = [
+      ChatMessageModel.cardMessage({
+        'type': 'agent_tool_summary',
+        'uiStyle': 'codex_tool',
+        'agentId': 'claude-code-acp',
+        'agentName': 'Claude Code',
+        'status': 'success',
+        'toolType': 'workspace',
+        'toolName': 'codex.tool',
+        'toolTitle': 'Read settings.json',
+        'summary': '读取完成',
+        'argsJson': jsonEncode({
+          'id': 'tool-call-42',
+          'path': '/root/.claude/settings.json',
+        }),
+        'resultPreviewJson': jsonEncode({'status': 'ok'}),
+      }),
+    ];
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: ChatToolActivityStrip(
+            messages: messages,
+            showPreviewThumbnail: false,
+            openActiveCardOnTap: true,
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Read settings.json'));
+    await tester.pumpAndSettle();
+
+    final sheet = find.byKey(kAgentToolDetailSheetKey);
+    expect(sheet, findsOneWidget);
+    expect(
+      find.descendant(
+        of: sheet,
+        matching: find.textContaining(
+          'Claude Code · Read settings.json',
+          findRichText: true,
+        ),
+      ),
+      findsOneWidget,
+    );
+    expect(
+      find.descendant(
+        of: sheet,
+        matching: find.textContaining('codex.tool', findRichText: true),
+      ),
+      findsNothing,
+    );
+    expect(
+      find.descendant(
+        of: sheet,
+        matching: find.textContaining('--id', findRichText: true),
+      ),
       findsNothing,
     );
   });

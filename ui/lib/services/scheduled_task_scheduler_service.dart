@@ -204,59 +204,41 @@ class ScheduledTaskSchedulerService {
     await AssistsMessageService.hideScheduledTaskReminder();
 
     try {
-      // 执行任务
-      if (task.suggestionData != null) {
-        final targetKind = task.targetKind.isNotEmpty ? task.targetKind : 'vlm';
-        if (targetKind == 'vlm') {
-          final goal = task.suggestionData!['goal'] as String;
-          print(
-            'ScheduledTaskSchedulerService: Executing VLM task with goal: $goal',
-          );
-          await AssistsMessageService.createVLMOperationTask(
-            goal,
-            packageName: task.packageName,
-          );
-        } else if (targetKind == 'subagent') {
-          final prompt =
-              task.subagentPrompt ??
-              task.suggestionData?['subagentPrompt']?.toString() ??
-              '';
-          if (prompt.isEmpty) {
-            throw Exception('SubAgent task missing prompt');
-          }
-          final parentConversationId = int.tryParse(
-            task.parentConversationId ?? task.subagentConversationId ?? '',
-          );
-          final rawParentConversationMode =
-              task.parentConversationMode?.trim() ?? '';
-          final parentConversationMode = rawParentConversationMode.isEmpty
-              ? null
-              : ConversationMode.fromStorageValue(rawParentConversationMode);
-          final conversationId = await ConversationService.createConversation(
-            title: task.title,
-            mode: ConversationMode.subagent,
-            parentConversationId: parentConversationId,
-            parentConversationMode: parentConversationId == null
-                ? null
-                : parentConversationMode,
-            scheduledTaskId: task.id,
-          );
-          final normalizedConversationId = conversationId;
-          if (normalizedConversationId == null) {
-            throw Exception('SubAgent conversation create failed');
-          }
-          await AssistsMessageService.createAgentTask(
-            taskId:
-                'subagent_schedule_${DateTime.now().millisecondsSinceEpoch}_${task.id}',
-            userMessage: prompt,
-            conversationId: normalizedConversationId,
-            conversationMode: ConversationMode.subagent.storageValue,
-            scheduledTaskId: task.id,
-            scheduledTaskTitle: task.title,
-            scheduleNotificationEnabled: task.notificationEnabled,
-          );
-        }
+      final prompt = task.subagentPrompt?.trim() ?? '';
+      if (prompt.isEmpty) {
+        throw Exception('SubAgent task missing prompt');
       }
+      final parentConversationId = int.tryParse(
+        task.parentConversationId ?? task.subagentConversationId ?? '',
+      );
+      final rawParentConversationMode =
+          task.parentConversationMode?.trim() ?? '';
+      final parentConversationMode = rawParentConversationMode.isEmpty
+          ? null
+          : ConversationMode.fromStorageValue(rawParentConversationMode);
+      final conversationId = await ConversationService.createConversation(
+        title: task.title,
+        mode: ConversationMode.subagent,
+        parentConversationId: parentConversationId,
+        parentConversationMode: parentConversationId == null
+            ? null
+            : parentConversationMode,
+        scheduledTaskId: task.id,
+      );
+      final normalizedConversationId = conversationId;
+      if (normalizedConversationId == null) {
+        throw Exception('SubAgent conversation create failed');
+      }
+      await AssistsMessageService.createAgentTask(
+        taskId:
+            'subagent_schedule_${DateTime.now().millisecondsSinceEpoch}_${task.id}',
+        userMessage: prompt,
+        conversationId: normalizedConversationId,
+        conversationMode: ConversationMode.subagent.storageValue,
+        scheduledTaskId: task.id,
+        scheduledTaskTitle: task.title,
+        scheduleNotificationEnabled: task.notificationEnabled,
+      );
 
       // 如果是重复任务，重新调度
       if (task.repeatDaily) {

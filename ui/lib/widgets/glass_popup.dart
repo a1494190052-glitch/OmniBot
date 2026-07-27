@@ -7,7 +7,7 @@ enum GlassPopupHorizontalPlacement {
   /// 默认：popup 边缘对齐 anchor 边缘。
   /// anchor 在屏幕右半边 → popup 右边对齐 anchor 右边；
   /// anchor 在屏幕左半边 → popup 左边对齐 anchor 左边。
-  /// 适合按钮触发的下拉菜单（Codex 模型、Codex 权限、灵动岛 model selector 等）。
+  /// 适合按钮触发的下拉菜单（Agent 模型、权限、灵动岛 model selector 等）。
   edgeAlign,
 
   /// popup 横向中心对齐 anchor 中心。

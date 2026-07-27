@@ -23,7 +23,6 @@ import 'package:ui/services/omnibot_resource_service.dart';
 import 'package:ui/services/scheduled_task_storage_service.dart';
 import 'package:ui/services/storage_service.dart';
 import 'package:ui/theme/app_colors.dart';
-import 'package:ui/theme/app_font_effect_scope.dart';
 import 'package:ui/theme/theme_context.dart';
 import 'package:ui/utils/cache_util.dart';
 import 'package:ui/utils/ui.dart';
@@ -90,6 +89,8 @@ class HomeDrawer extends ConsumerStatefulWidget {
     this.embedded = false,
     this.closeOnNavigate = true,
     this.onThreadTargetSelected,
+    this.onSearchFocusChanged,
+    this.searchFieldKey,
   });
 
   final int? memoryCount;
@@ -97,6 +98,8 @@ class HomeDrawer extends ConsumerStatefulWidget {
   final bool embedded;
   final bool closeOnNavigate;
   final ValueChanged<ConversationThreadTarget>? onThreadTargetSelected;
+  final ValueChanged<bool>? onSearchFocusChanged;
+  final GlobalKey? searchFieldKey;
 
   @override
   ConsumerState<HomeDrawer> createState() => HomeDrawerState();
@@ -186,6 +189,9 @@ class HomeDrawerState extends ConsumerState<HomeDrawer> {
     _searchDebounceTimer?.cancel();
     _conversationListChangedSubscription?.cancel();
     _scheduledTasksChangedSubscription?.cancel();
+    if (_searchFocusNode.hasFocus) {
+      widget.onSearchFocusChanged?.call(false);
+    }
     _searchController
       ..removeListener(_handleSearchQueryChanged)
       ..dispose();
@@ -215,23 +221,25 @@ class HomeDrawerState extends ConsumerState<HomeDrawer> {
     _loadConversations();
   }
 
+  void unfocusSearch() {
+    _searchFocusNode.unfocus();
+  }
+
   @override
   Widget build(BuildContext context) {
     final backgroundColor = _drawerBackgroundColor;
-    final content = AppFontEffectScope.nonChat(
-      child: ColoredBox(
-        color: backgroundColor,
-        child: SafeArea(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const SizedBox(height: 16),
-              Expanded(child: _buildConversationSection()),
-              const SizedBox(height: 12),
-              _buildFooterShortcutBar(),
-              const SizedBox(height: 12),
-            ],
-          ),
+    final content = ColoredBox(
+      color: backgroundColor,
+      child: SafeArea(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const SizedBox(height: 16),
+            Expanded(child: _buildConversationSection()),
+            const SizedBox(height: 12),
+            _buildFooterShortcutBar(),
+            const SizedBox(height: 12),
+          ],
         ),
       ),
     );
@@ -239,7 +247,7 @@ class HomeDrawerState extends ConsumerState<HomeDrawer> {
       return content;
     }
     return Drawer(
-      width: MediaQuery.of(context).size.width * 0.8,
+      width: MediaQuery.sizeOf(context).width * 0.8,
       backgroundColor: backgroundColor,
       child: content,
     );

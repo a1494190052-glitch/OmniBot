@@ -16,7 +16,6 @@ data class TokenUsageRecord(
     @PrimaryKey(autoGenerate = true)
     val id: Long = 0,
     val conversationId: Long,
-    val isLocal: Boolean,
     val model: String = "",
     val promptTokens: Int = 0,
     val completionTokens: Int = 0,

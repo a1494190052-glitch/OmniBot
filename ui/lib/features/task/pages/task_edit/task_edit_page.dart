@@ -3,24 +3,22 @@ import 'package:flutter/material.dart';
 import 'package:fluttertoast/fluttertoast.dart';
 import 'package:ui/widgets/bot_status.dart';
 import 'package:ui/widgets/card/edit_task_card.dart';
-import 'package:ui/features/task/pages/task_history/task_execution_history_page.dart';
+import 'package:ui/features/task/pages/execution_history/run_log_list_page.dart';
 import 'package:ui/services/task_storage_service.dart';
 import 'package:ui/models/task_models.dart';
 import 'package:ui/widgets/common_app_bar.dart';
 
 class TaskEditPage extends StatefulWidget {
   final String taskId;
-  
-  const TaskEditPage({
-    Key? key,
-    required this.taskId,
-  }) : super(key: key);
+
+  const TaskEditPage({Key? key, required this.taskId}) : super(key: key);
 
   @override
   State<TaskEditPage> createState() => _TaskEditPageState();
 }
 
-class _TaskEditPageState extends State<TaskEditPage> with WidgetsBindingObserver {
+class _TaskEditPageState extends State<TaskEditPage>
+    with WidgetsBindingObserver {
   late TaskData task;
   late String taskTitle;
   late DateTime taskDate;
@@ -36,7 +34,7 @@ class _TaskEditPageState extends State<TaskEditPage> with WidgetsBindingObserver
     _initializeTask();
   }
 
-    /// 初始化任务数据
+  /// 初始化任务数据
   Future<void> _initializeTask() async {
     try {
       setState(() {
@@ -102,7 +100,7 @@ class _TaskEditPageState extends State<TaskEditPage> with WidgetsBindingObserver
     // 保存任务
     final newTask = TaskData(
       id: widget.taskId,
-      title: taskTitle, 
+      title: taskTitle,
       date: taskDate,
       time: taskTime,
       repeatOption: repeatOption,
@@ -111,7 +109,9 @@ class _TaskEditPageState extends State<TaskEditPage> with WidgetsBindingObserver
       updatedAt: DateTime.now(),
     );
 
-    print("try save task: id=${newTask.id}, title=${newTask.title}, date=${newTask.date}, time=${newTask.time}, repeat=${newTask.repeatOption}");
+    print(
+      "try save task: id=${newTask.id}, title=${newTask.title}, date=${newTask.date}, time=${newTask.time}, repeat=${newTask.repeatOption}",
+    );
 
     try {
       setState(() {
@@ -133,10 +133,7 @@ class _TaskEditPageState extends State<TaskEditPage> with WidgetsBindingObserver
       repeatOption = task.repeatOption;
 
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('任务保存成功'),
-          backgroundColor: Colors.green,
-        ),
+        const SnackBar(content: Text('任务保存成功'), backgroundColor: Colors.green),
       );
 
       Future.delayed(const Duration(seconds: 1), () {
@@ -167,9 +164,7 @@ class _TaskEditPageState extends State<TaskEditPage> with WidgetsBindingObserver
     if (_isLoading) {
       return Scaffold(
         appBar: const CommonAppBar(title: '加载中...', primary: true),
-        body: const Center(
-          child: CircularProgressIndicator(),
-        ),
+        body: const Center(child: CircularProgressIndicator()),
       );
     }
 
@@ -182,9 +177,7 @@ class _TaskEditPageState extends State<TaskEditPage> with WidgetsBindingObserver
             // 跳转到编辑页面
             Navigator.push(
               context,
-              MaterialPageRoute(
-                builder: (_) => const TaskExecutionHistoryPage(),
-              ),
+              MaterialPageRoute(builder: (_) => const RunLogListPage()),
             );
           },
           child: const Text('执行历史'),
@@ -205,7 +198,7 @@ class _TaskEditPageState extends State<TaskEditPage> with WidgetsBindingObserver
               onTimeChanged: onTimeChanged,
               onRepeatChanged: onRepeatOptionChanged,
               onSave: saveTask,
-            )
+            ),
           ],
         ),
       ),

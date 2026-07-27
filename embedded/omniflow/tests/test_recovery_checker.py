@@ -12,7 +12,7 @@ from omniflow.checker import (
     validate_checker_rule,
 )
 from omniflow.config import PluginSet
-from omniflow.execute import execute_action, trace_step
+from omniflow.execute import execute_action, step_fact
 from omniflow.model import (
     Action,
     ActionResult,
@@ -129,6 +129,27 @@ def test_checker_does_not_leave_permission_ui() -> None:
     assert recovery is None
 
 
+@pytest.mark.parametrize(
+    "source_package",
+    (
+        "com.android.systemui",
+        "com.android.permissioncontroller",
+    ),
+)
+def test_checker_does_not_reopen_transient_source_package(
+    source_package: str,
+) -> None:
+    recovery = default_checker(
+        CheckerContext(
+            source=_state(source_package),
+            current=_state("com.android.settings"),
+            action=Action("click", {"x": 500, "y": 500}),
+        )
+    )
+
+    assert recovery is None
+
+
 def test_checker_clicks_explicit_ad_close_parent() -> None:
     xml = (
         '<hierarchy width="100" height="200">'
@@ -220,13 +241,13 @@ def test_recovery_observes_again_before_transfer_and_original_action(
     ]
     assert [item.origin for item in step.executed_steps] == ["checker", "action"]
     assert [
-        trace_step(item, index)["metadata"]["origin"]
-        for index, item in enumerate(step.executed_steps)
+        step_fact(item)["metadata"]["origin"]
+        for item in step.executed_steps
     ] == ["checker", "action"]
-    assert trace_step(step.executed_steps[0], 0)["metadata"]["checker_trigger"] == (
+    assert step_fact(step.executed_steps[0])["metadata"]["checker_trigger"] == (
         'package_is("com.example.other")'
     )
-    assert action_settle_delays == [0.5, 0.5]
+    assert action_settle_delays == [1.0, 1.0]
 
 
 def test_learned_checker_transfers_recovery_then_retries_original_action(
@@ -298,7 +319,7 @@ def test_learned_checker_transfers_recovery_then_retries_original_action(
         (Action("click", {"x": 500, "y": 500}), refreshed, original_source),
     ]
     assert step.executed_steps[0].checker_trigger == 'text_contains("跳过广告")'
-    assert action_settle_delays == [0.5, 0.5]
+    assert action_settle_delays == [1.0, 1.0]
 
 
 def test_failed_recovery_does_not_execute_original_action(
@@ -330,4 +351,4 @@ def test_failed_recovery_does_not_execute_original_action(
         Action("open_app", {"package_name": "com.example.source"})
     ]
     assert [item.origin for item in step.executed_steps] == ["checker"]
-    assert action_settle_delays == [0.5]
+    assert action_settle_delays == [1.0]

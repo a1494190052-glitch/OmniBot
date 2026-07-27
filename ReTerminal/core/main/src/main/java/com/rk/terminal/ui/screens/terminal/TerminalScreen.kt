@@ -272,6 +272,14 @@ fun TerminalScreen(
                         })
 
                     SettingsCard(
+                        title = { Text("Ubuntu") },
+                        description = { Text(stringResource(strings.ubuntu_desc)) },
+                        onClick = {
+                            createSession(workingMode = WorkingMode.UBUNTU)
+                            showAddDialog = false
+                        })
+
+                    SettingsCard(
                         title = { Text("Android") },
                         description = {Text(stringResource(strings.android_desc))},
                         onClick = {
@@ -284,7 +292,7 @@ fun TerminalScreen(
 
         ModalNavigationDrawer(
             drawerState = drawerState,
-            gesturesEnabled = true,
+            gesturesEnabled = false,
             drawerContent = {
                 ModalDrawerSheet(modifier = Modifier.width(drawerWidth)) {
                     Column(
@@ -394,6 +402,7 @@ fun TerminalScreen(
                                 return when(workingMode){
                                     0 -> "ALPINE".lowercase()
                                     1 -> "ANDROID".lowercase()
+                                    2 -> "UBUNTU".lowercase()
                                     null -> "null"
                                     else -> "unknown"
                                 }

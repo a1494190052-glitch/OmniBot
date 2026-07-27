@@ -12,6 +12,9 @@ mixin _ChatPageBrowserMixin on _ChatPageStateBase {
 
   bool _maybeOpenDrawerFromPageSwipe() {
     if (!mounted ||
+        // 锚点面板展开时整页处于"点击空白收起"的模态态，此时的滑动不应
+        // 被当成呼出抽屉的手势（否则从左往右轻滑一小段就会误开 home_drawer）。
+        _messageAnchorExpanded ||
         _activeSurfaceMode != ChatSurfaceMode.normal ||
         _isHdPadLandscapeForMediaQuery(MediaQuery.of(context))) {
       return false;
@@ -35,6 +38,13 @@ mixin _ChatPageBrowserMixin on _ChatPageStateBase {
   @override
   void _handlePagePointerDown(PointerDownEvent event) {
     if (_activeSurfaceMode != ChatSurfaceMode.normal) {
+      _pageGesturePointerId = null;
+      _pageHorizontalDragDelta = 0;
+      _pageVerticalDragDelta = 0;
+      return;
+    }
+    // 锚点面板展开时不追踪整页滑动，滑动只用于操作锚点/收起面板，不呼出抽屉。
+    if (_messageAnchorExpanded) {
       _pageGesturePointerId = null;
       _pageHorizontalDragDelta = 0;
       _pageVerticalDragDelta = 0;

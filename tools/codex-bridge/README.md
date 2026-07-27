@@ -8,6 +8,7 @@ The bridge also exposes authenticated HTTP helpers used by Omnibot:
 - `GET /fs/list?path=/abs/path`: list remote directories for the in-app cwd picker.
 - `GET /fs/read?path=/abs/path`: read a remote file for preview/editing.
 - `POST /fs/write`: write UTF-8 text back to a remote file.
+- `POST /fs/upload`: upload a base64-encoded attachment into `<cwd>/.omnibot/attachments`.
 - `POST /fs/delete`: delete a remote file or directory.
 - `POST /fs/move`: rename or move a remote file or directory.
 
@@ -98,6 +99,7 @@ For unattended scripts or service managers, pass `--no-interactive` or set `OMNI
 - `OMNIBOT_BRIDGE_INTERACTIVE`: set to `0`/`false` to disable prompts, or `1`/`true` to force prompts
 - `OMNIBOT_BRIDGE_CONFIG`: bridge config path, default `~/.omnibot/codex-bridge.json`
 - `OMNIBOT_BRIDGE_MAX_READ_BYTES`: max file preview payload, default 12 MiB
+- `OMNIBOT_BRIDGE_MAX_UPLOAD_BYTES`: max decoded attachment upload size, default 24 MiB
 - `CODEX_BIN`: Codex executable, default `codex`
 - `CODEX_HOME`: optional Codex config directory override
 - `CODEX_APP_SERVER_SOCKET`: desktop Codex app-server Unix socket override

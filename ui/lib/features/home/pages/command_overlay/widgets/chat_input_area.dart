@@ -5,14 +5,13 @@ import 'dart:math' as math;
 import 'dart:ui';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:flutter/material.dart';
+import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:ui/features/home/pages/command_overlay/services/manual_recording_flow_controller.dart';
 import 'package:ui/l10n/app_text_localizer.dart';
-import 'package:ui/services/model_provider_config_service.dart';
 import 'package:ui/services/model_vendor_catalog.dart';
 import 'package:ui/services/special_permission.dart';
 import 'package:ui/services/storage_service.dart';
 import 'package:ui/theme/theme_context.dart';
-import 'package:ui/widgets/conversation_model_selector.dart';
 import 'package:ui/widgets/provider_vendor_icon.dart';
 import 'package:ui/widgets/glass_popup.dart';
 import 'package:ui/widgets/image_preview_overlay.dart';
@@ -34,22 +33,23 @@ const String _kLucideCommandSvg =
     '<path d="M15 6v12a3 3 0 1 0 3-3H6a3 3 0 1 0 3 3V6a3 3 0 1 0-3 3h12a3 3 0 1 0-3-3"/>'
     '</svg>';
 
-const String _kCodexPermissionDefaultIconAsset =
+const String _kAgentPermissionDefaultIconAsset =
     'assets/home/chat/permission_hand.svg';
-const String _kCodexPermissionAutoReviewIconAsset =
-    'assets/home/chat/codex.svg';
-const String _kCodexPermissionFullAccessIconAsset =
+const String _kAgentPermissionAutoReviewIconAsset =
+    'assets/home/chat/agent.svg';
+const String _kAgentPermissionFullAccessIconAsset =
     'assets/home/chat/permission_shield_alert.svg';
 
-enum CodexPermissionMode { defaultMode, autoReview, fullAccess }
+enum AgentPermissionMode { defaultMode, autoReview, fullAccess }
 
-typedef CodexRunSettingsChanged =
+typedef AgentRunSettingsChanged =
     FutureOr<void> Function({String? modelId, String? reasoningEffort});
 
-class CodexRunSettings {
-  const CodexRunSettings({
+class AgentRunSettings {
+  const AgentRunSettings({
     required this.modelId,
     required this.reasoningEffort,
+    this.agentName = '',
     this.modelOptions = const <String>[],
     this.reasoningEffortOptions = const <String>[],
     this.isLoadingModels = false,
@@ -58,6 +58,7 @@ class CodexRunSettings {
 
   final String modelId;
   final String reasoningEffort;
+  final String agentName;
   final List<String> modelOptions;
   final List<String> reasoningEffortOptions;
   final bool isLoadingModels;
@@ -134,6 +135,7 @@ class ChatInputArea extends StatefulWidget {
   final bool useAttachmentPickerForPlus;
   final Future<void> Function()? onPickAttachment;
   final List<ChatInputAttachment> attachments;
+  final bool hasExternalSendPayload;
   final ValueChanged<String>? onRemoveAttachment;
   final VoidCallback? onTriggerSlashCommand;
   final String? selectedModelOverrideId;
@@ -142,11 +144,12 @@ class ChatInputArea extends StatefulWidget {
   final String? contextUsageTooltipMessage;
   final VoidCallback? onLongPressContextUsageRing;
   final ChatModelPickerSettings? modelPickerSettings;
-  final CodexRunSettings? codexRunSettings;
-  final CodexRunSettingsChanged? onCodexRunSettingsChanged;
-  final FutureOr<void> Function()? onCodexRunSettingsOpened;
-  final CodexPermissionMode? codexPermissionMode;
-  final ValueChanged<CodexPermissionMode>? onCodexPermissionModeChanged;
+  final AgentRunSettings? agentRunSettings;
+  final AgentRunSettingsChanged? onAgentRunSettingsChanged;
+  final FutureOr<void> Function()? onAgentRunSettingsOpened;
+  final AgentPermissionMode? agentPermissionMode;
+  final List<AgentPermissionMode> agentPermissionModes;
+  final ValueChanged<AgentPermissionMode>? onAgentPermissionModeChanged;
   final bool useIndependentSendButton;
 
   const ChatInputArea({
@@ -168,6 +171,7 @@ class ChatInputArea extends StatefulWidget {
     this.useAttachmentPickerForPlus = false,
     this.onPickAttachment,
     this.attachments = const [],
+    this.hasExternalSendPayload = false,
     this.onRemoveAttachment,
     this.onTriggerSlashCommand,
     this.selectedModelOverrideId,
@@ -176,11 +180,12 @@ class ChatInputArea extends StatefulWidget {
     this.contextUsageTooltipMessage,
     this.onLongPressContextUsageRing,
     this.modelPickerSettings,
-    this.codexRunSettings,
-    this.onCodexRunSettingsChanged,
-    this.onCodexRunSettingsOpened,
-    this.codexPermissionMode,
-    this.onCodexPermissionModeChanged,
+    this.agentRunSettings,
+    this.onAgentRunSettingsChanged,
+    this.onAgentRunSettingsOpened,
+    this.agentPermissionMode,
+    this.agentPermissionModes = AgentPermissionMode.values,
+    this.onAgentPermissionModeChanged,
     this.useIndependentSendButton = true,
   });
 
@@ -438,7 +443,8 @@ class _ComposerInteractionState {
   final bool hasFocus;
   final _ComposerKeyboardPhase keyboardPhase;
 
-  bool get expandsTextField => hasText || keyboardPhase.expandsEmptyTextField;
+  bool get expandsTextField =>
+      hasText || (hasFocus && keyboardPhase.expandsEmptyTextField);
 
   _ComposerInteractionState copyWith({
     bool? hasText,

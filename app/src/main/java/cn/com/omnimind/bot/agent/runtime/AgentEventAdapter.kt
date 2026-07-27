@@ -15,7 +15,6 @@ class AgentEventAdapter(
         return when (result) {
             is ToolExecutionResult.ChatMessage -> AgentOutputKind.CHAT_MESSAGE
             is ToolExecutionResult.Clarify -> AgentOutputKind.CLARIFY
-            is ToolExecutionResult.VlmTaskStarted -> AgentOutputKind.TASK_STARTED
             is ToolExecutionResult.PermissionRequired -> AgentOutputKind.PERMISSION_REQUIRED
             is ToolExecutionResult.ScheduleResult,
             is ToolExecutionResult.McpResult,
@@ -30,7 +29,6 @@ class AgentEventAdapter(
     fun hasUserVisibleOutput(result: ToolExecutionResult): Boolean {
         return result is ToolExecutionResult.ChatMessage ||
             result is ToolExecutionResult.Clarify ||
-            result is ToolExecutionResult.VlmTaskStarted ||
             result is ToolExecutionResult.PermissionRequired ||
             result is ToolExecutionResult.ScheduleResult ||
             result is ToolExecutionResult.McpResult ||
@@ -43,7 +41,6 @@ class AgentEventAdapter(
     fun isConversationStoppingResult(result: ToolExecutionResult): Boolean {
         return result is ToolExecutionResult.ChatMessage ||
             result is ToolExecutionResult.Clarify ||
-            result is ToolExecutionResult.VlmTaskStarted ||
             result is ToolExecutionResult.PermissionRequired
     }
 
@@ -70,16 +67,6 @@ class AgentEventAdapter(
                 "summary" to result.question,
                 "question" to result.question,
                 "missingFields" to (result.missingFields ?: emptyList<String>())
-            )
-
-            is ToolExecutionResult.VlmTaskStarted -> mapOf(
-                "toolName" to descriptor.name,
-                "displayName" to descriptor.displayName,
-                "toolType" to descriptor.toolType,
-                "success" to true,
-                "summary" to "已启动视觉执行任务：${result.goal}",
-                "taskId" to result.taskId,
-                "goal" to result.goal
             )
 
             is ToolExecutionResult.PermissionRequired -> mapOf(

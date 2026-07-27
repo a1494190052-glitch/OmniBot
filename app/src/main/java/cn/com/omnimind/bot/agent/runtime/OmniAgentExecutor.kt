@@ -8,6 +8,7 @@ import cn.com.omnimind.bot.agent.workspace.memory.LongTermMemoryIndex
 import cn.com.omnimind.bot.agent.workspace.memory.MemoryRetrievalPipeline
 import cn.com.omnimind.bot.agent.workspace.memory.TurnMemoryLoadTracker
 import cn.com.omnimind.bot.mcp.RemoteMcpDiscoveryRegistry
+import com.rk.terminal.runtime.TerminalDistribution
 import java.util.concurrent.atomic.AtomicReference
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -157,13 +158,13 @@ class OmniAgentExecutor(
         userMessage: String,
         conversationHistory: List<Map<String, Any?>>,
         runtimeContextRepository: AgentRuntimeContextRepository,
-        currentPackageName: String?,
         attachments: List<Map<String, Any?>>,
         conversationId: Long?,
         conversationMode: String,
         modelOverride: AgentModelOverride?,
         reasoningEffort: String?,
         terminalEnvironment: Map<String, String>,
+        runtimeOptions: Map<String, Any?> = emptyMap(),
         callback: AgentCallback,
         runControl: AgentRunControl = NoOpAgentRunControl,
         continueMode: Boolean = false
@@ -171,6 +172,7 @@ class OmniAgentExecutor(
         var toolRouter: AgentToolRouter? = null
         return try {
             val agentRunId = UUID.randomUUID().toString()
+            val terminalDistribution = TerminalDistribution.selected()
             val workspaceManager = AgentWorkspaceManager(context)
             val memoryService = WorkspaceMemoryService(context, workspaceManager)
             val workspaceDescriptor = workspaceManager.buildWorkspaceDescriptor(
@@ -198,7 +200,14 @@ class OmniAgentExecutor(
             }
             val skillIndexService = SkillIndexService(context, workspaceManager)
             val skillLoader = SkillLoader(workspaceManager)
-            val installedSkills = skillIndexService.listInstalledSkills()
+            val installedSkills = skillIndexService.listInstalledSkills().map { skill ->
+                skill.copy(
+                    description = AgentTerminalDistributionText.resolve(
+                        skill.description,
+                        terminalDistribution
+                    )
+                )
+            }
             val failureLearningSkill = SelfImprovingSkillFailureHook.resolveInstalledSkill(
                 installedSkills = installedSkills,
                 skillLoader = skillLoader
@@ -214,11 +223,14 @@ class OmniAgentExecutor(
                     skillLoader.load(match.entry, match.triggerReason)
                 }
             }
+            val enabledToolProfiles = resolvedSkills.mapTo(linkedSetOf()) { it.skillId }
             val discoveredServers = RemoteMcpDiscoveryRegistry.discoverEnabledServers()
             val toolRegistry = AgentToolRegistry(
                 context = context,
                 discoveredServers = discoveredServers,
-                conversationMode = conversationMode
+                conversationMode = conversationMode,
+                terminalDistribution = terminalDistribution,
+                enabledToolProfiles = enabledToolProfiles,
             )
             val initialMessages = buildInitialMessages(
                 promptSeed = historyRepository.buildPromptSeed(
@@ -235,7 +247,8 @@ class OmniAgentExecutor(
                 skillsRootAndroidPath = workspaceManager.skillsRoot().absolutePath,
                 resolvedSkills = resolvedSkills,
                 memoryContext = promptMemoryContext,
-                prefetchedMemoryHits = prefetchedMemoryHits
+                prefetchedMemoryHits = prefetchedMemoryHits,
+                terminalDistribution = terminalDistribution
             )
 
             val llmClient = HttpAgentLlmClient(
@@ -286,7 +299,9 @@ class OmniAgentExecutor(
                 scope = scope,
                 scheduleToolBridge = scheduleToolBridge,
                 workspaceManager = workspaceManager,
-                subagentDispatcher = subagentDispatcher
+                subagentDispatcher = subagentDispatcher,
+                terminalDistribution = terminalDistribution,
+                enabledToolProfiles = enabledToolProfiles,
             )
             routerRef.set(toolRouter)
             val orchestrator = AgentOrchestrator(
@@ -307,7 +322,6 @@ class OmniAgentExecutor(
                     executionEnv = DefaultAgentExecutionEnvironment(
                         agentRunId = agentRunId,
                         userMessage = userMessage,
-                        currentPackageName = currentPackageName,
                         runtimeContextRepository = runtimeContextRepository,
                         workspaceDescriptor = workspaceDescriptor,
                         resolvedSkills = resolvedSkills,
@@ -317,6 +331,7 @@ class OmniAgentExecutor(
                         conversationMode = conversationMode,
                         reasoningEffort = reasoningEffort,
                         terminalEnvironment = terminalEnvironment,
+                        runtimeOptions = runtimeOptions,
                         runControl = runControl,
                         longTermMemoryIndex = ltmIndex,
                         turnMemoryLoadTracker = memoryLoadTracker
@@ -344,7 +359,8 @@ class OmniAgentExecutor(
         skillsRootAndroidPath: String,
         resolvedSkills: List<ResolvedSkillContext>,
         memoryContext: WorkspaceMemoryPromptContext?,
-        prefetchedMemoryHits: List<WorkspaceMemorySearchHit> = emptyList()
+        prefetchedMemoryHits: List<WorkspaceMemorySearchHit> = emptyList(),
+        terminalDistribution: TerminalDistribution.Spec = TerminalDistribution.alpine
     ): List<ChatCompletionMessage> {
         val systemPrompt = AgentSystemPrompt.build(
             workspace = workspaceDescriptor,
@@ -353,7 +369,8 @@ class OmniAgentExecutor(
             skillsRootAndroidPath = skillsRootAndroidPath,
             resolvedSkills = resolvedSkills,
             memoryContext = memoryContext,
-            locale = AppLocaleManager.resolvePromptLocale(context)
+            locale = AppLocaleManager.resolvePromptLocale(context),
+            terminalDistribution = terminalDistribution
         )
         return mergeInitialPromptMessages(
             leadingMessages = listOf(

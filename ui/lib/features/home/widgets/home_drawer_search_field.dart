@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:ui/l10n/l10n.dart';
-import 'package:ui/theme/app_font_effect_scope.dart';
 import 'package:ui/theme/theme_context.dart';
 
 class HomeDrawerSearchField extends StatelessWidget {
@@ -23,6 +22,10 @@ class HomeDrawerSearchField extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    return ListenableBuilder(listenable: focusNode, builder: _buildField);
+  }
+
+  Widget _buildField(BuildContext context, Widget? _) {
     final palette = context.omniPalette;
     final hasFocus = focusNode.hasFocus;
     final iconColor = hasFocus ? palette.accentPrimary : palette.textSecondary;
@@ -54,10 +57,7 @@ class HomeDrawerSearchField extends StatelessWidget {
         style: TextStyle(
           fontSize: 13,
           color: textColor,
-          fontWeight: AppFontEffectScope.resolveNonChatWeight(
-            context,
-            FontWeight.w500,
-          ),
+          fontWeight: FontWeight.w500,
           height: 1.2,
           fontFamily: 'PingFang SC',
         ),
@@ -67,10 +67,7 @@ class HomeDrawerSearchField extends StatelessWidget {
           hintStyle: TextStyle(
             fontSize: 13,
             color: palette.textTertiary,
-            fontWeight: AppFontEffectScope.resolveNonChatWeight(
-              context,
-              FontWeight.w400,
-            ),
+            fontWeight: FontWeight.w400,
             fontFamily: 'PingFang SC',
           ),
           border: InputBorder.none,

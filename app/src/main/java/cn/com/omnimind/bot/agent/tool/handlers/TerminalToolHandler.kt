@@ -102,7 +102,10 @@ class TerminalToolHandler(
             "terminal_session_exec" -> executeTerminalSessionExec(args, env.workspaceDescriptor, env.terminalEnvironment, callback, toolHandle)
             "terminal_session_read" -> executeTerminalSessionRead(args, env.workspaceDescriptor, callback)
             "terminal_session_stop" -> executeTerminalSessionStop(args, env.workspaceDescriptor, callback)
-            else -> ToolExecutionResult.Error(toolCall.function.name, "Unknown terminal tool")
+            else -> ToolExecutionResult.Error(
+                toolCall.function.name,
+                "Unknown ${helper.terminalDistribution.displayName} tool"
+            )
         }
     }
 
@@ -126,9 +129,9 @@ class TerminalToolHandler(
             helper.reportToolProgress(
                 callback,
                 toolName,
-                "正在调用内嵌 Alpine 终端执行命令",
+                "正在调用内嵌终端环境执行命令",
                 mapOf(
-                    "summary" to "正在调用内嵌 Alpine 终端执行命令",
+                    "summary" to "正在调用内嵌终端环境执行命令",
                     "terminalStreamState" to "starting"
                 ),
                 toolHandle = toolHandle
@@ -160,13 +163,13 @@ class TerminalToolHandler(
                         callback,
                         toolName,
                         if (update.outputDelta.isBlank()) {
-                            "正在调用内嵌 Alpine 终端执行命令"
+                            "正在调用内嵌终端环境执行命令"
                         } else {
                             "终端输出更新中"
                         },
                         mapOf<String, Any?>(
                             "summary" to if (update.outputDelta.isBlank()) {
-                                "正在调用内嵌 Alpine 终端执行命令"
+                                "正在调用内嵌终端环境执行命令"
                             } else {
                                 "终端输出更新中"
                             },
@@ -525,7 +528,7 @@ class TerminalToolHandler(
         onLiveUpdate: suspend (sessionId: String, outputDelta: String, streamState: String) -> Unit = { _, _, _ -> }
     ): TermuxCommandResult {
         val createdSession = withLocalTerminalManager { manager ->
-            createLocalTerminalSession(manager, "Agent Terminal")
+            createLocalTerminalSession(manager, "Agent ${helper.terminalDistribution.displayName}")
         }
         rememberOwnedTerminalSession(createdSession.id)
         onLiveUpdate(createdSession.id, "", "running")
@@ -932,15 +935,16 @@ class TerminalToolHandler(
             "，已回退为结束后展示结果"
         }
         if (result.timedOut) {
-            return if (helper.isEnglishLocale) {
+            val timedOutText = if (helper.isEnglishLocale) {
                 "Terminal command timed out and may still be running in the background$liveNote"
             } else {
                 "终端命令等待超时，可能仍在后台继续运行$liveNote"
             }
+            return helper.localized(timedOutText)
         }
         val headline = helper.firstUsefulLine(if (result.success) result.stdout else result.stderr.ifBlank { result.stdout })
         val suffix = headline?.let { if (helper.isEnglishLocale) ": $it" else "：$it" }.orEmpty()
-        return when {
+        val summary = when {
             result.success && result.resultCode == 0 ->
                 if (helper.isEnglishLocale) "Terminal command succeeded (exit=0)$suffix$liveNote"
                 else "终端命令执行成功（exit=0）$suffix$liveNote"
@@ -953,6 +957,7 @@ class TerminalToolHandler(
             !result.errorMessage.isNullOrBlank() -> helper.localized(result.errorMessage) + liveNote
             else -> if (helper.isEnglishLocale) "Terminal command failed$liveNote" else "终端命令执行失败$liveNote"
         }
+        return helper.localized(summary)
     }
 
     private fun buildTerminalArtifacts(workspace: AgentWorkspaceDescriptor, sourceTool: String, terminalOutput: String): List<ArtifactRef> {
@@ -987,7 +992,7 @@ class TerminalToolHandler(
             }
         }
         val executionMode = TermuxCommandSpec.EXECUTION_MODE_PROOT
-        val prootDistro = TermuxCommandSpec.DEFAULT_PROOT_DISTRO
+        val prootDistro = helper.terminalDistribution.id
         val workingDirectory = args["workingDirectory"]?.jsonPrimitive?.contentOrNull?.trim()?.takeIf { it.isNotEmpty() }
         val timeoutSeconds = args["timeoutSeconds"]?.jsonPrimitive?.intOrNull?.coerceIn(5, 300) ?: TermuxCommandSpec.DEFAULT_TIMEOUT_SECONDS
         return TerminalExecuteArgs(command = command, executionMode = executionMode, prootDistro = prootDistro, workingDirectory = workingDirectory, timeoutSeconds = timeoutSeconds)

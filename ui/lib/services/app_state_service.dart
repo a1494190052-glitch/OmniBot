@@ -8,24 +8,6 @@ class AppStateService {
     'cn.com.omnimind.bot/app_state',
   );
 
-  /// 通知原生层初始化半屏Flutter引擎
-  /// 应在主Flutter页面加载完成后调用
-  static Future<bool> initHalfScreenEngine() async {
-    final initStart = DateTime.now();
-    debugPrint('📱 [FlutterStartup] Calling native to init half screen engine');
-
-    try {
-      final result = await _channel.invokeMethod('initHalfScreenEngine');
-      debugPrint(
-        '✅ [FlutterStartup] Half screen engine init requested, cost: ${DateTime.now().difference(initStart).inMilliseconds}ms',
-      );
-      return result == true;
-    } catch (e) {
-      debugPrint('⚠️  [FlutterStartup] Failed to init half screen engine: $e');
-      return false;
-    }
-  }
-
   static Future<bool> exitApp() async {
     try {
       final result = await _channel.invokeMethod('exitApp');

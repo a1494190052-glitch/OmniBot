@@ -293,7 +293,7 @@ class _FourthWelcomePageState extends State<FourthWelcomePage>
         ),
         const SizedBox(height: 4),
         Text(
-          LegacyTextLocalizer.localize('其中 Termux 终端能力为可选项，未开启也不影响基础自动化'),
+          LegacyTextLocalizer.localize('其中 Termux 终端能力为可选项，未开启也不影响基础功能'),
           style: TextStyle(
             color: Color(0xFF999999),
             fontSize: 12,

@@ -3,11 +3,8 @@ package cn.com.omnimind.bot.debug
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
-import cn.com.omnimind.accessibility.service.AssistsService
-import cn.com.omnimind.assists.controller.accessibility.AccessibilityController
+import cn.com.omnimind.androidgui.AndroidGuiEnvironment
 import cn.com.omnimind.baselib.util.OmniLog
-import cn.com.omnimind.bot.mcp.McpToolExecutors
-import cn.com.omnimind.bot.util.AssistsUtil
 import com.google.gson.GsonBuilder
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -21,19 +18,17 @@ class DebugGetStateReceiver : BroadcastReceiver() {
         val appContext = context.applicationContext
         scope.launch {
             val result = runCatching {
-                if (!AssistsUtil.Core.isInitialized()) {
-                    AssistsUtil.Core.initCore(appContext)
-                }
-                waitForAccessibility()
-                McpToolExecutors.executeGetState(
-                    appContext,
-                    mapOf(
-                        "include_xml" to (intent?.getBooleanExtra("includeXml", false) ?: false),
-                        "include_screenshot" to (intent?.getBooleanExtra("includeScreenshot", false) ?: false),
-                        "include_indexed_context" to (intent?.getBooleanExtra("includeIndexedContext", true) ?: true),
-                        "include_marked_screenshot" to (intent?.getBooleanExtra("includeMarkedScreenshot", false) ?: false),
-                        "include_image_content" to (intent?.getBooleanExtra("includeImageContent", false) ?: false),
-                    )
+                val environment = AndroidGuiEnvironment(appContext)
+                waitForAccessibility(environment)
+                val includeXml = intent?.getBooleanExtra("includeXml", false) ?: false
+                val state = environment.observe(
+                    captureScreenshot = intent?.getBooleanExtra("includeScreenshot", false) ?: false,
+                ).asMap().toMutableMap()
+                if (!includeXml) state.remove("xml")
+                linkedMapOf<String, Any?>(
+                    "success" to true,
+                    "accessibility_status" to environment.accessibilityStatus().name.lowercase(),
+                    "state" to state,
                 )
             }.getOrElse { error ->
                 linkedMapOf<String, Any?>(
@@ -49,12 +44,15 @@ class DebugGetStateReceiver : BroadcastReceiver() {
         }
     }
 
-    private suspend fun waitForAccessibility() {
+    private suspend fun waitForAccessibility(environment: AndroidGuiEnvironment) {
+        if (!environment.isAccessibilityEnabled()) {
+            error("android_gui_accessibility_disabled")
+        }
         repeat(50) {
-            if (AssistsService.instance != null && AccessibilityController.initController()) return
+            if (environment.isReady()) return
             delay(200L)
         }
-        error("OOB accessibility service is not bound")
+        error("android_gui_accessibility_not_ready")
     }
 
     companion object {

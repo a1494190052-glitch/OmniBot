@@ -5,14 +5,12 @@ import cn.com.omnimind.bot.agent.workspace.memory.TurnMemoryLoadTracker
 import cn.com.omnimind.baselib.llm.ChatCompletionMessage
 import cn.com.omnimind.baselib.llm.ChatCompletionThinking
 import cn.com.omnimind.baselib.llm.ChatCompletionTurn
-import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonObject
 
 interface AgentExecutionEnvironment {
     val agentRunId: String
     val userMessage: String
-    val attachments: List<Map<String, Any?>>
-    val currentPackageName: String?
     val runtimeContextRepository: AgentRuntimeContextRepository
     val workspaceDescriptor: AgentWorkspaceDescriptor
     val resolvedSkills: List<ResolvedSkillContext>
@@ -22,6 +20,7 @@ interface AgentExecutionEnvironment {
     val conversationMode: String
     val reasoningEffort: String?
     val terminalEnvironment: Map<String, String>
+    val runtimeOptions: Map<String, Any?> get() = emptyMap()
     val runControl: AgentRunControl
 
     /** Long-term memory slug index. Null when unavailable; tools handle gracefully. */
@@ -37,8 +36,6 @@ interface AgentExecutionEnvironment {
 data class DefaultAgentExecutionEnvironment(
     override val agentRunId: String,
     override val userMessage: String,
-    override val attachments: List<Map<String, Any?>> = emptyList(),
-    override val currentPackageName: String?,
     override val runtimeContextRepository: AgentRuntimeContextRepository,
     override val workspaceDescriptor: AgentWorkspaceDescriptor,
     override val resolvedSkills: List<ResolvedSkillContext>,
@@ -48,6 +45,7 @@ data class DefaultAgentExecutionEnvironment(
     override val conversationMode: String,
     override val reasoningEffort: String? = null,
     override val terminalEnvironment: Map<String, String> = emptyMap(),
+    override val runtimeOptions: Map<String, Any?> = emptyMap(),
     override val runControl: AgentRunControl = NoOpAgentRunControl,
     override val longTermMemoryIndex: LongTermMemoryIndex? = null,
     override val turnMemoryLoadTracker: TurnMemoryLoadTracker? = null

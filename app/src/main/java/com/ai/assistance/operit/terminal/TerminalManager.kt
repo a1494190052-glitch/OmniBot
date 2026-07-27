@@ -20,6 +20,8 @@ import com.rk.settings.Settings
 import com.rk.terminal.App
 import com.rk.terminal.runtime.EmbeddedRuntimeInstaller
 import com.rk.terminal.runtime.AlpineRepositoryManager
+import com.rk.terminal.runtime.TerminalDistribution
+import com.rk.terminal.runtime.UbuntuRepositoryManager
 import com.termux.terminal.TerminalEmulator
 import com.termux.terminal.TerminalSession
 import com.termux.terminal.TerminalSessionClient
@@ -133,8 +135,8 @@ class TerminalManager private constructor(
         title: String? = null,
         terminalType: TerminalType
     ): TerminalSessionData {
-        require(terminalType == TerminalType.LOCAL) { "Only local Alpine sessions are supported." }
-        check(initializeEnvironment()) { "Alpine terminal environment is not ready." }
+        require(terminalType == TerminalType.LOCAL) { "Only local terminal environment sessions are supported." }
+        check(initializeEnvironment()) { "Terminal environment is not ready." }
 
         val sessionId = UUID.randomUUID().toString()
         val sessionTitle = title?.trim().orEmpty().ifBlank { "Session" }
@@ -199,6 +201,10 @@ class TerminalManager private constructor(
         publishState(sessions = remaining, currentSessionId = nextCurrent)
     }
 
+    fun closeAllSessions() {
+        sessionsById.keys.toList().forEach(::closeSession)
+    }
+
     suspend fun sendCommandToSession(
         sessionId: String,
         command: String,
@@ -240,7 +246,7 @@ class TerminalManager private constructor(
                 output = "",
                 exitCode = -1,
                 state = HiddenExecResult.State.SHELL_NOT_READY,
-                error = "Alpine terminal environment is not ready."
+                error = "Terminal environment is not ready."
             )
         }
 
@@ -252,7 +258,7 @@ class TerminalManager private constructor(
                     output = "",
                     exitCode = -1,
                     state = HiddenExecResult.State.SHELL_START_FAILED,
-                    error = error.message ?: "Failed to start Alpine shell."
+                    error = error.message ?: "Failed to start terminal environment shell."
                 )
             }
             onProcessStarted?.invoke(process)
@@ -320,7 +326,7 @@ class TerminalManager private constructor(
         extraEnvironment: Map<String, String> = emptyMap(),
         redirectErrorStream: Boolean = false
     ): Process {
-        check(initializeEnvironment()) { "Alpine terminal environment is not ready." }
+        check(initializeEnvironment()) { "Terminal environment is not ready." }
         return withContext(Dispatchers.IO) {
             buildAlpineProcess(
                 executorKey = executorKey,
@@ -386,6 +392,7 @@ class TerminalManager private constructor(
     }
 
     private fun buildEnvironmentMap(sessionId: String): Map<String, String> {
+        val distribution = TerminalDistribution.selected()
         val filesParent = context.filesDir.parentFile ?: context.filesDir
         val linker = if (File("/system/bin/linker64").exists()) "/system/bin/linker64" else "/system/bin/linker"
         val hostWorkspaceDir = AgentWorkspaceManager.rootDirectory(context).apply { mkdirs() }
@@ -403,7 +410,9 @@ class TerminalManager private constructor(
             "PKG" to context.packageName,
             "PKG_PATH" to context.applicationInfo.sourceDir,
             "OMNIBOT_HOST_WORKSPACE" to hostWorkspaceDir.absolutePath,
+            "OMNIBOT_TERMINAL_DISTRIBUTION" to distribution.id,
             "OMNIBOT_ALPINE_APK_REPOSITORY_BASE" to AlpineRepositoryManager.selectedBaseUrl(),
+            "OMNIBOT_UBUNTU_APT_REPOSITORY_BASE" to UbuntuRepositoryManager.selectedBaseUrl(),
             "PROOT_TMP_DIR" to App.getTempDir().resolve(sessionId).apply { mkdirs() }.absolutePath,
             "TMPDIR" to App.getTempDir().absolutePath
         )

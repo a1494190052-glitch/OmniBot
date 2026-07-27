@@ -8,13 +8,13 @@ import 'package:ui/theme/app_colors.dart';
 class AiGeneratedBadge extends StatelessWidget {
   /// 自定义文案，默认为 "内容由Ai生成"
   final String? text;
-  
+
   /// 图标大小，默认 10
   final double iconSize;
-  
+
   /// 文字大小，默认 12
   final double fontSize;
-  
+
   /// 图标和文字颜色，默认使用 AppColors.text50
   final Color? color;
 
@@ -29,22 +29,22 @@ class AiGeneratedBadge extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final effectiveColor = color ?? AppColors.text50;
-    
+
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
         SvgPicture.asset(
-          'assets/execution_history/model_icon.svg',
+          'assets/common/model_icon.svg',
           width: iconSize,
           height: iconSize,
-          colorFilter: ColorFilter.mode(
-            effectiveColor,
-            BlendMode.srcIn,
-          ),
+          colorFilter: ColorFilter.mode(effectiveColor, BlendMode.srcIn),
         ),
         const SizedBox(width: 4),
         Text(
-          text ?? (LegacyTextLocalizer.isEnglish ? 'AI generated content' : '内容由Ai生成'),
+          text ??
+              (LegacyTextLocalizer.isEnglish
+                  ? 'AI generated content'
+                  : '内容由Ai生成'),
           style: TextStyle(
             color: effectiveColor,
             fontSize: fontSize,

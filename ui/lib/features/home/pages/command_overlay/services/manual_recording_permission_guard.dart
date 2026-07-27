@@ -1,7 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:ui/core/router/go_router_manager.dart';
+import 'package:ui/features/home/pages/authorize/accessibility_permission_prompt.dart';
 import 'package:ui/features/home/pages/authorize/authorize_page_args.dart';
 import 'package:ui/features/home/pages/authorize/widgets/permission_section.dart';
-import 'package:ui/features/home/widgets/permission_bottom_sheet.dart';
 import 'package:ui/l10n/app_text_localizer.dart';
 import 'package:ui/services/device_service.dart';
 import 'package:ui/services/permission_registry.dart';
@@ -84,11 +85,8 @@ class ManualRecordingPermissionGuard {
     );
   }
 
-  static Future<bool> ensureAuthorized(
-    BuildContext context, {
-    String? buttonText,
-  }) async {
-    final permissionCheck = await check(context);
+  static Future<bool> ensureAuthorized(BuildContext context) async {
+    var permissionCheck = await check(context);
     if (permissionCheck.isAuthorized) {
       return true;
     }
@@ -96,19 +94,28 @@ class ManualRecordingPermissionGuard {
       return false;
     }
 
-    var authorized = false;
-    await PermissionBottomSheet.show(
-      context,
-      initialPermissions: permissionCheck.permissions,
-      deviceBrand: permissionCheck.deviceBrand,
-      requiredPermissionIds: requiredPermissionIds,
-      buttonText:
-          buttonText ??
-          AppTextLocalizer.choose(en: 'Continue recording', zh: '继续录制'),
-      onAllAuthorized: () {
-        authorized = true;
-      },
+    if (permissionCheck.missingPermissionIds.contains(
+      kAccessibilityPermissionId,
+    )) {
+      final accessibilityReady = await showAccessibilityPermissionPrompt(
+        context,
+      );
+      if (!accessibilityReady || !context.mounted) return false;
+      permissionCheck = await check(context);
+      if (permissionCheck.isAuthorized) return true;
+    }
+
+    final authorized = await GoRouterManager.pushForResult<bool>(
+      '/home/authorize',
+      extra: AuthorizePageArgs(
+        requiredPermissionIds: permissionCheck.missingPermissionIds.toList(
+          growable: false,
+        ),
+      ),
     );
-    return authorized;
+    if (authorized != true || !context.mounted) {
+      return false;
+    }
+    return (await check(context)).isAuthorized;
   }
 }

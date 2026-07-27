@@ -59,6 +59,11 @@ class FunctionStore:
         self.save()
         return deleted
 
+    def reload(self) -> None:
+        self.functions = {}
+        self.load_errors = {}
+        self._load()
+
     def save(self) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         payload = {

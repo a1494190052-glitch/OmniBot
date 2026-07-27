@@ -5,6 +5,7 @@ import os
 from typing import Any
 
 from omniflow.artifact import validate_arguments
+from omniflow.llm_usage import LLMUsageTracker
 from omniflow.model import Function, FunctionResolution
 
 MAX_RESOLUTION_OUTPUT_TOKENS = 1024
@@ -54,6 +55,7 @@ class LLMFunctionResolver:
         self._client = client
         self._api_key = api_key or os.getenv("OPENAI_API_KEY")
         self._base_url = base_url or os.getenv("OPENAI_BASE_URL")
+        self._usage = LLMUsageTracker(component="resolver", model=self.model)
 
     def resolve(
         self,
@@ -77,23 +79,29 @@ class LLMFunctionResolver:
                 detail={"reason": "no_candidates", "model": self.model},
             )
         client = self._client or self._build_client()
-        response = client.chat.completions.create(
-            model=self.model,
-            messages=[
-                {"role": "system", "content": self.prompt},
-                {
-                    "role": "user",
-                    "content": json.dumps(
-                        {"goal": str(goal), "functions": candidates},
-                        ensure_ascii=False,
-                    ),
-                },
-            ],
-            response_format={"type": "json_object"},
-            max_tokens=MAX_RESOLUTION_OUTPUT_TOKENS,
-            temperature=0,
-            timeout=self.timeout,
-        )
+        self._usage.start_call()
+        try:
+            response = client.chat.completions.create(
+                model=self.model,
+                messages=[
+                    {"role": "system", "content": self.prompt},
+                    {
+                        "role": "user",
+                        "content": json.dumps(
+                            {"goal": str(goal), "functions": candidates},
+                            ensure_ascii=False,
+                        ),
+                    },
+                ],
+                response_format={"type": "json_object"},
+                max_tokens=MAX_RESOLUTION_OUTPUT_TOKENS,
+                temperature=0,
+                timeout=self.timeout,
+            )
+        except Exception:
+            self._usage.record_failure()
+            raise
+        self._usage.record_response(response)
         content = response.choices[0].message.content
         function_id, arguments = parse_resolution(content, functions)
         return FunctionResolution(
@@ -106,6 +114,9 @@ class LLMFunctionResolver:
                 "arguments": arguments,
             },
         )
+
+    def take_usage(self) -> dict[str, Any]:
+        return self._usage.take_usage()
 
     def _build_client(self):
         try:

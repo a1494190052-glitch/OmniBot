@@ -1,6 +1,5 @@
 import 'dart:convert';
 import 'package:flutter/cupertino.dart';
-import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:ui/features/home/pages/chat/chat_page.dart';
@@ -10,7 +9,6 @@ import 'logging_observer.dart';
 import 'package:ui/services/method_channel_service.dart';
 import 'package:ui/constants/storage_keys.dart';
 import 'package:ui/services/storage_service.dart';
-import 'package:ui/theme/app_font_effect_scope.dart';
 
 class RouteOptions {
   final bool noAnim;
@@ -119,15 +117,12 @@ class GoRouterManager {
     required LocalKey key,
     required Widget child,
     String? name,
-    bool applyNonChatFontEffect = true,
   }) {
     const duration = Duration(milliseconds: 300);
 
     return CustomTransitionPage(
       key: key,
-      child: applyNonChatFontEffect
-          ? AppFontEffectScope.nonChat(child: child)
-          : child,
+      child: child,
       name: name,
       maintainState: true,
       transitionDuration: duration,
@@ -163,10 +158,6 @@ class GoRouterManager {
           child = const SizedBox.shrink();
         }
 
-        if (_shouldApplyNonChatFontEffect(route)) {
-          child = AppFontEffectScope.nonChat(child: child);
-        }
-
         return _buildPage(
           key: state.pageKey,
           child: child,
@@ -175,17 +166,6 @@ class GoRouterManager {
         );
       },
     );
-  }
-
-  static bool _shouldApplyNonChatFontEffect(GoRoute route) {
-    final path = route.path;
-    final name = route.name ?? '';
-    return path != '/home/chat' &&
-        path != '/home/home' &&
-        path != '/home/command_overlay' &&
-        name != 'home/chat' &&
-        name != 'home/home' &&
-        name != 'home/command_overlay';
   }
 
   static Object? getRealExtra(Object? extra) {

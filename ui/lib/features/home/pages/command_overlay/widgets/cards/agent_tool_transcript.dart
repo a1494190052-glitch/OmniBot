@@ -4,12 +4,13 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
+import 'package:ui/core/router/go_router_manager.dart';
 import 'package:ui/features/home/pages/chat/tool_activity_utils.dart';
-import 'package:ui/features/home/pages/command_overlay/widgets/cards/codex_diff_viewer.dart';
+import 'package:ui/features/home/pages/command_overlay/widgets/cards/agent_diff_viewer.dart';
 import 'package:ui/features/home/pages/command_overlay/widgets/cards/terminal_output_utils.dart';
 import 'package:ui/services/chat_detail_sheet_preferences.dart';
-import 'package:ui/services/codex_diff_parser.dart';
-import 'package:ui/core/router/go_router_manager.dart';
+import 'package:ui/services/agent_diff_parser.dart';
+import 'package:ui/services/agent_tool_call_parser.dart';
 import 'package:ui/theme/app_colors.dart';
 import 'package:ui/widgets/omni_glass.dart';
 
@@ -149,81 +150,17 @@ String? resolveAgentToolRunId(Map<String, dynamic> cardData) {
     return null;
   }
 
-  final directRunId = _firstNonEmptyString(<Object?>[
-    cardData['childRunId'],
-    cardData['child_run_id'],
-  ]);
-  if (directRunId != null) {
+  final directRunId = cardData['run_id']?.toString().trim() ?? '';
+  if (directRunId.isNotEmpty) {
     return directRunId;
   }
 
-  for (final key in const <String>[
-    'resultPreviewJson',
-    'result_preview_json',
-    'rawResultJson',
-    'raw_result_json',
-  ]) {
-    final runId = _findVlmRunId(_decodeJsonValue(cardData[key]));
-    if (runId != null) {
+  for (final key in const <String>['resultPreviewJson', 'rawResultJson']) {
+    final runId = _decodeJsonMap(
+      cardData[key]?.toString() ?? '',
+    )['run_id']?.toString().trim();
+    if (runId != null && runId.isNotEmpty) {
       return runId;
-    }
-  }
-  return null;
-}
-
-String? _findVlmRunId(Object? value) {
-  if (value is Map) {
-    for (final key in const <String>[
-      'childRunId',
-      'child_run_id',
-      'runId',
-      'run_id',
-      'taskId',
-      'task_id',
-    ]) {
-      final runId = _firstNonEmptyString(<Object?>[value[key]]);
-      if (runId != null) {
-        return runId;
-      }
-    }
-    for (final child in value.values) {
-      final runId = _findVlmRunId(child);
-      if (runId != null) {
-        return runId;
-      }
-    }
-  } else if (value is Iterable) {
-    for (final child in value) {
-      final runId = _findVlmRunId(child);
-      if (runId != null) {
-        return runId;
-      }
-    }
-  } else if (value is String) {
-    final decoded = _decodeJsonValue(value);
-    if (!identical(decoded, value)) {
-      return _findVlmRunId(decoded);
-    }
-  }
-  return null;
-}
-
-Object? _decodeJsonValue(Object? value) {
-  if (value is! String || value.trim().isEmpty) {
-    return value;
-  }
-  try {
-    return jsonDecode(value);
-  } on FormatException {
-    return value;
-  }
-}
-
-String? _firstNonEmptyString(Iterable<Object?> values) {
-  for (final value in values) {
-    final text = value?.toString().trim() ?? '';
-    if (text.isNotEmpty) {
-      return text;
     }
   }
   return null;
@@ -357,6 +294,11 @@ String _buildToolPromptLine(Map<String, dynamic> cardData) {
   final toolName = (cardData['toolName'] ?? '').toString().trim().isEmpty
       ? (cardData['displayName'] ?? 'tool').toString().trim()
       : (cardData['toolName'] ?? '').toString().trim();
+  final agentName = _resolveAgentToolPromptAgentName(cardData);
+  if (_isInternalAgentToolName(toolName) && agentName.isNotEmpty) {
+    final title = _resolveAgentToolPromptTitle(cardData, toolName);
+    return '$agentName · $title';
+  }
   final args = _decodeJsonMap((cardData['argsJson'] ?? '').toString());
   final segments = <String>[toolName];
 
@@ -369,6 +311,46 @@ String _buildToolPromptLine(Map<String, dynamic> cardData) {
   }
 
   return '\$ ${segments.join(' ').trim()}';
+}
+
+String _resolveAgentToolPromptAgentName(Map<String, dynamic> cardData) {
+  final explicit = (cardData['agentName'] ?? '').toString().trim();
+  if (explicit.isNotEmpty) {
+    return explicit;
+  }
+  return switch ((cardData['agentId'] ?? '').toString().trim()) {
+    'codex-acp' || 'codex-remote' => 'Codex',
+    'claude-code-acp' => 'Claude Code',
+    'opencode-acp' => 'OpenCode',
+    _ => '',
+  };
+}
+
+String _resolveAgentToolPromptTitle(
+  Map<String, dynamic> cardData,
+  String toolName,
+) {
+  for (final value in <dynamic>[
+    cardData['toolTitle'],
+    cardData['displayName'],
+  ]) {
+    final title = (value ?? '').toString().trim();
+    if (title.isNotEmpty &&
+        title != toolName &&
+        !_isInternalAgentToolName(title)) {
+      return title;
+    }
+  }
+  final separator = toolName.indexOf('.');
+  final fallback = separator >= 0
+      ? toolName.substring(separator + 1).trim()
+      : toolName;
+  return fallback.isEmpty ? 'tool' : fallback;
+}
+
+bool _isInternalAgentToolName(String value) {
+  final normalized = canonicalAgentToolName(value) ?? value.trim();
+  return normalized.startsWith('agent.') || normalized.startsWith('agent/');
 }
 
 String _buildTerminalOutputText(Map<String, dynamic> cardData) {
@@ -399,6 +381,9 @@ String _buildStructuredOutputText(
   );
   final rawMap = _decodeJsonMap((cardData['rawResultJson'] ?? '').toString());
   final lines = <String>[];
+  final vlmStepThinking = (cardData['vlmStepThinking'] ?? '').toString().trim();
+  final vlmStepAction = cardData['vlmStepAction'];
+  final vlmStepError = (cardData['vlmStepError'] ?? '').toString().trim();
 
   if (status == 'running') {
     _appendUniqueLine(lines, progress.isNotEmpty ? progress : summary);
@@ -408,28 +393,14 @@ String _buildStructuredOutputText(
     _appendUniqueLine(lines, summary);
   }
 
-  final vlmThinking = (cardData['vlmStepThinking'] ?? '').toString().trim();
-  if (vlmThinking.isNotEmpty) {
-    _appendUniqueLine(lines, '思考：$vlmThinking');
+  if (vlmStepThinking.isNotEmpty) {
+    _appendUniqueLine(lines, '思考：$vlmStepThinking');
   }
-  final rawVlmAction = cardData['vlmStepAction'];
-  final vlmAction = rawVlmAction is Map
-      ? jsonEncode(rawVlmAction)
-      : (rawVlmAction ?? '').toString().trim();
-  final vlmArgs = cardData['vlmStepArgs'];
-  if (vlmAction.isNotEmpty) {
-    _appendUniqueLine(lines, '动作：$vlmAction');
+  if (vlmStepAction is Map && vlmStepAction.isNotEmpty) {
+    _appendUniqueLine(lines, '动作：${jsonEncode(vlmStepAction)}');
   }
-  if (vlmArgs is Map && vlmArgs.isNotEmpty) {
-    _appendUniqueLine(lines, '参数：${jsonEncode(vlmArgs)}');
-  }
-  final vlmResult = cardData['vlmStepResult'];
-  if (vlmResult is Map && vlmResult.isNotEmpty) {
-    _appendUniqueLine(lines, '结果：${jsonEncode(vlmResult)}');
-  }
-  final vlmError = (cardData['vlmStepError'] ?? '').toString().trim();
-  if (vlmError.isNotEmpty) {
-    _appendUniqueLine(lines, '错误：$vlmError');
+  if (vlmStepError.isNotEmpty) {
+    _appendUniqueLine(lines, '错误：$vlmStepError');
   }
 
   final structuredPreview = _buildStructuredLines(
@@ -766,11 +737,26 @@ bool _isGenericTerminalProgressMessage(String value) {
   if (normalized.isEmpty) {
     return true;
   }
-  return normalized == '正在调用内嵌 Alpine 终端执行命令' ||
+  final distributionProgress = RegExp(
+    r'^(正在调用内嵌 (Alpine|Ubuntu) 环境执行命令|'
+    r'正在执行内嵌 (Alpine|Ubuntu) 环境命令|'
+    r'(Alpine|Ubuntu) 输出更新中|'
+    r'Running a command in the embedded (Alpine|Ubuntu) environment|'
+    r'Executing a command in the embedded (Alpine|Ubuntu) environment|'
+    r'(Alpine|Ubuntu) output is updating|'
+    r'Updating (Alpine|Ubuntu) output)$',
+  );
+  return distributionProgress.hasMatch(normalized) ||
+      normalized == '正在调用内嵌 Alpine 终端执行命令' ||
       normalized == '正在执行内嵌 Alpine 终端命令' ||
+      normalized == '正在调用内嵌终端环境执行命令' ||
+      normalized == '正在执行内嵌终端环境命令' ||
       normalized == '终端输出更新中' ||
       normalized == 'Running a command in the embedded Alpine terminal' ||
       normalized == 'Executing a command in the embedded Alpine terminal' ||
+      normalized == 'Running a command in the embedded terminal environment' ||
+      normalized ==
+          'Executing a command in the embedded terminal environment' ||
       normalized == 'Updating terminal output';
 }
 
@@ -1081,33 +1067,12 @@ class _AgentToolDetailContent extends StatelessWidget {
               _DialogMetaTag(label: typeLabel),
               const SizedBox(width: 6),
               _DialogStatusTag(status: status, label: statusLabel),
-              if (_resolveChildRunId(cardData).isNotEmpty) ...[
-                const SizedBox(width: 8),
-                IconButton(
-                  key: const ValueKey('vlm-open-runlog'),
-                  tooltip: '查看轨迹',
-                  onPressed: () {
-                    GoRouterManager.push(
-                      '/task/run_log_timeline',
-                      extra: <String, dynamic>{
-                        'runId': _resolveChildRunId(cardData),
-                        'title': title,
-                      },
-                    );
-                  },
-                  icon: const Icon(
-                    Icons.timeline_rounded,
-                    size: 18,
-                    color: Color(0xFFB9D7FF),
-                  ),
-                ),
-              ],
             ],
           ),
         ),
         Expanded(
           child: isDiffView
-              ? CodexDiffViewer(summary: diffSummary!, padding: scrollPadding)
+              ? AgentDiffViewer(summary: diffSummary!, padding: scrollPadding)
               : SingleChildScrollView(
                   padding: scrollPadding,
                   child: SelectableText.rich(detailSpan!),
@@ -1118,13 +1083,9 @@ class _AgentToolDetailContent extends StatelessWidget {
   }
 }
 
-String _resolveChildRunId(Map<String, dynamic> cardData) {
-  return resolveAgentToolRunId(cardData) ?? '';
-}
-
-CodexDiffSummary? _resolveDiffSummary(Map<String, dynamic> cardData) {
+AgentDiffSummary? _resolveDiffSummary(Map<String, dynamic> cardData) {
   final diffText = (cardData['diffText'] ?? '').toString();
-  final extracted = extractCodexDiffText(
+  final extracted = extractAgentDiffText(
     <String, dynamic>{
       ...cardData,
       if (diffText.isNotEmpty) 'diffText': diffText,
@@ -1138,7 +1099,7 @@ CodexDiffSummary? _resolveDiffSummary(Map<String, dynamic> cardData) {
   if (extracted == null || extracted.trim().isEmpty) {
     return null;
   }
-  final summary = parseCodexDiffText(extracted);
+  final summary = parseAgentDiffText(extracted);
   return summary.files.isEmpty ? null : summary;
 }
 

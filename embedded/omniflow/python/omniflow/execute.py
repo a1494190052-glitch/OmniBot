@@ -10,8 +10,8 @@ import re
 from typing import Any
 import xml.etree.ElementTree as ET
 
-from omniflow.config import PluginSet
 from omniflow.checker import default_checker_trigger, match_checker_rule
+from omniflow.config import PluginSet
 from omniflow.model import (
     Action,
     ActionDecision,
@@ -26,8 +26,9 @@ from omniflow.model import (
 )
 from omniflow.transfer import transfer_action
 
-
-_ACTION_SETTLE_SECONDS = 0.5
+_ACTION_SETTLE_SECONDS = 1.0
+_ALIGNMENT_MIN_PROBABILITY = 0.9
+_ALIGNMENT_SOURCE_SKIP_PENALTY = math.log(3.0)
 
 
 async def execute_function(
@@ -37,11 +38,17 @@ async def execute_function(
     plugins: PluginSet,
     observation: Observation | None = None,
     max_actions: int | None = None,
+    start_step_index: int = 0,
+    trace_start_index: int = 0,
+    resume_metadata: dict[str, Any] | None = None,
 ) -> RunResult:
     current = observation or Observation.from_value(
         await _await(host.observe(xml=True, app_info=True))
     )
-    if max_actions is not None and len(function.actions) > max_actions:
+    steps = tuple(
+        step for step in function.steps if step.step_index >= int(start_step_index)
+    )
+    if max_actions is not None and len(steps) > max_actions:
         return RunResult(
             False,
             function.id,
@@ -50,13 +57,15 @@ async def execute_function(
             final_state=current,
             detail={
                 "trace": [],
-                "required_actions": len(function.actions),
+                "required_actions": len(steps),
                 "max_actions": max_actions,
+                "next_step_index": int(start_step_index),
             },
         )
     executed = 0
     trace: list[dict[str, Any]] = []
-    for function_step in function.steps:
+    resume_metadata_pending = dict(resume_metadata or {})
+    for function_step in steps:
         action = function_step.action
         if max_actions is not None and executed >= max_actions:
             return RunResult(
@@ -65,7 +74,10 @@ async def execute_function(
                 executed,
                 error="max_steps_exceeded",
                 final_state=current,
-                detail={"trace": trace},
+                detail={
+                    "trace": trace,
+                    "next_step_index": function_step.step_index,
+                },
             )
         source_state = await _load_state(host, function_step.source_state_id)
         step = await execute_action(
@@ -77,10 +89,20 @@ async def execute_function(
             source_state=source_state,
         )
         executed += step.actions_executed
-        for executed_step in step.executed_steps or (step,):
-            recorded = trace_step(executed_step, len(trace))
-            trace.append(recorded)
-            await _record_step(host, recorded)
+        trace.extend(
+            await record_execution(
+                host,
+                step,
+                trace_start_index=int(trace_start_index) + len(trace),
+                metadata={"function_step_index": function_step.step_index},
+                first_metadata=(
+                    {"function_alignment": dict(resume_metadata_pending)}
+                    if resume_metadata_pending
+                    else None
+                ),
+            )
+        )
+        resume_metadata_pending.clear()
         current = step.after or step.before or current
         if not step.success:
             return RunResult(
@@ -89,15 +111,168 @@ async def execute_function(
                 executed,
                 error=step.error,
                 final_state=current,
-                detail={"trace": trace},
+                detail={
+                    "trace": trace,
+                    "failed_step_index": function_step.step_index,
+                    "next_step_index": function_step.step_index,
+                },
             )
     return RunResult(
         True,
         function.id,
         executed,
         final_state=current,
-        detail={"trace": trace},
+        detail={
+            "trace": trace,
+            "next_step_index": (
+                max((step.step_index for step in steps), default=start_step_index - 1)
+                + 1
+            ),
+        },
     )
+
+
+async def align_function_resume(
+    function: Function,
+    *,
+    host: Host,
+    plugins: PluginSet,
+    observations: list[Observation],
+    start_step_index: int,
+) -> dict[str, Any] | None:
+    transfer_fn = plugins.transfer
+    if transfer_fn is None or len(observations) < 2:
+        return None
+    remaining = [
+        step for step in function.steps if step.step_index >= int(start_step_index)
+    ]
+    candidate_steps = remaining[: len(observations)]
+    if not candidate_steps:
+        return None
+
+    probabilities: list[list[float | None]] = []
+    for function_step in candidate_steps:
+        source_state = await _load_state(host, function_step.source_state_id)
+        row: list[float | None] = []
+        for observation in observations:
+            if source_state is None:
+                row.append(None)
+                continue
+            try:
+                transfer = await _await(
+                    transfer_fn(function_step.action, observation, source_state)
+                )
+            except Exception:  # noqa: BLE001
+                row.append(None)
+                continue
+            probability = _alignment_probability(transfer.detail)
+            row.append(
+                probability
+                if transfer.action is not None
+                and probability is not None
+                and probability >= _ALIGNMENT_MIN_PROBABILITY
+                else None
+            )
+        probabilities.append(row)
+
+    source_count = len(candidate_steps)
+    target_count = len(observations)
+    negative_infinity = float("-inf")
+    scores = [
+        [negative_infinity for _ in range(target_count + 1)]
+        for _ in range(source_count + 1)
+    ]
+    back: list[list[str | None]] = [
+        [None for _ in range(target_count + 1)] for _ in range(source_count + 1)
+    ]
+    scores[0][0] = 0.0
+    for target_index in range(1, target_count + 1):
+        scores[0][target_index] = scores[0][target_index - 1]
+        back[0][target_index] = "target_gap"
+    for source_index in range(1, source_count + 1):
+        scores[source_index][0] = (
+            scores[source_index - 1][0] - _ALIGNMENT_SOURCE_SKIP_PENALTY
+        )
+        back[source_index][0] = "source_gap"
+
+    operation_priority = {"target_gap": 0, "source_gap": 1, "match": 2}
+    for source_index in range(1, source_count + 1):
+        for target_index in range(1, target_count + 1):
+            options = [
+                (scores[source_index][target_index - 1], "target_gap"),
+                (
+                    scores[source_index - 1][target_index]
+                    - _ALIGNMENT_SOURCE_SKIP_PENALTY,
+                    "source_gap",
+                ),
+            ]
+            probability = probabilities[source_index - 1][target_index - 1]
+            if probability is not None:
+                options.append(
+                    (
+                        scores[source_index - 1][target_index - 1]
+                        + _log_odds(probability),
+                        "match",
+                    )
+                )
+            score, operation = max(
+                options,
+                key=lambda item: (item[0], operation_priority[item[1]]),
+            )
+            scores[source_index][target_index] = score
+            back[source_index][target_index] = operation
+
+    candidates = [
+        source_index
+        for source_index in range(1, source_count + 1)
+        if back[source_index][target_count] == "match"
+        and scores[source_index][target_count] > 0.0
+    ]
+    if not candidates:
+        return None
+    best_source_index = max(
+        candidates,
+        key=lambda source_index: (scores[source_index][target_count], source_index),
+    )
+    matched_probability = probabilities[best_source_index - 1][target_count - 1]
+    if matched_probability is None:
+        return None
+
+    path: list[dict[str, Any]] = []
+    source_index = best_source_index
+    target_index = target_count
+    while source_index > 0 or target_index > 0:
+        operation = back[source_index][target_index]
+        if operation == "match":
+            probability = probabilities[source_index - 1][target_index - 1]
+            path.append(
+                {
+                    "function_step_index": candidate_steps[source_index - 1].step_index,
+                    "target_observation_index": target_index - 1,
+                    "probability": probability,
+                }
+            )
+            source_index -= 1
+            target_index -= 1
+        elif operation == "source_gap":
+            source_index -= 1
+        elif operation == "target_gap":
+            target_index -= 1
+        else:
+            break
+    path.reverse()
+    resume_step_index = candidate_steps[best_source_index - 1].step_index
+    return {
+        "protocol": "weighted_lcs_v1",
+        "start_step_index": int(start_step_index),
+        "resume_step_index": resume_step_index,
+        "probability": matched_probability,
+        "score": scores[best_source_index][target_count],
+        "minimum_probability": _ALIGNMENT_MIN_PROBABILITY,
+        "source_skip_penalty": _ALIGNMENT_SOURCE_SKIP_PENALTY,
+        "target_observation_count": target_count,
+        "path": path,
+    }
 
 
 async def execute_action(
@@ -222,6 +397,7 @@ async def execute_action(
     result = replace(
         result,
         function_id=function_id,
+        detail=decision.detail,
     )
     if not executed_steps:
         return result
@@ -257,6 +433,7 @@ async def prepare_action(
         "ready",
         action=transfer.action,
         reason=transfer.reason,
+        detail=transfer.detail,
     )
 
 
@@ -287,7 +464,7 @@ async def _dispatch_prepared(
     )
 
 
-def trace_step(step: StepResult, step_index: int) -> dict[str, Any]:
+def step_fact(step: StepResult) -> dict[str, Any]:
     action = step.action or Action("")
     before = _state(step.before or Observation())
     after = _state(step.after or step.before or Observation())
@@ -305,7 +482,6 @@ def trace_step(step: StepResult, step_index: int) -> dict[str, Any]:
     if step.error:
         result["error"] = step.error
     return {
-        "step_index": step_index,
         "before_state_id": before["state_id"],
         "action": action.to_dict(),
         "result": result,
@@ -318,20 +494,19 @@ def _state(value: Observation) -> dict[str, Any]:
     state = {
         key: item
         for key, item in value.to_dict().items()
-        if key in {"xml", "package_name", "activity_name"}
-        and item not in {None, ""}
+        if key in {"xml", "package_name", "activity_name"} and item not in {None, ""}
     }
     state.update(
         {
             key: item
             for key, item in value.extra.items()
-            if key in {"display", "screenshot_path"}
-            and item is not None
-            and item != ""
+            if key in {"display", "screenshot_path"} and item is not None and item != ""
         }
     )
     explicit_state_id = str(value.extra.get("state_id") or "").strip()
-    identity = json.dumps(state, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    identity = json.dumps(
+        state, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+    )
     return {
         "state_id": explicit_state_id
         or "state_" + hashlib.sha256(identity.encode()).hexdigest()[:20],
@@ -339,10 +514,43 @@ def _state(value: Observation) -> dict[str, Any]:
     }
 
 
-async def _record_step(host: Host, step: dict[str, Any]) -> None:
+async def record_step(
+    host: Host,
+    fact: dict[str, Any],
+    *,
+    fallback_step_index: int,
+) -> dict[str, Any]:
     recorder = getattr(host, "record_step", None)
     if callable(recorder):
-        await _await(recorder(step))
+        response = await _await(recorder(fact))
+        if isinstance(response, dict) and isinstance(response.get("step"), dict):
+            return dict(response["step"])
+        raise RuntimeError("record_step_response_invalid")
+    return {"step_index": int(fallback_step_index), **fact}
+
+
+async def record_execution(
+    host: Host,
+    step: StepResult,
+    *,
+    trace_start_index: int,
+    metadata: dict[str, Any] | None = None,
+    first_metadata: dict[str, Any] | None = None,
+) -> list[dict[str, Any]]:
+    recorded_steps: list[dict[str, Any]] = []
+    for offset, executed_step in enumerate(step.executed_steps or (step,)):
+        fact = step_fact(executed_step)
+        fact["metadata"].update(metadata or {})
+        if offset == 0:
+            fact["metadata"].update(first_metadata or {})
+        recorded_steps.append(
+            await record_step(
+                host,
+                fact,
+                fallback_step_index=int(trace_start_index) + offset,
+            )
+        )
+    return recorded_steps
 
 
 def default_transfer(
@@ -355,8 +563,7 @@ def default_transfer(
     ):
         return TransferResult(action)
     if action.tool == "swipe" and all(
-        action.args.get(key) is not None
-        for key in ("x1", "y1", "x2", "y2")
+        action.args.get(key) is not None for key in ("x1", "y1", "x2", "y2")
     ):
         return _transfer_swipe(action, observation, source_state)
     if action.tool not in {"click", "input_text", "long_press"}:
@@ -385,7 +592,7 @@ def default_transfer(
     }
     try:
         request["source_point"] = _relative_source_point(
-            source_xml,
+            source_state,
             float(action.args["x"]),
             float(action.args["y"]),
         )
@@ -418,6 +625,7 @@ def default_transfer(
     return TransferResult(
         Action(action.tool, params),
         reason=str(result.get("mapping_mode") or "omnitransfer_mapped"),
+        detail=_transfer_detail(result),
     )
 
 
@@ -439,12 +647,11 @@ def _transfer_swipe(
     width, height = display_size
     params = dict(action.args)
     mapping_modes: list[str] = []
-    for index, (x_key, y_key) in enumerate(
-        (("x1", "y1"), ("x2", "y2"))
-    ):
+    endpoint_details: list[dict[str, Any]] = []
+    for index, (x_key, y_key) in enumerate((("x1", "y1"), ("x2", "y2"))):
         try:
             source_point = _relative_source_point(
-                source_xml,
+                source_state,
                 float(params[x_key]),
                 float(params[y_key]),
             )
@@ -484,8 +691,33 @@ def _transfer_swipe(
         params[x_key] = target_x / width * 1000.0
         params[y_key] = target_y / height * 1000.0
         mapping_modes.append(str(result.get("mapping_mode") or "omnitransfer_mapped"))
+        endpoint_details.append(_transfer_detail(result))
     reason = mapping_modes[0] if len(set(mapping_modes)) == 1 else "omnitransfer_mapped"
-    return TransferResult(Action(action.tool, params), reason=reason)
+    detail: dict[str, Any] = {
+        "mapping_mode": reason,
+        "endpoints": endpoint_details,
+    }
+    probabilities = [
+        probability
+        for probability in (
+            _alignment_probability(endpoint) for endpoint in endpoint_details
+        )
+        if probability is not None
+    ]
+    if probabilities:
+        detail["score"] = min(probabilities)
+    margins = [
+        float(endpoint["margin"])
+        for endpoint in endpoint_details
+        if isinstance(endpoint.get("margin"), (int, float))
+    ]
+    if margins:
+        detail["margin"] = min(margins)
+    return TransferResult(
+        Action(action.tool, params),
+        reason=reason,
+        detail=detail,
+    )
 
 
 def _transfer_detail(result: dict[str, Any]) -> dict[str, Any]:
@@ -506,12 +738,46 @@ def _transfer_detail(result: dict[str, Any]) -> dict[str, Any]:
         candidate["bounds"] = list(raw.get("bbox") or ())
         candidate["score"] = raw.get("score")
         candidates.append(candidate)
-    return {
+    detail = {
         "mapping_mode": str(result.get("mapping_mode") or ""),
         "source": source,
         "target": target,
         "candidates": candidates,
     }
+    if result.get("mapped") is True:
+        for key in ("score", "margin"):
+            try:
+                detail[key] = float(result[key])
+            except (KeyError, TypeError, ValueError):
+                continue
+        if "score" not in detail and candidates:
+            try:
+                detail["score"] = float(candidates[0]["score"])
+            except (KeyError, TypeError, ValueError):
+                pass
+    return detail
+
+
+def _alignment_probability(detail: dict[str, Any]) -> float | None:
+    raw = detail.get("score")
+    if raw is None:
+        candidates = detail.get("candidates")
+        if isinstance(candidates, list) and candidates:
+            candidate = candidates[0]
+            if isinstance(candidate, dict):
+                raw = candidate.get("score")
+    try:
+        probability = float(raw)
+    except (TypeError, ValueError):
+        return None
+    if not math.isfinite(probability):
+        return None
+    return min(1.0, max(0.0, probability))
+
+
+def _log_odds(probability: float) -> float:
+    bounded = min(1.0 - 1e-9, max(1e-9, probability))
+    return math.log(bounded / (1.0 - bounded))
 
 
 def _element_detail(value: Any) -> dict[str, Any]:
@@ -550,11 +816,16 @@ async def _load_state(host: Host, source_state_id: str | None) -> Observation | 
     return Observation.from_value(await _await(loader(source_state_id)))
 
 
-def _relative_source_point(xml_text: str, x: float, y: float) -> tuple[float, float]:
-    display = _xml_size(_elements(xml_text))
+def _relative_source_point(
+    source_state: Observation,
+    x: float,
+    y: float,
+) -> tuple[float, float]:
+    display = _display_size(source_state, _elements(str(source_state.xml or "")))
     if display is None:
         raise ValueError("source_display_size_missing")
     return x / 1000.0 * display[0], y / 1000.0 * display[1]
+
 
 async def _await(value: Any) -> Any:
     return await value if inspect.isawaitable(value) else value
@@ -594,19 +865,21 @@ def _display_size(
     elements: list[dict[str, Any]],
 ) -> tuple[float, float] | None:
     xml_size = _xml_size(elements)
-    if xml_size is not None:
-        return xml_size
     display = observation.extra.get("display")
-    if not isinstance(display, dict) or set(display) != {"width", "height"}:
-        return None
-    try:
-        width = float(display.get("width") or 0)
-        height = float(display.get("height") or 0)
-    except (TypeError, ValueError):
-        return None
-    if width <= 0 or height <= 0:
-        return None
-    return width, height
+    action_size = None
+    if isinstance(display, dict) and set(display) == {"width", "height"}:
+        try:
+            width = float(display.get("width") or 0)
+            height = float(display.get("height") or 0)
+        except (TypeError, ValueError):
+            width = height = 0.0
+        if width > 0 and height > 0:
+            action_size = (width, height)
+    if xml_size is None:
+        return action_size
+    if action_size is None:
+        return xml_size
+    return max(xml_size[0], action_size[0]), max(xml_size[1], action_size[1])
 
 
 def _xml_size(elements: list[dict[str, Any]]) -> tuple[float, float] | None:

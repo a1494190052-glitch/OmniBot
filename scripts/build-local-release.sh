@@ -10,11 +10,10 @@ ARTIFACT_DIR="$ROOT_DIR/app/build/outputs/release-artifacts"
 DEFAULT_WORKER_URL="https://omni.1775885.xyz"
 
 INSTALL_APK=0
-SKIP_SUBMODULES=0
 SKIP_FLUTTER=0
 SKIP_BUILD=0
 NON_INTERACTIVE=0
-EDITION="both"
+EDITION="standard"
 REF_NAME=""
 SAFE_REF_NAME=""
 OUT_DIR=""
@@ -26,7 +25,6 @@ WORKER_URL="${APP_UPDATE_WORKER_URL:-$DEFAULT_WORKER_URL}"
 RELEASE_TRACK=""
 RELEASE_DRAFT=""
 RELEASE_PRERELEASE=""
-UPDATE_CHANNEL="${OMNIBOT_UPDATE_CHANNEL:-public}"
 
 usage() {
   cat <<'EOF'
@@ -34,12 +32,9 @@ Usage:
   bash scripts/build-local-release.sh [options]
 
 Options:
-  --edition standard|omniinfer|both
-                      Build the slim standard APK, the full OmniInfer APK, or both.
-                      Defaults to both.
+  --edition standard  Build the Android release APK. Defaults to standard.
   --install           Build one release APK and install it with adb.
-  --bundle            Unsupported in this split release script; APK only for now.
-  --skip-submodules   Skip OmniInfer submodule initialization.
+  --bundle            Unsupported; APK only for now.
   --skip-flutter      Skip `flutter pub get` in ui/.
   --skip-build        Reuse existing staged APK files and only package/publish.
   --tag TAG           Release tag/ref used in output file names.
@@ -55,9 +50,6 @@ Options:
                       Target commitish when creating a new GitHub release.
                       Defaults to HEAD.
   --worker-url URL    Override the built-in app update Worker URL.
-  --update-channel CHANNEL
-                      Embed and publish an isolated update channel.
-                      Defaults to public; use vlm-core for VLM branch builds.
   --non-interactive   Do not prompt for missing signing values.
   --help              Show this help text.
 
@@ -427,8 +419,6 @@ publish_worker_release() {
   LOCAL_RELEASE_TRACK="$RELEASE_TRACK" \
   LOCAL_RELEASE_DRAFT="$RELEASE_DRAFT" \
   LOCAL_RELEASE_PRERELEASE="$RELEASE_PRERELEASE" \
-  LOCAL_RELEASE_UPDATE_CHANNEL="$UPDATE_CHANNEL" \
-  LOCAL_RELEASE_PUBLISH_GITHUB="$PUBLISH_GITHUB" \
   LOCAL_RELEASE_COMMIT="$(git rev-parse HEAD 2>/dev/null || printf unknown)" \
     "$py_bin" - <<'PY' > "$payload_file"
 import json
@@ -441,8 +431,6 @@ safe_ref = os.environ["LOCAL_RELEASE_SAFE_REF_NAME"]
 github_repo = os.environ["LOCAL_RELEASE_GITHUB_REPO"]
 asset_dir = Path(os.environ["LOCAL_RELEASE_ASSET_DIR"])
 editions = os.environ["LOCAL_RELEASE_EDITIONS"].split()
-update_channel = os.environ["LOCAL_RELEASE_UPDATE_CHANNEL"]
-publish_github = os.environ["LOCAL_RELEASE_PUBLISH_GITHUB"] == "1"
 
 def env_bool(name: str) -> bool:
     return os.environ.get(name, "").lower() == "true"
@@ -451,23 +439,20 @@ def apk_asset(edition: str) -> dict:
     name = f"OpenOmniBot-{safe_ref}-{edition}.apk"
     apk_path = asset_dir / name
     sha256 = (asset_dir / f"{name}.sha256").read_text(encoding="utf-8").split()[0]
-    asset = {
+    return {
         "name": name,
+        "githubDownloadUrl": f"https://github.com/{github_repo}/releases/download/{tag}/{name}",
         "sha256": sha256,
         "size": apk_path.stat().st_size,
     }
-    if publish_github:
-        asset["githubDownloadUrl"] = f"https://github.com/{github_repo}/releases/download/{tag}/{name}"
-    return asset
 
 payload = {
     "tag": tag,
     "track": os.environ["LOCAL_RELEASE_TRACK"],
-    "channel": update_channel,
     "draft": env_bool("LOCAL_RELEASE_DRAFT"),
     "prerelease": env_bool("LOCAL_RELEASE_PRERELEASE"),
     "publishedAt": int(time.time() * 1000),
-    "releaseUrl": f"https://github.com/{github_repo}/releases/tag/{tag}" if publish_github else "",
+    "releaseUrl": f"https://github.com/{github_repo}/releases/tag/{tag}",
     "releaseNotes": f"Published from commit {os.environ['LOCAL_RELEASE_COMMIT']}.",
     "assets": [apk_asset(edition) for edition in editions],
 }
@@ -487,17 +472,10 @@ PY
   printf '\n'
 }
 
-edition_needs_omniinfer() {
-  [[ "$EDITION" == "omniinfer" || "$EDITION" == "both" ]]
-}
-
 task_for_edition() {
   case "$1" in
     standard)
       printf '%s\n' assembleProductionStandardRelease
-      ;;
-    omniinfer)
-      printf '%s\n' assembleProductionOmniinferRelease
       ;;
     *)
       echo "Invalid edition: $1" >&2
@@ -511,9 +489,6 @@ flutter_target_for_edition() {
     standard)
       printf '%s\n' lib/main_standard.dart
       ;;
-    omniinfer)
-      printf '%s\n' lib/main_omniinfer.dart
-      ;;
     *)
       echo "Invalid edition: $1" >&2
       exit 1
@@ -526,9 +501,6 @@ apk_path_for_edition() {
     standard)
       printf '%s\n' "$ROOT_DIR/app/build/outputs/apk/productionStandard/release/app-production-standard-release.apk"
       ;;
-    omniinfer)
-      printf '%s\n' "$ROOT_DIR/app/build/outputs/apk/productionOmniinfer/release/app-production-omniinfer-release.apk"
-      ;;
     *)
       echo "Invalid edition: $1" >&2
       exit 1
@@ -540,7 +512,7 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --edition)
       if [[ $# -lt 2 ]]; then
-        echo "--edition requires a value: standard, omniinfer, or both" >&2
+        echo "--edition requires the value: standard" >&2
         exit 1
       fi
       EDITION="$2"
@@ -553,11 +525,8 @@ while [[ $# -gt 0 ]]; do
       INSTALL_APK=1
       ;;
     --bundle)
-      echo "AAB builds are out of scope for this release split; build APKs instead." >&2
+      echo "AAB builds are unsupported; build the APK instead." >&2
       exit 1
-      ;;
-    --skip-submodules)
-      SKIP_SUBMODULES=1
       ;;
     --skip-flutter)
       SKIP_FLUTTER=1
@@ -630,17 +599,6 @@ while [[ $# -gt 0 ]]; do
     --worker-url=*)
       WORKER_URL="${1#--worker-url=}"
       ;;
-    --update-channel)
-      if [[ $# -lt 2 ]]; then
-        echo "--update-channel requires a value" >&2
-        exit 1
-      fi
-      UPDATE_CHANNEL="$2"
-      shift
-      ;;
-    --update-channel=*)
-      UPDATE_CHANNEL="${1#--update-channel=}"
-      ;;
     --non-interactive)
       NON_INTERACTIVE=1
       ;;
@@ -661,36 +619,12 @@ case "$EDITION" in
   standard)
     EDITIONS=(standard)
     ;;
-  omniinfer)
-    EDITIONS=(omniinfer)
-    ;;
-  both)
-    EDITIONS=(standard omniinfer)
-    ;;
   *)
     echo "Invalid edition: $EDITION" >&2
     usage
     exit 1
     ;;
 esac
-
-UPDATE_CHANNEL="$(printf '%s' "$UPDATE_CHANNEL" | tr '[:upper:]' '[:lower:]')"
-if [[ ! "$UPDATE_CHANNEL" =~ ^[a-z0-9][a-z0-9._-]{0,31}$ ]]; then
-  echo "Invalid update channel: $UPDATE_CHANNEL" >&2
-  exit 1
-fi
-export OMNIBOT_UPDATE_CHANNEL="$UPDATE_CHANNEL"
-export OMNIBOT_UPDATE_WORKER_URL="$WORKER_URL"
-
-if [[ "$UPDATE_CHANNEL" == "vlm-core" && "$EDITION" != "standard" ]]; then
-  echo "The vlm-core update channel only supports --edition standard" >&2
-  exit 1
-fi
-
-if [[ "$INSTALL_APK" -eq 1 && "${#EDITIONS[@]}" -ne 1 ]]; then
-  echo "--install can only be used with a single --edition." >&2
-  exit 1
-fi
 
 if [[ -z "$REF_NAME" ]]; then
   REF_NAME="$(default_ref_name)"
@@ -828,7 +762,6 @@ echo "Repo root: $ROOT_DIR"
 echo "Edition(s): ${EDITIONS[*]}"
 echo "Release ref: $REF_NAME"
 echo "Release track: $RELEASE_TRACK"
-echo "Update channel: $UPDATE_CHANNEL"
 echo "Staging dir: $OUT_DIR"
 echo "Keystore: $OMNI_RELEASE_STORE_FILE"
 echo "Android SDK: $ANDROID_SDK_ROOT"
@@ -837,12 +770,6 @@ echo "Gradle max workers: $max_workers"
 
 chmod +x ./gradlew
 mkdir -p "$ARTIFACT_DIR"
-
-if [[ "$SKIP_SUBMODULES" -eq 0 ]] && edition_needs_omniinfer; then
-  echo "Initializing OmniInfer submodules..."
-  git submodule update --init third_party/omniinfer
-  git -C third_party/omniinfer submodule update --init framework/mnn framework/llama.cpp
-fi
 
 if [[ "$SKIP_FLUTTER" -eq 0 ]]; then
   echo "Installing Flutter dependencies..."
@@ -880,7 +807,6 @@ done
 else
   echo "Release ref: $REF_NAME"
   echo "Release track: $RELEASE_TRACK"
-  echo "Update channel: $UPDATE_CHANNEL"
   echo "Staging dir: $OUT_DIR"
   echo "Skipping APK build; reusing existing staged artifacts when present."
 fi
@@ -892,7 +818,6 @@ MANIFEST_PATH="$OUT_DIR/manifest.txt"
   printf 'ref_name=%s\n' "$REF_NAME"
   printf 'safe_ref_name=%s\n' "$SAFE_REF_NAME"
   printf 'commit=%s\n' "$(git rev-parse HEAD 2>/dev/null || printf unknown)"
-  printf 'update_channel=%s\n' "$UPDATE_CHANNEL"
   printf 'built_at_utc=%s\n' "$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
 } > "$MANIFEST_PATH"
 

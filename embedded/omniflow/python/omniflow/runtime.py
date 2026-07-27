@@ -7,7 +7,13 @@ from typing import Any
 
 from omniflow.artifact import bind_function
 from omniflow.config import Experiment, OmniFlowConfig
-from omniflow.execute import execute_action, execute_function, trace_step
+from omniflow.execute import (
+    align_function_resume,
+    execute_action,
+    execute_function,
+    record_execution,
+)
+from omniflow.llm_usage import merge_usage, token_usage_status
 from omniflow.model import (
     Action,
     Function,
@@ -18,6 +24,12 @@ from omniflow.model import (
     RunResult,
 )
 from omniflow.store import FunctionStore
+
+
+class InputRequired(RuntimeError):
+    def __init__(self, question: str):
+        self.question = str(question).strip()
+        super().__init__(self.question or "input_required")
 
 
 class OmniFlow:
@@ -52,7 +64,12 @@ class OmniFlow:
         trace: list[dict[str, Any]] = []
         last_error = "function_recall_miss"
         resolution_detail: dict[str, Any] = {}
+        llm_usage: dict[str, Any] = {}
         failed_function_id: str | None = None
+        replayed_function_id: str | None = None
+        bound_function: Function | None = None
+        failed_step_index: int | None = None
+        fallback_observations: list[Observation] = []
         observation = await self._observe(screenshot=False)
 
         functions = sorted(self.store.functions.values(), key=lambda item: item.id)
@@ -61,7 +78,12 @@ class OmniFlow:
         if functions and self.resolver is not None:
             try:
                 resolution = await _await(self.resolver.resolve(goal, functions))
-                model_calls += max(0, int(resolution.model_calls))
+                resolver_usage = _take_llm_usage(self.resolver)
+                merge_usage(llm_usage, resolver_usage, component="resolver")
+                model_calls += _usage_model_calls(
+                    resolver_usage,
+                    fallback=max(0, int(resolution.model_calls)),
+                )
                 resolution_detail = dict(resolution.detail)
                 selected_function = next(
                     (
@@ -78,59 +100,71 @@ class OmniFlow:
                 else:
                     resolved_arguments = dict(resolution.arguments)
             except Exception as error:  # noqa: BLE001
+                resolver_usage = _take_llm_usage(self.resolver)
+                merge_usage(llm_usage, resolver_usage, component="resolver")
+                model_calls += _usage_model_calls(resolver_usage, fallback=0)
                 last_error = f"function_resolver_failed:{error}"
         elif functions:
             last_error = "function_resolver_not_set"
 
         if selected_function is not None:
-            replay = await self._execute_selected_function(
-                selected_function,
-                arguments=resolved_arguments,
-                observation=observation,
-                max_actions=self.config.runtime.max_steps,
-            )
+            replayed_function_id = selected_function.id
+            try:
+                bound_function = bind_function(selected_function, resolved_arguments)
+            except ValueError as error:
+                replay = RunResult(
+                    False,
+                    function_id=selected_function.id,
+                    error=str(error),
+                    final_state=observation,
+                )
+            else:
+                replay = await execute_function(
+                    bound_function,
+                    host=self.host,
+                    plugins=self.plugins,
+                    observation=observation,
+                    max_actions=self.config.runtime.max_steps,
+                )
             actions_executed += replay.actions_executed
             trace.extend(replay.detail.get("trace") or ())
             if replay.success:
-                return self._result(
-                    True,
-                    profile=profile,
-                    trace=trace,
-                    function_id=selected_function.id,
-                    actions_executed=actions_executed,
-                    model_calls=model_calls,
-                    final_state=replay.final_state,
-                    function_resolution=resolution_detail,
-                )
-            failed_function_id = selected_function.id
+                observation = replay.final_state or observation
+                last_error = "function_replay_completed_e2e_unverified"
+            else:
+                failed_function_id = selected_function.id
             observation = replay.final_state or observation
             if not replay.success:
                 last_error = replay.error or "function_replay_failed"
+                failed_step_index = _optional_step_index(
+                    replay.detail.get("failed_step_index")
+                )
+                if bound_function is not None and failed_step_index is not None:
+                    fallback_observations = [observation]
 
         if self.planner is None:
             return self._result(
                 False,
                 profile=profile,
                 trace=trace,
-                function_id=failed_function_id,
+                function_id=replayed_function_id or failed_function_id,
                 actions_executed=actions_executed,
                 model_calls=model_calls,
+                llm_usage=llm_usage,
                 error=last_error,
                 final_state=observation,
                 function_resolution=resolution_detail,
             )
 
-        planner_budget = max(
-            0,
-            self.config.runtime.max_steps - max(actions_executed, len(trace)),
-        )
-        planner_attempts = 0
+        runtime_steps_used = max(actions_executed, len(trace))
         previous_action_error: str | None = (
             last_error if failed_function_id is not None else None
         )
         previous_action: Action | None = None
+        stalled_action: Action | None = None
         pending_user_input: str | None = None
-        while planner_attempts < planner_budget:
+        planner_diagnostics: dict[str, Any] = {}
+        while runtime_steps_used < self.config.runtime.max_steps:
             observation = await self._observe(screenshot=True)
             recent_actions = _recent_actions(trace)
             if previous_action_error or recent_actions or pending_user_input:
@@ -146,9 +180,7 @@ class OmniFlow:
                         if previous_action is not None
                         else None,
                         **(
-                            {"recent_actions": recent_actions}
-                            if recent_actions
-                            else {}
+                            {"recent_actions": recent_actions} if recent_actions else {}
                         ),
                         **(
                             {"user_input": pending_user_input}
@@ -163,33 +195,50 @@ class OmniFlow:
                     await _await(self.planner.one_step_action(goal, observation))
                 )
             except Exception as error:  # noqa: BLE001
+                planner_metadata = _take_planner_metadata(self.planner)
+                _merge_planner_diagnostics(planner_diagnostics, planner_metadata)
+                planner_usage = _take_llm_usage(self.planner)
+                merge_usage(llm_usage, planner_usage, component="planner")
+                model_calls += _usage_model_calls(planner_usage, fallback=1)
                 return self._result(
                     False,
                     profile=profile,
                     trace=trace,
-                    function_id=failed_function_id,
+                    function_id=replayed_function_id or failed_function_id,
                     actions_executed=actions_executed,
                     model_calls=model_calls,
+                    llm_usage=llm_usage,
                     fallback_steps=fallback_steps,
                     error=f"vlm_planner_failed:{error}",
                     final_state=observation,
                     function_resolution=resolution_detail,
+                    planner_diagnostics=planner_diagnostics,
                 )
-            model_calls += 1
+            planner_usage = _take_llm_usage(self.planner)
+            merge_usage(llm_usage, planner_usage, component="planner")
+            model_calls += _usage_model_calls(planner_usage, fallback=1)
             fallback_steps += 1
-            planner_attempts += 1
+            runtime_steps_used += 1
             planner_metadata = _take_planner_metadata(self.planner)
+            _merge_planner_diagnostics(planner_diagnostics, planner_metadata)
+            if stalled_action is not None and planned == stalled_action:
+                previous_action_error = "repeated_action_without_progress"
+                previous_action = planned
+                continue
+            stalled_action = None
             if planned.tool == "finished":
                 return self._result(
                     True,
                     profile=profile,
                     trace=trace,
-                    function_id=failed_function_id,
+                    function_id=replayed_function_id or failed_function_id,
                     actions_executed=actions_executed,
                     model_calls=model_calls,
+                    llm_usage=llm_usage,
                     fallback_steps=fallback_steps,
                     final_state=observation,
                     function_resolution=resolution_detail,
+                    planner_diagnostics=planner_diagnostics,
                     terminal_detail={
                         "done_reason": "finished",
                         "finished_content": str(planned.args.get("content") or ""),
@@ -201,13 +250,15 @@ class OmniFlow:
                     False,
                     profile=profile,
                     trace=trace,
-                    function_id=failed_function_id,
+                    function_id=replayed_function_id or failed_function_id,
                     actions_executed=actions_executed,
                     model_calls=model_calls,
+                    llm_usage=llm_usage,
                     fallback_steps=fallback_steps,
                     error=message,
                     final_state=observation,
                     function_resolution=resolution_detail,
+                    planner_diagnostics=planner_diagnostics,
                     terminal_detail={"done_reason": "abort"},
                 )
             if planned.tool == "info":
@@ -220,18 +271,39 @@ class OmniFlow:
                     pending_user_input = str(
                         await _await(_request_input(self.host, question))
                     )
+                except InputRequired as error:
+                    return self._result(
+                        False,
+                        profile=profile,
+                        trace=trace,
+                        function_id=replayed_function_id or failed_function_id,
+                        actions_executed=actions_executed,
+                        model_calls=model_calls,
+                        llm_usage=llm_usage,
+                        fallback_steps=fallback_steps,
+                        error="input_required",
+                        final_state=observation,
+                        function_resolution=resolution_detail,
+                        planner_diagnostics=planner_diagnostics,
+                        terminal_detail={
+                            "done_reason": "waiting_input",
+                            "finished_content": error.question,
+                        },
+                    )
                 except Exception as error:  # noqa: BLE001
                     return self._result(
                         False,
                         profile=profile,
                         trace=trace,
-                        function_id=failed_function_id,
+                        function_id=replayed_function_id or failed_function_id,
                         actions_executed=actions_executed,
                         model_calls=model_calls,
+                        llm_usage=llm_usage,
                         fallback_steps=fallback_steps,
                         error=f"request_input_failed:{error}",
                         final_state=observation,
                         function_resolution=resolution_detail,
+                        planner_diagnostics=planner_diagnostics,
                     )
                 previous_action_error = None
                 previous_action = None
@@ -246,31 +318,91 @@ class OmniFlow:
                 host=self.host,
                 plugins=self.plugins,
             )
-            for executed_step in step.executed_steps or (step,):
-                recorded = trace_step(executed_step, len(trace))
-                if planner_metadata:
-                    recorded["metadata"].update(planner_metadata)
-                trace.append(recorded)
-                await _record_step(self.host, recorded)
+            trace.extend(
+                await record_execution(
+                    self.host,
+                    step,
+                    trace_start_index=len(trace),
+                    metadata=planner_metadata,
+                )
+            )
             actions_executed += step.actions_executed
             if not step.success:
                 previous_action_error = step.error or "fallback_action_failed"
                 previous_action = planned
                 continue
-            previous_action_error = None
-            previous_action = None
+            observation = step.after or observation
+            if bound_function is not None and failed_step_index is not None:
+                fallback_observations.append(observation)
+                alignment = await align_function_resume(
+                    bound_function,
+                    host=self.host,
+                    plugins=self.plugins,
+                    observations=fallback_observations,
+                    start_step_index=failed_step_index,
+                )
+                if alignment is not None:
+                    replay = await execute_function(
+                        bound_function,
+                        host=self.host,
+                        plugins=self.plugins,
+                        observation=observation,
+                        max_actions=max(
+                            0,
+                            self.config.runtime.max_steps - runtime_steps_used,
+                        ),
+                        start_step_index=int(alignment["resume_step_index"]),
+                        trace_start_index=len(trace),
+                        resume_metadata=alignment,
+                    )
+                    actions_executed += replay.actions_executed
+                    replay_trace = list(replay.detail.get("trace") or ())
+                    trace.extend(replay_trace)
+                    runtime_steps_used += max(
+                        replay.actions_executed,
+                        len(replay_trace),
+                    )
+                    observation = replay.final_state or observation
+                    if replay.success:
+                        failed_function_id = None
+                        failed_step_index = None
+                        fallback_observations = []
+                        last_error = "function_replay_completed_e2e_unverified"
+                        previous_action_error = None
+                        previous_action = None
+                    else:
+                        failed_function_id = bound_function.id
+                        last_error = replay.error or "function_replay_failed"
+                        failed_step_index = _optional_step_index(
+                            replay.detail.get("failed_step_index")
+                        )
+                        fallback_observations = (
+                            [observation] if failed_step_index is not None else []
+                        )
+                        previous_action_error = last_error
+                        previous_action = None
+                    continue
+            if _same_observation(step.before, step.after):
+                previous_action_error = "action_completed_without_state_change"
+                previous_action = planned
+                stalled_action = planned
+            else:
+                previous_action_error = None
+                previous_action = None
 
         return self._result(
             False,
             profile=profile,
             trace=trace,
-            function_id=failed_function_id,
+            function_id=replayed_function_id or failed_function_id,
             actions_executed=actions_executed,
             model_calls=model_calls,
+            llm_usage=llm_usage,
             fallback_steps=fallback_steps,
             error=previous_action_error or "max_steps_exceeded",
             final_state=observation,
             function_resolution=resolution_detail,
+            planner_diagnostics=planner_diagnostics,
         )
 
     async def _observe(self, *, screenshot: bool) -> Observation:
@@ -349,10 +481,12 @@ class OmniFlow:
         function_id: str | None = None,
         actions_executed: int = 0,
         model_calls: int = 0,
+        llm_usage: dict[str, Any] | None = None,
         fallback_steps: int = 0,
         error: str | None = None,
         final_state: Observation | None = None,
         function_resolution: dict[str, Any] | None = None,
+        planner_diagnostics: dict[str, Any] | None = None,
         terminal_detail: dict[str, Any] | None = None,
     ) -> RunResult:
         detail: dict[str, Any] = {
@@ -361,6 +495,15 @@ class OmniFlow:
         }
         if function_resolution:
             detail["function_resolution"] = dict(function_resolution)
+        usage = dict(llm_usage or {})
+        tracked_model_calls = _usage_model_calls(usage, fallback=0)
+        if tracked_model_calls < model_calls:
+            usage["untracked_model_calls"] = model_calls - tracked_model_calls
+            usage["model_calls"] = model_calls
+        usage["token_usage_status"] = token_usage_status(usage)
+        detail["llm_usage"] = usage
+        if planner_diagnostics:
+            detail["planner_diagnostics"] = dict(planner_diagnostics)
         if terminal_detail:
             detail.update(terminal_detail)
         return RunResult(
@@ -405,6 +548,33 @@ def _recent_actions(
     return history
 
 
+def _same_observation(
+    before: Observation | None,
+    after: Observation | None,
+) -> bool:
+    if before is None or after is None:
+        return False
+    return (
+        before.package_name,
+        before.activity_name,
+        before.xml,
+        before.image_base64,
+    ) == (
+        after.package_name,
+        after.activity_name,
+        after.xml,
+        after.image_base64,
+    )
+
+
+def _optional_step_index(value: Any) -> int | None:
+    try:
+        step_index = int(value)
+    except (TypeError, ValueError):
+        return None
+    return step_index if step_index >= 0 else None
+
+
 async def _await(value: Any) -> Any:
     return await value if inspect.isawaitable(value) else value
 
@@ -417,14 +587,59 @@ def _take_planner_metadata(planner: Planner) -> dict[str, Any]:
     return dict(value) if isinstance(value, dict) else {}
 
 
+def _merge_planner_diagnostics(
+    diagnostics: dict[str, Any],
+    metadata: dict[str, Any],
+) -> None:
+    rejected_calls = metadata.get("rejected_tool_calls")
+    if not isinstance(rejected_calls, list):
+        return
+    accumulated = diagnostics.setdefault("rejected_tool_calls", [])
+    for value in rejected_calls:
+        if not isinstance(value, dict):
+            continue
+        error = str(value.get("error") or "").strip()
+        if not error:
+            continue
+        item: dict[str, Any] = {"error": error}
+        try:
+            turn_index = int(value.get("turn_index"))
+        except (TypeError, ValueError):
+            turn_index = -1
+        if turn_index >= 0:
+            item["turn_index"] = turn_index
+        tool = str(value.get("tool") or "").strip()
+        if tool:
+            item["tool"] = tool
+        if "arguments" in value:
+            item["arguments"] = value.get("arguments")
+        if item not in accumulated:
+            accumulated.append(item)
+
+
+def _take_llm_usage(component: Any) -> dict[str, Any] | None:
+    take_usage = getattr(component, "take_usage", None)
+    if not callable(take_usage):
+        return None
+    value = take_usage()
+    return dict(value) if isinstance(value, dict) else {}
+
+
+def _usage_model_calls(
+    usage: dict[str, Any] | None,
+    *,
+    fallback: int,
+) -> int:
+    if usage is None:
+        return max(0, int(fallback))
+    try:
+        return max(0, int(usage.get("model_calls") or 0))
+    except (TypeError, ValueError):
+        return max(0, int(fallback))
+
+
 async def _request_input(host: Host, question: str) -> str:
     request_input = getattr(host, "request_input", None)
     if not callable(request_input):
         raise RuntimeError("request_input_not_supported")
     return str(await _await(request_input(question)))
-
-
-async def _record_step(host: Host, step: dict[str, Any]) -> None:
-    recorder = getattr(host, "record_step", None)
-    if callable(recorder):
-        await _await(recorder(step))

@@ -19,7 +19,6 @@ import java.util.TreeMap
 
 class AgentLlmStreamAccumulator(
     private val json: Json,
-    private val preferInlineThinkTags: Boolean = false,
     private val includeReasoningInAssistantMessage: Boolean = false,
     private val bufferLeadingTextUntilInlineThinkTag: Boolean = false,
     private val guardLeadingReasoningLeak: Boolean = false
@@ -552,7 +551,7 @@ class AgentLlmStreamAccumulator(
             flushInlineTextBuffer(final = false)
             return
         }
-        if (!preferInlineThinkTags && !autoInlineThinkTagMode && !thinkSectionOpen) {
+        if (!autoInlineThinkTagMode && !thinkSectionOpen) {
             val containsThinkTag = text.contains(THINK_OPEN_TAG) || text.contains(THINK_CLOSE_TAG)
             val hasTrailingTagPrefix = partialInlineTagSuffixLength(text) > 0
             if (!containsThinkTag && !hasTrailingTagPrefix) {
@@ -566,7 +565,7 @@ class AgentLlmStreamAccumulator(
     }
 
     private fun flushInlineTextBuffer(final: Boolean) {
-        if (!preferInlineThinkTags && !autoInlineThinkTagMode && !bufferLeadingTextUntilInlineThinkTag) {
+        if (!autoInlineThinkTagMode && !bufferLeadingTextUntilInlineThinkTag) {
             if (inlineTextBuffer.isNotEmpty()) {
                 appendVisibleText(inlineTextBuffer.toString())
                 inlineTextBuffer.setLength(0)
@@ -652,7 +651,6 @@ class AgentLlmStreamAccumulator(
     private fun shouldBufferLeadingInlineText(): Boolean {
         return bufferLeadingTextUntilInlineThinkTag &&
             !outOfBandReasoningObserved &&
-            !preferInlineThinkTags &&
             !autoInlineThinkTagMode &&
             !thinkSectionOpen &&
             !inlineThinkTagObserved &&
@@ -664,7 +662,7 @@ class AgentLlmStreamAccumulator(
         return !inlineThinkTagObserved &&
             !outOfBandReasoningObserved &&
             contentBuffer.isEmpty() &&
-            (preferInlineThinkTags || bufferLeadingTextUntilInlineThinkTag)
+            bufferLeadingTextUntilInlineThinkTag
     }
 
     private fun markOutOfBandReasoningObserved() {

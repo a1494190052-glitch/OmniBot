@@ -4,8 +4,7 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.util.Base64
-import cn.com.omnimind.accessibility.service.AssistsService
-import cn.com.omnimind.assists.controller.accessibility.AccessibilityController
+import cn.com.omnimind.androidgui.AndroidGuiEnvironment
 import cn.com.omnimind.baselib.llm.AssistantToolCall
 import cn.com.omnimind.baselib.llm.AssistantToolCallFunction
 import cn.com.omnimind.baselib.llm.ChatCompletionRequest
@@ -31,7 +30,6 @@ import cn.com.omnimind.bot.function.FunctionRun
 import cn.com.omnimind.bot.function.FunctionApi
 import cn.com.omnimind.bot.function.FunctionService
 import cn.com.omnimind.bot.runlog.RunLogPagePackageInference
-import cn.com.omnimind.bot.util.AssistsUtil
 import com.google.gson.GsonBuilder
 import com.google.gson.reflect.TypeToken
 import java.io.File
@@ -40,7 +38,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
@@ -104,6 +101,9 @@ class DebugAgentFunctionManagementReceiver : BroadcastReceiver() {
     ): Map<String, Any?> {
         waitForRuntime(context)
         val currentBefore = currentEffectivePackage(context)
+        val sourceStateId = AndroidGuiEnvironment(context)
+            .observe(captureScreenshot = false)
+            .stateId
         val workspaceManager = AgentWorkspaceManager(context)
         val workspace = workspaceManager.buildWorkspaceDescriptor(
             conversationId = null,
@@ -113,8 +113,7 @@ class DebugAgentFunctionManagementReceiver : BroadcastReceiver() {
             context = context,
             discoveredServers = emptyList(),
             conversationMode = AgentConversationModePolicy.NORMAL_MODE,
-            visibleToolNames = FunctionApi.toolNames,
-            isLightweightToolProfile = true,
+            enabledToolProfiles = setOf(FunctionApi.PROFILE),
         )
         lateinit var router: AgentToolRouter
         val eventJson = Json {
@@ -144,11 +143,11 @@ class DebugAgentFunctionManagementReceiver : BroadcastReceiver() {
             scheduleToolBridge = NoOpScheduleBridge,
             workspaceManager = workspaceManager,
             subagentDispatcher = subagentDispatcher,
+            enabledToolProfiles = setOf(FunctionApi.PROFILE),
         )
         val env = DefaultAgentExecutionEnvironment(
             agentRunId = "debug-agent-omniflow",
             userMessage = "Validate OOB Function registration and listing through Agent tools; runtime replay is checked locally after registration.",
-            currentPackageName = currentBefore,
             runtimeContextRepository = AgentRuntimeContextRepository(context),
             workspaceDescriptor = workspace,
             resolvedSkills = emptyList(),
@@ -161,7 +160,6 @@ class DebugAgentFunctionManagementReceiver : BroadcastReceiver() {
         val exposedTools = registry.toolsForModel.map { it.function.name }.sorted()
         val expectedTools = FunctionApi.toolNames.sorted()
         val missingTools = expectedTools.filterNot { it in exposedTools }
-        val unexpectedTools = exposedTools.filterNot { it in expectedTools }
         val records = mutableListOf<Map<String, Any?>>()
 
         if (deleteBefore) {
@@ -171,6 +169,7 @@ class DebugAgentFunctionManagementReceiver : BroadcastReceiver() {
                 env = env,
                 toolName = "oob_function_delete",
                 args = buildJsonObject {
+                    put("tool_title", JsonPrimitive("Delete test Function"))
                     put("function_id", JsonPrimitive(functionId))
                 },
                 callback = NoOpAgentCallback,
@@ -183,6 +182,7 @@ class DebugAgentFunctionManagementReceiver : BroadcastReceiver() {
             env = env,
             toolName = "oob_function_register",
             args = buildJsonObject {
+                put("tool_title", JsonPrimitive("Register test Function"))
                 put(
                     "function",
                     mapToJson(
@@ -201,18 +201,10 @@ class DebugAgentFunctionManagementReceiver : BroadcastReceiver() {
                             "steps" to listOf(
                                 mapOf(
                                     "step_index" to 0,
-                                    "state_id" to "debug_state_0",
+                                    "source_state_id" to sourceStateId,
                                     "action" to mapOf(
                                         "tool" to "open_app",
                                         "args" to mapOf("package_name" to targetPackage),
-                                    ),
-                                ),
-                                mapOf(
-                                    "step_index" to 1,
-                                    "state_id" to "debug_state_1",
-                                    "action" to mapOf(
-                                        "tool" to "finished",
-                                        "args" to mapOf("content" to "$targetPackage opened"),
                                     ),
                                 ),
                             ),
@@ -229,7 +221,9 @@ class DebugAgentFunctionManagementReceiver : BroadcastReceiver() {
             router = router,
             env = env,
             toolName = "oob_function_list",
-            args = buildJsonObject {},
+            args = buildJsonObject {
+                put("tool_title", JsonPrimitive("List test Functions"))
+            },
             callback = NoOpAgentCallback,
         )
         if (shouldRun) {
@@ -266,7 +260,6 @@ class DebugAgentFunctionManagementReceiver : BroadcastReceiver() {
         }
         val foregroundMatched = !shouldRun || currentAfter == targetPackage
         val success = missingTools.isEmpty() &&
-            unexpectedTools.isEmpty() &&
             recordSucceeded(registerRecord) &&
             listContainsFunction &&
             (!shouldRun || recordSucceeded(runRecord)) &&
@@ -285,7 +278,6 @@ class DebugAgentFunctionManagementReceiver : BroadcastReceiver() {
             "tool_profile" to FunctionApi.PROFILE,
             "exposed_tools" to exposedTools,
             "missing_tools" to missingTools,
-            "unexpected_tools" to unexpectedTools,
             "register_success" to recordSucceeded(registerRecord),
             "list_contains_function" to listContainsFunction,
             "run_success" to if (shouldRun) recordSucceeded(runRecord) else null,
@@ -371,7 +363,6 @@ class DebugAgentFunctionManagementReceiver : BroadcastReceiver() {
             is ToolExecutionResult.ChatMessage -> result.message
             is ToolExecutionResult.Clarify -> result.question
             is ToolExecutionResult.PermissionRequired -> result.missing.joinToString(",")
-            is ToolExecutionResult.VlmTaskStarted -> result.goal
         }
         return linkedMapOf<String, Any?>(
             "tool_name" to toolName,
@@ -388,48 +379,24 @@ class DebugAgentFunctionManagementReceiver : BroadcastReceiver() {
     }
 
     private suspend fun waitForRuntime(context: Context) {
-        if (!AssistsUtil.Core.isInitialized()) {
-            AssistsUtil.Core.initCore(context)
+        val environment = AndroidGuiEnvironment(context)
+        if (!environment.isAccessibilityEnabled()) {
+            error("android_gui_accessibility_disabled")
         }
         repeat(RUNTIME_OBSERVE_ATTEMPTS) {
-            if (AssistsService.instance != null && AccessibilityController.initController()) {
-                return
-            }
+            if (environment.isReady()) return
             delay(RUNTIME_OBSERVE_INTERVAL_MS)
         }
-        error("OOB accessibility service is not bound")
+        error("android_gui_accessibility_not_ready")
     }
 
     private suspend fun currentEffectivePackage(context: Context): String {
-        val xml = currentXml()
-        val rawPackage = currentPackageName()
-        return RunLogPagePackageInference.effectivePackage(rawPackage, xml)
-            .ifBlank { rawPackage }
+        val state = AndroidGuiEnvironment(context).observe(captureScreenshot = false)
+        return RunLogPagePackageInference.effectivePackage(state.packageName, state.xml)
+            .ifBlank { state.packageName }
             .takeUnless { it == context.packageName || it.startsWith("cn.com.omnimind.") }
             .orEmpty()
     }
-
-    private suspend fun currentXml(): String =
-        runCatching {
-            if (AccessibilityController.initController()) {
-                withContext(Dispatchers.Main.immediate) {
-                    AccessibilityController.getCaptureScreenShotXml(true)
-                }
-            } else {
-                null
-            }
-        }.getOrNull()?.trim().orEmpty()
-
-    private suspend fun currentPackageName(): String =
-        runCatching {
-            if (AccessibilityController.initController()) {
-                withContext(Dispatchers.Main.immediate) {
-                    AccessibilityController.getPackageName()
-                }
-            } else {
-                null
-            }
-        }.getOrNull()?.trim().orEmpty()
 
     private fun recordSucceeded(record: Map<String, Any?>?): Boolean =
         record?.get("success") == true

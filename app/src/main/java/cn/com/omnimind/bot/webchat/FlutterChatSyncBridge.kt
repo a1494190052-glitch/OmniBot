@@ -1,5 +1,7 @@
 package cn.com.omnimind.bot.webchat
 
+import android.os.Handler
+import android.os.Looper
 import cn.com.omnimind.baselib.util.OmniLog
 import io.flutter.plugin.common.MethodChannel
 import kotlinx.coroutines.Dispatchers
@@ -10,6 +12,7 @@ import kotlin.coroutines.resumeWithException
 
 object FlutterChatSyncBridge {
     private const val TAG = "[FlutterChatSyncBridge]"
+    private val mainHandler by lazy { Handler(Looper.getMainLooper()) }
 
     @Volatile
     private var currentChannel: MethodChannel? = null
@@ -138,6 +141,16 @@ object FlutterChatSyncBridge {
     }
 
     private fun dispatch(method: String, arguments: Any?) {
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            mainHandler.post {
+                dispatchToBoundChannels(method, arguments)
+            }
+            return
+        }
+        dispatchToBoundChannels(method, arguments)
+    }
+
+    private fun dispatchToBoundChannels(method: String, arguments: Any?) {
         val channels = listOfNotNull(currentChannel, mainChannel).distinct()
         channels.forEach { target ->
             runCatching {

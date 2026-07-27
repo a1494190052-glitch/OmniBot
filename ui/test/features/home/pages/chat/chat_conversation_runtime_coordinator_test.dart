@@ -657,11 +657,11 @@ void main() {
     const conversationId = 2001;
     final runtime = coordinator.ensureRuntime(
       conversationId: conversationId,
-      mode: kChatRuntimeModeCodex,
+      mode: kChatRuntimeModeAgent,
     );
     runtime.messages.insert(0, ChatMessageModel.userMessage('第一句标题应该保留'));
 
-    await coordinator.applyCodexEvent(
+    await coordinator.applyAgentEvent(
       conversationId: conversationId,
       event: {
         'message': {
@@ -672,7 +672,7 @@ void main() {
     );
     await coordinator.flushPendingPersistence(
       conversationId: conversationId,
-      mode: kChatRuntimeModeCodex,
+      mode: kChatRuntimeModeAgent,
     );
 
     final replaceCalls = recordedMethodCalls
@@ -706,6 +706,60 @@ void main() {
       ),
       isTrue,
     );
+  });
+
+  test('records the active ACP Agent on text and tool messages', () {
+    const conversationId = 2002;
+    coordinator.ensureRuntime(
+      conversationId: conversationId,
+      mode: kChatRuntimeModeAgent,
+    );
+
+    coordinator.applyAgentEvent(
+      conversationId: conversationId,
+      event: {
+        'agentId': 'claude-code-acp',
+        'agentName': 'Claude Code',
+        'message': {
+          'method': 'item/agentMessage/delta',
+          'params': {'turnId': 'turn-claude', 'delta': 'Claude reply'},
+        },
+      },
+    );
+    coordinator.applyAgentEvent(
+      conversationId: conversationId,
+      event: {
+        'agentId': 'claude-code-acp',
+        'agentName': 'Claude Code',
+        'message': {
+          'method': 'item/started',
+          'params': {
+            'turnId': 'turn-claude',
+            'item': {
+              'id': 'tool-1',
+              'type': 'commandExecution',
+              'command': 'pwd',
+              'status': 'running',
+            },
+          },
+        },
+      },
+    );
+
+    final runtime = coordinator.runtimeFor(
+      conversationId: conversationId,
+      mode: kChatRuntimeModeAgent,
+    )!;
+    final assistant = runtime.messages.singleWhere(
+      (message) => message.user == 2,
+    );
+    final tool = runtime.messages.singleWhere(
+      (message) => message.cardData?['type'] == 'agent_tool_summary',
+    );
+    expect(assistant.agentId, 'claude-code-acp');
+    expect(assistant.agentName, 'Claude Code');
+    expect(tool.agentId, 'claude-code-acp');
+    expect(tool.agentName, 'Claude Code');
   });
 
   test('replaces divergent agent snapshots instead of concatenating', () async {
@@ -1431,46 +1485,6 @@ void main() {
       );
 
       overlayService.dispose();
-    },
-  );
-
-  test(
-    'routes VLM request-input state to the bound conversation only',
-    () async {
-      const conversationA = 3001;
-      const conversationB = 3002;
-      const taskId = 'vlm-task-a';
-
-      coordinator.ensureRuntime(
-        conversationId: conversationA,
-        mode: kChatRuntimeModeNormal,
-      );
-      coordinator.ensureRuntime(
-        conversationId: conversationB,
-        mode: kChatRuntimeModeNormal,
-      );
-      coordinator.registerTask(
-        taskId: taskId,
-        conversationId: conversationA,
-        mode: kChatRuntimeModeNormal,
-      );
-
-      await emitPlatformEvent('onVLMRequestUserInput', <String, dynamic>{
-        'taskId': taskId,
-        'question': 'Need more info',
-      });
-
-      final runtimeA = coordinator.runtimeFor(
-        conversationId: conversationA,
-        mode: kChatRuntimeModeNormal,
-      )!;
-      final runtimeB = coordinator.runtimeFor(
-        conversationId: conversationB,
-        mode: kChatRuntimeModeNormal,
-      )!;
-
-      expect(runtimeA.vlmInfoQuestion, 'Need more info');
-      expect(runtimeB.vlmInfoQuestion, isNull);
     },
   );
 

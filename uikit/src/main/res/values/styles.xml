@@ -1,9 +1,0 @@
-<?xml version="1.0" encoding="utf-8"?>
-<resources>
-    <!-- styles.xml -->
-    <style name="dialog_card_view_title">
-        <item name="android:textSize">14sp</item>
-        <item name="android:letterSpacing">0.04</item>
-        <item name="android:textColor">#B3000000</item>
-    </style>
-</resources>

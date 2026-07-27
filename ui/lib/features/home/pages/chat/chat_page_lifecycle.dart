@@ -9,8 +9,16 @@ ConversationThreadTarget _newThreadTargetForConversationMode(
   );
 }
 
-ConversationThreadTarget _newCodexThreadTarget() {
-  return _newThreadTargetForConversationMode(ConversationMode.codex);
+ConversationThreadTarget _newAgentThreadTarget({
+  String? agentId,
+  String? agentRuntime,
+}) {
+  return ConversationThreadTarget.newConversation(
+    mode: ConversationMode.agent,
+    requestKey: DateTime.now().microsecondsSinceEpoch.toString(),
+    agentId: agentId,
+    agentRuntime: agentRuntime,
+  );
 }
 
 mixin _ChatPageLifecycleMixin on _ChatPageStateBase {
@@ -20,20 +28,10 @@ mixin _ChatPageLifecycleMixin on _ChatPageStateBase {
 
     WidgetsBinding.instance.addObserver(this);
     _loadHdPadPanePreferences();
-    _checkCompanionTaskState();
-    AssistsMessageService.setOnTaskFinishCallback(() {
-      if (!mounted || _isCompanionToggleLoading) return;
-      setState(() {
-        _isCompanionModeEnabled = false;
-      });
-    });
+    unawaited(_syncPetOverlayState());
 
     SchedulerBinding.instance.addPostFrameCallback((_) {
       checkConversationExists();
-      Future.delayed(const Duration(milliseconds: 700), () {
-        if (!mounted) return;
-        unawaited(_initializeHalfScreenEngineIfNeeded());
-      });
     });
 
     _runtimeCoordinator.ensureInitialized();
@@ -58,10 +56,10 @@ mixin _ChatPageLifecycleMixin on _ChatPageStateBase {
     _browserSessionSnapshotChangedSubscription = AssistsMessageService
         .browserSessionSnapshotChangedStream
         .listen(_handleBrowserSessionSnapshotChanged);
-    _codexEventSubscription = CodexAppServerService.events.listen(
-      _handleCodexAppServerEvent,
+    _agentEventSubscription = AgentRuntimeService.events.listen(
+      _handleAgentRuntimeEvent,
     );
-    unawaited(_refreshCodexStatus());
+    unawaited(_refreshAgentRuntimeStatus());
 
     _inputFocusNode.addListener(_onFocusChange);
     _messageController.addListener(_handleSlashCommandInput);
@@ -72,10 +70,15 @@ mixin _ChatPageLifecycleMixin on _ChatPageStateBase {
   void didChangeDependencies() {
     super.didChangeDependencies();
     final mediaQuery = MediaQuery.maybeOf(context);
-    if (mediaQuery != null &&
-        _isHdPadLandscapeForMediaQuery(mediaQuery) &&
-        _activeSurfaceMode == ChatSurfaceMode.workspace) {
-      _activeSurfaceMode = ChatSurfaceMode.normal;
+    if (mediaQuery != null) {
+      final isHdPadLandscape = _isHdPadLandscapeForMediaQuery(mediaQuery);
+      if (_wasHdPadLandscape == true && !isHdPadLandscape) {
+        _drawerKey.currentState?.unfocusSearch();
+      }
+      _wasHdPadLandscape = isHdPadLandscape;
+      if (isHdPadLandscape && _activeSurfaceMode == ChatSurfaceMode.workspace) {
+        _activeSurfaceMode = ChatSurfaceMode.normal;
+      }
     }
     final route = ModalRoute.of(context);
     if (route is PageRoute && route != _subscribedRoute) {
@@ -228,18 +231,6 @@ mixin _ChatPageLifecycleMixin on _ChatPageStateBase {
       target,
     );
     if (isStaleRequest()) return;
-    final isOpeningExistingConversation =
-        !effectiveTarget.isNewConversation &&
-        effectiveTarget.conversationId != null;
-    if (_isLocalModelPureChatLocked &&
-        effectiveTarget.mode != ConversationMode.chatOnly &&
-        !isOpeningExistingConversation) {
-      _showLocalModelPureChatLockToast();
-      if (syncPage) {
-        _jumpToCurrentModePage(animate: false);
-      }
-      return;
-    }
     final targetMode = _pageModeForConversationMode(effectiveTarget.mode);
     _storeDraftForActiveConversationMode();
     if (effectiveTarget.isNewConversation) {
@@ -259,8 +250,12 @@ mixin _ChatPageLifecycleMixin on _ChatPageStateBase {
       _isSurfacePageScrolling = false;
     });
     _resetLocalConversationState(targetMode);
-    _restoreLocalCodexThreadIdFromTarget(effectiveTarget);
-    _vlmAnswerController.clear();
+    _restoreLocalAgentThreadIdFromTarget(effectiveTarget);
+    if (_shouldSyncExistingLocalAgentTarget(effectiveTarget)) {
+      unawaited(
+        _syncExistingLocalAgentTarget(effectiveTarget, activeRequestId),
+      );
+    }
     _applyDraftForConversationMode(targetMode);
     if (effectiveTarget.isRemoteCodexSessionTarget) {
       await _prepareRemoteCodexSessionTarget(effectiveTarget);
@@ -268,8 +263,8 @@ mixin _ChatPageLifecycleMixin on _ChatPageStateBase {
       await initializeConversation(lifecycleToken: lifecycleToken);
     }
     if (isStaleRequest()) return;
-    if (_activeConversationMode == ChatPageMode.codex) {
-      await _refreshCodexCommandPreferences();
+    if (_activeConversationMode == ChatPageMode.agent) {
+      await _refreshAgentCommandPreferences();
       if (isStaleRequest()) return;
     }
     await _applyStagedSharedDraftIfNeeded(effectiveTarget);
@@ -282,16 +277,98 @@ mixin _ChatPageLifecycleMixin on _ChatPageStateBase {
     }
   }
 
-  void _restoreLocalCodexThreadIdFromTarget(ConversationThreadTarget target) {
-    if (target.mode != ConversationMode.codex ||
+  void _restoreLocalAgentThreadIdFromTarget(ConversationThreadTarget target) {
+    if (target.mode != ConversationMode.agent ||
         target.isRemoteCodexSessionTarget) {
       return;
     }
-    final threadId = target.codexThreadId?.trim();
+    final threadId = target.agentSessionId?.trim();
     if (threadId == null || threadId.isEmpty) {
       return;
     }
-    _activeCodexThreadId = threadId;
+    _activeAgentThreadId = threadId;
+  }
+
+  bool _shouldSyncExistingLocalAgentTarget(ConversationThreadTarget target) {
+    return target.mode == ConversationMode.agent &&
+        !target.isNewConversation &&
+        !target.isRemoteCodexSessionTarget &&
+        target.conversationId != null;
+  }
+
+  Future<void> _syncExistingLocalAgentTarget(
+    ConversationThreadTarget target,
+    int requestId,
+  ) async {
+    final conversationId = target.conversationId;
+    if (conversationId == null) {
+      return;
+    }
+    try {
+      final response = await AgentRuntimeService.readThread(
+        conversationId: conversationId,
+        includeTurns: false,
+      );
+      AgentRuntimeStatus? status;
+      try {
+        status = await AgentRuntimeService.status();
+      } catch (_) {
+        status = null;
+      }
+      if (!mounted || !_isConversationTargetRequestCurrent(requestId)) {
+        return;
+      }
+      final currentTarget = _resolvedThreadTarget;
+      if (currentTarget?.mode != ConversationMode.agent ||
+          currentTarget?.conversationId != conversationId) {
+        return;
+      }
+      final thread = response['thread'];
+      final threadMap = thread is Map
+          ? Map<String, dynamic>.from(thread.cast<dynamic, dynamic>())
+          : const <String, dynamic>{};
+      final threadId =
+          (response['threadId'] ?? threadMap['id'])?.toString().trim() ?? '';
+      final resolvedAgentId =
+          (response['agentId'] ?? threadMap['agentId'])?.toString().trim() ??
+          '';
+      setState(() {
+        if (threadId.isNotEmpty) {
+          _activeAgentThreadId = threadId;
+        }
+        if (resolvedAgentId.isNotEmpty) {
+          _agentIdByConversationId[conversationId] = resolvedAgentId;
+          _resolvedThreadTarget = currentTarget?.copyWith(
+            agentId: resolvedAgentId,
+            agentSessionId: threadId.isEmpty ? null : threadId,
+            agentRuntime: 'local',
+          );
+          final conversation = _currentConversationByMode[ChatPageMode.agent];
+          if (conversation?.id == conversationId) {
+            final updatedConversation = conversation!.copyWith(
+              agentId: resolvedAgentId,
+            );
+            _currentConversationByMode[ChatPageMode.agent] =
+                updatedConversation;
+            final runtime = _runtimeForMode(ChatPageMode.agent);
+            if (runtime?.conversation?.id == conversationId) {
+              runtime!.conversation = updatedConversation;
+            }
+          }
+        }
+        if (status != null) {
+          _agentRuntimeStatus = status;
+        }
+      });
+      unawaited(_loadAgentCatalog());
+      unawaited(_loadAgentModelOptionsWhenReady(force: true));
+      unawaited(_persistVisibleThreadTargetIfNeeded());
+    } catch (error) {
+      debugPrint(
+        '[ChatPage] Failed to restore ACP agent for conversation '
+        '$conversationId: $error',
+      );
+    }
   }
 
   @override
@@ -403,8 +480,8 @@ mixin _ChatPageLifecycleMixin on _ChatPageStateBase {
     }
     _resolvedThreadTarget = visibleTarget;
     if (visibleTarget.isRemoteCodexSessionTarget ||
-        (_activeConversationMode == ChatPageMode.codex &&
-            _isRemoteCodexRuntimeActiveForMode(ChatPageMode.codex))) {
+        (_activeConversationMode == ChatPageMode.agent &&
+            _isRemoteCodexRuntimeActiveForMode(ChatPageMode.agent))) {
       return;
     }
     await ConversationHistoryService.saveLastVisibleThreadTarget(visibleTarget);
@@ -416,175 +493,107 @@ mixin _ChatPageLifecycleMixin on _ChatPageStateBase {
   }
 
   @override
-  Future<void> _initializeHalfScreenEngineIfNeeded() async {
-    if (_hasInitializedHalfScreen) return;
-    _hasInitializedHalfScreen = true;
-    await AppStateService.initHalfScreenEngine();
-  }
-
-  @override
-  Future<void> _checkCompanionTaskState() async {
-    try {
-      final isRunning = await AssistsMessageService.isCompanionTaskRunning();
-      if (!mounted) return;
-      setState(() {
-        _isCompanionModeEnabled = isRunning;
-      });
-    } catch (e) {
-      debugPrint('检查陪伴状态失败: $e');
-      if (!mounted) return;
-      setState(() {
-        _isCompanionModeEnabled = false;
-      });
-    }
-  }
-
-  @override
-  Future<void> _toggleCompanionMode() async {
-    if (_isCompanionToggleLoading) return;
-    if (_isCompanionModeEnabled) {
-      await _cancelCompanionMode();
+  Future<void> _handlePetOverlayTap() async {
+    if (_isPetOverlayOpening) {
       return;
     }
-    if (_isLocalModelPureChatLocked) {
-      _showLocalModelPureChatLockToast();
-      return;
-    }
-    await _startCompanionMode();
-  }
-
-  @override
-  Future<void> _startCompanionMode() async {
-    setState(() {
-      _isCompanionToggleLoading = true;
-    });
+    _setPetOverlayOpening(true);
+    var isHidingPet = false;
 
     try {
-      await _initializeHalfScreenEngineIfNeeded();
-      final deviceInfo = await DeviceService.getDeviceInfo();
-      if (!mounted) return;
-      final brand = (deviceInfo?['brand'] as String?)?.toLowerCase() ?? 'other';
-      final companionSpecs = PermissionRegistry.getPermissionsByLevel(
-        brand: brand,
-        level: PermissionLevel.companionAutomation,
+      final isShowing = await OverlayService.isPetOverlayShowing();
+      if (!mounted) {
+        return;
+      }
+      if (isShowing) {
+        isHidingPet = true;
+        final hidden = await OverlayService.hidePetOverlay();
+        if (!hidden) {
+          throw StateError('hidePetOverlay returned false');
+        }
+        _setPetOverlayShowing(false);
+        return;
+      }
+
+      final overlaySpecs = PermissionRegistry.getPermissionsByLevel(
+        brand: 'other',
+        level: PermissionLevel.overlayDisplay,
       );
-      final accessibilitySpecs = PermissionRegistry.getPermissions(
-        brand: brand,
-      ).where((spec) => spec.id == kAccessibilityPermissionId);
-      final checkedSpecs = <PermissionSpec>[
-        ...companionSpecs,
-        ...accessibilitySpecs.where(
-          (spec) => companionSpecs.every((item) => item.id != spec.id),
-        ),
-      ];
       final permissionDataList = PermissionService.specsToPermissionData(
-        checkedSpecs,
+        overlaySpecs,
         context: context,
       );
       await PermissionService.checkPermissions(permissionDataList);
-      final canStartCompanion = PermissionService.checkAuthorizedByIds(
-        permissionDataList,
-        const {kOverlayPermissionId},
-      );
-
-      if (!canStartCompanion) {
-        if (!mounted) return;
-        setState(() {
-          _isCompanionToggleLoading = false;
-        });
-        await PermissionBottomSheet.show(
-          context,
-          initialPermissions: permissionDataList,
-          deviceBrand: brand,
-          requiredPermissionIds: const {kOverlayPermissionId},
-          onAllAuthorized: () {
-            unawaited(_executeCompanionStart());
-          },
-        );
+      if (!mounted) {
         return;
       }
 
-      await _executeCompanionStart();
-      if (!mounted || !_isCompanionModeEnabled) {
-        return;
+      final overlayPermission = permissionDataList
+          .where((permission) => permission.id == kOverlayPermissionId)
+          .firstOrNull;
+      if (overlayPermission == null) {
+        throw StateError('Overlay permission is not registered');
       }
-      final accessibilityAuthorized = PermissionService.checkAuthorizedByIds(
-        permissionDataList,
-        const {kAccessibilityPermissionId},
-      );
-      if (!accessibilityAuthorized && mounted) {
-        await PermissionBottomSheet.show(
+
+      if (!overlayPermission.notifier.value) {
+        _setPetOverlayOpening(false);
+        final shouldShowPet = await PetOverlayPermissionSheet.show(
           context,
-          initialPermissions: permissionDataList,
-          deviceBrand: brand,
-          buttonText: LegacyTextLocalizer.isEnglish ? 'Got it' : '我知道了',
-          requiredPermissionIds: const {kOverlayPermissionId},
-          onAllAuthorized: () {},
+          permission: overlayPermission,
+        );
+        if (!mounted || !shouldShowPet) {
+          return;
+        }
+        _setPetOverlayOpening(true);
+      }
+
+      final shown = await OverlayService.showPetOverlay();
+      if (!shown) {
+        throw StateError('showPetOverlay returned false');
+      }
+      _setPetOverlayShowing(true);
+    } catch (error) {
+      debugPrint('${isHidingPet ? '收起' : '唤起'}宠物失败: $error');
+      if (mounted) {
+        showToast(
+          LegacyTextLocalizer.localize(
+            isHidingPet ? '收起宠物失败' : '唤起宠物失败，请确认悬浮窗权限已开启',
+          ),
+          type: ToastType.error,
         );
       }
-    } catch (e) {
-      debugPrint('开启陪伴前置检查失败: $e');
-      if (!mounted) return;
-      setState(() {
-        _isCompanionToggleLoading = false;
-      });
+    } finally {
+      await _syncPetOverlayState();
+      _setPetOverlayOpening(false);
     }
   }
 
   @override
-  Future<void> _executeCompanionStart() async {
-    if (!_isCompanionToggleLoading && mounted) {
-      setState(() {
-        _isCompanionToggleLoading = true;
-      });
-    }
-
+  Future<void> _syncPetOverlayState() async {
     try {
-      final result = await AssistsMessageService.createCompanionTask();
-      if (result != true) {
-        throw StateError('createCompanionTask returned false');
-      }
-      if (!mounted) return;
-      setState(() {
-        _isCompanionModeEnabled = true;
-        _isCompanionToggleLoading = false;
-      });
-    } catch (e) {
-      debugPrint('开启陪伴失败: $e');
-      showToast('开启陪伴失败', type: ToastType.error);
-      if (!mounted) return;
-      setState(() {
-        _isCompanionToggleLoading = false;
-      });
-      await _checkCompanionTaskState();
+      final isShowing = await OverlayService.isPetOverlayShowing();
+      _setPetOverlayShowing(isShowing);
+    } catch (error) {
+      debugPrint('同步宠物悬浮窗状态失败: $error');
     }
   }
 
-  @override
-  Future<void> _cancelCompanionMode() async {
+  void _setPetOverlayOpening(bool value) {
+    if (!mounted || _isPetOverlayOpening == value) {
+      return;
+    }
     setState(() {
-      _isCompanionToggleLoading = true;
+      _isPetOverlayOpening = value;
     });
+  }
 
-    try {
-      final result = await AssistsMessageService.cancelTask();
-      if (result != true) {
-        throw StateError('cancelTask returned false');
-      }
-      if (!mounted) return;
-      setState(() {
-        _isCompanionModeEnabled = false;
-        _isCompanionToggleLoading = false;
-      });
-    } catch (e) {
-      debugPrint('结束陪伴失败: $e');
-      showToast('结束陪伴失败', type: ToastType.error);
-      if (!mounted) return;
-      setState(() {
-        _isCompanionToggleLoading = false;
-      });
-      await _checkCompanionTaskState();
+  void _setPetOverlayShowing(bool value) {
+    if (!mounted || _isPetOverlayShowing == value) {
+      return;
     }
+    setState(() {
+      _isPetOverlayShowing = value;
+    });
   }
 
   @override
@@ -612,18 +621,14 @@ mixin _ChatPageLifecycleMixin on _ChatPageStateBase {
     _messageController.dispose();
     _normalMessageScrollController.dispose();
     _openClawMessageScrollController.dispose();
-    _codexMessageScrollController.dispose();
+    _agentMessageScrollController.dispose();
     _modePageController.dispose();
     _inputFocusNode.dispose();
-    _vlmAnswerController.dispose();
-    _normalUserMessageEditController.dispose();
-    _openClawUserMessageEditController.dispose();
-    _codexUserMessageEditController.dispose();
     _openClawBaseUrlController.dispose();
     _openClawTokenController.dispose();
     _openClawUserIdController.dispose();
     _stopRemoteCodexSessionSync();
-    _codexEventSubscription?.cancel();
+    _agentEventSubscription?.cancel();
     super.dispose();
   }
 
@@ -631,6 +636,7 @@ mixin _ChatPageLifecycleMixin on _ChatPageStateBase {
   void didPopNext() {
     unawaited(_handleDidPopNext());
     unawaited(_syncVisibleChatConversation());
+    unawaited(_syncPetOverlayState());
   }
 
   @override
@@ -707,8 +713,18 @@ mixin _ChatPageLifecycleMixin on _ChatPageStateBase {
     // IM 等外部入口写入用户消息时，原生侧用 reason=external_user_message 通知前端：
     // 这条消息只在 DB 里、还没进入 runtime.messages，必须强制从 DB 重载，
     // 否则 agent 流事件先到时 hasInFlightTask=true 会让 in-memory 分支吞掉它。
-    final isExternalUserMessage =
-        event['reason']?.toString() == 'external_user_message';
+    final reason = event['reason']?.toString();
+    final isExternalUserMessage = reason == 'external_user_message';
+    // 流事件已经由 runtime reducer 直接维护。原生侧每次把流式快照落库后
+    // 还会发送 messages_replaced；若在这里重新安装同一份 in-memory 列表，
+    // 会重建消息 notifier 并清空 reducer 的排序状态，造成思考卡闪烁和
+    // 文本/思考时序跳动。
+    if (!shouldReloadConversationMessagesChanged(
+      reason: reason,
+      hasInFlightTask: runtime?.hasInFlightTask == true,
+    )) {
+      return;
+    }
     await loadConversation(
       conversationId,
       preferInMemory:
@@ -780,8 +796,8 @@ mixin _ChatPageLifecycleMixin on _ChatPageStateBase {
   ScrollController _scrollControllerForMode(ChatPageMode mode) {
     return mode == ChatPageMode.openclaw
         ? _openClawMessageScrollController
-        : mode == ChatPageMode.codex
-        ? _codexMessageScrollController
+        : mode == ChatPageMode.agent
+        ? _agentMessageScrollController
         : _normalMessageScrollController;
   }
 
@@ -816,14 +832,6 @@ mixin _ChatPageLifecycleMixin on _ChatPageStateBase {
     final resolvedTargetMode = targetMode == ChatSurfaceMode.openclaw
         ? ChatSurfaceMode.normal
         : targetMode;
-    if (_isLocalModelPureChatLocked &&
-        resolvedTargetMode != ChatSurfaceMode.normal) {
-      _showLocalModelPureChatLockToast();
-      if (syncPage || _modePageController.hasClients) {
-        _jumpToCurrentModePage();
-      }
-      return;
-    }
     final requestId = ++_surfaceSwitchRequestId;
     bool isStaleRequest() => !mounted || requestId != _surfaceSwitchRequestId;
     if (!mounted) return;
@@ -856,8 +864,8 @@ mixin _ChatPageLifecycleMixin on _ChatPageStateBase {
       return;
     }
 
-    final targetConversationMode = _activeConversationMode == ChatPageMode.codex
-        ? ChatPageMode.codex
+    final targetConversationMode = _activeConversationMode == ChatPageMode.agent
+        ? ChatPageMode.agent
         : ChatPageMode.normal;
     await _ensureConversationModeReady(targetConversationMode);
     if (isStaleRequest()) return;
@@ -899,6 +907,9 @@ mixin _ChatPageLifecycleMixin on _ChatPageStateBase {
   Future<ConversationThreadTarget> _overrideTargetWithSharedDraftIfNeeded(
     ConversationThreadTarget target,
   ) async {
+    if (target.mode != ConversationMode.normal) {
+      return target;
+    }
     final staged = _activeStagedSharedOpenDraft();
     if (staged != null && staged.hasContent) {
       return ConversationThreadTarget.newConversation(
@@ -991,7 +1002,7 @@ mixin _ChatPageLifecycleMixin on _ChatPageStateBase {
     }
     if (state == AppLifecycleState.resumed) {
       unawaited(_syncVisibleChatConversation());
-      unawaited(_checkCompanionTaskState());
+      unawaited(_syncPetOverlayState());
       unawaited(AppUpdateService.refreshIfNeeded());
       unawaited(_loadNormalChatModelContext());
       unawaited(_refreshLiveBrowserSessionSnapshot(syncRuntime: true));

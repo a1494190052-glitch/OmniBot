@@ -2,36 +2,37 @@ package cn.com.omnimind.bot.agent
 
 import android.content.Context
 import cn.com.omnimind.baselib.i18n.AppLocaleManager
+import cn.com.omnimind.baselib.i18n.LocalizedText
 import cn.com.omnimind.baselib.shizuku.PrivilegedActionPolicy
 import cn.com.omnimind.baselib.shizuku.ShizukuBackend
 import cn.com.omnimind.baselib.shizuku.ShizukuCapabilityManager
 import cn.com.omnimind.baselib.util.OmniLog
-import cn.com.omnimind.bot.mcp.RemoteMcpDiscoveredServer
 import cn.com.omnimind.bot.function.FunctionApi
+import cn.com.omnimind.bot.mcp.RemoteMcpDiscoveredServer
+import cn.com.omnimind.bot.mcp.RemoteMcpToolDescriptor
+import com.rk.terminal.runtime.TerminalDistribution
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
-import kotlinx.serialization.json.booleanOrNull
+import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
-import kotlinx.serialization.json.doubleOrNull
-import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonPrimitive
 
 class AgentToolRegistry(
     private val context: Context,
     discoveredServers: List<RemoteMcpDiscoveredServer>,
     conversationMode: String = AgentConversationModePolicy.NORMAL_MODE,
-    dynamicDefinitions: List<JsonObject> = emptyList(),
-    visibleToolNames: Set<String>? = null,
-    isLightweightToolProfile: Boolean = false,
+    terminalDistribution: TerminalDistribution.Spec = TerminalDistribution.alpine,
+    enabledToolProfiles: Set<String> = emptySet(),
 ) : AgentToolCatalog {
     data class RuntimeToolDescriptor(
         val name: String,
         val displayName: String,
         val toolType: String,
-        val serverName: String? = null
+        val serverName: String? = null,
+        val remoteTool: RemoteMcpToolDescriptor? = null
     )
 
     private val tag = "AgentToolRegistry"
@@ -40,14 +41,14 @@ class AgentToolRegistry(
     override val toolsForModel: List<ChatCompletionTool>
 
     init {
-        val locale = runCatching { AppLocaleManager.resolvePromptLocale(context) }
-            .getOrDefault(AppLocaleManager.currentPromptLocale())
-        val shizukuStatus = runCatching { ShizukuCapabilityManager.get(context).getStatus() }
-            .onFailure { OmniLog.w(tag, "resolve shizuku status failed: ${it.message}") }
-            .getOrNull()
+        val locale = AppLocaleManager.resolvePromptLocale(context)
+        val shizukuStatus = ShizukuCapabilityManager.get(context).getStatus()
         val runtimeDefinitions = mutableListOf<JsonObject>()
-        runtimeDefinitions.addAll(AgentToolDefinitions.staticTools(locale))
-        if (shizukuStatus?.isGranted() == true) {
+        runtimeDefinitions.addAll(AgentToolDefinitions.staticTools(locale, terminalDistribution))
+        if (FunctionApi.PROFILE in enabledToolProfiles) {
+            runtimeDefinitions.addAll(FunctionApi.staticToolDefinitions(locale))
+        }
+        if (shizukuStatus.isGranted()) {
             val privilegedVisibleActions = shizukuStatus.availableActions.ifEmpty {
                 PrivilegedActionPolicy.visibleAgentActions(
                     if (shizukuStatus.backend == ShizukuBackend.ROOT) {
@@ -89,31 +90,19 @@ class AgentToolRegistry(
                 )
             )
         }
-        if (isLightweightToolProfile) {
-            runtimeDefinitions.addAll(FunctionApi.staticToolDefinitions(locale))
-        }
         runtimeDefinitions.addAll(AgentToolDefinitions.memoryTools(locale))
         runtimeDefinitions.addAll(AgentToolDefinitions.subagentTools(locale))
+        discoveredServers.flatMap { it.tools }.forEach { tool ->
+            runtimeDefinitions.add(toDynamicMcpToolDefinition(tool, locale))
+        }
 
-        runtimeDefinitions.addAll(dynamicDefinitions.filterNot(::isModelHiddenDynamicTool))
-
-        val conversationFilteredDefinitions = AgentConversationModePolicy
+        val filteredDefinitions = AgentConversationModePolicy
             .filterToolDefinitionsForConversationMode(runtimeDefinitions, conversationMode)
-        val allowedToolNames = normalizeVisibleToolNames(visibleToolNames)
-        val filteredDefinitions = filterToolDefinitionsForExposurePolicy(
-            definitions = conversationFilteredDefinitions,
-            allowedToolNames = allowedToolNames
-        )
 
-        val toolsByName = linkedMapOf<String, ChatCompletionTool>()
-        filteredDefinitions.forEach { definition ->
-            val function = definition["function"] as? JsonObject ?: return@forEach
+        toolsForModel = filteredDefinitions.mapNotNull { definition ->
+            val function = definition["function"] as? JsonObject ?: return@mapNotNull null
             val name = function["name"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty()
-            if (name.isBlank()) return@forEach
-            if (!MODEL_TOOL_NAME_REGEX.matches(name)) {
-                OmniLog.w(tag, "skip invalid model tool name: $name")
-                return@forEach
-            }
+            if (name.isBlank()) return@mapNotNull null
             val description = function["description"]?.jsonPrimitive?.contentOrNull.orEmpty()
             val parameters = (function["parameters"] as? JsonObject) ?: JsonObject(emptyMap())
             val displayName = function["displayName"]?.jsonPrimitive?.contentOrNull?.trim()
@@ -128,9 +117,10 @@ class AgentToolRegistry(
                 name = name,
                 displayName = displayName,
                 toolType = toolType,
-                serverName = serverName
+                serverName = serverName,
+                remoteTool = findRemoteTool(name, discoveredServers)
             )
-            toolsByName[name] = ChatCompletionTool(
+            ChatCompletionTool(
                 function = ChatCompletionFunction(
                     name = name,
                     description = description,
@@ -138,55 +128,16 @@ class AgentToolRegistry(
                 )
             )
         }
-        toolsForModel = toolsByName.values.toList()
 
-        val toolTypeCounts = runtimeDescriptors.values
-            .groupingBy { it.toolType.ifBlank { "builtin" } }
-            .eachCount()
-            .toSortedMap()
-            .entries
-            .joinToString(",") { (toolType, count) -> "$toolType=$count" }
+        // Debug dump: full registered tool list to verify which ones the LLM actually receives.
         OmniLog.i(
             tag,
-                "registered_tools count=${toolsForModel.size} " +
+            "registered_tools count=${toolsForModel.size} " +
                 "conversationMode=$conversationMode " +
-                "lightweight_tool_profile=$isLightweightToolProfile " +
-                "tool_allowlist_size=${allowedToolNames?.size ?: 0} " +
                 "subagent_present=${"subagent_dispatch" in runtimeDescriptors.keys} " +
                 "memory_load_present=${"memory_load" in runtimeDescriptors.keys} " +
-                "tool_type_counts=[$toolTypeCounts]"
+                "names=[${runtimeDescriptors.keys.joinToString(",")}]"
         )
-    }
-
-    private fun filterToolDefinitionsForExposurePolicy(
-        definitions: List<JsonObject>,
-        allowedToolNames: Set<String>?,
-    ): List<JsonObject> {
-        if (allowedToolNames.isNullOrEmpty()) {
-            return definitions
-        }
-        return definitions.filter { definition ->
-            val function = definition["function"] as? JsonObject
-            val toolName = function
-                ?.get("name")
-                ?.jsonPrimitive
-                ?.contentOrNull
-                ?.trim()
-                .orEmpty()
-            toolName in allowedToolNames
-        }
-    }
-
-    private fun normalizeVisibleToolNames(toolNames: Set<String>?): Set<String>? {
-        return toolNames
-            ?.mapNotNull { it.trim().takeIf(String::isNotEmpty) }
-            ?.toSet()
-            ?.takeIf { it.isNotEmpty() }
-    }
-
-    private fun isModelHiddenDynamicTool(definition: JsonObject): Boolean {
-        val function = definition["function"] as? JsonObject ?: return false
-        return function["model_visible"]?.jsonPrimitive?.booleanOrNull == false
     }
 
     override fun runtimeDescriptor(toolName: String): RuntimeToolDescriptor {
@@ -199,92 +150,58 @@ class AgentToolRegistry(
 
     override fun validateArguments(toolName: String, arguments: JsonObject) {
         val schema = toolSchemas[toolName] ?: return
-        validateWithSchema(toolName, schema, arguments)
+        AgentToolSchema.validate(toolName, schema, arguments)
     }
 
-    private fun validateWithSchema(
+    private fun findRemoteTool(
         toolName: String,
-        schema: JsonObject,
-        arguments: JsonObject
-    ) {
-        val type = schema["type"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty()
-        if (type.isNotBlank() && type != "object") {
-            throw IllegalArgumentException("Tool $toolName schema type must be object")
-        }
-        val properties = (schema["properties"] as? JsonObject) ?: JsonObject(emptyMap())
-        val requiredFields = (schema["required"] as? JsonArray)
-            ?.mapNotNull { it.jsonPrimitive.contentOrNull?.trim() }
-            ?.filter { it.isNotEmpty() }
-            ?: emptyList()
-        requiredFields.forEach { field ->
-            // `tool_title` is a presentation hint injected into model schemas so
-            // UI cards have readable labels. It is not part of the execution
-            // contract for most tools; handlers that truly require it validate
-            // it themselves.
-            if (field == "tool_title") return@forEach
-            if (arguments[field] == null || arguments[field] is JsonNull) {
-                throw IllegalArgumentException("Tool $toolName missing required argument: $field")
-            }
-        }
-        arguments.entries.forEach { (field, value) ->
-            val propertySchema = properties[field] as? JsonObject ?: return@forEach
-            validateFieldType(toolName, field, value, propertySchema)
-        }
+        discoveredServers: List<RemoteMcpDiscoveredServer>
+    ): RemoteMcpToolDescriptor? {
+        return discoveredServers.asSequence()
+            .flatMap { it.tools.asSequence() }
+            .firstOrNull { it.encodedToolName == toolName }
     }
 
-    private fun validateFieldType(
-        toolName: String,
-        field: String,
-        value: JsonElement,
-        propertySchema: JsonObject
-    ) {
-        val expectedType = propertySchema["type"]?.jsonPrimitive?.contentOrNull?.trim()
-        if (!expectedType.isNullOrBlank() && !matchesType(expectedType, value)) {
-            throw IllegalArgumentException(
-                "Tool $toolName argument $field expected $expectedType but got ${describeType(value)}"
-            )
-        }
-        val enumValues = (propertySchema["enum"] as? JsonArray).orEmpty()
-        if (enumValues.isNotEmpty()) {
-            val raw = (value as? JsonPrimitive)?.contentOrNull
-            if (raw == null || enumValues.none { it.jsonPrimitive.contentOrNull == raw }) {
-                throw IllegalArgumentException(
-                    "Tool $toolName argument $field must be one of ${
-                        enumValues.joinToString(",") { it.toString() }
-                    }"
+    private fun toDynamicMcpToolDefinition(
+        tool: RemoteMcpToolDescriptor,
+        locale: cn.com.omnimind.baselib.i18n.PromptLocale
+    ): JsonObject {
+        return AgentToolDefinitions.decorateToolDefinition(buildJsonObject {
+            put("type", JsonPrimitive("function"))
+            put("function", buildJsonObject {
+                put("name", JsonPrimitive(tool.encodedToolName))
+                put("displayName", JsonPrimitive(tool.toolName))
+                put("toolType", JsonPrimitive("mcp"))
+                put("serverName", JsonPrimitive(tool.serverName))
+                put(
+                    "description",
+                    JsonPrimitive(
+                        tool.description.ifBlank {
+                            LocalizedText(
+                                zhCN = "调用远端 MCP 工具。",
+                                enUS = "Call a remote MCP tool."
+                            ).resolve(locale)
+                        }
+                    )
                 )
-            }
-        }
+                put("parameters", mapToJsonElement(tool.inputSchema))
+            })
+        }, locale)
     }
 
-    private fun matchesType(expectedType: String, value: JsonElement): Boolean {
-        return when (expectedType) {
-            "string" -> value is JsonPrimitive && value.isString
-            "integer" -> value is JsonPrimitive && !value.isString && value.intOrNull != null
-            "number" -> value is JsonPrimitive && !value.isString && value.doubleOrNull != null
-            "boolean" -> value is JsonPrimitive && !value.isString && value.booleanOrNull != null
-            "object" -> value is JsonObject
-            "array" -> value is JsonArray
-            else -> true
-        }
-    }
-
-    private fun describeType(value: JsonElement): String {
+    private fun mapToJsonElement(value: Any?): JsonElement {
         return when (value) {
-            is JsonObject -> "object"
-            is JsonArray -> "array"
-            is JsonNull -> "null"
-            is JsonPrimitive -> when {
-                value.isString -> "string"
-                value.booleanOrNull != null -> "boolean"
-                value.intOrNull != null -> "integer"
-                value.doubleOrNull != null -> "number"
-                else -> "primitive"
-            }
+            null -> JsonNull
+            is JsonElement -> value
+            is Map<*, *> -> JsonObject(
+                value.entries.associate { (key, item) ->
+                    key.toString() to mapToJsonElement(item)
+                }
+            )
+            is List<*> -> JsonArray(value.map { mapToJsonElement(it) })
+            is Boolean -> JsonPrimitive(value)
+            is Number -> JsonPrimitive(value)
+            else -> JsonPrimitive(value.toString())
         }
-    }
-
-    private companion object {
-        val MODEL_TOOL_NAME_REGEX = Regex("^[A-Za-z0-9_-]{1,64}$")
     }
 }

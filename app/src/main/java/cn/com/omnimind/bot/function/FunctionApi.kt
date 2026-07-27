@@ -95,9 +95,7 @@ object FunctionApi {
             "type" to "object",
             "properties" to mapOf(
                 "goal" to mapOf("type" to "string", "description" to "Natural-language task goal."),
-                "current_package" to mapOf("type" to "string", "description" to "Optional foreground Android package for scope matching."),
-                "current_xml" to mapOf("type" to "string", "description" to "Optional live accessibility XML. When omitted, the runtime captures the foreground page and page-matches it to a UDEG node."),
-                "k" to mapOf("type" to "integer", "description" to "Maximum candidates to return. Default 8.")
+                "limit" to mapOf("type" to "integer", "description" to "Maximum candidates to return. Default 8.")
             ),
             "required" to listOf("goal")
         )

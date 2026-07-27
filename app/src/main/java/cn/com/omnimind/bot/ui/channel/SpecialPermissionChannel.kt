@@ -52,14 +52,6 @@ class SpecialPermissionChannel {
         }
         methodChannel?.setMethodCallHandler { call, result ->
                 when (call.method) {
-                    "isAccessibilityServiceEnabled" -> specialPermissionManager!!.isAccessibilityServiceEnabled(
-                        result
-                    )
-
-                    "openAccessibilitySettings" -> specialPermissionManager!!.openAccessibilitySettings(
-                        result
-                    )
-
                     "isIgnoringBatteryOptimizations" -> specialPermissionManager!!.isIgnoringBatteryOptimizations(
                         result
                     )
@@ -78,6 +70,15 @@ class SpecialPermissionChannel {
                     "openOverlaySettings" -> specialPermissionManager!!.openOverlaySettings(
                         result
                     )
+
+                    "isAndroidGuiAccessibilityEnabled" -> specialPermissionManager!!
+                        .isAndroidGuiAccessibilityEnabled(result)
+
+                    "isAndroidGuiAccessibilityReady" -> specialPermissionManager!!
+                        .isAndroidGuiAccessibilityReady(result)
+
+                    "openAndroidGuiAccessibilitySettings" -> specialPermissionManager!!
+                        .openAndroidGuiAccessibilitySettings(result)
 
                     "isInstalledAppsPermissionGranted" -> specialPermissionManager!!.isInstalledAppsPermissionGranted(
                         result
@@ -139,6 +140,10 @@ class SpecialPermissionChannel {
                         .getEmbeddedTerminalSetupStatus(result)
                     "getEmbeddedTerminalSetupInventory" -> specialPermissionManager!!
                         .getEmbeddedTerminalSetupInventory(result)
+                    "getEmbeddedTerminalDistribution" -> specialPermissionManager!!
+                        .getEmbeddedTerminalDistribution(result)
+                    "setEmbeddedTerminalDistribution" -> specialPermissionManager!!
+                        .setEmbeddedTerminalDistribution(call, result)
                     "getEmbeddedTerminalSetupSessionSnapshot" -> specialPermissionManager!!
                         .getEmbeddedTerminalSetupSessionSnapshot(result)
                     "installEmbeddedTerminalPackages" -> specialPermissionManager!!

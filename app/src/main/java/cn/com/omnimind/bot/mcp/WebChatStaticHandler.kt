@@ -14,12 +14,11 @@ import io.ktor.server.routing.get
 /**
  * WebChat 静态文件托管路由。
  *
- * 从 McpServerManager 拆分而来，负责 Flutter Web 产物的 SPA 路由 + 资源分发。
+ * 从 McpServerManager 拆分而来，负责轻量 Web Chat SPA 的路由与资源分发。
  */
 object WebChatStaticHandler {
 
-    private const val WEBCHAT_ASSET_DIR = "flutter_web"
-    private const val FLUTTER_MOBILE_ASSET_DIR = "flutter_assets"
+    private const val WEBCHAT_ASSET_DIR = "webchat"
 
     fun Route.registerWebChatStaticRoutes(context: Context) {
         val appContext = context.applicationContext
@@ -54,10 +53,7 @@ object WebChatStaticHandler {
         } else {
             "$WEBCHAT_ASSET_DIR/index.html"
         }
-        val assetBytes = openAssetBytes(
-            context,
-            *assetCandidatesForPath(normalizedPath).toTypedArray()
-        )
+        val assetBytes = openAssetBytes(context, assetPath)
         if (assetBytes != null) {
             call.respondBytes(bytes = assetBytes, contentType = contentTypeForPath(assetPath))
             return
@@ -65,8 +61,7 @@ object WebChatStaticHandler {
         if (!normalizedPath.endsWith("index.html")) {
             val fallbackIndex = openAssetBytes(
                 context,
-                "$WEBCHAT_ASSET_DIR/index.html",
-                "index.html"
+                "$WEBCHAT_ASSET_DIR/index.html"
             )
             if (fallbackIndex != null) {
                 call.respondBytes(bytes = fallbackIndex, contentType = ContentType.Text.Html)
@@ -90,7 +85,7 @@ object WebChatStaticHandler {
             <body>
               <div class="card">
                 <h2>Web Chat Bundle Missing</h2>
-                <p>尚未找到 Flutter Web 构建产物，请重新构建并安装最新 APK，确保 <code>flutter build web --base-href /webchat/</code> 的产物已被打包进应用。</p>
+                <p>尚未找到 Web Chat 静态资源，请重新构建并安装最新 APK。</p>
               </div>
             </body>
             </html>
@@ -107,17 +102,6 @@ object WebChatStaticHandler {
             if (bytes != null) return bytes
         }
         return null
-    }
-
-    internal fun assetCandidatesForPath(normalizedPath: String): List<String> {
-        val candidates = linkedSetOf(
-            "$WEBCHAT_ASSET_DIR/$normalizedPath",
-            normalizedPath,
-        )
-        if (normalizedPath.startsWith("assets/assets/")) {
-            candidates += "$FLUTTER_MOBILE_ASSET_DIR/${normalizedPath.removePrefix("assets/")}"
-        }
-        return candidates.toList()
     }
 
     private fun contentTypeForPath(path: String): ContentType {

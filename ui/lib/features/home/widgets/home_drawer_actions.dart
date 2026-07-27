@@ -31,6 +31,8 @@ extension _HomeDrawerActions on HomeDrawerState {
     return <String, dynamic>{
       'conversationId': target.conversationId?.toString() ?? 'new',
       'mode': target.mode.storageValue,
+      if (target.agentId?.trim().isNotEmpty == true)
+        'agentId': target.agentId!.trim(),
       'requestKey':
           target.requestKey ?? DateTime.now().microsecondsSinceEpoch.toString(),
     };
@@ -180,6 +182,7 @@ extension _HomeDrawerActions on HomeDrawerState {
       ConversationThreadTarget.existing(
         conversationId: conversation.id,
         mode: conversation.mode,
+        agentId: conversation.agentId,
       ),
     );
   }

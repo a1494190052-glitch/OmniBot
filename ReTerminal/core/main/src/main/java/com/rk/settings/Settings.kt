@@ -47,6 +47,21 @@ object Settings {
         get() = Preference.getInt(key = "workingMode", default = WorkingMode.ALPINE)
         set(value) = Preference.setInt(key = "workingMode",value)
 
+    var terminal_distribution
+        get() = when (
+            Preference.getInt(
+                key = "terminal_distribution",
+                default = WorkingMode.ALPINE
+            )
+        ) {
+            WorkingMode.UBUNTU -> WorkingMode.UBUNTU
+            else -> WorkingMode.ALPINE
+        }
+        set(value) = Preference.setInt(
+            key = "terminal_distribution",
+            value = if (value == WorkingMode.UBUNTU) WorkingMode.UBUNTU else WorkingMode.ALPINE
+        )
+
     var input_mode
         get() = Preference.getInt(key = "input_mode", default = InputMode.DEFAULT)
         set(value) = Preference.setInt(key = "input_mode", value)
@@ -57,6 +72,13 @@ object Settings {
             default = AlpinePackageMirror.TSINGHUA
         )
         set(value) = Preference.setInt(key = "alpine_package_mirror", value)
+
+    var ubuntu_package_mirror
+        get() = Preference.getInt(
+            key = "ubuntu_package_mirror",
+            default = UbuntuPackageMirror.TSINGHUA
+        )
+        set(value) = Preference.setInt(key = "ubuntu_package_mirror", value)
 
     var custom_background_name
         get() = Preference.getString(key = "custom_bg_name", default = "No Image Selected")
@@ -119,6 +141,11 @@ object Settings {
 }
 
 object AlpinePackageMirror {
+    const val OFFICIAL = 0
+    const val TSINGHUA = 1
+}
+
+object UbuntuPackageMirror {
     const val OFFICIAL = 0
     const val TSINGHUA = 1
 }

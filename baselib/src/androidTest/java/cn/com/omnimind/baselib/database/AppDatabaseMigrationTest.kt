@@ -8,6 +8,7 @@ import androidx.test.platform.app.InstrumentationRegistry
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -23,22 +24,15 @@ class AppDatabaseMigrationTest {
     }
 
     @Test
-    fun migrate5To9_preservesExistingRows_withoutInjectingSampleConversations() = runBlocking {
+    fun migrate5To16_dropsLegacyAutomationTables_withoutInjectingSampleConversations() = runBlocking {
         createVersion5Database()
 
         val database = openMigratedDatabase()
         try {
-            val executionRecord = database.executionRecordDao().getAll().single()
-            assertEquals(1L, executionRecord.id)
-            assertEquals("legacy execution", executionRecord.title)
-            assertEquals("legacy-content", executionRecord.content)
-            assertEquals("failed", executionRecord.status)
-
-            val favoriteRecord = database.favoriteRecordDao().getAll().single()
-            assertEquals(2L, favoriteRecord.id)
-            assertEquals("legacy favorite", favoriteRecord.title)
-            assertEquals("cn.legacy.favorite", favoriteRecord.packageName)
-
+            assertTableMissing(database, "execution_records")
+            assertTableMissing(database, "study_records")
+            assertTableMissing(database, "favorite_records")
+            assertTableMissing(database, "cache_suggestion")
             assertTrue(database.conversationDao().getAll().isEmpty())
         } finally {
             database.close()
@@ -73,22 +67,22 @@ class AppDatabaseMigrationTest {
     }
 
     @Test
-    fun migrate12To13_addsCodexThreadBindingTable() = runBlocking {
+    fun migrate12To13_addsAgentSessionBindingTable() = runBlocking {
         createVersion12Database()
 
         val database = openMigratedDatabase()
         try {
-            val binding = CodexThreadBinding(
+            val binding = AgentSessionBinding(
                 conversationId = 1L,
                 threadId = "thread-codex-1",
                 cwd = "/workspace",
                 createdAt = 1000L,
                 updatedAt = 2000L
             )
-            database.codexThreadBindingDao().upsert(binding)
+            database.agentSessionBindingDao().upsert(binding)
 
-            val byConversation = database.codexThreadBindingDao().getByConversationId(1L)
-            val byThread = database.codexThreadBindingDao().getByThreadId("thread-codex-1")
+            val byConversation = database.agentSessionBindingDao().getByConversationId(1L)
+            val byThread = database.agentSessionBindingDao().getByThreadId("thread-codex-1")
             assertEquals(binding, byConversation)
             assertEquals(binding, byThread)
         } finally {
@@ -114,12 +108,54 @@ class AppDatabaseMigrationTest {
         }
     }
 
+    @Test
+    fun migrate15To16_removesLocalUsageAndPreservesCloudUsage() = runBlocking {
+        createVersion15Database()
+
+        val database = openMigratedDatabase()
+        try {
+            assertColumnMissing(database, "token_usage_records", "isLocal")
+            val records = database.tokenUsageRecordDao().getRecordsSince(0L)
+            assertEquals(1, records.size)
+            assertEquals("cloud-model", records.single().model)
+            assertEquals(34, records.single().promptTokens)
+            assertEquals(13, records.single().completionTokens)
+        } finally {
+            database.close()
+        }
+    }
+
     private fun openMigratedDatabase(): AppDatabase {
         return Room.databaseBuilder(testContext, AppDatabase::class.java, TEST_DB_NAME)
             .allowMainThreadQueries()
             .addMigrations(*DatabaseHelper.ALL_MIGRATIONS)
             .build()
             .also { it.openHelper.writableDatabase }
+    }
+
+    private fun assertTableMissing(database: AppDatabase, tableName: String) {
+        database.openHelper.readableDatabase.query(
+            "SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?",
+            arrayOf(tableName)
+        ).use { cursor ->
+            assertFalse("Expected $tableName to be removed", cursor.moveToFirst())
+        }
+    }
+
+    private fun assertColumnMissing(
+        database: AppDatabase,
+        tableName: String,
+        columnName: String
+    ) {
+        database.openHelper.readableDatabase.query("PRAGMA table_info(`$tableName`)").use { cursor ->
+            val nameIndex = cursor.getColumnIndexOrThrow("name")
+            while (cursor.moveToNext()) {
+                assertFalse(
+                    "Expected $columnName to be removed from $tableName",
+                    cursor.getString(nameIndex) == columnName
+                )
+            }
+        }
     }
 
     private fun createVersion5Database() {
@@ -329,6 +365,50 @@ class AppDatabaseMigrationTest {
                  promptTokenThreshold, latestPromptTokensUpdatedAt, createdAt, updatedAt)
                 VALUES
                 (1, 'Scheduled seed', 'normal', 0, NULL, NULL, NULL, 0, 0, NULL, 0, 0, 128000, 0, 1000, 1000)
+                """.trimIndent()
+            )
+        } finally {
+            database.close()
+        }
+    }
+
+    private fun createVersion15Database() {
+        val database = openLegacyDatabase(version = 15)
+        try {
+            createCommonPreConversationTables(database)
+            createVersion13ConversationTables(database)
+            database.execSQL(
+                "ALTER TABLE conversations ADD COLUMN isPinned INTEGER NOT NULL DEFAULT 0"
+            )
+            database.execSQL(
+                "ALTER TABLE conversations ADD COLUMN parentConversationId INTEGER"
+            )
+            database.execSQL(
+                "ALTER TABLE conversations ADD COLUMN parentConversationMode TEXT"
+            )
+            database.execSQL(
+                "ALTER TABLE conversations ADD COLUMN scheduledTaskId TEXT"
+            )
+            database.execSQL("DROP TABLE IF EXISTS execution_records")
+            database.execSQL("DROP TABLE IF EXISTS study_records")
+            database.execSQL("DROP TABLE IF EXISTS favorite_records")
+            database.execSQL("DROP TABLE IF EXISTS cache_suggestion")
+            database.execSQL(
+                """
+                INSERT INTO token_usage_records (
+                    id,
+                    conversationId,
+                    isLocal,
+                    model,
+                    promptTokens,
+                    completionTokens,
+                    reasoningTokens,
+                    textTokens,
+                    cachedTokens,
+                    createdAt
+                ) VALUES
+                    (1, 7, 1, 'legacy-local-model', 21, 8, 3, 5, 2, 1234),
+                    (2, 8, 0, 'cloud-model', 34, 13, 5, 8, 3, 2345)
                 """.trimIndent()
             )
         } finally {

@@ -31,6 +31,16 @@ enum ChatIslandDisplayLayer {
 
 enum ChatMessageListMutationKind { none, content, structure }
 
+bool shouldReloadConversationMessagesChanged({
+  required String? reason,
+  required bool hasInFlightTask,
+}) {
+  final isRuntimeStreamSnapshot =
+      reason == 'agent_stream_snapshot' ||
+      reason == 'chat_task_stream_snapshot';
+  return !isRuntimeStreamSnapshot || !hasInFlightTask;
+}
+
 class ChatMessageListItemNotifier extends ValueNotifier<ChatMessageModel> {
   ChatMessageListItemNotifier(super.value);
 

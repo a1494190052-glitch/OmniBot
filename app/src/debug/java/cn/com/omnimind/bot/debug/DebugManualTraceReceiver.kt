@@ -6,13 +6,11 @@ import android.content.Intent
 import android.graphics.Rect
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
-import cn.com.omnimind.accessibility.service.AssistsService
-import cn.com.omnimind.accessibility.service.AssistsServiceListener
-import cn.com.omnimind.assists.controller.accessibility.AccessibilityController
-import cn.com.omnimind.assists.task.vlmserver.ManualVlmTraceRecorder
-import cn.com.omnimind.assists.task.vlmserver.argsMap
+import cn.com.omnimind.androidgui.AndroidGuiAccessibilityService
+import cn.com.omnimind.androidgui.AndroidGuiEnvironment
+import cn.com.omnimind.androidgui.AndroidGuiEventListener
+import cn.com.omnimind.assists.task.recording.ManualTraceRecorder
 import cn.com.omnimind.baselib.util.OmniLog
-import cn.com.omnimind.bot.util.AssistsUtil
 import com.google.gson.GsonBuilder
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -77,7 +75,7 @@ class DebugManualTraceReceiver : BroadcastReceiver() {
             waitForAccessibility(context)
         }
         OmniLog.i(TAG, "manual trace: accessibility ready")
-        val recorder = ManualVlmTraceRecorder(
+        val recorder = ManualTraceRecorder(
             context = context,
             sessionLabel = sessionLabel,
             enableRawTouch = enableRawTouch,
@@ -89,7 +87,7 @@ class DebugManualTraceReceiver : BroadcastReceiver() {
         OmniLog.i(TAG, "manual trace: recorder started=$started")
         val eventProbe = DebugEventProbe()
         if (started) {
-            AssistsService.addListener(eventProbe.listener)
+            AndroidGuiAccessibilityService.addEventListener(eventProbe.listener)
         }
         File(context.filesDir, STARTED_FILE).writeText(
             gson.toJson(
@@ -125,7 +123,7 @@ class DebugManualTraceReceiver : BroadcastReceiver() {
             try {
                 recorder.stop()
             } finally {
-                AssistsService.removeListener(eventProbe.listener)
+                AndroidGuiAccessibilityService.removeEventListener(eventProbe.listener)
             }
         }
         val actionNames = traceResult.actions.map { it.action.tool }
@@ -145,7 +143,7 @@ class DebugManualTraceReceiver : BroadcastReceiver() {
                 linkedMapOf<String, Any?>(
                     "action" to linkedMapOf(
                         "tool" to action.action.tool,
-                        "args" to action.action.argsMap(),
+                        "args" to action.action.args,
                     ),
                     "title" to action.title,
                     "before_package_name" to action.beforePackageName,
@@ -172,14 +170,15 @@ class DebugManualTraceReceiver : BroadcastReceiver() {
     }
 
     private suspend fun waitForAccessibility(context: Context) {
-        if (!AssistsUtil.Core.isInitialized()) {
-            AssistsUtil.Core.initCore(context)
+        val environment = AndroidGuiEnvironment(context)
+        if (!environment.isAccessibilityEnabled()) {
+            error("android_gui_accessibility_disabled")
         }
         repeat(50) {
-            if (AssistsService.instance != null && AccessibilityController.initController()) return
+            if (environment.isReady()) return
             delay(200L)
         }
-        error("OOB accessibility service is not bound")
+        error("android_gui_accessibility_not_ready")
     }
 
     private fun debugScreenshotsEnabled(intent: Intent?): Boolean {
@@ -236,11 +235,7 @@ class DebugManualTraceReceiver : BroadcastReceiver() {
         private var eventsWithSource = 0
         private var eventsWithoutSource = 0
 
-        val listener = object : AssistsServiceListener {
-            override fun onAccessibilityEvent(event: AccessibilityEvent) {
-                record(event)
-            }
-        }
+        val listener = AndroidGuiEventListener(::record)
 
         fun snapshot(): Map<String, Any?> = synchronized(lock) {
             linkedMapOf(

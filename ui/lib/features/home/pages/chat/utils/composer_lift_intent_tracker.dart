@@ -30,10 +30,22 @@ class ComposerLiftIntentTracker {
   double? _lastInset;
   int _openingGraceFramesRemaining = 0;
 
+  bool get isLatched => _latched;
+
   void arm() {
     _latched = true;
     _imeVisibleSinceArm = false;
     _openingGraceFramesRemaining = openingGraceFrames;
+  }
+
+  /// Releases chat-owned lift state when focus intentionally moves to an
+  /// unrelated text input whose IME may remain visible (for example the home
+  /// drawer search field).
+  void reset() {
+    _latched = false;
+    _imeVisibleSinceArm = false;
+    _lastInset = null;
+    _openingGraceFramesRemaining = 0;
   }
 
   bool update({required bool hasInputIntent, required double bottomInset}) {

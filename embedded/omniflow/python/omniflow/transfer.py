@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import importlib
 import json
 import math
@@ -19,6 +20,42 @@ _TRANSFER_STATE_FIELDS = {
     "activity_name",
     "display",
 }
+
+
+def capture_transfer_state(observation: Any) -> dict[str, Any]:
+    identity = {
+        key: value
+        for key, value in observation.to_dict().items()
+        if key in {"xml", "package_name", "activity_name"} and value not in {None, ""}
+    }
+    identity.update(
+        {
+            key: value
+            for key, value in observation.extra.items()
+            if key in {"display", "screenshot_path"}
+            and value is not None
+            and value != ""
+        }
+    )
+    explicit_state_id = str(observation.extra.get("state_id") or "").strip()
+    encoded = json.dumps(
+        identity,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    state = {
+        "state_id": explicit_state_id
+        or "state_" + hashlib.sha256(encoded.encode()).hexdigest()[:20]
+    }
+    for key in ("xml", "package_name", "activity_name"):
+        value = identity.get(key)
+        if isinstance(value, str) and value:
+            state[key] = value
+    display = identity.get("display")
+    if isinstance(display, dict) and set(display) == {"width", "height"}:
+        state["display"] = dict(display)
+    return state
 
 
 def load_transfer_state_catalog(path: str | Path) -> dict[str, dict[str, Any]]:
@@ -111,9 +148,7 @@ def _load_omnitransfer_from_root(root: Path) -> Any:
             del sys.modules[name]
     source_path = str(source_root)
     sys.path[:] = [
-        item
-        for item in sys.path
-        if str(Path(item or ".").resolve()) != source_path
+        item for item in sys.path if str(Path(item or ".").resolve()) != source_path
     ]
     sys.path.insert(0, source_path)
     importlib.invalidate_caches()
@@ -187,7 +222,7 @@ def audit_transfer_action_sources(
                     f"{step_index}:{source_state_id}"
                 )
             source_xml = str(state.get("xml") or "")
-            source_size = _xml_display_size(source_xml)
+            source_size = _state_display_size(state, source_xml)
             if source_size is None:
                 raise ValueError(
                     f"transfer_action_source_display_missing:{function_id}:"
@@ -235,7 +270,16 @@ def audit_transfer_action_sources(
                 step_index=step_index,
                 source_state_id=source_state_id,
             )
-            if max(abs(offset_x - 0.5), abs(offset_y - 0.5)) > tolerance:
+            centered = max(abs(offset_x - 0.5), abs(offset_y - 0.5)) <= tolerance
+            center_conflict = False
+            if not centered:
+                center_conflict = _source_center_conflicts(
+                    source_xml=source_xml,
+                    source_element=source_element,
+                    state=state,
+                    action_type=str(getattr(action, "tool", "") or ""),
+                )
+            if not centered and not center_conflict:
                 raise ValueError(
                     f"transfer_action_source_point_not_centered:{function_id}:"
                     f"{step_index}:{source_state_id}:"
@@ -248,6 +292,7 @@ def audit_transfer_action_sources(
                     "source_state_id": source_state_id,
                     "offset_x": offset_x,
                     "offset_y": offset_y,
+                    "center_conflict": center_conflict,
                     "target": {
                         key: source_element[key]
                         for key in ("resource_id", "text", "content_desc", "class")
@@ -271,9 +316,7 @@ def _source_element_offset(
     source_state_id: str,
 ) -> tuple[float, float]:
     try:
-        left, top, right, bottom = (
-            float(item) for item in source_element["bounds"]
-        )
+        left, top, right, bottom = (float(item) for item in source_element["bounds"])
         offset_x = (point[0] - left) / (right - left)
         offset_y = (point[1] - top) / (bottom - top)
     except (KeyError, TypeError, ValueError, ZeroDivisionError) as error:
@@ -287,6 +330,43 @@ def _source_element_offset(
             f"{step_index}:{source_state_id}"
         )
     return offset_x, offset_y
+
+
+def _source_center_conflicts(
+    *,
+    source_xml: str,
+    source_element: dict[str, Any],
+    state: dict[str, Any],
+    action_type: str,
+) -> bool:
+    try:
+        left, top, right, bottom = (float(item) for item in source_element["bounds"])
+    except (KeyError, TypeError, ValueError) as error:
+        raise ValueError("transfer_action_source_target_offset_invalid") from error
+    result = transfer_action(
+        source_xml=source_xml,
+        target_xml=source_xml,
+        source_point=((left + right) / 2.0, (top + bottom) / 2.0),
+        source_package_name=str(state.get("package_name") or ""),
+        target_package_name=str(state.get("package_name") or ""),
+        source_activity_name=str(state.get("activity_name") or ""),
+        target_activity_name=str(state.get("activity_name") or ""),
+        action_type=action_type,
+        top_k=3,
+    )
+    centered_element = result.get("src_element")
+    return (
+        result.get("mapped") is not True
+        or not isinstance(centered_element, dict)
+        or _element_signature(centered_element) != _element_signature(source_element)
+    )
+
+
+def _element_signature(value: dict[str, Any]) -> tuple[Any, ...]:
+    return tuple(
+        json.dumps(value.get(key), ensure_ascii=False, sort_keys=True)
+        for key in ("resource_id", "text", "content_desc", "class", "bounds")
+    )
 
 
 def _action_requires_transfer_state(action: Any) -> bool:
@@ -337,6 +417,28 @@ def _xml_display_size(xml_text: str) -> tuple[float, float] | None:
     width = max(float(item[2]) for item in bounds)
     height = max(float(item[3]) for item in bounds)
     return (width, height) if width > 0.0 and height > 0.0 else None
+
+
+def _state_display_size(
+    state: dict[str, Any],
+    xml_text: str,
+) -> tuple[float, float] | None:
+    xml_size = _xml_display_size(xml_text)
+    display = state.get("display")
+    action_size = None
+    if isinstance(display, dict) and set(display) == {"width", "height"}:
+        try:
+            width = float(display.get("width") or 0)
+            height = float(display.get("height") or 0)
+        except (TypeError, ValueError):
+            width = height = 0.0
+        if width > 0 and height > 0:
+            action_size = (width, height)
+    if xml_size is None:
+        return action_size
+    if action_size is None:
+        return xml_size
+    return max(xml_size[0], action_size[0]), max(xml_size[1], action_size[1])
 
 
 def _require_raw_source_target(

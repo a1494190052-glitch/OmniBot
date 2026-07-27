@@ -434,7 +434,10 @@ class _StorageUsagePageState extends State<StorageUsagePage> {
                 children: [
                   Text(
                     _t(context, '总占用', 'Total usage'),
-                    style: TextStyle(fontSize: 12, color: palette.textSecondary),
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: palette.textSecondary,
+                    ),
                   ),
                   const SizedBox(height: 4),
                   Text(
@@ -721,7 +724,9 @@ class _StorageUsagePageState extends State<StorageUsagePage> {
     Map<String, Color> colorMap,
   ) {
     final palette = context.omniPalette;
-    final visibleCategories = categories.where((item) => item.bytes > 0).toList();
+    final visibleCategories = categories
+        .where((item) => item.bytes > 0)
+        .toList();
     if (visibleCategories.isEmpty || summary.totalBytes <= 0) {
       return const SizedBox.shrink();
     }
@@ -809,11 +814,7 @@ class _StorageUsagePageState extends State<StorageUsagePage> {
         if (compact) {
           return Column(
             crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              pie,
-              const SizedBox(height: 12),
-              legend,
-            ],
+            children: [pie, const SizedBox(height: 12), legend],
           );
         }
 
@@ -896,7 +897,10 @@ class _StorageUsagePageState extends State<StorageUsagePage> {
                       '占比 ${percent.toStringAsFixed(1)}%',
                       'Share ${percent.toStringAsFixed(1)}%',
                     ),
-                    style: TextStyle(fontSize: 11, color: palette.textSecondary),
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: palette.textSecondary,
+                    ),
                   ),
                   _buildRiskTag(category.riskLevel),
                   if (!category.cleanable)
@@ -978,14 +982,10 @@ class _StorageUsagePageState extends State<StorageUsagePage> {
     );
   }
 
-
   String _translateHint(String raw) {
     final l = context.l10n;
     if (raw.contains('历史未释放') || raw.contains('conversation_history')) {
       return l.storageHintConversation;
-    }
-    if (raw.contains('模型被清理后') || raw.contains('local_models')) {
-      return l.storageHintLocalModels;
     }
     if (raw.contains('终端运行时被清理') || raw.contains('terminal')) {
       return l.storageHintTerminal;

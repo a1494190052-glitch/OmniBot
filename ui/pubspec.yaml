@@ -98,12 +98,24 @@ flutter:
   #   - images/a_dot_burr.jpeg
   #   - images/a_dot_ham.jpeg
   assets:
-    - assets/images/
     - assets/avatar/
     - assets/home/
     - assets/home/chat/
     - assets/home/date_header_icons/
-    - assets/welcome/
+    # Legacy onboarding art and scene backgrounds are intentionally excluded.
+    # Only the permission-guide assets still reachable from the current app
+    # are packaged.
+    - assets/welcome/auto_start_guide_1.png
+    - assets/welcome/auto_start_guide_2.png
+    - assets/welcome/auto_start_guide_3.png
+    - assets/welcome/next_page.svg
+    - assets/welcome/permission_authorized.svg
+    - assets/welcome/permission_autostart.svg
+    - assets/welcome/permission_battery.svg
+    - assets/welcome/permission_go.svg
+    - assets/welcome/permission_icon.png
+    - assets/welcome/permission_installed_apps.svg
+    - assets/welcome/permission_overlay.svg
     - assets/common/
     - assets/memory/
     - assets/my/
@@ -111,15 +123,9 @@ flutter:
     - assets/webview/
     - assets/feedback/
     - assets/loading/
-    - assets/course/
     - assets/chatbot/
-    - assets/execution_history/
     - assets/provider_icons/
-
-  fonts:
-    - family: OmnibotWebCjk
-      fonts:
-        - asset: assets/fonts/OmnibotWebCjk.otf
+    - assets/agents/
 
   # An image asset can refer to one or more resolution-specific "variants", see
   # https://flutter.dev/to/resolution-aware-images

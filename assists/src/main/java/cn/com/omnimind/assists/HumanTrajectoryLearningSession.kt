@@ -1,14 +1,11 @@
 package cn.com.omnimind.assists
 
 import android.content.Context
-import cn.com.omnimind.assists.controller.accessibility.AccessibilityController
 import cn.com.omnimind.baselib.runlog.InternalRunLogStore
-import cn.com.omnimind.baselib.runlog.RunLogStepRecord
+import cn.com.omnimind.baselib.runlog.RunLogWriter
 import cn.com.omnimind.baselib.util.OmniLog
-import cn.com.omnimind.assists.runlog.OmniFlowRecordStepExecutor
-import cn.com.omnimind.assists.task.vlmserver.ManualVlmRecordedAction
-import cn.com.omnimind.assists.task.vlmserver.ManualRunLogStepRecorder
-import cn.com.omnimind.assists.task.vlmserver.ManualVlmTraceRecorder
+import cn.com.omnimind.assists.task.recording.ManualRecordedAction
+import cn.com.omnimind.assists.task.recording.ManualTraceRecorder
 import kotlinx.coroutines.CompletableDeferred
 import java.util.UUID
 
@@ -20,7 +17,7 @@ data class HumanTrajectoryLearningResult(
     val actionCount: Int,
     val summary: String,
     val errorMessage: String = "",
-    val actions: List<ManualVlmRecordedAction> = emptyList(),
+    val actions: List<ManualRecordedAction> = emptyList(),
     val diagnostics: Map<String, Any?> = emptyMap()
 )
 
@@ -84,7 +81,7 @@ object HumanTrajectoryLearningSession {
         val name: String,
         val description: String,
         val startedAtMs: Long,
-        val recorder: ManualVlmTraceRecorder,
+        val recorder: ManualTraceRecorder,
         val result: CompletableDeferred<HumanTrajectoryLearningResult>
     )
 
@@ -147,7 +144,6 @@ object HumanTrajectoryLearningSession {
         context: Context,
         name: String,
         description: String,
-        recordStepExecutor: OmniFlowRecordStepExecutor,
         enableRawTouch: Boolean = false,
         enableDebugScreenshots: Boolean = false
     ): CompletableDeferred<HumanTrajectoryLearningResult> {
@@ -157,18 +153,20 @@ object HumanTrajectoryLearningSession {
         val runId = "human_${System.currentTimeMillis()}_${UUID.randomUUID().toString().take(8)}"
         val startedAtMs = System.currentTimeMillis()
         val deferred = CompletableDeferred<HumanTrajectoryLearningResult>()
-        val recorder = ManualVlmTraceRecorder(
+        val runLogWriter = RunLogWriter { record ->
+            InternalRunLogStore.upsertRecordedStep(appContext, runId, record)
+        }
+        val recorder = ManualTraceRecorder(
             context = appContext,
             sessionLabel = "human_trajectory:$runId",
             enableRawTouch = enableRawTouch,
             enableDebugScreenshots = enableDebugScreenshots,
-            onActionRecorded = { index, action ->
+            onActionRecorded = { _, action ->
                 persistAction(
                     context = appContext,
                     runId = runId,
-                    index = index,
+                    writer = runLogWriter,
                     action = action,
-                    recordStepExecutor = recordStepExecutor,
                 )
             },
         )
@@ -380,7 +378,7 @@ object HumanTrajectoryLearningSession {
             persistedCount
         }
         val hasActions = trace.actions.isNotEmpty()
-        val evidenceComplete = trace.actions.all(ManualVlmRecordedAction::evidenceComplete)
+        val evidenceComplete = trace.actions.all(ManualRecordedAction::evidenceComplete)
         val success = hasActions && evidenceComplete && persisted.isSuccess
         val doneReason = when {
             persisted.isFailure -> "runlog_persist_failed"
@@ -514,44 +512,29 @@ object HumanTrajectoryLearningSession {
         return true
     }
 
-    internal suspend fun buildRunLogStep(
+    internal fun buildRunLogFact(
         runId: String,
         index: Int,
-        action: ManualVlmRecordedAction,
-        recordStepExecutor: OmniFlowRecordStepExecutor,
-    ): RunLogStepRecord {
-        val stepId = "$runId-human-$index"
-        return ManualRunLogStepRecorder.record(
-            index = index,
-            stepId = stepId,
-            action = action,
-            source = "human_trajectory",
-            executor = recordStepExecutor,
-        )
-    }
+        action: ManualRecordedAction,
+    ): Map<String, Any?> = manualRunLogFact(
+        stepId = "$runId-human-$index",
+        action = action,
+        source = "human_trajectory",
+    )
 
     private suspend fun persistAction(
         context: Context,
         runId: String,
-        index: Int,
-        action: ManualVlmRecordedAction,
-        recordStepExecutor: OmniFlowRecordStepExecutor,
+        writer: RunLogWriter,
+        action: ManualRecordedAction,
     ) {
-        val stepId = "$runId-human-$index"
-        val staged = ManualRunLogStepRecorder.build(
-            index = index,
-            stepId = stepId,
-            action = action,
-            source = "human_trajectory",
-        )
-        runCatching { recordStepExecutor.recordStep(staged) }
-            .onSuccess { canonical ->
-                InternalRunLogStore.upsertRecordedStep(
-                    context = context,
-                    runId = runId,
-                    record = canonical,
-                )
-            }
+        val index = writer.stepCount
+        runCatching {
+            writer.write(
+                fact = buildRunLogFact(runId, index, action),
+                states = manualRunLogStates(action),
+            )
+        }
             .onFailure { error ->
                 InternalRunLogStore.updateDiagnostics(
                     context = context,
@@ -565,3 +548,36 @@ object HumanTrajectoryLearningSession {
     }
 
 }
+
+private fun manualRunLogFact(
+    stepId: String,
+    action: ManualRecordedAction,
+    source: String,
+): Map<String, Any?> {
+    val beforeState = requireNotNull(action.beforeState) { "manual_before_state_required" }
+    val afterState = requireNotNull(action.afterState) { "manual_after_state_required" }
+    return linkedMapOf(
+        "before_state_id" to beforeState.stateId,
+        "action" to action.action.asMap(),
+        "result" to mapOf("success" to true),
+        "after_state_id" to afterState.stateId,
+        "metadata" to linkedMapOf(
+            "step_id" to stepId,
+            "status" to "succeeded",
+            "summary" to action.title,
+            "duration_ms" to (action.finishedAtMs - action.startedAtMs).coerceAtLeast(0L),
+            "started_at_ms" to action.startedAtMs,
+            "finished_at_ms" to action.finishedAtMs,
+            "source" to source,
+            "recording_backend" to action.recordingBackend,
+            "event_context" to action.eventContext.takeIf { it.isNotEmpty() },
+            "evidence_complete" to action.evidenceComplete,
+            "evidence_error" to action.evidenceError,
+        ).filterValues { it != null },
+    )
+}
+
+internal fun manualRunLogStates(action: ManualRecordedAction): List<Map<String, Any?>> = listOf(
+    requireNotNull(action.beforeState) { "manual_before_state_required" }.asMap(),
+    requireNotNull(action.afterState) { "manual_after_state_required" }.asMap(),
+)

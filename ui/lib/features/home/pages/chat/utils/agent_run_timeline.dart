@@ -1,4 +1,5 @@
 import 'package:ui/models/chat_message_model.dart';
+import 'package:ui/services/agent_message_kinds.dart';
 
 class AgentRunTimelineEntry {
   const AgentRunTimelineEntry.message(this.message) : group = null;
@@ -144,7 +145,7 @@ AgentRunTimelineGroup? _buildTimelineGroup(
       .where(_isAgentRunCandidateMessage)
       .toList(growable: false);
   final requestMessages = taskMessages
-      .where(_isCodexRequestMessage)
+      .where(_isAgentRequestMessage)
       .toList(growable: false);
   if (taskMessages.length < 2 && requestMessages.isEmpty) {
     return null;
@@ -170,7 +171,7 @@ AgentRunTimelineGroup? _buildTimelineGroup(
           .toList(growable: false)
         ..sort((left, right) => _compareNewestFirst(left, right));
   if (processMessages.isEmpty && visibleMessages.length < 2) {
-    if (!_isCodexRequestMessage(primaryVisibleMessage)) {
+    if (!_isAgentRequestMessage(primaryVisibleMessage)) {
       return null;
     }
   }
@@ -199,7 +200,7 @@ bool _isAgentRunCandidateMessage(ChatMessageModel message) {
   return type == 'deep_thinking' ||
       type == 'agent_tool_summary' ||
       type == 'permission_section' ||
-      type == 'codex_request';
+      isAgentRequestCardType(type);
 }
 
 ChatMessageModel? _resolvePrimaryVisibleMessage(
@@ -212,12 +213,10 @@ ChatMessageModel? _resolvePrimaryVisibleMessage(
       .toList(growable: false);
 
   if (isActive) {
-    final activeTextSnapshots = aiTextMessages
-        .where((message) => agentRunKind(message) == 'text_snapshot')
-        .toList(growable: false);
-    if (activeTextSnapshots.isNotEmpty) {
-      return _newestBySequence(activeTextSnapshots);
-    }
+    // A text/reasoning segment can finish before the whole agent turn does.
+    // Keep ordinary in-flight output ungrouped until the task itself leaves
+    // the active set, otherwise every intermediate text snapshot briefly
+    // looks terminal and collapses the preceding process messages.
     if (requestMessages.isNotEmpty) {
       return _newestBySequence(requestMessages);
     }
@@ -272,11 +271,12 @@ bool _isLegacyTextSnapshotFallbackCandidate(ChatMessageModel message) {
   if (agentRunKind(message) != 'text_snapshot') {
     return false;
   }
+  // Only legacy snapshots that predate the explicit completion bit may use
+  // this fallback. An explicit `isFinal: false` can be a persisted partial
+  // answer from an interrupted turn and must not be presented as processed.
   final streamMeta = message.streamMeta;
-  if (streamMeta == null || !streamMeta.containsKey('isFinal')) {
-    return true;
-  }
-  return streamMeta['isFinal'] == true;
+  return (message.text ?? '').trim().isNotEmpty &&
+      (streamMeta == null || !streamMeta.containsKey('isFinal'));
 }
 
 bool _isCancelledTextMessage(ChatMessageModel message) {
@@ -301,12 +301,12 @@ List<ChatMessageModel> _resolveVisibleMessages(
   }
   if (primaryKind == 'clarify_required' ||
       primaryKind == 'permission_required' ||
-      _isCodexRequestMessage(primaryVisibleMessage)) {
+      _isAgentRequestMessage(primaryVisibleMessage)) {
     visibleMessages.addAll(
       taskMessages.where(
         (message) =>
             message.id != primaryVisibleMessage.id &&
-            _isCodexRequestMessage(message),
+            _isAgentRequestMessage(message),
       ),
     );
   }
@@ -315,8 +315,8 @@ List<ChatMessageModel> _resolveVisibleMessages(
   return orderedByNewest;
 }
 
-bool _isCodexRequestMessage(ChatMessageModel message) {
-  return _cardType(message) == 'codex_request';
+bool _isAgentRequestMessage(ChatMessageModel message) {
+  return isAgentRequestCardType(_cardType(message));
 }
 
 ChatMessageModel _newestBySequence(List<ChatMessageModel> messages) {

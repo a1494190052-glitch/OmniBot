@@ -5,8 +5,19 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.io.File
 
 class EmbeddedTerminalRuntimeTest {
+    @Test
+    fun ubuntuStartupSuppressesSudoGroupProbeWithoutRemovingAndroidGroups() {
+        val initScript = File("../ReTerminal/core/main/src/main/assets/init.sh").readText()
+
+        assertTrue(initScript.contains("suppress_ubuntu_sudo_group_probe"))
+        assertTrue(initScript.contains("[ \"\$TERMINAL_DISTRIBUTION\" = \"ubuntu\" ] || return 0"))
+        assertTrue(initScript.contains("[ -e \"\$HOME/.hushlogin\" ] || : > \"\$HOME/.hushlogin\""))
+        assertFalse(initScript.contains("setgroups"))
+    }
+
     @Test
     fun buildPythonEnvironmentPreludeIncludesWorkspaceVenvBootstrap() {
         val prelude = EmbeddedTerminalRuntime.buildPythonEnvironmentPrelude()

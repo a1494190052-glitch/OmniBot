@@ -4,7 +4,6 @@ internal fun resolveToolExecutionStatus(result: ToolExecutionResult): String {
     return when (result) {
         is ToolExecutionResult.ChatMessage,
         is ToolExecutionResult.Clarify,
-        is ToolExecutionResult.VlmTaskStarted -> AgentConversationHistoryRepository.STATUS_SUCCESS
 
         is ToolExecutionResult.PermissionRequired -> AgentConversationHistoryRepository.STATUS_INTERRUPTED
 

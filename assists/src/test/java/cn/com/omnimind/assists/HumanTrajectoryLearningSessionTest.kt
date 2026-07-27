@@ -1,9 +1,10 @@
 package cn.com.omnimind.assists
 
-import cn.com.omnimind.assists.task.vlmserver.ManualVlmRecordedAction
-import cn.com.omnimind.assists.task.vlmserver.actionOf
-import cn.com.omnimind.assists.runlog.OmniFlowRecordStepExecutor
+import cn.com.omnimind.assists.task.recording.ManualRecordedAction
+import cn.com.omnimind.baselib.runlog.State
 import cn.com.omnimind.baselib.runlog.RunLogStepRecord
+import cn.com.omnimind.baselib.runlog.RunLogWriter
+import cn.com.omnimind.baselib.runlog.actionOf
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertEquals
@@ -11,8 +12,8 @@ import org.junit.Test
 
 class HumanTrajectoryLearningSessionTest {
     @Test
-    fun newManualRunLogDelegatesStepConstructionToOmniFlow() = runBlocking {
-        val action = ManualVlmRecordedAction(
+    fun newManualRunLogUsesCanonicalExecutionFacts() = runBlocking {
+        val action = ManualRecordedAction(
             action = actionOf(
                 "click",
                 mapOf(
@@ -21,10 +22,16 @@ class HumanTrajectoryLearningSessionTest {
                 ),
             ),
             title = "点击搜索",
-            beforePackageName = "demo.before",
-            afterPackageName = "demo.after",
-            beforeXml = "<hierarchy><node text=\"before\" bounds=\"[0,0][1440,3168]\" /></hierarchy>",
-            afterXml = "<hierarchy><node text=\"after\" bounds=\"[0,0][1440,3168]\" /></hierarchy>",
+            beforeState = state(
+                stateId = "manual-run-human-0-before",
+                packageName = "demo.before",
+                xml = "<hierarchy><node text=\"before\" bounds=\"[0,0][1440,3168]\" /></hierarchy>",
+            ),
+            afterState = state(
+                stateId = "manual-run-human-0-after",
+                packageName = "demo.after",
+                xml = "<hierarchy><node text=\"after\" bounds=\"[0,0][1440,3168]\" /></hierarchy>",
+            ),
             startedAtMs = 100L,
             finishedAtMs = 200L,
             summary = "点击搜索",
@@ -32,48 +39,63 @@ class HumanTrajectoryLearningSessionTest {
             displayHeight = 3168,
         )
 
-        var inputRecord: RunLogStepRecord? = null
-        val expectedStep = mapOf(
-            "step_index" to 0,
-            "before_state_id" to "manual-run-human-0-before",
-            "action" to mapOf("tool" to "click", "args" to mapOf("x" to 500, "y" to 516)),
-            "result" to mapOf("success" to true),
-            "after_state_id" to "manual-run-human-0-after",
+        var record: RunLogStepRecord? = null
+        val writer = RunLogWriter { record = it }
+        writer.write(
+            fact = HumanTrajectoryLearningSession.buildRunLogFact(
+                runId = "manual-run",
+                index = 0,
+                action = action,
+            ),
+            states = manualRunLogStates(action),
         )
-        val step = HumanTrajectoryLearningSession.buildRunLogStep(
-            runId = "manual-run",
-            index = 0,
-            action = action,
-            recordStepExecutor = OmniFlowRecordStepExecutor {
-                inputRecord = it
-                it.copy(step = expectedStep)
-            },
-        )
+        val saved = requireNotNull(record)
 
-        assertEquals(expectedStep, step.step)
-        assertEquals(2, step.states.size)
-        val input = requireNotNull(inputRecord)
-        assertFalse(input.step.containsKey("coordinate_space"))
+        assertEquals(2, saved.states.size)
+        assertEquals(
+            setOf(
+                "step_index",
+                "before_state_id",
+                "action",
+                "result",
+                "after_state_id",
+                "metadata",
+            ),
+            saved.step.keys,
+        )
+        assertEquals(0, saved.step["step_index"])
+        assertEquals("manual-run-human-0-before", saved.step["before_state_id"])
+        assertEquals("manual-run-human-0-after", saved.step["after_state_id"])
+        assertFalse(saved.step.containsKey("coordinate_space"))
         assertStateInput(
-            state = input.states[0],
+            state = saved.states[0],
             expectedXml = action.beforeXml,
             expectedPackageName = "demo.before",
         )
         assertStateInput(
-            state = input.states[1],
+            state = saved.states[1],
             expectedXml = action.afterXml,
             expectedPackageName = "demo.after",
         )
-        val recordedAction = input.step.getValue("action") as Map<*, *>
+        val recordedAction = saved.step.getValue("action") as Map<*, *>
         assertEquals("click", recordedAction["tool"])
-        assertEquals(mapOf("x" to 500L, "y" to 516.098), recordedAction["args"])
-        assertFalse(input.step.containsKey("before_state"))
-        assertFalse(input.step.containsKey("after_state"))
-        assertFalse(input.step.containsKey("state"))
-        assertFalse(input.step.containsKey("tool_call"))
-        assertFalse(input.step.containsKey("params"))
-        assertFalse(input.step.containsKey("source_context"))
+        assertEquals(mapOf("x" to 500, "y" to 516.098), recordedAction["args"])
+        assertFalse(saved.step.containsKey("before_state"))
+        assertFalse(saved.step.containsKey("after_state"))
+        assertFalse(saved.step.containsKey("state"))
+        assertFalse(saved.step.containsKey("tool_call"))
+        assertFalse(saved.step.containsKey("params"))
+        assertFalse(saved.step.containsKey("source_context"))
     }
+
+    private fun state(stateId: String, packageName: String, xml: String): State = State(
+        stateId = stateId,
+        packageName = packageName,
+        activityName = "",
+        displayWidth = 1440,
+        displayHeight = 3168,
+        xml = xml,
+    )
 
     private fun assertStateInput(
         state: Map<*, *>,

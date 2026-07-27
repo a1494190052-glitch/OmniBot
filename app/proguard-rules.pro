@@ -23,8 +23,6 @@
 # 保持应用包名相关类不被混淆
 -keep class cn.com.omnimind.bot.** {*;}
 
-# 保持伪装的 SelectToSpeakService 不被混淆（绕过微信反无障碍检测）
--keep class com.google.android.accessibility.selecttospeak.SelectToSpeakService {*;}
 # 保留AndroidX/AppCompat核心类，避免混淆导致主题依赖丢失
 -keep class androidx.appcompat.** { *; }
 -keep interface androidx.appcompat.** { *; }
@@ -52,13 +50,6 @@
 -keep class io.flutter.** { *; }
 -dontwarn io.flutter.embedding.**
 -ignorewarnings
-
-# 保持VLMChatPayload类不被混淆
--keep class cn.com.omnimind.omniintelligence.models.AgentRequest$Payload$VLMChatPayload {
-    <fields>;
-    <methods>;
-    public <init>(...);
-}
 
 # 保持Activity生命周期方法不被混淆
 -keep class * extends android.app.Activity {
@@ -185,9 +176,6 @@
 -keep class com.tencent.mmkv.** { *; }
 -dontwarn com.tencent.mmkv.**
 
-# OpeniLink WeChat SDK is accessed via reflection by the IMessage channel.
--keep class com.openilink.** { *; }
--dontwarn com.openilink.**
 -dontwarn ch.qos.logback.**
 
 # 保持Ktor相关类不被混淆
@@ -218,35 +206,12 @@
     public static final int *;
 }
 
-# OpenCV - 保留所有 OpenCV 类和 JNI 本地方法
--keep class org.opencv.** { *; }
-
 # 广告检测数据模型 - 这些类会被 Gson 序列化为 JSON，字段名不能被混淆
 -keep class cn.com.omnimind.assists.detection.detectors.popup.models.** { *; }
 -keep class cn.com.omnimind.assists.detection.detectors.button.** { *; }
 
 # NanoHTTPD Web 服务器 (Debug 版本)
 -keep class fi.iki.elonen.** { *; }
-
-# OmniInfer JNI bridge
-# The native library registers methods by hard-coded class/method names in JNI_OnLoad.
-# If R8 strips or renames these private external methods, System.loadLibrary succeeds
-# but RegisterNatives fails, so the local model service cannot start in release builds.
--keep class com.omniinfer.server.OmniInferBridge { *; }
--keep class com.omniinfer.server.OmniInferServer { *; }
-
-# LiteRT-LM native code calls these callback methods by exact Java names.
-# Release R8 obfuscation can otherwise rename them and crash in
-# LiteRtLmJni.nativeSendMessageAsync when generation starts.
--keep class com.google.ai.edge.litertlm.LiteRtLmJni { *; }
--keep class com.google.ai.edge.litertlm.LiteRtLmJni$JniMessageCallback { *; }
--keep class com.google.ai.edge.litertlm.LiteRtLmJni$JniInferenceCallback { *; }
--keep class com.google.ai.edge.litertlm.Conversation$JniMessageCallbackImpl { *; }
--keep class com.google.ai.edge.litertlm.Session$JniInferenceCallbackImpl { *; }
-
-# LiteRT-LM constructs BenchmarkInfo from native code when benchmark metrics are enabled.
-# Keep the class and constructor so native Conversation.getBenchmarkInfo() can resolve them.
--keep class com.google.ai.edge.litertlm.BenchmarkInfo { *; }
 
 # ==================== Detection 模块数据模型 ====================
 # 这些类涉及 Gson JSON 反序列化，字段名不能被混淆

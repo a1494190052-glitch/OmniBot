@@ -7,20 +7,20 @@ import com.rk.libcommons.OmnibotTerminalEnvironment
 import com.rk.libcommons.ShellArgv
 import com.rk.libcommons.ShellAssetWriter
 import com.rk.libcommons.TerminalCommand
-import com.rk.libcommons.alpineDir
-import com.rk.libcommons.alpineHomeDir
 import com.rk.libcommons.application
 import com.rk.libcommons.child
 import com.rk.libcommons.createFileIfNot
 import com.rk.libcommons.localBinDir
 import com.rk.libcommons.localDir
 import com.rk.libcommons.localLibDir
+import com.rk.libcommons.terminalHomeDir
 import com.rk.settings.Settings
 import com.rk.terminal.App
 import com.rk.terminal.App.Companion.getTempDir
 import com.rk.terminal.BuildConfig
 import com.rk.terminal.runtime.AlpineRepositoryManager
-import com.rk.terminal.ui.screens.settings.WorkingMode
+import com.rk.terminal.runtime.TerminalDistribution
+import com.rk.terminal.runtime.UbuntuRepositoryManager
 import com.termux.terminal.TerminalEmulator
 import com.termux.terminal.TerminalSession
 import com.termux.terminal.TerminalSessionClient
@@ -55,7 +55,8 @@ object MkSession {
                 "EXTERNAL_STORAGE" to System.getenv("EXTERNAL_STORAGE")
             )
 
-            val workingDir = launchCommand?.workingDir ?: alpineHomeDir().path
+            val distribution = TerminalDistribution.fromWorkingMode(workingMode)
+            val workingDir = launchCommand?.workingDir ?: terminalHomeDir(workingMode).path
 
             val initFile: File = localBinDir().child("init-host")
             ShellAssetWriter.writeExecutableShellAsset(this, "init-host.sh", initFile)
@@ -83,7 +84,9 @@ object MkSession {
                 "RISH_APPLICATION_ID=${packageName}",
                 "PKG_PATH=${applicationInfo.sourceDir}",
                 "OMNIBOT_HOST_WORKSPACE=${hostWorkspaceDir.absolutePath}",
+                "OMNIBOT_TERMINAL_DISTRIBUTION=${distribution.id}",
                 "OMNIBOT_ALPINE_APK_REPOSITORY_BASE=${AlpineRepositoryManager.selectedBaseUrl()}",
+                "OMNIBOT_UBUNTU_APT_REPOSITORY_BASE=${UbuntuRepositoryManager.selectedBaseUrl()}",
                 "PROOT_TMP_DIR=${getTempDir().child(session_id).also { if (it.exists().not()){it.mkdirs()} }}",
                 "TMPDIR=${getTempDir().absolutePath}"
             )
@@ -159,7 +162,7 @@ object MkSession {
             val args: Array<String>
 
             val shell = if (launchCommand == null) {
-                args = if (workingMode == WorkingMode.ALPINE){
+                args = if (TerminalDistribution.isLinuxWorkingMode(workingMode)){
                     ShellArgv.buildShellScriptArgv(initFile.absolutePath)
                 }else{
                     ShellArgv.buildInteractiveShellArgv()

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import hashlib
 import json
 import math
 from typing import Any
@@ -46,6 +47,22 @@ _IGNORED_ACTION_ARGS = frozenset(
 
 
 @dataclass(frozen=True)
+class RunlogEndpoint:
+    run_id: str
+    state_id: str
+    step_index: int
+    action_tool: str
+    page_id: str
+    package_name: str
+    activity_name: str
+    screenshot_path: str
+    width: float
+    height: float
+    point: dict[str, Any] | None
+    node: dict[str, Any] | None
+
+
+@dataclass(frozen=True)
 class RunlogStepPair:
     left_step_index: int
     right_step_index: int
@@ -54,6 +71,8 @@ class RunlogStepPair:
     node_similarity: float
     left_node: dict[str, Any] | None
     right_node: dict[str, Any] | None
+    left_endpoint: RunlogEndpoint
+    right_endpoint: RunlogEndpoint
 
 
 @dataclass(frozen=True)
@@ -72,6 +91,7 @@ class _StepView:
     package_name: str
     page: TreeEmbedding | None
     action_node: ElementEmbedding | None
+    endpoint: RunlogEndpoint
 
 
 @dataclass(frozen=True)
@@ -121,6 +141,8 @@ def align_runlogs(
                 node_similarity=round(scores[left_index][right_index].node, 6),
                 left_node=_public_node(left[left_index].action_node),
                 right_node=_public_node(right[right_index].action_node),
+                left_endpoint=left[left_index].endpoint,
+                right_endpoint=right[right_index].endpoint,
             )
             for left_index, right_index in indices
         ),
@@ -132,6 +154,8 @@ def _runlog_steps(runlog: dict[str, Any], encoder: PageEncoder) -> tuple[_StepVi
     raw_steps = runlog.get("steps")
     if not isinstance(raw_steps, list):
         raise ValueError("runlog_steps_must_be_array")
+    run_id = str(runlog.get("run_id") or "run")
+    coordinate_space = _runlog_coordinate_space(runlog)
     views = []
     for position, raw_step in enumerate(raw_steps):
         if not isinstance(raw_step, dict):
@@ -139,14 +163,34 @@ def _runlog_steps(runlog: dict[str, Any], encoder: PageEncoder) -> tuple[_StepVi
         action = _step_action(raw_step)
         observation = _step_observation(raw_step)
         page = _encode_page(observation, encoder)
+        width, height = _page_dimensions(observation, page)
+        point = _page_point(action, coordinate_space, width, height)
+        action_node = _action_node(page, action, point)
+        step_index = int(raw_step.get("step_index", position))
+        state_id = _step_state_id(run_id, step_index, raw_step, observation)
+        public_node = _public_node(action_node)
         views.append(
             _StepView(
-                index=int(raw_step.get("step_index", position)),
+                index=step_index,
                 action_tool=action["tool"],
                 action_args=action["args"],
                 package_name=str(observation.get("package_name") or ""),
                 page=page,
-                action_node=_action_node(page, action),
+                action_node=action_node,
+                endpoint=RunlogEndpoint(
+                    run_id=run_id,
+                    state_id=state_id,
+                    step_index=step_index,
+                    action_tool=action["tool"],
+                    page_id=str(observation.get("page_id") or state_id),
+                    package_name=str(observation.get("package_name") or ""),
+                    activity_name=str(observation.get("activity_name") or ""),
+                    screenshot_path=_screenshot_path(observation),
+                    width=width,
+                    height=height,
+                    point=point,
+                    node=public_node,
+                ),
             )
         )
     return tuple(views)
@@ -266,7 +310,11 @@ def _encode_page(observation: dict[str, Any], encoder: PageEncoder) -> TreeEmbed
     return embedded if embedded.elements else None
 
 
-def _action_node(page: TreeEmbedding | None, action: dict[str, Any]) -> ElementEmbedding | None:
+def _action_node(
+    page: TreeEmbedding | None,
+    action: dict[str, Any],
+    point: dict[str, Any] | None,
+) -> ElementEmbedding | None:
     if page is None or action["tool"] not in _POINT_ACTIONS:
         return None
     actionable = [
@@ -287,16 +335,142 @@ def _action_node(page: TreeEmbedding | None, action: dict[str, Any]) -> ElementE
         ]
         if focused_editable and not {"x", "y"} <= action["args"].keys():
             return min(focused_editable, key=lambda element: _area(element.bounds))
-    try:
-        point = float(action["args"]["x"]), float(action["args"]["y"])
-    except (KeyError, TypeError, ValueError):
+    if point is None:
         return None
-    containing = [element for element in actionable if _contains(element.bounds, point)]
+    coordinates = float(point["x"]), float(point["y"])
+    containing = [
+        element for element in actionable if _contains(element.bounds, coordinates)
+    ]
     if containing:
         return min(containing, key=lambda element: _area(element.bounds))
     if not actionable:
         return None
-    return min(actionable, key=lambda element: _center_distance(element.bounds, point))
+    return min(
+        actionable,
+        key=lambda element: _center_distance(element.bounds, coordinates),
+    )
+
+
+def _runlog_coordinate_space(runlog: dict[str, Any]) -> str:
+    explicit = str(runlog.get("action_coordinate_space") or "").strip()
+    if explicit:
+        if explicit not in {"page_pixels", "relative_0_1000"}:
+            raise ValueError("runlog_action_coordinate_space_unsupported")
+        return explicit
+    if runlog.get("schema_version") == "omniflow.canonical_run_log.v1":
+        return "relative_0_1000"
+    return "page_pixels"
+
+
+def _page_dimensions(
+    observation: dict[str, Any],
+    page: TreeEmbedding | None,
+) -> tuple[float, float]:
+    display = observation.get("display")
+    candidates: list[tuple[float, float]] = []
+    if isinstance(display, dict):
+        candidates.append(
+            (
+                _positive_float(display.get("width")),
+                _positive_float(display.get("height")),
+            )
+        )
+    candidates.append(
+        (
+            _positive_float(
+                observation.get("width") or observation.get("display_width")
+            ),
+            _positive_float(
+                observation.get("height") or observation.get("display_height")
+            ),
+        )
+    )
+    screenshot = observation.get("screenshot")
+    if isinstance(screenshot, dict):
+        candidates.append(
+            (
+                _positive_float(screenshot.get("width")),
+                _positive_float(screenshot.get("height")),
+            )
+        )
+    if page is not None:
+        left, top, right, bottom = page.root_bounds
+        candidates.append((float(right - min(0, left)), float(bottom - min(0, top))))
+    valid = [(width, height) for width, height in candidates if width > 0 and height > 0]
+    if not valid:
+        return 0.0, 0.0
+    return max(width for width, _ in valid), max(height for _, height in valid)
+
+
+def _page_point(
+    action: dict[str, Any],
+    coordinate_space: str,
+    width: float,
+    height: float,
+) -> dict[str, Any] | None:
+    if action["tool"] not in _POINT_ACTIONS or width <= 0 or height <= 0:
+        return None
+    try:
+        x = float(action["args"]["x"])
+        y = float(action["args"]["y"])
+    except (KeyError, TypeError, ValueError):
+        return None
+    if not math.isfinite(x) or not math.isfinite(y):
+        return None
+    if coordinate_space == "relative_0_1000":
+        x = x / 1000.0 * width
+        y = y / 1000.0 * height
+    if x < 0 or y < 0 or x > width or y > height:
+        return None
+    return {"x": x, "y": y, "coordinate_space": "page_pixels"}
+
+
+def _step_state_id(
+    run_id: str,
+    step_index: int,
+    step: dict[str, Any],
+    observation: dict[str, Any],
+) -> str:
+    explicit = str(
+        step.get("before_state_id") or observation.get("state_id") or ""
+    ).strip()
+    if explicit:
+        return explicit
+    identity = json.dumps(
+        {
+            "run_id": run_id,
+            "step_index": step_index,
+            "xml": observation.get("xml"),
+            "package_name": observation.get("package_name"),
+            "activity_name": observation.get("activity_name"),
+        },
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    return "state_" + hashlib.sha256(identity.encode()).hexdigest()[:20]
+
+
+def _screenshot_path(observation: dict[str, Any]) -> str:
+    direct = str(
+        observation.get("screenshot_path") or observation.get("image_path") or ""
+    ).strip()
+    if direct:
+        return direct
+    screenshot = observation.get("screenshot")
+    if isinstance(screenshot, dict):
+        return str(
+            screenshot.get("path") or screenshot.get("screenshot_path") or ""
+        ).strip()
+    return ""
+
+
+def _positive_float(value: Any) -> float:
+    try:
+        number = float(value or 0.0)
+    except (TypeError, ValueError):
+        return 0.0
+    return number if math.isfinite(number) and number > 0.0 else 0.0
 
 
 def _step_pair_score(
@@ -490,4 +664,4 @@ def _public_node(node: ElementEmbedding | None) -> dict[str, Any] | None:
     }
 
 
-__all__ = ["RunlogAlignment", "RunlogStepPair", "align_runlogs"]
+__all__ = ["RunlogAlignment", "RunlogEndpoint", "RunlogStepPair", "align_runlogs"]

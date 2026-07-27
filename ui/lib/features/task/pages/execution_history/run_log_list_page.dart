@@ -123,15 +123,14 @@ class _RunLogListPageState extends State<RunLogListPage> {
   @override
   Widget build(BuildContext context) {
     final palette = context.omniPalette;
-    final l10n = context.l10n;
     return Scaffold(
       backgroundColor: palette.pageBackground,
       appBar: CommonAppBar(
-        title: l10n.executionHistoryTitle,
+        title: _text(context, '执行轨迹', 'Run history'),
         primary: true,
         actions: [
           Tooltip(
-            message: l10n.localModelsRefresh,
+            message: _text(context, '刷新', 'Refresh'),
             child: IconButton(
               icon: const Icon(Icons.refresh_rounded),
               color: palette.textPrimary,

@@ -24,7 +24,6 @@ class _AuthorizeSettingPageState extends State<AuthorizeSettingPage>
   bool _overlayPermission = false;
   bool _installedAppsPermission = false;
   bool _publicStoragePermission = false;
-  bool _accessibilityPermission = false;
   ShizukuStatusSnapshot _shizukuStatus = ShizukuStatusSnapshot.fallback();
 
   Color get _pageBackground => context.omniPalette.pageBackground;
@@ -33,12 +32,11 @@ class _AuthorizeSettingPageState extends State<AuthorizeSettingPage>
   Color get _tertiaryTextColor => context.omniPalette.textTertiary;
   Color get _accentColor => context.omniPalette.accentPrimary;
   Color get _switchInactiveColor => context.omniPalette.borderStrong;
-  int get _corePermissionCount => 4;
+  int get _corePermissionCount => 3;
   int get _readyCorePermissionCount => <bool>[
     _backgroundRunning,
     _overlayPermission,
     _installedAppsPermission,
-    _accessibilityPermission,
   ].where((value) => value).length;
   bool get _allCorePermissionsEnabled =>
       _readyCorePermissionCount == _corePermissionCount;
@@ -118,16 +116,16 @@ class _AuthorizeSettingPageState extends State<AuthorizeSettingPage>
       _AuthorizeSettingSection(
         label: _localeText(zh: '核心权限', en: 'Core Permissions'),
         subtitle: _localeText(
-          zh: '这些授权直接影响悬浮陪伴、后台保活和任务执行。',
-          en: 'These permissions directly affect floating assist, background presence, and task execution.',
+          zh: '这些授权用于悬浮显示、后台运行和识别已安装应用。',
+          en: 'These permissions support overlays, background operation, and installed-app discovery.',
         ),
         items: [
           _AuthorizeSettingItem(
             icon: Icons.battery_saver_outlined,
             title: context.trLegacy('后台运行权限'),
             subtitle: _localeText(
-              zh: '减少系统回收，让陪伴与自动任务能在后台稳定继续。',
-              en: 'Reduce system cleanup so companion actions and automations can continue reliably in the background.',
+              zh: '减少系统回收，让消息、定时任务和本机服务在后台稳定继续。',
+              en: 'Reduce system cleanup so messages, scheduled tasks, and local services can continue reliably.',
             ),
             trailing: _buildPermissionTrailing(
               label: context.trLegacy(_backgroundRunning ? '已开启' : '去开启'),
@@ -141,8 +139,8 @@ class _AuthorizeSettingPageState extends State<AuthorizeSettingPage>
             icon: Icons.picture_in_picture_alt_outlined,
             title: context.trLegacy('悬浮窗权限'),
             subtitle: _localeText(
-              zh: '允许小万在其他应用上方显示浮窗并保持实时陪伴。',
-              en: 'Allow Omnibot to stay present above other apps and keep assisting in real time.',
+              zh: '允许小万在其他应用上方显示宠物、半屏聊天和任务提醒。',
+              en: 'Allow Omnibot to show the pet, half-screen chat, and task reminders above other apps.',
             ),
             trailing: _buildPermissionTrailing(
               label: context.trLegacy(_overlayPermission ? '已开启' : '去开启'),
@@ -156,8 +154,8 @@ class _AuthorizeSettingPageState extends State<AuthorizeSettingPage>
             icon: Icons.apps_outlined,
             title: context.trLegacy('应用列表读取'),
             subtitle: _localeText(
-              zh: '用于识别设备已安装应用，判断当前能帮你执行哪些任务。',
-              en: 'Used to identify installed apps so the assistant can decide which tasks are available on this device.',
+              zh: '用于识别设备已安装应用，并提供应用上下文。',
+              en: 'Used to identify installed apps and provide app context.',
             ),
             trailing: _buildPermissionTrailing(
               label: context.trLegacy(_installedAppsPermission ? '已开启' : '去开启'),
@@ -167,23 +165,6 @@ class _AuthorizeSettingPageState extends State<AuthorizeSettingPage>
             ),
             onTap: () {
               spePermission.invokeMethod('openInstalledAppsSettings');
-            },
-          ),
-          _AuthorizeSettingItem(
-            icon: Icons.accessibility_new_rounded,
-            title: context.trLegacy('无障碍辅助权限'),
-            subtitle: _localeText(
-              zh: '执行自动操作、页面阅读与流程编排时必须开启。',
-              en: 'Required for automated actions, screen reading, and guided task flows.',
-            ),
-            trailing: _buildPermissionTrailing(
-              label: context.trLegacy(_accessibilityPermission ? '已开启' : '去开启'),
-              color: _accessibilityPermission
-                  ? _tertiaryTextColor
-                  : _accentColor,
-            ),
-            onTap: () {
-              spePermission.invokeMethod('openAccessibilitySettings');
             },
           ),
         ],
@@ -245,9 +226,6 @@ class _AuthorizeSettingPageState extends State<AuthorizeSettingPage>
           ) ??
           false;
       final publicStoragePermission = await isPublicStorageAccessGranted();
-      final accessibilityPermission =
-          await spePermission.invokeMethod('isAccessibilityServiceEnabled') ??
-          false;
       final shizukuStatus = await getShizukuStatus();
 
       if (mounted) {
@@ -256,7 +234,6 @@ class _AuthorizeSettingPageState extends State<AuthorizeSettingPage>
           _overlayPermission = overlayPermission;
           _installedAppsPermission = installedAppsPermission;
           _publicStoragePermission = publicStoragePermission;
-          _accessibilityPermission = accessibilityPermission;
           _shizukuStatus = shizukuStatus;
         });
       }
@@ -319,8 +296,8 @@ class _AuthorizeSettingPageState extends State<AuthorizeSettingPage>
         const SizedBox(height: 6),
         Text(
           _localeText(
-            zh: '建议优先完成与任务执行直接相关的授权，缺失时可能影响悬浮交互、后台陪伴和自动操作。',
-            en: 'Enable task-critical access first. Missing permissions can interrupt floating assist, background presence, and automation.',
+            zh: '建议优先完成与任务执行直接相关的授权，缺失时可能影响悬浮交互和后台任务。',
+            en: 'Enable task-critical access first. Missing permissions can interrupt floating assist and background tasks.',
           ),
           style: TextStyle(
             fontSize: 12,
@@ -365,8 +342,8 @@ class _AuthorizeSettingPageState extends State<AuthorizeSettingPage>
                     en: 'Core permissions are ready. You can configure advanced access if needed.',
                   )
                 : _localeText(
-                    zh: '建议先补齐核心权限，再执行需要自动操作或悬浮陪伴的任务。',
-                    en: 'Finish the core permissions first before running tasks that need automation or floating assist.',
+                    zh: '建议先补齐核心权限，再执行需要悬浮交互或后台运行的任务。',
+                    en: 'Finish the core permissions first before running tasks that need floating interaction or background execution.',
                   ),
             key: ValueKey<bool>(_allCorePermissionsEnabled),
             style: TextStyle(

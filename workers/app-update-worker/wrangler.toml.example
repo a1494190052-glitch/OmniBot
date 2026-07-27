@@ -28,9 +28,3 @@ CF_ACCOUNT_ID = ""
 #   wrangler secret put CF_ANALYTICS_API_TOKEN
 #     Cloudflare API token with "Account Analytics: Read" permission,
 #     used to run SQL queries against Analytics Engine for the dashboards.
-#   wrangler secret put OFFICIAL_VLM_OPERATION_API_BASE
-#   wrangler secret put OFFICIAL_VLM_OPERATION_API_KEY
-#   wrangler secret put OFFICIAL_VLM_OPERATION_MODEL
-#   wrangler secret put OFFICIAL_VLM_OPERATION_ENABLED
-#     Optional built-in VLM operation service values delivered in the public
-#     update payload. Do not commit real service values here.

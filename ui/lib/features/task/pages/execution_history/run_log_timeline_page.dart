@@ -13,6 +13,7 @@ import 'package:ui/features/task/run_log/run_log_function_service.dart';
 import 'package:ui/features/task/pages/scheduled_tasks/widgets/schedule_task_sheet.dart';
 import 'package:ui/l10n/app_text_localizer.dart';
 import 'package:ui/l10n/l10n.dart';
+import 'package:ui/models/scheduled_task.dart';
 import 'package:ui/services/scheduled_task_scheduler_service.dart';
 import 'package:ui/services/scheduled_task_storage_service.dart';
 import 'package:ui/theme/theme_context.dart';
@@ -672,7 +673,6 @@ class _RunLogTimelinePageState extends State<RunLogTimelinePage> {
       final result = await RunLogFunctionService.runFunction(
         functionId: functionId,
         arguments: arguments,
-        taskId: 'oob-function-run-${DateTime.now().millisecondsSinceEpoch}',
       );
       if (!mounted) return;
       setState(() {
@@ -3549,7 +3549,6 @@ class _ReusableFunctionSpecSheetState
       final result = await RunLogFunctionService.runFunction(
         functionId: functionId,
         arguments: _defaultArguments,
-        taskId: 'oob-function-run-${DateTime.now().millisecondsSinceEpoch}',
       );
       if (!mounted) return;
       setState(() {
@@ -3611,21 +3610,22 @@ class _ReusableFunctionSpecSheetState
         return;
       }
 
-      final nodeId = 'runlog_function';
+      final taskId = 'reusable-function-$functionId';
       final existingTask =
-          await ScheduledTaskStorageService.getScheduledTaskBySuggestionId(
-            nodeId,
-            functionId,
-          );
+          await ScheduledTaskStorageService.getScheduledTaskById(taskId);
       if (!mounted) return;
       final result = await ScheduleTaskSheet.show(
         context: context,
-        taskTitle: spec.name.isEmpty ? functionId : spec.name,
-        packageName: _packageNameForSchedule,
-        nodeId: nodeId,
-        suggestionId: functionId,
-        suggestionData: _scheduleSuggestionData(functionId),
-        existingTask: existingTask,
+        existingTask:
+            existingTask ??
+            ScheduledTask(
+              id: taskId,
+              title: spec.name.isEmpty ? functionId : spec.name,
+              targetKind: 'subagent',
+              subagentPrompt: _functionSchedulePrompt(functionId),
+              type: ScheduledTaskType.fixedTime,
+              createdAt: DateTime.now().millisecondsSinceEpoch,
+            ),
       );
       if (!mounted) return;
       setState(() {
@@ -3748,21 +3748,9 @@ class _ReusableFunctionSpecSheetState
 
   String get _agentPromptForUser => _userVisibleString(spec.agentPrompt);
 
-  Map<String, dynamic> _scheduleSuggestionData(String functionId) {
-    return {
-      'targetKind': 'subagent',
-      'subagentPrompt': 'Run reusable function $functionId',
-      'notificationEnabled': true,
-      'source': 'run_log_reusable_function',
-      'sourceRunId': widget.runId,
-      'oobFunctionId': functionId,
-      'oobFunctionArguments': _defaultArguments,
-    };
-  }
-
-  String get _packageNameForSchedule {
-    return '';
-  }
+  String _functionSchedulePrompt(String functionId) =>
+      'Run reusable function $functionId with arguments '
+      '${jsonEncode(_defaultArguments)}';
 
   String get _apiCallJson {
     final functionId = _registeredFunctionId;

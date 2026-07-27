@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:ui/features/home/pages/authorize/widgets/permission_section.dart';
 import 'package:ui/l10n/legacy_text_localizer.dart';
@@ -23,6 +25,7 @@ class _AuthorizePageState extends State<AuthorizePage>
 
   List<PermissionData> items = <PermissionData>[];
   bool _isLoading = false;
+  bool _isCheckingPermissions = false;
 
   Set<String> get _requiredPermissionIds =>
       widget.args?.requiredPermissionIds.toSet() ?? const <String>{};
@@ -44,7 +47,7 @@ class _AuthorizePageState extends State<AuthorizePage>
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed && !_isLoading) {
-      _checkPermissions();
+      unawaited(_checkPermissions(waitForAccessibilityReady: true));
     }
   }
 
@@ -104,12 +107,32 @@ class _AuthorizePageState extends State<AuthorizePage>
     }
   }
 
-  Future<void> _checkPermissions() async {
-    await PermissionService.checkPermissions(items);
-    if (!mounted) return;
-    _updateContinueState(items);
-    if (_canContinue.value) {
-      Navigator.of(context).pop(true);
+  Future<void> _checkPermissions({
+    bool waitForAccessibilityReady = false,
+  }) async {
+    if (_isCheckingPermissions) return;
+    _isCheckingPermissions = true;
+    try {
+      final attempts = waitForAccessibilityReady ? 20 : 1;
+      for (var attempt = 0; attempt < attempts; attempt += 1) {
+        await PermissionService.checkPermissions(items);
+        if (!mounted) return;
+        _updateContinueState(items);
+        if (_canContinue.value) {
+          Navigator.of(context).pop(true);
+          return;
+        }
+        final accessibilityPending =
+            _requiredPermissionIds.contains(kAccessibilityPermissionId) &&
+            items.any(
+              (item) =>
+                  item.id == kAccessibilityPermissionId && !item.notifier.value,
+            );
+        if (!waitForAccessibilityReady || !accessibilityPending) return;
+        await Future<void>.delayed(const Duration(milliseconds: 200));
+      }
+    } finally {
+      _isCheckingPermissions = false;
     }
   }
 

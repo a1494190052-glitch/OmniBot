@@ -151,8 +151,6 @@ class StorageService {
     return true;
   }
 
-  static const String kAutoBackToChatAfterTaskKey =
-      'auto_back_to_chat_after_task';
   static const String kPreventScreenSleepDuringTasksKey =
       'prevent_screen_sleep_during_tasks';
   static const String kTaskCompletionNotificationEnabledKey =
@@ -166,8 +164,11 @@ class StorageService {
   static const String kHabitualHandKey = 'habitual_hand';
   static const String kThemeOptionKey = 'theme_option';
   static const String kLanguageOptionKey = 'language_option';
-  static const String kEnhancedFontEffectsEnabledKey =
-      'enhanced_font_effects_enabled';
+  static const String kMcpLocalServiceEnabledKey =
+      'mcp_local_service_enabled';
+  static const String kWorkspaceMemoryConfiguredKey =
+      'workspace_memory_configured';
+  static const String kRemoteBridgeEnabledKey = 'remote_bridge_enabled';
 
   static const String _kManualModelContextThresholdsKey =
       'manual_model_context_thresholds';
@@ -201,15 +202,6 @@ class StorageService {
     if (value is int) return value;
     if (value is num) return value.toInt();
     return null;
-  }
-
-  static Future<bool> isAutoBackToChatAfterTaskEnabled() async {
-    final enabled = getBool(kAutoBackToChatAfterTaskKey, defaultValue: true);
-    return enabled ?? true;
-  }
-
-  static Future<void> setAutoBackToChatAfterTaskEnabled(bool enabled) async {
-    await setBool(kAutoBackToChatAfterTaskKey, enabled);
   }
 
   static Future<bool> isPreventScreenSleepDuringTasksEnabled() async {
@@ -325,15 +317,6 @@ class StorageService {
 
   static Future<void> setLanguageMode(AppLanguageMode mode) async {
     await setString(kLanguageOptionKey, mode.storageValue);
-  }
-
-  static bool isEnhancedFontEffectsEnabled() {
-    return getBool(kEnhancedFontEffectsEnabledKey, defaultValue: false) ??
-        false;
-  }
-
-  static Future<void> setEnhancedFontEffectsEnabled(bool enabled) async {
-    await setBool(kEnhancedFontEffectsEnabledKey, enabled);
   }
 
   static ResolvedAppLocale getResolvedAppLocale({Locale? systemLocale}) {

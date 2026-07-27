@@ -7,6 +7,9 @@
 .DS_Store
 /build
 node_modules/
+/webchat/dist/
+__pycache__/
+*.py[cod]
 /captures
 .externalNativeBuild
 .cxx
@@ -36,3 +39,4 @@ output/
 # its own feature branch; keep it out of main's `git status`.
 /desktop/
 reports/
+/.zcode/

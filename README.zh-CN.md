@@ -38,14 +38,13 @@
 |
 </p>
 
-> 与传统手机 AI 聊天不同，OpenOmniBot 在设备上运行，可以像人类一样控制您的安卓手机，包括应用、手势和系统设置。
+> OpenOmniBot 直接运行在 Android 设备上，将聊天、Agent 工具、本地工作区与系统级集成整合在一个应用中。
 
 OpenOmniBot 是一个基于 Android 原生 Kotlin 与 Flutter 构建的端侧 AI Agent。与传统 AI Chat 不同，它关注的是 **从理解 -> 决策 -> 执行 -> 反馈的完整闭环**。
 
 <h2 id="core-capabilities">核心能力</h2>
 
 - **工具生态扩展**：Skills、Alpine 环境、浏览器、MCP、安卓系统级工具等。
-- **手机任务自动化**：支持使用视觉模型理解并操作手机界面。
 - **系统级能力**：支持定时任务、闹钟提醒、日历创建/查询/修改、音频播放控制。
 - **记忆系统**：支持短期与长期记忆嵌入。
 - **生产力工具**：支持读写文件、浏览工作区、调用浏览器、调用终端。
@@ -94,22 +93,6 @@ OpenOmniBot 是一个基于 Android 原生 Kotlin 与 Flutter 构建的端侧 AI
   <img src="docs/tutorial/seven.png" alt="技能示例" width="260" />
 </p>
 
-### VLM 任务
-
-<p align="center">
-  <img src="docs/tutorial/eight.png" alt="VLM 任务" width="260" />
-</p>
-
-开始任务前，请先在聊天页右上角完成所有必要权限授权。
-
-### 本地模型推理
-
-<p align="center">
-  <img src="docs/tutorial/nine.png" alt="本地推理" width="260" />
-</p>
-
-支持 MNN 和 llama 后端。
-
 ### 定时任务
 
 <p align="center">
@@ -117,7 +100,7 @@ OpenOmniBot 是一个基于 Android 原生 Kotlin 与 Flutter 构建的端侧 AI
   <img src="docs/tutorial/eleven.png" alt="时间设置" width="260" />
 </p>
 
-定时任务是可执行的任务，例如 VLM 任务和 subagent 流程；闹钟仅用于提醒。你也可以把一个完整任务交给 subagent，它会像完整 agent 一样执行。
+定时任务用于执行 subagent 流程；闹钟仅用于提醒。你也可以把一个完整任务交给 subagent，它会像完整 agent 一样执行。
 
 ### 浏览器
 
@@ -149,17 +132,13 @@ npx @thuocean/codex-bridge
 
 - Flutter SDK `3.9.2+`
 - JDK `11+`
+- Node.js `20.19+` 或 `22.12+`、pnpm `10.28.0`（用于 WebUI 开发）
 
 ### 获取代码
 
 ```bash
 git clone https://github.com/omnimind-ai/OpenOmniBot.git
 cd OpenOmniBot
-
-# 仅在构建完整 omniinfer 本地推理版本时需要。
-git submodule update --init third_party/omniinfer
-git -C third_party/omniinfer submodule update --init framework/mnn
-git -C third_party/omniinfer submodule update --init framework/llama.cpp
 
 cd ui
 flutter pub get
@@ -172,32 +151,65 @@ flutter clean
 flutter pub get
 ```
 
+### 本地开发 WebUI
+
+`webchat/` 是独立的 React + TypeScript + Vite 项目。本地开发时由 Vite 提供热更新，并将 `/webchat/api` 请求代理到 Android 应用提供的本地服务。
+
+1. 在 Android 设备上安装并启动 OpenOmniBot，确保电脑和设备位于同一个可信局域网。
+2. 在应用中打开 **设置 > 本地服务**，启用服务并复制地址和 Token。默认端口是 `8899`，但应以应用实际显示的地址为准。
+3. 从仓库根目录启动 WebUI 开发服务器。将下面的示例地址替换为 Android 本地服务地址，地址末尾不要添加 `/webchat`：
+
+```bash
+cd webchat
+pnpm install --frozen-lockfile
+
+VITE_WEBCHAT_PROXY_TARGET=http://192.168.1.20:8899 pnpm dev
+```
+
+PowerShell 使用以下方式设置代理地址：
+
+```powershell
+$env:VITE_WEBCHAT_PROXY_TARGET = "http://192.168.1.20:8899"
+pnpm dev
+```
+
+打开 Vite 输出的地址（通常为 `http://localhost:5173`），输入从应用复制的 Token。端到端调试 API、SSE 实时事件、工作区和浏览器镜像时应使用 `pnpm dev`，开发代理会让这些请求和会话 Cookie 保持在同一本地域名下。
+
+提交 WebUI 修改前执行：
+
+```bash
+cd webchat
+pnpm run typecheck
+pnpm run build
+```
+
+生产静态文件会生成到 `webchat/dist/`。`dist/` 和 `node_modules/` 都是本地产物，不应提交到仓库。
+
+Android 构建会自动处理 WebUI：Gradle 使用锁文件安装依赖、执行 Vite 生产构建、清除旧 WebChat 资源，并且只将 `dist/` 复制进 APK。如需跳过完整 APK 构建、单独验证该流程，可以执行：
+
+```bash
+./gradlew :app:syncWebChatBundle -Ptarget=lib/main_standard.dart
+```
+
+此流程不再使用 Flutter Web。
+
 ### 构建并安装
 
 ```bash
 cd ..
 
-# standard 精简版，不包含本地推理
 ./gradlew :app:installDevelopStandardDebug -Ptarget=lib/main_standard.dart
-
-# omniinfer 完整版，包含本地推理
-./gradlew :app:installDevelopOmniinferDebug -Ptarget=lib/main_omniinfer.dart
 ```
 
 <h2 id="architecture">架构概览</h2>
-<p align="center">
-  <img src="docs/pic/architect.svg" alt="Architecture" width="100%" />
-</p>
 ```text
 OpenOmniBot/
 ├── app/                        # Android 主宿主模块：入口、Agent 编排、系统能力、MCP、前台服务
-├── ui/                         # Flutter UI 模块：聊天、设置、任务、记忆，以及 web chat bundle
-├── baselib/                    # 基础核心库：数据库、存储、网络、模型配置、OCR、权限等
-├── assists/                    # 自动化执行引擎：任务调度、状态机、视觉检测、执行控制
-├── accessibility/              # 无障碍与屏幕感知：Accessibility Service、截图、投屏能力
-├── omniintelligence/           # 智能能力抽象层：模型协议、任务状态、请求/响应模型
+├── ui/                         # Flutter Android UI 模块：聊天、设置、任务和记忆
+├── webchat/                    # React + TypeScript WebUI；由 Vite 构建并通过 Android 打包静态产物
+├── baselib/                    # 基础核心库：数据库、存储、网络、模型配置、权限等
+├── assists/                    # 公共任务生命周期与聊天/模型协调
 ├── uikit/                      # 原生浮层 UI：悬浮球、覆盖层面板、半屏界面
-├── third_party/omniinfer/      # 本地推理运行时及 Android 集成模块
 └── ReTerminal/core/            # 内嵌终端体验相关模块
 ```
 

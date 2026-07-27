@@ -4,7 +4,6 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:ui/features/home/pages/model_provider_setting/model_provider_setting_page.dart';
-import 'package:ui/services/assists_core_service.dart';
 import 'package:ui/services/model_provider_config_service.dart';
 import 'package:ui/services/models_dev_catalog_service.dart';
 import 'package:ui/services/storage_service.dart';
@@ -737,49 +736,4 @@ void main() {
       expect(tester.takeException(), isNull);
     },
   );
-
-  testWidgets('file sync does not reload provider fields while editing', (
-    tester,
-  ) async {
-    var listCalls = 0;
-    final messenger =
-        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
-    messenger.setMockMethodCallHandler(assistCoreChannel, (call) async {
-      switch (call.method) {
-        case 'listModelProviderProfiles':
-          listCalls += 1;
-          return profilePayload();
-      }
-      return null;
-    });
-
-    await tester.pumpWidget(
-      MaterialApp(
-        theme: AppTheme.lightTheme,
-        darkTheme: AppTheme.darkTheme,
-        home: const ModelProviderSettingPage(),
-      ),
-    );
-
-    await tester.pump();
-    await tester.pump(const Duration(milliseconds: 50));
-    expect(listCalls, 1);
-
-    final nameField = find.byWidgetPredicate(
-      (widget) =>
-          widget is TextField && widget.decoration?.labelText == 'Provider 名称',
-    );
-    await tester.tap(nameField);
-    await tester.pump();
-    await tester.enterText(nameField, 'DeepSeek Pro');
-
-    AssistsMessageService.dispatchAgentAiConfigChanged(
-      const AgentAiConfigChangedEvent(source: 'file', path: '/tmp/config.json'),
-    );
-    await tester.pump();
-    await tester.pump(const Duration(milliseconds: 50));
-
-    expect(listCalls, 1);
-    expect(find.text('DeepSeek Pro'), findsOneWidget);
-  });
 }

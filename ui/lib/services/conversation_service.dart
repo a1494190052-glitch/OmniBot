@@ -3,14 +3,16 @@ import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:ui/models/conversation_model.dart';
 import 'package:ui/models/conversation_thread_target.dart';
-import 'package:ui/services/codex_app_server_service.dart';
+import 'package:ui/services/agent_runtime_service.dart';
 import 'package:ui/services/conversation_history_service.dart';
 
 class ConversationService {
   static const MethodChannel _assistCore = MethodChannel(
     'cn.com.omnimind.bot/AssistCoreEvent',
   );
-  static const String _hiddenCodexConversationIdsKey =
+  static const String _hiddenAgentConversationIdsKey =
+      'hidden_agent_conversation_ids';
+  static const String _legacyHiddenAgentConversationIdsKey =
       'hidden_codex_conversation_ids';
 
   static List<ConversationModel> _normalizeConversations(List<dynamic> raw) {
@@ -43,7 +45,7 @@ class ConversationService {
         'getConversations',
       );
       if (result == null) return [];
-      final conversations = await _filterHiddenCodexConversations(
+      final conversations = await _filterHiddenAgentConversations(
         _normalizeConversations(result),
       );
       if (archivedOnly) {
@@ -147,6 +149,8 @@ class ConversationService {
     return ConversationModel(
       id: conversation.id,
       mode: conversation.mode,
+      agentCwd: latest.agentCwd ?? conversation.agentCwd,
+      agentId: latest.agentId ?? conversation.agentId,
       isArchived: latest.isArchived,
       isPinned: latest.isPinned,
       parentConversationId: latest.parentConversationId,
@@ -192,8 +196,8 @@ class ConversationService {
     int conversationId, {
     ConversationMode? mode,
   }) async {
-    if (mode == ConversationMode.codex) {
-      final appServerArchived = await _setCodexThreadArchivedBestEffort(
+    if (mode == ConversationMode.agent) {
+      final runtimeArchived = await _setAgentSessionArchivedBestEffort(
         conversationId: conversationId,
         archived: true,
       );
@@ -207,13 +211,13 @@ class ConversationService {
             conversation.isArchived ||
             await updateConversation(conversation.copyWith(isArchived: true));
       }
-      if (!appServerArchived && !localArchived) {
+      if (!runtimeArchived && !localArchived) {
         return false;
       }
-      await _markCodexConversationHidden(conversationId);
+      await _markAgentConversationHidden(conversationId);
       await ConversationHistoryService.clearConversationThreadReferences(
         conversationId,
-        mode: ConversationMode.codex,
+        mode: ConversationMode.agent,
       );
       await setCurrentConversationTarget(
         await ConversationHistoryService.getLastVisibleThreadTarget(),
@@ -256,9 +260,9 @@ class ConversationService {
   static Future<bool> archiveConversation(
     ConversationModel conversation,
   ) async {
-    var codexArchived = false;
-    if (conversation.mode == ConversationMode.codex) {
-      codexArchived = await _setCodexThreadArchivedBestEffort(
+    var agentArchived = false;
+    if (conversation.mode == ConversationMode.agent) {
+      agentArchived = await _setAgentSessionArchivedBestEffort(
         conversationId: conversation.id,
         archived: true,
       );
@@ -266,13 +270,13 @@ class ConversationService {
     final archived = await updateConversation(
       conversation.copyWith(isArchived: true),
     );
-    if (!archived && !codexArchived) {
+    if (!archived && !agentArchived) {
       return false;
     }
-    if (conversation.mode == ConversationMode.codex) {
+    if (conversation.mode == ConversationMode.agent) {
       await ConversationHistoryService.clearConversationThreadReferences(
         conversation.id,
-        mode: ConversationMode.codex,
+        mode: ConversationMode.agent,
       );
     }
     await setCurrentConversationTarget(
@@ -284,9 +288,9 @@ class ConversationService {
   static Future<bool> unarchiveConversation(
     ConversationModel conversation,
   ) async {
-    var codexRestored = false;
-    if (conversation.mode == ConversationMode.codex) {
-      codexRestored = await _setCodexThreadArchivedBestEffort(
+    var agentRestored = false;
+    if (conversation.mode == ConversationMode.agent) {
+      agentRestored = await _setAgentSessionArchivedBestEffort(
         conversationId: conversation.id,
         archived: false,
       );
@@ -294,27 +298,25 @@ class ConversationService {
     final localRestored = await updateConversation(
       conversation.copyWith(isArchived: false),
     );
-    return localRestored || codexRestored;
+    return localRestored || agentRestored;
   }
 
-  static Future<bool> _setCodexThreadArchivedBestEffort({
+  static Future<bool> _setAgentSessionArchivedBestEffort({
     required int conversationId,
     required bool archived,
   }) async {
     try {
       if (archived) {
-        await CodexAppServerService.archiveThread(
-          conversationId: conversationId,
-        );
+        await AgentRuntimeService.archiveThread(conversationId: conversationId);
       } else {
-        await CodexAppServerService.unarchiveThread(
+        await AgentRuntimeService.unarchiveThread(
           conversationId: conversationId,
         );
       }
       return true;
     } catch (e) {
       final action = archived ? '归档' : '恢复';
-      debugPrint('Codex thread $action 同步失败，继续使用本地历史状态: $e');
+      debugPrint('Agent session $action 同步失败，继续使用本地历史状态: $e');
       return false;
     }
   }
@@ -334,50 +336,49 @@ class ConversationService {
     return null;
   }
 
-  static Future<List<ConversationModel>> _filterHiddenCodexConversations(
+  static Future<List<ConversationModel>> _filterHiddenAgentConversations(
     List<ConversationModel> conversations,
   ) async {
     if (conversations.isEmpty) {
       return conversations;
     }
-    final hiddenIds = await _getHiddenCodexConversationIds();
+    final hiddenIds = await _getHiddenAgentConversationIds();
     if (hiddenIds.isEmpty) {
       return conversations;
     }
     return conversations
         .where(
           (conversation) =>
-              conversation.mode != ConversationMode.codex ||
+              conversation.mode != ConversationMode.agent ||
               !hiddenIds.contains(conversation.id),
         )
         .toList();
   }
 
-  static Future<Set<int>> _getHiddenCodexConversationIds() async {
+  static Future<Set<int>> _getHiddenAgentConversationIds() async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      return (prefs.getStringList(_hiddenCodexConversationIdsKey) ??
-              const <String>[])
-          .map(int.tryParse)
-          .whereType<int>()
-          .toSet();
+      return <String>{
+        ...?prefs.getStringList(_hiddenAgentConversationIdsKey),
+        ...?prefs.getStringList(_legacyHiddenAgentConversationIdsKey),
+      }.map(int.tryParse).whereType<int>().toSet();
     } catch (e) {
-      debugPrint('[ConversationService] 读取 Codex 隐藏会话失败: $e');
+      debugPrint('[ConversationService] 读取 Agent 隐藏会话失败: $e');
       return const <int>{};
     }
   }
 
-  static Future<void> _markCodexConversationHidden(int conversationId) async {
+  static Future<void> _markAgentConversationHidden(int conversationId) async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      final hiddenIds = await _getHiddenCodexConversationIds();
+      final hiddenIds = await _getHiddenAgentConversationIds();
       if (!hiddenIds.add(conversationId)) {
         return;
       }
       final encoded = hiddenIds.map((id) => id.toString()).toList()..sort();
-      await prefs.setStringList(_hiddenCodexConversationIdsKey, encoded);
+      await prefs.setStringList(_hiddenAgentConversationIdsKey, encoded);
     } catch (e) {
-      debugPrint('[ConversationService] 保存 Codex 隐藏会话失败: $e');
+      debugPrint('[ConversationService] 保存 Agent 隐藏会话失败: $e');
     }
   }
 
@@ -386,15 +387,15 @@ class ConversationService {
     required String newTitle,
     ConversationMode mode = ConversationMode.normal,
   }) async {
-    if (mode == ConversationMode.codex) {
+    if (mode == ConversationMode.agent) {
       try {
-        await CodexAppServerService.setThreadName(
+        await AgentRuntimeService.setThreadName(
           conversationId: conversationId,
           name: newTitle,
         );
         return true;
       } catch (e) {
-        debugPrint('更新 Codex 对话标题失败: $e');
+        debugPrint('更新 Agent 对话标题失败: $e');
         return false;
       }
     }
@@ -512,6 +513,7 @@ class ConversationService {
     return ConversationThreadTarget.existing(
       conversationId: conversation.id,
       mode: conversation.mode,
+      agentId: conversation.agentId,
     );
   }
 }

@@ -101,31 +101,31 @@ class WorkspaceMemoryService {
     'cn.com.omnimind.bot/AssistCoreEvent',
   );
 
-  static Future<String> getSoul() async {
+  static Future<String> getAgentSoulSetting() async {
     final result = await _channel.invokeMethod<Map<dynamic, dynamic>>(
-      'getWorkspaceSoul',
+      'getAgentSoulSetting',
     );
     return (result?['content'] ?? '').toString();
   }
 
-  static Future<String> getChatPrompt() async {
+  static Future<String> getChatPromptSetting() async {
     final result = await _channel.invokeMethod<Map<dynamic, dynamic>>(
-      'getWorkspaceChatPrompt',
+      'getChatPromptSetting',
     );
     return (result?['content'] ?? '').toString();
   }
 
-  static Future<String> saveSoul(String content) async {
+  static Future<String> saveAgentSoulSetting(String content) async {
     final result = await _channel.invokeMethod<Map<dynamic, dynamic>>(
-      'saveWorkspaceSoul',
+      'saveAgentSoulSetting',
       {'content': content},
     );
     return (result?['content'] ?? '').toString();
   }
 
-  static Future<String> saveChatPrompt(String content) async {
+  static Future<String> saveChatPromptSetting(String content) async {
     final result = await _channel.invokeMethod<Map<dynamic, dynamic>>(
-      'saveWorkspaceChatPrompt',
+      'saveChatPromptSetting',
       {'content': content},
     );
     return (result?['content'] ?? '').toString();

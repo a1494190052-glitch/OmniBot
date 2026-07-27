@@ -1,25 +1,15 @@
 import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:ui/models/conversation_model.dart';
-import 'package:ui/utils/ui.dart';
 import '../../../../../models/chat_message_model.dart';
-import '../../../../../services/assists_core_service.dart';
-import '../../command_overlay/services/executable_task_service.dart';
+import '../../../../../services/storage_service.dart';
 import '../../command_overlay/services/chat_service.dart';
 
+/// 聊天上下文存储的key
+const String kChatContextStorageKey = 'chat_context_for_summary';
 const String kCompactedContextSummaryPrefix =
     '<context-summary> The following is a summary of the earlier conversation that was compacted to save context space.';
-
-ChatMessageModel? latestUserMessageForRuntimeContext(
-  Iterable<ChatMessageModel> messages,
-) {
-  for (final message in messages) {
-    if (message.user == 1) return message;
-  }
-  return null;
-}
 
 /// 任务执行处理 Mixin
 /// 负责处理可执行任务、发送消息等功能
@@ -61,8 +51,22 @@ mixin TaskExecutionHandler<T extends StatefulWidget> on State<T> {
 
   // ===================== 上下文保存 =====================
 
+  /// 保存当前聊天上下文到本地存储
+  Future<void> saveChatContext() async {
+    try {
+      final List<Map<String, dynamic>> contextList = messages
+          .where((msg) => !msg.isLoading)
+          .map((msg) => msg.toJson())
+          .toList();
+      await StorageService.setJson(kChatContextStorageKey, contextList);
+    } catch (e) {
+      debugPrint('保存聊天上下文失败: $e');
+    }
+  }
+
   /// 任务执行前的处理
   Future<void> handleBeforeTaskExecute() async {
+    await saveChatContext();
     await persistConversationSnapshot();
   }
 
@@ -108,8 +112,15 @@ mixin TaskExecutionHandler<T extends StatefulWidget> on State<T> {
 
   /// 获取最新的用户输入
   String latestUserUtterance() {
-    final message = latestUserMessageForRuntimeContext(messages);
-    return message == null ? '' : _buildMessageTextForModel(message);
+    for (final message in messages) {
+      if (message.user == 1) {
+        final text = _buildMessageTextForModel(message);
+        if (text.isNotEmpty) {
+          return text;
+        }
+      }
+    }
+    return '';
   }
 
   String _buildMessageTextForModel(ChatMessageModel message) {
@@ -293,220 +304,6 @@ mixin TaskExecutionHandler<T extends StatefulWidget> on State<T> {
     if (lower.endsWith('.heic')) return 'image/heic';
     if (lower.endsWith('.heif')) return 'image/heif';
     return 'image/png';
-  }
-
-  // ===================== 任务执行处理 =====================
-
-  /// 处理可执行任务
-  Future<void> handleExecutableTaskExecute(
-    String aiMessageId,
-    Map<String, dynamic> data,
-  ) async {
-    final response = data['response'] as String? ?? '';
-    final suggestion = data['suggestion'] as Map<String, dynamic>?;
-    final cardConfig = data['card_config'] as Map<String, dynamic>?;
-    final filledParams = data['filled_params'] as Map<String, dynamic>?;
-    final instruction = data['instruction'] as String? ?? '';
-    final bool startFromCurrent = data['start_from_current'] as bool? ?? false;
-    final packageName = data['package_name'] as String?;
-
-    if (packageName != null && packageName.isNotEmpty) {
-      final isAuthorized = await AssistsMessageService.isPackageAuthorized(
-        packageName,
-      );
-      if (!isAuthorized) {
-        handleUnauthorizedApp(aiMessageId);
-        return;
-      }
-    }
-
-    final aiTextMessageId = '$aiMessageId-text';
-
-    const String cardType = 'executable_task';
-
-    if (cardConfig != null &&
-        cardConfig.isNotEmpty &&
-        cardType == 'executable_task') {
-      setState(() {
-        messages.insert(
-          0,
-          ChatMessageModel(
-            id: aiTextMessageId,
-            type: 1,
-            user: 2,
-            content: {'text': '当前版本暂不支持此功能，请升级到最新版本。', 'id': aiTextMessageId},
-          ),
-        );
-        isAiResponding = false;
-      });
-      return;
-    }
-
-    setState(() {
-      messages.insert(
-        0,
-        ChatMessageModel(
-          id: aiTextMessageId,
-          type: 1,
-          user: 2,
-          content: {'text': response, 'id': aiTextMessageId},
-        ),
-      );
-      isAiResponding = false;
-    });
-
-    if (cardType == 'executable_task') {
-      setState(() {
-        isInputAreaVisible = false;
-        isExecutingTask = true;
-      });
-
-      try {
-        await persistConversationSnapshot();
-
-        final Map<String, dynamic>? taskJsonMap =
-            ExecutableTaskService.buildTaskJsonFromSuggestion(
-              suggestion: suggestion,
-              filledParams: filledParams,
-            );
-
-        final String taskJson = jsonEncode(taskJsonMap);
-
-        final bool success = await ExecutableTaskService.executeTask(
-          execMode: 'VLM',
-          instruction: instruction,
-          taskJson: taskJson,
-          taskId: aiMessageId,
-          packageName: packageName ?? '',
-          skipGoHome: startFromCurrent,
-          runMode: "oss",
-        );
-
-        if (!success) {
-          if (mounted) {
-            setState(() {
-              isExecutingTask = false;
-              isInputAreaVisible = true;
-            });
-            final errorMessageId = '$aiMessageId-error';
-            messages.insert(
-              0,
-              ChatMessageModel(
-                id: errorMessageId,
-                type: 1,
-                user: 2,
-                content: {'text': '任务执行失败，请稍后重试', 'id': errorMessageId},
-                isError: true,
-              ),
-            );
-          }
-        }
-      } catch (e) {
-        debugPrint('执行任务失败: $e');
-        if (e is PlatformException && e.code == 'PERMISSION_ERROR') {
-          AppToast.error(
-            '${e.code}：${e.message}',
-            duration: Duration(seconds: 4),
-          );
-        }
-        if (mounted) {
-          setState(() {
-            isExecutingTask = false;
-            isInputAreaVisible = true;
-          });
-        }
-      }
-    } else {
-      // 显示卡片类型任务
-      final cardMessageId = '$aiMessageId-card';
-      setState(() {
-        messages.insert(
-          0,
-          ChatMessageModel(
-            id: cardMessageId,
-            type: 2,
-            user: 3,
-            content: {
-              'cardData': {
-                'type': cardType,
-                'suggestion': suggestion,
-                'cardConfig': cardConfig,
-                'filledParams': filledParams,
-              },
-              'id': cardMessageId,
-            },
-          ),
-        );
-      });
-      await persistConversationSnapshot();
-    }
-  }
-
-  /// 处理需要澄清的任务
-  void handleExecutableTaskClarify(
-    String aiMessageId,
-    Map<String, dynamic> data,
-  ) {
-    final clarifyMessage = data['clarify_message'] as String? ?? '需要更多信息才能执行任务';
-
-    setState(() {
-      isAiResponding = false;
-      messages.insert(
-        0,
-        ChatMessageModel(
-          id: '$aiMessageId-clarify',
-          type: 1,
-          user: 2,
-          content: {'text': clarifyMessage, 'id': '$aiMessageId-clarify'},
-        ),
-      );
-    });
-    persistConversationSnapshot();
-  }
-
-  /// 处理缺少应用的情况
-  void handleExecutableTaskAppMissing(
-    String aiMessageId,
-    Map<String, dynamic> data,
-  ) {
-    final expectedApps = data['expected_apps'] as List? ?? [];
-    final expectedAppNames = expectedApps
-        .map((app) => (app as Map)['app_name'] as String? ?? '')
-        .where((name) => name.isNotEmpty)
-        .join('、');
-
-    setState(() {
-      isAiResponding = false;
-      messages.insert(
-        0,
-        ChatMessageModel(
-          id: aiMessageId,
-          type: 1,
-          user: 2,
-          content: {
-            'text': '检测到您未安装$expectedAppNames，请先前往软件商店下载安装',
-            'id': aiMessageId,
-          },
-        ),
-      );
-    });
-    persistConversationSnapshot();
-  }
-
-  /// 处理未授权应用
-  void handleUnauthorizedApp(String aiMessageId) {
-    setState(() {
-      isAiResponding = false;
-      messages.insert(
-        0,
-        ChatMessageModel(
-          id: aiMessageId,
-          type: 1,
-          user: 2,
-          content: {'text': '该应用未授权，请先在设置中授权后再试', 'id': aiMessageId},
-        ),
-      );
-    });
   }
 
   /// 添加用户消息

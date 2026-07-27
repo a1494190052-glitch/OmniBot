@@ -385,6 +385,7 @@ class _ToastContainerState extends State<_ToastContainer>
                             style: TextStyle(
                               color: surfaceColors.textColor,
                               fontSize: fontSize,
+                              fontFamily: 'PingFang SC',
                               fontWeight: FontWeight.w400,
                               height: lineHeight,
                               letterSpacing: fontSize <= 12 ? 0.2 : 0.4,

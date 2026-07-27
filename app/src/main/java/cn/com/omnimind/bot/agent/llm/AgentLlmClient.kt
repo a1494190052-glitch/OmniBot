@@ -6,7 +6,6 @@ import cn.com.omnimind.baselib.llm.ChatCompletionMessage
 import cn.com.omnimind.baselib.llm.ChatCompletionThinking
 import cn.com.omnimind.baselib.llm.ChatCompletionTurn
 import cn.com.omnimind.baselib.llm.DeepSeekProvider
-import cn.com.omnimind.baselib.llm.LocalModelProviderBridge
 import cn.com.omnimind.baselib.llm.ModelProviderConfigStore
 import cn.com.omnimind.baselib.llm.ReasoningStreamUpdatePolicy
 import cn.com.omnimind.baselib.util.OmniLog
@@ -162,7 +161,7 @@ class HttpAgentLlmClient(
                         requestModelOverride = requestModelOverride,
                         onReasoningUpdate = onReasoningUpdate,
                         onContentUpdate = onContentUpdate
-                    )
+                    ).copy(resolvedModel = routeInfo.resolvedModel)
                 } catch (error: AgentStreamRequestException) {
                     lastFailure = error
                     val canRetryVariant =
@@ -282,10 +281,6 @@ class HttpAgentLlmClient(
         )
         val accumulator = AgentLlmStreamAccumulator(
             json = json,
-            preferInlineThinkTags = LocalModelProviderBridge.isBuiltinLocalProvider(
-                modelOverride?.providerProfileId,
-                modelOverride?.apiBase
-            ),
             includeReasoningInAssistantMessage = routeInfo.requiresReasoningEcho,
             bufferLeadingTextUntilInlineThinkTag = shouldBufferLeadingInlineThinkTag(routeInfo),
             guardLeadingReasoningLeak = shouldGuardNvidiaKimiReasoningLeak(routeInfo)
@@ -560,7 +555,7 @@ class HttpAgentLlmClient(
         if (shouldGuardNvidiaKimiReasoningLeak(routeInfo)) {
             val noThinkingRequest = request.copy(
                 enableThinking = false,
-                reasoningEffort = "none",
+                reasoningEffort = null,
                 thinking = ChatCompletionThinking(type = "disabled")
             )
             add("nvidia_no_thinking", noThinkingRequest)
@@ -575,6 +570,14 @@ class HttpAgentLlmClient(
             "no_stream_options",
             request.copy(streamOptions = null)
         )
+        val requiresNativeToolCalls = request.tools.isNotEmpty() &&
+            request.parallelToolCalls == false &&
+            (request.toolChoice as? JsonPrimitive)
+                ?.contentOrNull
+                ?.equals("required", ignoreCase = true) == true
+        if (requiresNativeToolCalls) {
+            return variants
+        }
         add(
             "minimal",
             request.copy(
@@ -645,24 +648,36 @@ class HttpAgentLlmClient(
     }
 
     private fun sanitizeRequestForTarget(request: ChatCompletionRequest): ChatCompletionRequest {
-        if (shouldPreserveAllAssistantReasoning()) {
-            return request
+        val normalizedReasoningEffort = request.reasoningEffort
+            ?.trim()
+            ?.takeIf(String::isNotEmpty)
+            ?.takeUnless { it.equals("no", ignoreCase = true) || it.equals("none", ignoreCase = true) }
+        val transportSafeRequest = if (normalizedReasoningEffort != request.reasoningEffort) {
+            request.copy(
+                enableThinking = request.enableThinking ?: false,
+                reasoningEffort = normalizedReasoningEffort,
+            )
+        } else {
+            request
         }
-        val sanitizedMessages = request.messages.mapIndexed { index, message ->
+        if (shouldPreserveAllAssistantReasoning()) {
+            return transportSafeRequest
+        }
+        val sanitizedMessages = transportSafeRequest.messages.mapIndexed { index, message ->
             if (
                 message.role != "assistant" ||
                 message.reasoningContent.isNullOrBlank() ||
-                shouldRetainAssistantReasoning(index, request.messages)
+                shouldRetainAssistantReasoning(index, transportSafeRequest.messages)
             ) {
                 message
             } else {
                 message.copy(reasoningContent = null)
             }
         }
-        return if (sanitizedMessages == request.messages) {
-            request
+        return if (sanitizedMessages == transportSafeRequest.messages) {
+            transportSafeRequest
         } else {
-            request.copy(messages = sanitizedMessages)
+            transportSafeRequest.copy(messages = sanitizedMessages)
         }
     }
 

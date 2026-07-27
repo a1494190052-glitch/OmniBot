@@ -4,6 +4,7 @@ import android.content.Context
 import cn.com.omnimind.baselib.i18n.AppLocaleManager
 import cn.com.omnimind.baselib.util.OmniLog
 import cn.com.omnimind.bot.agent.AgentCallback
+import cn.com.omnimind.bot.agent.AgentTerminalDistributionText
 import cn.com.omnimind.bot.agent.AgentToolExecutionHandle
 import cn.com.omnimind.bot.agent.AgentWorkspaceDescriptor
 import cn.com.omnimind.bot.agent.ArtifactAction
@@ -11,6 +12,7 @@ import cn.com.omnimind.bot.agent.AgentWorkspaceManager
 import cn.com.omnimind.bot.agent.ToolExecutionResult
 import cn.com.omnimind.bot.workspace.PublicStorageAccess
 import cn.com.omnimind.bot.workspace.WorkspaceStorageAccess
+import com.rk.terminal.runtime.TerminalDistribution
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.serialization.encodeToString
@@ -29,7 +31,8 @@ import kotlinx.serialization.json.longOrNull
 
 class SharedHelper(
     val context: Context,
-    val json: Json
+    val json: Json,
+    val terminalDistribution: TerminalDistribution.Spec = TerminalDistribution.alpine
 ) {
     companion object {
         const val DIRECT_TERMINAL_WORKSPACE_ID = "__direct_terminal__"
@@ -61,18 +64,9 @@ class SharedHelper(
         "查询已安装应用失败" to "Failed to query installed apps",
         "浏览器操作失败" to "Browser action failed",
         "请提供继续执行所需的信息。" to "Please provide the information required to continue.",
-        "视觉执行失败" to "Vision task failed",
-        "视觉任务已完成" to "Vision task completed",
         "任务已取消" to "Task cancelled",
-        "用户已手动停止本次视觉任务：不要再次调用 vlm_task 重试或续做该任务，简短确认已停止并等待用户新的指示。" to
-            "The user manually stopped this vision task. Do not call vlm_task again to retry or resume it; " +
-            "briefly acknowledge the stop and wait for the user's next instruction.",
-        "视觉任务执行失败：不要自动重试调用 vlm_task，请向用户说明失败原因并询问是否重试或调整方案，得到用户明确同意前不要再次调用。" to
-            "The vision task failed. Do not retry vlm_task automatically; explain the failure to the user and " +
-            "ask whether to retry or adjust the approach. Do not call it again until the user explicitly agrees.",
-        "视觉任务超时，设备上可能仍在继续执行" to
-            "Vision task timed out; execution may still be continuing on the device.",
-        "正在调用内嵌 Alpine 终端执行命令" to "Running a command in the embedded Alpine terminal",
+        "正在调用内嵌终端环境执行命令" to "Running a command in the embedded terminal environment",
+        "正在调用内嵌 Alpine 终端执行命令" to "Running a command in the embedded terminal environment",
         "终端输出更新中" to "Terminal output is updating",
         "终端命令执行失败" to "Terminal command failed",
         "正在启动内嵌终端会话" to "Starting embedded terminal session",
@@ -112,8 +106,7 @@ class SharedHelper(
         "当前环境不可用" to "Current environment unavailable",
         "读取 skill 失败" to "Failed to read skill",
         "正在创建定时任务" to "Creating scheduled task",
-        "targetKind 仅支持 vlm 或 subagent" to "`targetKind` only supports `vlm` or `subagent`",
-        "vlm 定时任务缺少 goal" to "Missing `goal` for the VLM scheduled task",
+        "targetKind 仅支持 subagent" to "`targetKind` only supports `subagent`",
         "subagent 定时任务缺少 subagentPrompt" to
             "Missing `subagentPrompt` for the subagent scheduled task",
         "定时任务已创建" to "Scheduled task created",
@@ -208,18 +201,34 @@ class SharedHelper(
     }
 
     fun localized(text: String?): String {
-        if (text == null || !isEnglishLocale) {
-            return text.orEmpty()
+        if (text == null) {
+            return ""
         }
-        englishTextMap[text]?.let { return it }
+        if (!isEnglishLocale) {
+            return AgentTerminalDistributionText.makeDistributionExplicit(
+                text,
+                terminalDistribution,
+                english = false
+            )
+        }
+        englishTextMap[text]?.let {
+            return AgentTerminalDistributionText.makeDistributionExplicit(
+                it,
+                terminalDistribution,
+                english = true
+            )
+        }
 
         when {
             text.startsWith("终端会话已启动：") ->
-                return "Terminal session started: ${text.removePrefix("终端会话已启动：")}"
+                return terminalText(
+                    zhCN = "${terminalDistribution.displayName} 会话已启动：${text.removePrefix("终端会话已启动：")}",
+                    enUS = "${terminalDistribution.displayName} session started: ${text.removePrefix("终端会话已启动：")}"
+                )
             text.startsWith("终端会话不存在或不属于当前 workspace：") ->
-                return "Terminal session does not exist or does not belong to the current workspace: ${text.removePrefix("终端会话不存在或不属于当前 workspace：")}"
+                return "${terminalDistribution.displayName} session does not exist or does not belong to the current workspace: ${text.removePrefix("终端会话不存在或不属于当前 workspace：")}"
             text.startsWith("终端会话不存在或已结束：") ->
-                return "Terminal session does not exist or has already ended: ${text.removePrefix("终端会话不存在或已结束：")}"
+                return "${terminalDistribution.displayName} session does not exist or has already ended: ${text.removePrefix("终端会话不存在或已结束：")}"
             text.startsWith("文件不存在：") ->
                 return "File does not exist: ${text.removePrefix("文件不存在：")}"
             text.startsWith("目标不是文件：") ->
@@ -251,9 +260,9 @@ class SharedHelper(
             text.startsWith("已读取 skill：") ->
                 return "Read skill: ${text.removePrefix("已读取 skill：")}"
             text.startsWith("终端会话不存在或不属于当前 agent：") ->
-                return "Terminal session does not exist or does not belong to the current agent: ${text.removePrefix("终端会话不存在或不属于当前 agent：")}"
+                return "${terminalDistribution.displayName} session does not exist or does not belong to the current agent: ${text.removePrefix("终端会话不存在或不属于当前 agent：")}"
             text.startsWith("终端会话不存在：") ->
-                return "Terminal session does not exist: ${text.removePrefix("终端会话不存在：")}"
+                return "${terminalDistribution.displayName} session does not exist: ${text.removePrefix("终端会话不存在：")}"
             text.startsWith("不支持的 action：") ->
                 return "Unsupported action: ${text.removePrefix("不支持的 action：")}"
             text.startsWith("已执行 Shizuku 动作：") ->
@@ -343,7 +352,16 @@ class SharedHelper(
         Regex("^已完成 (\\d+) 个 subagent 子任务。$").matchEntire(text)?.let {
             return "Completed ${it.groupValues[1]} subagent subtasks."
         }
-        return text
+        return AgentTerminalDistributionText.makeDistributionExplicit(
+            text,
+            terminalDistribution,
+            english = true
+        )
+    }
+
+    fun terminalText(zhCN: String, enUS: String): String {
+        val text = if (isEnglishLocale) enUS else zhCN
+        return AgentTerminalDistributionText.resolve(text, terminalDistribution)
     }
 
     private fun localizePayloadValue(value: Any?, key: String? = null): Any? {

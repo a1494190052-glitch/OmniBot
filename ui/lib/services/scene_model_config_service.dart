@@ -99,17 +99,26 @@ class SceneModelBindingEntry {
 }
 
 class SceneVoiceConfig {
+  static const String ttsModeBuiltin = 'builtin';
+  static const String ttsModeCustomCurl = 'custom_curl';
+
   final bool autoPlay;
   final String voiceId;
   final String stylePreset;
   final String customStyle;
+  final String ttsMode;
+  final String customCurlCommand;
 
   const SceneVoiceConfig({
     this.autoPlay = false,
     this.voiceId = 'default_zh',
     this.stylePreset = '默认',
     this.customStyle = '',
+    this.ttsMode = ttsModeBuiltin,
+    this.customCurlCommand = '',
   });
+
+  bool get isCustomCurl => ttsMode == ttsModeCustomCurl;
 
   factory SceneVoiceConfig.fromMap(Map<dynamic, dynamic>? map) {
     return SceneVoiceConfig(
@@ -117,6 +126,8 @@ class SceneVoiceConfig {
       voiceId: (map?['voiceId'] ?? 'default_zh').toString(),
       stylePreset: (map?['stylePreset'] ?? '默认').toString(),
       customStyle: (map?['customStyle'] ?? '').toString(),
+      ttsMode: (map?['ttsMode'] ?? ttsModeBuiltin).toString(),
+      customCurlCommand: (map?['customCurlCommand'] ?? '').toString(),
     );
   }
 
@@ -125,12 +136,16 @@ class SceneVoiceConfig {
     String? voiceId,
     String? stylePreset,
     String? customStyle,
+    String? ttsMode,
+    String? customCurlCommand,
   }) {
     return SceneVoiceConfig(
       autoPlay: autoPlay ?? this.autoPlay,
       voiceId: voiceId ?? this.voiceId,
       stylePreset: stylePreset ?? this.stylePreset,
       customStyle: customStyle ?? this.customStyle,
+      ttsMode: ttsMode ?? this.ttsMode,
+      customCurlCommand: customCurlCommand ?? this.customCurlCommand,
     );
   }
 
@@ -140,45 +155,20 @@ class SceneVoiceConfig {
         other.autoPlay == autoPlay &&
         other.voiceId == voiceId &&
         other.stylePreset == stylePreset &&
-        other.customStyle == customStyle;
+        other.customStyle == customStyle &&
+        other.ttsMode == ttsMode &&
+        other.customCurlCommand == customCurlCommand;
   }
 
   @override
-  int get hashCode => Object.hash(autoPlay, voiceId, stylePreset, customStyle);
-}
-
-class SceneOperationConfig {
-  final bool useOfficialService;
-  final String officialModel;
-
-  const SceneOperationConfig({
-    this.useOfficialService = false,
-    this.officialModel = '',
-  });
-
-  factory SceneOperationConfig.fromMap(Map<dynamic, dynamic>? map) {
-    return SceneOperationConfig(
-      useOfficialService: map?['useOfficialService'] == true,
-      officialModel: (map?['officialModel'] ?? '').toString().trim(),
-    );
-  }
-
-  SceneOperationConfig copyWith({bool? useOfficialService}) {
-    return SceneOperationConfig(
-      useOfficialService: useOfficialService ?? this.useOfficialService,
-      officialModel: officialModel,
-    );
-  }
-
-  @override
-  bool operator ==(Object other) {
-    return other is SceneOperationConfig &&
-        other.useOfficialService == useOfficialService &&
-        other.officialModel == officialModel;
-  }
-
-  @override
-  int get hashCode => Object.hash(useOfficialService, officialModel);
+  int get hashCode => Object.hash(
+    autoPlay,
+    voiceId,
+    stylePreset,
+    customStyle,
+    ttsMode,
+    customCurlCommand,
+  );
 }
 
 class SceneModelConfigService {
@@ -315,28 +305,10 @@ class SceneModelConfigService {
           'voiceId': config.voiceId,
           'stylePreset': config.stylePreset,
           'customStyle': config.customStyle,
+          'ttsMode': config.ttsMode,
+          'customCurlCommand': config.customCurlCommand,
         });
     return SceneVoiceConfig.fromMap(result);
-  }
-
-  static Future<SceneOperationConfig> getSceneOperationConfig() async {
-    try {
-      final result = await AssistsMessageService.assistCore
-          .invokeMethod<Map<dynamic, dynamic>>('getSceneOperationConfig');
-      return SceneOperationConfig.fromMap(result);
-    } on PlatformException {
-      return const SceneOperationConfig();
-    }
-  }
-
-  static Future<SceneOperationConfig> saveSceneOperationConfig(
-    SceneOperationConfig config,
-  ) async {
-    final result = await AssistsMessageService.assistCore
-        .invokeMethod<Map<dynamic, dynamic>>('saveSceneOperationConfig', {
-          'useOfficialService': config.useOfficialService,
-        });
-    return SceneOperationConfig.fromMap(result);
   }
 
   static bool isValidModelName(String value) {

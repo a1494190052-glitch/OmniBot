@@ -420,7 +420,7 @@ class _AboutPageState extends State<AboutPage> {
               : const Color(0xFFD6E0EE),
         ),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-        textStyle: TextStyle(
+        textStyle: const TextStyle(
           fontFamily: AppTextStyles.fontFamily,
           fontSize: 14.5,
           fontWeight: FontWeight.w500,

@@ -9,6 +9,7 @@ import android.os.Build
 import android.provider.Settings
 import androidx.core.content.ContextCompat
 import cn.com.omnimind.baselib.permission.PermissionRequest
+import cn.com.omnimind.androidgui.AndroidGuiEnvironment
 import cn.com.omnimind.baselib.shizuku.ShizukuCapabilityManager
 import cn.com.omnimind.baselib.util.OmniLog
 import cn.com.omnimind.bot.agent.AgentWorkspaceManager
@@ -22,6 +23,8 @@ import cn.com.omnimind.bot.util.AssistsUtil
 import cn.com.omnimind.bot.workspace.PublicStorageAccess
 import cn.com.omnimind.bot.workspace.WorkspaceStorageAccess
 import com.rk.libcommons.OmnibotTerminalEnvironment
+import com.ai.assistance.operit.terminal.TerminalManager
+import com.rk.terminal.runtime.TerminalDistribution
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
 import kotlinx.coroutines.CoroutineScope
@@ -37,16 +40,6 @@ class SpecialPermissionManager(private val context: Context) {
     private val embeddedTerminalSetupManager = EmbeddedTerminalSetupManager(context)
     private val embeddedTerminalAutoStartManager = EmbeddedTerminalAutoStartManager(context)
     private val shizukuCapabilityManager = ShizukuCapabilityManager.get(context)
-
-    fun isAccessibilityServiceEnabled(result: MethodChannel.Result) {
-        try {
-            val isEnabled = AssistsUtil.Core.isAccessibilityServiceEnabled()
-            result.success(isEnabled)
-        } catch (e: Exception) {
-            OmniLog.e(TAG, "Error checking accessibility service", e)
-            result.error("CHECK_FAILED", "Failed to check accessibility service.", e.message)
-        }
-    }
 
     fun isIgnoringBatteryOptimizations(result: MethodChannel.Result) {
         try {
@@ -85,22 +78,6 @@ class SpecialPermissionManager(private val context: Context) {
 
     }
 
-    fun openAccessibilitySettings(result: MethodChannel.Result) {
-        try {
-            AssistsUtil.Setting.openAccessibilitySettings(context);
-            OmniLog.v(TAG, "Opening accessibility settings.")
-            result.success(null)
-
-        } catch (e: Exception) {
-            OmniLog.e(TAG, "请求打开辅助功能设置时发生异常，可能没有 Activity 能处理此 Intent。", e)
-            result.error(
-                "INTENT_FAILED",
-                "无法打开辅助功能设置页面，可能没有 Activity 能处理此 Intent。",
-                e.message
-            )
-        }
-    }
-
     fun isOverlayPermission(result: MethodChannel.Result) {
         try {
             val value = AssistsUtil.Setting.isOverlayPermission(context);
@@ -125,6 +102,33 @@ class SpecialPermissionManager(private val context: Context) {
             )
         }
 
+    }
+
+    fun isAndroidGuiAccessibilityEnabled(result: MethodChannel.Result) {
+        runCatching { AndroidGuiEnvironment(context).isAccessibilityEnabled() }
+            .onSuccess(result::success)
+            .onFailure {
+                OmniLog.e(TAG, "Error checking Android GUI accessibility", it)
+                result.error("CHECK_FAILED", "Failed to check accessibility.", it.message)
+            }
+    }
+
+    fun isAndroidGuiAccessibilityReady(result: MethodChannel.Result) {
+        runCatching { AndroidGuiEnvironment(context).isReady() }
+            .onSuccess(result::success)
+            .onFailure {
+                OmniLog.e(TAG, "Error checking Android GUI accessibility readiness", it)
+                result.error("CHECK_FAILED", "Failed to check accessibility readiness.", it.message)
+            }
+    }
+
+    fun openAndroidGuiAccessibilitySettings(result: MethodChannel.Result) {
+        runCatching { AndroidGuiEnvironment(context).openAccessibilitySettings() }
+            .onSuccess { result.success(null) }
+            .onFailure {
+                OmniLog.e(TAG, "Error opening Android GUI accessibility settings", it)
+                result.error("INTENT_FAILED", "Failed to open accessibility settings.", it.message)
+            }
     }
 
     fun isInstalledAppsPermissionGranted(result: MethodChannel.Result) {
@@ -519,6 +523,38 @@ class SpecialPermissionManager(private val context: Context) {
                     )
                 }
             }
+        }
+    }
+
+    fun getEmbeddedTerminalDistribution(result: MethodChannel.Result) {
+        try {
+            result.success(TerminalDistribution.selected().id)
+        } catch (e: Exception) {
+            OmniLog.e(TAG, "Error reading terminal distribution", e)
+            result.error(
+                "READ_TERMINAL_DISTRIBUTION_FAILED",
+                "Failed to read terminal distribution.",
+                e.message
+            )
+        }
+    }
+
+    fun setEmbeddedTerminalDistribution(call: MethodCall, result: MethodChannel.Result) {
+        try {
+            val rawId = call.argument<String>("distribution")?.trim()?.lowercase()
+            val distribution = TerminalDistribution.supported.firstOrNull { it.id == rawId }
+                ?: throw IllegalArgumentException("Unsupported terminal distribution: $rawId")
+            com.rk.settings.Settings.terminal_distribution = distribution.workingMode
+            com.rk.settings.Settings.working_Mode = distribution.workingMode
+            TerminalManager.getInstance(context).closeAllSessions()
+            result.success(distribution.id)
+        } catch (e: Exception) {
+            OmniLog.e(TAG, "Error updating terminal distribution", e)
+            result.error(
+                "UPDATE_TERMINAL_DISTRIBUTION_FAILED",
+                e.message ?: "Failed to update terminal distribution.",
+                e.message
+            )
         }
     }
 

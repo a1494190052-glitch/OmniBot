@@ -272,10 +272,7 @@ extension _HomeDrawerSearch on HomeDrawerState {
   }
 
   void _handleSearchFocusChanged() {
-    if (!mounted) {
-      return;
-    }
-    setState(() {});
+    widget.onSearchFocusChanged?.call(_searchFocusNode.hasFocus);
   }
 
   void _handleSearchQueryChanged() {

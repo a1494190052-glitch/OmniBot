@@ -3,6 +3,7 @@ package cn.com.omnimind.bot.agent
 import cn.com.omnimind.baselib.shizuku.ShizukuBackend
 import cn.com.omnimind.baselib.i18n.AppLocaleManager
 import cn.com.omnimind.baselib.i18n.PromptLocale
+import com.rk.terminal.runtime.TerminalDistribution
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonArray
@@ -90,7 +91,8 @@ object AgentToolDefinitions {
 
     fun decorateToolDefinition(
         definition: JsonObject,
-        locale: PromptLocale = currentLocale()
+        locale: PromptLocale = currentLocale(),
+        terminalDistribution: TerminalDistribution.Spec = TerminalDistribution.alpine
     ): JsonObject {
         val function = definition["function"] as? JsonObject ?: return definition
         val parameters = (function["parameters"] as? JsonObject) ?: buildJsonObject {
@@ -127,7 +129,31 @@ object AgentToolDefinitions {
                 }
             )
         }
-        return localizeJsonObject(decorated, locale)
+        return resolveTerminalDistribution(
+            localizeJsonObject(decorated, locale),
+            terminalDistribution
+        ) as JsonObject
+    }
+
+    private fun resolveTerminalDistribution(
+        value: JsonElement,
+        terminalDistribution: TerminalDistribution.Spec
+    ): JsonElement = when (value) {
+        is JsonObject -> JsonObject(
+            value.mapValues { (_, element) ->
+                resolveTerminalDistribution(element, terminalDistribution)
+            }
+        )
+        is JsonArray -> JsonArray(
+            value.map { element ->
+                resolveTerminalDistribution(element, terminalDistribution)
+            }
+        )
+        is JsonPrimitive -> if (value.isString) {
+            JsonPrimitive(AgentTerminalDistributionText.resolve(value.content, terminalDistribution))
+        } else {
+            value
+        }
     }
 
     private fun localizeJsonObject(
@@ -175,12 +201,11 @@ object AgentToolDefinitions {
     private val englishStringMap: Map<String, String> = mapOf(
         "查询已安装应用" to "Query Installed Apps",
         "视觉执行" to "Vision Task",
-        "终端执行" to "Run Terminal Command",
-        "启动终端会话" to "Start Terminal Session",
-        "执行会话命令" to "Run Session Command",
-        "读取会话输出" to "Read Session Output",
-        "结束终端会话" to "Stop Terminal Session",
-        "网页搜索" to "Web Search",
+        "执行 {{OMNIBOT_TERMINAL_DISTRIBUTION}} 命令" to "Run {{OMNIBOT_TERMINAL_DISTRIBUTION}} Command",
+        "启动 {{OMNIBOT_TERMINAL_DISTRIBUTION}} 会话" to "Start {{OMNIBOT_TERMINAL_DISTRIBUTION}} Session",
+        "执行 {{OMNIBOT_TERMINAL_DISTRIBUTION}} 会话命令" to "Run {{OMNIBOT_TERMINAL_DISTRIBUTION}} Session Command",
+        "读取 {{OMNIBOT_TERMINAL_DISTRIBUTION}} 会话输出" to "Read {{OMNIBOT_TERMINAL_DISTRIBUTION}} Session Output",
+        "结束 {{OMNIBOT_TERMINAL_DISTRIBUTION}} 会话" to "Stop {{OMNIBOT_TERMINAL_DISTRIBUTION}} Session",
         "浏览器操作" to "Browser Action",
         "读取文件" to "Read File",
         "写入文件" to "Write File",
@@ -191,7 +216,6 @@ object AgentToolDefinitions {
         "移动文件" to "Move File",
         "列出 Skills" to "List Skills",
         "读取 Skill" to "Read Skill",
-        "读取 Skill 引用" to "Read Skill Reference",
         "创建定时任务" to "Create Scheduled Task",
         "查看定时任务" to "List Scheduled Tasks",
         "修改定时任务" to "Update Scheduled Task",
@@ -210,59 +234,36 @@ object AgentToolDefinitions {
         "沉淀长期记忆" to "Upsert Long-Term Memory",
         "整理当日记忆" to "Roll Up Daily Memory",
         "分派子任务" to "Dispatch Subtasks",
-        "调用工具" to "Call Tool",
-        "统一调用一个明确暴露的工具。手机 UI 自动化请调用 vlm_task；已保存 Function 的召回、参数绑定和重放由本地运行时自动处理，不通过 function_id 暴露给 Agent 直接调用。" to
-            "Call one explicitly exposed tool. For phone UI automation, use vlm_task; saved Function recall, argument binding, and replay are handled by the local runtime and are not exposed to the Agent as direct function_id calls.",
-        "目标工具名，例如 vlm_task、web_search、terminal_execute。" to
-            "Target tool name, for example vlm_task, web_search, or terminal_execute.",
-        "传给目标工具的参数对象。" to
-            "Arguments object passed to the target tool.",
-        "可选自然语言目标，用于记录或需要规划的工具。" to
-            "Optional natural-language goal for tracing or tools that require planning.",
         "查询设备已安装应用列表。需要应用包名或确认应用是否已安装时优先调用。" to
             "Query the list of apps installed on the device. Prefer this when you need an app package name or need to confirm whether an app is installed.",
         "可选关键词，可匹配应用名或包名。" to
             "Optional keyword filter. Matches app names or package names.",
         "可选，返回数量上限，默认 20，范围 1-100。" to
             "Optional maximum number of results to return. Default 20, range 1-100.",
-        "手机屏幕自动化首选工具。用户要打开某个 App、在 App 内完成任何操作、或跨 App 执行流程时，立即调用，不要先推理是否需要。一次调用代表从当前状态到目标完成的完整流程；打开 App 和后续操作合并为一个 goal，不要拆成两次调用。阻塞等待到任务完成/需要用户输入/屏幕锁定/超时后返回终态结果。禁止用于识别或解释用户上传的图片/截图，那些图片已在对话上下文里，直接基于上下文回答。" to
-            "The go-to tool for phone screen automation. When the user wants to open an app, do anything inside an app, or run a cross-app flow, call this immediately — do not reason about whether it is needed first. One call covers the complete flow from the current state to the finished goal; merge app launch and follow-up actions into a single goal instead of splitting them into two calls. Blocks until the task finishes, needs user input, hits a locked screen, or times out, then returns the terminal result. Never use this to recognise or explain user-uploaded images or screenshots; those are already in the conversation context — answer directly from there.",
-        "任务目标，使用第一人称描述。" to
-            "Task goal written in the first person.",
-        "可选视觉推理模型或场景 ID。一般留空；需要调试或固定模型时才传具体值。" to
-            "Optional vision reasoning model or scene ID. Usually leave unset; pass a concrete value only for debugging or pinned-model runs.",
-        "目标应用包名。" to
-            "Target app package name.",
-        "是否在结束后生成总结。设为 true 时，工具结果会尽量直接返回最终整理文本。" to
-            "Whether to generate a summary after completion. When true, the tool result tries to return a final polished summary directly.",
-        "可选最大执行步数。达到上限但模型未明确完成时，任务应返回未完成或超步错误。" to
-            "Optional maximum execution steps. If the limit is reached before the model explicitly finishes, the task should return incomplete or max-step failure.",
-        "仅在用户明确要求从当前页面继续时设为 true。" to
-            "Only set this to true when the user explicitly asks to continue from the current screen.",
-        "通过应用内置的 Alpine（proot）环境执行一次性的非交互终端命令。这是默认首选的终端工具，适合文件处理、脚本、网络诊断、git、python、包管理等绝大多数 CLI 任务；不用于手机界面操作，也不用于交互式 TUI。只有明确需要跨多轮保留 cwd、环境或后台进程时，才改用 terminal_session_*。" to
-            "Run a one-shot non-interactive terminal command inside the app's built-in Alpine (proot) environment. This is the default terminal tool for most CLI work such as file operations, scripts, network diagnostics, git, Python, and package management. It is not for phone UI actions or interactive TUIs. Only switch to `terminal_session_*` when you truly need to preserve cwd, environment, or background state across turns.",
-        "terminal_execute 应单独占据当前 tool_calls。该工具会固定在 executionMode=proot（prootDistro=alpine）执行，传入 termux/debian 等参数会被忽略。若执行失败，可在下一轮基于 stdout/stderr/errorMessage 自行决定是否再次显式调用 terminal_execute；不要在同一个 tool_calls 中串联其他结果依赖型工具。" to
-            "`terminal_execute` should occupy the current `tool_calls` by itself. It always runs with `executionMode=proot` and `prootDistro=alpine`; values such as termux or debian are ignored. If execution fails, inspect stdout, stderr, or errorMessage in the next turn and decide whether to call it again explicitly. Do not chain other result-dependent tools in the same `tool_calls`.",
+        "通过应用内置的 {{OMNIBOT_TERMINAL_DISTRIBUTION}}（proot）环境执行一次性的非交互命令。这是默认首选的 {{OMNIBOT_TERMINAL_DISTRIBUTION}} 工具，适合文件处理、脚本、网络诊断、git、python、包管理等绝大多数 CLI 任务；不用于手机界面操作，也不用于交互式 TUI。只有明确需要跨多轮保留 cwd、环境或后台进程时，才改用 terminal_session_*。" to
+            "Run a one-shot non-interactive command inside the app's built-in {{OMNIBOT_TERMINAL_DISTRIBUTION}} (proot) environment. This is the default {{OMNIBOT_TERMINAL_DISTRIBUTION}} tool for most CLI work such as file operations, scripts, network diagnostics, git, Python, and package management. It is not for phone UI actions or interactive TUIs. Only switch to `terminal_session_*` when you truly need to preserve cwd, environment, or background state across turns.",
+        "terminal_execute 应单独占据当前 tool_calls。该工具会固定在 {{OMNIBOT_TERMINAL_DISTRIBUTION}} 中以 executionMode=proot（prootDistro={{OMNIBOT_TERMINAL_DISTRIBUTION_ID}}）执行，传入其他 executionMode 或 distro 会被忽略。若执行失败，可在下一轮基于 stdout/stderr/errorMessage 自行决定是否再次显式调用 terminal_execute；不要在同一个 tool_calls 中串联其他结果依赖型工具。" to
+            "`terminal_execute` should occupy the current `tool_calls` by itself. It always runs in {{OMNIBOT_TERMINAL_DISTRIBUTION}} with `executionMode=proot` and `prootDistro={{OMNIBOT_TERMINAL_DISTRIBUTION_ID}}`; other execution modes or distros are ignored. If execution fails, inspect stdout, stderr, or errorMessage in the next turn and decide whether to call it again explicitly. Do not chain other result-dependent tools in the same `tool_calls`.",
         "要执行的单次 shell 命令，必须非交互。" to
             "Single shell command to execute. It must be non-interactive.",
-        "可选。兼容字段，当前固定在 proot Alpine 执行，传入 termux 也会被自动忽略。" to
-            "Optional compatibility field. Execution is currently always in proot Alpine, and `termux` is ignored.",
-        "可选。兼容字段，当前固定使用 alpine，传入其他 distro 会被自动忽略。" to
-            "Optional compatibility field. Alpine is always used right now, and other distros are ignored.",
+        "可选。兼容字段，当前固定在 proot {{OMNIBOT_TERMINAL_DISTRIBUTION}} 执行，传入 termux 也会被自动忽略。" to
+            "Optional compatibility field. Execution is currently always in proot {{OMNIBOT_TERMINAL_DISTRIBUTION}}, and `termux` is ignored.",
+        "可选。兼容字段，当前固定使用 {{OMNIBOT_TERMINAL_DISTRIBUTION_ID}}（{{OMNIBOT_TERMINAL_DISTRIBUTION}}），传入其他 distro 会被自动忽略。" to
+            "Optional compatibility field. `{{OMNIBOT_TERMINAL_DISTRIBUTION_ID}}` ({{OMNIBOT_TERMINAL_DISTRIBUTION}}) is always used right now, and other distros are ignored.",
         "可选工作目录，建议使用绝对路径。" to
             "Optional working directory. Prefer an absolute path.",
         "等待结果的超时时间，默认 60 秒，范围 5-300。" to
             "Timeout in seconds while waiting for the result. Default 60, range 5-300.",
-        "启动一个可复用的 Alpine 终端会话，仅用于确实需要在后续多轮中保留 cwd、shell 环境、中间文件状态或后台进程的任务。返回的 sessionId 由底层 ReTerminal 原生生成并持久托管，后续必须显式传给 terminal_session_exec/read/stop。不要为了运行单条命令、检查工具是否存在、读取单个文件或执行一次性脚本而使用它，这些场景应优先用 terminal_execute。" to
-            "Start a reusable Alpine terminal session. Use it only when later turns truly need to preserve cwd, shell environment, intermediate file state, or background processes. The returned sessionId is generated and managed by the native ReTerminal layer and must be passed explicitly to `terminal_session_exec`, `terminal_session_read`, and `terminal_session_stop`. Do not use it for one-off commands, tool existence checks, reading a single file, or one-shot scripts; prefer `terminal_execute` for those.",
-        "启动后等待工具结果，再决定是否继续向该 session 发送命令。" to
-            "Wait for the tool result after starting the session before deciding whether to send more commands.",
+        "启动一个可复用的 {{OMNIBOT_TERMINAL_DISTRIBUTION}} 会话，仅用于确实需要在后续多轮中保留 cwd、shell 环境、中间文件状态或后台进程的任务。返回的 sessionId 由底层 ReTerminal 原生生成并持久托管，后续必须显式传给 terminal_session_exec/read/stop。不要为了运行单条命令、检查工具是否存在、读取单个文件或执行一次性脚本而使用它，这些场景应优先用 terminal_execute。" to
+            "Start a reusable {{OMNIBOT_TERMINAL_DISTRIBUTION}} session. Use it only when later turns truly need to preserve cwd, shell environment, intermediate file state, or background processes. The returned sessionId is generated and managed by the native ReTerminal layer and must be passed explicitly to `terminal_session_exec`, `terminal_session_read`, and `terminal_session_stop`. Do not use it for one-off commands, tool existence checks, reading a single file, or one-shot scripts; prefer `terminal_execute` for those.",
+        "启动后等待 {{OMNIBOT_TERMINAL_DISTRIBUTION}} 会话结果，再决定是否继续向该 session 发送命令。" to
+            "Wait for the {{OMNIBOT_TERMINAL_DISTRIBUTION}} session result before deciding whether to send more commands.",
         "可选，会话名称。未传时自动生成。" to
             "Optional session name. Generated automatically when omitted.",
         "可选，会话初始工作目录。默认使用当前 workspace cwd。" to
             "Optional initial working directory for the session. Defaults to the current workspace cwd.",
-        "向已有终端 session 发送一条非交互命令，并等待该命令完成。只在你明确想复用同一个 session 的 cwd、环境变量、后台任务或中间状态时使用。若命令会持续运行很久（例如启动 node/python 服务），应设置较短 timeoutSeconds，让工具尽快返回，再用 terminal_session_read 追踪输出，并在不再需要时调用 terminal_session_stop。" to
-            "Send a non-interactive command to an existing terminal session and wait for that command to finish. Use this only when you explicitly want to reuse the same session's cwd, environment variables, background jobs, or intermediate state. If the command may run for a long time, such as starting a node or Python service, use a shorter timeout so the tool returns quickly, then monitor output with `terminal_session_read` and stop the session with `terminal_session_stop` when finished.",
+        "向已有 {{OMNIBOT_TERMINAL_DISTRIBUTION}} session 发送一条非交互命令，并等待该命令完成。只在你明确想复用同一个 session 的 cwd、环境变量、后台任务或中间状态时使用。若命令会持续运行很久（例如启动 node/python 服务），应设置较短 timeoutSeconds，让工具尽快返回，再用 terminal_session_read 追踪输出，并在不再需要时调用 terminal_session_stop。" to
+            "Send a non-interactive command to an existing {{OMNIBOT_TERMINAL_DISTRIBUTION}} session and wait for that command to finish. Use this only when you explicitly want to reuse the same session's cwd, environment variables, background jobs, or intermediate state. If the command may run for a long time, such as starting a node or Python service, use a shorter timeout so the tool returns quickly, then monitor output with `terminal_session_read` and stop the session with `terminal_session_stop` when finished.",
         "执行后等待结果，再判断是否继续读取日志、再次执行或结束 session。" to
             "Wait for the result after execution, then decide whether to read logs, run another command, or stop the session.",
         "terminal_session_start 返回的 sessionId。" to
@@ -273,21 +274,18 @@ object AgentToolDefinitions {
             "Optional directory to switch into before running this command.",
         "等待该命令完成的超时时间，默认 120 秒，范围 5-600。" to
             "Timeout in seconds while waiting for this command to finish. Default 120, range 5-600.",
-        "读取终端 session 最近一次命令日志或最近的终端输出。默认应把它视为读取该 session 最新尾部输出，而不是重新查看最早的历史。只在已经启动并复用了 terminal_session_* 的前提下使用。" to
-            "Read the latest command log or most recent terminal output from a terminal session. Treat it as reading the newest tail output for that session, not replaying the oldest history. Use it only after you have already started and are reusing `terminal_session_*`.",
+        "读取 {{OMNIBOT_TERMINAL_DISTRIBUTION}} session 最近一次命令日志或最近的 {{OMNIBOT_TERMINAL_DISTRIBUTION}} 输出。默认应把它视为读取该 session 最新尾部输出，而不是重新查看最早的历史。只在已经启动并复用了 terminal_session_* 的前提下使用。" to
+            "Read the latest command log or most recent {{OMNIBOT_TERMINAL_DISTRIBUTION}} output from a {{OMNIBOT_TERMINAL_DISTRIBUTION}} session. Treat it as reading the newest tail output for that session, not replaying the oldest history. Use it only after you have already started and are reusing `terminal_session_*`.",
         "读取结果后再决定是否继续执行命令。" to
             "After reading the result, decide whether to run more commands.",
         "最多返回多少字符，默认 4000，范围 256-64000。" to
             "Maximum number of characters to return. Default 4000, range 256-64000.",
-        "停止已有终端 session，并清理对应 tmux 会话。完成状态化终端任务后再调用。" to
-            "Stop an existing terminal session and clean up the corresponding tmux session. Call this after the stateful terminal task is complete.",
+        "停止已有 {{OMNIBOT_TERMINAL_DISTRIBUTION}} session，并清理对应 tmux 会话。完成状态化 {{OMNIBOT_TERMINAL_DISTRIBUTION}} 任务后再调用。" to
+            "Stop an existing {{OMNIBOT_TERMINAL_DISTRIBUTION}} session and clean up the corresponding tmux session. Call this after the stateful {{OMNIBOT_TERMINAL_DISTRIBUTION}} task is complete.",
+        "{{OMNIBOT_TERMINAL_DISTRIBUTION}} session id。" to
+            "{{OMNIBOT_TERMINAL_DISTRIBUTION}} session id.",
         "结束后等待工具结果，再回复用户。" to
             "Wait for the tool result after stopping the session before replying to the user.",
-        "用内置浏览器执行一次网页搜索，并返回搜索结果标题、URL、摘要和搜索页可读片段。用于调研、竞品/开源项目查找、事实核验；拿到候选 URL 后，若需要深读具体页面，再用 browser_use 打开目标页面。不要用它操作网页表单或点击页面。" to
-            "Run one web search through the built-in browser and return result titles, URLs, snippets, and a readable search-page excerpt. Use it for research, competitor or open-source discovery, and fact checking. After getting candidate URLs, use `browser_use` to open specific pages for deeper reading. Do not use it for form filling or page interaction.",
-        "搜索关键词或问题。" to "Search query or question.",
-        "返回结果数量上限，默认 5，范围 1-10。" to
-            "Maximum number of results to return. Default 5, range 1-10.",
         "控制一个最多 3 个标签页的离屏浏览器。不要用它打开 App deep link、omnibot:// 非 browser 资源或应用内路由。浏览器只支持访问 http(s) 页面，以及 omnibot://browser/... 资源文件。使用 navigate 打开页面，screenshot 查看当前视口截图（传 read_image=true 可让模型直接看到截图内容），click/type/hover 与元素交互，get_text/get_readable 抽取内容，scroll 导航长页面，scroll_and_collect 在一次调用中滚动并收集无限列表内容，find_elements 发现可交互元素，get_page_info 获取页面元信息，get_backbone 获取 DOM 骨架，execute_js 执行脚本，fetch 复用当前页面 session 下载资源并返回 omnibot://browser/... 产物，new_tab/close_tab/list_tabs 管理标签页，go_back/go_forward 浏览器前进后退，press_key 模拟键盘按键，wait_for_selector 等待元素出现，get_cookies 返回 cookie 摘要与可复用的 offload env 脚本路径，set_user_agent 兼容 desktop_safari/mobile_safari 入参但实际切换 Android Chrome 风格桌面/移动 UA。结果可能包含 riskChallengeDetected、riskChallengeKind、recommendedNextAction、throttleDelayMs；若 riskChallengeDetected=true，应停止自动交互/刷新并请用户手动接管。tool_title 必须是 5-10 个字的简洁摘要，并使用与用户相同的语言。" to
             "Control an off-screen browser with up to 3 tabs. Do not use it for app deep links, non-browser `omnibot://` resources, or in-app routes. The browser supports http(s) pages and `omnibot://browser/...` resources. Use navigate to open pages, screenshot to capture the current viewport (set read_image=true if the model should inspect the screenshot directly), click/type/hover for interaction, get_text/get_readable for extraction, scroll for long-page navigation, scroll_and_collect to collect infinite-list content in one call, find_elements to discover interactable elements, get_page_info for metadata, get_backbone for a DOM skeleton, execute_js for scripting, fetch to download resources with the current page session and return `omnibot://browser/...` artifacts, new_tab/close_tab/list_tabs for tab management, go_back/go_forward for navigation history, press_key to simulate keys, wait_for_selector to wait for elements, get_cookies for cookie summaries plus a reusable offload env script path, and set_user_agent to accept desktop_safari/mobile_safari for compatibility while actually switching Android Chrome-style desktop/mobile UAs. Results may include riskChallengeDetected, riskChallengeKind, recommendedNextAction, and throttleDelayMs; when riskChallengeDetected=true, stop automated interaction/reload attempts and ask the user to take over manually. `tool_title` must be a concise 5-10 word summary in the same language as the user.",
         "本次工具调用要做什么的简洁摘要，5-10 个字，展示给用户。" to
@@ -392,14 +390,6 @@ object AgentToolDefinitions {
             "Skill id, skill name, SKILL.md path, or the skill root directory path. Prefer checking with skills_list first.",
         "最多返回多少字符的正文，默认 16000，范围 512-64000。" to
             "Maximum number of body characters to return. Default 16000, range 512-64000.",
-        "读取某个已安装 skill 的 references 目录下的单个引用文件。Use this after skills_read shows that a referenced guide/template is needed." to
-            "Read a single reference file under an installed skill's references directory. Use this after skills_read shows that a referenced guide or template is needed.",
-        "读取 reference 后等待结果，再根据内容继续。" to
-            "Wait for the reference content before continuing.",
-        "reference id、文件名或不带扩展名的文件名，例如 agent-prompt-templates。" to
-            "Reference id, file name, or file name without extension, for example agent-prompt-templates.",
-        "最多返回多少字符的引用内容，默认 16000，范围 512-64000。" to
-            "Maximum number of reference characters to return. Default 16000, range 512-64000.",
         "创建新的定时任务。执行后等待工具结果，再决定是否回复用户。" to
             "Create a new scheduled task. Wait for the tool result before deciding how to reply to the user.",
         "创建完成后不要在同一轮继续调用其他工具；请等待工具结果，并通过 response 输出最终答复。" to
@@ -436,12 +426,11 @@ object AgentToolDefinitions {
             "List exact_alarm reminders created and managed by this app.",
         "查看结果后再决定是否删除或继续创建。" to
             "Review the result before deciding whether to delete or create more reminders.",
-        "按 alarmId 删除本应用创建并托管的 exact_alarm 提醒闹钟；未传 alarmId 时停止并清空所有应用内 exact_alarm 提醒闹钟。" to
-            "Delete an exact_alarm reminder created and managed by this app by alarmId. If alarmId is omitted, stop and clear all in-app exact_alarm reminders.",
+        "按 alarmId 删除本应用创建并托管的 exact_alarm 提醒闹钟。" to
+            "Delete an exact_alarm reminder created and managed by this app by alarmId.",
         "删除后等待工具结果，再向用户确认。" to
             "Wait for the tool result after deleting, then confirm with the user.",
-        "可选闹钟 ID；用户只要求关闭当前或全部提醒时可不传。" to
-            "Optional alarm ID. Omit it when the user asks to stop the current reminder or all reminders.",
+        "闹钟 ID。" to "Alarm ID.",
         "查询设备日历账户列表，可用于选择 calendarId。" to
             "Query the device's calendar accounts so the agent can choose a calendarId.",
         "查看结果后再决定新建或管理日程。" to
@@ -509,17 +498,24 @@ object AgentToolDefinitions {
         "整理后等待工具结果，再决定是否补充长期记忆。" to
             "Wait for the tool result after the rollup, then decide whether to add more long-term memory.",
         "可选日期，格式 YYYY-MM-DD。" to "Optional date in YYYY-MM-DD format.",
-        "把多个可并行的小任务分派给 subagent 集群执行，并返回聚合结果。" to
-            "Dispatch multiple parallelizable subtasks to the subagent cluster and return the aggregated result.",
+        "把多个相互独立、可并行的小任务主动分派给具有隔离上下文的 subagent，并返回聚合结果。简单任务或必须严格串行共享中间状态的任务不要分派。" to
+            "Proactively dispatch multiple independent, parallelizable subtasks to subagents with isolated contexts and return the aggregated result. Do not dispatch trivial tasks or tasks that must share intermediate state in strict sequence.",
         "分派后等待工具结果，再汇总给用户。" to
             "Wait for the tool result after dispatching, then summarize it for the user.",
-        "需要并行执行的子任务列表。" to "List of subtasks to execute in parallel.",
+        "需要并行执行的子任务列表。每项都要包含自足的 instruction，并按任务性质选择 profileId。" to
+            "List of subtasks to execute in parallel. Each item must contain a self-contained instruction and choose a profileId appropriate for the task.",
+        "子任务的完整、自足指令，不要依赖主会话中未写入此处的上下文。" to
+            "Complete, self-contained instructions for the subtask. Do not rely on main-conversation context that is not included here.",
+        "专家类型：general 可读写工作区；explorer 只读检索与查证；memory-curator 整理记忆；planner 只输出计划。" to
+            "Expert type: general can read and write the workspace; explorer performs read-only research and verification; memory-curator organizes memory; planner only produces a plan.",
+        "未给子任务指定 profileId 时使用的专家类型，默认 general。" to
+            "Expert type used when a subtask omits profileId. Defaults to general.",
         "并发度，默认 2，范围 1-6。" to "Concurrency level. Default 2, range 1-6.",
         "结果聚合要求，可选。" to "Optional instructions for result aggregation.",
-        "创建新的定时任务。执行后等待工具结果，再决定是否回复用户。若 `targetKind=subagent`，`subagentPrompt` 必须写成任务触发时要立即执行的动作，不要重复填写“每天几点提醒我/定时去做”这类调度描述。" to
-            "Create a new scheduled task. Wait for the tool result before replying. When `targetKind=subagent`, `subagentPrompt` must describe the concrete action to execute at trigger time instead of repeating scheduling phrasing such as daily at a given time or remind me to do it.",
-        "修改已有定时任务的时间、标题、每日重复或启停状态。若 `targetKind=subagent`，更新后的 `subagentPrompt` 仍应描述触发时真正执行的动作，而不是再次描述调度本身。" to
-            "Update an existing scheduled task's time, title, daily repeat, or enabled state. When `targetKind=subagent`, the updated `subagentPrompt` should still describe the real action to execute at trigger time rather than restating the schedule itself.",
+        "创建新的定时任务。`targetKind=subagent` 为唯一支持的执行类型。执行后等待工具结果，再决定是否回复用户；`subagentPrompt` 必须写成任务触发时要立即执行的动作，不要重复填写“每天几点提醒我/定时去做”这类调度描述。" to
+            "Create a new scheduled task. `targetKind=subagent` is the only supported execution type. Wait for the tool result before replying; `subagentPrompt` must describe the concrete action to execute at trigger time instead of repeating scheduling phrasing such as daily at a given time or remind me to do it.",
+        "修改已有定时任务的时间、标题、每日重复或启停状态。`targetKind=subagent` 为唯一支持的执行类型；更新后的 `subagentPrompt` 仍应描述触发时真正执行的动作，而不是再次描述调度本身。" to
+            "Update an existing scheduled task's time, title, daily repeat, or enabled state. `targetKind=subagent` is the only supported execution type; the updated `subagentPrompt` should still describe the real action to execute at trigger time rather than restating the schedule itself.",
         "subagent 被触发时要立即执行的任务说明。不要把“每天/几点/定时/提醒/闹钟/创建任务”等调度话术写进去，而要写成到点后此刻真正要完成的动作。" to
             "The task instructions that the subagent should execute immediately when triggered. Do not include scheduling phrases such as daily, at a specific time, scheduled, remind me, alarm, or create a task. Describe the real action that should be carried out at execution time."
     )
@@ -547,7 +543,7 @@ object AgentToolDefinitions {
         }
     }
 
-    val vlmTaskTool: JsonObject = buildJsonObject {
+    val guiTaskTool: JsonObject = buildJsonObject {
         put("type", "function")
         putJsonObject("function") {
             put("name", AgentToolNames.VLM_TASK)
@@ -555,161 +551,20 @@ object AgentToolDefinitions {
             put("toolType", "builtin")
             put(
                 "description",
-                "手机屏幕自动化首选工具。用户要打开某个 App、在 App 内完成任何操作、或跨 App 执行流程时，立即调用，不要先推理是否需要。一次调用代表从当前状态到目标完成的完整流程；打开 App 和后续操作合并为一个 goal，不要拆成两次调用。阻塞等待到任务完成/需要用户输入/屏幕锁定/超时后返回终态结果。禁止用于识别或解释用户上传的图片/截图，那些图片已在对话上下文里，直接基于上下文回答。"
+                "在 Android 图形界面完成一个目标。一次调用覆盖从当前页面到目标完成的整个流程；模型、观察、动作与重试均由同一 Agent 运行时处理。不要用于解释用户上传的图片。"
             )
             putJsonObject("parameters") {
                 put("type", "object")
                 putJsonObject("properties") {
                     putJsonObject("goal") {
                         put("type", "string")
-                        put("description", "任务目标，使用第一人称描述。")
-                    }
-                    putJsonObject("model") {
-                        put("type", "string")
-                        put("description", "可选视觉推理模型或场景 ID。一般留空；需要调试或固定模型时才传具体值。")
-                    }
-                    putJsonObject("packageName") {
-                        put("type", "string")
-                        put("description", "目标应用包名。")
-                    }
-                    putJsonObject("needSummary") {
-                        put("type", "boolean")
-                        put("description", "是否在结束后生成总结。设为 true 时，工具结果会尽量直接返回最终整理文本。")
-                    }
-                    putJsonObject("maxSteps") {
-                        put("type", "integer")
-                        put("description", "可选最大执行步数。留空使用 workspace 的 vlm_default_max_steps；运行时安全上限 64。达到上限但模型未明确完成时返回未完成或超步错误。")
-                    }
-                    putJsonObject("timeoutMs") {
-                        put("type", "integer")
-                        put("description", "可选控制面等待超时，单位毫秒。留空使用 workspace 的 vlm_max_wait_timeout_ms；超时会停止设备端 VLM，避免后台继续执行。")
-                    }
-                    putJsonObject("startFromCurrent") {
-                        put("type", "boolean")
-                        put("description", "仅在用户明确要求从当前页面继续时设为 true。")
+                        put("description", "要在 Android 界面完成的完整目标。")
                     }
                 }
                 putJsonArray("required") {
                     add("goal")
                 }
-            }
-        }
-    }
-
-    val imagePickerTool: JsonObject = buildJsonObject {
-        put("type", "function")
-        putJsonObject("function") {
-            put("name", "image_picker")
-            put("displayName", "选择图片")
-            put("toolType", "builtin")
-            put("description", "打开手机相册或相机，让用户选择一张或多张图片，返回图片的本地路径。选单张时返回 {path, name}；选多张时返回 {paths: [...], count}。取到路径后可传给 vlm_task 或 file_read 进行后续处理。")
-            putJsonObject("parameters") {
-                put("type", "object")
-                putJsonObject("properties") {
-                    putJsonObject("source") {
-                        put("type", "string")
-                        putJsonArray("enum") { add("gallery"); add("camera") }
-                        put("description", "图片来源：gallery（相册，默认）或 camera（拍照）。")
-                    }
-                    putJsonObject("multiple") {
-                        put("type", "boolean")
-                        put("description", "是否允许多选，默认 false。")
-                    }
-                    putJsonObject("limit") {
-                        put("type", "integer")
-                        put("description", "多选时最大张数，默认 9。")
-                    }
-                }
-                putJsonArray("required") {}
-            }
-        }
-    }
-
-    val notificationSendTool: JsonObject = buildJsonObject {
-        put("type", "function")
-        putJsonObject("function") {
-            put("name", "notification_send")
-            put("displayName", "发送通知")
-            put("toolType", "builtin")
-            put("description", "在手机状态栏显示一条本地通知。用于提醒用户某件事完成或需要关注。")
-            putJsonObject("parameters") {
-                put("type", "object")
-                putJsonObject("properties") {
-                    putJsonObject("title") { put("type", "string"); put("description", "通知标题") }
-                    putJsonObject("body") { put("type", "string"); put("description", "通知正文") }
-                    putJsonObject("channel") { put("type", "string"); put("description", "通知渠道 ID，默认 oob_agent_notify") }
-                }
-                putJsonArray("required") { add("title"); add("body") }
-            }
-        }
-    }
-
-    val userDialogTool: JsonObject = buildJsonObject {
-        put("type", "function")
-        putJsonObject("function") {
-            put("name", "user_dialog")
-            put("displayName", "请求用户确认")
-            put("toolType", "builtin")
-            put(
-                "description",
-                "暂停执行并向用户展示一张交互卡片，等待用户做出选择后继续。仅在用户必须做决策才能继续时使用——例如：确认危险操作（confirm）、分支选择（choices）、收集必要的文本输入（input）。不要用于纯信息展示；信息直接写进对话回复即可。" +
-                "type 枚举：" +
-                "confirm — 两个按钮（确认/取消），用于不可逆操作或需要明确授权的操作；" +
-                "choices — 2-4 个选项卡片，用于流程分支，每个选项有 label(展示文字) 和 value(注入为用户消息)；" +
-                "input — 单行文本框，用于需要用户提供名称、关键词、数字等场景。" +
-                "用户操作结果会作为新的用户消息注入，下一轮从该消息继续。"
-            )
-            putJsonObject("parameters") {
-                put("type", "object")
-                putJsonObject("properties") {
-                    putJsonObject("type") {
-                        put("type", "string")
-                        put("description", "对话类型")
-                        putJsonArray("enum") { add("confirm"); add("choices"); add("input") }
-                    }
-                    putJsonObject("message") {
-                        put("type", "string")
-                        put("description", "展示给用户的问题或说明文字，简洁明确，不超过60字")
-                    }
-                    putJsonObject("title") {
-                        put("type", "string")
-                        put("description", "可选标题，confirm 类型下通常是操作名称")
-                    }
-                    putJsonObject("confirmLabel") {
-                        put("type", "string")
-                        put("description", "confirm 类型：确认按钮文字，默认「确定」")
-                    }
-                    putJsonObject("cancelLabel") {
-                        put("type", "string")
-                        put("description", "confirm 类型：取消按钮文字，默认「取消」")
-                    }
-                    putJsonObject("danger") {
-                        put("type", "boolean")
-                        put("description", "confirm 类型：确认按钮是否显示为危险红色，用于删除/清空等破坏性操作")
-                    }
-                    putJsonObject("choices") {
-                        put("type", "array")
-                        put("description", "choices 类型：选项列表，每项含 label(展示) 和 value(注入为用户消息)，2-4 项")
-                        putJsonObject("items") {
-                            put("type", "object")
-                            putJsonObject("properties") {
-                                putJsonObject("label") { put("type", "string") }
-                                putJsonObject("value") { put("type", "string") }
-                                putJsonObject("hint") { put("type", "string"); put("description", "可选的一行说明") }
-                            }
-                        }
-                    }
-                    putJsonObject("placeholder") {
-                        put("type", "string")
-                        put("description", "input 类型：输入框占位文字")
-                    }
-                    putJsonObject("inputType") {
-                        put("type", "string")
-                        put("description", "input 类型：输入框类型")
-                        putJsonArray("enum") { add("text"); add("number"); add("date") }
-                    }
-                }
-                putJsonArray("required") { add("type"); add("message") }
+                put("additionalProperties", false)
             }
         }
     }
@@ -718,15 +573,15 @@ object AgentToolDefinitions {
         put("type", "function")
         putJsonObject("function") {
             put("name", "terminal_execute")
-            put("displayName", "终端执行")
+            put("displayName", "执行 {{OMNIBOT_TERMINAL_DISTRIBUTION}} 命令")
             put("toolType", "terminal")
             put(
                 "description",
-                "通过应用内置的 Alpine（proot）环境执行一次性的非交互终端命令。这是默认首选的终端工具，适合文件处理、脚本、网络诊断、git、python、包管理等绝大多数 CLI 任务；不用于手机界面操作，也不用于交互式 TUI。只有明确需要跨多轮保留 cwd、环境或后台进程时，才改用 terminal_session_*。"
+                "通过应用内置的 {{OMNIBOT_TERMINAL_DISTRIBUTION}}（proot）环境执行一次性的非交互命令。这是默认首选的 {{OMNIBOT_TERMINAL_DISTRIBUTION}} 工具，适合文件处理、脚本、网络诊断、git、python、包管理等绝大多数 CLI 任务；不用于手机界面操作，也不用于交互式 TUI。只有明确需要跨多轮保留 cwd、环境或后台进程时，才改用 terminal_session_*。"
             )
             put(
                 "postToolRule",
-                "terminal_execute 应单独占据当前 tool_calls。该工具会固定在 executionMode=proot（prootDistro=alpine）执行，传入 termux/debian 等参数会被忽略。若执行失败，可在下一轮基于 stdout/stderr/errorMessage 自行决定是否再次显式调用 terminal_execute；不要在同一个 tool_calls 中串联其他结果依赖型工具。"
+                "terminal_execute 应单独占据当前 tool_calls。该工具会固定在 {{OMNIBOT_TERMINAL_DISTRIBUTION}} 中以 executionMode=proot（prootDistro={{OMNIBOT_TERMINAL_DISTRIBUTION_ID}}）执行，传入其他 executionMode 或 distro 会被忽略。若执行失败，可在下一轮基于 stdout/stderr/errorMessage 自行决定是否再次显式调用 terminal_execute；不要在同一个 tool_calls 中串联其他结果依赖型工具。"
             )
             putJsonObject("parameters") {
                 put("type", "object")
@@ -737,7 +592,7 @@ object AgentToolDefinitions {
                     }
                     putJsonObject("executionMode") {
                         put("type", "string")
-                        put("description", "可选。兼容字段，当前固定在 proot Alpine 执行，传入 termux 也会被自动忽略。")
+                        put("description", "可选。兼容字段，当前固定在 proot {{OMNIBOT_TERMINAL_DISTRIBUTION}} 执行，传入 termux 也会被自动忽略。")
                         putJsonArray("enum") {
                             add("proot")
                             add("termux")
@@ -745,7 +600,7 @@ object AgentToolDefinitions {
                     }
                     putJsonObject("prootDistro") {
                         put("type", "string")
-                        put("description", "可选。兼容字段，当前固定使用 alpine，传入其他 distro 会被自动忽略。")
+                        put("description", "可选。兼容字段，当前固定使用 {{OMNIBOT_TERMINAL_DISTRIBUTION_ID}}（{{OMNIBOT_TERMINAL_DISTRIBUTION}}），传入其他 distro 会被自动忽略。")
                     }
                     putJsonObject("workingDirectory") {
                         put("type", "string")
@@ -781,7 +636,7 @@ object AgentToolDefinitions {
         return decorateToolDefinition(buildJsonObject {
             put("type", "function")
             putJsonObject("function") {
-                put("name", AgentToolNames.ANDROID_PRIVILEGED_ACTION)
+                put("name", "android_privileged_action")
                 put("displayName", text("安卓高级动作", "Android Privileged Action"))
                 put("toolType", "privileged")
                 put(
@@ -1059,10 +914,10 @@ object AgentToolDefinitions {
         put("type", "function")
         putJsonObject("function") {
             put("name", "terminal_session_start")
-            put("displayName", "启动终端会话")
+            put("displayName", "启动 {{OMNIBOT_TERMINAL_DISTRIBUTION}} 会话")
             put("toolType", "terminal")
-            put("description", "启动一个可复用的 Alpine 终端会话，仅用于确实需要在后续多轮中保留 cwd、shell 环境、中间文件状态或后台进程的任务。返回的 sessionId 由底层 ReTerminal 原生生成并持久托管，后续必须显式传给 terminal_session_exec/read/stop。不要为了运行单条命令、检查工具是否存在、读取单个文件或执行一次性脚本而使用它，这些场景应优先用 terminal_execute。")
-            put("postToolRule", "启动后等待工具结果，再决定是否继续向该 session 发送命令。")
+            put("description", "启动一个可复用的 {{OMNIBOT_TERMINAL_DISTRIBUTION}} 会话，仅用于确实需要在后续多轮中保留 cwd、shell 环境、中间文件状态或后台进程的任务。返回的 sessionId 由底层 ReTerminal 原生生成并持久托管，后续必须显式传给 terminal_session_exec/read/stop。不要为了运行单条命令、检查工具是否存在、读取单个文件或执行一次性脚本而使用它，这些场景应优先用 terminal_execute。")
+            put("postToolRule", "启动后等待 {{OMNIBOT_TERMINAL_DISTRIBUTION}} 会话结果，再决定是否继续向该 session 发送命令。")
             putJsonObject("parameters") {
                 put("type", "object")
                 putJsonObject("properties") {
@@ -1083,9 +938,9 @@ object AgentToolDefinitions {
         put("type", "function")
         putJsonObject("function") {
             put("name", "terminal_session_exec")
-            put("displayName", "执行会话命令")
+            put("displayName", "执行 {{OMNIBOT_TERMINAL_DISTRIBUTION}} 会话命令")
             put("toolType", "terminal")
-            put("description", "向已有终端 session 发送一条非交互命令，并等待该命令完成。只在你明确想复用同一个 session 的 cwd、环境变量、后台任务或中间状态时使用。若命令会持续运行很久（例如启动 node/python 服务），应设置较短 timeoutSeconds，让工具尽快返回，再用 terminal_session_read 追踪输出，并在不再需要时调用 terminal_session_stop。")
+            put("description", "向已有 {{OMNIBOT_TERMINAL_DISTRIBUTION}} session 发送一条非交互命令，并等待该命令完成。只在你明确想复用同一个 session 的 cwd、环境变量、后台任务或中间状态时使用。若命令会持续运行很久（例如启动 node/python 服务），应设置较短 timeoutSeconds，让工具尽快返回，再用 terminal_session_read 追踪输出，并在不再需要时调用 terminal_session_stop。")
             put("postToolRule", "执行后等待结果，再判断是否继续读取日志、再次执行或结束 session。")
             putJsonObject("parameters") {
                 put("type", "object")
@@ -1119,16 +974,16 @@ object AgentToolDefinitions {
         put("type", "function")
         putJsonObject("function") {
             put("name", "terminal_session_read")
-            put("displayName", "读取会话输出")
+            put("displayName", "读取 {{OMNIBOT_TERMINAL_DISTRIBUTION}} 会话输出")
             put("toolType", "terminal")
-            put("description", "读取终端 session 最近一次命令日志或最近的终端输出。默认应把它视为读取该 session 最新尾部输出，而不是重新查看最早的历史。只在已经启动并复用了 terminal_session_* 的前提下使用。")
+            put("description", "读取 {{OMNIBOT_TERMINAL_DISTRIBUTION}} session 最近一次命令日志或最近的 {{OMNIBOT_TERMINAL_DISTRIBUTION}} 输出。默认应把它视为读取该 session 最新尾部输出，而不是重新查看最早的历史。只在已经启动并复用了 terminal_session_* 的前提下使用。")
             put("postToolRule", "读取结果后再决定是否继续执行命令。")
             putJsonObject("parameters") {
                 put("type", "object")
                 putJsonObject("properties") {
                     putJsonObject("sessionId") {
                         put("type", "string")
-                        put("description", "terminal session id。")
+                        put("description", "{{OMNIBOT_TERMINAL_DISTRIBUTION}} session id。")
                     }
                     putJsonObject("maxChars") {
                         put("type", "integer")
@@ -1146,16 +1001,16 @@ object AgentToolDefinitions {
         put("type", "function")
         putJsonObject("function") {
             put("name", "terminal_session_stop")
-            put("displayName", "结束终端会话")
+            put("displayName", "结束 {{OMNIBOT_TERMINAL_DISTRIBUTION}} 会话")
             put("toolType", "terminal")
-            put("description", "停止已有终端 session，并清理对应 tmux 会话。完成状态化终端任务后再调用。")
+            put("description", "停止已有 {{OMNIBOT_TERMINAL_DISTRIBUTION}} session，并清理对应 tmux 会话。完成状态化 {{OMNIBOT_TERMINAL_DISTRIBUTION}} 任务后再调用。")
             put("postToolRule", "结束后等待工具结果，再回复用户。")
             putJsonObject("parameters") {
                 put("type", "object")
                 putJsonObject("properties") {
                     putJsonObject("sessionId") {
                         put("type", "string")
-                        put("description", "terminal session id。")
+                        put("description", "{{OMNIBOT_TERMINAL_DISTRIBUTION}} session id。")
                     }
                 }
                 putJsonArray("required") {
@@ -1165,39 +1020,10 @@ object AgentToolDefinitions {
         }
     }
 
-    val webSearchTool: JsonObject = buildJsonObject {
-        put("type", "function")
-        putJsonObject("function") {
-            put("name", AgentToolNames.WEB_SEARCH)
-            put("displayName", "网页搜索")
-            put("toolType", "research")
-            put(
-                "description",
-                "用内置浏览器执行一次网页搜索，并返回搜索结果标题、URL、摘要和搜索页可读片段。用于调研、竞品/开源项目查找、事实核验；拿到候选 URL 后，若需要深读具体页面，再用 browser_use 打开目标页面。不要用它操作网页表单或点击页面。"
-            )
-            putJsonObject("parameters") {
-                put("type", "object")
-                putJsonObject("properties") {
-                    putJsonObject("query") {
-                        put("type", "string")
-                        put("description", "搜索关键词或问题。")
-                    }
-                    putJsonObject("limit") {
-                        put("type", "integer")
-                        put("description", "返回结果数量上限，默认 5，范围 1-10。")
-                    }
-                }
-                putJsonArray("required") {
-                    add("query")
-                }
-            }
-        }
-    }
-
     val browserUseTool: JsonObject = buildJsonObject {
         put("type", "function")
         putJsonObject("function") {
-            put("name", AgentToolNames.BROWSER_USE)
+            put("name", "browser_use")
             put("displayName", "浏览器操作")
             put("toolType", "browser")
             put(
@@ -1685,45 +1511,13 @@ object AgentToolDefinitions {
         }
     }
 
-    val skillsReadReferenceTool: JsonObject = buildJsonObject {
-        put("type", "function")
-        putJsonObject("function") {
-            put("name", "skills_read_reference")
-            put("displayName", "读取 Skill 引用")
-            put("toolType", "skill")
-            put("description", "读取某个已安装 skill 的 references 目录下的单个引用文件。Use this after skills_read shows that a referenced guide/template is needed.")
-            put("postToolRule", "读取 reference 后等待结果，再根据内容继续。")
-            putJsonObject("parameters") {
-                put("type", "object")
-                putJsonObject("properties") {
-                    putJsonObject("skillId") {
-                        put("type", "string")
-                        put("description", "skill 的 id、名称、SKILL.md 路径或 skill 根目录路径。建议先用 skills_list 查看。")
-                    }
-                    putJsonObject("refId") {
-                        put("type", "string")
-                        put("description", "reference id、文件名或不带扩展名的文件名，例如 agent-prompt-templates。")
-                    }
-                    putJsonObject("maxChars") {
-                        put("type", "integer")
-                        put("description", "最多返回多少字符的引用内容，默认 16000，范围 512-64000。")
-                    }
-                }
-                putJsonArray("required") {
-                    add("skillId")
-                    add("refId")
-                }
-            }
-        }
-    }
-
     val scheduleTaskCreateTool: JsonObject = buildJsonObject {
         put("type", "function")
         putJsonObject("function") {
             put("name", "schedule_task_create")
             put("displayName", "创建定时任务")
             put("toolType", "schedule")
-            put("description", "创建新的定时任务。执行后等待工具结果，再决定是否回复用户。若 `targetKind=subagent`，`subagentPrompt` 必须写成任务触发时要立即执行的动作，不要重复填写“每天几点提醒我/定时去做”这类调度描述。")
+            put("description", "创建新的定时任务。`targetKind=subagent` 为唯一支持的执行类型。执行后等待工具结果，再决定是否回复用户；`subagentPrompt` 必须写成任务触发时要立即执行的动作，不要重复填写“每天几点提醒我/定时去做”这类调度描述。")
             put("postToolRule", "创建完成后不要在同一轮继续调用其他工具；请等待工具结果，并通过 response 输出最终答复。")
             putJsonObject("parameters") {
                 put("type", "object")
@@ -1732,12 +1526,9 @@ object AgentToolDefinitions {
                     putJsonObject("targetKind") {
                         put("type", "string")
                         putJsonArray("enum") {
-                            add("vlm")
                             add("subagent")
                         }
                     }
-                    putJsonObject("goal") { put("type", "string") }
-                    putJsonObject("packageName") { put("type", "string") }
                     putJsonObject("subagentConversationId") { put("type", "string") }
                     putJsonObject("subagentPrompt") {
                         put("type", "string")
@@ -1790,7 +1581,7 @@ object AgentToolDefinitions {
             put("name", "schedule_task_update")
             put("displayName", "修改定时任务")
             put("toolType", "schedule")
-            put("description", "修改已有定时任务的时间、标题、每日重复或启停状态。若 `targetKind=subagent`，更新后的 `subagentPrompt` 仍应描述触发时真正执行的动作，而不是再次描述调度本身。")
+            put("description", "修改已有定时任务的时间、标题、每日重复或启停状态。`targetKind=subagent` 为唯一支持的执行类型；更新后的 `subagentPrompt` 仍应描述触发时真正执行的动作，而不是再次描述调度本身。")
             put("postToolRule", "修改完成后不要同轮回复，等待工具结果。")
             putJsonObject("parameters") {
                 put("type", "object")
@@ -1800,7 +1591,6 @@ object AgentToolDefinitions {
                     putJsonObject("targetKind") {
                         put("type", "string")
                         putJsonArray("enum") {
-                            add("vlm")
                             add("subagent")
                         }
                     }
@@ -1922,15 +1712,18 @@ object AgentToolDefinitions {
             put("name", "alarm_reminder_delete")
             put("displayName", "删除提醒闹钟")
             put("toolType", "alarm")
-            put("description", "按 alarmId 删除本应用创建并托管的 exact_alarm 提醒闹钟；未传 alarmId 时停止并清空所有应用内 exact_alarm 提醒闹钟。")
+            put("description", "按 alarmId 删除本应用创建并托管的 exact_alarm 提醒闹钟。")
             put("postToolRule", "删除后等待工具结果，再向用户确认。")
             putJsonObject("parameters") {
                 put("type", "object")
                 putJsonObject("properties") {
                     putJsonObject("alarmId") {
                         put("type", "string")
-                        put("description", "可选闹钟 ID；用户只要求关闭当前或全部提醒时可不传。")
+                        put("description", "闹钟 ID。")
                     }
+                }
+                putJsonArray("required") {
+                    add("alarmId")
                 }
             }
         }
@@ -2155,7 +1948,7 @@ object AgentToolDefinitions {
             put("name", "memory_search")
             put("displayName", "检索记忆")
             put("toolType", "memory")
-            put("description", "在 workspace 记忆中检索与当前问题相关的长期/短期记忆。优先使用向量召回，配置缺失时自动降级词法检索。")
+            put("description", "在 workspace 记忆中检索与当前问题相关的长期/短期记忆。优先使用向量召回，配置缺失时自动降级词法检索。写入新记忆前可先检索，避免重复沉淀。")
             put("postToolRule", "读取结果后再决定是否写入新的短期或长期记忆。")
             putJsonObject("parameters") {
                 put("type", "object")
@@ -2182,7 +1975,7 @@ object AgentToolDefinitions {
             put("name", "memory_write_daily")
             put("displayName", "写入当日记忆")
             put("toolType", "memory")
-            put("description", "将当轮过程性信息写入 `.omnibot/memory/short-memories/YY-MM-DD.md`。")
+            put("description", "把本轮值得跨会话记住的信息写入当日短期记忆 `.omnibot/memory/short-memories/YY-MM-DD.md`。这是每轮的默认动作：只要出现用户偏好、关键决定及理由、任务进度、外部标识(路径/ID/别名)或被用户纠正的事实，就应调用；宁可多写短期，也不要遗漏。")
             put("postToolRule", "写入成功后再继续执行其他步骤。")
             putJsonObject("parameters") {
                 put("type", "object")
@@ -2205,7 +1998,7 @@ object AgentToolDefinitions {
             put("name", "memory_upsert_longterm")
             put("displayName", "沉淀长期记忆")
             put("toolType", "memory")
-            put("description", "将稳定偏好、长期约束、身份事实写入 `.omnibot/memory/MEMORY.md`。自动去重相同条目。")
+            put("description", "把跨会话稳定、可复用的结论(稳定偏好、长期约束、身份事实)写入 `.omnibot/memory/MEMORY.md`。仅用于有长期价值的信息；一次性过程细节请改用 `memory_write_daily` 写短期。自动去重相同或高度重复的条目。")
             put("postToolRule", "写入后等待工具结果，再向用户确认。")
             putJsonObject("parameters") {
                 put("type", "object")
@@ -2248,7 +2041,7 @@ object AgentToolDefinitions {
             put("name", "memory_load")
             put("displayName", "加载长期记忆")
             put("toolType", "memory")
-            put("description", "按 slug 加载完整的长期记忆条目正文。slug 来自系统提示的记忆索引或上一次 `memory_search` 命中。同一轮内重复加载会被自动跳过。")
+            put("description", "按 slug 加载完整的长期记忆条目正文。slug 来自系统提示中“长期记忆索引”块列出的条目。同一轮内重复加载会被自动跳过。")
             put("postToolRule", "读取后再决定是否需要进一步检索或写入。")
             putJsonObject("parameters") {
                 put("type", "object")
@@ -2271,7 +2064,10 @@ object AgentToolDefinitions {
             put("name", "subagent_dispatch")
             put("displayName", "分派子任务")
             put("toolType", "subagent")
-            put("description", "把多个可并行的小任务分派给 subagent 集群执行，并返回聚合结果。")
+            put(
+                "description",
+                "把多个相互独立、可并行的小任务主动分派给具有隔离上下文的 subagent，并返回聚合结果。简单任务或必须严格串行共享中间状态的任务不要分派。"
+            )
             put("postToolRule", "分派后等待工具结果，再汇总给用户。")
             putJsonObject("parameters") {
                 put("type", "object")
@@ -2279,9 +2075,50 @@ object AgentToolDefinitions {
                     putJsonObject("tasks") {
                         put("type", "array")
                         putJsonObject("items") {
-                            put("type", "string")
+                            put("type", "object")
+                            putJsonObject("properties") {
+                                putJsonObject("instruction") {
+                                    put("type", "string")
+                                    put(
+                                        "description",
+                                        "子任务的完整、自足指令，不要依赖主会话中未写入此处的上下文。"
+                                    )
+                                }
+                                putJsonObject("profileId") {
+                                    put("type", "string")
+                                    putJsonArray("enum") {
+                                        add("general")
+                                        add("explorer")
+                                        add("memory-curator")
+                                        add("planner")
+                                    }
+                                    put(
+                                        "description",
+                                        "专家类型：general 可读写工作区；explorer 只读检索与查证；memory-curator 整理记忆；planner 只输出计划。"
+                                    )
+                                }
+                            }
+                            putJsonArray("required") {
+                                add("instruction")
+                            }
                         }
-                        put("description", "需要并行执行的子任务列表。")
+                        put(
+                            "description",
+                            "需要并行执行的子任务列表。每项都要包含自足的 instruction，并按任务性质选择 profileId。"
+                        )
+                    }
+                    putJsonObject("defaultProfileId") {
+                        put("type", "string")
+                        putJsonArray("enum") {
+                            add("general")
+                            add("explorer")
+                            add("memory-curator")
+                            add("planner")
+                        }
+                        put(
+                            "description",
+                            "未给子任务指定 profileId 时使用的专家类型，默认 general。"
+                        )
                     }
                     putJsonObject("concurrency") {
                         put("type", "integer")
@@ -2301,16 +2138,12 @@ object AgentToolDefinitions {
 
     private val builtinToolDefinitions: List<JsonObject> = listOf(
         contextAppsQueryTool,
-        vlmTaskTool,
-        imagePickerTool,
-        notificationSendTool,
-        userDialogTool,
+        guiTaskTool,
         terminalExecuteTool,
         terminalSessionStartTool,
         terminalSessionExecTool,
         terminalSessionReadTool,
         terminalSessionStopTool,
-        webSearchTool,
         browserUseTool,
         fileReadTool,
         fileWriteTool,
@@ -2321,8 +2154,7 @@ object AgentToolDefinitions {
         fileStatTool,
         fileMoveTool,
         skillsListTool,
-        skillsReadTool,
-        skillsReadReferenceTool
+        skillsReadTool
     )
 
     private val scheduleToolDefinitions: List<JsonObject> = listOf(
@@ -2362,8 +2194,11 @@ object AgentToolDefinitions {
         subagentDispatchTool
     )
 
-    fun builtinTools(locale: PromptLocale = currentLocale()): List<JsonObject> =
-        builtinToolDefinitions.map { decorateToolDefinition(it, locale) }
+    fun builtinTools(
+        locale: PromptLocale = currentLocale(),
+        terminalDistribution: TerminalDistribution.Spec = TerminalDistribution.alpine
+    ): List<JsonObject> =
+        builtinToolDefinitions.map { decorateToolDefinition(it, locale, terminalDistribution) }
 
     fun scheduleTools(locale: PromptLocale = currentLocale()): List<JsonObject> =
         scheduleToolDefinitions.map { decorateToolDefinition(it, locale) }
@@ -2383,6 +2218,9 @@ object AgentToolDefinitions {
     fun subagentTools(locale: PromptLocale = currentLocale()): List<JsonObject> =
         subagentToolDefinitions.map { decorateToolDefinition(it, locale) }
 
-    fun staticTools(locale: PromptLocale = currentLocale()): List<JsonObject> =
-        builtinTools(locale) + scheduleTools(locale) + alarmTools(locale) + calendarTools(locale) + musicTools(locale)
+    fun staticTools(
+        locale: PromptLocale = currentLocale(),
+        terminalDistribution: TerminalDistribution.Spec = TerminalDistribution.alpine
+    ): List<JsonObject> =
+        builtinTools(locale, terminalDistribution) + scheduleTools(locale) + alarmTools(locale) + calendarTools(locale) + musicTools(locale)
 }

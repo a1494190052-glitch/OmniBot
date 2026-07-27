@@ -13,7 +13,7 @@ import android.provider.DocumentsContract
 import android.provider.DocumentsProvider
 import android.util.Log
 import android.webkit.MimeTypeMap
-import com.rk.libcommons.alpineHomeDir
+import com.rk.libcommons.selectedTerminalHomeDir
 import com.rk.resources.getString
 import com.rk.resources.strings
 import java.io.File
@@ -33,8 +33,9 @@ class AlpineDocumentProvider : DocumentsProvider() {
         val applicationName = "ReTerminal"
 
         val row = result.newRow()
-        row.add(DocumentsContract.Root.COLUMN_ROOT_ID, getDocIdForFile(BASE_DIR))
-        row.add(DocumentsContract.Root.COLUMN_DOCUMENT_ID, getDocIdForFile(BASE_DIR))
+        val baseDir = selectedTerminalHomeDir()
+        row.add(DocumentsContract.Root.COLUMN_ROOT_ID, getDocIdForFile(baseDir))
+        row.add(DocumentsContract.Root.COLUMN_DOCUMENT_ID, getDocIdForFile(baseDir))
         row.add(DocumentsContract.Root.COLUMN_SUMMARY, null)
         row.add(
             DocumentsContract.Root.COLUMN_FLAGS,
@@ -42,7 +43,7 @@ class AlpineDocumentProvider : DocumentsProvider() {
         )
         row.add(DocumentsContract.Root.COLUMN_TITLE, applicationName)
         row.add(DocumentsContract.Root.COLUMN_MIME_TYPES, ALL_MIME_TYPES)
-        row.add(DocumentsContract.Root.COLUMN_AVAILABLE_BYTES, BASE_DIR.freeSpace)
+        row.add(DocumentsContract.Root.COLUMN_AVAILABLE_BYTES, baseDir.freeSpace)
         row.add(DocumentsContract.Root.COLUMN_ICON, R.mipmap.ic_launcher)
         return result
     }
@@ -172,7 +173,7 @@ class AlpineDocumentProvider : DocumentsProvider() {
             // through the whole SD card).
             var isInsideHome: Boolean
             try {
-                isInsideHome = file.canonicalPath.startsWith(alpineHomeDir().canonicalPath)
+                isInsideHome = file.canonicalPath.startsWith(selectedTerminalHomeDir().canonicalPath)
             } catch (e: IOException) {
                 isInsideHome = true
             }
@@ -263,8 +264,6 @@ class AlpineDocumentProvider : DocumentsProvider() {
 
 
         private const val ALL_MIME_TYPES = "*/*"
-
-        private val BASE_DIR = alpineHomeDir()
 
         // The default columns to return information about a root if no specific
         // columns are requested in a query.

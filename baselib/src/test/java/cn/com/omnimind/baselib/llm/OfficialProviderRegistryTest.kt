@@ -67,9 +67,9 @@ class OfficialProviderRegistryTest {
             )
         )
         assertEquals(
-            "omniinfer",
+            "custom",
             OfficialProviderRegistry.normalizeSourceType(
-                sourceType = "omniinfer",
+                sourceType = "retired-local",
                 profileId = "profile-3",
                 baseUrl = ""
             )

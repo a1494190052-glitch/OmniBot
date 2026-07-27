@@ -4,6 +4,7 @@ import 'dart:ui' as ui;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:ui/l10n/legacy_text_localizer.dart';
@@ -151,6 +152,7 @@ class ChatMessageAnchorBar extends StatefulWidget {
     required this.bottomInset,
     required this.visible,
     required this.onJumpToEntry,
+    this.onExpandedChanged,
   });
 
   final List<ChatMessageModel> messages;
@@ -164,6 +166,10 @@ class ChatMessageAnchorBar extends StatefulWidget {
   final double bottomInset;
   final bool visible;
   final Future<bool> Function(String entryKey) onJumpToEntry;
+
+  /// 面板展开态变化回调（展开为 true）。父层据此在展开期间关闭 Scaffold 抽屉的
+  /// 边缘侧滑手势，避免展开锚点后从左往右轻滑误触发 home_drawer。
+  final ValueChanged<bool>? onExpandedChanged;
 
   @override
   State<ChatMessageAnchorBar> createState() => _ChatMessageAnchorBarState();
@@ -219,9 +225,35 @@ class _ChatMessageAnchorBarState extends State<ChatMessageAnchorBar>
 
   @override
   void dispose() {
+    // 展开态被拆除时补发一次收起，避免父层的抽屉侧滑一直被关闭。
+    if (_expanded) {
+      final callback = widget.onExpandedChanged;
+      if (callback != null) {
+        SchedulerBinding.instance.addPostFrameCallback((_) => callback(false));
+      }
+    }
     _observableMessages?.removeListener(_handleObservableMessagesChanged);
     _expandController.dispose();
     super.dispose();
+  }
+
+  /// 通知父层展开态变化。build 阶段（如 didUpdateWidget）触发时延后到帧末，
+  /// 避免在父层 build 期间同步调用其 setState。
+  void _notifyExpandedChanged(bool value) {
+    final callback = widget.onExpandedChanged;
+    if (callback == null) {
+      return;
+    }
+    if (SchedulerBinding.instance.schedulerPhase ==
+        SchedulerPhase.persistentCallbacks) {
+      SchedulerBinding.instance.addPostFrameCallback((_) {
+        if (mounted) {
+          callback(value);
+        }
+      });
+    } else {
+      callback(value);
+    }
   }
 
   void _bindObservableMessages(List<ChatMessageModel> messages) {
@@ -298,13 +330,18 @@ class _ChatMessageAnchorBarState extends State<ChatMessageAnchorBar>
     } else {
       _expandController.reverse();
     }
+    _notifyExpandedChanged(next);
   }
 
   void _collapseImmediately() {
+    final wasExpanded = _expanded;
     _clearDragState(notify: false);
     _expanded = false;
     _ringScroll = 0;
     _expandController.value = 0;
+    if (wasExpanded) {
+      _notifyExpandedChanged(false);
+    }
   }
 
   void _clearDragState({bool notify = true}) {
@@ -753,10 +790,6 @@ class _ChatMessageAnchorBarState extends State<ChatMessageAnchorBar>
           color: isDark
               ? palette.surfacePrimary.withValues(alpha: 0.58)
               : Colors.white.withValues(alpha: 0.96),
-          border: Border.all(
-            color: isDark ? palette.borderStrong : Colors.white,
-            width: 1.5,
-          ),
           boxShadow: [
             BoxShadow(
               color: Colors.black.withValues(alpha: isDark ? 0.30 : 0.14),
@@ -771,7 +804,11 @@ class _ChatMessageAnchorBarState extends State<ChatMessageAnchorBar>
     return ValueListenableBuilder<AgentAvatarState>(
       valueListenable: AgentAvatarService.avatarStateNotifier,
       builder: (context, state, _) {
-        return AgentAvatarCircle(state: state, size: _kAnchorAvatarSize);
+        return AgentAvatarCircle(
+          state: state,
+          size: _kAnchorAvatarSize,
+          showBorder: false,
+        );
       },
     );
   }
@@ -827,9 +864,6 @@ class _ChatMessageAnchorBarState extends State<ChatMessageAnchorBar>
     final bottomTint = isDark
         ? palette.surfaceSecondary.withValues(alpha: 0.12)
         : Colors.white.withValues(alpha: 0.18);
-    final borderColor = isDark
-        ? Colors.white.withValues(alpha: 0.08)
-        : Colors.white.withValues(alpha: 0.82);
     return Container(
       width: _kAnchorButtonSize,
       height: _kAnchorButtonSize,
@@ -849,7 +883,6 @@ class _ChatMessageAnchorBarState extends State<ChatMessageAnchorBar>
           child: DecoratedBox(
             decoration: BoxDecoration(
               shape: BoxShape.circle,
-              border: Border.all(color: borderColor),
               gradient: LinearGradient(
                 begin: Alignment.topLeft,
                 end: Alignment.bottomRight,

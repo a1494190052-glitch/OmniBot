@@ -5,14 +5,12 @@ import 'package:go_router/go_router.dart';
 import 'package:ui/l10n/app_locale_controller.dart';
 import 'package:ui/l10n/generated/app_localizations.dart';
 import 'package:ui/l10n/legacy_text_localizer.dart';
-import 'package:ui/features/task/run_log/vlm_function_registration_coordinator.dart';
+import 'package:ui/features/task/run_log/run_log_function_registration_coordinator.dart';
 import 'package:ui/services/assists_core_service.dart';
 import 'package:ui/services/omnibot_resource_service.dart';
 import 'package:ui/services/app_background_service.dart';
-import 'package:ui/services/app_font_effect_service.dart';
 import 'package:ui/services/scheduled_task_scheduler_service.dart';
 import 'package:ui/services/storage_service.dart';
-import 'package:ui/theme/app_font_effect_controller.dart';
 import 'package:ui/theme/app_theme_controller.dart';
 import 'package:ui/theme/app_theme_mode.dart';
 import 'package:ui/theme/app_theme.dart';
@@ -45,13 +43,12 @@ Future<void> bootstrapMain(List<String> args) async {
   }
   WidgetsFlutterBinding.ensureInitialized();
   AssistsMessageService.initialize();
-  VlmFunctionRegistrationPrompt.initialize();
+  RunLogFunctionRegistrationPrompt.initialize();
   WidgetsBinding.instance.deferFirstFrame();
   SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
 
   final container = ProviderContainer();
   await StorageService.init();
-  await AppFontEffectService.loadFromStoredPreference();
   await AppBackgroundService.load();
   await ScheduledTaskSchedulerService.initialize();
   await OmnibotResourceService.ensureWorkspacePathsLoaded();
@@ -68,43 +65,6 @@ Future<void> bootstrapMain(List<String> args) async {
     ),
   );
   WidgetsBinding.instance.allowFirstFrame();
-}
-
-@pragma('vm:entry-point')
-Future<void> bootstrapSubEngine(List<String> args) async {
-  GoRouterManager.setSubEngine(true);
-  String? initialRoute;
-  if (args.isNotEmpty) {
-    for (var arg in args) {
-      if (arg.startsWith('--route=')) {
-        initialRoute = arg.substring(8);
-      }
-    }
-  }
-  if (initialRoute != null) {
-    GoRouterManager.setInitialRoute(initialRoute);
-  }
-  WidgetsFlutterBinding.ensureInitialized();
-  SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
-
-  final container = ProviderContainer();
-  await StorageService.init();
-  await AppFontEffectService.loadFromStoredPreference();
-  await AppBackgroundService.load();
-  await ScheduledTaskSchedulerService.initialize();
-  await OmnibotResourceService.ensureWorkspacePathsLoaded();
-  SystemChrome.setSystemUIOverlayStyle(
-    AppTheme.overlayStyleForBrightness(
-      _resolveStartupBrightness(StorageService.getThemeMode()),
-    ),
-  );
-
-  runApp(
-    UncontrolledProviderScope(
-      container: container,
-      child: MyApp(args: args),
-    ),
-  );
 }
 
 Brightness _resolveStartupBrightness(AppThemeMode mode) {
@@ -159,15 +119,13 @@ class _MyAppState extends ConsumerState<MyApp> {
 
     final widgetBuildStart = DateTime.now();
     final themeMode = ref.watch(appThemeModeProvider).materialThemeMode;
-    final fontEffect = ref.watch(appFontEffectProvider);
-    final useEnhancedFonts = fontEffect.useEnhancedFonts;
     final resolvedLocale = ref.watch(appResolvedLocaleProvider);
     LegacyTextLocalizer.setResolvedLocale(resolvedLocale.locale);
     final widget = MaterialApp.router(
       onGenerateTitle: (context) =>
           AppLocalizations.of(context)?.appName ?? 'Omnibot',
-      theme: AppTheme.lightThemeFor(enhancedFonts: useEnhancedFonts),
-      darkTheme: AppTheme.darkThemeFor(enhancedFonts: useEnhancedFonts),
+      theme: AppTheme.lightTheme,
+      darkTheme: AppTheme.darkTheme,
       themeMode: themeMode,
       themeAnimationCurve: Curves.easeInOutCubic,
       themeAnimationDuration: const Duration(milliseconds: 220),

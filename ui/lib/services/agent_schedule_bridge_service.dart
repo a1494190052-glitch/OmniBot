@@ -7,10 +7,11 @@ class AgentScheduleBridgeService {
   static Future<Map<String, dynamic>> createTask(
     Map<String, dynamic> raw,
   ) async {
-    final targetKind = (raw['targetKind'] ?? 'vlm').toString();
-    if (targetKind != 'vlm' && targetKind != 'subagent') {
-      throw ArgumentError('targetKind 仅支持 vlm 或 subagent');
+    final targetKind = (raw['targetKind'] ?? 'subagent').toString();
+    if (targetKind != 'subagent') {
+      throw ArgumentError('targetKind 仅支持 subagent');
     }
+    final subagentPrompt = _requireSubagentPrompt(raw['subagentPrompt']);
 
     final type = _parseType((raw['scheduleType'] ?? '').toString());
     final enabled = raw['enabled'] != false;
@@ -18,9 +19,6 @@ class AgentScheduleBridgeService {
       id: (raw['taskId'] ?? DateTime.now().microsecondsSinceEpoch.toString())
           .toString(),
       title: (raw['title'] ?? '').toString(),
-      packageName: (raw['packageName'] ?? '').toString(),
-      nodeId: (raw['nodeId'] ?? '').toString(),
-      suggestionId: (raw['suggestionId'] ?? '').toString(),
       targetKind: targetKind,
       subagentConversationId: raw['subagentConversationId']?.toString(),
       parentConversationId:
@@ -30,7 +28,7 @@ class AgentScheduleBridgeService {
           (raw['parentConversationMode'] ??
                   raw['subagentParentConversationMode'])
               ?.toString(),
-      subagentPrompt: raw['subagentPrompt']?.toString(),
+      subagentPrompt: subagentPrompt,
       notificationEnabled: raw['notificationEnabled'] != false,
       type: type,
       fixedTime: type == ScheduledTaskType.fixedTime
@@ -43,9 +41,6 @@ class AgentScheduleBridgeService {
       isEnabled: enabled,
       createdAt: DateTime.now().millisecondsSinceEpoch,
       nextExecutionTime: null,
-      suggestionData: _buildSuggestionData(raw, targetKind),
-      appIconUrl: raw['appIconUrl']?.toString(),
-      typeIconUrl: raw['typeIconUrl']?.toString(),
     );
 
     final normalizedTask = task.copyWith(
@@ -100,6 +95,9 @@ class AgentScheduleBridgeService {
             : '未找到对应的定时任务',
       );
     }
+    final subagentPrompt = raw.containsKey('subagentPrompt')
+        ? _requireSubagentPrompt(raw['subagentPrompt'])
+        : _requireSubagentPrompt(existing.subagentPrompt);
 
     var nextType = existing.type;
     if (raw.containsKey('fixedTime')) {
@@ -120,9 +118,7 @@ class AgentScheduleBridgeService {
       parentConversationMode: raw.containsKey('parentConversationMode')
           ? raw['parentConversationMode']?.toString()
           : existing.parentConversationMode,
-      subagentPrompt: raw.containsKey('subagentPrompt')
-          ? raw['subagentPrompt']?.toString()
-          : existing.subagentPrompt,
+      subagentPrompt: subagentPrompt,
       notificationEnabled: raw.containsKey('notificationEnabled')
           ? raw['notificationEnabled'] == true
           : existing.notificationEnabled,
@@ -145,24 +141,8 @@ class AgentScheduleBridgeService {
           : existing.isEnabled,
       nextExecutionTime: null,
     );
-    final updatedSuggestionData =
-        raw.containsKey('goal') ||
-            raw.containsKey('subagentPrompt') ||
-            raw.containsKey('targetKind')
-        ? _buildSuggestionData({
-            ...raw,
-            'targetKind': baseUpdated.targetKind,
-            'goal': raw['goal'] ?? existing.suggestionData?['goal'] ?? '',
-            'subagentPrompt':
-                raw['subagentPrompt'] ??
-                existing.subagentPrompt ??
-                existing.suggestionData?['subagentPrompt'] ??
-                '',
-          }, baseUpdated.targetKind)
-        : existing.suggestionData;
     final updated = baseUpdated.copyWith(
       nextExecutionTime: baseUpdated.calculateNextExecutionTime(),
-      suggestionData: updatedSuggestionData,
     );
 
     final saved = await ScheduledTaskStorageService.updateScheduledTask(
@@ -242,27 +222,12 @@ class AgentScheduleBridgeService {
     return null;
   }
 
-  static Map<String, dynamic>? _buildSuggestionData(
-    Map<String, dynamic> raw,
-    String targetKind,
-  ) {
-    if (targetKind == 'subagent') {
-      final prompt = raw['subagentPrompt']?.toString();
-      if (prompt == null || prompt.isEmpty) {
-        throw ArgumentError('SubAgent 定时任务缺少 subagentPrompt');
-      }
-      return {'targetKind': 'subagent', 'subagentPrompt': prompt};
+  static String _requireSubagentPrompt(dynamic value) {
+    final prompt = value?.toString().trim() ?? '';
+    if (prompt.isEmpty) {
+      throw ArgumentError('SubAgent 定时任务缺少 subagentPrompt');
     }
-
-    final goal = raw['goal']?.toString();
-    if (goal == null || goal.isEmpty) {
-      throw ArgumentError('VLM 定时任务缺少 goal');
-    }
-    return {
-      'goal': goal,
-      'packageName': raw['packageName']?.toString(),
-      'targetKind': 'vlm',
-    };
+    return prompt;
   }
 
   static Map<String, dynamic> _toSummaryMap(ScheduledTask task) {
@@ -279,7 +244,6 @@ class AgentScheduleBridgeService {
       'nextExecutionTime': task.nextExecutionTime,
       'displayTimeText': task.getDisplayTimeText(),
       'targetKind': task.targetKind,
-      'packageName': task.packageName,
       'subagentConversationId': task.subagentConversationId,
       'parentConversationId': task.parentConversationId,
       'parentConversationMode': task.parentConversationMode,

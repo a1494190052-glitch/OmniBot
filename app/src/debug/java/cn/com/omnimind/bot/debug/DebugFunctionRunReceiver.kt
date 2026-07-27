@@ -4,15 +4,12 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.util.Base64
-import cn.com.omnimind.accessibility.service.AssistsService
-import cn.com.omnimind.assists.controller.accessibility.AccessibilityController
-import cn.com.omnimind.assists.task.vlmserver.AndroidDeviceOperator
+import cn.com.omnimind.androidgui.AndroidGuiEnvironment
 import cn.com.omnimind.baselib.util.OmniLog
 import cn.com.omnimind.bot.function.FunctionRun
+import cn.com.omnimind.bot.function.FunctionApi
 import cn.com.omnimind.bot.function.FunctionService
 import cn.com.omnimind.bot.runlog.RunLogPagePackageInference
-import cn.com.omnimind.bot.util.AssistsUtil
-import cn.com.omnimind.uikit.settings.CompanionOverlaySettings
 import com.google.gson.GsonBuilder
 import com.google.gson.reflect.TypeToken
 import kotlinx.coroutines.CoroutineScope
@@ -20,7 +17,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 import java.io.File
 import java.util.UUID
 
@@ -39,9 +35,6 @@ class DebugFunctionRunReceiver : BroadcastReceiver() {
         scope.launch {
             val result = runCatching {
                 waitForReplayPage(appContext)
-                CompanionOverlaySettings.init(appContext)
-                CompanionOverlaySettings.dismissFloatingUi()
-                delay(300L)
                 runFunctionWithRunLogFallback(appContext, functionId, goal, arguments)
             }.getOrElse { error ->
                 linkedMapOf<String, Any?>(
@@ -76,14 +69,15 @@ class DebugFunctionRunReceiver : BroadcastReceiver() {
                 "auto_register_unavailable_reason" to "function_id_is_not_debug_run_id",
             )
 
-        val convert = service.convertRunLog(
+        val convert = service.executeTool(
+            FunctionApi.RUN_LOG_CONVERT,
             linkedMapOf(
                 "run_id" to runId,
                 "register" to true,
                 "function_id" to functionId,
-                "name" to "Debug VLM RunLog",
+                "name" to "Debug GUI RunLog",
                 "description" to goal,
-            )
+            ),
         )
         if (convert["success"] != true) {
             return initial + linkedMapOf(
@@ -109,7 +103,6 @@ class DebugFunctionRunReceiver : BroadcastReceiver() {
             "function_id" to functionId,
             "goal" to goal,
             "arguments" to arguments,
-            "frontend_parent" to "debug_replay",
         )
 
     private fun isFunctionNotFound(result: Map<String, Any?>): Boolean =
@@ -136,24 +129,26 @@ class DebugFunctionRunReceiver : BroadcastReceiver() {
             "summary" to convert["summary"],
         ).filterValues { it != null }
 
-    private suspend fun waitForAccessibility() {
+    private suspend fun waitForAccessibility(environment: AndroidGuiEnvironment) {
+        if (!environment.isAccessibilityEnabled()) {
+            error("android_gui_accessibility_disabled")
+        }
         repeat(300) {
-            if (AssistsService.instance != null && AccessibilityController.initController()) return
+            if (environment.isReady()) return
             delay(200L)
         }
-        error("OOB accessibility service is not bound")
+        error("android_gui_accessibility_not_ready")
     }
 
     private suspend fun waitForReplayPage(context: Context) {
-        if (!AssistsUtil.Core.isInitialized()) {
-            AssistsUtil.Core.initCore(context)
-        }
-        waitForAccessibility()
+        val environment = AndroidGuiEnvironment(context)
+        waitForAccessibility(environment)
         var lastPackage = ""
         var lastXmlChars = 0
         repeat(PAGE_OBSERVE_ATTEMPTS) { attempt ->
-            val xml = currentXml()
-            val rawPackage = currentPackageName()
+            val state = environment.observe(captureScreenshot = false)
+            val xml = state.xml.trim()
+            val rawPackage = state.packageName.trim()
             val effectivePackage = RunLogPagePackageInference.effectivePackage(rawPackage, xml)
             lastPackage = effectivePackage.ifBlank { rawPackage }
             lastXmlChars = xml.length
@@ -170,34 +165,6 @@ class DebugFunctionRunReceiver : BroadcastReceiver() {
                 "last_package=$lastPackage last_xml_chars=$lastXmlChars"
         )
     }
-
-    private suspend fun currentXml(): String =
-        runCatching {
-            if (AccessibilityController.initController()) {
-                withContext(Dispatchers.Main.immediate) {
-                    AccessibilityController.getCaptureScreenShotXml(true)
-                }
-            } else {
-                null
-            }
-        }.getOrNull()?.trim()?.takeIf { it.isNotEmpty() }
-            ?: runCatching {
-                AndroidDeviceOperator(null, BaseApplication.instance).currentXml()?.trim().orEmpty()
-            }.getOrDefault("")
-
-    private suspend fun currentPackageName(): String =
-        runCatching {
-            if (AccessibilityController.initController()) {
-                withContext(Dispatchers.Main.immediate) {
-                    AccessibilityController.getPackageName()
-                }
-            } else {
-                null
-            }
-        }.getOrNull()?.trim()?.takeIf { it.isNotEmpty() }
-            ?: runCatching {
-                AndroidDeviceOperator(null, BaseApplication.instance).currentPackageName()?.trim().orEmpty()
-            }.getOrDefault("")
 
     private fun isOobPackage(context: Context, packageName: String): Boolean =
         packageName == context.packageName || packageName.startsWith("cn.com.omnimind.")

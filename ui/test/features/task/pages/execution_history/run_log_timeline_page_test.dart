@@ -358,7 +358,6 @@ void main() {
           'function_id': 'wait_once',
           'registered': true,
           'enhancement_status': 'enhancing',
-          'enhancement_queued': true,
           'function': <String, dynamic>{
             'function_id': 'wait_once',
             'name': 'wait once',

@@ -24,6 +24,57 @@ class SceneVoiceConfigStoreTest {
     }
 
     @Test
+    fun normalize_defaultsTtsModeAndTrimsCurlCommand() {
+        val unknownMode = SceneVoiceConfigStore.normalize(
+            SceneVoiceConfig(ttsMode = "weird_mode", customCurlCommand = "  curl x  ")
+        )
+        assertEquals(SceneVoiceConfigStore.TTS_MODE_BUILTIN, unknownMode.ttsMode)
+        assertEquals("curl x", unknownMode.customCurlCommand)
+
+        val customMode = SceneVoiceConfigStore.normalize(
+            SceneVoiceConfig(
+                ttsMode = SceneVoiceConfigStore.TTS_MODE_CUSTOM_CURL,
+                customCurlCommand = "curl https://example.com -d '{{text}}'"
+            )
+        )
+        assertEquals(SceneVoiceConfigStore.TTS_MODE_CUSTOM_CURL, customMode.ttsMode)
+        assertEquals("curl https://example.com -d '{{text}}'", customMode.customCurlCommand)
+    }
+
+    @Test
+    fun parse_readsTtsModeAndCurlCommand() {
+        val parsed = SceneVoiceConfigStore.parse(
+            """
+            {
+              "autoPlay": false,
+              "ttsMode": "custom_curl",
+              "customCurlCommand": "curl https://tts.example.com -d '{{text}}'"
+            }
+            """.trimIndent()
+        )
+
+        requireNotNull(parsed)
+        assertEquals(SceneVoiceConfigStore.TTS_MODE_CUSTOM_CURL, parsed.ttsMode)
+        assertEquals(
+            "curl https://tts.example.com -d '{{text}}'",
+            parsed.customCurlCommand
+        )
+    }
+
+    @Test
+    fun parse_defaultsTtsModeWhenAbsent() {
+        val parsed = SceneVoiceConfigStore.parse(
+            """
+            { "voiceId": "default_zh" }
+            """.trimIndent()
+        )
+
+        requireNotNull(parsed)
+        assertEquals(SceneVoiceConfigStore.TTS_MODE_BUILTIN, parsed.ttsMode)
+        assertEquals("", parsed.customCurlCommand)
+    }
+
+    @Test
     fun parse_returnsNormalizedVoiceConfig() {
         val parsed = SceneVoiceConfigStore.parse(
             """

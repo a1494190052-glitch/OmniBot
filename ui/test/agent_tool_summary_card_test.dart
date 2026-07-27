@@ -74,6 +74,21 @@ void main() {
 
     expect(find.text('检查仓库状态'), findsOneWidget);
     expect(find.text('终端执行'), findsNothing);
+    final leadingIcon = find.byKey(
+      const ValueKey('agent-tool-summary-leading-icon'),
+    );
+    expect(leadingIcon, findsOneWidget);
+    final iconSlot = tester.widget<SizedBox>(leadingIcon);
+    expect(iconSlot.width, 20);
+    expect(iconSlot.height, 20);
+    expect(
+      find.descendant(of: leadingIcon, matching: find.byType(DecoratedBox)),
+      findsNothing,
+    );
+    final icon = tester.widget<Icon>(
+      find.descendant(of: leadingIcon, matching: find.byType(Icon)),
+    );
+    expect(icon.size, 18);
   });
 
   testWidgets('tool card opens detail sheet when tapped', (tester) async {

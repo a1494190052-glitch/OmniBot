@@ -10,15 +10,8 @@ import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
-import cn.com.omnimind.accessibility.api.Constant
-import cn.com.omnimind.assists.AssistsCore
-import cn.com.omnimind.assists.HumanTrajectoryLearningResult
-import cn.com.omnimind.assists.HumanTrajectoryLearningSession
 import cn.com.omnimind.assists.api.bean.TaskParams
 import cn.com.omnimind.assists.api.interfaces.OnMessagePushListener
-import cn.com.omnimind.assists.controller.accessibility.AccessibilityController
-import cn.com.omnimind.assists.task.scheduled.worker.ScheduledStates
-import cn.com.omnimind.assists.task.scheduled.worker.toScheduledVLMOperationTaskParamsData
 import cn.com.omnimind.baselib.database.DatabaseHelper
 import cn.com.omnimind.baselib.database.Conversation
 import cn.com.omnimind.baselib.database.TokenUsageRecord
@@ -35,9 +28,7 @@ import cn.com.omnimind.baselib.llm.DeepSeekProvider
 import cn.com.omnimind.baselib.llm.ModelProviderConfig
 import cn.com.omnimind.baselib.llm.ModelProviderProfile
 import cn.com.omnimind.baselib.llm.ModelProviderConfigStore
-import cn.com.omnimind.baselib.llm.MnnLocalProviderStateStore
 import cn.com.omnimind.baselib.llm.ModelSceneRegistry
-import cn.com.omnimind.baselib.llm.OfficialVlmOperationConfigStore
 import cn.com.omnimind.baselib.llm.ProviderModelOption
 import cn.com.omnimind.baselib.llm.ProviderCustomHeaderUtils
 import cn.com.omnimind.baselib.llm.SceneModelCatalogResolver
@@ -46,8 +37,6 @@ import cn.com.omnimind.baselib.llm.SceneModelBindingEntry
 import cn.com.omnimind.baselib.llm.SceneModelBindingStore
 import cn.com.omnimind.baselib.llm.SceneModelOverrideEntry
 import cn.com.omnimind.baselib.llm.SceneModelOverrideStore
-import cn.com.omnimind.baselib.llm.SceneOperationConfig
-import cn.com.omnimind.baselib.llm.SceneOperationConfigStore
 import cn.com.omnimind.baselib.llm.SceneVoiceConfig
 import cn.com.omnimind.baselib.llm.SceneVoiceConfigStore
 import cn.com.omnimind.baselib.runlog.InternalRunLogFinishEvent
@@ -58,7 +47,6 @@ import cn.com.omnimind.baselib.util.RuntimeLogStore
 import cn.com.omnimind.baselib.util.exception.PermissionException
 import cn.com.omnimind.bot.R
 import cn.com.omnimind.bot.activity.MainActivity
-import cn.com.omnimind.bot.omniflow.omniFlowRecordStepExecutor
 import cn.com.omnimind.bot.ui.scheduled.ScheduledTaskReminderLoader
 import cn.com.omnimind.bot.util.AssistsUtil
 import cn.com.omnimind.assists.controller.http.HttpController
@@ -66,7 +54,6 @@ import cn.com.omnimind.baselib.util.SchemeUtil
 import cn.com.omnimind.bot.util.TaskRuntimeSettings
 import cn.com.omnimind.bot.agent.AgentCallback
 import cn.com.omnimind.bot.agent.AgentAlarmToolService
-import cn.com.omnimind.bot.agent.AgentAiCapabilityConfigSync
 import cn.com.omnimind.bot.agent.AgentConversationContextCompactor
 import cn.com.omnimind.bot.agent.AgentImageAttachmentSupport
 import cn.com.omnimind.bot.agent.AgentWorkspaceAttachmentSupport
@@ -75,6 +62,7 @@ import cn.com.omnimind.bot.agent.AgentTextSanitizer
 import cn.com.omnimind.bot.agent.AgentModelOverride
 import cn.com.omnimind.bot.agent.AgentResult
 import cn.com.omnimind.bot.agent.AgentConversationHistoryRepository
+import cn.com.omnimind.bot.agent.AgentConversationHistorySupport
 import cn.com.omnimind.bot.agent.AgentRuntimeContextRepository
 import cn.com.omnimind.bot.agent.AgentScheduleToolBridge
 import cn.com.omnimind.bot.agent.AgentRunControl
@@ -91,9 +79,6 @@ import cn.com.omnimind.bot.agent.WorkspaceMemoryRollupScheduler
 import cn.com.omnimind.bot.agent.WorkspaceMemoryService
 import cn.com.omnimind.bot.agent.WorkspaceScheduledTaskScheduler
 import cn.com.omnimind.bot.agent.resolveToolExecutionStatus
-import cn.com.omnimind.bot.function.FunctionRun
-import cn.com.omnimind.bot.function.FunctionService
-import cn.com.omnimind.bot.localmodel.LocalModelFeature
 import cn.com.omnimind.bot.mcp.RemoteMcpConfigStore
 import cn.com.omnimind.bot.quicklog.QuickLogService
 import cn.com.omnimind.bot.util.TaskCompletionNavigator
@@ -103,8 +88,6 @@ import cn.com.omnimind.bot.webchat.RealtimeHub
 import cn.com.omnimind.bot.workspace.PublicStorageAccess
 import cn.com.omnimind.bot.workspace.WorkspaceStorageAccess
 import cn.com.omnimind.uikit.UIKit
-import cn.com.omnimind.uikit.loader.ManualRecordingControlOverlay
-import cn.com.omnimind.uikit.loader.ScreenMaskLoader
 import com.google.gson.Gson
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
@@ -628,27 +611,6 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
             }
         }
 
-        fun dispatchAgentAiConfigChanged(source: String, path: String) {
-            val payload = mapOf(
-                "source" to source,
-                "path" to path
-            )
-            runCatching {
-                mainHandler.post {
-                    runCatching {
-                        mainEngineChannel?.invokeMethod("onAgentAiConfigChanged", payload)
-                    }.onFailure {
-                        OmniLog.w(
-                            "[AssistsCoreManager]",
-                            "dispatchAgentAiConfigChanged failed: ${it.message}"
-                        )
-                    }
-                }
-            }.onFailure {
-                OmniLog.w("[AssistsCoreManager]", "dispatchAgentAiConfigChanged failed: ${it.message}")
-            }
-        }
-
         private fun isSummaryTask(taskId: String): Boolean {
             return taskId.startsWith(SUMMARY_TASK_PREFIX_TASK)
         }
@@ -673,8 +635,6 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
     private fun localizedPermissionName(name: String): String {
         val trimmed = name.trim()
         return when (trimmed) {
-            "无障碍权限", "Accessibility", "Accessibility Permission" ->
-                t("无障碍权限", "Accessibility")
             "悬浮窗权限", "Overlay", "Overlay Permission" ->
                 t("悬浮窗权限", "Overlay")
             "应用列表读取权限", "Installed Apps Access", "Installed Apps Permission" ->
@@ -954,21 +914,6 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
         }
     }
 
-    private fun syncAgentAiCapabilityConfigFile() {
-        runCatching {
-            AgentAiCapabilityConfigSync.get(context).syncFileFromStores()
-            val workspaceManager = AgentWorkspaceManager(context)
-            val configFile = workspaceManager.agentConfigFile()
-            dispatchAgentAiConfigChanged(
-                source = "store",
-                path = workspaceManager.shellPathForAndroid(configFile)
-                    ?: configFile.absolutePath
-            )
-        }.onFailure {
-            OmniLog.w(TAG, "sync agent ai config file failed: ${it.message}")
-        }
-    }
-
     private fun cancelActiveAgentRun(taskId: String?, reason: String) {
         val runsToCancel = synchronized(activeAgentLock) {
             if (taskId.isNullOrBlank()) {
@@ -1008,7 +953,6 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
                     text = cancelledText,
                     isError = false,
                     streamMeta = streamMeta,
-                    contextSegmentId = run.taskId,
                     createdAt = now
                 )
                 withContext(Dispatchers.Main) {
@@ -1133,15 +1077,9 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
             "autoPlay" to autoPlay,
             "voiceId" to voiceId,
             "stylePreset" to stylePreset,
-            "customStyle" to customStyle
-        )
-    }
-
-    private fun SceneOperationConfig.toMap(): Map<String, Any?> {
-        val officialModel = OfficialVlmOperationConfigStore.getConfig().model.trim()
-        return mapOf(
-            "useOfficialService" to useOfficialService,
-            "officialModel" to officialModel,
+            "customStyle" to customStyle,
+            "ttsMode" to ttsMode,
+            "customCurlCommand" to customCurlCommand
         )
     }
 
@@ -1195,6 +1133,38 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
     fun activeAgentTaskIds(): List<String> {
         return synchronized(activeAgentLock) {
             activeAgentRuns.keys.toList()
+        }
+    }
+
+    fun hasActiveAgentRun(
+        conversationId: Long,
+        conversationMode: String
+    ): Boolean {
+        val normalizedMode = conversationMode.trim().lowercase().ifEmpty { "normal" }
+        return synchronized(activeAgentLock) {
+            activeAgentRuns.values.any { run ->
+                run.conversationId == conversationId &&
+                    run.conversationMode.trim().lowercase() == normalizedMode
+            }
+        }
+    }
+
+    fun hasActiveChatTasks(): Boolean {
+        return synchronized(activeAgentLock) {
+            chatTaskPersistenceStates.isNotEmpty()
+        }
+    }
+
+    fun hasActiveChatRun(
+        conversationId: Long,
+        conversationMode: String
+    ): Boolean {
+        val normalizedMode = normalizeConversationMode(conversationMode)
+        return synchronized(activeAgentLock) {
+            chatTaskPersistenceStates.values.any { state ->
+                state.conversationId == conversationId &&
+                    state.conversationMode == normalizedMode
+            }
         }
     }
 
@@ -1272,7 +1242,6 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
         return when (toolName) {
             "context_apps_query" -> AgentToolMeta("builtin", t("查询已安装应用", "Query Installed Apps"))
             "context_time_now" -> AgentToolMeta("builtin", t("查询当前时间", "Query Current Time"))
-            "vlm_task" -> AgentToolMeta("builtin", t("视觉执行", "Vision Task"))
             "browser_use" -> AgentToolMeta("browser", t("浏览器操作", "Browser Action"))
             "android_privileged_action" -> AgentToolMeta("privileged", t("安卓高级动作", "Android Privileged Action"))
             "android_privileged_session_start" -> AgentToolMeta("privileged", t("启动高权限会话", "Start Privileged Session"))
@@ -1405,15 +1374,6 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
                 success = true
                 status = "success"
             }
-            is ToolExecutionResult.VlmTaskStarted -> {
-                summary = t("已启动视觉执行任务", "Started the vision task.")
-                previewJson = JSONObject(
-                    mapOf("taskId" to result.taskId, "goal" to result.goal)
-                ).toString()
-                rawResultJson = previewJson
-                success = true
-                status = "success"
-            }
             is ToolExecutionResult.PermissionRequired -> {
                 val names = result.missing.map(::localizedPermissionName)
                 summary = t(
@@ -1527,8 +1487,6 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
 
     private fun resolveRequiredPermissionIds(missing: List<String>): List<String> {
         val nameToId = linkedMapOf(
-            "无障碍权限" to "accessibility",
-            "Accessibility" to "accessibility",
             "悬浮窗权限" to "overlay",
             "Overlay" to "overlay",
             "应用列表读取权限" to "installed_apps",
@@ -1553,57 +1511,49 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
 
     private fun extractChatTaskText(content: String): String = extractChatTaskTextPayload(content)
 
-
-    /**
-     * 执行陪伴模式
-     */
-    fun createCompanionTask(
-        call: MethodCall, result: MethodChannel.Result,
+    private suspend fun publishChatTaskMessagesSync(
+        state: ChatTaskPersistenceState,
+        finalizeInterruptedEntries: Boolean
     ) {
-        val listener = this;
-        mainJob.launch {
-            try {
-                AssistsUtil.Core.createCompanionTask(
-                    context, listener
-                )
-                withContext(Dispatchers.Main) {
-                    result.success("SUCCESS")
-                }
-            } catch (e: PermissionException) {
-                withContext(Dispatchers.Main) {
-                    result.error("PERMISSION_ERROR", e.message, null);
-                }
-            } catch (e: Exception) {
-                withContext(Dispatchers.Main) {
-                    result.error("DO_TASK_ERROR", e.message, null)
-                }
-            }
-        }
-
+        val messages = conversationHistoryRepository().listConversationMessages(
+            conversationId = state.conversationId,
+            conversationMode = state.conversationMode,
+            finalizeInterruptedEntries = finalizeInterruptedEntries
+        )
+        RealtimeHub.publish(
+            "messages_replaced",
+            mapOf(
+                "conversationId" to state.conversationId,
+                "mode" to state.conversationMode,
+                "messages" to messages
+            )
+        )
+        FlutterChatSyncBridge.dispatchConversationMessagesChanged(
+            conversationId = state.conversationId,
+            mode = state.conversationMode,
+            reason = "chat_task_stream_snapshot"
+        )
     }
 
-    /**
-     * 取消陪伴模式
-     */
-    fun cancelTask(
-        call: MethodCall, result: MethodChannel.Result,
+    private fun publishChatTaskTerminalEvent(
+        taskId: String,
+        state: ChatTaskPersistenceState,
+        kind: String
     ) {
-        mainJob.launch {
-            try {
-                AssistsUtil.Core.finishTask(context)
-                withContext(Dispatchers.Main) {
-                    result.success("SUCCESS")
-                }
-            } catch (e: Exception) {
-                withContext(Dispatchers.Main) {
-                    result.error("CANCEL_TASK_ERROR", e.message, null)
-                }
-            }
-        }
+        RealtimeHub.publish(
+            "agent_stream_event",
+            mapOf(
+                "taskId" to taskId,
+                "conversationId" to state.conversationId,
+                "conversationMode" to state.conversationMode,
+                "kind" to kind
+            )
+        )
     }
 
+
     /**
-     * 取消正在运行的任务，不影响陪伴模式
+     * 取消正在运行的聊天或 Agent 任务。
      */
     fun cancelRunningTask(
         call: MethodCall, result: MethodChannel.Result,
@@ -1612,7 +1562,6 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
             try {
                 val taskId = call.argument<String>("taskId")
                 cancelActiveAgentRun(taskId, "cancelRunningTask")
-                AssistsUtil.Core.cancelRunningTask(taskId)
                 withContext(Dispatchers.Main) {
                     result.success("SUCCESS")
                 }
@@ -1663,24 +1612,6 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
                 withContext(Dispatchers.Main) {
                     result.error("STOP_AGENT_TOOL_CALL_ERROR", e.message, null)
                 }
-            }
-        }
-    }
-
-    /**
-     * 提供用户输入给VLM任务（响应INFO动作）
-     */
-    fun provideUserInputToVLMTask(call: MethodCall, result: MethodChannel.Result) {
-        try {
-            val userInput = call.argument<String>("userInput")!!
-            val success = AssistsUtil.Core.provideUserInputToVLMTask(userInput)
-            mainJob.launch(Dispatchers.Main) {
-                result.success(success)
-            }
-        } catch (e: Exception) {
-            OmniLog.e(TAG, "提供用户输入失败: ${e.message}")
-            mainJob.launch(Dispatchers.Main) {
-                result.error("PROVIDE_USER_INPUT_ERROR", e.message, null)
             }
         }
     }
@@ -1772,8 +1703,7 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
                 val repository = conversationHistoryRepository()
                 val messages = repository.listConversationMessages(
                     conversationId = conversationId,
-                    conversationMode = conversationMode,
-                    contextSegmentId = taskId
+                    conversationMode = conversationMode
                 )
                 val assistantEntries = messages.filter { entry ->
                     (entry["user"] as? Number)?.toInt() == 2 &&
@@ -1872,72 +1802,6 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
         }
     }
 
-    fun isCompanionTaskRunning(
-        call: MethodCall,
-        result: MethodChannel.Result,
-    ) {
-        mainJob.launch {
-            try {
-                var isRunning = AssistsUtil.Core.isCompanionTaskRunning()
-                withContext(Dispatchers.Main) {
-                    result.success(isRunning)
-                }
-            } catch (e: Exception) {
-                withContext(Dispatchers.Main) {
-                    result.success(false)
-                }
-            }
-        }
-    }
-
-    /**
-     * 取消陪伴任务的回到桌面操作
-     */
-    fun cancelCompanionGoHome(
-        call: MethodCall, result: MethodChannel.Result,
-    ) {
-        mainJob.launch {
-            try {
-                AssistsUtil.Core.cancelCompanionGoHome()
-                withContext(Dispatchers.Main) {
-                    result.success("SUCCESS")
-                }
-            } catch (e: Exception) {
-                withContext(Dispatchers.Main) {
-                    result.error("CANCEL_GO_HOME_ERROR", e.message, null)
-                }
-            }
-        }
-    }
-
-    /**
-     * Trigger the system Home action.
-     */
-    fun pressHome(
-        call: MethodCall, result: MethodChannel.Result,
-    ) {
-        mainJob.launch {
-            try {
-                if (!AssistsCore.isAccessibilityServiceEnabled()) {
-                    throw PermissionException("Accessibility service is not enabled")
-                }
-                AccessibilityController.initController()
-                AccessibilityController.goHome()
-                withContext(Dispatchers.Main) {
-                    result.success("SUCCESS")
-                }
-            } catch (e: PermissionException) {
-                withContext(Dispatchers.Main) {
-                    result.error("PERMISSION_ERROR", e.message, null)
-                }
-            } catch (e: Exception) {
-                withContext(Dispatchers.Main) {
-                    result.error("PRESS_HOME_ERROR", e.message, null)
-                }
-            }
-        }
-    }
-
     /**
      * 创建聊天任务
      */
@@ -1950,6 +1814,9 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
         val conversationId = call.argument<Number>("conversationId")?.toLong()
         val conversationMode = normalizeConversationMode(call.argument<String>("conversationMode"))
         val userMessage = call.argument<String>("userMessage")?.trim().orEmpty()
+        val requestedUserMessageCreatedAt =
+            call.argument<Number>("userMessageCreatedAt")?.toLong()?.takeIf { it > 0L }
+        val externalUserMessage = call.argument<Boolean>("externalUserMessage") == true
         val rawUserAttachments = (call.argument<List<Map<String, Any?>>>("userAttachments") ?: emptyList())
             .map(::sanitizeInteropMap)
         val userAttachments = AgentImageAttachmentSupport.prepareAttachments(
@@ -1994,31 +1861,50 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
                 if (normalizedConversationId != null) {
                     val repository = conversationHistoryRepository()
                     if (userMessage.isNotBlank() || userAttachments.isNotEmpty()) {
+                        val userMessageCreatedAt =
+                            requestedUserMessageCreatedAt ?: System.currentTimeMillis()
                         repository.upsertUserMessage(
                             conversationId = normalizedConversationId,
                             conversationMode = conversationMode,
                             entryId = "$taskID-user",
                             text = userMessage,
                             attachments = userAttachments,
-                            contextSegmentId = taskID
+                            streamMeta = if (externalUserMessage) {
+                                AgentConversationHistorySupport.externalUserMessageStreamMeta()
+                            } else {
+                                null
+                            },
+                            createdAt = userMessageCreatedAt
                         )
-                    }
-                    registerChatTaskPersistenceState(
-                        taskID,
-                        ChatTaskPersistenceState(
-                            conversationId = normalizedConversationId,
-                            conversationMode = conversationMode,
-                            userEntryId = "$taskID-user",
-                            assistantEntryId = "$taskID-assistant",
-                            modelOverride = modelOverride,
-                            reasoningEffort = reasoningEffort,
-                            promptTokenThreshold = resolvePromptTokenThresholdFallback(
-                                storedThreshold = repository
-                                    .getConversation(normalizedConversationId)
-                                    ?.promptTokenThreshold,
-                                modelOverride = modelOverride
+                        if (externalUserMessage) {
+                            FlutterChatSyncBridge.dispatchExternalUserMessageAppended(
+                                conversationId = normalizedConversationId,
+                                mode = conversationMode,
+                                entryId = "$taskID-user",
+                                text = userMessage,
+                                attachments = userAttachments,
+                                createdAt = userMessageCreatedAt
                             )
+                        }
+                    }
+                    val persistenceState = ChatTaskPersistenceState(
+                        conversationId = normalizedConversationId,
+                        conversationMode = conversationMode,
+                        userEntryId = "$taskID-user",
+                        assistantEntryId = "$taskID-assistant",
+                        modelOverride = modelOverride,
+                        reasoningEffort = reasoningEffort,
+                        promptTokenThreshold = resolvePromptTokenThresholdFallback(
+                            storedThreshold = repository
+                                .getConversation(normalizedConversationId)
+                                ?.promptTokenThreshold,
+                            modelOverride = modelOverride
                         )
+                    )
+                    registerChatTaskPersistenceState(taskID, persistenceState)
+                    publishChatTaskMessagesSync(
+                        persistenceState,
+                        finalizeInterruptedEntries = false
                     )
                 }
                 AssistsUtil.Core.createChatTask(
@@ -2120,10 +2006,13 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
                     conversationMode = state.conversationMode,
                     entryId = state.assistantEntryId,
                     text = snapshot,
-                    isError = state.isError,
-                    contextSegmentId = taskID
+                    isError = state.isError
                 )
             }
+            publishChatTaskMessagesSync(
+                state,
+                finalizeInterruptedEntries = false
+            )
         }
         withContext(Dispatchers.Main) {
             try {
@@ -2162,10 +2051,18 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
                     conversationMode = state.conversationMode,
                     entryId = state.assistantEntryId,
                     text = snapshot,
-                    isError = state.isError,
-                    contextSegmentId = taskID
+                    isError = state.isError
                 )
             }
+            publishChatTaskMessagesSync(
+                state,
+                finalizeInterruptedEntries = true
+            )
+            publishChatTaskTerminalEvent(
+                taskId = taskID,
+                state = state,
+                kind = if (state.isError) "error" else "completed"
+            )
         }
         val compactedConversationPayload = maybeAutoCompactChatOnlyConversation(
             taskID,
@@ -2296,106 +2193,6 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
         return conversationPayload
     }
 
-
-    override fun onTaskFinish() {
-        mainJob.launch(Dispatchers.Main) {
-            invokeFlutterEventSafely("onTaskFinish", HashMap<String, String>())
-        }
-    }
-
-    override fun onVLMTaskFinish() {
-        handleVlmTaskFinished("assists_core_listener")
-    }
-
-    private fun handleVlmTaskFinished(source: String, taskId: String? = null) {
-        mainJob.launch(Dispatchers.Main) {
-            OmniLog.d(TAG, "收到 VLM 任务完成回调: source=$source")
-            TaskRuntimeSettings.onTaskFinished(context)
-            TaskRuntimeSettings.notifyTaskFinished(
-                context = context,
-                title = "小万任务已完成",
-                message = "任务已完成，点击查看详情",
-                conversationId = currentConversationId,
-                conversationMode = currentConversationMode
-            )
-            navigateBackToChatIfNeeded()
-            invokeFlutterEventSafely(
-                "onVLMTaskFinish",
-                taskId?.let { mapOf("taskId" to it) } ?: HashMap<String, String>()
-            )
-        }
-    }
-
-    override fun onVLMRequestUserInput(question: String) {
-        mainJob.launch(Dispatchers.Main) {
-            invokeFlutterEventSafely(
-                "onVLMRequestUserInput", mapOf(
-                    "question" to question
-                )
-            )
-            OmniLog.d(TAG, "已通知Flutter层VLM请求用户输入：$question")
-        }
-    }
-
-    fun createVLMOperationTask(
-        call: MethodCall, result: MethodChannel.Result,
-    ) {
-
-
-        val taskId = call.argument<String>("taskId")?.trim().orEmpty()
-        val skipGoHome = call.argument<Boolean>("skipGoHome") ?: false
-        val vlmListener = if (taskId.isEmpty()) {
-            this@AssistsCoreManager
-        } else {
-            object : OnMessagePushListener by this@AssistsCoreManager {
-                override fun onVLMTaskFinish() {
-                    handleVlmTaskFinished("create_vlm_operation_task", taskId)
-                }
-
-                override fun onVLMRequestUserInput(question: String) {
-                    mainJob.launch(Dispatchers.Main) {
-                        invokeFlutterEventSafely(
-                            "onVLMRequestUserInput",
-                            mapOf(
-                                "question" to question,
-                                "taskId" to taskId
-                            )
-                        )
-                    }
-                }
-            }
-        }
-        mainJob.launch {
-            try {
-                TaskRuntimeSettings.onTaskStarted(context)
-                AssistsUtil.Core.createVLMOperationTask(
-                    context,
-                    call.argument<String>("goal")!!,
-                    call.argument<String>("model"),
-                    call.argument<Int>("maxSteps"),
-                    call.argument<String>("packageName"),
-                    vlmListener,
-                    skipGoHome = skipGoHome,
-                    taskId = taskId.takeIf { it.isNotEmpty() },
-                )
-                withContext(Dispatchers.Main) {
-                    result.success("SUCCESS")
-                }
-            } catch (e: PermissionException) {
-                TaskRuntimeSettings.onTaskFinished(context)
-                withContext(Dispatchers.Main) {
-                    result.error("PERMISSION_ERROR", e.message, null)
-                }
-            } catch (e: Exception) {
-                TaskRuntimeSettings.onTaskFinished(context)
-                withContext(Dispatchers.Main) {
-                    result.error("DO_TASK_ERROR", e.message, null)
-                }
-            }
-        }
-
-    }
-
     /**
      * 获取已安装应用（包名与应用名）
      */
@@ -2477,126 +2274,6 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
                 withContext(Dispatchers.Main) {
                     result.error("GET_INSTALLED_APPS_ERROR", e.message, null)
                 }
-            }
-        }
-    }
-
-    fun isPackageAuthorized(call: MethodCall, result: MethodChannel.Result) {
-        val packageName = call.argument<String>("packageName") ?: ""
-        mainJob.launch(Dispatchers.Main) {
-            result.success(AssistsUtil.Core.isPackageAuthorized(packageName))
-        }
-    }
-
-    fun scheduleVLMOperationTask(
-        call: MethodCall, result: MethodChannel.Result,
-    ) {
-
-        try {
-            mainJob.launch {
-                AssistsUtil.Core.scheduleVLMOperationTask(
-                    context,
-                    call.argument<String>("goal")!!,
-                    call.argument<String>("model"),
-                    call.argument<Int>("maxSteps"),
-                    call.argument<String>("packageName"),
-                    call.argument<Int>("times")!!.toLong(),
-                    call.argument<String>("title")!!,
-                    call.argument<String>("subTitle"),
-                    call.argument<String>("extraJson"),
-                    this@AssistsCoreManager
-                )
-                withContext(Dispatchers.Main){
-                    result.success("SUCCESS")
-                }
-            }
-
-
-        } catch (e: PermissionException) {
-            mainJob.launch(Dispatchers.Main) {
-                result.error("PERMISSION_ERROR", e.message, null);
-            }
-        }
-
-    }
-
-    fun getScheduleInfo(
-        call: MethodCall, result: MethodChannel.Result,
-    ) {
-        try {
-            val status = AssistsUtil.Core.getScheduleStatus()
-            val scheduleStatus = status.toString()
-            val hasScheduleTask = status != null
-            val canCreateScheduleTask =
-                status == null || (status != ScheduledStates.SCHEDULED && status != ScheduledStates.RUNNING)
-            val scheduleTaskParams = AssistsUtil.Core.getScheduleParams()
-            val taskParamsJson = when (scheduleTaskParams?.taskParams) {
-                is TaskParams.ScheduledVLMOperationTaskParams -> {
-                    val params =
-                        (scheduleTaskParams.taskParams as TaskParams.ScheduledVLMOperationTaskParams).toScheduledVLMOperationTaskParamsData()
-                    Gson().toJson(params)
-                }
-
-                else -> {
-                    ""
-                }
-            }
-            val map = mapOf(
-                "scheduleStatus" to scheduleStatus,
-                "hasScheduleTask" to hasScheduleTask,
-                "canCreateScheduleTask" to canCreateScheduleTask,
-                "taskParamsJson" to taskParamsJson,
-                "delayTimes" to scheduleTaskParams?.delayTimes,
-                "startTimeStamp" to scheduleTaskParams?.startTimeStamp
-
-
-            )
-            mainJob.launch(Dispatchers.Main) {
-                result.success(map)
-            }
-        } catch (e: Error) {
-            mainJob.launch(Dispatchers.Main) {
-                result.error("GET_SCHEDULEINFO_ERROR", e.message, null);
-            }
-        }
-    }
-
-
-    fun clearScheduleTask(call: MethodCall, result: MethodChannel.Result) {
-        try {
-            AssistsUtil.Core.clearScheduleTask()
-            mainJob.launch(Dispatchers.Main) {
-                result.success("SUCCESS")
-            }
-        } catch (e: Error) {
-            mainJob.launch(Dispatchers.Main) {
-                result.error("CLEAR_SCHEDULE_TASK_ERROR", e.message, null);
-            }
-        }
-    }
-
-    fun doScheduleNow(call: MethodCall, result: MethodChannel.Result) {
-        try {
-            AssistsUtil.Core.doScheduleNow()
-            mainJob.launch(Dispatchers.Main) {
-                result.success("SUCCESS")
-            }
-        } catch (e: Error) {
-            mainJob.launch(Dispatchers.Main) {
-                result.error("DO_SCHEDULE_NOW_ERROR", e.message, null);
-            }
-        }
-    }
-
-    fun cancelScheduleTask(call: MethodCall, result: MethodChannel.Result) {
-        try {
-            AssistsUtil.Core.cancelScheduleTask()
-            mainJob.launch(Dispatchers.Main) {
-                result.success("SUCCESS")
-            }
-        } catch (e: Error) {
-            mainJob.launch(Dispatchers.Main) {
-                result.error("CANCEL_SCHEDULE_TASK_ERROR", e.message, null);
             }
         }
     }
@@ -2716,7 +2393,7 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
                 if (success) {
                     result.success("SUCCESS")
                 } else {
-                    result.error("SERVICE_NOT_READY", "Accessibility service not ready", null)
+                    result.error("OVERLAY_NOT_READY", "Scheduled task overlay is not ready", null)
                 }
             } catch (e: Exception) {
                 OmniLog.e(TAG, "showScheduledTaskReminder failed: ${e.message}")
@@ -2792,35 +2469,6 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
         } catch (e: Exception) {
             mainJob.launch(Dispatchers.Main) {
                 result.error("GET_CLIPBOARD_ERROR", e.message, null)
-            }
-        }
-    }
-
-    fun startFirstUse(call: MethodCall, result: MethodChannel.Result) {
-        val listener = this;
-        val packageName = call.argument<String>("packageName")
-        if (packageName.isNullOrEmpty()) {
-            result.error("PARAMS_ERROR", "packageName不能为空", null)
-            return
-        }
-        mainJob.launch {
-            try {
-                AssistsUtil.Core.startFirstUse(
-                    context,
-                    listener,
-                    packageName
-                )
-                withContext(Dispatchers.Main) {
-                    result.success("SUCCESS")
-                }
-            } catch (e: PermissionException) {
-                withContext(Dispatchers.Main) {
-                    result.error("PERMISSION_ERROR", e.message, null);
-                }
-            } catch (e: Exception) {
-                withContext(Dispatchers.Main) {
-                    result.error("DO_TASK_ERROR", e.message, null)
-                }
             }
         }
     }
@@ -3242,7 +2890,6 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
                     protocolType = protocolType,
                     wireApi = wireApi
                 )
-                syncAgentAiCapabilityConfigFile()
                 withContext(Dispatchers.Main) {
                     result.success(saved.toMap())
                 }
@@ -3261,7 +2908,6 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
         workJob.launch {
             try {
                 val profiles = ModelProviderConfigStore.deleteProfile(profileId)
-                syncAgentAiCapabilityConfigFile()
                 withContext(Dispatchers.Main) {
                     result.success(
                         mapOf(
@@ -3285,7 +2931,6 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
         workJob.launch {
             try {
                 val selected = ModelProviderConfigStore.setEditingProfile(profileId)
-                syncAgentAiCapabilityConfigFile()
                 withContext(Dispatchers.Main) {
                     result.success(selected.toMap())
                 }
@@ -3309,7 +2954,6 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
             try {
                 ModelProviderConfigStore.saveConfig(baseUrl, apiKey, customHeaders)
                 val saved = ModelProviderConfigStore.getConfig()
-                syncAgentAiCapabilityConfigFile()
                 withContext(Dispatchers.Main) {
                     result.success(saved.toMap())
                 }
@@ -3326,7 +2970,6 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
         workJob.launch {
             try {
                 ModelProviderConfigStore.clearConfig()
-                syncAgentAiCapabilityConfigFile()
                 withContext(Dispatchers.Main) {
                     result.success(ModelProviderConfigStore.getConfig().toMap())
                 }
@@ -3350,46 +2993,22 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
         workJob.launch {
             try {
                 val currentConfig = ModelProviderConfigStore.getConfig()
-                val isBuiltinLocalRequest = isBuiltinLocalProviderRequest(
-                    profileId = profileId,
-                    apiBase = baseUrlArg.ifBlank { currentConfig.baseUrl },
-                    fallbackConfigId = currentConfig.id
-                )
-                val models = if (isBuiltinLocalRequest) {
-                    LocalModelFeature.listBuiltinProviderModels()
-                        .mapNotNull { item ->
-                            val modelId = item["id"]?.toString()?.trim().orEmpty()
-                            if (modelId.isEmpty()) {
-                                null
-                            } else {
-                                ProviderModelOption(
-                                    id = modelId,
-                                    displayName = item["name"]?.toString()?.trim().ifNullOrBlank { modelId },
-                                    ownedBy = item["backend"]?.toString()?.trim().takeIf { !it.isNullOrEmpty() }
-                                        ?: item["category"]?.toString()?.trim().takeIf { !it.isNullOrEmpty() }
-                                )
-                            }
-                        }
-                        .distinctBy { it.id }
-                        .sortedBy { it.id.lowercase() }
+                val apiBase = if (baseUrlArg.isNotEmpty()) baseUrlArg else currentConfig.baseUrl
+                val apiKey = if (baseUrlArg.isNotEmpty()) apiKeyArg else currentConfig.apiKey
+                val profile = profileId?.let(ModelProviderConfigStore::getProfile)
+                    ?: ModelProviderConfigStore.getEditingProfile()
+                val customHeaders = if (baseUrlArg.isNotEmpty()) {
+                    customHeadersArg
                 } else {
-                    val apiBase = if (baseUrlArg.isNotEmpty()) baseUrlArg else currentConfig.baseUrl
-                    val apiKey = if (baseUrlArg.isNotEmpty()) apiKeyArg else currentConfig.apiKey
-                    val profile = profileId?.let(ModelProviderConfigStore::getProfile)
-                        ?: ModelProviderConfigStore.getEditingProfile()
-                    val customHeaders = if (baseUrlArg.isNotEmpty()) {
-                        customHeadersArg
-                    } else {
-                        profile.customHeaders
-                    }
-                    HttpController.fetchProviderModels(
-                        apiBase = apiBase,
-                        apiKey = apiKey,
-                        customHeaders = customHeaders,
-                        protocolType = profile.protocolType,
-                        wireApi = profile.wireApi
-                    )
+                    profile.customHeaders
                 }
+                val models = HttpController.fetchProviderModels(
+                    apiBase = apiBase,
+                    apiKey = apiKey,
+                    customHeaders = customHeaders,
+                    protocolType = profile.protocolType,
+                    wireApi = profile.wireApi
+                )
                 withContext(Dispatchers.Main) {
                     result.success(models.map { it.toMap() })
                 }
@@ -3414,40 +3033,23 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
         workJob.launch {
             try {
                 val currentConfig = ModelProviderConfigStore.getConfig()
-                val isBuiltinLocalRequest = isBuiltinLocalProviderRequest(
-                    profileId = profileId,
-                    apiBase = baseUrlArg.ifBlank { currentConfig.baseUrl },
-                    fallbackConfigId = currentConfig.id
-                )
-                val checkResult = if (isBuiltinLocalRequest) {
-                    val installed = LocalModelFeature.listBuiltinProviderModels()
-                    val exists = installed.any { item ->
-                        item["id"]?.toString()?.trim() == model
-                    }
-                    HttpController.ModelAvailabilityCheckResult(
-                        available = exists,
-                        code = if (exists) 200 else 404,
-                        message = if (exists) "OK" else "本地模型未安装"
-                    )
+                val apiBase = if (baseUrlArg.isNotEmpty()) baseUrlArg else currentConfig.baseUrl
+                val apiKey = if (baseUrlArg.isNotEmpty()) apiKeyArg else currentConfig.apiKey
+                val profile = profileId?.let(ModelProviderConfigStore::getProfile)
+                    ?: ModelProviderConfigStore.getEditingProfile()
+                val customHeaders = if (baseUrlArg.isNotEmpty()) {
+                    customHeadersArg
                 } else {
-                    val apiBase = if (baseUrlArg.isNotEmpty()) baseUrlArg else currentConfig.baseUrl
-                    val apiKey = if (baseUrlArg.isNotEmpty()) apiKeyArg else currentConfig.apiKey
-                    val profile = profileId?.let(ModelProviderConfigStore::getProfile)
-                        ?: ModelProviderConfigStore.getEditingProfile()
-                    val customHeaders = if (baseUrlArg.isNotEmpty()) {
-                        customHeadersArg
-                    } else {
-                        profile.customHeaders
-                    }
-                    HttpController.checkProviderModelAvailability(
-                        model = model,
-                        apiBase = apiBase,
-                        apiKey = apiKey,
-                        customHeaders = customHeaders,
-                        protocolType = profile.protocolType,
-                        wireApi = profile.wireApi
-                    )
+                    profile.customHeaders
                 }
+                val checkResult = HttpController.checkProviderModelAvailability(
+                    model = model,
+                    apiBase = apiBase,
+                    apiKey = apiKey,
+                    customHeaders = customHeaders,
+                    protocolType = profile.protocolType,
+                    wireApi = profile.wireApi
+                )
 
                 withContext(Dispatchers.Main) {
                     result.success(
@@ -3471,32 +3073,6 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
                 }
             }
         }
-    }
-
-    private fun isBuiltinLocalProviderRequest(
-        profileId: String?,
-        apiBase: String?,
-        fallbackConfigId: String?
-    ): Boolean {
-        if (!MnnLocalProviderStateStore.isEnabled()) {
-            return false
-        }
-        if (
-            MnnLocalProviderStateStore.isBuiltinProfileId(profileId) ||
-            MnnLocalProviderStateStore.isBuiltinProfileId(fallbackConfigId)
-        ) {
-            return true
-        }
-        val builtinBase = ModelProviderConfigStore.normalizeBaseUrl(
-            MnnLocalProviderStateStore.getProfile().baseUrl
-        )
-        val requestBase = ModelProviderConfigStore.normalizeBaseUrl(apiBase ?: "")
-        return builtinBase != null && builtinBase == requestBase
-    }
-
-    private fun String?.ifNullOrBlank(fallback: () -> String): String {
-        val normalized = this?.trim().orEmpty()
-        return if (normalized.isEmpty()) fallback() else normalized
     }
 
     fun getSceneModelCatalog(call: MethodCall, result: MethodChannel.Result) {
@@ -3538,13 +3114,7 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
 
         workJob.launch {
             try {
-                SceneModelBindingStore.saveBinding(
-                    sceneId = sceneId,
-                    providerProfileId = providerProfileId,
-                    modelId = modelId,
-                    toolCall = toolCall
-                )
-                syncAgentAiCapabilityConfigFile()
+                SceneModelBindingStore.saveBinding(sceneId, providerProfileId, modelId, toolCall)
                 withContext(Dispatchers.Main) {
                     result.success(SceneModelBindingStore.getBindingEntries().map { it.toMap() })
                 }
@@ -3563,7 +3133,6 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
         workJob.launch {
             try {
                 SceneModelBindingStore.clearBinding(sceneId)
-                syncAgentAiCapabilityConfigFile()
                 withContext(Dispatchers.Main) {
                     result.success(SceneModelBindingStore.getBindingEntries().map { it.toMap() })
                 }
@@ -3596,6 +3165,8 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
         val voiceId = call.argument<String>("voiceId")?.trim().orEmpty()
         val stylePreset = call.argument<String>("stylePreset")?.trim().orEmpty()
         val customStyle = call.argument<String>("customStyle")?.trim().orEmpty()
+        val ttsMode = call.argument<String>("ttsMode")?.trim().orEmpty()
+        val customCurlCommand = call.argument<String>("customCurlCommand")?.trim().orEmpty()
 
         workJob.launch {
             try {
@@ -3604,10 +3175,11 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
                         autoPlay = autoPlay,
                         voiceId = voiceId,
                         stylePreset = stylePreset,
-                        customStyle = customStyle
+                        customStyle = customStyle,
+                        ttsMode = ttsMode,
+                        customCurlCommand = customCurlCommand
                     )
                 )
-                syncAgentAiCapabilityConfigFile()
                 withContext(Dispatchers.Main) {
                     result.success(saved.toMap())
                 }
@@ -3615,44 +3187,6 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
                 OmniLog.e(TAG, "saveSceneVoiceConfig error: ${e.message}")
                 withContext(Dispatchers.Main) {
                     result.error("SAVE_SCENE_VOICE_CONFIG_ERROR", e.message, null)
-                }
-            }
-        }
-    }
-
-    fun getSceneOperationConfig(call: MethodCall, result: MethodChannel.Result) {
-        workJob.launch {
-            try {
-                withContext(Dispatchers.Main) {
-                    result.success(SceneOperationConfigStore.getConfig().toMap())
-                }
-            } catch (e: Exception) {
-                OmniLog.e(TAG, "getSceneOperationConfig error: ${e.message}")
-                withContext(Dispatchers.Main) {
-                    result.error("GET_SCENE_OPERATION_CONFIG_ERROR", e.message, null)
-                }
-            }
-        }
-    }
-
-    fun saveSceneOperationConfig(call: MethodCall, result: MethodChannel.Result) {
-        val useOfficialService = call.argument<Boolean>("useOfficialService") == true
-
-        workJob.launch {
-            try {
-                val saved = SceneOperationConfigStore.saveConfig(
-                    SceneOperationConfig(
-                        useOfficialService = useOfficialService
-                    )
-                )
-                syncAgentAiCapabilityConfigFile()
-                withContext(Dispatchers.Main) {
-                    result.success(saved.toMap())
-                }
-            } catch (e: Exception) {
-                OmniLog.e(TAG, "saveSceneOperationConfig error: ${e.message}")
-                withContext(Dispatchers.Main) {
-                    result.error("SAVE_SCENE_OPERATION_CONFIG_ERROR", e.message, null)
                 }
             }
         }
@@ -3680,7 +3214,6 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
         workJob.launch {
             try {
                 SceneModelOverrideStore.saveOverride(sceneId, model)
-                syncAgentAiCapabilityConfigFile()
                 withContext(Dispatchers.Main) {
                     result.success(SceneModelOverrideStore.getOverrideEntries().map { it.toMap() })
                 }
@@ -3699,7 +3232,6 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
         workJob.launch {
             try {
                 SceneModelOverrideStore.clearOverride(sceneId)
-                syncAgentAiCapabilityConfigFile()
                 withContext(Dispatchers.Main) {
                     result.success(SceneModelOverrideStore.getOverrideEntries().map { it.toMap() })
                 }
@@ -3712,14 +3244,7 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
         }
     }
 
-    /**
-     * 检测自定义 VLM 模型可用性（OpenAI-compatible）
-     */
-    fun checkVlmModelAvailability(call: MethodCall, result: MethodChannel.Result) {
-        checkProviderModelAvailability(call, result)
-    }
-
-    fun getWorkspaceSoul(call: MethodCall, result: MethodChannel.Result) {
+    fun getAgentSoulSetting(call: MethodCall, result: MethodChannel.Result) {
         workJob.launch {
             try {
                 val service = WorkspaceMemoryService(context)
@@ -3733,13 +3258,13 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
                 }
             } catch (e: Exception) {
                 withContext(Dispatchers.Main) {
-                    result.error("GET_WORKSPACE_SOUL_ERROR", e.message, null)
+                    result.error("GET_AGENT_SOUL_SETTING_ERROR", e.message, null)
                 }
             }
         }
     }
 
-    fun getWorkspaceChatPrompt(call: MethodCall, result: MethodChannel.Result) {
+    fun getChatPromptSetting(call: MethodCall, result: MethodChannel.Result) {
         workJob.launch {
             try {
                 val service = WorkspaceMemoryService(context)
@@ -3753,13 +3278,13 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
                 }
             } catch (e: Exception) {
                 withContext(Dispatchers.Main) {
-                    result.error("GET_WORKSPACE_CHAT_PROMPT_ERROR", e.message, null)
+                    result.error("GET_CHAT_PROMPT_SETTING_ERROR", e.message, null)
                 }
             }
         }
     }
 
-    fun saveWorkspaceSoul(call: MethodCall, result: MethodChannel.Result) {
+    fun saveAgentSoulSetting(call: MethodCall, result: MethodChannel.Result) {
         val content = call.argument<String>("content") ?: ""
         workJob.launch {
             try {
@@ -3774,13 +3299,13 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
                 }
             } catch (e: Exception) {
                 withContext(Dispatchers.Main) {
-                    result.error("SAVE_WORKSPACE_SOUL_ERROR", e.message, null)
+                    result.error("SAVE_AGENT_SOUL_SETTING_ERROR", e.message, null)
                 }
             }
         }
     }
 
-    fun saveWorkspaceChatPrompt(call: MethodCall, result: MethodChannel.Result) {
+    fun saveChatPromptSetting(call: MethodCall, result: MethodChannel.Result) {
         val content = call.argument<String>("content") ?: ""
         workJob.launch {
             try {
@@ -3795,7 +3320,7 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
                 }
             } catch (e: Exception) {
                 withContext(Dispatchers.Main) {
-                    result.error("SAVE_WORKSPACE_CHAT_PROMPT_ERROR", e.message, null)
+                    result.error("SAVE_CHAT_PROMPT_SETTING_ERROR", e.message, null)
                 }
             }
         }
@@ -4176,37 +3701,20 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
     }
 
     /**
-     * 是否在桌面
-     */
-    fun isDesktop(call: MethodCall, result: MethodChannel.Result) {
-        try {
-            result.success(AssistsCore.isInDesktop())
-        } catch (e: Exception) {
-            result.error("IS_DESKTOP_ERROR", e.message, null)
-        }
-    }
-
-    /**
      * 获取桌面包名
      */
     fun getDeskTopPackageName(call: MethodCall, result: MethodChannel.Result){
         try {
-            result.success(Constant.LAUNCHER_PACKAGES.toList())
+            val homeIntent = Intent(Intent.ACTION_MAIN).apply {
+                addCategory(Intent.CATEGORY_HOME)
+            }
+            val packages = context.packageManager
+                .queryIntentActivities(homeIntent, PackageManager.MATCH_DEFAULT_ONLY)
+                .map { it.activityInfo.packageName }
+                .distinct()
+            result.success(packages)
         } catch (e: Exception) {
             result.error("GET_DESK_TOP_PACKAGE_NAME_ERROR", e.message, null)
-        }
-    }
-
-    /**
-     * 获取当前应用包名
-     * 用于从当前页面开始执行任务
-     */
-    fun getCurrentPackageName(call: MethodCall, result: MethodChannel.Result) {
-        try {
-            val packageName = AssistsCore.getCurrentPackageName()
-            result.success(packageName)
-        } catch (e: Exception) {
-            result.error("GET_CURRENT_PACKAGE_NAME_ERROR", e.message, null)
         }
     }
 
@@ -4444,9 +3952,13 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
         val runtimeAttachments = preparedAttachments.runtimeAttachments
         val historyAttachments = preparedAttachments.historyAttachments
         val userMessageCreatedAt = call.argument<Number>("userMessageCreatedAt")?.toLong()
-        val userEntryId = userMessageCreatedAt
-            ?.takeIf { it > 0L }
-            ?.let { "$it-user" }
+        val externalUserMessage = call.argument<Boolean>("externalUserMessage") == true
+        val userEntryId = call.argument<String>("userEntryId")
+            ?.trim()
+            ?.takeIf { it.isNotEmpty() }
+            ?: userMessageCreatedAt
+                ?.takeIf { it > 0L }
+                ?.let { "$it-user" }
             ?: "$taskId-user"
         val conversationId = call.argument<Number>("conversationId")?.toLong()?.takeIf { it > 0L }
         val requestedConversationMode =
@@ -4471,6 +3983,9 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
         val terminalEnvironment = parseTerminalEnvironmentMap(
             call.argument<Map<String, Any?>>("terminalEnvironment")
         )
+        val runtimeOptions = call.argument<Map<String, Any?>>("runtimeOptions")
+            ?.let(::sanitizeInteropMap)
+            .orEmpty()
         val continueMode = isContinue || call.argument<Boolean>("continueMode") == true
         val continueResumeMode = call.argument<String>("continueResumeMode")
             ?.trim()
@@ -4517,6 +4032,7 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
                 "conversationMode" to resolvedConversationMode,
                 "reasoningEffort" to reasoningEffort,
                 "terminalEnvironment" to terminalEnvironment,
+                "runtimeOptions" to runtimeOptions,
                 "continueMode" to continueMode,
                 "continueResumeMode" to continueResumeMode,
                 "continueFromAssistantEntryId" to continueFromAssistantEntryId,
@@ -4539,8 +4055,6 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
         agentRunScope.launch {
             var historyRepository: AgentConversationHistoryRepository? = null
             try {
-                // 1. 获取当前包名
-                val currentPackageName = AssistsCore.getCurrentPackageName()
                 val runtimeContextRepository = AgentRuntimeContextRepository(context)
                 historyRepository = conversationHistoryRepository()
                 val repository = historyRepository ?: return@launch
@@ -4719,9 +4233,11 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
                     val normalizedConversationId = conversationId ?: return
                     val repository = historyRepository ?: return
                     try {
+                        // 流式快照仍属于活跃任务，不能在读取时按“中断恢复”收尾思考/工具条目。
                         val messages = repository.listConversationMessages(
                             conversationId = normalizedConversationId,
-                            conversationMode = resolvedConversationMode
+                            conversationMode = resolvedConversationMode,
+                            finalizeInterruptedEntries = false
                         )
                         RealtimeHub.publish(
                             "messages_replaced",
@@ -4734,7 +4250,7 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
                         FlutterChatSyncBridge.dispatchConversationMessagesChanged(
                             conversationId = normalizedConversationId,
                             mode = resolvedConversationMode,
-                            reason = "messages_replaced"
+                            reason = "agent_stream_snapshot"
                         )
                     } catch (error: CancellationException) {
                         throw error
@@ -4751,7 +4267,7 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
                     description: String,
                     publish: Boolean = true,
                     block: suspend () -> Unit
-                ) {
+                ): Boolean {
                     val persisted = try {
                         block()
                         true
@@ -4764,6 +4280,7 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
                     if (persisted && publish) {
                         publishConversationMessagesSync()
                     }
+                    return persisted
                 }
 
                 // 续跑代数后缀,用于隔离 thinking / tool entry id,避免新 run 的卡片
@@ -4982,7 +4499,6 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
                                 roundIndex = roundIndex,
                                 kind = streamKind
                             ),
-                            contextSegmentId = taskId,
                             createdAt = startTime
                         )
                     }
@@ -5037,7 +4553,6 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
                                 isFinal = isFinal
                             ),
                             turnUsage = usageSnapshot?.toPayload(),
-                            contextSegmentId = taskId,
                             createdAt = createdAt
                         )
                     }
@@ -5066,7 +4581,6 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
                                 roundIndex = roundIndex,
                                 kind = "clarify_required"
                             ),
-                            contextSegmentId = taskId,
                             createdAt = createdAt
                         )
                     }
@@ -5107,7 +4621,6 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
                                 roundIndex = roundIndex,
                                 kind = "permission_required"
                             ),
-                            contextSegmentId = taskId,
                             createdAt = entryCreatedAtTimes.getOrPut(textEntryId) {
                                 System.currentTimeMillis()
                             }
@@ -5124,7 +4637,6 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
                                     roundIndex = roundIndex,
                                     kind = "permission_required"
                                 ),
-                                contextSegmentId = taskId,
                                 createdAt = entryCreatedAtTimes.getOrPut("$taskId-permission") {
                                     System.currentTimeMillis()
                                 }
@@ -5247,15 +4759,31 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
 
                 conversationId?.let { normalizedConversationId ->
                     if (!continueMode && (userMessage.isNotBlank() || historyAttachments.isNotEmpty())) {
-                        persistConversationMutation("upsert user message") {
+                        val createdAt = userMessageCreatedAt ?: System.currentTimeMillis()
+                        val persisted = persistConversationMutation("upsert user message") {
                             repository.upsertUserMessage(
                                 conversationId = normalizedConversationId,
                                 conversationMode = resolvedConversationMode,
                                 entryId = userEntryId,
                                 text = userMessage,
                                 attachments = historyAttachments,
-                                contextSegmentId = taskId,
-                                createdAt = userMessageCreatedAt ?: System.currentTimeMillis()
+                                streamMeta = if (externalUserMessage) {
+                                    AgentConversationHistorySupport
+                                        .externalUserMessageStreamMeta()
+                                } else {
+                                    null
+                                },
+                                createdAt = createdAt
+                            )
+                        }
+                        if (persisted && externalUserMessage) {
+                            FlutterChatSyncBridge.dispatchExternalUserMessageAppended(
+                                conversationId = normalizedConversationId,
+                                mode = resolvedConversationMode,
+                                entryId = userEntryId,
+                                text = userMessage,
+                                attachments = historyAttachments,
+                                createdAt = createdAt
                             )
                         }
                     }
@@ -5867,10 +5395,6 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
                         )
                     }
 
-                    override suspend fun onVlmTaskFinished() {
-                        handleVlmTaskFinished("unified_agent_listener", taskId = taskId)
-                    }
-
                     private suspend fun dispatchAgentChatMessage(
                         message: String,
                         isFinal: Boolean,
@@ -6005,13 +5529,13 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
                     userMessage,
                     legacyConversationHistory,
                     runtimeContextRepository,
-                    currentPackageName,
                     runtimeAttachments,
                     conversationId,
                     resolvedConversationMode,
                     modelOverride,
                     reasoningEffort,
                     terminalEnvironment,
+                    runtimeOptions,
                     callback,
                     runControl = agentRunContext,
                     continueMode = continueMode
@@ -6071,7 +5595,6 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
                         text = errorMessage,
                         isError = true,
                         streamMeta = failureTextStreamMeta,
-                        contextSegmentId = taskId,
                         createdAt = System.currentTimeMillis()
                     )
                     val messages = failureRepository.listConversationMessages(
@@ -6468,7 +5991,6 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
                     mapOf(
                         "id" to record.id,
                         "conversationId" to record.conversationId,
-                        "isLocal" to record.isLocal,
                         "model" to record.model,
                         "promptTokens" to record.promptTokens,
                         "completionTokens" to record.completionTokens,
@@ -6489,337 +6011,6 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
             }
         }
     }
-
-    private fun methodCallArgs(call: MethodCall): Map<String, Any?> {
-        val args = call.arguments
-        if (args !is Map<*, *>) {
-            return emptyMap()
-        }
-        return linkedMapOf<String, Any?>().apply {
-            args.forEach { (key, value) ->
-                if (key != null) {
-                    put(key.toString(), value)
-                }
-            }
-        }
-    }
-
-    private fun methodText(value: Any?): String = value?.toString()?.trim().orEmpty()
-
-    private fun methodBool(value: Any?, defaultValue: Boolean = false): Boolean {
-        return when (value) {
-            is Boolean -> value
-            is Number -> value.toInt() != 0
-            is String -> when (value.trim().lowercase()) {
-                "true", "1", "yes", "y" -> true
-                "false", "0", "no", "n" -> false
-                else -> defaultValue
-            }
-            else -> defaultValue
-        }
-    }
-
-    private fun throwableMessage(error: Throwable): String =
-        error.message?.takeIf { it.isNotBlank() } ?: error.toString()
-
-    private fun runLogFunctionErrorPayload(
-        code: String,
-        message: String,
-        extra: Map<String, Any?> = emptyMap()
-    ): Map<String, Any?> = linkedMapOf<String, Any?>(
-        "success" to false,
-        "error_code" to code,
-        "error_message" to message,
-        "recording_active" to HumanTrajectoryLearningSession.isActive(),
-        "source" to "oob_run_log_function_channel"
-    ).apply {
-        putAll(extra)
-    }.filterValues { it != null }
-
-    private fun runRunLogFunctionApi(
-        result: MethodChannel.Result,
-        errorCode: String,
-        block: suspend () -> Map<String, Any?>
-    ) {
-        workJob.launch {
-            try {
-                val payload = block()
-                withContext(Dispatchers.Main) {
-                    result.success(payload)
-                }
-            } catch (e: Exception) {
-                OmniLog.e(TAG, "$errorCode: ${e.message}")
-                withContext(Dispatchers.Main) {
-                    result.error(errorCode, throwableMessage(e), null)
-                }
-            }
-        }
-    }
-
-    fun getInternalRunLogs(call: MethodCall, result: MethodChannel.Result) {
-        runRunLogFunctionApi(result, "GET_INTERNAL_RUN_LOGS_ERROR") {
-            FunctionService(context).listRunLogs(methodCallArgs(call))
-        }
-    }
-
-    fun getInternalRunLogTimeline(call: MethodCall, result: MethodChannel.Result) {
-        runRunLogFunctionApi(result, "GET_INTERNAL_RUN_LOG_TIMELINE_ERROR") {
-            FunctionService(context).getRunLog(methodCallArgs(call))
-        }
-    }
-
-    fun getInternalRunLogState(call: MethodCall, result: MethodChannel.Result) {
-        runRunLogFunctionApi(result, "GET_INTERNAL_RUN_LOG_STATE_ERROR") {
-            FunctionService(context).getRunLogState(methodCallArgs(call))
-        }
-    }
-
-    fun convertInternalRunLogToFunction(call: MethodCall, result: MethodChannel.Result) {
-        runRunLogFunctionApi(result, "CONVERT_INTERNAL_RUN_LOG_TO_FUNCTION_ERROR") {
-            FunctionService(context).convertRunLog(methodCallArgs(call))
-        }
-    }
-
-    fun listFunctions(call: MethodCall, result: MethodChannel.Result) {
-        runRunLogFunctionApi(result, "LIST_FUNCTIONS_ERROR") {
-            FunctionService(context).listFunctions(methodCallArgs(call))
-        }
-    }
-
-    fun getFunction(call: MethodCall, result: MethodChannel.Result) {
-        runRunLogFunctionApi(result, "GET_FUNCTION_ERROR") {
-            FunctionService(context).getFunction(methodCallArgs(call))
-        }
-    }
-
-    fun registerFunction(call: MethodCall, result: MethodChannel.Result) {
-        runRunLogFunctionApi(result, "REGISTER_FUNCTION_ERROR") {
-            FunctionService(context).registerFunction(methodCallArgs(call))
-        }
-    }
-
-    fun updateFunction(call: MethodCall, result: MethodChannel.Result) {
-        runRunLogFunctionApi(result, "UPDATE_FUNCTION_ERROR") {
-            FunctionService(context).updateFunction(methodCallArgs(call))
-        }
-    }
-
-    fun deleteFunction(call: MethodCall, result: MethodChannel.Result) {
-        runRunLogFunctionApi(result, "DELETE_FUNCTION_ERROR") {
-            FunctionService(context).deleteFunction(methodCallArgs(call))
-        }
-    }
-
-    fun runFunction(call: MethodCall, result: MethodChannel.Result) {
-        runRunLogFunctionApi(result, "RUN_FUNCTION_ERROR") {
-            FunctionRun(context).runFunction(methodCallArgs(call))
-        }
-    }
-
-    fun startHumanTrajectoryLearning(call: MethodCall, result: MethodChannel.Result) {
-        val args = methodCallArgs(call)
-        val name = methodText(args["name"]).ifBlank { "人工录制轨迹" }
-        val description = methodText(args["description"]).ifBlank { name }
-        val enableRawTouch = methodBool(args["enable_raw_touch"])
-        val enableDebugScreenshots = methodBool(args["enable_debug_screenshots"])
-
-        workJob.launch {
-            val payload = runCatching {
-                val learningResult = HumanTrajectoryLearningSession.start(
-                    context = context,
-                    name = name,
-                    description = description,
-                    recordStepExecutor = omniFlowRecordStepExecutor(),
-                    enableRawTouch = enableRawTouch,
-                    enableDebugScreenshots = enableDebugScreenshots
-                )
-                val learningRunId = HumanTrajectoryLearningSession.activeRunId()
-                if (!HumanTrajectoryLearningSession.isActive() || learningRunId == null) {
-                    return@runCatching runCatching {
-                        humanTrajectoryFinalizedPayload(
-                            result = learningResult.await(),
-                            phase = "failed"
-                        )
-                    }.getOrElse { error ->
-                        runLogFunctionErrorPayload(
-                            code = "HUMAN_TRAJECTORY_LEARNING_FAILED",
-                            message = throwableMessage(error)
-                        )
-                    }
-                }
-
-                if (!HumanTrajectoryLearningSession.pauseActive()) {
-                    learningRunId?.let { runId ->
-                        HumanTrajectoryLearningSession.cancelActive(
-                            expectedRunId = runId,
-                            message = "无法进入手动录制待机状态"
-                        )
-                    }
-                    return@runCatching humanTrajectoryFinalizedPayload(
-                        result = learningResult.await(),
-                        phase = "failed"
-                    )
-                }
-
-                val overlayShown = withContext(Dispatchers.Main) {
-                    ManualRecordingControlOverlay.show(
-                        context = context,
-                        runId = learningRunId,
-                        state = ManualRecordingControlOverlay.State.READY,
-                        onCaptureState = { humanTrajectoryStatusPayload("status", true) }
-                    )
-                }
-                if (!overlayShown) {
-                    learningRunId?.let { runId ->
-                        HumanTrajectoryLearningSession.cancelActive(
-                            expectedRunId = runId,
-                            message = "悬浮窗无法显示，轨迹学习已取消"
-                        )
-                    }
-                }
-                humanTrajectoryFinalizedPayload(
-                    result = learningResult.await(),
-                    phase = if (overlayShown) "finished" else "cancelled"
-                )
-            }.getOrElse { error ->
-                OmniLog.e(TAG, "startHumanTrajectoryLearning failed: ${error.message}")
-                runLogFunctionErrorPayload(
-                    code = "HUMAN_TRAJECTORY_LEARNING_FAILED",
-                    message = throwableMessage(error)
-                )
-            }
-            withContext(Dispatchers.Main) {
-                result.success(payload)
-            }
-        }
-    }
-
-    fun pauseHumanTrajectoryLearning(call: MethodCall, result: MethodChannel.Result) {
-        workJob.launch {
-            val paused = HumanTrajectoryLearningSession.pauseActive()
-            if (paused) {
-                withContext(Dispatchers.Main) {
-                    ManualRecordingControlOverlay.markPaused()
-                }
-            }
-            val payload = humanTrajectoryStatusPayload(
-                phase = "paused",
-                success = paused,
-                errorCode = if (paused) null else "NO_ACTIVE_RECORDING",
-                errorMessage = if (paused) null else "No active human recording session"
-            )
-            withContext(Dispatchers.Main) {
-                result.success(payload)
-            }
-        }
-    }
-
-    fun resumeHumanTrajectoryLearning(call: MethodCall, result: MethodChannel.Result) {
-        workJob.launch {
-            val resumed = HumanTrajectoryLearningSession.resumeActive()
-            if (resumed) {
-                withContext(Dispatchers.Main) {
-                    ManualRecordingControlOverlay.markRecording()
-                }
-            }
-            val payload = humanTrajectoryStatusPayload(
-                phase = "recording",
-                success = resumed,
-                errorCode = if (resumed) null else "NO_ACTIVE_RECORDING",
-                errorMessage = if (resumed) null else "No active human recording session"
-            )
-            withContext(Dispatchers.Main) {
-                result.success(payload)
-            }
-        }
-    }
-
-    fun getHumanTrajectoryLearningStatus(call: MethodCall, result: MethodChannel.Result) {
-        result.success(humanTrajectoryStatusPayload("status", true))
-    }
-
-    private fun humanTrajectoryStatusPayload(
-        phase: String,
-        success: Boolean,
-        errorCode: String? = null,
-        errorMessage: String? = null
-    ): Map<String, Any?> {
-        val status = HumanTrajectoryLearningSession.status().asMap()
-        return linkedMapOf<String, Any?>(
-            "success" to success,
-            "phase" to phase,
-            "recording_active" to status["recording_active"],
-            "recording_paused" to status["recording_paused"],
-            "run_id" to status["run_id"],
-            "name" to status["name"],
-            "description" to status["description"],
-            "started_at_ms" to status["started_at_ms"],
-            "action_count" to status["action_count"],
-            "latest_action_summary" to status["latest_action_summary"],
-            "pending_action_summary" to status["pending_action_summary"],
-            "recording_backend" to status["recording_backend"],
-            "raw_touch_enabled" to status["raw_touch_enabled"],
-            "raw_touch_available" to status["raw_touch_available"],
-            "debug_screenshots_enabled" to status["debug_screenshots_enabled"],
-            "debug_screenshot_stored_count" to status["debug_screenshot_stored_count"],
-            "debug_screenshot_failed_count" to status["debug_screenshot_failed_count"],
-            "debug_screenshot_skipped_count" to status["debug_screenshot_skipped_count"],
-            "status" to status,
-            "error_code" to errorCode,
-            "error_message" to errorMessage,
-            "source" to "oob_manual_recording"
-        ).filterValues { it != null }
-    }
-
-    private suspend fun humanTrajectoryFinalizedPayload(
-        result: HumanTrajectoryLearningResult,
-        phase: String
-    ): Map<String, Any?> {
-        val runLog = InternalRunLogStore.timelinePayload(context, result.runId)
-        val conversion = if (result.success && result.actionCount > 0) {
-            convertFinishedHumanTrajectoryRunLog(
-                runId = result.runId,
-                name = result.name,
-                description = result.description
-            )
-        } else {
-            null
-        }
-        return buildManualRecordingFinalizedPayload(
-            recordingSuccess = result.success,
-            phase = phase,
-            diagnostics = result.diagnostics,
-            recordingErrorMessage = result.errorMessage,
-            runLog = runLog,
-            conversion = conversion,
-        )
-    }
-
-    private suspend fun convertFinishedHumanTrajectoryRunLog(
-        runId: String,
-        name: String,
-        description: String
-    ): Map<String, Any?> =
-        runCatching {
-            FunctionService(context).convertRunLog(
-                mapOf(
-                    "run_id" to runId,
-                    "register" to true,
-                    "agent_visible" to true,
-                    "name" to name,
-                    "description" to description,
-                )
-            )
-        }.getOrElse { error ->
-            OmniLog.e(TAG, "human recording conversion failed: ${error.message}", error)
-            linkedMapOf(
-                "success" to false,
-                "error_code" to "HUMAN_TRAJECTORY_CONVERT_FAILED",
-                "error_message" to throwableMessage(error),
-                "error_type" to error.javaClass.name,
-                "run_id" to runId,
-            )
-        }
 
     /**
      * 获取所有对话列表
@@ -7260,44 +6451,6 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
         return (this[key] as? Number)?.toInt()
     }
 
-    /**
-     * 跳转回聊天页面
-     */
-    private fun navigateBackToChatIfNeeded() {
-        if (TaskCompletionNavigator.isAutoBackToChatAfterTaskEnabled(context)) {
-            TaskCompletionNavigator.navigateBackToChat(
-                context,
-                currentConversationId,
-                currentConversationMode
-            )
-        } else {
-            OmniLog.d(TAG, "任务完成后停留当前页面（已关闭自动返回聊天）")
-        }
-    }
-
-    fun setAutoBackToChatAfterTaskEnabled(
-        call: MethodCall,
-        result: MethodChannel.Result
-    ) {
-        val enabled = call.argument<Boolean>("enabled") ?: true
-        try {
-            val success = TaskCompletionNavigator.setAutoBackToChatAfterTaskEnabled(
-                context,
-                enabled
-            )
-
-            if (success) {
-                OmniLog.d(TAG, "自动返回聊天设置已同步到原生: $enabled")
-                result.success("SUCCESS")
-            } else {
-                result.error("SAVE_AUTO_BACK_SETTING_FAILED", "保存自动返回聊天设置失败", null)
-            }
-        } catch (e: Exception) {
-            OmniLog.e(TAG, "保存自动返回聊天设置失败: ${e.message}")
-            result.error("SAVE_AUTO_BACK_SETTING_FAILED", e.message, null)
-        }
-    }
-
     fun setPreventScreenSleepDuringTasksEnabled(
         call: MethodCall,
         result: MethodChannel.Result
@@ -7418,10 +6571,6 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
     fun reopenChatBotAfterAuth(result: MethodChannel.Result) {
         mainJob.launch(Dispatchers.Main) {
             try {
-                withContext(Dispatchers.Main) {
-                    ScreenMaskLoader.loadLockScreenMask()
-                }
-                // delay(500)
                 UIKit.uiChatEvent?.showChatBotHalfScreen("resume_after_auth")
                 result.success("SUCCESS")
             } catch (e: Exception) {

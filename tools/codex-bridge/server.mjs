@@ -855,6 +855,10 @@ const maxReadBytes = Number.parseInt(
   process.env.OMNIBOT_BRIDGE_MAX_READ_BYTES || `${12 * 1024 * 1024}`,
   10
 );
+const maxUploadBytes = Number.parseInt(
+  process.env.OMNIBOT_BRIDGE_MAX_UPLOAD_BYTES || `${24 * 1024 * 1024}`,
+  10
+);
 const jsonContentType = 'application/json; charset=utf-8';
 
 function bridgePath() {
@@ -1352,6 +1356,42 @@ async function writeTextFile(rawPath = '', content = '') {
   };
 }
 
+async function uploadAttachment(rawName = '', rawDataBase64 = '') {
+  const name = path
+    .basename(String(rawName || '').trim() || 'attachment')
+    .replace(/[<>:"/\\|?*\u0000-\u001f]/g, '_');
+  const dataBase64 = String(rawDataBase64 || '').replace(/\s+/g, '');
+  if (!dataBase64) {
+    const error = new Error('attachment data is required');
+    error.status = 400;
+    throw error;
+  }
+  const bytes = Buffer.from(dataBase64, 'base64');
+  if (Number.isFinite(maxUploadBytes) && bytes.length > maxUploadBytes) {
+    const error = new Error(
+      `attachment is larger than OMNIBOT_BRIDGE_MAX_UPLOAD_BYTES (${maxUploadBytes})`
+    );
+    error.status = 413;
+    throw error;
+  }
+  const attachmentDir = path.join(bridgeCwd, '.omnibot', 'attachments');
+  await fs.mkdir(attachmentDir, { recursive: true });
+  const targetPath = path.join(
+    attachmentDir,
+    `${Date.now()}_${crypto.randomUUID()}_${name}`
+  );
+  await fs.writeFile(targetPath, bytes);
+  const stat = await fs.stat(targetPath);
+  return {
+    ok: true,
+    path: targetPath,
+    name,
+    type: 'file',
+    size: stat.size,
+    mtimeMs: stat.mtimeMs,
+  };
+}
+
 async function deletePath(rawPath = '', recursive = false) {
   const resolvedPath = resolveDirectoryPath(rawPath);
   const realPath = await fs.realpath(resolvedPath);
@@ -1463,6 +1503,24 @@ const server = http.createServer(async (req, res) => {
       sendJson(res, error.status || 500, {
         ok: false,
         error: error.message || 'failed to write file',
+      });
+    }
+    return;
+  }
+
+  if (url.pathname === '/fs/upload' && req.method === 'POST') {
+    if (!isAuthorized(req)) {
+      sendJson(res, 401, { ok: false, error: 'unauthorized' });
+      return;
+    }
+    try {
+      const body = await readJsonBody(req);
+      const payload = await uploadAttachment(body.name, body.dataBase64);
+      sendJson(res, 200, payload);
+    } catch (error) {
+      sendJson(res, error.status || 500, {
+        ok: false,
+        error: error.message || 'failed to upload attachment',
       });
     }
     return;
@@ -1744,6 +1802,7 @@ logField('Listening', `ws://${host}:${port}/codex`, color.green);
 logField('Health check', `http://${host}:${port}/health`, color.prompt);
 logField('Directory browser', `http://${host}:${port}/fs/list`, color.prompt);
 logField('File browser API', `http://${host}:${port}/fs/read`, color.prompt);
+logField('Attachment upload API', `http://${host}:${port}/fs/upload`, color.prompt);
 logField('Working directory', bridgeCwd, color.white);
 const startupSocketPath = resolveCodexControlSocketPath();
 const startupSocketAvailable = await socketExists(startupSocketPath);

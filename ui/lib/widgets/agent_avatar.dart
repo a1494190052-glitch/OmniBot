@@ -25,6 +25,7 @@ class AgentAvatarButton extends StatefulWidget {
     this.tooltip = '修改 Agent 头像',
     this.showEditBadge = false,
     this.showCompletedBadge = false,
+    this.showBorder = true,
     this.onChanged,
   });
 
@@ -32,6 +33,7 @@ class AgentAvatarButton extends StatefulWidget {
   final String tooltip;
   final bool showEditBadge;
   final bool showCompletedBadge;
+  final bool showBorder;
   final ValueChanged<AgentAvatarState>? onChanged;
 
   @override
@@ -92,6 +94,7 @@ class _AgentAvatarButtonState extends State<AgentAvatarButton> {
                 size: widget.size,
                 showEditBadge: widget.showEditBadge,
                 showCompletedBadge: widget.showCompletedBadge,
+                showBorder: widget.showBorder,
               );
             },
           ),
@@ -110,6 +113,7 @@ class AgentAvatarCircle extends StatelessWidget {
     this.size = 28,
     this.showEditBadge = false,
     this.showCompletedBadge = false,
+    this.showBorder = true,
   });
 
   final AgentAvatarState? state;
@@ -118,6 +122,12 @@ class AgentAvatarCircle extends StatelessWidget {
   final double size;
   final bool showEditBadge;
   final bool showCompletedBadge;
+
+  /// 头像外圈那条 1.5px 描边。聊天页里 agent 头像不需要这圈白框
+  /// (`showBorder: false`);头像选择弹窗/设置页仍保留描边做视觉分隔。
+  /// 边线是 `foregroundDecoration`,盖在已铺满 `size` 的图片外沿上,
+  /// 去掉后图片自然补满这 1.5px,整体 `size×size` 尺寸不变。
+  final bool showBorder;
 
   @override
   Widget build(BuildContext context) {
@@ -143,15 +153,17 @@ class AgentAvatarCircle extends StatelessWidget {
         clipBehavior: Clip.none,
         children: [
           Container(
-            foregroundDecoration: BoxDecoration(
-              shape: BoxShape.circle,
-              border: Border.all(
-                color: context.isDarkTheme
-                    ? palette.borderStrong
-                    : const Color(0xFFFFFFFF),
-                width: 1.5,
-              ),
-            ),
+            foregroundDecoration: showBorder
+                ? BoxDecoration(
+                    shape: BoxShape.circle,
+                    border: Border.all(
+                      color: context.isDarkTheme
+                          ? palette.borderStrong
+                          : const Color(0xFFFFFFFF),
+                      width: 1.5,
+                    ),
+                  )
+                : null,
             child: ClipOval(
               child: _AvatarImage(
                 presetIndex: resolvedPresetIndex,

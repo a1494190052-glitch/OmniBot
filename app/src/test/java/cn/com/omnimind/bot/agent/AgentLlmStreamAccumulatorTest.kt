@@ -15,69 +15,6 @@ class AgentLlmStreamAccumulatorTest {
     }
 
     @Test
-    fun `treats leading text before closing think tag as reasoning for local models`() {
-        val accumulator = AgentLlmStreamAccumulator(
-            json = json,
-            preferInlineThinkTags = true
-        )
-
-        accumulator.consume("""{"choices":[{"delta":{"content":"先思考第一步"}}]}""")
-        accumulator.consume("""{"choices":[{"delta":{"content":"再思考第二步</think>最后回答"}}]}""")
-
-        val turn = accumulator.buildTurn()
-
-        assertEquals("先思考第一步再思考第二步", turn.reasoning)
-        assertEquals("最后回答", turn.message.contentText())
-    }
-
-    @Test
-    fun `flushes pending text as normal content when no think tag appears`() {
-        val accumulator = AgentLlmStreamAccumulator(
-            json = json,
-            preferInlineThinkTags = true
-        )
-
-        accumulator.consume("""{"choices":[{"delta":{"content":"普通回答"}}]}""")
-
-        val turn = accumulator.buildTurn()
-
-        assertEquals("", turn.reasoning)
-        assertEquals("普通回答", turn.message.contentText())
-    }
-
-    @Test
-    fun `handles closing think tag split across chunks`() {
-        val accumulator = AgentLlmStreamAccumulator(
-            json = json,
-            preferInlineThinkTags = true
-        )
-
-        accumulator.consume("""{"choices":[{"delta":{"content":"先思考</th"}}]}""")
-        accumulator.consume("""{"choices":[{"delta":{"content":"ink>最终回答"}}]}""")
-
-        val turn = accumulator.buildTurn()
-
-        assertEquals("先思考", turn.reasoning)
-        assertEquals("最终回答", turn.message.contentText())
-    }
-
-    @Test
-    fun `handles opening think tag split across chunks`() {
-        val accumulator = AgentLlmStreamAccumulator(
-            json = json,
-            preferInlineThinkTags = true
-        )
-
-        accumulator.consume("""{"choices":[{"delta":{"content":"先展示前言<th"}}]}""")
-        accumulator.consume("""{"choices":[{"delta":{"content":"ink>深度思考</think>最后回答"}}]}""")
-
-        val turn = accumulator.buildTurn()
-
-        assertEquals("深度思考", turn.reasoning)
-        assertEquals("先展示前言最后回答", turn.message.contentText())
-    }
-
-    @Test
     fun `reads tokens per second from usage performance payload`() {
         val accumulator = AgentLlmStreamAccumulator(json = json)
 
@@ -197,7 +134,6 @@ class AgentLlmStreamAccumulatorTest {
     fun `route-gated leading buffer reclassifies text before close tag for non local providers`() {
         val accumulator = AgentLlmStreamAccumulator(
             json = json,
-            preferInlineThinkTags = false,
             bufferLeadingTextUntilInlineThinkTag = true
         )
 
@@ -213,7 +149,6 @@ class AgentLlmStreamAccumulatorTest {
     fun `route-gated leading buffer reclassifies split close tag for non local providers`() {
         val accumulator = AgentLlmStreamAccumulator(
             json = json,
-            preferInlineThinkTags = false,
             bufferLeadingTextUntilInlineThinkTag = true
         )
 
@@ -230,7 +165,6 @@ class AgentLlmStreamAccumulatorTest {
     fun `route-gated leading buffer flushes normal content when no think tag appears`() {
         val accumulator = AgentLlmStreamAccumulator(
             json = json,
-            preferInlineThinkTags = false,
             bufferLeadingTextUntilInlineThinkTag = true
         )
 
@@ -246,7 +180,6 @@ class AgentLlmStreamAccumulatorTest {
     fun `route-gated leading buffer streams content after separate reasoning channel`() {
         val accumulator = AgentLlmStreamAccumulator(
             json = json,
-            preferInlineThinkTags = false,
             bufferLeadingTextUntilInlineThinkTag = true
         )
 
@@ -266,7 +199,6 @@ class AgentLlmStreamAccumulatorTest {
     fun `route-gated leading buffer releases same-chunk content when reasoning channel appears`() {
         val accumulator = AgentLlmStreamAccumulator(
             json = json,
-            preferInlineThinkTags = false,
             bufferLeadingTextUntilInlineThinkTag = true
         )
 
@@ -284,7 +216,6 @@ class AgentLlmStreamAccumulatorTest {
     fun `guarded leading buffer releases large normal content before stream end`() {
         val accumulator = AgentLlmStreamAccumulator(
             json = json,
-            preferInlineThinkTags = false,
             bufferLeadingTextUntilInlineThinkTag = true,
             guardLeadingReasoningLeak = true
         )
@@ -299,7 +230,6 @@ class AgentLlmStreamAccumulatorTest {
     fun `guarded leading buffer aborts on high confidence reasoning leak pattern`() {
         val accumulator = AgentLlmStreamAccumulator(
             json = json,
-            preferInlineThinkTags = false,
             bufferLeadingTextUntilInlineThinkTag = true,
             guardLeadingReasoningLeak = true
         )
@@ -320,7 +250,6 @@ class AgentLlmStreamAccumulatorTest {
     fun `guarded leading buffer does not abort on single secondary pattern`() {
         val accumulator = AgentLlmStreamAccumulator(
             json = json,
-            preferInlineThinkTags = false,
             bufferLeadingTextUntilInlineThinkTag = true,
             guardLeadingReasoningLeak = true
         )

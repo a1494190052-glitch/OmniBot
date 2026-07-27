@@ -1,9 +1,9 @@
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
+import 'package:ui/features/home/pages/authorize/accessibility_permission_prompt.dart';
 import 'package:ui/features/home/pages/command_overlay/services/executable_task_service.dart';
 import 'package:ui/services/assists_core_service.dart';
-import 'package:ui/services/special_permission.dart';
 import 'package:ui/theme/theme_context.dart';
 import 'package:ui/utils/ui.dart';
 
@@ -30,37 +30,27 @@ class ExecutableTaskCard extends StatefulWidget {
 
 class _ExecutableTaskCardState extends State<ExecutableTaskCard> {
   bool _isExecuting = false;
+  String? _activeTaskId;
 
   @override
   void initState() {
     super.initState();
-    // 注册VLM任务完成回调
-    AssistsMessageService.setOnVLMTaskFinishCallBack(_onVLMTaskFinish);
-    AssistsMessageService.setOnCommonTaskFinishCallBack(_onCommonTaskFinish);
+    AssistsMessageService.addOnChatTaskMessageEndCallBack(_onAgentTaskFinish);
   }
 
   @override
   void dispose() {
-    // 取消注册回调
-    AssistsMessageService.removeOnVLMTaskFinishCallBack(_onVLMTaskFinish);
-    AssistsMessageService.removeOnCommonTaskFinishCallBack(_onCommonTaskFinish);
+    AssistsMessageService.removeOnChatTaskMessageEndCallBack(
+      _onAgentTaskFinish,
+    );
     super.dispose();
   }
 
-  /// VLM任务完成回调
-  void _onVLMTaskFinish(String? _) {
-    if (mounted && _isExecuting) {
+  void _onAgentTaskFinish(String taskId, {Map<String, dynamic>? turnUsage}) {
+    if (mounted && _isExecuting && taskId == _activeTaskId) {
       setState(() {
         _isExecuting = false;
-      });
-    }
-  }
-
-  // 普通任务完成回调
-  void _onCommonTaskFinish() {
-    if (mounted && _isExecuting) {
-      setState(() {
-        _isExecuting = false;
+        _activeTaskId = null;
       });
     }
   }
@@ -163,13 +153,15 @@ class _ExecutableTaskCardState extends State<ExecutableTaskCard> {
     }
 
     // 检查无障碍权限
-    final hasPermission = await checkAccessibilityPermission(context);
+    final hasPermission = await showAccessibilityPermissionPrompt(context);
     if (!hasPermission) {
       return;
     }
 
+    final taskId = 'gui-${DateTime.now().microsecondsSinceEpoch}';
     setState(() {
       _isExecuting = true;
+      _activeTaskId = taskId;
     });
 
     try {
@@ -177,14 +169,14 @@ class _ExecutableTaskCardState extends State<ExecutableTaskCard> {
       final suggestion = widget.cardData['suggestion'] as Map<String, dynamic>?;
 
       // 从 suggestion 中获取必要字段，如果 suggestion 为 null，则从 cardData 的 package_name 获取
-      // （VLM模式下 suggestion 可能为 null，此时 package_name 来自 dispatchResult）
+      // （GUI 模式下 suggestion 可能为 null，此时 package_name 来自 dispatchResult）
       final String packageName =
           suggestion?['packageName'] as String? ??
           widget.cardData['package_name'] as String? ??
           '';
       final bool isHomeTask = suggestion?['isHomeTask'] as bool? ?? false;
 
-      const String execMode = 'VLM';
+      const String execMode = 'GUI';
 
       print(
         '执行任务 - packageName: $packageName, isHomeTask: $isHomeTask, execMode: $execMode',
@@ -207,6 +199,7 @@ class _ExecutableTaskCardState extends State<ExecutableTaskCard> {
         execMode: execMode,
         instruction: instruction,
         taskJson: taskJson,
+        taskId: taskId,
         packageName: packageName,
         runMode: "oss",
       );
@@ -215,6 +208,7 @@ class _ExecutableTaskCardState extends State<ExecutableTaskCard> {
         if (mounted) {
           setState(() {
             _isExecuting = false;
+            _activeTaskId = null;
           });
         }
         showToast('任务执行出错', type: ToastType.error);
@@ -224,6 +218,7 @@ class _ExecutableTaskCardState extends State<ExecutableTaskCard> {
       if (mounted) {
         setState(() {
           _isExecuting = false;
+          _activeTaskId = null;
         });
       }
       showToast('任务执行出错：$e', type: ToastType.error);

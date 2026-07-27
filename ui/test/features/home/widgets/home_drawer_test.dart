@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_svg/flutter_svg.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -40,7 +41,6 @@ void main() {
   const assistCoreChannel = MethodChannel(
     'cn.com.omnimind.bot/AssistCoreEvent',
   );
-  const cacheChannel = MethodChannel('cn.com.omnimind.bot/CacheDataEvent');
   late List<Map<String, Object?>> nativeConversations;
 
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -64,22 +64,11 @@ void main() {
               return null;
           }
         });
-    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
-        .setMockMethodCallHandler(cacheChannel, (call) async {
-          switch (call.method) {
-            case 'getAllFavoriteRecords':
-              return <Object?>[];
-            default:
-              return null;
-          }
-        });
   });
 
   tearDown(() {
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(assistCoreChannel, null);
-    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
-        .setMockMethodCallHandler(cacheChannel, null);
   });
 
   testWidgets('embedded mode routes new conversation through callback', (
@@ -206,6 +195,57 @@ void main() {
     expect(selectedTarget!.mode, ConversationMode.openclaw);
   });
 
+  testWidgets('embedded Agent conversation keeps its bound ACP agent', (
+    tester,
+  ) async {
+    ConversationThreadTarget? selectedTarget;
+    nativeConversations = <Map<String, Object?>>[
+      <String, Object?>{
+        'id': 50,
+        'title': 'Claude 会话',
+        'mode': ConversationMode.agent.storageValue,
+        'agentId': 'claude-code-acp',
+        'summary': null,
+        'status': 0,
+        'lastMessage': 'hello',
+        'messageCount': 1,
+        'createdAt': 1,
+        'updatedAt': 2,
+      },
+    ];
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: DefaultAssetBundle(
+          bundle: _SvgTestAssetBundle(),
+          child: _buildProviderScope(
+            child: Scaffold(
+              body: SizedBox(
+                width: 360,
+                height: 720,
+                child: HomeDrawer(
+                  embedded: true,
+                  closeOnNavigate: false,
+                  onThreadTargetSelected: (target) {
+                    selectedTarget = target;
+                  },
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Claude 会话'));
+    await tester.pumpAndSettle();
+
+    expect(selectedTarget?.conversationId, 50);
+    expect(selectedTarget?.mode, ConversationMode.agent);
+    expect(selectedTarget?.agentId, 'claude-code-acp');
+  });
+
   testWidgets('shows scheduled and pinned sections before regular history', (
     tester,
   ) async {
@@ -214,9 +254,6 @@ void main() {
       jsonEncode({
         'id': 'schedule-1',
         'title': '新闻整理任务',
-        'packageName': '',
-        'nodeId': '',
-        'suggestionId': '',
         'targetKind': 'subagent',
         'parentConversationId': '1',
         'parentConversationMode': ConversationMode.normal.storageValue,
@@ -341,6 +378,64 @@ void main() {
     expect(searchField.focusNode!.hasFocus, isFalse);
   });
 
+  testWidgets('search takes exclusive focus and reports the handoff', (
+    tester,
+  ) async {
+    final chatFocusNode = FocusNode();
+    final drawerKey = GlobalKey<HomeDrawerState>();
+    final searchFocusChanges = <bool>[];
+    addTearDown(chatFocusNode.dispose);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: DefaultAssetBundle(
+          bundle: _SvgTestAssetBundle(),
+          child: _buildProviderScope(
+            child: Scaffold(
+              body: Column(
+                children: [
+                  SizedBox(
+                    height: 48,
+                    child: TextField(focusNode: chatFocusNode),
+                  ),
+                  Expanded(
+                    child: HomeDrawer(
+                      key: drawerKey,
+                      embedded: true,
+                      onSearchFocusChanged: searchFocusChanges.add,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    chatFocusNode.requestFocus();
+    await tester.pump();
+    expect(chatFocusNode.hasFocus, isTrue);
+
+    final searchFinder = find.byType(TextField).last;
+    final searchField = tester.widget<TextField>(searchFinder);
+    await tester.tap(searchFinder);
+    await tester.pump();
+
+    expect(searchField.focusNode!.hasFocus, isTrue);
+    expect(chatFocusNode.hasFocus, isFalse);
+    expect(FocusManager.instance.primaryFocus, same(searchField.focusNode));
+    expect(searchFocusChanges, isNotEmpty);
+    expect(searchFocusChanges.last, isTrue);
+
+    drawerKey.currentState!.unfocusSearch();
+    await tester.pump();
+
+    expect(searchField.focusNode!.hasFocus, isFalse);
+    expect(searchFocusChanges.last, isFalse);
+  });
+
   testWidgets('localizes promoted drawer section titles in English', (
     tester,
   ) async {
@@ -349,9 +444,6 @@ void main() {
       jsonEncode({
         'id': 'schedule-1',
         'title': 'Daily task',
-        'packageName': '',
-        'nodeId': '',
-        'suggestionId': '',
         'targetKind': 'subagent',
         'parentConversationId': '1',
         'parentConversationMode': ConversationMode.normal.storageValue,
@@ -420,7 +512,7 @@ void main() {
 
     expect(find.text('Scheduled tasks'), findsOneWidget);
     expect(find.text('Pinned conversations'), findsOneWidget);
-    expect(find.text('Agent'), findsOneWidget);
+    expect(find.text('OmniAi'), findsOneWidget);
   });
 
   testWidgets('scrolls promoted sections together with history', (
@@ -431,9 +523,6 @@ void main() {
       jsonEncode({
         'id': 'schedule-1',
         'title': '新闻整理任务',
-        'packageName': '',
-        'nodeId': '',
-        'suggestionId': '',
         'targetKind': 'subagent',
         'parentConversationId': '1',
         'parentConversationMode': ConversationMode.normal.storageValue,
@@ -500,9 +589,9 @@ void main() {
 
     final sectionHeaderLeft = tester.getTopLeft(find.text('定时任务')).dx;
 
-    // 顶层区块标题（定时任务/置顶会话/Agent）左对齐；置顶条目与标题共用缩进。
+    // 顶层区块标题（定时任务/置顶会话/小万）左对齐；置顶条目与标题共用缩进。
     expect(tester.getTopLeft(find.text('置顶会话')).dx, sectionHeaderLeft);
-    expect(tester.getTopLeft(find.text('Agent')).dx, sectionHeaderLeft);
+    expect(tester.getTopLeft(find.text('小万')).dx, sectionHeaderLeft);
     expect(tester.getTopLeft(find.text('重点对话')).dx, sectionHeaderLeft);
 
     // 定时任务、置顶区块与历史记录在同一个滚动列表内，上滑时随列表一起
@@ -522,9 +611,6 @@ void main() {
       jsonEncode({
         'id': 'schedule-1',
         'title': '新闻整理任务',
-        'packageName': '',
-        'nodeId': '',
-        'suggestionId': '',
         'targetKind': 'subagent',
         'parentConversationId': '1',
         'parentConversationMode': ConversationMode.normal.storageValue,
@@ -614,9 +700,6 @@ void main() {
       jsonEncode({
         'id': 'schedule-1',
         'title': '新闻整理任务',
-        'packageName': '',
-        'nodeId': '',
-        'suggestionId': '',
         'targetKind': 'subagent',
         'parentConversationId': '1',
         'parentConversationMode': ConversationMode.normal.storageValue,
@@ -708,9 +791,6 @@ void main() {
       jsonEncode({
         'id': 'schedule-1',
         'title': '新闻整理任务',
-        'packageName': '',
-        'nodeId': '',
-        'suggestionId': '',
         'targetKind': 'subagent',
         'parentConversationId': '1',
         'parentConversationMode': ConversationMode.normal.storageValue,
@@ -777,7 +857,7 @@ void main() {
       12,
     ).millisecondsSinceEpoch;
     final dateKey =
-        '__home_drawer_date__agent__'
+        '__home_drawer_date__omni_ai__'
         '${currentDay.year.toString().padLeft(4, '0')}-'
         '${currentDay.month.toString().padLeft(2, '0')}-'
         '${currentDay.day.toString().padLeft(2, '0')}';
@@ -793,9 +873,6 @@ void main() {
       jsonEncode({
         'id': 'schedule-1',
         'title': '新闻整理任务',
-        'packageName': '',
-        'nodeId': '',
-        'suggestionId': '',
         'targetKind': 'subagent',
         'parentConversationId': '1',
         'parentConversationMode': ConversationMode.normal.storageValue,
@@ -914,7 +991,7 @@ void main() {
     expect(find.text('普通会话').hitTestable(), findsNothing);
   });
 
-  testWidgets('splits codex, agent and pure chat histories into sections', (
+  testWidgets('splits Agent, OmniAi and pure chat histories into sections', (
     tester,
   ) async {
     // 相对时间标签依赖 LegacyTextLocalizer 的解析语言，固定为中文保证断言稳定。
@@ -925,8 +1002,8 @@ void main() {
       <String, Object?>{
         'id': 11,
         'title': '修复登录问题',
-        'mode': ConversationMode.codex.storageValue,
-        'codexCwd': '/root/blog',
+        'mode': ConversationMode.agent.storageValue,
+        'agentCwd': '/root/blog',
         'summary': null,
         'status': 0,
         'lastMessage': null,
@@ -937,8 +1014,8 @@ void main() {
       <String, Object?>{
         'id': 12,
         'title': '写周报脚本',
-        'mode': ConversationMode.codex.storageValue,
-        'codexCwd': '/root/blog/',
+        'mode': ConversationMode.agent.storageValue,
+        'agentCwd': '/root/blog/',
         'summary': null,
         'status': 0,
         'lastMessage': null,
@@ -949,8 +1026,8 @@ void main() {
       <String, Object?>{
         'id': 13,
         'title': '优化首页响应式',
-        'mode': ConversationMode.codex.storageValue,
-        'codexCwd': '/root/CoffeeMux',
+        'mode': ConversationMode.agent.storageValue,
+        'agentCwd': '/root/CoffeeMux',
         'summary': null,
         'status': 0,
         'lastMessage': null,
@@ -997,11 +1074,29 @@ void main() {
     await tester.pumpAndSettle();
 
     // 三个模式区块并列展示。
-    expect(find.text('Codex'), findsOneWidget);
     expect(find.text('Agent'), findsOneWidget);
+    expect(find.text('小万'), findsOneWidget);
     expect(find.text('纯聊天'), findsOneWidget);
+    final agentSectionIcon = tester.widget<SvgPicture>(
+      find.byKey(
+        const ValueKey('home-drawer-section-icon-__home_drawer_agent__'),
+      ),
+    );
+    final omniAiSectionIcon = tester.widget<SvgPicture>(
+      find.byKey(
+        const ValueKey('home-drawer-section-icon-__home_drawer_omni_ai__'),
+      ),
+    );
+    expect(
+      agentSectionIcon.bytesLoader.toString(),
+      contains('assets/home/chat/agent.svg'),
+    );
+    expect(
+      omniAiSectionIcon.bytesLoader.toString(),
+      contains('assets/home/avatar.svg'),
+    );
 
-    // Codex 区块内按项目名分组，且项目按最近活跃排序。
+    // Agent 区块内按项目名分组，且项目按最近活跃排序。
     expect(find.text('blog'), findsOneWidget);
     expect(find.text('CoffeeMux'), findsOneWidget);
     expect(
@@ -1017,10 +1112,10 @@ void main() {
     // 日期分组下的会话标题不再缩进：与区块标题、日期分组行共用同一左缘。
     expect(
       tester.getTopLeft(find.text('Agent 会话')).dx,
-      tester.getTopLeft(find.text('Agent')).dx,
+      tester.getTopLeft(find.text('小万')).dx,
     );
 
-    // Codex 条目展示相对时间标签而非日期分组。
+    // Agent 条目展示相对时间标签而非日期分组。
     expect(find.text('1 周'), findsNWidgets(3));
 
     // 折叠单个项目只隐藏该项目下的会话。
@@ -1030,8 +1125,8 @@ void main() {
     expect(find.text('写周报脚本').hitTestable(), findsNothing);
     expect(find.text('优化首页响应式').hitTestable(), findsOneWidget);
 
-    // 折叠整个 Codex 区块后项目行一并隐藏。
-    await tester.tap(find.text('Codex'));
+    // 折叠整个 Agent 区块后项目行一并隐藏。
+    await tester.tap(find.text('Agent'));
     await tester.pumpAndSettle();
     expect(find.text('blog').hitTestable(), findsNothing);
     expect(find.text('CoffeeMux').hitTestable(), findsNothing);

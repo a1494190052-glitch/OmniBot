@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:ui/constants/storage_keys.dart';
 import 'package:ui/core/router/go_router_manager.dart';
-import 'package:ui/features/local_model/local_model_feature.dart';
 import 'package:ui/features/welcome/state/onboarding_state.dart';
 import 'package:ui/features/welcome/widgets/onboarding_choice_card.dart';
 import 'package:ui/l10n/l10n.dart';
@@ -13,25 +12,6 @@ import 'package:ui/widgets/settings_section_title.dart';
 const String _kCloudSvg = '''
 <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
   <path d="M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9Z"/>
-</svg>
-''';
-
-const String _kDeviceSvg = '''
-<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-  <path d="M12 20v2"/>
-  <path d="M12 2v2"/>
-  <path d="M17 20v2"/>
-  <path d="M17 2v2"/>
-  <path d="M2 12h2"/>
-  <path d="M2 17h2"/>
-  <path d="M2 7h2"/>
-  <path d="M20 12h2"/>
-  <path d="M20 17h2"/>
-  <path d="M20 7h2"/>
-  <path d="M7 20v2"/>
-  <path d="M7 2v2"/>
-  <rect x="4" y="4" width="16" height="16" rx="2"/>
-  <rect x="8" y="8" width="8" height="8" rx="1"/>
 </svg>
 ''';
 
@@ -246,32 +226,6 @@ class _OnboardingChoicePageState extends ConsumerState<OnboardingChoicePage>
                               );
                             },
                           ),
-
-                          if (localModelFeature.enabled) ...[
-                            // Divider (settings-style, left-padded past icon)
-                            Padding(
-                              padding: const EdgeInsets.only(left: 32),
-                              child: Divider(
-                                height: 1,
-                                thickness: 1,
-                                color: palette.borderSubtle.withValues(
-                                  alpha: context.isDarkTheme ? 0.5 : 0.78,
-                                ),
-                              ),
-                            ),
-
-                            // Local Model
-                            OnboardingChoiceCard(
-                              svgIcon: _kDeviceSvg,
-                              title: context.trLegacy('本地模型'),
-                              subtitle: context.trLegacy(
-                                '在设备上运行本地 AI，离线可用，隐私安全',
-                              ),
-                              completed: state.localModelReady,
-                              onTap: () =>
-                                  GoRouterManager.push('/welcome/local_intro'),
-                            ),
-                          ],
                         ],
                       ),
                     ),

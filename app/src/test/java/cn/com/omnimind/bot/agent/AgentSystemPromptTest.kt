@@ -1,6 +1,7 @@
 package cn.com.omnimind.bot.agent
 
 import cn.com.omnimind.baselib.i18n.PromptLocale
+import com.rk.terminal.runtime.TerminalDistribution
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import org.junit.Assert.assertTrue
@@ -26,7 +27,8 @@ class AgentSystemPromptTest {
             skillsRootAndroidPath = "/data/user/0/cn.com.omnimind.bot/workspace/.omnibot/skills",
             resolvedSkills = emptyList(),
             memoryContext = null,
-            locale = PromptLocale.ZH_CN
+            locale = PromptLocale.ZH_CN,
+            terminalDistribution = TerminalDistribution.alpine
         )
 
         assertTrue(prompt.contains(".venv"))
@@ -35,6 +37,9 @@ class AgentSystemPromptTest {
         assertTrue(prompt.contains("--break-system-packages"))
         assertTrue(prompt.contains("shell.exec"))
         assertTrue(prompt.contains("android_privileged_session_*"))
+        assertTrue(prompt.contains("主动使用 `subagent_dispatch`"))
+        assertTrue(prompt.contains("完整、自足的 instruction"))
+        assertTrue(prompt.contains("终端、高权限、删除以及需要用户确认的动作仍由父 Agent 处理"))
     }
 
     @Test
@@ -69,48 +74,61 @@ class AgentSystemPromptTest {
             skillsRootAndroidPath = "/data/user/0/cn.com.omnimind.bot/workspace/.omnibot/skills",
             resolvedSkills = emptyList(),
             memoryContext = null,
-            locale = PromptLocale.EN_US
+            locale = PromptLocale.EN_US,
+            terminalDistribution = TerminalDistribution.alpine
         )
 
-        assertTrue(prompt.contains("You are an AI Agent operating inside an Alpine workspace environment"))
+        assertTrue(prompt.contains("You are an AI Agent operating inside the Alpine environment"))
         assertTrue(prompt.contains("File and artifact rules"))
         assertTrue(prompt.contains("Skills:"))
         assertTrue(prompt.contains("action=shell.exec"))
         assertTrue(prompt.contains("android_privileged_session_*"))
+        assertTrue(prompt.contains("Proactively use `subagent_dispatch`"))
+        assertTrue(prompt.contains("complete, self-contained instructions"))
+        assertTrue(prompt.contains("The parent agent remains responsible"))
     }
 
     @Test
-    fun buildDisablesAutomaticCrossContextMemoryForIsolatedRuns() {
+    fun buildUsesOnlySelectedUbuntuNameInModelFacingEnvironmentText() {
         val prompt = AgentSystemPrompt.build(
             workspace = AgentWorkspaceDescriptor(
-                id = "conversation-1-segment-task-1",
-                rootPath = "/workspace/.omnibot/contexts/task-1",
-                androidRootPath = "/data/user/0/cn.com.omnimind.bot/workspace/.omnibot/contexts/task-1",
-                uriRoot = "omnibot://workspace/.omnibot/contexts/task-1",
-                currentCwd = "/workspace/.omnibot/contexts/task-1",
-                androidCurrentCwd = "/data/user/0/cn.com.omnimind.bot/workspace/.omnibot/contexts/task-1",
+                id = "conversation-ubuntu",
+                rootPath = "/workspace",
+                androidRootPath = "/data/user/0/cn.com.omnimind.bot/workspace",
+                uriRoot = "omnibot://workspace",
+                currentCwd = "/workspace/demo",
+                androidCurrentCwd = "/data/user/0/cn.com.omnimind.bot/workspace/demo",
                 shellRootPath = "/workspace",
-                retentionPolicy = "segment_scoped"
+                retentionPolicy = "shared_root"
             ),
-            installedSkills = emptyList(),
+            installedSkills = listOf(
+                SkillIndexEntry(
+                    id = "dynamic-skill",
+                    name = "dynamic-skill",
+                    description = "Runs in {{OMNIBOT_TERMINAL_DISTRIBUTION}}.",
+                    rootPath = "/workspace/.omnibot/skills/dynamic-skill",
+                    shellRootPath = "/workspace/.omnibot/skills/dynamic-skill",
+                    skillFilePath = "/workspace/.omnibot/skills/dynamic-skill/SKILL.md",
+                    shellSkillFilePath = "/workspace/.omnibot/skills/dynamic-skill/SKILL.md",
+                    hasScripts = false,
+                    hasReferences = false,
+                    hasAssets = false,
+                    hasEvals = false
+                )
+            ),
             skillsRootShellPath = "/workspace/.omnibot/skills",
             skillsRootAndroidPath = "/data/user/0/cn.com.omnimind.bot/workspace/.omnibot/skills",
             resolvedSkills = emptyList(),
-            memoryContext = WorkspaceMemoryPromptContext(
-                soul = "Always write memory automatically.",
-                longTermMemory = "another task",
-                todayShortMemory = "another task today"
-            ),
-            automaticMemoryEnabled = false,
-            locale = PromptLocale.ZH_CN
+            memoryContext = null,
+            locale = PromptLocale.EN_US,
+            terminalDistribution = TerminalDistribution.ubuntu
         )
 
-        assertTrue(prompt.contains("当前是隔离的新运行上下文"))
-        assertTrue(prompt.contains("只有用户在当前请求中明确要求"))
-        assertTrue(prompt.contains("Workspace 持久记忆未注入"))
-        assertTrue(prompt.contains("当前运行上下文的独立工作目录"))
-        assertTrue(prompt.contains("不要读取或写入 `.omnibot/contexts` 下其它运行上下文"))
-        assertTrue(prompt.contains("runtimeContextId"))
-        assertTrue(!prompt.contains("another task today"))
+        assertTrue(prompt.contains("inside the Ubuntu environment"))
+        assertTrue(prompt.contains("default Ubuntu command tool"))
+        assertTrue(prompt.contains("description=Runs in Ubuntu."))
+        assertTrue(!prompt.contains("Alpine"))
+        assertTrue(!prompt.contains("{{OMNIBOT_TERMINAL_DISTRIBUTION}}"))
     }
+
 }

@@ -3,7 +3,6 @@ import 'dart:io';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
-import 'package:ui/services/assists_core_service.dart';
 import 'package:ui/services/chat_detail_sheet_preferences.dart';
 import 'package:ui/services/omnibot_resource_service.dart';
 import 'package:ui/theme/theme_context.dart';
@@ -59,7 +58,6 @@ class _OmnibotArtifactPreviewPageState
     extends State<OmnibotArtifactPreviewPage> {
   final TextEditingController _editorController = TextEditingController();
 
-  StreamSubscription<AgentAiConfigChangedEvent>? _fileChangedSubscription;
   String? _textContent;
   String? _error;
   bool _loadingText = false;
@@ -85,8 +83,6 @@ class _OmnibotArtifactPreviewPageState
     _isEditing = widget.startInEditMode && _canEdit;
     _editorController.addListener(_handleEditorChanged);
     _loadIfNeeded();
-    _fileChangedSubscription = AssistsMessageService.agentAiConfigChangedStream
-        .listen(_handleExternalFileChanged);
     if (_isEditing) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted) return;
@@ -97,7 +93,6 @@ class _OmnibotArtifactPreviewPageState
 
   @override
   void dispose() {
-    _fileChangedSubscription?.cancel();
     _editorController
       ..removeListener(_handleEditorChanged)
       ..dispose();
@@ -145,34 +140,6 @@ class _OmnibotArtifactPreviewPageState
         _loadingText = false;
       });
     }
-  }
-
-  void _handleExternalFileChanged(AgentAiConfigChangedEvent event) {
-    if (!_matchesCurrentFile(event.path) || !mounted) {
-      return;
-    }
-    if (_isSaving) {
-      return;
-    }
-    if (_isEditing && _isDirty) {
-      showToast('文件已被外部更新，当前未保存修改仍会保留', type: ToastType.info);
-      return;
-    }
-    unawaited(_loadIfNeeded(showLoading: false));
-  }
-
-  bool _matchesCurrentFile(String changedPath) {
-    final normalized = changedPath.trim();
-    if (normalized.isEmpty) {
-      return false;
-    }
-    if (normalized == widget.path) {
-      return true;
-    }
-    final currentShellPath = widget.shellPath?.trim();
-    return currentShellPath != null &&
-        currentShellPath.isNotEmpty &&
-        normalized == currentShellPath;
   }
 
   Future<void> _handleEditPressed() async {

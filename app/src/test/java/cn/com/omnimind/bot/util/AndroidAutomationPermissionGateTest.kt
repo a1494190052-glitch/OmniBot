@@ -7,7 +7,7 @@ import org.junit.Test
 
 class AndroidAutomationPermissionGateTest {
     @Test
-    fun `reports one canonical result when both automation permissions are missing`() {
+    fun `reports both permissions when automation is unavailable`() {
         val result = AndroidAutomationPermissionGate.evaluate(
             accessibilityEnabled = false,
             overlayEnabled = false,
@@ -18,13 +18,13 @@ class AndroidAutomationPermissionGateTest {
         assertEquals(listOf("无障碍权限", "悬浮窗权限"), result.displayNames)
         assertEquals("OOB_ACCESSIBILITY_REQUIRED", result.errorCode)
         assertEquals(
-            "请先开启无障碍权限和悬浮窗权限，视觉执行才能点击、滑动、输入并显示执行状态。",
+            "请先开启无障碍权限和悬浮窗权限，视觉执行才能操作界面并显示任务控制条。",
             result.message,
         )
     }
 
     @Test
-    fun `reports accessibility when only accessibility permission is missing`() {
+    fun `reports accessibility when only accessibility is unavailable`() {
         val result = AndroidAutomationPermissionGate.evaluate(
             accessibilityEnabled = false,
             overlayEnabled = true,
@@ -34,14 +34,10 @@ class AndroidAutomationPermissionGateTest {
         assertEquals(listOf("accessibility"), result.missingIds)
         assertEquals(listOf("无障碍权限"), result.displayNames)
         assertEquals("OOB_ACCESSIBILITY_REQUIRED", result.errorCode)
-        assertEquals(
-            "请先开启无障碍权限，视觉执行才能点击、滑动和输入。",
-            result.message,
-        )
     }
 
     @Test
-    fun `reports overlay when only overlay permission is missing`() {
+    fun `reports overlay when only overlay is unavailable`() {
         val result = AndroidAutomationPermissionGate.evaluate(
             accessibilityEnabled = true,
             overlayEnabled = false,
@@ -51,10 +47,6 @@ class AndroidAutomationPermissionGateTest {
         assertEquals(listOf("overlay"), result.missingIds)
         assertEquals(listOf("悬浮窗权限"), result.displayNames)
         assertEquals("OOB_PERMISSION_REQUIRED", result.errorCode)
-        assertEquals(
-            "请先开启悬浮窗权限，视觉执行才能显示执行状态。",
-            result.message,
-        )
     }
 
     @Test

@@ -5,7 +5,6 @@ import 'package:flutter_switch/flutter_switch.dart';
 import 'package:ui/features/home/widgets/home_quick_prompt_icon.dart';
 import 'package:ui/l10n/l10n.dart';
 import 'package:ui/services/home_greeting_settings_service.dart';
-import 'package:ui/theme/app_font_effect_scope.dart';
 import 'package:ui/theme/theme_context.dart';
 import 'package:ui/utils/ui.dart';
 import 'package:ui/widgets/common_app_bar.dart';
@@ -238,10 +237,7 @@ class _HomeSettingPageState extends State<HomeSettingPage> {
                   context.trLegacy('显示问候语'),
                   style: TextStyle(
                     fontSize: 14,
-                    fontWeight: AppFontEffectScope.resolveNonChatWeight(
-                      context,
-                      FontWeight.w500,
-                    ),
+                    fontWeight: FontWeight.w500,
                     color: palette.textPrimary,
                     height: 1.5,
                   ),
@@ -252,10 +248,7 @@ class _HomeSettingPageState extends State<HomeSettingPage> {
                   style: TextStyle(
                     color: palette.textSecondary,
                     fontSize: 11,
-                    fontWeight: AppFontEffectScope.resolveNonChatWeight(
-                      context,
-                      FontWeight.w400,
-                    ),
+                    fontWeight: FontWeight.w400,
                     height: 1.55,
                   ),
                 ),
@@ -320,10 +313,7 @@ class _HomeSettingPageState extends State<HomeSettingPage> {
                         overflow: TextOverflow.ellipsis,
                         style: TextStyle(
                           fontSize: 14,
-                          fontWeight: AppFontEffectScope.resolveNonChatWeight(
-                            context,
-                            FontWeight.w500,
-                          ),
+                          fontWeight: FontWeight.w500,
                           color: palette.textPrimary,
                           height: 1.35,
                         ),
@@ -480,10 +470,7 @@ class _PromptTypeBadge extends StatelessWidget {
           color: palette.textTertiary,
           fontSize: 10,
           height: 1,
-          fontWeight: AppFontEffectScope.resolveNonChatWeight(
-            context,
-            FontWeight.w500,
-          ),
+          fontWeight: FontWeight.w500,
         ),
       ),
     );

@@ -5,103 +5,143 @@ import 'package:ui/features/home/pages/chat/services/chat_conversation_runtime_c
 import 'package:ui/models/chat_message_model.dart';
 
 void main() {
-  group(
-    'ChatConversationRuntimeCoordinator.replaceConversationSnapshot '
-    'preserveLiveStreamingState',
-    () {
-      final coordinator = ChatConversationRuntimeCoordinator.instance;
+  group('ChatConversationRuntimeCoordinator.replaceConversationSnapshot '
+      'preserveLiveStreamingState', () {
+    final coordinator = ChatConversationRuntimeCoordinator.instance;
 
-      setUp(() {
-        coordinator.resetForTest();
-      });
+    setUp(() {
+      coordinator.resetForTest();
+    });
 
-      tearDown(() {
-        coordinator.resetForTest();
-      });
+    tearDown(() {
+      coordinator.resetForTest();
+    });
 
-      test(
-        'when preserveLiveStreamingState=true the snapshot keeps reducer '
-        'push state intact (regression: codex output mid-turn auto-collapse)',
-        () {
-          const conversationId = 0xC0DE;
-          const mode = kChatRuntimeModeCodex;
-          coordinator.ensureEphemeralRuntime(
-            conversationId: conversationId,
-            mode: mode,
-          );
-          final runtime = coordinator.runtimeFor(
-            conversationId: conversationId,
-            mode: mode,
-          )!;
-          // Simulate reducer push-driven streaming state populated by
-          // _touchActiveTurn + _appendAssistantText + _appendThinking.
-          runtime.isAiResponding = true;
-          runtime.currentDispatchTaskId = 'turn-1';
-          runtime.lastAgentTaskId = 'turn-1';
-          runtime.currentAiMessages['msg-1-codex-agent'] = 'streaming text';
-          runtime.currentThinkingMessages['turn-1'] = 'thinking text';
-          runtime.currentThinkingStage = ThinkingStage.thinking.value;
-          runtime.isDeepThinking = true;
+    test(
+      'when preserveLiveStreamingState=true the snapshot keeps reducer '
+      'push state intact (regression: codex output mid-turn auto-collapse)',
+      () {
+        const conversationId = 0xC0DE;
+        const mode = kChatRuntimeModeAgent;
+        coordinator.ensureEphemeralRuntime(
+          conversationId: conversationId,
+          mode: mode,
+        );
+        final runtime = coordinator.runtimeFor(
+          conversationId: conversationId,
+          mode: mode,
+        )!;
+        // Simulate reducer push-driven streaming state populated by
+        // _touchActiveTurn + _appendAssistantText + _appendThinking.
+        runtime.isAiResponding = true;
+        runtime.currentDispatchTaskId = 'turn-1';
+        runtime.lastAgentTaskId = 'turn-1';
+        runtime.currentAiMessages['msg-1-codex-agent'] = 'streaming text';
+        runtime.currentThinkingMessages['turn-1'] = 'thinking text';
+        runtime.currentThinkingStage = ThinkingStage.thinking.value;
+        runtime.isDeepThinking = true;
 
-          // Simulate the 2s polling tick deciding the thread looks idle.
-          coordinator.replaceConversationSnapshot(
-            conversationId: conversationId,
-            mode: mode,
-            messages: const <ChatMessageModel>[],
-            isAiResponding: false,
-            currentDispatchTaskId: null,
-            currentThinkingStage: ThinkingStage.complete.value,
-            preserveLiveStreamingState: true,
-          );
+        // Simulate the 2s polling tick deciding the thread looks idle.
+        coordinator.replaceConversationSnapshot(
+          conversationId: conversationId,
+          mode: mode,
+          messages: const <ChatMessageModel>[],
+          isAiResponding: false,
+          currentDispatchTaskId: null,
+          currentThinkingStage: ThinkingStage.complete.value,
+          preserveLiveStreamingState: true,
+        );
 
-          // None of the push-driven fields may have been clobbered: the
-          // chat list reads runtime.activeAgentTaskIds and must still see
-          // the active turn so the agent run group remains EXPANDED.
-          expect(runtime.isAiResponding, isTrue);
-          expect(runtime.currentDispatchTaskId, 'turn-1');
-          expect(runtime.lastAgentTaskId, 'turn-1');
-          expect(runtime.currentAiMessages['msg-1-codex-agent'], 'streaming text');
-          expect(runtime.currentThinkingMessages['turn-1'], 'thinking text');
-          expect(runtime.currentThinkingStage, ThinkingStage.thinking.value);
-          expect(runtime.isDeepThinking, isTrue);
-          expect(runtime.activeAgentTaskIds, contains('turn-1'));
-        },
+        // None of the push-driven fields may have been clobbered: the
+        // chat list reads runtime.activeAgentTaskIds and must still see
+        // the active turn so the agent run group remains EXPANDED.
+        expect(runtime.isAiResponding, isTrue);
+        expect(runtime.currentDispatchTaskId, 'turn-1');
+        expect(runtime.lastAgentTaskId, 'turn-1');
+        expect(
+          runtime.currentAiMessages['msg-1-codex-agent'],
+          'streaming text',
+        );
+        expect(runtime.currentThinkingMessages['turn-1'], 'thinking text');
+        expect(runtime.currentThinkingStage, ThinkingStage.thinking.value);
+        expect(runtime.isDeepThinking, isTrue);
+        expect(runtime.activeAgentTaskIds, contains('turn-1'));
+      },
+    );
+
+    test('when preserveLiveStreamingState=false (default) the snapshot fully '
+        'overwrites runtime state (initial session load behaviour)', () {
+      const conversationId = 0xBEEF;
+      const mode = kChatRuntimeModeAgent;
+      coordinator.ensureEphemeralRuntime(
+        conversationId: conversationId,
+        mode: mode,
+      );
+      final runtime = coordinator.runtimeFor(
+        conversationId: conversationId,
+        mode: mode,
+      )!;
+      runtime.isAiResponding = true;
+      runtime.currentDispatchTaskId = 'stale-turn';
+      runtime.currentAiMessages['old'] = 'old text';
+
+      coordinator.replaceConversationSnapshot(
+        conversationId: conversationId,
+        mode: mode,
+        messages: const <ChatMessageModel>[],
+        isAiResponding: false,
+        currentDispatchTaskId: null,
       );
 
-      test(
-        'when preserveLiveStreamingState=false (default) the snapshot fully '
-        'overwrites runtime state (initial session load behaviour)',
-        () {
-          const conversationId = 0xBEEF;
-          const mode = kChatRuntimeModeCodex;
-          coordinator.ensureEphemeralRuntime(
-            conversationId: conversationId,
-            mode: mode,
-          );
-          final runtime = coordinator.runtimeFor(
-            conversationId: conversationId,
-            mode: mode,
-          )!;
-          runtime.isAiResponding = true;
-          runtime.currentDispatchTaskId = 'stale-turn';
-          runtime.currentAiMessages['old'] = 'old text';
+      expect(runtime.isAiResponding, isFalse);
+      expect(runtime.currentDispatchTaskId, isNull);
+      expect(runtime.currentAiMessages, isEmpty);
+      expect(runtime.activeAgentTaskIds, isEmpty);
+    });
+  });
 
-          coordinator.replaceConversationSnapshot(
-            conversationId: conversationId,
-            mode: mode,
-            messages: const <ChatMessageModel>[],
-            isAiResponding: false,
-            currentDispatchTaskId: null,
-          );
-
-          expect(runtime.isAiResponding, isFalse);
-          expect(runtime.currentDispatchTaskId, isNull);
-          expect(runtime.currentAiMessages, isEmpty);
-          expect(runtime.activeAgentTaskIds, isEmpty);
-        },
+  group('shouldReloadConversationMessagesChanged', () {
+    test('ignores native stream snapshots while runtime is in flight', () {
+      expect(
+        shouldReloadConversationMessagesChanged(
+          reason: 'agent_stream_snapshot',
+          hasInFlightTask: true,
+        ),
+        isFalse,
       );
-    },
-  );
+      expect(
+        shouldReloadConversationMessagesChanged(
+          reason: 'chat_task_stream_snapshot',
+          hasInFlightTask: true,
+        ),
+        isFalse,
+      );
+    });
+
+    test('still reloads external and non-stream changes', () {
+      expect(
+        shouldReloadConversationMessagesChanged(
+          reason: 'external_user_message',
+          hasInFlightTask: true,
+        ),
+        isTrue,
+      );
+      expect(
+        shouldReloadConversationMessagesChanged(
+          reason: 'messages_replaced',
+          hasInFlightTask: true,
+        ),
+        isTrue,
+      );
+      expect(
+        shouldReloadConversationMessagesChanged(
+          reason: 'agent_stream_snapshot',
+          hasInFlightTask: false,
+        ),
+        isTrue,
+      );
+    });
+  });
 
   group('ObservableChatMessageList', () {
     late ObservableChatMessageList list;

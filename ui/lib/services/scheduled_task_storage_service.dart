@@ -46,10 +46,17 @@ class ScheduledTaskStorageService {
         return [];
       }
 
-      return jsonList.map((jsonStr) {
-        final json = jsonDecode(jsonStr) as Map<String, dynamic>;
-        return ScheduledTask.fromJson(json);
-      }).toList();
+      return jsonList
+          .map((jsonStr) {
+            final json = jsonDecode(jsonStr) as Map<String, dynamic>;
+            return ScheduledTask.fromJson(json);
+          })
+          .where(
+            (task) =>
+                task.targetKind == 'subagent' &&
+                (task.subagentPrompt?.trim().isNotEmpty ?? false),
+          )
+          .toList();
     } catch (e) {
       print('加载定时任务失败: $e');
       return [];
@@ -136,22 +143,6 @@ class ScheduledTaskStorageService {
     } catch (e) {
       print('清空定时任务失败: $e');
       return false;
-    }
-  }
-
-  /// 根据suggestionId检查任务是否已经添加定时
-  static Future<ScheduledTask?> getScheduledTaskBySuggestionId(
-    String nodeId,
-    String suggestionId,
-  ) async {
-    try {
-      final tasks = await loadScheduledTasks();
-      return tasks.firstWhere(
-        (task) => task.nodeId == nodeId && task.suggestionId == suggestionId,
-        orElse: () => throw Exception('Task not found'),
-      );
-    } catch (e) {
-      return null;
     }
   }
 

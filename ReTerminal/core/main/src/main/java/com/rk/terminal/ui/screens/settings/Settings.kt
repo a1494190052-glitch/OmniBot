@@ -28,11 +28,14 @@ import com.rk.components.compose.preferences.base.PreferenceTemplate
 import com.rk.resources.strings
 import com.rk.settings.AlpinePackageMirror
 import com.rk.settings.Settings
+import com.rk.settings.UbuntuPackageMirror
 import com.rk.terminal.ui.activities.terminal.MainActivity
 import com.rk.terminal.ui.components.SettingsToggle
 import com.rk.terminal.ui.routes.MainActivityRoutes
 import androidx.core.net.toUri
 import com.rk.terminal.runtime.AlpineRepositoryManager
+import com.rk.terminal.runtime.TerminalDistribution
+import com.rk.terminal.runtime.UbuntuRepositoryManager
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -75,6 +78,7 @@ fun SettingsCard(
 object WorkingMode{
     const val ALPINE = 0
     const val ANDROID = 1
+    const val UBUNTU = 2
 }
 
 object InputMode {
@@ -90,8 +94,10 @@ fun Settings(modifier: Modifier = Modifier,navController: NavController,mainActi
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var selectedOption by remember { mutableIntStateOf(Settings.working_Mode) }
+    var selectedDistribution by remember { mutableIntStateOf(Settings.terminal_distribution) }
     var selectedInputMode by remember { mutableIntStateOf(Settings.input_mode) }
     var selectedAlpineMirror by remember { mutableIntStateOf(Settings.alpine_package_mirror) }
+    var selectedUbuntuMirror by remember { mutableIntStateOf(Settings.ubuntu_package_mirror) }
 
     fun selectAlpineMirror(source: Int) {
         selectedAlpineMirror = source
@@ -116,6 +122,37 @@ fun Settings(modifier: Modifier = Modifier,navController: NavController,mainActi
         }
     }
 
+    fun selectUbuntuMirror(source: Int) {
+        selectedUbuntuMirror = source
+        Settings.ubuntu_package_mirror = source
+        scope.launch {
+            val toastMessage = withContext(Dispatchers.IO) {
+                runCatching {
+                    val result = UbuntuRepositoryManager.applySelectedRepositoryToInstalledRootfs()
+                    if (result.applied) {
+                        context.getString(strings.ubuntu_package_mirror_applied)
+                    } else {
+                        context.getString(strings.ubuntu_package_mirror_pending)
+                    }
+                }.getOrElse { error ->
+                    context.getString(
+                        strings.ubuntu_package_mirror_failed,
+                        error.message ?: error.javaClass.simpleName
+                    )
+                }
+            }
+            Toast.makeText(context, toastMessage, Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    fun selectDistribution(workingMode: Int) {
+        val distribution = TerminalDistribution.fromWorkingMode(workingMode)
+        selectedDistribution = distribution.workingMode
+        selectedOption = distribution.workingMode
+        Settings.terminal_distribution = distribution.workingMode
+        Settings.working_Mode = distribution.workingMode
+    }
+
     PreferenceLayout(label = stringResource(strings.settings)) {
         PreferenceGroup(heading = stringResource(strings.default_working_mode)) {
 
@@ -127,13 +164,26 @@ fun Settings(modifier: Modifier = Modifier,navController: NavController,mainActi
                         modifier = Modifier.padding(start = 8.dp),
                         selected = selectedOption == WorkingMode.ALPINE,
                         onClick = {
-                            selectedOption = WorkingMode.ALPINE
-                            Settings.working_Mode = selectedOption
+                            selectDistribution(WorkingMode.ALPINE)
                         })
                 },
                 onClick = {
-                    selectedOption = WorkingMode.ALPINE
-                    Settings.working_Mode = selectedOption
+                    selectDistribution(WorkingMode.ALPINE)
+                })
+
+            SettingsCard(
+                title = { Text("Ubuntu") },
+                description = { Text(stringResource(strings.ubuntu_desc)) },
+                startWidget = {
+                    RadioButton(
+                        modifier = Modifier.padding(start = 8.dp),
+                        selected = selectedOption == WorkingMode.UBUNTU,
+                        onClick = {
+                            selectDistribution(WorkingMode.UBUNTU)
+                        })
+                },
+                onClick = {
+                    selectDistribution(WorkingMode.UBUNTU)
                 })
 
 
@@ -211,7 +261,8 @@ fun Settings(modifier: Modifier = Modifier,navController: NavController,mainActi
                 })
         }
 
-        PreferenceGroup(heading = stringResource(strings.alpine_package_mirror)) {
+        if (selectedDistribution == WorkingMode.ALPINE) {
+            PreferenceGroup(heading = stringResource(strings.alpine_package_mirror)) {
 
             SettingsCard(
                 title = { Text(stringResource(strings.alpine_package_mirror_official)) },
@@ -243,6 +294,40 @@ fun Settings(modifier: Modifier = Modifier,navController: NavController,mainActi
                 onClick = {
                     selectAlpineMirror(AlpinePackageMirror.TSINGHUA)
                 })
+            }
+        } else if (selectedDistribution == WorkingMode.UBUNTU) {
+            PreferenceGroup(heading = stringResource(strings.ubuntu_package_mirror)) {
+
+                SettingsCard(
+                    title = { Text(stringResource(strings.ubuntu_package_mirror_official)) },
+                    description = { Text(stringResource(strings.ubuntu_package_mirror_official_desc)) },
+                    startWidget = {
+                        RadioButton(
+                            modifier = Modifier.padding(start = 8.dp),
+                            selected = selectedUbuntuMirror == UbuntuPackageMirror.OFFICIAL,
+                            onClick = {
+                                selectUbuntuMirror(UbuntuPackageMirror.OFFICIAL)
+                            })
+                    },
+                    onClick = {
+                        selectUbuntuMirror(UbuntuPackageMirror.OFFICIAL)
+                    })
+
+                SettingsCard(
+                    title = { Text(stringResource(strings.ubuntu_package_mirror_tsinghua)) },
+                    description = { Text(stringResource(strings.ubuntu_package_mirror_tsinghua_desc)) },
+                    startWidget = {
+                        RadioButton(
+                            modifier = Modifier.padding(start = 8.dp),
+                            selected = selectedUbuntuMirror == UbuntuPackageMirror.TSINGHUA,
+                            onClick = {
+                                selectUbuntuMirror(UbuntuPackageMirror.TSINGHUA)
+                            })
+                    },
+                    onClick = {
+                        selectUbuntuMirror(UbuntuPackageMirror.TSINGHUA)
+                    })
+            }
         }
 
 

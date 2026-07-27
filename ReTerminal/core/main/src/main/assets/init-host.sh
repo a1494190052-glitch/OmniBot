@@ -1,12 +1,18 @@
-ALPINE_DIR=$PREFIX/local/alpine
-ALPINE_ARCHIVE=$PREFIX/files/alpine.tar.gz
+TERMINAL_DISTRIBUTION=${OMNIBOT_TERMINAL_DISTRIBUTION:-alpine}
+case "$TERMINAL_DISTRIBUTION" in
+  ubuntu) ;;
+  *) TERMINAL_DISTRIBUTION=alpine ;;
+esac
 
-[ ! -f "$ALPINE_ARCHIVE" ] && ALPINE_ARCHIVE=$PREFIX/files/alpine.tar
+ROOTFS_DIR=$PREFIX/local/$TERMINAL_DISTRIBUTION
+ROOTFS_ARCHIVE=$PREFIX/files/$TERMINAL_DISTRIBUTION.tar.gz
 
-mkdir -p $ALPINE_DIR
+[ ! -f "$ROOTFS_ARCHIVE" ] && ROOTFS_ARCHIVE=$PREFIX/files/$TERMINAL_DISTRIBUTION.tar
 
-if [ -z "$(ls -A "$ALPINE_DIR" | grep -vE '^(root|tmp)$')" ]; then
-    tar -xf "$ALPINE_ARCHIVE" -C "$ALPINE_DIR"
+mkdir -p "$ROOTFS_DIR"
+
+if [ -z "$(ls -A "$ROOTFS_DIR" | grep -vE '^(root|tmp)$')" ]; then
+    tar -xf "$ROOTFS_ARCHIVE" -C "$ROOTFS_DIR"
 fi
 
 FIPS_COMPAT_FILE="$PREFIX/local/sysctl_crypto_fips_enabled"
@@ -17,11 +23,11 @@ FIPS_COMPAT_FILE="$PREFIX/local/sysctl_crypto_fips_enabled"
 
 if [ -n "$OMNIBOT_HOST_WORKSPACE" ]; then
     mkdir -p "$OMNIBOT_HOST_WORKSPACE"
-    mkdir -p "$ALPINE_DIR/workspace"
+    mkdir -p "$ROOTFS_DIR/workspace"
 fi
 
 if [ -n "$OMNIBOT_MT_STORAGE_HOST" ] && [ -d "$OMNIBOT_MT_STORAGE_HOST" ]; then
-    mkdir -p "$ALPINE_DIR/mnt/mt" "$ALPINE_DIR/mt"
+    mkdir -p "$ROOTFS_DIR/mnt/mt" "$ROOTFS_DIR/mt"
 fi
 
 mkdir -p "$PREFIX/local/bin" "$PREFIX/local/lib"
@@ -100,13 +106,13 @@ fi
 ARGS="$ARGS -b $PREFIX"
 ARGS="$ARGS -b /sys"
 
-if [ ! -d "$PREFIX/local/alpine/tmp" ]; then
- mkdir -p "$PREFIX/local/alpine/tmp"
- chmod 1777 "$PREFIX/local/alpine/tmp"
+if [ ! -d "$ROOTFS_DIR/tmp" ]; then
+ mkdir -p "$ROOTFS_DIR/tmp"
+ chmod 1777 "$ROOTFS_DIR/tmp"
 fi
-ARGS="$ARGS -b $PREFIX/local/alpine/tmp:/dev/shm"
+ARGS="$ARGS -b $ROOTFS_DIR/tmp:/dev/shm"
 
-ARGS="$ARGS -r $PREFIX/local/alpine"
+ARGS="$ARGS -r $ROOTFS_DIR"
 ARGS="$ARGS -0"
 ARGS="$ARGS --link2symlink"
 ARGS="$ARGS --sysvipc"

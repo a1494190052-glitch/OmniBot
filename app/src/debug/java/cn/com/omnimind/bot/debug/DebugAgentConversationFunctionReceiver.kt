@@ -106,8 +106,9 @@ class DebugAgentConversationFunctionReceiver : BroadcastReceiver() {
         waitForAgentIdle(context, startedAt, waitMs)
         delay(AGENT_SETTLE_MS)
 
-        val functionPayload = FunctionService(context).getFunction(
-            mapOf("function_id" to functionId)
+        val functionPayload = FunctionService(context).executeTool(
+            FunctionApi.FUNCTION_GET,
+            mapOf("function_id" to functionId),
         )
         val functionRegistered = functionPayload["schema_version"] == "omniflow.function.v2"
         val runPayload = if (functionRegistered) {

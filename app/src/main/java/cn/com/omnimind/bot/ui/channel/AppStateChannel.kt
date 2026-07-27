@@ -38,18 +38,6 @@ class AppStateChannel {
 
     private fun handleMethodCall(call: MethodCall, result: MethodChannel.Result) {
         when (call.method) {
-            "initHalfScreenEngine" -> {
-                // Flutter主页面加载完成，通知原生初始化半屏引擎
-                OmniLog.d(TAG, "Received initHalfScreenEngine call from Flutter")
-                val context = this.context
-                if (context is MainActivity) {
-                    context.initializeHalfScreenEngine()
-                    result.success(true)
-                } else {
-                    OmniLog.e(TAG, "Context is not MainActivity, cannot initialize half screen engine")
-                    result.error("INVALID_CONTEXT", "Context is not MainActivity", null)
-                }
-            }
             "exitApp" -> {
                 OmniLog.d(TAG, "Received exitApp call from Flutter")
                 val context = this.context

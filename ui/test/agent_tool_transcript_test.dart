@@ -9,25 +9,25 @@ void main() {
       resolveAgentToolRunId({
         'toolName': 'vlm_task',
         'taskId': 'parent-agent-run',
-        'childRunId': 'vlm-run-123',
+        'run_id': 'vlm-run-123',
       }),
       'vlm-run-123',
     );
   });
 
-  test('resolveAgentToolRunId falls back to the VLM result task id', () {
+  test('resolveAgentToolRunId reads canonical run_id from the VLM result', () {
     expect(
       resolveAgentToolRunId({
         'toolName': 'vlm-task',
         'taskId': 'parent-agent-run',
-        'resultPreviewJson': jsonEncode({'taskId': 'vlm-run-456'}),
+        'resultPreviewJson': jsonEncode({'run_id': 'vlm-run-456'}),
       }),
       'vlm-run-456',
     );
     expect(
       resolveAgentToolRunId({
         'toolName': 'terminal_execute',
-        'childRunId': 'not-a-vlm-run',
+        'run_id': 'not-a-vlm-run',
       }),
       isNull,
     );
@@ -87,6 +87,30 @@ void main() {
   );
 
   test(
+    'buildAgentToolTranscript hides legacy Codex namespace for Claude tools',
+    () {
+      final transcript = buildAgentToolTranscript({
+        'agentId': 'claude-code-acp',
+        'agentName': 'Claude Code',
+        'toolName': 'codex.tool',
+        'toolTitle': 'Read settings.json',
+        'displayName': 'Read settings.json',
+        'toolType': 'workspace',
+        'argsJson': jsonEncode({
+          'id': 'tool-call-42',
+          'path': '/root/.claude/settings.json',
+        }),
+        'resultPreviewJson': jsonEncode({'status': 'ok'}),
+        'status': 'success',
+      });
+
+      expect(transcript.promptLine, 'Claude Code · Read settings.json');
+      expect(transcript.promptLine, isNot(contains('codex.tool')));
+      expect(transcript.promptLine, isNot(contains('--id')));
+    },
+  );
+
+  test(
     'buildAgentToolTranscript hides generic running placeholder for terminal output area',
     () {
       final transcript = buildAgentToolTranscript({
@@ -107,4 +131,22 @@ void main() {
       expect(transcript.previewText, isEmpty);
     },
   );
+
+  test('buildAgentToolTranscript renders VLM step context', () {
+    final transcript = buildAgentToolTranscript({
+      'toolName': 'vlm_task',
+      'toolType': 'builtin',
+      'status': 'running',
+      'progress': '点击搜索框',
+      'vlmStepThinking': '搜索框已经可见',
+      'vlmStepAction': {
+        'tool': 'click',
+        'args': {'x': 420, 'y': 610},
+      },
+    });
+
+    expect(transcript.outputText, contains('思考：搜索框已经可见'));
+    expect(transcript.outputText, contains('动作：{"tool":"click"'));
+    expect(transcript.outputText, contains('"x":420'));
+  });
 }

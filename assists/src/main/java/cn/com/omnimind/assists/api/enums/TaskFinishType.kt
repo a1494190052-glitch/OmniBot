@@ -6,9 +6,7 @@ import cn.com.omnimind.baselib.util.getResString
 enum class TaskFinishType(var message: String) {
     CANCEL(R.string.task_stop.getResString()),//用户主动取消
     FINISH(R.string.task_finish.getResString()),//任务正常完成
-    ERROR(R.string.task_error.getResString()),//任务异常结束
-    WAITING_INPUT("等待用户输入"),//任务等待用户输入（INFO动作）
-    USER_PAUSED("用户主动暂停")//用户主动暂停任务
+    ERROR(R.string.task_error.getResString())//任务异常结束
 }
 
 /**
@@ -18,6 +16,4 @@ fun TaskFinishType.toStatus(): String = when (this) {
     TaskFinishType.FINISH -> "success"
     TaskFinishType.ERROR -> "failed"
     TaskFinishType.CANCEL -> "cancelled"
-    TaskFinishType.WAITING_INPUT -> "waiting"
-    TaskFinishType.USER_PAUSED -> "paused"
 }

@@ -55,22 +55,42 @@ def _load_schema(path: Path) -> dict[str, Any]:
     return payload
 
 
-def openai_action_tools() -> list[dict[str, Any]]:
+def openai_action_tools(*, include_summary: bool = False) -> list[dict[str, Any]]:
     tools: list[dict[str, Any]] = []
     for action in load_canonical_action_schema().get("tools") or ():
         if not isinstance(action, dict) or action.get("model_visible") is False:
             continue
         properties: dict[str, Any] = {}
         required: list[str] = []
+        if include_summary:
+            properties["summary"] = {
+                "type": "string",
+                "description": (
+                    "Why this single action is the best next step, in at most "
+                    "20 Chinese characters or one short sentence."
+                ),
+            }
+            required.append("summary")
         for argument in action.get("args") or ():
             if not isinstance(argument, dict) or not argument.get("name"):
                 continue
             name = str(argument["name"])
-            schema = {"type": argument.get("type") or "string"}
+            argument_type = str(argument.get("type") or "string")
+            schema = {
+                "type": "array" if argument_type == "string_array" else argument_type
+            }
             if argument.get("enum_values"):
                 schema["enum"] = list(argument["enum_values"])
             if argument.get("minimum") is not None:
                 schema["minimum"] = argument["minimum"]
+            if argument.get("maximum") is not None:
+                schema["maximum"] = argument["maximum"]
+            if schema["type"] == "array":
+                schema["items"] = {"type": "string"}
+            if schema["type"] == "object":
+                schema["additionalProperties"] = bool(
+                    argument.get("additional_properties")
+                )
             description = argument.get("description") or {}
             if isinstance(description, dict) and description.get("en_us"):
                 schema["description"] = description["en_us"]
@@ -86,6 +106,7 @@ def openai_action_tools() -> list[dict[str, Any]]:
                     "description": description.get("en_us", "")
                     if isinstance(description, dict)
                     else str(description),
+                    "strict": True,
                     "parameters": {
                         "type": "object",
                         "properties": properties,

@@ -5,14 +5,11 @@ import 'package:flutter/services.dart';
 import 'package:flutter_svg/svg.dart';
 import 'package:flutter_switch/flutter_switch.dart';
 import 'package:ui/core/router/go_router_manager.dart';
-import 'package:ui/features/local_model/local_model_feature.dart';
 import 'package:ui/l10n/l10n.dart';
-import 'package:ui/services/assists_core_service.dart';
 import 'package:ui/services/mcp_server_service.dart';
-import 'package:ui/services/special_permission.dart';
+import 'package:ui/services/storage_service.dart';
 import 'package:ui/services/workspace_memory_service.dart';
 import 'package:ui/theme/app_colors.dart';
-import 'package:ui/theme/app_font_effect_scope.dart';
 import 'package:ui/theme/theme_context.dart';
 import 'package:ui/utils/ui.dart';
 import 'package:ui/widgets/common_app_bar.dart';
@@ -26,49 +23,40 @@ class SettingsPage extends StatefulWidget {
 
 class _SettingsPageState extends State<SettingsPage> {
   bool _mcpEnabled = false;
-  bool _mcpLoaded = false;
   bool _mcpBusy = false;
   McpServerInfo? _mcpInfo;
-  bool _workspaceMemoryLoaded = false;
-  WorkspaceMemoryEmbeddingConfig? _embeddingConfig;
-  StreamSubscription<AgentAiConfigChangedEvent>? _configChangedSubscription;
+  bool _workspaceMemoryConfigured = false;
 
   @override
   void initState() {
     super.initState();
+    // 同步读取缓存初始值，首帧即渲染真实状态，避免一帧加载占位符闪烁。
+    _mcpEnabled =
+        StorageService.getBool(StorageService.kMcpLocalServiceEnabledKey) ??
+        false;
+    _workspaceMemoryConfigured =
+        StorageService.getBool(StorageService.kWorkspaceMemoryConfiguredKey) ??
+        false;
     _loadMcpServerState();
     _loadWorkspaceMemoryState();
-    _configChangedSubscription = AssistsMessageService
-        .agentAiConfigChangedStream
-        .listen((event) {
-          if (event.source != 'file' || !mounted) {
-            return;
-          }
-          _loadWorkspaceMemoryState();
-        });
-  }
-
-  @override
-  void dispose() {
-    _configChangedSubscription?.cancel();
-    super.dispose();
   }
 
   Future<void> _loadMcpServerState() async {
     try {
       final info = await McpServerService.getState();
       if (!mounted) return;
+      final enabled = info?.enabled == true;
       setState(() {
         _mcpInfo = info;
-        _mcpEnabled = info?.enabled == true;
-        _mcpLoaded = true;
+        _mcpEnabled = enabled;
       });
+      // 回写缓存，供下次首帧同步渲染。
+      await StorageService.setBool(
+        StorageService.kMcpLocalServiceEnabledKey,
+        enabled,
+      );
     } catch (e) {
       debugPrint('Load MCP state failed: $e');
-      if (!mounted) return;
-      setState(() {
-        _mcpLoaded = true;
-      });
     }
   }
 
@@ -79,16 +67,19 @@ class _SettingsPageState extends State<SettingsPage> {
         WorkspaceMemoryService.getRollupStatus(),
       ]);
       if (!mounted) return;
+      final config = results[0] as WorkspaceMemoryEmbeddingConfig;
       setState(() {
-        _embeddingConfig = results[0] as WorkspaceMemoryEmbeddingConfig;
-        _workspaceMemoryLoaded = true;
+        _workspaceMemoryConfigured = config.configured;
       });
+      // 回写缓存，供下次首帧同步渲染。
+      unawaited(
+        StorageService.setBool(
+          StorageService.kWorkspaceMemoryConfiguredKey,
+          config.configured,
+        ),
+      );
     } catch (e) {
       debugPrint('Load workspace memory state failed: $e');
-      if (!mounted) return;
-      setState(() {
-        _workspaceMemoryLoaded = true;
-      });
     }
   }
 
@@ -101,10 +92,18 @@ class _SettingsPageState extends State<SettingsPage> {
     try {
       final info = await McpServerService.setEnabled(enable);
       if (!mounted) return;
+      final enabled = info?.enabled == true;
       setState(() {
         _mcpInfo = info;
-        _mcpEnabled = info?.enabled == true;
+        _mcpEnabled = enabled;
       });
+      // 同步更新缓存，保证下次进入设置页首帧即正确。
+      unawaited(
+        StorageService.setBool(
+          StorageService.kMcpLocalServiceEnabledKey,
+          enabled,
+        ),
+      );
       if (enable) {
         final endpoint = info?.endpoint ?? '';
         if (endpoint.isNotEmpty) {
@@ -153,10 +152,7 @@ class _SettingsPageState extends State<SettingsPage> {
         final sheetPalette = sheetContext.omniPalette;
         final labelStyle = TextStyle(
           fontSize: 13,
-          fontWeight: AppFontEffectScope.resolveNonChatWeight(
-            sheetContext,
-            FontWeight.w500,
-          ),
+          fontWeight: FontWeight.w500,
           color: sheetPalette.textSecondary,
         );
         final valueStyle = TextStyle(
@@ -264,10 +260,7 @@ class _SettingsPageState extends State<SettingsPage> {
   @override
   Widget build(BuildContext context) {
     final palette = context.omniPalette;
-    final workspaceMemoryConfigured = _embeddingConfig?.configured == true;
-    final workspaceMemorySubtitle = !_workspaceMemoryLoaded
-        ? context.l10n.settingsWorkspaceMemoryLoading
-        : workspaceMemoryConfigured
+    final workspaceMemorySubtitle = _workspaceMemoryConfigured
         ? context.l10n.settingsWorkspaceMemoryEnabled
         : context.l10n.settingsWorkspaceMemoryLexical;
     final sections = _buildSections(workspaceMemorySubtitle);
@@ -311,15 +304,6 @@ class _SettingsPageState extends State<SettingsPage> {
               GoRouterManager.push('/home/scene_model_setting');
             },
           ),
-          if (localModelFeature.enabled)
-            _SettingItem(
-              icon: Icons.memory_outlined,
-              title: context.l10n.settingsLocalModelsTitle,
-              subtitle: context.l10n.settingsLocalModelsSubtitle,
-              onTap: () {
-                GoRouterManager.push('/home/local_models?tab=service');
-              },
-            ),
           _SettingItem(
             icon: Icons.cloud_sync_outlined,
             iconSvg: 'assets/home/mem0_cloud_setting_icon.svg',
@@ -338,36 +322,11 @@ class _SettingsPageState extends State<SettingsPage> {
         label: context.l10n.settingsSectionServiceEnvironment,
         items: [
           _SettingItem(
-            icon: Icons.extension_outlined,
-            iconSvg: 'assets/home/mcp_tools_setting_icon.svg',
-            title: context.l10n.settingsMcpToolsTitle,
-            subtitle: context.l10n.settingsMcpToolsSubtitle,
+            icon: Icons.hub_outlined,
+            title: context.trLegacy('Agent 模式'),
+            subtitle: context.trLegacy('管理 ACP Agent、可用状态与统一模型绑定'),
             onTap: () {
-              GoRouterManager.push('/home/mcp_tools');
-            },
-          ),
-          _SettingItem(
-            icon: Icons.cloud_outlined,
-            iconSvg: 'assets/home/local_mcp_service_setting_icon.svg',
-            title: context.l10n.settingsLocalServiceTitle,
-            subtitle: context.l10n.settingsLocalServiceSubtitle,
-            trailing: _buildSwitchTrailing(
-              value: _mcpEnabled,
-              enabled: _mcpLoaded && !_mcpBusy,
-              loading: !_mcpLoaded,
-              onToggle: (val) async {
-                await _toggleMcpServer(val);
-              },
-            ),
-            onTap: _mcpEnabled && !_mcpBusy ? _showMcpInfo : null,
-          ),
-          _SettingItem(
-            icon: Icons.forum_outlined,
-            iconSvg: 'assets/home/imessage_setting_icon.svg',
-            title: 'IMessage',
-            subtitle: context.trLegacy('微信与 Telegram 消息渠道'),
-            onTap: () {
-              GoRouterManager.push('/home/imessage_setting');
+              GoRouterManager.push('/home/agent_mode_setting');
             },
           ),
           _SettingItem(
@@ -381,12 +340,26 @@ class _SettingsPageState extends State<SettingsPage> {
             },
           ),
           _SettingItem(
-            icon: Icons.terminal_rounded,
-            iconSvg: 'assets/home/chat/codex.svg',
-            title: 'Codex',
-            subtitle: context.trLegacy('本地 Alpine 与远程 PC Bridge'),
+            icon: Icons.cloud_outlined,
+            iconSvg: 'assets/home/local_mcp_service_setting_icon.svg',
+            title: context.l10n.settingsLocalServiceTitle,
+            subtitle: context.l10n.settingsLocalServiceSubtitle,
+            trailing: _buildSwitchTrailing(
+              value: _mcpEnabled,
+              enabled: !_mcpBusy,
+              onToggle: (val) async {
+                await _toggleMcpServer(val);
+              },
+            ),
+            onTap: _mcpEnabled && !_mcpBusy ? _showMcpInfo : null,
+          ),
+          _SettingItem(
+            icon: Icons.extension_outlined,
+            iconSvg: 'assets/home/mcp_tools_setting_icon.svg',
+            title: context.l10n.settingsMcpToolsTitle,
+            subtitle: context.l10n.settingsMcpToolsSubtitle,
             onTap: () {
-              GoRouterManager.push('/home/codex_setting');
+              GoRouterManager.push('/home/mcp_tools');
             },
           ),
         ],
@@ -420,27 +393,9 @@ class _SettingsPageState extends State<SettingsPage> {
             icon: Icons.admin_panel_settings_outlined,
             iconSvg: 'assets/home/app_permission_authorize_icon.svg',
             title: context.l10n.authorizePageTitle,
-            subtitle: context.trLegacy('查看并配置无障碍、悬浮窗、Shizuku 等权限'),
+            subtitle: context.trLegacy('查看并配置悬浮窗、后台运行、Shizuku 等权限'),
             onTap: () {
               GoRouterManager.push('/home/authorize_setting');
-            },
-          ),
-          _SettingItem(
-            icon: Icons.security,
-            iconSvg: 'assets/home/companion_permission_setting_icon.svg',
-            title: context.l10n.settingsCompanionPermissionTitle,
-            subtitle: context.l10n.settingsCompanionPermissionSubtitle,
-            onTap: () async {
-              try {
-                final granted = await ensureInstalledAppsPermission();
-                if (granted == true) {
-                  GoRouterManager.push('/home/companion_setting');
-                }
-              } catch (e) {
-                debugPrint('Failed to request installed apps permission: $e');
-                if (!mounted) return;
-                showToast(context.l10n.settingsInstalledAppsPermissionFailed);
-              }
             },
           ),
           _SettingItem(
@@ -471,28 +426,15 @@ class _SettingsPageState extends State<SettingsPage> {
       children: [
         Padding(
           padding: const EdgeInsets.fromLTRB(4, 0, 4, 10),
-          child: Row(
-            children: [
-              Text(
-                context.trLegacy(section.label),
-                style: TextStyle(
-                  fontSize: 11,
-                  fontWeight: FontWeight.w600,
-                  letterSpacing: 0.6,
-                  color: palette.textTertiary,
-                  fontFamily: 'PingFang SC',
-                ),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: Container(
-                  height: 1,
-                  color: palette.borderSubtle.withValues(
-                    alpha: context.isDarkTheme ? 0.56 : 0.8,
-                  ),
-                ),
-              ),
-            ],
+          child: Text(
+            context.trLegacy(section.label),
+            style: TextStyle(
+              fontSize: 11,
+              fontWeight: FontWeight.w600,
+              letterSpacing: 0.6,
+              color: palette.textTertiary,
+              fontFamily: 'PingFang SC',
+            ),
           ),
         ),
         Column(
@@ -544,10 +486,7 @@ class _SettingsPageState extends State<SettingsPage> {
                       context.trLegacy(item.title),
                       style: TextStyle(
                         fontSize: 14,
-                        fontWeight: AppFontEffectScope.resolveNonChatWeight(
-                          context,
-                          FontWeight.w500,
-                        ),
+                        fontWeight: FontWeight.w500,
                         color: palette.textPrimary,
                         height: 1.5,
                         fontFamily: 'PingFang SC',
@@ -561,10 +500,7 @@ class _SettingsPageState extends State<SettingsPage> {
                           color: palette.textSecondary,
                           fontSize: 11,
                           fontFamily: 'PingFang SC',
-                          fontWeight: AppFontEffectScope.resolveNonChatWeight(
-                            context,
-                            FontWeight.w400,
-                          ),
+                          fontWeight: FontWeight.w400,
                           height: 1.55,
                         ),
                       ),
@@ -613,39 +549,29 @@ class _SettingsPageState extends State<SettingsPage> {
     required bool value,
     required ValueChanged<bool> onToggle,
     bool enabled = true,
-    bool loading = false,
   }) {
     final palette = context.omniPalette;
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
-      onTap: enabled && !loading ? () => onToggle(!value) : null,
+      onTap: enabled ? () => onToggle(!value) : null,
       child: Padding(
         padding: const EdgeInsets.only(left: 12),
-        child: loading
-            ? Container(
-                width: 32,
-                height: 18.67,
-                decoration: BoxDecoration(
-                  color: palette.borderStrong,
-                  borderRadius: BorderRadius.circular(28.75),
-                ),
-              )
-            : AbsorbPointer(
-                child: Opacity(
-                  opacity: enabled ? 1 : 0.5,
-                  child: FlutterSwitch(
-                    width: 32,
-                    height: 18.67,
-                    toggleSize: 11.3,
-                    padding: 3,
-                    activeColor: palette.accentPrimary,
-                    inactiveColor: palette.borderStrong,
-                    borderRadius: 28.75,
-                    value: value,
-                    onToggle: onToggle,
-                  ),
-                ),
-              ),
+        child: AbsorbPointer(
+          child: Opacity(
+            opacity: enabled ? 1 : 0.5,
+            child: FlutterSwitch(
+              width: 32,
+              height: 18.67,
+              toggleSize: 11.3,
+              padding: 3,
+              activeColor: palette.accentPrimary,
+              inactiveColor: palette.borderStrong,
+              borderRadius: 28.75,
+              value: value,
+              onToggle: onToggle,
+            ),
+          ),
+        ),
       ),
     );
   }

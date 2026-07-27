@@ -41,6 +41,17 @@ void main() {
     expect(tracker.update(hasInputIntent: false, bottomInset: 288), isFalse);
   });
 
+  test('reset prevents a foreign IME from keeping the composer lifted', () {
+    final tracker = ComposerLiftIntentTracker();
+
+    expect(tracker.update(hasInputIntent: true, bottomInset: 320), isTrue);
+
+    tracker.reset();
+
+    expect(tracker.update(hasInputIntent: false, bottomInset: 320), isFalse);
+    expect(tracker.update(hasInputIntent: false, bottomInset: 320), isFalse);
+  });
+
   test('clears the latch after the keyboard settles closed', () {
     final tracker = ComposerLiftIntentTracker();
 

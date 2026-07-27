@@ -37,8 +37,6 @@ def compile_runlog_to_store(
             raise ValueError("source_runlog_must_be_object")
         raw = value
     payload = canonicalize_run_log(raw)
-    if payload.get("success") is not True or payload.get("status") != "succeeded":
-        raise ValueError("successful_source_run_log_required")
     goal = str(payload.get("goal") or "").strip()
     if not goal:
         raise ValueError("successful_source_goal_required")

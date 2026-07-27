@@ -102,6 +102,7 @@ def default_checker(context: CheckerContext) -> Action | None:
         source_package
         and current_package
         and source_package != current_package
+        and not _is_transient_package(source_package)
         and not _is_transient_package(current_package)
     ):
         return Action("open_app", {"package_name": source_package})

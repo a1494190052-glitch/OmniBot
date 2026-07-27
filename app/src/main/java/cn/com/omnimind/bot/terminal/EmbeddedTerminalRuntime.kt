@@ -8,6 +8,9 @@ import cn.com.omnimind.bot.termux.TermuxLiveUpdate
 import com.ai.assistance.operit.terminal.TerminalManager
 import com.ai.assistance.operit.terminal.provider.type.HiddenExecResult
 import com.rk.terminal.runtime.AlpineRepositoryManager
+import com.rk.terminal.runtime.TerminalDistribution
+import com.rk.terminal.runtime.UbuntuRepositoryManager
+import com.rk.terminal.ui.screens.settings.WorkingMode
 import com.rk.terminal.App
 import com.termux.terminal.TerminalSession
 import kotlinx.coroutines.Dispatchers
@@ -120,7 +123,7 @@ object EmbeddedTerminalRuntime {
 
     private const val PREFS_NAME = "embedded_terminal_runtime"
     private const val KEY_BASE_PACKAGE_VERSION = "base_package_version"
-    private const val BASE_PACKAGE_VERSION = 2
+    private const val BASE_PACKAGE_VERSION = 3
     private const val SESSION_DONE_PREFIX = "__OMNIBOT_SESSION_DONE__"
     private const val DEFAULT_CURRENT_DIRECTORY = AgentWorkspaceManager.SHELL_ROOT_PATH
     private const val BASE_PACKAGE_READY_MARKER = "__OMNIBOT_BASE_PACKAGES_READY__"
@@ -158,32 +161,58 @@ object EmbeddedTerminalRuntime {
     private val shellPromptRegex = Regex("""^[^\r\n]*[#$] ?$""")
 
     private fun buildBasePackageBootstrapCommand(): String {
+        val packageBootstrap = if (TerminalDistribution.selected().workingMode == WorkingMode.UBUNTU) {
+            """
+                ${UbuntuRepositoryManager.buildSelectedRepositorySetupCommand()}
+                ${UbuntuRepositoryManager.buildNodeRepositorySetupCommand()}
+                apt-get update &&
+                DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+                  bash \
+                  ca-certificates \
+                  curl \
+                  git \
+                  nodejs \
+                  procps \
+                  psmisc \
+                  python3 \
+                  python3-pip \
+                  python3-venv \
+                  ripgrep \
+                  tmux \
+                  xz-utils
+            """.trimIndent()
+        } else {
+            """
+                ${AlpineRepositoryManager.buildSelectedRepositorySetupCommand()}
+                apk update &&
+                apk add --no-cache \
+                  bash \
+                  ca-certificates \
+                  curl \
+                  gcompat \
+                  git \
+                  glib \
+                  nodejs \
+                  npm \
+                  procps \
+                  psmisc \
+                  python3 \
+                  py3-pip \
+                  py3-virtualenv \
+                  ripgrep \
+                  tmux \
+                  xz
+            """.trimIndent()
+        }
         return """
-            ${AlpineRepositoryManager.buildSelectedRepositorySetupCommand()}
+            set -e
             export PATH="${'$'}HOME/.local/bin:${'$'}PATH"
-            apk update &&
-            apk add --no-cache \
-              bash \
-              ca-certificates \
-              curl \
-              gcompat \
-              git \
-              glib \
-              nodejs \
-              npm \
-              procps \
-              psmisc \
-              python3 \
-              py3-pip \
-              py3-virtualenv \
-              ripgrep \
-              tmux \
-              xz && \
-            ln -sf /usr/bin/python3 /usr/local/bin/python || true && \
-            python3 -m pip install --upgrade pip >/dev/null 2>&1 || true && \
-            python3 -m pip install --upgrade uv >/dev/null 2>&1 || true && \
-            npm install -g pnpm --no-audit --no-fund >/dev/null 2>&1 || true && \
-            if [ -x "${'$'}HOME/.local/bin/uv" ]; then ln -sf "${'$'}HOME/.local/bin/uv" /usr/local/bin/uv; fi && \
+            $packageBootstrap
+            ln -sf /usr/bin/python3 /usr/local/bin/python || true
+            python3 -m pip install --break-system-packages --upgrade pip >/dev/null 2>&1 || true
+            python3 -m pip install --break-system-packages --upgrade uv >/dev/null 2>&1 || true
+            npm install -g pnpm --no-audit --no-fund >/dev/null 2>&1 || true
+            if [ -x "${'$'}HOME/.local/bin/uv" ]; then ln -sf "${'$'}HOME/.local/bin/uv" /usr/local/bin/uv; fi
             if [ -x "${'$'}HOME/.local/bin/uvx" ]; then ln -sf "${'$'}HOME/.local/bin/uvx" /usr/local/bin/uvx; fi
         """.trimIndent()
     }
@@ -213,7 +242,7 @@ object EmbeddedTerminalRuntime {
                 runtimeReady = false,
                 basePackagesReady = false,
                 missingCommands = emptyList(),
-                message = "当前设备 ABI 不受支持，内嵌 Alpine 终端仅支持 arm64-v8a。",
+                message = "当前设备 ABI 不受支持，内嵌终端环境仅支持 arm64-v8a。",
                 nodeReady = false,
                 nodeVersion = null,
                 nodeMinMajor = NODE_MIN_MAJOR,
@@ -233,7 +262,7 @@ object EmbeddedTerminalRuntime {
                 runtimeReady = false,
                 basePackagesReady = false,
                 missingCommands = emptyList(),
-                message = environmentStatus.message.ifBlank { "内嵌 Alpine 终端初始化失败。" },
+                message = environmentStatus.message.ifBlank { "内嵌终端环境初始化失败。" },
                 nodeReady = false,
                 nodeVersion = null,
                 nodeMinMajor = NODE_MIN_MAJOR,
@@ -264,9 +293,9 @@ object EmbeddedTerminalRuntime {
             markBasePackagesReady(context)
             val readyMessage =
                 if (probeResult.nodeReady && probeResult.pnpmReady) {
-                    "内嵌 Alpine 终端和基础 Agent CLI 包均已就绪。"
+                    "内嵌终端环境和基础 Agent CLI 包均已就绪。"
                 } else {
-                    "内嵌 Alpine 终端和基础 Agent CLI 包已就绪；Node.js/PNPM 状态可在环境页查看。"
+                    "内嵌终端环境和基础 Agent CLI 包已就绪；Node.js/PNPM 状态可在环境页查看。"
                 }
             return RuntimeReadinessStatus(
                 supported = true,
@@ -306,14 +335,14 @@ object EmbeddedTerminalRuntime {
                 onProgress,
                 EnvironmentProgress(
                     kind = EnvironmentProgress.Kind.ERROR,
-                    message = "当前设备 ABI 不受支持，内嵌 Alpine 终端仅支持 arm64-v8a。"
+                    message = "当前设备 ABI 不受支持，内嵌终端环境仅支持 arm64-v8a。"
                 )
             )
             return EnvironmentStatus(
                 success = false,
                 initialized = false,
                 basePackagesReady = false,
-                message = "当前设备 ABI 不受支持，内嵌 Alpine 终端仅支持 arm64-v8a。"
+                message = "当前设备 ABI 不受支持，内嵌终端环境仅支持 arm64-v8a。"
             )
         }
 
@@ -351,14 +380,14 @@ object EmbeddedTerminalRuntime {
                 onProgress,
                 EnvironmentProgress(
                     kind = EnvironmentProgress.Kind.ERROR,
-                    message = "内嵌 Alpine 终端初始化失败。"
+                    message = "内嵌终端环境初始化失败。"
                 )
             )
             return EnvironmentStatus(
                 success = false,
                 initialized = false,
                 basePackagesReady = isBasePackagesReady(context),
-                message = "内嵌 Alpine 终端初始化失败。"
+                message = "内嵌终端环境初始化失败。"
             )
         }
 
@@ -369,9 +398,9 @@ object EmbeddedTerminalRuntime {
                 EnvironmentProgress(
                     kind = EnvironmentProgress.Kind.STATUS,
                     message = if (basePackagesReady) {
-                        "内嵌 Alpine 终端已就绪。"
+                        "内嵌终端环境已就绪。"
                     } else {
-                        "内嵌 Alpine 终端已就绪，基础 Agent CLI 包尚未完成预装。"
+                        "内嵌终端环境已就绪，基础 Agent CLI 包尚未完成预装。"
                     }
                 )
             )
@@ -380,9 +409,9 @@ object EmbeddedTerminalRuntime {
                 initialized = true,
                 basePackagesReady = basePackagesReady,
                 message = if (basePackagesReady) {
-                    "内嵌 Alpine 终端已就绪。"
+                    "内嵌终端环境已就绪。"
                 } else {
-                    "内嵌 Alpine 终端已就绪，基础 Agent CLI 包尚未完成预装。"
+                    "内嵌终端环境已就绪，基础 Agent CLI 包尚未完成预装。"
                 }
             )
         }
@@ -409,7 +438,7 @@ object EmbeddedTerminalRuntime {
                     success = true,
                     initialized = true,
                     basePackagesReady = true,
-                    message = "内嵌 Alpine 终端和基础 Agent CLI 包均已就绪。"
+                    message = "内嵌终端环境和基础 Agent CLI 包均已就绪。"
                 )
             }
 
@@ -470,7 +499,7 @@ object EmbeddedTerminalRuntime {
                         success = true,
                         initialized = true,
                         basePackagesReady = true,
-                        message = "内嵌 Alpine 终端和基础 Agent CLI 包均已就绪。"
+                        message = "内嵌终端环境和基础 Agent CLI 包均已就绪。"
                     )
                 }
                 val failureMessage = postInstallProbe.errorMessage
@@ -545,7 +574,7 @@ object EmbeddedTerminalRuntime {
         onLiveUpdate(
             TermuxLiveUpdate(
                 sessionId = liveSessionId,
-                summary = "正在执行内嵌 Alpine 终端命令",
+                summary = "正在执行内嵌终端环境命令",
                 streamState = "running"
             )
         )
@@ -843,27 +872,21 @@ object EmbeddedTerminalRuntime {
             )
         }
 
-        val existingSession = ReTerminalSessionBridge.getSession(context, sessionId)
-        if (existingSession?.isRunning == true) {
+        val sessionAccess = ReTerminalSessionBridge.ensureHeadlessSession(
+            context = context,
+            sessionId = sessionId
+        )
+        if (!sessionAccess.created && sessionAccess.session.isRunning) {
             return BackgroundServiceLaunchResult(
                 sessionId = sessionId,
                 started = false,
                 alreadyRunning = true,
-                currentDirectory = normalizeCurrentDirectory(existingSession.getCwd().orEmpty()),
-                transcript = buildTranscript(existingSession.getTranscriptText().trim('\n')),
+                currentDirectory = normalizeCurrentDirectory(sessionAccess.session.getCwd().orEmpty()),
+                transcript = buildTranscript(sessionAccess.session.getTranscriptText().trim('\n')),
                 message = "后台服务已在运行。"
             )
         }
-
-        if (existingSession != null) {
-            runCatching { ReTerminalSessionBridge.stopSession(context, sessionId) }
-        }
-
         sessionHandles.remove(sessionId)
-        ReTerminalSessionBridge.ensureHeadlessSession(
-            context = context,
-            sessionId = sessionId
-        )
         ReTerminalSessionBridge.sendCommand(
             context = context,
             sessionId = sessionId,
@@ -1447,14 +1470,18 @@ object EmbeddedTerminalRuntime {
 
     private fun isBasePackagesReady(context: Context): Boolean {
         return context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-            .getInt(KEY_BASE_PACKAGE_VERSION, 0) >= BASE_PACKAGE_VERSION
+            .getInt(basePackageVersionKey(), 0) >= BASE_PACKAGE_VERSION
     }
 
     private fun markBasePackagesReady(context: Context) {
         context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
             .edit()
-            .putInt(KEY_BASE_PACKAGE_VERSION, BASE_PACKAGE_VERSION)
+            .putInt(basePackageVersionKey(), BASE_PACKAGE_VERSION)
             .apply()
+    }
+
+    private fun basePackageVersionKey(): String {
+        return "${KEY_BASE_PACKAGE_VERSION}_${TerminalDistribution.selected().id}"
     }
 
     private suspend fun ensureCommandEnvironmentReady(
@@ -1608,14 +1635,14 @@ object EmbeddedTerminalRuntime {
             result.error.isNotBlank() -> result.error
             else -> "未知错误"
         }
-        return "内嵌 Alpine 终端已初始化，但基础 Agent CLI 包安装失败：$details"
+        return "内嵌终端环境已初始化，但基础 Agent CLI 包安装失败：$details"
     }
 
     private fun buildMissingBasePackageFailureMessage(missingCommands: List<String>): String {
         if (missingCommands.isEmpty()) {
-            return "内嵌 Alpine 终端已初始化，但基础 Agent CLI 包安装后仍未通过校验。"
+            return "内嵌终端环境已初始化，但基础 Agent CLI 包安装后仍未通过校验。"
         }
-        return "内嵌 Alpine 终端已初始化，但基础 Agent CLI 包仍缺失：${missingCommands.joinToString(", ")}"
+        return "内嵌终端环境已初始化，但基础 Agent CLI 包仍缺失：${missingCommands.joinToString(", ")}"
     }
 
     private fun shouldSuppressTerminalLine(line: String): Boolean {

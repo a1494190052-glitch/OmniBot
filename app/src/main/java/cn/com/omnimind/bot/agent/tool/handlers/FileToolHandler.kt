@@ -1,7 +1,5 @@
 package cn.com.omnimind.bot.agent.tool.handlers
 
-import com.google.gson.GsonBuilder
-import com.google.gson.JsonParser
 import cn.com.omnimind.bot.agent.*
 import cn.com.omnimind.bot.agent.AgentCallback
 import cn.com.omnimind.bot.agent.AgentExecutionEnvironment
@@ -16,96 +14,8 @@ import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonPrimitive
 import java.io.File
-import java.security.MessageDigest
 import java.util.Base64
 import java.util.Locale
-
-internal data class HatchPetWriteOverride(
-    val path: String,
-    val content: String,
-    val petJsonPath: String? = null,
-    val petJsonContent: String? = null
-)
-
-private data class PromptPetDetails(
-    val name: String,
-    val petType: String? = null,
-    val visualStyle: String? = null,
-    val personality: String? = null,
-    val mainColors: String? = null,
-    val signatureElements: String? = null
-)
-
-private const val HATCH_PET_SKILL_ID = "hatch-pet"
-private const val MAX_PET_DESCRIPTION_CHARS = 34
-
-private val PROMPT_FIELD_LABELS = listOf(
-    "宠物名称", "宠物名", "宠物名字", "pet name", "name",
-    "宠物类型", "pet type", "type",
-    "视觉风格", "visual style", "style",
-    "性格设定", "personality", "性格",
-    "主要颜色", "主色", "颜色", "main colors", "main color", "colors", "color palette",
-    "标志元素", "标志性元素", "标志物", "signature elements", "signature element",
-    "iconic element", "distinctive element", "symbol"
-)
-
-internal fun normalizeHatchPetWrite(
-    rawPath: String,
-    rawContent: String,
-    userMessage: String,
-    activeSkillIds: Set<String>
-): HatchPetWriteOverride? {
-    if (HATCH_PET_SKILL_ID !in activeSkillIds) {
-        return null
-    }
-    val promptDetails = extractPromptPetDetails(userMessage)
-        ?: extractPetDetailsFromJson(rawContent)
-        ?: extractPetDetailsFromPath(rawPath)
-        ?: return null
-    val normalizedPath = rawPath.trim().replace('\\', '/')
-    if (normalizedPath.isBlank()) {
-        return null
-    }
-    val lowerPath = normalizedPath.lowercase(Locale.US)
-    val fileName = lowerPath.substringAfterLast('/')
-    val petRelated = lowerPath.contains("/.omnibot/pets/") ||
-        lowerPath.contains("/pets/") ||
-        fileName in setOf("pet.json", "pet.svg", "current.svg", "current.png", "current.webp")
-    if (!petRelated) {
-        return null
-    }
-    val extension = fileName.substringAfterLast('.', missingDelimiterValue = "")
-    val targetName = when {
-        fileName == "spritesheet.webp" -> "spritesheet.webp"
-        fileName == "spritesheet.png" -> "spritesheet.png"
-        else -> when (extension) {
-        "json" -> "pet.json"
-        "svg" -> "current.svg"
-        "png" -> "current.png"
-        "webp" -> "current.webp"
-        "jpg", "jpeg" -> "current.jpg"
-        "gif" -> "current.gif"
-        else -> return null
-        }
-    }
-    val petId = stablePetIdFromName(promptDetails.name)
-    val content = if (targetName == "pet.json") {
-        rewritePetJson(rawContent, petId, promptDetails)
-    } else {
-        rawContent
-    }
-    val petJsonContent = if (targetName == "pet.json") {
-        null
-    } else {
-        buildPetJson(petId, promptDetails, targetName)
-    }
-    return HatchPetWriteOverride(
-        path = "/workspace/.omnibot/pets/$petId/$targetName",
-        content = content,
-        petJsonPath = if (petJsonContent == null) null else "/workspace/.omnibot/pets/$petId/pet.json",
-        petJsonContent = petJsonContent
-    )
-}
 
 internal fun decodeImageWriteContentForFileName(fileName: String, content: String): ByteArray? {
     if (!isBinaryImageFileName(fileName)) {
@@ -252,273 +162,6 @@ private fun bytesMatchImageExtension(fileName: String, bytes: ByteArray): Boolea
     }
 }
 
-private fun extractPromptPetDetails(userMessage: String): PromptPetDetails? {
-    val name = extractPromptField(
-        userMessage,
-        listOf("宠物名称", "宠物名", "宠物名字", "pet name", "name")
-    )?.let(::normalizePromptValue) ?: return null
-    return PromptPetDetails(
-        name = name,
-        petType = extractPromptField(
-            userMessage,
-            listOf("宠物类型", "pet type", "type")
-        )?.let(::normalizePromptValue),
-        visualStyle = extractPromptField(
-            userMessage,
-            listOf("视觉风格", "visual style", "style")
-        )?.let(::normalizePromptValue),
-        personality = extractPromptField(
-            userMessage,
-            listOf("性格设定", "personality", "性格")
-        )?.let(::normalizePromptValue),
-        mainColors = extractPromptField(
-            userMessage,
-            listOf("主要颜色", "主色", "颜色", "main colors", "main color", "colors", "color palette")
-        )?.let(::normalizePromptValue),
-        signatureElements = extractPromptField(
-            userMessage,
-            listOf("标志元素", "标志性元素", "标志物", "signature elements", "signature element", "iconic element", "distinctive element", "symbol")
-        )?.let(::normalizePromptValue)
-    )
-}
-
-private fun extractPetDetailsFromJson(rawContent: String): PromptPetDetails? {
-    return runCatching {
-        val jsonObject = JsonParser.parseString(rawContent).asJsonObject
-        val name = firstJsonString(
-            jsonObject,
-            "displayName",
-            "display_name",
-            "name",
-            "id"
-        )?.let(::normalizePromptValue)
-        if (name.isNullOrBlank()) {
-            null
-        } else {
-            PromptPetDetails(
-                name = name,
-                petType = firstJsonString(jsonObject, "petType", "pet_type", "type")?.let(::normalizePromptValue),
-                visualStyle = firstJsonString(jsonObject, "visualStyle", "visual_style", "style")?.let(::normalizePromptValue),
-                personality = firstJsonString(jsonObject, "personality", "personalitySetting", "personality_setting")?.let(::normalizePromptValue),
-                mainColors = firstJsonString(jsonObject, "mainColors", "main_colors", "colors", "colorPalette", "color_palette")?.let(::normalizePromptValue),
-                signatureElements = firstJsonString(jsonObject, "signatureElements", "signature_elements", "signature", "symbol")?.let(::normalizePromptValue)
-            )
-        }
-    }.getOrNull()
-}
-
-private fun firstJsonString(jsonObject: com.google.gson.JsonObject, vararg keys: String): String? {
-    for (key in keys) {
-        val value = runCatching { jsonObject.get(key)?.asString?.trim() }.getOrNull()
-        if (!value.isNullOrBlank()) {
-            return value
-        }
-    }
-    return null
-}
-
-private fun extractPetDetailsFromPath(rawPath: String): PromptPetDetails? {
-    val normalized = rawPath.trim().replace('\\', '/')
-    val fileName = normalized.substringAfterLast('/')
-    val parentName = normalized.substringBeforeLast('/', missingDelimiterValue = "")
-        .substringAfterLast('/')
-    val baseName = fileName.substringBeforeLast('.', missingDelimiterValue = fileName)
-    val candidate = when {
-        parentName.isNotBlank() &&
-            parentName !in setOf("pets", ".omnibot", "workspace") -> parentName
-        baseName.isNotBlank() &&
-            baseName !in setOf("current", "pet", "spritesheet", "atlas") -> baseName
-        else -> null
-    } ?: return null
-    return PromptPetDetails(name = normalizePromptValue(candidate))
-}
-
-private fun extractPromptField(userMessage: String, labels: List<String>): String? {
-    val text = userMessage
-        .lineSequence()
-        .joinToString("\n") { rawLine ->
-            rawLine
-                .replaceFirst(Regex("""^\s*[-*]\s*"""), "")
-                .replaceFirst(Regex("""^\s*#+\s*"""), "")
-                .trim()
-        }
-        .trim()
-    if (text.isBlank()) {
-        return null
-    }
-
-    val allLabelPattern = PROMPT_FIELD_LABELS
-        .distinct()
-        .sortedByDescending { it.length }
-        .joinToString("|") { Regex.escape(it) }
-    for (label in labels.distinct().sortedByDescending { it.length }) {
-        val pattern = Regex(
-            """(?:^|[\s，,。；;])${Regex.escape(label)}\s*[:：]\s*([\s\S]*?)(?=(?:[\s，,。；;]+(?:$allLabelPattern)\s*[:：])|$)""",
-            RegexOption.IGNORE_CASE
-        )
-        val value = pattern.find(text)?.groups?.get(1)?.value?.trim()
-        if (!value.isNullOrBlank()) {
-            return value
-        }
-    }
-    return null
-}
-
-private fun normalizePromptValue(value: String): String {
-    return value
-        .trim()
-        .trim('。', '.', '，', ',', '；', ';', '：', ':')
-        .takeIf { it.isNotBlank() }
-        .orEmpty()
-}
-
-private fun stablePetIdFromName(name: String): String {
-    val safeName = name.trim()
-        .replace(Regex("""[\\/:*?"<>|\p{Cntrl}]+"""), "-")
-        .replace(Regex("""\s+"""), "-")
-        .replace(Regex("""-+"""), "-")
-        .trim('-', '.', '_')
-    if (safeName.isNotBlank()) {
-        return safeName.lowercase(Locale.US).take(80)
-    }
-    val digest = MessageDigest.getInstance("SHA-256")
-        .digest(name.toByteArray(Charsets.UTF_8))
-        .joinToString("") { byte -> "%02x".format(byte) }
-        .take(10)
-    return "pet-$digest"
-}
-
-private fun rewritePetJson(rawContent: String, petId: String, promptDetails: PromptPetDetails): String {
-    return runCatching {
-        val jsonObject = JsonParser.parseString(rawContent).asJsonObject
-        jsonObject.addProperty("id", petId)
-        jsonObject.addProperty("displayName", promptDetails.name)
-        jsonObject.addProperty("name", promptDetails.name)
-        if (jsonObject.has("spritesheetPath") || jsonObject.has("spritesheet_path")) {
-            jsonObject.addProperty("spritesheetPath", "spritesheet.webp")
-            jsonObject.remove("imagePath")
-            jsonObject.remove("image_path")
-        } else {
-            jsonObject.addProperty("imagePath", "current.svg")
-        }
-        promptDetails.petType?.takeIf { it.isNotBlank() }?.let {
-            jsonObject.addProperty("petType", it)
-        }
-        promptDetails.visualStyle?.takeIf { it.isNotBlank() }?.let {
-            jsonObject.addProperty("visualStyle", it)
-        }
-        promptDetails.personality?.takeIf { it.isNotBlank() }?.let {
-            jsonObject.addProperty("personality", it)
-        }
-        promptDetails.mainColors?.takeIf { it.isNotBlank() }?.let {
-            jsonObject.addProperty("mainColors", it)
-        }
-        promptDetails.signatureElements?.takeIf { it.isNotBlank() }?.let {
-            jsonObject.addProperty("signatureElements", it)
-        }
-        buildPetDescription(promptDetails)?.let {
-            jsonObject.addProperty("description", it)
-        }
-        GsonBuilder()
-            .disableHtmlEscaping()
-            .setPrettyPrinting()
-            .create()
-            .toJson(jsonObject)
-    }.getOrElse {
-        rawContent
-    }
-}
-
-private fun buildPetJson(petId: String, promptDetails: PromptPetDetails, imageFileName: String): String {
-    val jsonObject = com.google.gson.JsonObject()
-    jsonObject.addProperty("id", petId)
-    jsonObject.addProperty("displayName", promptDetails.name)
-    jsonObject.addProperty("name", promptDetails.name)
-    if (imageFileName == "spritesheet.webp" || imageFileName == "spritesheet.png") {
-        jsonObject.addProperty("spritesheetPath", imageFileName)
-    } else {
-        jsonObject.addProperty("imagePath", imageFileName)
-    }
-    promptDetails.petType?.takeIf { it.isNotBlank() }?.let {
-        jsonObject.addProperty("petType", it)
-    }
-    promptDetails.visualStyle?.takeIf { it.isNotBlank() }?.let {
-        jsonObject.addProperty("visualStyle", it)
-    }
-    promptDetails.personality?.takeIf { it.isNotBlank() }?.let {
-        jsonObject.addProperty("personality", it)
-    }
-    promptDetails.mainColors?.takeIf { it.isNotBlank() }?.let {
-        jsonObject.addProperty("mainColors", it)
-    }
-    promptDetails.signatureElements?.takeIf { it.isNotBlank() }?.let {
-        jsonObject.addProperty("signatureElements", it)
-    }
-    jsonObject.addProperty(
-        "description",
-        buildPetDescription(promptDetails) ?: "${promptDetails.name}，适合桌面悬浮的自定义电子宠物。"
-    )
-    return GsonBuilder()
-        .disableHtmlEscaping()
-        .setPrettyPrinting()
-        .create()
-        .toJson(jsonObject)
-}
-
-private fun buildPetDescription(details: PromptPetDetails): String? {
-    val parts = listOfNotNull(
-        compactPetDescriptionPart(details.petType, maxSegments = 1),
-        compactPetDescriptionPart(
-            details.visualStyle,
-            maxSegments = 1,
-            dropContains = listOf("适合桌面悬浮", "轮廓清晰", "无背景", "缩小后")
-        ),
-        compactPetDescriptionPart(details.personality, maxSegments = 1)
-    ).distinct()
-    if (parts.isEmpty()) {
-        return null
-    }
-    val sentence = parts.joinToString("，").trim().let { if (it.endsWith("。")) it else "$it。" }
-    return limitPetDescription(sentence)
-}
-
-private fun compactPetDescriptionPart(
-    value: String?,
-    maxSegments: Int,
-    dropContains: List<String> = emptyList()
-): String? {
-    return value
-        ?.replace('\n', ' ')
-        ?.split(Regex("[，,；;。.]"))
-        ?.asSequence()
-        ?.map { it.trim() }
-        ?.filter { it.isNotBlank() }
-        ?.filterNot { segment -> dropContains.any { segment.contains(it) } }
-        ?.filterNot { segment -> segment.startsWith("要求") }
-        ?.take(maxSegments)
-        ?.joinToString("，")
-        ?.takeIf { it.isNotBlank() }
-}
-
-private fun limitPetDescription(value: String): String {
-    if (value.length <= MAX_PET_DESCRIPTION_CHARS) {
-        return value
-    }
-    val trimmed = value
-        .take(MAX_PET_DESCRIPTION_CHARS - 1)
-        .trimEnd('，', ',', '；', ';', '。', '.', ' ')
-    return "$trimmed。"
-}
-
-private fun looksLikePathDescription(value: String): Boolean {
-    val trimmed = value.trim()
-    return trimmed.startsWith("/workspace/") ||
-        trimmed.startsWith("/") ||
-        trimmed.startsWith("custom:") ||
-        trimmed.contains("/.omnibot/pets/") ||
-        trimmed.contains("/pets/")
-}
-
 class FileToolHandler(
     private val helper: SharedHelper,
     private val workspaceManager: AgentWorkspaceManager
@@ -537,7 +180,7 @@ class FileToolHandler(
     ): ToolExecutionResult {
         return when (toolCall.function.name) {
             "file_read" -> executeFileRead(args, env.workspaceDescriptor, callback)
-            "file_write" -> executeFileWrite(args, env.workspaceDescriptor, env, callback)
+            "file_write" -> executeFileWrite(args, env.workspaceDescriptor, callback)
             "file_edit" -> executeFileEdit(args, env.workspaceDescriptor, callback)
             "file_list" -> executeFileList(args, env.workspaceDescriptor, callback)
             "file_search" -> executeFileSearch(args, env.workspaceDescriptor, callback)
@@ -649,21 +292,13 @@ class FileToolHandler(
     private suspend fun executeFileWrite(
         args: JsonObject,
         workspace: AgentWorkspaceDescriptor,
-        env: AgentExecutionEnvironment,
         callback: AgentCallback
     ): ToolExecutionResult {
         val toolName = "file_write"
         return try {
-            val rawPath = args["path"]?.jsonPrimitive?.content?.trim().orEmpty()
-            val rawContent = args["content"]?.jsonPrimitive?.content ?: throw IllegalArgumentException("缺少 content")
-            val hatchPetOverride = normalizeHatchPetWrite(
-                rawPath = rawPath,
-                rawContent = rawContent,
-                userMessage = env.userMessage,
-                activeSkillIds = env.resolvedSkills.mapTo(mutableSetOf()) { it.skillId }
-            )
-            val path = hatchPetOverride?.path ?: rawPath
-            val content = hatchPetOverride?.content ?: rawContent
+            val path = args["path"]?.jsonPrimitive?.content?.trim().orEmpty()
+            val content = args["content"]?.jsonPrimitive?.content
+                ?: throw IllegalArgumentException("缺少 content")
             helper.requireWorkspaceStorageAccess(callback)?.let { return it }
             helper.requirePublicStorageAccessIfNeeded(
                 callback,
@@ -686,15 +321,6 @@ class FileToolHandler(
                 } else {
                     file.writeText(normalizeSvgWriteContentForFileName(file.name, content))
                 }
-            }
-            if (!append && hatchPetOverride?.petJsonPath != null && hatchPetOverride.petJsonContent != null) {
-                val petJsonFile = workspaceManager.resolvePath(
-                    inputPath = hatchPetOverride.petJsonPath,
-                    workspace = workspace,
-                    allowPublicStorage = true
-                )
-                petJsonFile.parentFile?.mkdirs()
-                petJsonFile.writeText(hatchPetOverride.petJsonContent)
             }
             val artifact = workspaceManager.buildArtifactForFile(file, toolName)
             val payload = linkedMapOf<String, Any?>(

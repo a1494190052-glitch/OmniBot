@@ -36,6 +36,16 @@ worktrees:
 scripts/build-embedded-omniflow-apk.sh --local-sources
 ```
 
+The normal device installer exposes the same zero-copy development path:
+
+```bash
+bash scripts/install-dev.sh --device SERIAL --local-sources --allow-dirty-runtime
+```
+
+This packages the canonical sibling worktrees directly. A repository symlink is
+not used because it would break standalone clones, CI, and reproducible Android
+asset packaging.
+
 Dirty worktrees are rejected unless the caller explicitly adds
 `--allow-dirty`. The same behavior is available without the wrapper through
 `OOB_OMNIFLOW_SOURCE_DIR`, `OOB_OMNITRANSFER_SOURCE_DIR`, and

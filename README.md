@@ -37,14 +37,13 @@ Your On-Device AI Assistant
 |
 </p>
 
-> Unlike traditional mobile AI chat apps, OpenOmniBot runs directly on your device and can operate your Android phone like a human, including apps, gestures, and system settings.
+> OpenOmniBot runs directly on your Android device and combines chat, agent tools, local workspaces, and system integrations in one app.
 
 OpenOmniBot is an on-device AI agent built with native Android Kotlin and Flutter. Instead of stopping at chat, it focuses on the full loop of **understand -> decide -> execute -> reflect**.
 
 <h2 id="core-capabilities">Core Capabilities</h2>
 
 - **Extensible tool ecosystem**: Skills, Alpine environment, browser access, MCP, and Android system-level tools.
-- **Phone task automation**: Uses vision models to understand and operate mobile interfaces.
 - **System-level actions**: Supports scheduled tasks, alarms, calendar creation/query/update, and audio playback control.
 - **Memory system**: Short-term and long-term memory with embedding support.
 - **Productivity tools**: Read and write files, browse the workspace, use the browser, and access the terminal.
@@ -93,22 +92,6 @@ Enable or disable skills from the skill repository:
   <img src="docs/tutorial/seven.png" alt="Skill example" width="260" />
 </p>
 
-### VLM tasks
-
-<p align="center">
-  <img src="docs/tutorial/eight.png" alt="VLM task" width="260" />
-</p>
-
-Before starting a task, open the chat page and grant all required permissions from the top-right corner.
-
-### Local model inference
-
-<p align="center">
-  <img src="docs/tutorial/nine.png" alt="Local inference" width="260" />
-</p>
-
-Supports both MNN and llama backends.
-
 ### Scheduled tasks
 
 <p align="center">
@@ -116,7 +99,7 @@ Supports both MNN and llama backends.
   <img src="docs/tutorial/eleven.png" alt="Timing" width="260" />
 </p>
 
-Scheduled tasks can execute work such as VLM tasks and subagent flows. Alarms are reminder-only. A subagent can be assigned a complete task and behaves like a full agent.
+Scheduled tasks execute subagent flows. Alarms are reminder-only. A subagent can be assigned a complete task and behaves like a full agent.
 
 ### Browser
 
@@ -148,17 +131,13 @@ Choose the LAN address and token mode in the terminal setup UI, then scan the pr
 
 - Flutter SDK `3.9.2+`
 - JDK `11+`
+- Node.js `20.19+` or `22.12+` and pnpm `10.28.0` (for WebUI development)
 
 ### Get the code
 
 ```bash
 git clone https://github.com/omnimind-ai/OpenOmniBot.git
 cd OpenOmniBot
-
-# Required only when building the full omniinfer edition.
-git submodule update --init third_party/omniinfer
-git -C third_party/omniinfer submodule update --init framework/mnn
-git -C third_party/omniinfer submodule update --init framework/llama.cpp
 
 cd ui
 flutter pub get
@@ -171,34 +150,66 @@ flutter clean
 flutter pub get
 ```
 
+### Develop the WebUI locally
+
+The WebUI in `webchat/` is a standalone React + TypeScript + Vite project. During local development, Vite serves the frontend with hot reload and proxies `/webchat/api` requests to the Android app's local service.
+
+1. Install and start OpenOmniBot on an Android device. Keep the computer and device on the same trusted LAN.
+2. In the app, open **Settings > Local Service**, enable the service, and copy its address and Token. The default port is `8899`, but always use the address shown by the app.
+3. Start the WebUI development server from the repository root, replacing the sample address with the Android local-service address (do not append `/webchat`):
+
+```bash
+cd webchat
+pnpm install --frozen-lockfile
+
+VITE_WEBCHAT_PROXY_TARGET=http://192.168.1.20:8899 pnpm dev
+```
+
+On PowerShell, set the proxy target first:
+
+```powershell
+$env:VITE_WEBCHAT_PROXY_TARGET = "http://192.168.1.20:8899"
+pnpm dev
+```
+
+Open the URL printed by Vite (normally `http://localhost:5173`) and enter the Token copied from the app. Use `pnpm dev` for end-to-end API/SSE testing; the proxy keeps session cookies, realtime events, workspace access, and browser mirroring on the same local origin.
+
+Before submitting WebUI changes, run:
+
+```bash
+cd webchat
+pnpm run typecheck
+pnpm run build
+```
+
+The production files are generated in `webchat/dist/`. Both `dist/` and `node_modules/` are local outputs and must not be committed.
+
+Android builds handle the WebUI automatically: Gradle runs the locked pnpm install, executes the Vite production build, clears stale WebChat assets, and copies only `dist/` into the APK. To verify this step without building the full app, run:
+
+```bash
+./gradlew :app:syncWebChatBundle -Ptarget=lib/main_standard.dart
+```
+
+Flutter Web is not part of this workflow.
+
 ### Build and install
 
 ```bash
 cd ..
 
-# Slim standard edition, without local inference
 ./gradlew :app:installDevelopStandardDebug -Ptarget=lib/main_standard.dart
-
-# Full omniinfer edition, with local inference
-./gradlew :app:installDevelopOmniinferDebug -Ptarget=lib/main_omniinfer.dart
 ```
 
 <h2 id="architecture">Architecture Overview</h2>
 
-<p align="center">
-  <img src="docs/pic/architect.svg" alt="Architecture" width="100%" />
-</p>
-
 ```text
 OpenOmniBot/
 ├── app/                        # Android host app: entry point, agent orchestration, system abilities, MCP, services
-├── ui/                         # Flutter UI: chat, settings, tasks, memory, and web chat bundle
-├── baselib/                    # Shared core libraries: database, storage, networking, model config, OCR, permissions
-├── assists/                    # Automation engine: task scheduling, state machine, visual detection, execution control
-├── accessibility/              # Accessibility and screen perception: accessibility service, screenshots, projection
-├── omniintelligence/           # AI abstractions: model protocol, task status, request/response models
+├── ui/                         # Flutter Android UI: chat, settings, tasks, and memory
+├── webchat/                    # React + TypeScript WebUI; Vite builds the static bundle packaged by Android
+├── baselib/                    # Shared core libraries: database, storage, networking, model config, permissions
+├── assists/                    # Shared task lifecycle and chat/model coordination
 ├── uikit/                      # Native overlay UI: floating ball, overlay panels, half-screen surfaces
-├── third_party/omniinfer/      # Local inference runtime and Android integration modules
 └── ReTerminal/core/            # Embedded terminal experience modules
 ```
 

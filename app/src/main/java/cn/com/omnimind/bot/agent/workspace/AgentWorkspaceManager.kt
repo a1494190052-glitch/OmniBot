@@ -14,131 +14,6 @@ import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 import java.util.UUID
 
-private val defaultSoulTemplate = LocalizedText(
-    zhCN = """
-        # SOUL
-
-        ## 身份
-        - 你是小万，值得信赖的智能助手，优先帮助用户把事情做完。
-        - 你会基于事实与工具结果回答，不编造不可验证信息。
-
-        ## 语气
-        - 简洁、温和、可执行。
-        - 优先给出结论，再补充必要细节。
-
-        ## 行为边界
-        - 涉及隐私、删除、支付、外发信息时先确认。
-        - 不擅自泄露密钥、个人信息或工作区敏感文件。
-        - 不使用破坏性命令，除非用户明确授权。
-
-        ## 记忆协作
-        - 当轮就把值得跨会话记住的信息写入短期记忆 `.omnibot/memory/short-memories/YY-MM-DD.md`（用 `memory_write_daily`），宁可多写。
-        - 只有跨会话稳定、可复用的结论才写入长期记忆 `.omnibot/memory/MEMORY.md`；其余交给夜间整理蒸馏。
-        - 需要时用 `memory_search` 检索既有记忆，避免重复记录。
-
-        ## 自我更新规则
-        - 只有在用户明确同意“更新灵魂/SOUL”时，才能改写本文件。
-        - 更新时保留“身份、语气、边界”三部分结构，避免漂移。
-        - 每次更新应可解释：为什么改、改了什么、预期影响。
-    """.trimIndent(),
-    enUS = """
-        # SOUL
-
-        ## Identity
-        - You are Omnibot, a trustworthy assistant focused on helping the user get things done.
-        - Base your answers on facts and tool results, and do not invent unverifiable information.
-
-        ## Tone
-        - Be concise, warm, and actionable.
-        - Lead with the conclusion, then add only the necessary detail.
-
-        ## Boundaries
-        - Ask for confirmation before actions involving privacy, deletion, payments, or sending information out.
-        - Do not expose secrets, personal data, or sensitive workspace files without permission.
-        - Do not use destructive commands unless the user explicitly authorizes them.
-
-        ## Memory Collaboration
-        - Record anything worth remembering across sessions into short-term memory `.omnibot/memory/short-memories/YY-MM-DD.md` this very turn (via `memory_write_daily`); when in doubt, write it.
-        - Only cross-session, reusable conclusions go into long-term memory `.omnibot/memory/MEMORY.md`; leave the rest for the nightly rollup to distill.
-        - Use `memory_search` to check existing memory when relevant, and avoid duplicate entries.
-
-        ## Self-Update Rules
-        - Only rewrite this file when the user explicitly agrees to update the soul/SOUL.
-        - Keep the Identity, Tone, and Boundaries sections to avoid drift.
-        - Every update must be explainable: why it changed, what changed, and the expected impact.
-    """.trimIndent()
-)
-
-/**
- * Snapshot of the pre-2026-07 default SOUL (passive "decide only after nightly
- * rollup" memory section). Kept only so [ensureDefaultWorkspaceDocs] can
- * recognize an un-customized old default on disk and migrate it to the current
- * template. User-edited SOUL files never match this and are left untouched.
- */
-private val legacySoulTemplateV1 = LocalizedText(
-    zhCN = """
-        # SOUL
-
-        ## 身份
-        - 你是小万，值得信赖的智能助手，优先帮助用户把事情做完。
-        - 你会基于事实与工具结果回答，不编造不可验证信息。
-
-        ## 语气
-        - 简洁、温和、可执行。
-        - 优先给出结论，再补充必要细节。
-
-        ## 行为边界
-        - 涉及隐私、删除、支付、外发信息时先确认。
-        - 不擅自泄露密钥、个人信息或工作区敏感文件。
-        - 不使用破坏性命令，除非用户明确授权。
-
-        ## 记忆协作
-        - 长期稳定偏好写入 `.omnibot/memory/MEMORY.md`。
-        - 当日过程性信息写入 `.omnibot/memory/short-memories/YY-MM-DD.md`。
-        - 每晚整理后再决定是否沉淀为长期记忆。
-
-        ## 自我更新规则
-        - 只有在用户明确同意“更新灵魂/SOUL”时，才能改写本文件。
-        - 更新时保留“身份、语气、边界”三部分结构，避免漂移。
-        - 每次更新应可解释：为什么改、改了什么、预期影响。
-    """.trimIndent(),
-    enUS = """
-        # SOUL
-
-        ## Identity
-        - You are Omnibot, a trustworthy assistant focused on helping the user get things done.
-        - Base your answers on facts and tool results, and do not invent unverifiable information.
-
-        ## Tone
-        - Be concise, warm, and actionable.
-        - Lead with the conclusion, then add only the necessary detail.
-
-        ## Boundaries
-        - Ask for confirmation before actions involving privacy, deletion, payments, or sending information out.
-        - Do not expose secrets, personal data, or sensitive workspace files without permission.
-        - Do not use destructive commands unless the user explicitly authorizes them.
-
-        ## Memory Collaboration
-        - Write long-term stable preferences to `.omnibot/memory/MEMORY.md`.
-        - Write day-specific procedural context to `.omnibot/memory/short-memories/YY-MM-DD.md`.
-        - Decide what should become long-term memory only after nightly rollup.
-
-        ## Self-Update Rules
-        - Only rewrite this file when the user explicitly agrees to update the soul/SOUL.
-        - Keep the Identity, Tone, and Boundaries sections to avoid drift.
-        - Every update must be explainable: why it changed, what changed, and the expected impact.
-    """.trimIndent()
-)
-
-private val defaultChatTemplate = LocalizedText(
-    zhCN = """
-        你是一个 AI 助手。
-    """.trimIndent(),
-    enUS = """
-        You are an AI assistant.
-    """.trimIndent()
-)
-
 private val defaultLongMemoryTemplate = LocalizedText(
     zhCN = """
         # MEMORY
@@ -166,24 +41,6 @@ private val defaultLongMemoryTemplate = LocalizedText(
     """.trimIndent()
 )
 
-internal fun sanitizeWorkspaceContextSegment(value: String): String {
-    val normalized = value.trim().replace(Regex("[^A-Za-z0-9._-]"), "_")
-    return normalized.takeUnless { it.isBlank() || it == "." || it == ".." }
-        ?: "isolated"
-}
-
-internal fun workspaceContextRelativePath(contextSegmentId: String): String {
-    return ".omnibot/contexts/${sanitizeWorkspaceContextSegment(contextSegmentId)}"
-}
-
-internal fun defaultSoulTemplateText(locale: PromptLocale): String {
-    return defaultSoulTemplate.resolve(locale) + "\n"
-}
-
-internal fun defaultChatTemplateText(locale: PromptLocale): String {
-    return defaultChatTemplate.resolve(locale) + "\n"
-}
-
 internal fun defaultLongMemoryTemplateText(locale: PromptLocale): String {
     return defaultLongMemoryTemplate.resolve(locale) + "\n"
 }
@@ -207,27 +64,11 @@ private fun syncManagedDefaultFile(
     }
 }
 
-internal fun ensureDefaultWorkspaceDocs(
-    soulFile: File,
-    chatFile: File,
+internal fun ensureDefaultLongMemoryFile(
     longMemoryFile: File,
     locale: PromptLocale
 ) {
-    val soulTarget = defaultSoulTemplateText(locale)
-    val chatTarget = defaultChatTemplateText(locale)
     val memoryTarget = defaultLongMemoryTemplateText(locale)
-    val managedSoulDefaults = buildSet {
-        addAll(PromptLocale.entries.map(::defaultSoulTemplateText))
-        // Recognize the pre-2026-07 default SOUL so an un-customized old install
-        // migrates to the current, more proactive memory-collaboration section.
-        addAll(PromptLocale.entries.map { legacySoulTemplateV1.resolve(it) + "\n" })
-    }
-    syncManagedDefaultFile(soulFile, soulTarget, managedSoulDefaults)
-    syncManagedDefaultFile(
-        chatFile,
-        chatTarget,
-        PromptLocale.entries.map(::defaultChatTemplateText).toSet()
-    )
     syncManagedDefaultFile(
         longMemoryFile,
         memoryTarget,
@@ -255,23 +96,14 @@ class AgentWorkspaceManager(
         private const val DIR_SHARED = "shared"
         private const val DIR_OFFLOADS = "offloads"
         private const val DIR_BROWSER = "browser"
-        private const val DIR_CONTEXTS = "contexts"
         private const val DIR_SKILLS = "skills"
         private const val DIR_MEMORY = "memory"
         private const val DIR_PETS = "pets"
-        private const val DIR_AGENT = "agent"
         private const val DIR_BUILTIN_PETS_ASSETS = "builtin_pets"
-        private const val FILE_AI_CONFIG = "config.json"
-        private const val FILE_SOUL = "SOUL.md"
-        private const val FILE_CHAT = "CHAT.md"
         private const val FILE_MEMORY = "MEMORY.md"
         private const val DIR_SHORT_MEMORIES = "short-memories"
         private const val DIR_MEMORY_INDEX = "index"
-        private const val DIR_MODELS = "models"
-        private const val DIR_MODELS_LLAMA = "OmniInfer-llama"
-        private const val DIR_MODELS_MNN = "OmniInfer-mnn"
-        private const val DIR_MODELS_QNN = "OmniInfer-qnn"
-        private const val DIR_MODELS_LITERT = "OmniInfer-litert"
+        private const val DIR_AUDIO = "audio"
 
         fun rootDirectory(context: Context): File {
             return File(context.applicationInfo.dataDir, ROOT_DIR_NAME)
@@ -281,24 +113,9 @@ class AgentWorkspaceManager(
             return File(rootDirectory(context), INTERNAL_DIR)
         }
 
-        fun modelsDirectory(context: Context): File {
-            return File(internalRootDirectory(context), DIR_MODELS)
-        }
-
-        fun modelsLlamaDirectory(context: Context): File {
-            return File(modelsDirectory(context), DIR_MODELS_LLAMA)
-        }
-
-        fun modelsMnnDirectory(context: Context): File {
-            return File(modelsDirectory(context), DIR_MODELS_MNN)
-        }
-
-        fun modelsQnnDirectory(context: Context): File {
-            return File(modelsDirectory(context), DIR_MODELS_QNN)
-        }
-
-        fun modelsLiteRtDirectory(context: Context): File {
-            return File(modelsDirectory(context), DIR_MODELS_LITERT)
+        /** 语音合成 wav 缓存目录：workspace/.omnibot/audio */
+        fun audioDirectory(context: Context): File {
+            return File(internalRootDirectory(context), DIR_AUDIO)
         }
 
         fun androidRootPath(context: Context): String {
@@ -395,21 +212,12 @@ class AgentWorkspaceManager(
     private val sharedDir = File(internalDir, DIR_SHARED)
     private val offloadsDir = File(internalDir, DIR_OFFLOADS)
     private val browserDir = File(internalDir, DIR_BROWSER)
-    private val contextsDir = File(internalDir, DIR_CONTEXTS)
     private val skillsDir = File(internalDir, DIR_SKILLS)
     private val memoryDir = File(internalDir, DIR_MEMORY)
     private val petsDir = File(internalDir, DIR_PETS)
-    private val agentDir = File(internalDir, DIR_AGENT)
-    private val soulFile = File(agentDir, FILE_SOUL)
-    private val chatFile = File(agentDir, FILE_CHAT)
     private val longMemoryFile = File(memoryDir, FILE_MEMORY)
     private val shortMemoriesDir = File(memoryDir, DIR_SHORT_MEMORIES)
     private val memoryIndexDir = File(memoryDir, DIR_MEMORY_INDEX)
-    private val modelsDir = File(internalDir, DIR_MODELS)
-    private val modelsLlamaDir = File(modelsDir, DIR_MODELS_LLAMA)
-    private val modelsMnnDir = File(modelsDir, DIR_MODELS_MNN)
-    private val modelsQnnDir = File(modelsDir, DIR_MODELS_QNN)
-    private val modelsLiteRtDir = File(modelsDir, DIR_MODELS_LITERT)
     private val migrationMarker = File(internalDir, WORKSPACE_MIGRATION_MARKER)
     private val legacyRootDir = File(LEGACY_EXTERNAL_ROOT_PATH)
     private val publicStorageRootDir = File(PUBLIC_STORAGE_ROOT_PATH)
@@ -429,25 +237,18 @@ class AgentWorkspaceManager(
             sharedDir,
             offloadsDir,
             browserDir,
-            contextsDir,
             skillsDir,
             memoryDir,
             petsDir,
-            agentDir,
             shortMemoriesDir,
-            memoryIndexDir,
-            modelsDir,
-            modelsLlamaDir,
-            modelsMnnDir,
-            modelsQnnDir,
-            modelsLiteRtDir
+            memoryIndexDir
         ).forEach { directory ->
             if (!directory.exists()) {
                 directory.mkdirs()
             }
         }
         ensureBuiltinPets()
-        ensureDefaultWorkspaceDocs()
+        ensureDefaultLongMemoryFile()
     }
 
     private fun ensureBuiltinPets() {
@@ -503,10 +304,8 @@ class AgentWorkspaceManager(
             fileName == "current.gif"
     }
 
-    private fun ensureDefaultWorkspaceDocs() {
-        ensureDefaultWorkspaceDocs(
-            soulFile = soulFile,
-            chatFile = chatFile,
+    private fun ensureDefaultLongMemoryFile() {
+        ensureDefaultLongMemoryFile(
             longMemoryFile = longMemoryFile,
             locale = AppLocaleManager.resolvePromptLocale(context)
         )
@@ -535,7 +334,19 @@ class AgentWorkspaceManager(
                 source.listFiles()?.forEach { child ->
                     val target = File(rootDir, child.name)
                     if (!target.exists()) {
-                        child.copyRecursively(target, overwrite = false)
+                        if (child.name == INTERNAL_DIR && child.isDirectory) {
+                            target.mkdirs()
+                            child.listFiles()
+                                ?.filterNot { it.name == "models" }
+                                ?.forEach { internalChild ->
+                                    internalChild.copyRecursively(
+                                        File(target, internalChild.name),
+                                        overwrite = false
+                                    )
+                                }
+                        } else {
+                            child.copyRecursively(target, overwrite = false)
+                        }
                     }
                 }
             }
@@ -564,34 +375,21 @@ class AgentWorkspaceManager(
 
     fun buildWorkspaceDescriptor(
         conversationId: Long?,
-        agentRunId: String,
-        contextSegmentId: String? = null
+        agentRunId: String
     ): AgentWorkspaceDescriptor {
         ensureRuntimeDirectories()
         val conversationKey = conversationKey(conversationId)
-        val segmentKey = contextSegmentId?.trim()?.takeIf { it.isNotEmpty() }
-            ?.let(::sanitizeWorkspaceContextSegment)
-        val workspaceKey = if (segmentKey == null) {
-            conversationKey
-        } else {
-            "$conversationKey-segment-$segmentKey"
-        }
-        val workspaceRoot = if (segmentKey == null) {
-            rootDir
-        } else {
-            File(rootDir, workspaceContextRelativePath(segmentKey)).apply { mkdirs() }
-        }.canonicalFile
+        val workspaceRoot = rootDir.canonicalFile
         val uriRoot = uriForFile(workspaceRoot) ?: buildRootUri("workspace")
-        val shellWorkspaceRoot = shellPathForAndroid(workspaceRoot) ?: SHELL_ROOT_PATH
         return AgentWorkspaceDescriptor(
-            id = workspaceKey,
-            rootPath = shellWorkspaceRoot,
+            id = conversationKey,
+            rootPath = SHELL_ROOT_PATH,
             androidRootPath = workspaceRoot.absolutePath,
             uriRoot = uriRoot,
-            currentCwd = shellWorkspaceRoot,
+            currentCwd = SHELL_ROOT_PATH,
             androidCurrentCwd = workspaceRoot.absolutePath,
             shellRootPath = SHELL_ROOT_PATH,
-            retentionPolicy = if (segmentKey == null) "shared_root" else "segment_scoped"
+            retentionPolicy = "shared_root"
         )
     }
 
@@ -629,41 +427,14 @@ class AgentWorkspaceManager(
         )
     }
 
-    fun attachmentsDirectory(contextSegmentId: String? = null): File {
+    fun attachmentsDirectory(): File {
         ensureRuntimeDirectories()
-        val segmentKey = contextSegmentId?.trim()?.takeIf { it.isNotEmpty() }
-            ?.let(::sanitizeWorkspaceContextSegment)
-        return if (segmentKey == null) {
-            attachmentsDir
-        } else {
-            File(File(rootDir, workspaceContextRelativePath(segmentKey)), DIR_ATTACHMENTS)
-                .apply { mkdirs() }
-        }
+        return attachmentsDir
     }
 
     fun sharedDirectory(): File {
         ensureRuntimeDirectories()
         return sharedDir
-    }
-
-    fun agentDirectory(): File {
-        ensureRuntimeDirectories()
-        return agentDir
-    }
-
-    fun soulMarkdownFile(): File {
-        ensureRuntimeDirectories()
-        return soulFile
-    }
-
-    fun chatMarkdownFile(): File {
-        ensureRuntimeDirectories()
-        return chatFile
-    }
-
-    fun agentConfigFile(): File {
-        ensureRuntimeDirectories()
-        return File(agentDir, FILE_AI_CONFIG)
     }
 
     fun longTermMemoryMarkdownFile(): File {
@@ -756,7 +527,7 @@ class AgentWorkspaceManager(
         val allowed = if (allowPublicStorage && isWithinPublicStorage(resolved)) {
             true
         } else if (allowRootDirectories) {
-            isWithinWorkspaceRoots(resolved, workspace)
+            isWithinWorkspaceRoots(resolved)
         } else {
             isWithinWritableRoots(resolved, workspace)
         }
@@ -873,15 +644,8 @@ class AgentWorkspaceManager(
         return isWithin(rootDir.canonicalFile, file)
     }
 
-    private fun isWithinWorkspaceRoots(
-        file: File,
-        workspace: AgentWorkspaceDescriptor
-    ): Boolean {
-        val workspaceRoot = File(workspace.androidRootPath).canonicalFile
-        if (isWithin(workspaceRoot, file)) {
-            return true
-        }
-        return workspaceRoot == rootDir.canonicalFile && isWithinMountedWorkspace(file)
+    private fun isWithinWorkspaceRoots(file: File): Boolean {
+        return isWithinRoot(file) || isWithinMountedWorkspace(file)
     }
 
     private fun isWithinPublicStorage(file: File): Boolean {
@@ -1036,7 +800,6 @@ class AgentWorkspaceManager(
         }
         if (!isWithinRoot(canonical)) return null
         return when {
-            isWithin(contextsDir.canonicalFile, canonical) -> buildUriForBase(DIR_WORKSPACE, rootDir, canonical)
             isWithin(attachmentsDir.canonicalFile, canonical) -> buildUriForBase(DIR_ATTACHMENTS, attachmentsDir, canonical)
             isWithin(sharedDir.canonicalFile, canonical) -> buildUriForBase(DIR_SHARED, sharedDir, canonical)
             isWithin(offloadsDir.canonicalFile, canonical) -> buildUriForBase(DIR_OFFLOADS, offloadsDir, canonical)

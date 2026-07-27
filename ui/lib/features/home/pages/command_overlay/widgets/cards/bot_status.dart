@@ -24,18 +24,21 @@ class BotStatus extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final normalizedCostTime = costTime == null
+    final currentCostTime = costTime;
+    final normalizedCostTime = currentCostTime == null
         ? ''
         : LegacyTextLocalizer.isEnglish
-        ? costTime!
-        : costTime!.replaceAll(' ', '');
+        ? currentCostTime
+        : currentCostTime.replaceAll(' ', '');
     if (status == BotStatusType.completed && LegacyTextLocalizer.isEnglish) {
       final completedEnglishText = normalizedCostTime.isEmpty
           ? 'Thought complete'
           : 'Thought for $normalizedCostTime';
       return _buildStatusRow(
         context,
-        customIcon: showAvatar ? const AgentAvatarButton(size: 30) : null,
+        customIcon: showAvatar
+            ? const AgentAvatarButton(size: 30, showBorder: false)
+            : null,
         text: completedEnglishText,
         shimmerText: false,
       );
@@ -45,7 +48,9 @@ class BotStatus extends StatelessWidget {
       case BotStatusType.completed:
         return _buildStatusRow(
           context,
-          customIcon: showAvatar ? const AgentAvatarButton(size: 30) : null,
+          customIcon: showAvatar
+              ? const AgentAvatarButton(size: 30, showBorder: false)
+              : null,
           text: LegacyTextLocalizer.localize('思考完成'),
           timeDesc: LegacyTextLocalizer.localize('用时'),
           costTime: costTime,
@@ -54,7 +59,9 @@ class BotStatus extends StatelessWidget {
       case BotStatusType.hint:
         return _buildStatusRow(
           context,
-          customIcon: showAvatar ? const AgentAvatarButton(size: 30) : null,
+          customIcon: showAvatar
+              ? const AgentAvatarButton(size: 30, showBorder: false)
+              : null,
           text: LegacyTextLocalizer.localize(hintText ?? '正在思考'),
           timeDesc: costTime != null
               ? LegacyTextLocalizer.localize('用时')
@@ -115,8 +122,8 @@ class BotStatus extends StatelessWidget {
     final normalizedCostTime = costTime == null
         ? ''
         : LegacyTextLocalizer.isEnglish
-        ? costTime!
-        : costTime!.replaceAll(' ', '');
+        ? costTime
+        : costTime.replaceAll(' ', '');
     final timeJoiner =
         timeDesc != null &&
             normalizedCostTime.isNotEmpty &&
@@ -137,7 +144,7 @@ class BotStatus extends StatelessWidget {
       ],
     );
     final statusText = shimmerText
-        ? _FlowingStatusText(
+        ? ShimmeringStatusText(
             baseColor: resolvedTextStyle.color ?? defaultTextColor,
             child: textGroup,
           )
@@ -158,17 +165,25 @@ class BotStatus extends StatelessWidget {
 
 enum BotStatusType { completed, hint }
 
-class _FlowingStatusText extends StatefulWidget {
-  const _FlowingStatusText({required this.child, required this.baseColor});
+/// Shared restrained shimmer used by transient chat status labels.
+///
+/// The animation automatically falls back to the unmodified child when the
+/// platform requests reduced motion.
+class ShimmeringStatusText extends StatefulWidget {
+  const ShimmeringStatusText({
+    super.key,
+    required this.child,
+    required this.baseColor,
+  });
 
   final Widget child;
   final Color baseColor;
 
   @override
-  State<_FlowingStatusText> createState() => _FlowingStatusTextState();
+  State<ShimmeringStatusText> createState() => _ShimmeringStatusTextState();
 }
 
-class _FlowingStatusTextState extends State<_FlowingStatusText>
+class _ShimmeringStatusTextState extends State<ShimmeringStatusText>
     with SingleTickerProviderStateMixin {
   late final AnimationController _controller = AnimationController(
     vsync: this,

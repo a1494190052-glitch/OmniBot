@@ -168,11 +168,11 @@ void main() {
     expect(restored, target);
   });
 
-  test('round-trips remote codex active thread target metadata', () {
-    const target = ConversationThreadTarget.codexSession(
-      threadId: 'thread-active',
+  test('round-trips remote agent session metadata', () {
+    const target = ConversationThreadTarget.agentSession(
+      sessionId: 'thread-active',
       runtime: 'remote',
-      codexThreadActive: true,
+      agentSessionActive: true,
       requestKey: 'request-1',
     );
 
@@ -181,26 +181,27 @@ void main() {
     );
 
     expect(restored, target);
-    expect(restored.codexThreadActive, isTrue);
+    expect(restored.agentSessionActive, isTrue);
   });
 
-  test('round-trips local codex conversation target thread metadata', () async {
+  test('round-trips local agent conversation target thread metadata', () async {
     const target = ConversationThreadTarget.existing(
       conversationId: 42,
-      mode: ConversationMode.codex,
-      codexThreadId: '019f12d6-16a0-7f01-9537-275ff25b9f79',
-      codexRuntime: 'local',
+      mode: ConversationMode.agent,
+      agentId: 'claude-code-acp',
+      agentSessionId: '019f12d6-16a0-7f01-9537-275ff25b9f79',
+      agentRuntime: 'local',
     );
 
     await ConversationHistoryService.saveCurrentConversationTarget(
       target,
-      mode: ConversationMode.codex,
+      mode: ConversationMode.agent,
     );
     await ConversationHistoryService.saveLastVisibleThreadTarget(target);
 
     expect(
       await ConversationHistoryService.getCurrentConversationTarget(
-        mode: ConversationMode.codex,
+        mode: ConversationMode.agent,
       ),
       target,
     );
@@ -256,6 +257,33 @@ void main() {
 
       expect(normalMessages.single.text, 'normal thread');
       expect(openClawMessages.single.text, 'openclaw thread');
+    },
+  );
+
+  test(
+    'canonicalizes legacy Agent tool metadata restored from storage',
+    () async {
+      nativeMessages['codex:12'] = <Map<String, dynamic>>[
+        ChatMessageModel.cardMessage(<String, dynamic>{
+          'type': 'agent_tool_summary',
+          'uiStyle': 'codex_tool',
+          'agentId': 'claude-code-acp',
+          'agentName': 'Claude Code',
+          'toolName': 'codex.tool',
+          'toolTitle': 'Read settings.json',
+          'status': 'success',
+        }, id: 'tool-12').toJson(),
+      ];
+
+      final restored = await ConversationHistoryService.getConversationMessages(
+        12,
+        mode: ConversationMode.agent,
+      );
+
+      expect(restored.single.cardData?['uiStyle'], 'agent_tool');
+      expect(restored.single.cardData?['toolName'], 'agent.tool');
+      expect(restored.single.agentId, 'claude-code-acp');
+      expect(restored.single.agentName, 'Claude Code');
     },
   );
 

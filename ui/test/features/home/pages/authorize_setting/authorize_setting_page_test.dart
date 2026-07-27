@@ -37,7 +37,6 @@ void main() {
             case 'isBackgroundRunAllowed':
             case 'isOverlayPermission':
             case 'isInstalledAppsPermissionGranted':
-            case 'isAccessibilityServiceEnabled':
               return true;
             case 'isPublicStorageAccessGranted':
               return false;

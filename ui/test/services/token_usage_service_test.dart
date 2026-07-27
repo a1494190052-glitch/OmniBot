@@ -25,7 +25,6 @@ void main() {
     final record = TokenUsageRecord(
       id: 1,
       conversationId: 0,
-      isLocal: false,
       model: 'anthropic/claude-3-5-sonnet',
       promptTokens: 12,
       completionTokens: 34,

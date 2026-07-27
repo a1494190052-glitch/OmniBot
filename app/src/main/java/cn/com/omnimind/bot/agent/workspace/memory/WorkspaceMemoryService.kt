@@ -168,23 +168,19 @@ class WorkspaceMemoryService(
     }
 
     fun readSoul(): String {
-        ensureInitialized()
-        return workspaceManager.soulMarkdownFile().readText()
+        return AgentPromptSettingsStore.readSoul(context)
     }
 
     fun readChatPrompt(): String {
-        ensureInitialized()
-        return workspaceManager.chatMarkdownFile().readText()
+        return AgentPromptSettingsStore.readChatPrompt(context)
     }
 
     fun writeSoul(content: String) {
-        ensureInitialized()
-        workspaceManager.soulMarkdownFile().writeText(content.trimEnd() + "\n")
+        AgentPromptSettingsStore.writeSoul(context, content)
     }
 
     fun writeChatPrompt(content: String) {
-        ensureInitialized()
-        workspaceManager.chatMarkdownFile().writeText(content.trimEnd() + "\n")
+        AgentPromptSettingsStore.writeChatPrompt(context, content)
     }
 
     fun readLongTermMemory(): String {
@@ -387,28 +383,21 @@ class WorkspaceMemoryService(
 
     fun buildPromptContext(
         maxLongChars: Int = 2400,
-        maxDailyChars: Int = 1400,
-        includePersistentMemory: Boolean = true
+        maxDailyChars: Int = 1400
     ): WorkspaceMemoryPromptContext {
         ensureInitialized()
         val soul = readSoul().trim()
-        val longMemory = if (includePersistentMemory) {
-            truncateText(readLongTermMemory().trim(), maxLongChars)
-        } else {
-            ""
-        }
-        val todayDaily = if (includePersistentMemory) {
-            truncateText(summarizeTodayShortMemory(), maxDailyChars)
-        } else {
-            ""
-        }
-        val indexSummary = if (includePersistentMemory) {
-            runCatching {
-                LongTermMemoryIndex(workspaceManager).summaryForPrompt()
-            }.getOrDefault("")
-        } else {
-            ""
-        }
+        val longMemory = truncateText(
+            readLongTermMemory().trim(),
+            maxLongChars
+        )
+        val todayDaily = truncateText(
+            summarizeTodayShortMemory(),
+            maxDailyChars
+        )
+        val indexSummary = runCatching {
+            LongTermMemoryIndex(workspaceManager).summaryForPrompt()
+        }.getOrDefault("")
         return WorkspaceMemoryPromptContext(
             soul = soul,
             longTermMemory = longMemory,

@@ -14,6 +14,8 @@ import kotlinx.serialization.json.JsonPrimitive
 import java.time.Instant
 
 internal object AgentConversationHistorySupport {
+    private const val EXTERNAL_USER_MESSAGE_SOURCE = "external_user_message"
+    private const val PENDING_SNAPSHOT_ACK = "pendingSnapshotAck"
     private data class ThinkingEntryRef(
         val index: Int,
         val entry: AgentConversationEntry,
@@ -61,7 +63,6 @@ internal object AgentConversationHistorySupport {
 """
     private const val CONTEXT_SUMMARY_USER_PREFIX =
         "<context-summary> The following is a summary of the earlier conversation that was compacted to save context space."
-    internal const val CONTEXT_SEGMENT_ID_KEY = "contextSegmentId"
 
     private val gson = Gson()
 
@@ -71,11 +72,12 @@ internal object AgentConversationHistorySupport {
         text: String,
         attachments: List<Map<String, Any?>> = emptyList(),
         reasoningContent: String? = null,
+        agentId: String? = null,
+        agentName: String? = null,
         isError: Boolean,
         interruptedTurn: Boolean = false,
         streamMeta: Map<String, Any?>?,
         turnUsage: Map<String, Any?>? = null,
-        contextSegmentId: String? = null,
         createdAt: Long
     ): Map<String, Any?> {
         val safeText = AgentTextSanitizer.sanitizeUtf16(text)
@@ -92,6 +94,12 @@ internal object AgentConversationHistorySupport {
         if (historyAttachments.isNotEmpty()) {
             content["attachments"] = historyAttachments
         }
+        agentId?.trim()?.takeIf { it.isNotEmpty() }?.let {
+            content["agentId"] = it
+        }
+        agentName?.trim()?.takeIf { it.isNotEmpty() }?.let {
+            content["agentName"] = it
+        }
         return linkedMapOf(
             "id" to messageId,
             "type" to 1,
@@ -103,7 +111,6 @@ internal object AgentConversationHistorySupport {
             "interruptedTurn" to if (interruptedTurn) true else null,
             "isSummarizing" to false,
             "streamMeta" to streamMeta,
-            CONTEXT_SEGMENT_ID_KEY to contextSegmentId?.trim()?.takeIf { it.isNotEmpty() },
             "turnUsage" to turnUsage,
             "createAt" to Instant.ofEpochMilli(createdAt).toString()
         ).apply {
@@ -113,28 +120,86 @@ internal object AgentConversationHistorySupport {
         }.filterValues { it != null }
     }
 
+    fun externalUserMessageStreamMeta(): Map<String, Any?> {
+        return mapOf(
+            "source" to EXTERNAL_USER_MESSAGE_SOURCE,
+            PENDING_SNAPSHOT_ACK to true
+        )
+    }
+
+    fun mergePendingExternalUserMessages(
+        existingMessages: List<Map<String, Any?>>,
+        incomingMessages: List<Map<String, Any?>>
+    ): List<Map<String, Any?>> {
+        val incomingIds = incomingMessages.mapNotNull(::messageId).toSet()
+        val pendingById = linkedMapOf<String, Map<String, Any?>>()
+        existingMessages.forEach { message ->
+            val id = messageId(message) ?: return@forEach
+            val streamMeta = toStringAnyMap(message["streamMeta"])
+            if (
+                (message["type"] as? Number)?.toInt() == 1 &&
+                (message["user"] as? Number)?.toInt() == 1 &&
+                streamMeta["source"]?.toString() == EXTERNAL_USER_MESSAGE_SOURCE &&
+                parseBoolean(streamMeta[PENDING_SNAPSHOT_ACK], default = false) &&
+                id !in incomingIds
+            ) {
+                pendingById[id] = message
+            }
+        }
+        return pendingById.values + incomingMessages.map(::acknowledgeExternalUserMessage)
+    }
+
+    private fun acknowledgeExternalUserMessage(
+        message: Map<String, Any?>
+    ): Map<String, Any?> {
+        val streamMeta = toStringAnyMap(message["streamMeta"])
+        if (
+            streamMeta["source"]?.toString() != EXTERNAL_USER_MESSAGE_SOURCE ||
+            !parseBoolean(streamMeta[PENDING_SNAPSHOT_ACK], default = false)
+        ) {
+            return message
+        }
+        val acknowledgedMeta =
+            streamMeta - PENDING_SNAPSHOT_ACK - "source"
+        return LinkedHashMap(message).apply {
+            if (acknowledgedMeta.isEmpty()) {
+                remove("streamMeta")
+            } else {
+                put("streamMeta", acknowledgedMeta)
+            }
+        }
+    }
+
+    private fun messageId(message: Map<String, Any?>): String? {
+        val content = toStringAnyMap(message["content"])
+        return (message["id"] ?: content["id"])
+            ?.toString()
+            ?.trim()
+            ?.takeIf { it.isNotEmpty() }
+    }
+
     fun buildCardMessagePayload(
         messageId: String,
         cardData: Map<String, Any?>,
         isError: Boolean,
         streamMeta: Map<String, Any?>?,
-        contextSegmentId: String? = null,
         createdAt: Long
     ): Map<String, Any?> {
+        val content = linkedMapOf<String, Any?>(
+            "cardData" to cardData,
+            "id" to messageId
+        )
+        copyAgentIdentity(cardData, content)
         return linkedMapOf(
             "id" to messageId,
             "type" to 2,
             "user" to 3,
-            "content" to linkedMapOf(
-                "cardData" to cardData,
-                "id" to messageId
-            ),
+            "content" to content,
             "isLoading" to false,
             "isFirst" to false,
             "isError" to isError,
             "isSummarizing" to false,
             "streamMeta" to streamMeta,
-            CONTEXT_SEGMENT_ID_KEY to contextSegmentId?.trim()?.takeIf { it.isNotEmpty() },
             "createAt" to Instant.ofEpochMilli(createdAt).toString()
         ).filterValues { it != null }
     }
@@ -229,8 +294,7 @@ internal object AgentConversationHistorySupport {
     fun buildPromptSeedFromEntries(
         entries: List<AgentConversationEntry>,
         contextSummary: String? = null,
-        cutoffEntryDbId: Long? = null,
-        contextSegmentId: String? = null
+        cutoffEntryDbId: Long? = null
     ): AgentConversationHistoryRepository.PromptSeed {
         val historyMessages = mutableListOf<ChatCompletionMessage>()
         contextSummary?.trim()?.takeIf { it.isNotEmpty() }?.let { summary ->
@@ -238,22 +302,19 @@ internal object AgentConversationHistorySupport {
         }
         historyMessages += buildPromptRelevantMessages(
             entries = entries,
-            cutoffEntryDbId = cutoffEntryDbId,
-            contextSegmentId = contextSegmentId
+            cutoffEntryDbId = cutoffEntryDbId
         )
         return AgentConversationHistoryRepository.PromptSeed(historyMessages = historyMessages)
     }
 
     fun buildPromptRelevantMessages(
         entries: List<AgentConversationEntry>,
-        cutoffEntryDbId: Long? = null,
-        contextSegmentId: String? = null
+        cutoffEntryDbId: Long? = null
     ): List<ChatCompletionMessage> {
         val relevantEntries = entries
             .asSequence()
             .filter(::isPromptRelevantEntry)
             .filter { entry -> cutoffEntryDbId == null || entry.id > cutoffEntryDbId }
-            .filter { entry -> belongsToContextSegment(entry, contextSegmentId) }
             .toList()
 
         val replayMessages = mutableListOf<ChatCompletionMessage>()
@@ -358,65 +419,14 @@ internal object AgentConversationHistorySupport {
             entry.entryType == AgentConversationHistoryRepository.ENTRY_TYPE_TOOL_EVENT
     }
 
-    internal fun belongsToContextSegment(
-        entry: AgentConversationEntry,
-        contextSegmentId: String?
-    ): Boolean {
-        val requested = contextSegmentId?.trim().orEmpty()
-        if (requested.isEmpty()) return true
-        return contextSegmentIdOf(entry) == requested
-    }
-
-    internal fun contextSegmentIdOf(entry: AgentConversationEntry): String? {
-        val payload = readMap(entry.payloadJson)
-        val direct = payload[CONTEXT_SEGMENT_ID_KEY]?.toString()?.trim()
-            ?.takeIf { it.isNotEmpty() }
-        if (direct != null) return direct
-
-        val streamMeta = toStringAnyMap(payload["streamMeta"])
-        streamMeta["parentTaskId"]?.toString()?.trim()
-            ?.takeIf { it.isNotEmpty() }
-            ?.let { return it }
-        payload["taskId"]?.toString()?.trim()
-            ?.takeIf { it.isNotEmpty() }
-            ?.let { return it }
-
-        val content = toStringAnyMap(payload["content"])
-        val cardData = toStringAnyMap(content["cardData"])
-        cardData[CONTEXT_SEGMENT_ID_KEY]?.toString()?.trim()
-            ?.takeIf { it.isNotEmpty() }
-            ?.let { return it }
-        cardData["taskID"]?.toString()?.trim()
-            ?.takeIf { it.isNotEmpty() }
-            ?.let { return it }
-        cardData["taskId"]?.toString()?.trim()
-            ?.takeIf { it.isNotEmpty() }
-            ?.let { return it }
-
-        return inferContextSegmentFromEntryId(entry.entryId)
-    }
-
-    private fun inferContextSegmentFromEntryId(entryId: String): String? {
-        val normalized = entryId.trim()
-        if (normalized.isEmpty()) return null
-        val suffix = ENTRY_ID_CONTEXT_SUFFIX.find(normalized) ?: return null
-        return normalized.removeRange(suffix.range).takeIf { it.isNotBlank() }
-    }
-
-    private val ENTRY_ID_CONTEXT_SUFFIX = Regex(
-        "-(?:user|assistant|clarify|permission|text(?:-\\d+)?|thinking(?:-\\d+)?(?:-c\\d+)?|tool(?:-c\\d+)?-\\d+)$"
-    )
-
     fun selectEntriesToCompact(
         entries: List<AgentConversationEntry>,
-        cutoffEntryDbId: Long? = null,
-        contextSegmentId: String? = null
+        cutoffEntryDbId: Long? = null
     ): CompactionSelection? {
         val relevantEntries = entries
             .asSequence()
             .filter(::isPromptRelevantEntry)
             .filter { entry -> cutoffEntryDbId == null || entry.id > cutoffEntryDbId }
-            .filter { entry -> belongsToContextSegment(entry, contextSegmentId) }
             .toList()
         val lastUserIndex = relevantEntries.indexOfLast {
             it.entryType == AgentConversationHistoryRepository.ENTRY_TYPE_USER_MESSAGE
@@ -591,17 +601,14 @@ internal object AgentConversationHistorySupport {
         val reasoningContent = readReasoningContent(incoming) ?: readReasoningContent(existing)
 
         return linkedMapOf<String, Any?>(
-            CONTEXT_SEGMENT_ID_KEY to (
-                chooseAny(CONTEXT_SEGMENT_ID_KEY)
-                    ?: chooseAny("taskId")
-                    ?: toStringAnyMap(chooseAny("streamMeta"))["parentTaskId"]
-            ),
             "taskId" to chooseAny("taskId"),
-            "childRunId" to (chooseAny("childRunId") ?: chooseAny("child_run_id")),
-            "child_run_id" to (chooseAny("child_run_id") ?: chooseAny("childRunId")),
             "streamMeta" to chooseAny("streamMeta"),
+            "agentId" to chooseText("agentId"),
+            "agentName" to chooseText("agentName"),
+            "uiStyle" to chooseText("uiStyle", "agent_tool"),
             "cardId" to chooseText("cardId"),
-            "toolName" to chooseText("toolName"),
+            "run_id" to chooseAny("run_id"),
+            "toolName" to canonicalAgentToolName(chooseText("toolName")),
             "displayName" to chooseText("displayName"),
             "toolTitle" to chooseText("toolTitle"),
             "toolType" to toolType,
@@ -831,12 +838,16 @@ internal object AgentConversationHistorySupport {
 
         return linkedMapOf<String, Any?>(
             "type" to "agent_tool_summary",
-            CONTEXT_SEGMENT_ID_KEY to contextSegmentIdOf(entry),
+            "uiStyle" to "agent_tool",
+            "agentId" to payload["agentId"]?.toString()?.trim()?.takeIf { it.isNotEmpty() },
+            "agentName" to payload["agentName"]?.toString()?.trim()?.takeIf { it.isNotEmpty() },
             "taskId" to payload["taskId"],
-            "childRunId" to (payload["childRunId"] ?: payload["child_run_id"]),
-            "child_run_id" to (payload["child_run_id"] ?: payload["childRunId"]),
             "cardId" to payload["cardId"]?.toString().orEmpty().ifEmpty { messageId },
-            "toolName" to trimText(payload["toolName"]?.toString().orEmpty(), MAX_DISPLAY_INLINE_CHARS),
+            "run_id" to compactDisplayScalar(payload["run_id"]),
+            "toolName" to trimText(
+                canonicalAgentToolName(payload["toolName"]?.toString().orEmpty()),
+                MAX_DISPLAY_INLINE_CHARS
+            ),
             "displayName" to trimText(
                 payload["displayName"]?.toString().orEmpty(),
                 MAX_DISPLAY_INLINE_CHARS
@@ -884,15 +895,6 @@ internal object AgentConversationHistorySupport {
             "workspaceId" to compactDisplayScalar(payload["workspaceId"]),
             "artifacts" to compactDisplayList(payload["artifacts"]),
             "actions" to compactDisplayList(payload["actions"]),
-            "agentStreamKind" to compactDisplayScalar(payload["agentStreamKind"] ?: payload["agent_stream_kind"]),
-            "vlmStepIndex" to (payload["vlmStepIndex"] ?: payload["vlm_step_index"]),
-            "vlmStepStatus" to compactDisplayScalar(payload["vlmStepStatus"] ?: payload["vlm_step_status"]),
-            "vlmStepThinking" to trimText(payload["vlmStepThinking"]?.toString().orEmpty(), MAX_TOOL_SUMMARY_CHARS),
-            "vlmStepSummary" to trimText(payload["vlmStepSummary"]?.toString().orEmpty(), MAX_TOOL_SUMMARY_CHARS),
-            "vlmStepAction" to compactDisplayValue(payload["vlmStepAction"], depth = 0),
-            "vlmStepArgs" to compactDisplayValue(payload["vlmStepArgs"], depth = 0),
-            "vlmStepResult" to compactDisplayValue(payload["vlmStepResult"], depth = 0),
-            "vlmStepError" to trimText(payload["vlmStepError"]?.toString().orEmpty(), MAX_TOOL_SUMMARY_CHARS),
             "success" to (
                 payload["success"]
                     ?: (status == AgentConversationHistoryRepository.STATUS_SUCCESS)
@@ -938,6 +940,8 @@ internal object AgentConversationHistorySupport {
             "id" to contentId
         )
         content["dbId"]?.let { safeContent["dbId"] = it }
+        copyAgentIdentity(content, safeContent)
+        copyAgentIdentity(safeCardData, safeContent)
 
         return linkedMapOf(
             "id" to messageId,
@@ -964,7 +968,11 @@ internal object AgentConversationHistorySupport {
             "kind",
             "parentTaskId",
             "entryId",
-            "isFinal"
+            "isFinal",
+            "source",
+            "agentId",
+            "agentName",
+            PENDING_SNAPSHOT_ACK
         ).forEach { key ->
             raw[key]?.let { candidate ->
                 safe[key] = compactDisplayScalar(candidate)
@@ -985,20 +993,30 @@ internal object AgentConversationHistorySupport {
             return null
         }
 
-        val toolName = cardData["toolName"]?.toString()?.trim().orEmpty()
+        val toolName = canonicalAgentToolName(
+            cardData["toolName"]?.toString()?.trim().orEmpty()
+        )
         if (toolName.isEmpty()) return null
+        val streamMeta = toStringAnyMap(message["streamMeta"])
+        val agentId = firstNonBlank(
+            cardData["agentId"],
+            content["agentId"],
+            streamMeta["agentId"]
+        )
+        val agentName = firstNonBlank(
+            cardData["agentName"],
+            content["agentName"],
+            streamMeta["agentName"]
+        )
 
         val rawPayload = linkedMapOf<String, Any?>(
-            CONTEXT_SEGMENT_ID_KEY to (
-                cardData[CONTEXT_SEGMENT_ID_KEY]
-                    ?: message[CONTEXT_SEGMENT_ID_KEY]
-                    ?: toStringAnyMap(message["streamMeta"])["parentTaskId"]
-            ),
             "taskId" to cardData["taskId"]?.toString()?.trim()?.takeIf { it.isNotEmpty() },
-            "childRunId" to (cardData["childRunId"] ?: cardData["child_run_id"]),
-            "child_run_id" to (cardData["child_run_id"] ?: cardData["childRunId"]),
-            "streamMeta" to toStringAnyMap(message["streamMeta"]).takeIf { it.isNotEmpty() },
+            "streamMeta" to streamMeta.takeIf { it.isNotEmpty() },
+            "agentId" to agentId,
+            "agentName" to agentName,
+            "uiStyle" to "agent_tool",
             "cardId" to cardData["cardId"]?.toString()?.trim().orEmpty(),
+            "run_id" to cardData["run_id"],
             "toolName" to toolName,
             "displayName" to cardData["displayName"]?.toString()?.trim().orEmpty(),
             "toolTitle" to cardData["toolTitle"]?.toString()?.trim().orEmpty(),
@@ -1271,13 +1289,16 @@ internal object AgentConversationHistorySupport {
             MAX_STORAGE_MESSAGE_TEXT_CHARS
         ).trim().takeIf { it.isNotBlank() }
         val safePayload = linkedMapOf<String, Any?>(
-            CONTEXT_SEGMENT_ID_KEY to contextSegmentIdOf(entry),
             "taskId" to compactDisplayScalar(payload["taskId"]),
-            "childRunId" to compactDisplayScalar(payload["childRunId"] ?: payload["child_run_id"]),
-            "child_run_id" to compactDisplayScalar(payload["child_run_id"] ?: payload["childRunId"]),
             "streamMeta" to compactDisplayStreamMeta(payload["streamMeta"]),
+            "agentId" to compactDisplayScalar(payload["agentId"]),
+            "agentName" to compactDisplayScalar(payload["agentName"]),
+            "uiStyle" to "agent_tool",
             "cardId" to payload["cardId"]?.toString()?.trim().orEmpty().ifEmpty { entry.entryId },
-            "toolName" to trimText(payload["toolName"]?.toString().orEmpty(), MAX_DISPLAY_INLINE_CHARS),
+            "toolName" to trimText(
+                canonicalAgentToolName(payload["toolName"]?.toString().orEmpty()),
+                MAX_DISPLAY_INLINE_CHARS
+            ),
             "displayName" to trimText(
                 payload["displayName"]?.toString().orEmpty().ifBlank { "工具调用" },
                 MAX_DISPLAY_INLINE_CHARS
@@ -1360,7 +1381,8 @@ internal object AgentConversationHistorySupport {
         entry: AgentConversationEntry,
         originalPayloadLength: Int
     ): AgentConversationEntry {
-        val payload = readMap(entry.payloadJson)
+        val originalPayload = readMap(entry.payloadJson)
+        val streamMeta = toStringAnyMap(originalPayload["streamMeta"])
         val normalizedStatus = entry.status.trim()
             .ifEmpty { AgentConversationHistoryRepository.STATUS_SUCCESS }
         val normalizedSummary = normalizeStoredSummary(
@@ -1368,11 +1390,14 @@ internal object AgentConversationHistorySupport {
             entry.entryType
         )
         val fallbackPayload = linkedMapOf<String, Any?>(
-            CONTEXT_SEGMENT_ID_KEY to contextSegmentIdOf(entry),
+            "streamMeta" to compactDisplayStreamMeta(streamMeta),
+            "agentId" to firstNonBlank(originalPayload["agentId"], streamMeta["agentId"]),
+            "agentName" to firstNonBlank(originalPayload["agentName"], streamMeta["agentName"]),
+            "uiStyle" to "agent_tool",
             "cardId" to entry.entryId,
-            "toolName" to "",
-            "childRunId" to compactDisplayScalar(payload["childRunId"] ?: payload["child_run_id"]),
-            "child_run_id" to compactDisplayScalar(payload["child_run_id"] ?: payload["childRunId"]),
+            "toolName" to canonicalAgentToolName(
+                originalPayload["toolName"]?.toString().orEmpty()
+            ).ifEmpty { "agent.tool" },
             "displayName" to "工具调用历史",
             "toolType" to "builtin",
             "status" to normalizedStatus,
@@ -1434,7 +1459,6 @@ internal object AgentConversationHistorySupport {
             ),
             isError = entry.status == AgentConversationHistoryRepository.STATUS_ERROR,
             streamMeta = null,
-            contextSegmentId = contextSegmentIdOf(entry),
             createdAt = entry.createdAt
         )
         return entry.copy(
@@ -1463,6 +1487,8 @@ internal object AgentConversationHistorySupport {
             "id" to contentId
         )
         content["dbId"]?.let { safeContent["dbId"] = it }
+        copyAgentIdentity(content, safeContent)
+        copyAgentIdentity(safeCardData, safeContent)
 
         return linkedMapOf(
             "id" to messageId,
@@ -1474,7 +1500,6 @@ internal object AgentConversationHistorySupport {
             "isError" to parseBoolean(payload["isError"], default = false),
             "isSummarizing" to parseBoolean(payload["isSummarizing"], default = false),
             "streamMeta" to compactDisplayStreamMeta(payload["streamMeta"]),
-            CONTEXT_SEGMENT_ID_KEY to contextSegmentIdOf(entry),
             "createAt" to (payload["createAt"] ?: entry.createdAt)
         ).filterValues { value -> value != null }
     }
@@ -1529,6 +1554,8 @@ internal object AgentConversationHistorySupport {
 
         return linkedMapOf<String, Any?>(
             "type" to "deep_thinking",
+            "agentId" to cardData["agentId"]?.toString()?.trim()?.takeIf { it.isNotEmpty() },
+            "agentName" to cardData["agentName"]?.toString()?.trim()?.takeIf { it.isNotEmpty() },
             "taskID" to (
                 cardData["taskID"]?.toString()?.trim()?.takeIf { it.isNotEmpty() }
                     ?: extractTaskIdFromEntryId(entry.entryId)
@@ -1593,6 +1620,8 @@ internal object AgentConversationHistorySupport {
         }
         val safeStreamMeta = compactDisplayStreamMeta(payload["streamMeta"])
         val safeAttachments = compactDisplayList(content["attachments"])
+        val agentId = firstNonBlank(content["agentId"], safeStreamMeta?.get("agentId"))
+        val agentName = firstNonBlank(content["agentName"], safeStreamMeta?.get("agentName"))
         fun buildPayload(attachments: List<Map<String, Any?>>): Map<String, Any?> {
             return buildTextMessagePayload(
                 messageId = messageId,
@@ -1604,12 +1633,13 @@ internal object AgentConversationHistorySupport {
                 text = safeText,
                 attachments = attachments,
                 reasoningContent = safeReasoningContent,
+                agentId = agentId,
+                agentName = agentName,
                 isError = parseBoolean(
                     payload["isError"],
                     default = entry.status == AgentConversationHistoryRepository.STATUS_ERROR
                 ),
                 streamMeta = safeStreamMeta,
-                contextSegmentId = contextSegmentIdOf(entry),
                 createdAt = entry.createdAt
             )
         }
@@ -1623,8 +1653,7 @@ internal object AgentConversationHistorySupport {
             return buildRecoveredTextEntry(
                 entry = entry.copy(summary = safeText),
                 originalPayloadLength = entry.payloadJson.length,
-                reasoningContent = safeReasoningContent,
-                contextSegmentId = contextSegmentIdOf(entry)
+                reasoningContent = safeReasoningContent
             )
         }
         return entry.copy(
@@ -1633,11 +1662,39 @@ internal object AgentConversationHistorySupport {
         )
     }
 
+    private fun canonicalAgentToolName(value: String): String {
+        val normalized = value.trim()
+        if (!normalized.startsWith("codex.")) {
+            return if (normalized.startsWith("codex/")) {
+                "agent/${normalized.removePrefix("codex/")}"
+            } else {
+                normalized
+            }
+        }
+        return "agent.${normalized.removePrefix("codex.")}"
+    }
+
+    private fun firstNonBlank(vararg values: Any?): String? {
+        return values.firstNotNullOfOrNull { value ->
+            value?.toString()?.trim()?.takeIf { it.isNotEmpty() }
+        }
+    }
+
+    private fun copyAgentIdentity(
+        source: Map<String, Any?>,
+        target: MutableMap<String, Any?>
+    ) {
+        listOf("agentId", "agentName").forEach { key ->
+            source[key]?.toString()?.trim()?.takeIf { it.isNotEmpty() }?.let {
+                target[key] = it
+            }
+        }
+    }
+
     private fun buildRecoveredTextEntry(
         entry: AgentConversationEntry,
         originalPayloadLength: Int,
-        reasoningContent: String? = null,
-        contextSegmentId: String? = contextSegmentIdOf(entry)
+        reasoningContent: String? = null
     ): AgentConversationEntry {
         val summary = normalizeStoredSummary(
             entry.summary.ifBlank { "历史消息内容过大，已压缩保存。" },
@@ -1662,8 +1719,7 @@ internal object AgentConversationHistorySupport {
                 reasoningContent = trimText(
                     reasoningContent.orEmpty(),
                     MAX_STORAGE_MESSAGE_TEXT_CHARS
-                ).trim().takeIf { it.isNotBlank() },
-                contextSegmentId = contextSegmentId
+                ).trim().takeIf { it.isNotBlank() }
             )
         } else {
             null
@@ -1683,7 +1739,6 @@ internal object AgentConversationHistorySupport {
                 "payloadCompacted" to true,
                 "originalPayloadLength" to originalPayloadLength
             ),
-            contextSegmentId = contextSegmentId,
             createdAt = entry.createdAt
         )
         return entry.copy(
@@ -1697,8 +1752,7 @@ internal object AgentConversationHistorySupport {
         text: String,
         isError: Boolean,
         createdAt: Long,
-        reasoningContent: String?,
-        contextSegmentId: String?
+        reasoningContent: String?
     ): String? {
         val normalizedReasoning = reasoningContent?.trim()?.takeIf { it.isNotBlank() } ?: return null
 
@@ -1715,9 +1769,8 @@ internal object AgentConversationHistorySupport {
                         "payloadCompacted" to true,
                         "originalPayloadLength" to MAX_STORAGE_ENTRY_PAYLOAD_CHARS + 1
                     ),
-                    contextSegmentId = contextSegmentId,
                     createdAt = createdAt
-            )
+                )
             ).length
         }
 

@@ -6,36 +6,11 @@ import android.graphics.Bitmap
 import android.util.Base64
 import androidx.core.graphics.drawable.toBitmap
 import cn.com.omnimind.baselib.Constants
-import com.google.gson.Gson
-import com.google.gson.reflect.TypeToken
-import com.tencent.mmkv.MMKV
 import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.FileOutputStream
 
 object APPPackageUtil {
-    private const val BLOCKED_APPS_KEY = "companion_blocked_apps"
-
-    /**
-     * 检查指定包名是否已授权（不在隐私黑名单中）
-     * 从 MMKV 读取 Flutter 层存储的黑名单应用列表
-     * 黑名单机制：不在黑名单中的应用默认授权
-     */
-    fun isPackageAuthorized(packageName: String): Boolean {
-        if (packageName.isEmpty()) return true
-
-        val json = MMKV.defaultMMKV()?.decodeString(BLOCKED_APPS_KEY) ?: return true
-        
-        return try {
-            val type = object : TypeToken<List<String>>() {}.type
-            val blockedApps: List<String> = Gson().fromJson(json, type)
-            !blockedApps.contains(packageName) // 不在黑名单中则授权
-        } catch (e: Exception) {
-            OmniLog.e("APPPackageUtil", "解析黑名单应用列表失败: ${e.message}")
-            true // 解析失败时默认授权
-        }
-    }
-
      fun isAppDebug(): Boolean {
         return try {
             val pm = BaseApplication. instance.packageManager

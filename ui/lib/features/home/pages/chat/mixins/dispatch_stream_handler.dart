@@ -21,19 +21,6 @@ mixin DispatchStreamHandler<T extends StatefulWidget> on State<T> {
   int get currentThinkingStage;
   set currentThinkingStage(int value);
 
-  void handleExecutableTaskExecute(
-    String aiMessageId,
-    Map<String, dynamic> data,
-  );
-  void handleExecutableTaskClarify(
-    String aiMessageId,
-    Map<String, dynamic> data,
-  );
-  void handleExecutableTaskAppMissing(
-    String aiMessageId,
-    Map<String, dynamic> data,
-  );
-
   // ===================== Dispatch 流式处理 =====================
 
   /// 处理 dispatch 流式数据
@@ -173,10 +160,6 @@ mixin DispatchStreamHandler<T extends StatefulWidget> on State<T> {
     currentThinkingStage = 4;
     updateThinkingCard(taskID);
 
-    final String decision = result['decision'] as String? ?? '';
-    final bool isExecutable = result['is_executable'] as bool? ?? false;
-    final bool isTaskButIncomplete =
-        result['is_task_but_incomplete'] as bool? ?? false;
     final bool isRateLimited = result['is_rate_limited'] as bool? ?? false;
 
     if (isRateLimited) {
@@ -184,15 +167,7 @@ mixin DispatchStreamHandler<T extends StatefulWidget> on State<T> {
       return;
     }
 
-    if (isExecutable) {
-      handleExecutableTaskExecute(taskID, result);
-    } else if (isTaskButIncomplete) {
-      handleExecutableTaskClarify(taskID, result);
-    } else if (decision == 'APP_MISSING') {
-      handleExecutableTaskAppMissing(taskID, result);
-    } else {
-      fallbackToChat(taskID);
-    }
+    fallbackToChat(taskID);
   }
 
   /// 处理 dispatch 错误

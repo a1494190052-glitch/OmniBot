@@ -5,6 +5,7 @@ import android.content.Context
 import android.content.Intent
 import android.util.Base64
 import cn.com.omnimind.baselib.util.OmniLog
+import cn.com.omnimind.bot.function.FunctionApi
 import cn.com.omnimind.bot.function.FunctionService
 import com.google.gson.GsonBuilder
 import com.google.gson.reflect.TypeToken
@@ -67,7 +68,10 @@ class DebugFunctionImportExportReceiver : BroadcastReceiver() {
 
         val service = FunctionService(context)
         val startedAtMs = System.currentTimeMillis()
-        val register = service.registerFunction(linkedMapOf("function" to function))
+        val register = service.executeTool(
+            FunctionApi.FUNCTION_REGISTER,
+            linkedMapOf("function" to function),
+        )
         val endedAtMs = System.currentTimeMillis()
         return linkedMapOf<String, Any?>(
             "success" to (register["success"] == true),
@@ -91,7 +95,10 @@ class DebugFunctionImportExportReceiver : BroadcastReceiver() {
         }
 
         val service = FunctionService(context)
-        val get = service.getFunction(linkedMapOf("function_id" to functionId))
+        val get = service.executeTool(
+            FunctionApi.FUNCTION_GET,
+            linkedMapOf("function_id" to functionId),
+        )
         val success = get["schema_version"] == "omniflow.function.v2"
         val function = get.takeIf { success }
         val outputPath = intent.firstStringExtra("outputPath", "output_path")

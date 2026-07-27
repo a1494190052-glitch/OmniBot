@@ -6,6 +6,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:ui/models/chat_message_model.dart';
 import 'package:ui/models/conversation_model.dart';
 import 'package:ui/models/conversation_thread_target.dart';
+import 'package:ui/services/agent_message_kinds.dart';
 
 /// 对话历史持久化服务
 class ConversationHistoryService {
@@ -291,7 +292,7 @@ class ConversationHistoryService {
         'getConversationMessages',
         {'conversationId': conversationId, 'mode': mode.storageValue},
       );
-      final nativeMessages = _decodeMessageList(result);
+      final nativeMessages = _decodeMessageList(result, mode: mode);
       return _resolveNativeAndLegacyMessages(
         conversationId,
         mode: mode,
@@ -339,7 +340,7 @@ class ConversationHistoryService {
       }
       final messagesList = result['messages'] as List<dynamic>? ?? [];
       final hasMore = result['hasMore'] as bool? ?? false;
-      final messages = _decodeMessageList(messagesList);
+      final messages = _decodeMessageList(messagesList, mode: mode);
       if (!hasMore && offset == 0) {
         final recoveredMessages = await _resolveNativeAndLegacyMessages(
           conversationId,
@@ -392,15 +393,21 @@ class ConversationHistoryService {
     );
   }
 
-  static List<ChatMessageModel> _decodeMessageList(dynamic raw) {
+  static List<ChatMessageModel> _decodeMessageList(
+    dynamic raw, {
+    required ConversationMode mode,
+  }) {
     if (raw is! List) return <ChatMessageModel>[];
     return raw
         .whereType<Map>()
-        .map(
-          (json) => ChatMessageModel.fromJson(
+        .map((json) {
+          final message = ChatMessageModel.fromJson(
             Map<String, dynamic>.from(json.cast<String, dynamic>()),
-          ),
-        )
+          );
+          return mode == ConversationMode.agent
+              ? canonicalizeAgentHistoryMessage(message)
+              : message;
+        })
         .where(_shouldRetainRestoredMessage)
         .toList();
   }
@@ -534,7 +541,7 @@ class ConversationHistoryService {
       }
       try {
         final decoded = jsonDecode(raw);
-        final messages = _decodeMessageList(decoded);
+        final messages = _decodeMessageList(decoded, mode: mode);
         if (messages.isNotEmpty) {
           return messages;
         }

@@ -15,9 +15,9 @@ import android.view.WindowManager
 import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.TextView
+import cn.com.omnimind.androidgui.AndroidGuiEnvironment
 import cn.com.omnimind.assists.HumanTrajectoryLearningSession
 import cn.com.omnimind.assists.ManualInputTarget
-import cn.com.omnimind.assists.controller.accessibility.AccessibilityController
 import cn.com.omnimind.baselib.util.OmniLog
 import cn.com.omnimind.baselib.util.dpToPx
 import cn.com.omnimind.uikit.UIKit
@@ -528,7 +528,19 @@ object ManualRecordingControlOverlay {
     }
 
     private fun showManualActionDialog(context: Context) {
-        val inputTarget = AccessibilityController.focusedInputTarget()
+        val inputTarget = runCatching {
+            kotlinx.coroutines.runBlocking {
+                AndroidGuiEnvironment(context).inputTarget()?.let {
+                    ManualInputTarget(
+                        description = it.description,
+                        x = it.x,
+                        y = it.y,
+                        nodeResourceId = it.nodeResourceId.takeIf(String::isNotBlank),
+                        password = it.password,
+                    )
+                }
+            }
+        }.getOrNull()
         val canShow = synchronized(this) {
             if (manualActionDialogShowing) return
             if (state != State.RECORDING) return@synchronized false

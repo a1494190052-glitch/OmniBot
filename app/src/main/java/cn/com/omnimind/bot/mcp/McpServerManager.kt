@@ -7,6 +7,7 @@ import cn.com.omnimind.baselib.util.OmniLog
 import cn.com.omnimind.bot.webchat.AgentRunService
 import cn.com.omnimind.bot.webchat.BrowserMirrorService
 import cn.com.omnimind.bot.webchat.ConversationDomainService
+import cn.com.omnimind.bot.webchat.WebChatAvatarService
 import cn.com.omnimind.bot.webchat.WorkspaceFileService
 import com.google.gson.Gson
 import io.ktor.http.ContentDisposition
@@ -50,9 +51,9 @@ import javax.crypto.spec.SecretKeySpec
  * MCP 服务管理器 — 负责生命周期管理、鉴权、状态查询。
  *
  * 路由逻辑已拆分到：
- * - [McpRoutes] — MCP 端点（JSON-RPC、工具发现/调用、传统VLM任务）
+ * - [McpRoutes] — MCP 端点（JSON-RPC、工具发现/调用）
  * - [WebChatRoutes] — WebChat API（对话、事件流、工作区、浏览器）
- * - [WebChatStaticHandler] — Flutter Web 静态文件托管
+ * - [WebChatStaticHandler] — React WebChat 静态文件托管
  */
 object McpServerManager {
     private const val TAG = "[McpServerManager]"
@@ -133,10 +134,6 @@ object McpServerManager {
             stopServerLocked()
         }
     }
-
-    fun getActiveTasks(): List<Map<String, Any?>> = McpTaskManager.getActiveTasks()
-
-    fun cleanupExpiredTasks(maxAgeMs: Long = 600_000) = McpTaskManager.cleanupExpiredTasks(maxAgeMs)
 
     // ==================== 供路由文件调用的内部方法 ====================
 
@@ -306,6 +303,7 @@ object McpServerManager {
         val workspaceFileService = WorkspaceFileService(appContext)
         val browserMirrorService = BrowserMirrorService(appContext)
         val agentRunService = AgentRunService(appContext)
+        val webChatAvatarService = WebChatAvatarService(appContext)
 
         return embeddedServer(CIO, host = "0.0.0.0", port = port) {
             install(CallLogging)
@@ -339,7 +337,8 @@ object McpServerManager {
                         conversationService,
                         workspaceFileService,
                         browserMirrorService,
-                        agentRunService
+                        agentRunService,
+                        webChatAvatarService
                     )
                 }
 

@@ -1,20 +1,16 @@
 package cn.com.omnimind.assists.task
 
-import android.annotation.SuppressLint
-import android.icu.text.SimpleDateFormat
 import cn.com.omnimind.assists.TaskManager
 import cn.com.omnimind.assists.api.enums.TaskFinishType
 import cn.com.omnimind.assists.api.enums.TaskType
 import cn.com.omnimind.assists.api.interfaces.TaskChangeListener
 import cn.com.omnimind.assists.api.interfaces.TaskLifeListener
 import cn.com.omnimind.baselib.util.OmniLog
-import cn.com.omnimind.omniintelligence.models.RequestHeader
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
-import java.util.Date
 
 /**
  * 任务基类
@@ -23,26 +19,9 @@ abstract class Task(open val taskChangeListener: TaskChangeListener,open val tas
     private val TAG = "[Task]"
 
     open var id: String = ""
-    val APP_ID: String = "10001"
     var isRunning: Boolean = false
     open var taskScope = CoroutineScope( Dispatchers.IO)
     open val cancelScope = CoroutineScope( Dispatchers.IO)
-    fun getRequestHeader(): RequestHeader {
-        return RequestHeader(
-            requestId = getRequestID(),
-            appId = APP_ID,
-            taskId = id,
-            timestamp = System.currentTimeMillis(),
-        )
-    }
-    //请求id，按照格式req-日期-自增序号命名，比如 req-client-20250912-123，req-server-20250912-123
-    @SuppressLint("SimpleDateFormat")
-    fun getRequestID(): String {
-        val date = Date()
-        val format = SimpleDateFormat("yyyyMMdd")
-        return "req-client-" + format.format(date) + System.currentTimeMillis()
-    }
-
     abstract fun getTaskType(): TaskType
 
 

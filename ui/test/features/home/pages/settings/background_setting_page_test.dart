@@ -83,15 +83,12 @@ void main() {
 
     expect(find.text('外观设置'), findsOneWidget);
     expect(find.byKey(const ValueKey('theme-mode-slider')), findsOneWidget);
-    expect(
-      find.byKey(const ValueKey('appearance-font-effects-switch')),
-      findsOneWidget,
-    );
     expect(find.byType(AppBackgroundPreview), findsOneWidget);
     expect(find.textContaining('聊天 ·'), findsOneWidget);
     expect(find.byKey(const ValueKey('background-save-button')), findsNothing);
     expect(find.byKey(const ValueKey('background-reset-button')), findsNothing);
     expect(find.byKey(const ValueKey('background-source-none')), findsNothing);
+    expect(find.byKey(const ValueKey('appearance-pet-card')), findsOneWidget);
     expect(
       tester.getTopLeft(find.byKey(const ValueKey('theme-mode-slider'))).dy,
       lessThan(tester.getTopLeft(find.byType(AppBackgroundPreview)).dy),

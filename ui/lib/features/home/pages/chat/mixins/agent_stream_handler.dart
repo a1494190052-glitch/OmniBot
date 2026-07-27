@@ -10,7 +10,8 @@ import 'package:ui/models/chat_message_model.dart';
 import 'package:ui/services/agent_stream_reducer.dart';
 import 'package:ui/services/agent_stream_meta.dart';
 import 'package:ui/services/assists_core_service.dart';
-import 'package:ui/services/codex_diff_parser.dart';
+import 'package:ui/services/agent_diff_parser.dart';
+import 'package:ui/services/agent_tool_call_parser.dart';
 import 'package:ui/services/voice_playback_coordinator.dart';
 
 enum ThinkingStage {
@@ -37,6 +38,7 @@ mixin AgentStreamHandler<T extends StatefulWidget> on State<T> {
   static const Map<String, String> _executionPermissionNameToId =
       <String, String>{
         '无障碍权限': kAccessibilityPermissionId,
+        '无障碍辅助权限': kAccessibilityPermissionId,
         'Accessibility': kAccessibilityPermissionId,
         '悬浮窗权限': kOverlayPermissionId,
         'Overlay': kOverlayPermissionId,
@@ -101,8 +103,6 @@ mixin AgentStreamHandler<T extends StatefulWidget> on State<T> {
   void resetDispatchState();
 
   void fallbackToChat(String taskID);
-
-  void handleExecutableTaskClarify(String taskID, Map<String, dynamic> data);
 
   Future<void> persistAgentConversation();
 
@@ -953,7 +953,7 @@ mixin AgentStreamHandler<T extends StatefulWidget> on State<T> {
           : Map<String, dynamic>.from(messages[index].cardData ?? const {});
       final existingTerminalOutput = (existingCardData['terminalOutput'] ?? '')
           .toString();
-      final isFileChangeTool = _isCodexFileChangeTool(event, existingCardData);
+      final isFileChangeTool = _isAgentFileChangeTool(event, existingCardData);
       final effectiveToolType = isFileChangeTool ? 'file' : event.toolType;
       final terminalOutput = effectiveToolType == 'terminal'
           ? _resolveTerminalOutput(
@@ -979,10 +979,10 @@ mixin AgentStreamHandler<T extends StatefulWidget> on State<T> {
           : '';
       final diffSummary = diffText.isEmpty
           ? null
-          : parseCodexDiffText(diffText);
+          : parseAgentDiffText(diffText);
       final diffPreview = diffSummary == null
           ? ''
-          : summarizeCodexDiff(diffSummary);
+          : summarizeAgentDiff(diffSummary);
       final effectiveSummary = isFileChangeTool && diffPreview.isNotEmpty
           ? diffPreview
           : summary.isNotEmpty
@@ -994,26 +994,33 @@ mixin AgentStreamHandler<T extends StatefulWidget> on State<T> {
           ? progress
           : (existingCardData['progress'] ?? '').toString();
       final filePath = isFileChangeTool
-          ? extractCodexDiffPath(diffSource) ??
+          ? extractAgentDiffPath(diffSource) ??
                 (diffSummary?.primaryPath.trim().isNotEmpty == true
                     ? diffSummary!.primaryPath
                     : null) ??
                 (existingCardData['filePath'] ?? '').toString()
           : '';
+      final rawAction = event.raw['action'];
+      final vlmStepAction = rawAction is Map
+          ? rawAction.map<String, dynamic>(
+              (key, value) => MapEntry(key.toString(), value),
+            )
+          : existingCardData['vlmStepAction'];
+      final rawActionArgs = vlmStepAction is Map ? vlmStepAction['args'] : null;
+      final vlmStepArgs = rawActionArgs is Map
+          ? rawActionArgs.map<String, dynamic>(
+              (key, value) => MapEntry(key.toString(), value),
+            )
+          : existingCardData['vlmStepArgs'];
+      final vlmStepThinking = (event.raw['thinking'] ?? '').toString().trim();
+      final vlmStepError = (event.raw['error'] ?? '').toString().trim();
       final cardData = <String, dynamic>{
         'type': 'agent_tool_summary',
         'uiStyle': event.uiStyle.isNotEmpty
             ? event.uiStyle
             : (existingCardData['uiStyle'] ?? '').toString(),
         'taskId': taskId,
-        'childRunId': event.raw['childRunId'] ??
-            event.raw['child_run_id'] ??
-            existingCardData['childRunId'] ??
-            existingCardData['child_run_id'],
-        'child_run_id': event.raw['child_run_id'] ??
-            event.raw['childRunId'] ??
-            existingCardData['child_run_id'] ??
-            existingCardData['childRunId'],
+        'run_id': event.raw['run_id'] ?? existingCardData['run_id'],
         'cardId': cardId,
         'toolName': event.toolName,
         'displayName': event.displayName,
@@ -1028,6 +1035,14 @@ mixin AgentStreamHandler<T extends StatefulWidget> on State<T> {
             (existingCardData['reasoning_content'] ?? '').toString(),
         'summary': effectiveSummary,
         'progress': effectiveProgress,
+        'vlmStepThinking': vlmStepThinking.isNotEmpty
+            ? vlmStepThinking
+            : existingCardData['vlmStepThinking'],
+        'vlmStepAction': vlmStepAction,
+        'vlmStepArgs': vlmStepArgs,
+        'vlmStepError': vlmStepError.isNotEmpty
+            ? vlmStepError
+            : existingCardData['vlmStepError'],
         'subagentStatusText': event.subagentStatusText.isNotEmpty
             ? event.subagentStatusText
             : (existingCardData['subagentStatusText'] ?? '').toString(),
@@ -1224,7 +1239,7 @@ mixin AgentStreamHandler<T extends StatefulWidget> on State<T> {
     return existing;
   }
 
-  bool _isCodexFileChangeTool(
+  bool _isAgentFileChangeTool(
     AgentToolEventData event,
     Map<String, dynamic> existingCardData,
   ) {
@@ -1233,8 +1248,7 @@ mixin AgentStreamHandler<T extends StatefulWidget> on State<T> {
         (existingCardData['toolType'] ?? '').toString().trim() == 'file') {
       return true;
     }
-    final toolName = event.toolName.trim();
-    if (toolName == 'codex.file') {
+    if (canonicalAgentToolName(event.toolName) == 'agent.file') {
       return true;
     }
     if (_valueHasFileChangeType(event.raw)) {
@@ -1299,7 +1313,7 @@ mixin AgentStreamHandler<T extends StatefulWidget> on State<T> {
     required String progress,
     required String summary,
   }) {
-    final current = extractCodexDiffText(
+    final current = extractAgentDiffText(
       source,
       outputText: outputText,
       progress: progress,

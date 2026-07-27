@@ -12,11 +12,6 @@ import org.json.JSONObject
 object TaskCompletionNavigator {
     private const val TAG = "[TaskCompletionNavigator]"
     private const val FLUTTER_SHARED_PREFS_NAME = "FlutterSharedPreferences"
-    private const val APP_SETTINGS_PREFS_NAME = "OmnibotSettings"
-    private const val KEY_AUTO_BACK_TO_CHAT_AFTER_TASK =
-        "flutter.auto_back_to_chat_after_task"
-    private const val KEY_AUTO_BACK_TO_CHAT_AFTER_TASK_NATIVE =
-        "auto_back_to_chat_after_task"
     private const val KEY_LAST_VISIBLE_THREAD_TARGET =
         "flutter.last_visible_conversation_target"
     private const val KEY_CURRENT_CONVERSATION_ID = "flutter.current_conversation_id"
@@ -25,39 +20,6 @@ object TaskCompletionNavigator {
         val conversationId: Long?,
         val mode: String
     )
-
-    fun isAutoBackToChatAfterTaskEnabled(context: Context): Boolean {
-        return try {
-            val appPrefs = context.getSharedPreferences(
-                APP_SETTINGS_PREFS_NAME,
-                Context.MODE_PRIVATE
-            )
-            if (appPrefs.contains(KEY_AUTO_BACK_TO_CHAT_AFTER_TASK_NATIVE)) {
-                return appPrefs.getBoolean(KEY_AUTO_BACK_TO_CHAT_AFTER_TASK_NATIVE, true)
-            }
-
-            val flutterPrefs = context.getSharedPreferences(
-                FLUTTER_SHARED_PREFS_NAME,
-                Context.MODE_PRIVATE
-            )
-            flutterPrefs.getBoolean(KEY_AUTO_BACK_TO_CHAT_AFTER_TASK, true)
-        } catch (e: Exception) {
-            OmniLog.e(TAG, "读取自动返回聊天设置失败，使用默认值 true: ${e.message}")
-            true
-        }
-    }
-
-    fun setAutoBackToChatAfterTaskEnabled(context: Context, enabled: Boolean): Boolean {
-        return try {
-            context.getSharedPreferences(
-                APP_SETTINGS_PREFS_NAME,
-                Context.MODE_PRIVATE
-            ).edit().putBoolean(KEY_AUTO_BACK_TO_CHAT_AFTER_TASK_NATIVE, enabled).commit()
-        } catch (e: Exception) {
-            OmniLog.e(TAG, "保存自动返回聊天设置失败: ${e.message}")
-            false
-        }
-    }
 
     fun buildChatRoute(conversationId: Long?, mode: String?): String {
         val normalizedMode = mode?.trim()?.ifEmpty { "normal" } ?: "normal"

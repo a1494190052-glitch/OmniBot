@@ -23,10 +23,10 @@ The Android Bridge is JSON Lines and is defined only by
 - `get_run_log` returns `omniflow.canonical_run_log.v1` directly.
 - `get_state` resolves one `state_id` and may include XML for the Python
   transfer operation; that XML is not copied into a RunLog or Function.
-- `control_act` is the only replay action loop. Coordinate transfer happens in
-  OmniFlow through the canonical OmniTransfer implementation. A failed mapping
-  is a failed action and must continue through the normal VLM fallback; source
-  coordinates are never replayed unchanged.
+- `run` is the only GUI/Function execution operation. Its internal
+  `execute_action` loop performs coordinate transfer through the canonical
+  OmniTransfer implementation. A failed mapping continues through the normal
+  VLM fallback; source coordinates are never replayed unchanged.
 
 Runtime readers reject unknown protocol fields. Legacy aliases such as
 `cards`, `header`, `tool_call`, `params`, `arguments` for an Action, camelCase
@@ -35,10 +35,11 @@ RunLog/Function/UI path. If an import surface needs old data, normalize it
 before entering the canonical runtime boundary.
 
 Transfer and startup have explicit fail-closed boundaries. OmniTransfer rejects
-non-unique target identities before selecting a candidate, and `control_act`
-returns no action on that result. A caller that supplied a complete model route
-does not require MMKV/config-store initialization; default stores are read only
-when the route actually needs scene or provider configuration.
+non-unique target identities before selecting a candidate, and the Function
+execution loop returns control to the VLM without dispatching an action. A
+caller that supplied a complete model route does not require MMKV/config-store
+initialization; default stores are read only when the route actually needs
+scene or provider configuration.
 
 The generated Kotlin and Dart action accessors are derived from
 `oob_canonical_actions.v1.json`; do not edit those generated files directly.

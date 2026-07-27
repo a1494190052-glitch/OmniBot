@@ -10,7 +10,7 @@ from omniflow.store import FunctionStore
 
 
 @pytest.mark.parametrize("status", ["failed", "cancelled"])
-def test_embedded_compile_rejects_failed_record_registration(
+def test_embedded_compile_keeps_successful_actions_from_incomplete_run(
     tmp_path,
     status: str,
 ) -> None:
@@ -49,8 +49,34 @@ def test_embedded_compile_rejects_failed_record_registration(
         ],
     }
 
-    with pytest.raises(ValueError, match="successful_source_run_log_required"):
-        compile_runlog_to_store(run_log, tmp_path / f"compiled-{status}")
+    report = compile_runlog_to_store(run_log, tmp_path / f"compiled-{status}")
+    function = FunctionStore(report["store_path"]).list_functions()[0]
+
+    assert [action.tool for action in function.actions] == ["click"]
+
+
+def test_embedded_compile_rejects_run_without_successful_actions(tmp_path) -> None:
+    run_log = {
+        "schema_version": "omniflow.canonical_run_log.v1",
+        "run_id": "failed-without-actions",
+        "goal": "Search for lemonade",
+        "status": "failed",
+        "success": False,
+        "error": "执行失败",
+        "steps": [
+            {
+                "step_index": 0,
+                "before_state_id": "state-0",
+                "action": {"tool": "click", "args": {"x": 500, "y": 132}},
+                "result": {"success": False, "error": "执行失败"},
+                "after_state_id": "state-1",
+                "metadata": {"status": "failed"},
+            }
+        ],
+    }
+
+    with pytest.raises(ValueError, match="successful_source_actions_required"):
+        compile_runlog_to_store(run_log, tmp_path / "compiled-no-actions")
 
 
 def test_embedded_compile_keeps_only_replayable_runlog_steps(tmp_path) -> None:

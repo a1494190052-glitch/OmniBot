@@ -8,8 +8,7 @@ import android.os.IBinder
 import android.os.SystemClock
 import android.util.Base64
 import cn.com.omnimind.baselib.util.OmniLog
-import cn.com.omnimind.bot.omniflow.OmniFlowPythonRuntime
-import cn.com.omnimind.bot.omniflow.omniFlowRunLogHostCall
+import cn.com.omnimind.bot.omniflow.OmniFlow
 import cn.com.omnimind.bot.terminal.EmbeddedTerminalRuntime
 import com.google.gson.GsonBuilder
 import com.google.gson.reflect.TypeToken
@@ -145,14 +144,43 @@ class DebugOmniFlowPythonService : Service() {
             val payload = payloadText?.let(::jsonMap).orEmpty()
             val repeatCount = intent.getIntExtra("repeat", 1).coerceIn(1, 10)
             val callDurationsMs = mutableListOf<Long>()
-            val bridgeResults = List(repeatCount) {
+            val bridgeResults = List(repeatCount) { index ->
                 val callStartedAt = SystemClock.elapsedRealtime()
-                OmniFlowPythonRuntime.call(
-                    context = context,
-                    operation = operation,
-                    payload = payload,
-                    hostCall = omniFlowRunLogHostCall(context),
-                ).also {
+                val bridgeResult = if (operation == "reload_runtime") {
+                    val manifest = OmniFlow.reloadRuntime(context)
+                    linkedMapOf(
+                        "success" to true,
+                        "runtime_version" to manifest.version,
+                        "bundle_sha256" to manifest.bundleSha256,
+                        "omniflow_source_sha256" to manifest.omniFlowSourceSha256,
+                        "omnitransfer_source_sha256" to manifest.omniTransferSourceSha256,
+                    )
+                } else if (operation == "run") {
+                    val requestedRunId = payload["run_id"]?.toString()?.trim().orEmpty()
+                    val runId = when {
+                        requestedRunId.isEmpty() -> "debug_omniflow_${startedAtMs}_${index + 1}"
+                        repeatCount == 1 -> requestedRunId
+                        else -> "${requestedRunId}_${index + 1}"
+                    }
+                    OmniFlow.run(
+                        context = context,
+                        request = OmniFlow.Run(
+                            id = runId,
+                            goal = payload["goal"]?.toString()?.trim().orEmpty().ifBlank {
+                                payload["function_id"]?.toString()?.trim().orEmpty().ifBlank {
+                                    "Debug OmniFlow run"
+                                }
+                            },
+                            source = "debug_omniflow_python_bridge",
+                            toolName = "debug_omniflow_python",
+                            input = payload,
+                            startedAtMs = startedAtMs,
+                        ),
+                    ).payload
+                } else {
+                    OmniFlow.call(context, operation, payload)
+                }
+                bridgeResult.also {
                     callDurationsMs += SystemClock.elapsedRealtime() - callStartedAt
                 }
             }

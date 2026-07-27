@@ -7,14 +7,15 @@ import 'dart:ui' as ui;
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter/services.dart' show rootBundle;
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:ui/l10n/app_language_mode.dart';
 import 'package:ui/l10n/app_locale_controller.dart';
 import 'package:ui/l10n/l10n.dart';
 import 'package:ui/services/app_background_service.dart';
 import 'package:ui/services/overlay_service.dart';
+import 'package:ui/services/pet_package_service.dart';
 import 'package:ui/services/storage_service.dart';
-import 'package:ui/theme/app_font_effect_controller.dart';
 import 'package:ui/theme/app_colors.dart';
 import 'package:ui/theme/omni_theme_palette.dart';
 import 'package:ui/theme/theme_context.dart';
@@ -25,7 +26,7 @@ import 'package:ui/widgets/omni_segmented_slider.dart';
 import 'package:ui/widgets/settings_section_title.dart';
 import 'package:ui/widgets/theme_mode_setting_card.dart';
 
-const bool _showPetAppearanceSettings = false;
+const bool _showPetAppearanceSettings = true;
 
 class _AppearanceTextColorPreset {
   final String label;
@@ -45,6 +46,7 @@ class _OverlayPetOption {
   final String description;
   final String imagePath;
   final bool isBuiltin;
+  final String animationLabel;
 
   const _OverlayPetOption({
     required this.id,
@@ -52,6 +54,7 @@ class _OverlayPetOption {
     required this.description,
     required this.imagePath,
     required this.isBuiltin,
+    this.animationLabel = '',
   });
 }
 
@@ -114,6 +117,7 @@ class _BackgroundSettingPageState extends State<BackgroundSettingPage> {
   int _autoSaveRequestId = 0;
   bool _petExpanded = false;
   bool _petBusy = false;
+  String _petsDirectoryPath = '';
   String _selectedPetId = 'builtin:xiaowan';
   List<_OverlayPetOption> _petOptions = const [
     _OverlayPetOption(
@@ -521,8 +525,6 @@ class _BackgroundSettingPageState extends State<BackgroundSettingPage> {
               const SizedBox(height: 18),
               _buildLanguageSettingCard(),
               const SizedBox(height: 18),
-              _buildFontEffectSettingCard(),
-              const SizedBox(height: 18),
               SettingsSectionTitle(
                 label: context.l10n.appearanceBackgroundSource,
               ),
@@ -629,74 +631,6 @@ class _BackgroundSettingPageState extends State<BackgroundSettingPage> {
                     .read(appLanguageModeProvider.notifier)
                     .setLanguageMode(nextMode);
               },
-            ),
-          ],
-        );
-      },
-    );
-  }
-
-  Widget _buildFontEffectSettingCard() {
-    final palette = context.omniPalette;
-    return Consumer(
-      builder: (context, ref, child) {
-        final state = ref.watch(appFontEffectProvider);
-        final subtitle = state.loading
-            ? context.l10n.appearanceEnhanceFontEffectsLoading
-            : context.l10n.appearanceEnhanceFontEffectsSubtitle;
-        return Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            SettingsSectionTitle(
-              label: context.l10n.appearanceFontEffectsTitle,
-              subtitle: context.l10n.appearanceFontEffectsSubtitle,
-              bottomPadding: 10,
-            ),
-            _buildCard(
-              child: SwitchListTile.adaptive(
-                key: const ValueKey('appearance-font-effects-switch'),
-                contentPadding: EdgeInsets.zero,
-                secondary: state.loading
-                    ? _buildGlobalSettingLeadingIcon(
-                        child: SizedBox(
-                          width: 16,
-                          height: 16,
-                          child: CircularProgressIndicator(
-                            strokeWidth: 2,
-                            color: palette.textPrimary,
-                          ),
-                        ),
-                      )
-                    : _buildGlobalSettingLeadingIcon(
-                        icon: Icons.text_fields_rounded,
-                      ),
-                title: Text(
-                  context.l10n.appearanceEnhanceFontEffects,
-                  style: TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.w600,
-                    color: palette.textPrimary,
-                  ),
-                ),
-                subtitle: Text(
-                  subtitle,
-                  style: TextStyle(fontSize: 12, color: palette.textSecondary),
-                ),
-                value: state.enabled,
-                onChanged: state.loading
-                    ? null
-                    : (value) async {
-                        final success = await ref
-                            .read(appFontEffectProvider.notifier)
-                            .setEnabled(value);
-                        if (!success && context.mounted) {
-                          showToast(
-                            context.l10n.appearanceEnhanceFontEffectsFailed,
-                            type: ToastType.error,
-                          );
-                        }
-                      },
-              ),
             ),
           ],
         );
@@ -873,6 +807,12 @@ class _BackgroundSettingPageState extends State<BackgroundSettingPage> {
     final nativeSelectedPath = nativeState['selectedPath']?.toString() ?? '';
     final workspaceRoot =
         nativeState['workspaceRootPath']?.toString().trim() ?? '';
+    final petsDirectoryPath =
+        nativeState['petsDirectoryPath']?.toString().trim().isNotEmpty == true
+        ? nativeState['petsDirectoryPath'].toString().trim()
+        : workspaceRoot.isEmpty
+        ? ''
+        : '$workspaceRoot/.omnibot/pets';
     final selectedPath = nativeSelectedPath.isNotEmpty
         ? nativeSelectedPath
         : StorageService.getPetOverlayImagePath();
@@ -886,6 +826,7 @@ class _BackgroundSettingPageState extends State<BackgroundSettingPage> {
     );
     if (!mounted) return;
     setState(() {
+      _petsDirectoryPath = petsDirectoryPath;
       _selectedPetId = _resolveSelectedPetId(
         selectedId: selectedId,
         selectedPath: selectedPath,
@@ -1074,6 +1015,10 @@ class _BackgroundSettingPageState extends State<BackgroundSettingPage> {
       description: description,
       imagePath: file.path,
       isBuiltin: false,
+      animationLabel:
+          _looksLikePetAtlas(_sourceFileForGeneratedPetPreview(file).path)
+          ? 'Codex 动态宠物 · 7 类动作'
+          : '',
     );
   }
 
@@ -1514,10 +1459,19 @@ class _BackgroundSettingPageState extends State<BackgroundSettingPage> {
       final frame = await codec.getNextFrame();
       final image = frame.image;
       const atlasColumns = 8;
-      const atlasRows = 9;
+      final atlasRows = switch (image.height) {
+        1872 => 9,
+        2288 => 11,
+        _ => 0,
+      };
+      if (image.width != 1536 || atlasRows == 0) {
+        image.dispose();
+        codec.dispose();
+        return null;
+      }
       final cellWidth = (image.width / atlasColumns).floor();
       final cellHeight = (image.height / atlasRows).floor();
-      if (cellWidth <= 0 || cellHeight <= 0) {
+      if (cellWidth != 192 || cellHeight != 208) {
         image.dispose();
         codec.dispose();
         return null;
@@ -2053,6 +2007,64 @@ class _BackgroundSettingPageState extends State<BackgroundSettingPage> {
     return path.trim().replaceAll('\\', '/').replaceAll(RegExp(r'/+$'), '');
   }
 
+  Future<void> _importPetPackage() async {
+    if (_petBusy) return;
+    setState(() => _petBusy = true);
+    try {
+      final picked = await FilePicker.platform.pickFiles(
+        type: FileType.custom,
+        allowedExtensions: const ['zip'],
+        allowMultiple: false,
+        withData: true,
+      );
+      if (picked == null || picked.files.isEmpty) {
+        return;
+      }
+      final selectedFile = picked.files.single;
+      final bytes =
+          selectedFile.bytes ??
+          (selectedFile.path == null
+              ? null
+              : await File(selectedFile.path!).readAsBytes());
+      if (bytes == null || bytes.isEmpty) {
+        throw const PetPackageException('无法读取宠物压缩包');
+      }
+      final installed = await const PetPackageInstaller().installArchiveBytes(
+        archiveBytes: bytes,
+        petsRootPath: _petsDirectoryPath,
+      );
+      await _loadPetSettings();
+      if (!mounted) return;
+      final installedPath = _normalizePath(installed.spritesheetFile.path);
+      _OverlayPetOption? installedOption;
+      for (final option in _petOptions) {
+        if (!option.isBuiltin &&
+            _normalizePath(_playbackPathForPetOption(option)) ==
+                installedPath) {
+          installedOption = option;
+          break;
+        }
+      }
+      if (installedOption == null) {
+        throw const PetPackageException('宠物已写入，但未能加入外观列表');
+      }
+      await _applyPetSelection(installedOption);
+      if (!mounted) return;
+      showToast(context.trLegacy('宠物已导入并选中'), type: ToastType.success);
+    } catch (error) {
+      if (!mounted) return;
+      final message = error is PetPackageException
+          ? error.message
+          : error.toString();
+      showToast(
+        '${context.trLegacy('导入宠物失败')}：$message',
+        type: ToastType.error,
+      );
+    } finally {
+      if (mounted) setState(() => _petBusy = false);
+    }
+  }
+
   Future<void> _refreshPetOptions() async {
     await _loadPetSettings();
     if (!mounted) return;
@@ -2069,30 +2081,33 @@ class _BackgroundSettingPageState extends State<BackgroundSettingPage> {
   }
 
   Future<void> _selectPet(_OverlayPetOption option) async {
+    if (_petBusy) return;
     setState(() => _petBusy = true);
     try {
-      final imagePath = option.isBuiltin
-          ? ''
-          : _playbackPathForPetOption(option);
-      await StorageService.setPetOverlaySelectedId(option.id);
-      await StorageService.setPetOverlayImagePath(imagePath);
-      final synced = await OverlayService.setPetOverlayImagePath(
-        imagePath,
-        selectedId: option.id,
-      );
-      if (!synced) {
-        throw Exception('native_sync_failed');
-      }
-      if (!mounted) return;
-      setState(() {
-        _selectedPetId = option.id;
-      });
+      await _applyPetSelection(option);
     } catch (error) {
       if (!mounted) return;
       showToast(context.trLegacy('选择宠物失败'), type: ToastType.error);
     } finally {
       if (mounted) setState(() => _petBusy = false);
     }
+  }
+
+  Future<void> _applyPetSelection(_OverlayPetOption option) async {
+    final imagePath = option.isBuiltin ? '' : _playbackPathForPetOption(option);
+    await StorageService.setPetOverlaySelectedId(option.id);
+    await StorageService.setPetOverlayImagePath(imagePath);
+    final synced = await OverlayService.setPetOverlayImagePath(
+      imagePath,
+      selectedId: option.id,
+    );
+    if (!synced) {
+      throw Exception('native_sync_failed');
+    }
+    if (!mounted) return;
+    setState(() {
+      _selectedPetId = option.id;
+    });
   }
 
   String _playbackPathForPetOption(_OverlayPetOption option) {
@@ -2109,6 +2124,7 @@ class _BackgroundSettingPageState extends State<BackgroundSettingPage> {
       orElse: () => _petOptions.first,
     );
     return DecoratedBox(
+      key: const ValueKey('appearance-pet-card'),
       decoration: BoxDecoration(
         color: palette.surfacePrimary,
         borderRadius: BorderRadius.circular(8),
@@ -2177,6 +2193,7 @@ class _BackgroundSettingPageState extends State<BackgroundSettingPage> {
             secondChild: Column(
               children: [
                 Divider(height: 1, color: palette.borderSubtle),
+                _buildPetImportTile(),
                 ..._petOptions.map(_buildPetOptionTile),
               ],
             ),
@@ -2184,6 +2201,52 @@ class _BackgroundSettingPageState extends State<BackgroundSettingPage> {
                 ? CrossFadeState.showSecond
                 : CrossFadeState.showFirst,
             duration: const Duration(milliseconds: 180),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildPetImportTile() {
+    final palette = context.omniPalette;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
+      child: Row(
+        children: [
+          Icon(
+            Icons.folder_zip_outlined,
+            size: 22,
+            color: palette.textSecondary,
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  context.trLegacy('导入 Codex 宠物包'),
+                  style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600,
+                    color: palette.textPrimary,
+                  ),
+                ),
+                const SizedBox(height: 3),
+                Text(
+                  context.trLegacy(
+                    '支持 .codex-pet.zip（pet.json + spritesheet.webp）',
+                  ),
+                  style: TextStyle(fontSize: 12, color: palette.textSecondary),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 12),
+          OutlinedButton.icon(
+            key: const ValueKey('pet-package-import-button'),
+            onPressed: _petBusy ? null : _importPetPackage,
+            icon: const Icon(Icons.upload_file_rounded, size: 18),
+            label: Text(context.trLegacy('上传压缩包')),
           ),
         ],
       ),
@@ -2225,6 +2288,17 @@ class _BackgroundSettingPageState extends State<BackgroundSettingPage> {
                       color: palette.textSecondary,
                     ),
                   ),
+                  if (option.animationLabel.isNotEmpty) ...[
+                    const SizedBox(height: 5),
+                    Text(
+                      context.trLegacy(option.animationLabel),
+                      style: TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w600,
+                        color: palette.accentPrimary,
+                      ),
+                    ),
+                  ],
                 ],
               ),
             ),
@@ -2260,7 +2334,10 @@ class _BackgroundSettingPageState extends State<BackgroundSettingPage> {
         child: option.isBuiltin
             ? Image.asset(
                 'assets/avatar/default_avatar1.png',
+                bundle: rootBundle,
                 fit: BoxFit.contain,
+                errorBuilder: (_, __, ___) =>
+                    Icon(Icons.pets_rounded, color: palette.textSecondary),
               )
             : isSvg
             ? _buildSvgPetPreview(imageFile!, imageStamp, palette)

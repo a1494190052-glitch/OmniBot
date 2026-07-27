@@ -43,56 +43,70 @@ void main() {
     );
   });
 
-  test('groups in-flight task once active text snapshot exists', () {
+  test('keeps in-flight text snapshots ungrouped', () {
     final entries = buildAgentRunTimelineEntries(
       _buildCompletedRunMessages(isFinal: false),
       activeTaskIds: const <String>{'task-1'},
     );
 
-    expect(entries, hasLength(2));
-    expect(entries.first.group?.taskId, 'task-1');
-    expect(
-      entries.first.group?.visibleMessagesNewestFirst.single.id,
+    expect(entries, hasLength(4));
+    expect(entries.where((entry) => entry.group != null), isEmpty);
+    expect(entries.map((entry) => entry.message?.id), <String?>[
       'task-1-text',
-    );
+      'task-1-tool',
+      'task-1-thinking',
+      'user-1',
+    ]);
   });
 
-  test('keeps active run grouped when final text arrives before cleanup', () {
-    final entries = buildAgentRunTimelineEntries(
-      _buildCompletedRunMessages(isFinal: true),
+  test('waits for active task cleanup before folding final text', () {
+    final messages = _buildCompletedRunMessages(isFinal: true);
+    final activeEntries = buildAgentRunTimelineEntries(
+      messages,
       activeTaskIds: const <String>{'task-1'},
     );
+    final completedEntries = buildAgentRunTimelineEntries(messages);
 
-    expect(entries, hasLength(2));
-    expect(entries.first.group?.taskId, 'task-1');
+    expect(activeEntries, hasLength(4));
+    expect(activeEntries.where((entry) => entry.group != null), isEmpty);
+    expect(completedEntries, hasLength(2));
+    expect(completedEntries.first.group?.taskId, 'task-1');
     expect(
-      entries.first.group?.visibleMessagesNewestFirst.single.id,
+      completedEntries.first.group?.visibleMessagesNewestFirst.single.id,
       'task-1-text',
+    );
+    expect(
+      completedEntries.first.group?.processMessagesNewestFirst.map(
+        (message) => message.id,
+      ),
+      containsAll(<String>['task-1-tool', 'task-1-thinking']),
     );
   });
 
-  test(
-    'does not fold persisted partial snapshot with explicit non-final flag',
-    () {
-      final messages = <ChatMessageModel>[
-        _assistantMessage(
-          id: 'task-4-text',
-          text: '未完成回答',
-          taskId: 'task-4',
-          kind: 'text_snapshot',
-          seq: 22,
-          isFinal: false,
-        ),
-        _thinkingCard(id: 'task-4-thinking', taskId: 'task-4', seq: 12),
-        ChatMessageModel.userMessage('用户问题', id: 'user-4'),
-      ];
+  test('does not fold an explicitly unfinished persisted snapshot', () {
+    final messages = <ChatMessageModel>[
+      _assistantMessage(
+        id: 'task-4-text',
+        text: '未完成回答',
+        taskId: 'task-4',
+        kind: 'text_snapshot',
+        seq: 22,
+        isFinal: false,
+      ),
+      _thinkingCard(id: 'task-4-thinking', taskId: 'task-4', seq: 12),
+      ChatMessageModel.userMessage('用户问题', id: 'user-4'),
+    ];
 
-      final entries = buildAgentRunTimelineEntries(messages);
+    final entries = buildAgentRunTimelineEntries(messages);
 
-      expect(entries, hasLength(3));
-      expect(entries.where((entry) => entry.group != null), isEmpty);
-    },
-  );
+    expect(entries, hasLength(3));
+    expect(entries.where((entry) => entry.group != null), isEmpty);
+    expect(entries.map((entry) => entry.message?.id), <String?>[
+      'task-4-text',
+      'task-4-thinking',
+      'user-4',
+    ]);
+  });
 
   test('keeps permission card visible alongside final permission text', () {
     final messages = <ChatMessageModel>[
@@ -223,19 +237,16 @@ void main() {
         cardData: <String, dynamic>{
           'type': 'agent_tool_summary',
           'status': 'failed',
-          'toolType': 'vlm',
-          'toolTitle': '发送早安短信',
-          'summary': '发送失败',
+          'toolType': 'terminal_execute',
+          'toolTitle': '执行命令',
+          'summary': '命令执行失败',
         },
       ),
       ChatMessageModel(
         id: 'task-6-text',
         type: 1,
         user: 2,
-        content: <String, dynamic>{
-          'id': 'task-6-text',
-          'text': '好的，我来通过手机屏幕自动化发送这条短信。',
-        },
+        content: <String, dynamic>{'id': 'task-6-text', 'text': '好的，我来执行这个命令。'},
       ),
       _thinkingCard(
         id: 'task-6-thinking',

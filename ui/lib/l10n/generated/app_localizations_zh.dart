@@ -84,12 +84,6 @@ class AppLocalizationsZh extends AppLocalizations {
   String get settingsSceneModelSubtitle => '按场景绑定模型，未绑定场景使用默认模型';
 
   @override
-  String get settingsLocalModelsTitle => '本地模型服务';
-
-  @override
-  String get settingsLocalModelsSubtitle => '管理本地模型、推理、API 服务与语音模型';
-
-  @override
   String get settingsWorkspaceMemoryTitle => 'Workspace 记忆配置';
 
   @override
@@ -114,10 +108,10 @@ class AppLocalizationsZh extends AppLocalizations {
   String get settingsLocalServiceSubtitle => '在局域网内访问小万 MCP 和 webchat 服务';
 
   @override
-  String get settingsAlpineTitle => 'Alpine 环境';
+  String get settingsAlpineTitle => '终端环境';
 
   @override
-  String get settingsAlpineSubtitle => '查看与打开应用内 Alpine 终端环境';
+  String get settingsAlpineSubtitle => '选择并管理应用内 Alpine 或 Ubuntu 终端系统';
 
   @override
   String get settingsHideRecentsTitle => '后台隐藏';
@@ -151,12 +145,6 @@ class AppLocalizationsZh extends AppLocalizations {
       '开启后，聊天页键盘回车为换行；关闭后，回车直接发送';
 
   @override
-  String get settingsAutoBackTitle => '任务完成后自动回聊天';
-
-  @override
-  String get settingsAutoBackSubtitle => '关闭后，任务结束将停留在当前完成页面';
-
-  @override
   String get settingsHabitualHandTitle => '惯用手';
 
   @override
@@ -169,12 +157,6 @@ class AppLocalizationsZh extends AppLocalizations {
   String get settingsHabitualHandRight => '右手';
 
   @override
-  String get settingsCompanionPermissionTitle => '陪伴权限授权';
-
-  @override
-  String get settingsCompanionPermissionSubtitle => '仅访问您授权的 App，隐私安全更有保障';
-
-  @override
   String get settingsAboutTitle => '关于小万';
 
   @override
@@ -182,12 +164,6 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get settingsSaveFailed => '设置失败';
-
-  @override
-  String get settingsAutoBackEnabledToast => '任务完成后将自动返回聊天';
-
-  @override
-  String get settingsAutoBackDisabledToast => '任务完成后将停留在当前页面';
 
   @override
   String settingsMcpEnabledToast(Object endpoint) {
@@ -235,7 +211,7 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get settingsMcpSecurityNotice =>
-      '请在同一局域网内使用 Authorization: Bearer <Token> 调用 /mcp/v1/task/vlm，避免将地址或 Token 暴露到公网。';
+      '请在同一局域网内使用 Authorization: Bearer <Token> 调用本机 MCP 服务，避免将地址或 Token 暴露到公网。';
 
   @override
   String get settingsInstalledAppsPermissionFailed => '请求应用列表权限失败';
@@ -257,25 +233,6 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get appearanceAdjustments => '效果调整';
-
-  @override
-  String get appearanceFontEffectsTitle => '字体效果';
-
-  @override
-  String get appearanceFontEffectsSubtitle => '为中文和英文界面加载更精细的字体组合';
-
-  @override
-  String get appearanceEnhanceFontEffects => '提升字体效果';
-
-  @override
-  String get appearanceEnhanceFontEffectsSubtitle =>
-      '默认关闭；开启后会自动下载字体并缓存到本地，之后离线也可继续使用。';
-
-  @override
-  String get appearanceEnhanceFontEffectsLoading => '正在加载字体…';
-
-  @override
-  String get appearanceEnhanceFontEffectsFailed => '字体加载失败，请稍后重试';
 
   @override
   String get appearancePreviewChat => '聊天';
@@ -418,9 +375,6 @@ class AppLocalizationsZh extends AppLocalizations {
   String chatUserPrefix(Object text) {
     return '用户: $text\n';
   }
-
-  @override
-  String get permissionAccessibility => '无障碍权限';
 
   @override
   String get permissionOverlay => '悬浮窗权限';
@@ -668,43 +622,6 @@ class AppLocalizationsZh extends AppLocalizations {
   String get trajectoryTitle => '轨迹';
 
   @override
-  String get trajectoryNoRecords => '暂无执行记录';
-
-  @override
-  String get trajectoryNoRecordsDesc => '小万为你执行的视觉任务，都会在此展示';
-
-  @override
-  String get trajectoryAll => '全部';
-
-  @override
-  String get trajectoryTaskRecords => '任务记录';
-
-  @override
-  String trajectorySelectedCount(Object n) {
-    return '已选择$n项';
-  }
-
-  @override
-  String get trajectoryUnknownDate => '未知日期';
-
-  @override
-  String get trajectoryThreeDaysAgo => '三天前';
-
-  @override
-  String get executionHistoryTitle => '执行历史';
-
-  @override
-  String get executionHistorySubtitle => '近3次任务执行历史';
-
-  @override
-  String get executionHistoryEmpty => '暂无执行历史';
-
-  @override
-  String executionHistoryTaskLabel(Object option) {
-    return '$option任务';
-  }
-
-  @override
   String get modelProviderConfigTitle => 'Provider 配置';
 
   @override
@@ -879,282 +796,7 @@ class AppLocalizationsZh extends AppLocalizations {
   }
 
   @override
-  String get localModelsTitle => '本地模型';
-
-  @override
-  String get localModelsAutoPreheat => '打开 App 时自动预热';
-
-  @override
-  String get localModelsAutoPreheatDesc => '进入应用后自动启动本地服务，并直接加载当前模型。';
-
-  @override
-  String get localModelsInstalled => '已安装模型';
-
-  @override
-  String get localModelsInstalledDesc => '搜索、切换默认模型或删除当前设备上的模型。';
-
-  @override
-  String get localModelsSearchHint => '搜索模型名称、ID 或标签';
-
-  @override
-  String get localModelsEmpty => '还没有可用的本地模型';
-
-  @override
-  String get localModelsEmptyDesc => '先去模型市场下载一个模型，或者手动放置 MNN 模型目录。';
-
-  @override
-  String get localModelsServiceControl => '服务控制';
-
-  @override
-  String get localModelsServiceControlDesc => '切换推理后端、当前模型和监听端口。';
-
-  @override
-  String get localModelsInferenceBackend => '推理后端';
-
-  @override
-  String get localModelsCurrentModel => '当前模型';
-
-  @override
-  String get localModelsCurrentModelHint => '启动服务时会加载这里选择的模型。';
-
-  @override
-  String get localModelsNoAvailableModels => '暂无可用模型';
-
-  @override
-  String get localModelsSelectModel => '选择一个模型';
-
-  @override
-  String get localModelsServicePort => '服务端口';
-
-  @override
-  String get localModelsServicePortHint => '请输入端口号';
-
-  @override
-  String get localModelsCurrentlyLoaded => '当前已加载';
-
-  @override
-  String get localModelsAutoPreheatSection => '自动预热';
-
-  @override
-  String get localModelsAutoPreheatSectionDesc => '打开 App 后自动启动本地服务并加载当前模型。';
-
-  @override
-  String get localModelsLocalInference => '本地推理模型';
-
-  @override
-  String get localModelsStopping => '停止中…';
-
-  @override
-  String get localModelsStarting => '启动中…';
-
-  @override
-  String get localModelsStopService => '停止服务';
-
-  @override
-  String get localModelsStartService => '启动服务';
-
-  @override
-  String get localModelsConfigLoadFailed => '无法加载本地模型配置';
-
-  @override
-  String get localModelsConfigLoadFailedDesc => '请稍后重试。';
-
-  @override
-  String get localModelsInstalledLoadFailed => '加载已安装模型失败';
-
-  @override
-  String get localModelsMarketLoadFailed => '加载模型市场失败';
-
-  @override
-  String get localModelsSwitchBackendFailed => '切换推理后端失败';
-
-  @override
-  String get localModelsActiveModelUpdated => '已更新当前模型';
-
-  @override
-  String get localModelsSetActiveFailed => '设置当前模型失败';
-
-  @override
-  String get localModelsPortInvalid => '端口号无效';
-
-  @override
-  String get localModelsPortUpdated => '已更新服务端口';
-
-  @override
-  String get localModelsPortSaveFailed => '保存端口失败';
-
-  @override
-  String get localModelsAutoPreheatSaveFailed => '保存自动预热设置失败';
-
-  @override
-  String get localModelsDownloadSourceSwitchFailed => '切换下载源失败';
-
-  @override
-  String get localModelsServiceStarted => '本地服务已启动';
-
-  @override
-  String get localModelsStartFailed => '启动服务失败';
-
-  @override
-  String get localModelsStopFailed => '停止服务失败';
-
-  @override
-  String get localModelsServiceStopped => '本地服务已停止';
-
-  @override
-  String get localModelsDownloadStartFailed => '启动下载失败';
-
-  @override
-  String get localModelsDownloadPauseFailed => '暂停下载失败';
-
-  @override
-  String localModelsDownloadStartedToast(String modelName) {
-    return '开始下载：$modelName';
-  }
-
-  @override
-  String localModelsDownloadPausedToast(String modelName) {
-    return '下载已暂停：$modelName';
-  }
-
-  @override
-  String localModelsDownloadCompletedToast(String modelName) {
-    return '下载完成：$modelName';
-  }
-
-  @override
-  String localModelsDownloadFailedToast(String modelName, String reason) {
-    return '下载失败：$modelName — $reason';
-  }
-
-  @override
-  String localModelsDownloadCancelledToast(String modelName, String reason) {
-    return '下载已取消：$modelName — $reason';
-  }
-
-  @override
-  String get localModelsDownloadErrorUnknown => '未知错误';
-
-  @override
-  String get localModelsFilterAndSource => '筛选与来源';
-
-  @override
-  String get localModelsFilterAndSourceDesc => '切换推理后端和下载源，影响当前市场列表。';
-
-  @override
-  String get localModelsDownloadSource => '下载源';
-
-  @override
-  String get localModelsSelectDownloadSource => '选择下载源';
-
-  @override
-  String get localModelsMarketModels => '市场模型';
-
-  @override
-  String get localModelsMarketModelsDesc => '搜索、下载、暂停或删除市场中的模型。';
-
-  @override
-  String get localModelsMarketSearchHint => '搜索市场模型名称、描述或标签';
-
-  @override
-  String get localModelsMarketEmpty => '模型市场暂时为空';
-
-  @override
-  String get localModelsMarketEmptyDesc => '请检查下载源，或者下拉刷新重试。';
-
-  @override
-  String get localModelsCurrentDefault => '当前默认';
-
-  @override
-  String get localModelsLoaded => '已加载';
-
-  @override
-  String get localModelsFileSize => '文件大小';
-
-  @override
-  String get localModelsModelDir => '模型目录';
-
-  @override
-  String get localModelsManualDir => '这是手动放置目录，App 内不提供删除。';
-
-  @override
-  String get localModelsOmniInferLoadable => '该模型可由 OmniInfer 直接加载。';
-
-  @override
-  String get localModelsSetAsCurrent => '设为当前';
-
-  @override
-  String get localModelsDelete => '删除';
-
-  @override
-  String get localModelsHasUpdate => '有更新';
-
-  @override
-  String get localModelsStage => '阶段';
-
-  @override
-  String get localModelsErrorInfo => '错误信息';
-
-  @override
-  String get localModelsResumeDownload => '继续下载';
-
-  @override
-  String get localModelsRetryDownload => '重新下载';
-
-  @override
-  String get localModelsDownloadModel => '下载模型';
-
-  @override
-  String get localModelsPause => '暂停';
-
-  @override
-  String get localModelsDeleteOldVersion => '删除旧版本';
-
-  @override
-  String get localModelsTabService => '服务';
-
-  @override
-  String get localModelsTabMarket => '市场';
-
-  @override
-  String get localModelsRefresh => '刷新';
-
-  @override
-  String get localModelsDownloadPreparing => '准备中';
-
-  @override
-  String get localModelsDownloading => '下载中';
-
-  @override
-  String get localModelsDownloadPaused => '已暂停';
-
-  @override
-  String get localModelsDownloadCompleted => '已完成';
-
-  @override
-  String get localModelsDownloadFailed => '下载失败';
-
-  @override
-  String get localModelsDownloadCancelled => '已取消';
-
-  @override
-  String get localModelsNotDownloaded => '未下载';
-
-  @override
-  String get localModelsImportFromDevice => '从设备导入';
-
-  @override
-  String get localModelsImportSuccess => '模型导入成功';
-
-  @override
-  String localModelsImportFailed(String reason) {
-    return '导入失败：$reason';
-  }
-
-  @override
-  String localModelsImporting(String modelId) {
-    return '正在导入 $modelId...';
-  }
+  String get modelsNoAvailableModels => '暂无可用模型';
 
   @override
   String get alarmSaved => '闹钟设置已保存';
@@ -1206,18 +848,6 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get authorizeNotificationsDesc => '打开后可以及时了解任务进展';
-
-  @override
-  String get companionPermissionManagement => '陪伴权限管理';
-
-  @override
-  String get companionPermissionDesc => '关闭对应的授权后，小万仍会显示，但不会展示任务执行内容';
-
-  @override
-  String get companionPermissionNote => '权限说明';
-
-  @override
-  String get companionAuthorizedApps => '授权应用';
 
   @override
   String get storageUsageTitle => '存储占用';
@@ -1417,28 +1047,10 @@ class AppLocalizationsZh extends AppLocalizations {
   String get storageCatWorkspaceUserFilesDesc => '用户主动保存到 workspace 的文件';
 
   @override
-  String get storageCatLocalModelsFiles => '本地模型文件';
-
-  @override
-  String get storageCatLocalModelsFilesDesc => '.mnnmodels 下的模型文件';
-
-  @override
-  String get storageCatLocalModelsFilesHint => '会删除模型文件，后续需重新下载';
-
-  @override
-  String get storageCatLocalModelsCache => '模型推理缓存';
-
-  @override
-  String get storageCatLocalModelsCacheDesc => 'mmap 与本地推理临时目录';
-
-  @override
-  String get storageCatLocalModelsCacheHint => '清理后会在推理时重新生成';
-
-  @override
   String get storageCatTerminalLocal => '终端运行时（local）';
 
   @override
-  String get storageCatTerminalLocalDesc => 'Alpine 终端 local 运行目录';
+  String get storageCatTerminalLocalDesc => 'Alpine/Ubuntu 终端 local 运行目录';
 
   @override
   String get storageCatTerminalLocalHint => '会删除终端 local 目录，需重新初始化';
@@ -1447,7 +1059,7 @@ class AppLocalizationsZh extends AppLocalizations {
   String get storageCatTerminalBootstrap => '终端运行时（引导文件）';
 
   @override
-  String get storageCatTerminalBootstrapDesc => 'proot/lib/alpine 引导文件';
+  String get storageCatTerminalBootstrapDesc => 'proot/lib/rootfs 引导文件';
 
   @override
   String get storageCatTerminalBootstrapHint => '会删除终端引导文件，需重新初始化';
@@ -1495,7 +1107,7 @@ class AppLocalizationsZh extends AppLocalizations {
   String get storageStrategyBalanceDeep => '平衡深度清理';
 
   @override
-  String get storageStrategyBalanceDeepDesc => '释放更多空间，保留核心模型与用户文件';
+  String get storageStrategyBalanceDeepDesc => '释放更多空间，保留核心用户数据与文件';
 
   @override
   String get storageStrategyFree1gb => '目标释放 1GB';
@@ -1507,10 +1119,7 @@ class AppLocalizationsZh extends AppLocalizations {
   String get storageHintConversation => '如历史未释放，请重新进入页面执行「重新分析」';
 
   @override
-  String get storageHintLocalModels => '模型被清理后，可在「本地模型服务」页面重新下载';
-
-  @override
-  String get storageHintTerminal => '终端运行时被清理后，可在 Alpine 环境页重新初始化';
+  String get storageHintTerminal => '终端运行时被清理后，可在终端环境页重新初始化';
 
   @override
   String get storageHintGeneral => '若清理失败，可稍后重试或重启应用后再次清理';
@@ -1587,16 +1196,16 @@ class AppLocalizationsZh extends AppLocalizations {
   String get workspaceMemoryLoadFailed => '加载 workspace 记忆配置失败';
 
   @override
-  String get workspaceSoulSaved => 'SOUL.md 已保存';
+  String get agentSoulSaved => 'Agent 灵魂设置已保存';
 
   @override
-  String get workspaceSoulSaveFailed => 'SOUL.md 保存失败';
+  String get agentSoulSaveFailed => 'Agent 灵魂设置保存失败';
 
   @override
-  String get workspaceChatSaved => 'CHAT.md 已保存';
+  String get chatPromptSaved => '纯聊天系统提示词已保存';
 
   @override
-  String get workspaceChatSaveFailed => 'CHAT.md 保存失败';
+  String get chatPromptSaveFailed => '纯聊天系统提示词保存失败';
 
   @override
   String get workspaceMemorySaved => 'MEMORY.md 已保存';
@@ -1651,13 +1260,13 @@ class AppLocalizationsZh extends AppLocalizations {
   String get workspaceRollupNow => '立即整理一次';
 
   @override
-  String get workspaceDocContent => '文档内容';
+  String get workspaceSettingsAndMemory => 'Agent 设置与记忆';
 
   @override
-  String get workspaceSoulMd => 'SOUL.md（Agent 灵魂）';
+  String get agentSoulSetting => 'Agent 灵魂';
 
   @override
-  String get workspaceChatMd => 'CHAT.md（纯聊天系统提示词）';
+  String get chatPromptSetting => '纯聊天系统提示词';
 
   @override
   String get workspaceMemoryMd => 'MEMORY.md（长期记忆）';
@@ -1681,7 +1290,13 @@ class AppLocalizationsZh extends AppLocalizations {
   String get alpinePipInstall => 'Python 包安装器';
 
   @override
-  String get alpineCodex => 'OpenAI Codex CLI 与 app-server 桥接';
+  String get alpineCodex => 'OpenAI Codex CLI（供 ACP Agent 使用）';
+
+  @override
+  String get alpineClaudeCode => 'Anthropic Claude Code CLI（供 ACP Agent 使用）';
+
+  @override
+  String get alpineOpenCode => 'OpenCode CLI（内置 ACP 支持）';
 
   @override
   String get alpineSshClient => 'SSH 客户端';
@@ -1693,7 +1308,7 @@ class AppLocalizationsZh extends AppLocalizations {
   String get alpineOpenSshServer => 'OpenSSH 服务器';
 
   @override
-  String get alpineDetectFailed => '检测 Alpine 环境失败';
+  String get alpineDetectFailed => '检测终端环境失败';
 
   @override
   String get alpineBootTasksLoadFailed => '读取自启动任务失败';
@@ -1751,11 +1366,11 @@ class AppLocalizationsZh extends AppLocalizations {
   String get alpineAllReady => '全部已就绪';
 
   @override
-  String get alpineDetectingDesc => '正在后台检测 Alpine 内常见开发环境的版本信息。';
+  String get alpineDetectingDesc => '正在后台检测当前终端系统内常见开发环境的版本信息。';
 
   @override
   String alpineReadyCount(Object ready, Object total) {
-    return '已就绪 $ready/$total 项，可直接勾选缺失项并进入 ReTerminal 自动配置。';
+    return '当前终端系统已就绪 $ready/$total 项，可直接勾选缺失项并进入 ReTerminal 自动配置。';
   }
 
   @override
@@ -1871,16 +1486,16 @@ class AppLocalizationsZh extends AppLocalizations {
   String get homeDrawerPinnedConversations => '置顶会话';
 
   @override
-  String get homeDrawerCodexSection => 'Codex';
+  String get homeDrawerAgentSection => 'Agent';
 
   @override
-  String get homeDrawerAgentSection => 'Agent';
+  String get homeDrawerOmniAiSection => '小万';
 
   @override
   String get homeDrawerChatOnlySection => '纯聊天';
 
   @override
-  String get homeDrawerCodexNoProject => '其他';
+  String get homeDrawerAgentNoProject => '其他';
 
   @override
   String get homeDrawerGreeting => '你好！';

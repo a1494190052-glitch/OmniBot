@@ -4,9 +4,6 @@ import android.content.Context
 import androidx.room.Room
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
-import cn.com.omnimind.baselib.util.APPPackageUtil
-import cn.com.omnimind.baselib.util.OmniLog
-import org.json.JSONObject
 
 object DatabaseHelper {
     // 保留既有 OSS 数据库文件名，避免用户升级后丢失本地数据。
@@ -176,7 +173,6 @@ object DatabaseHelper {
                 CREATE TABLE IF NOT EXISTS `token_usage_records` (
                     `id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
                     `conversationId` INTEGER NOT NULL,
-                    `isLocal` INTEGER NOT NULL DEFAULT 0,
                     `model` TEXT NOT NULL DEFAULT '',
                     `promptTokens` INTEGER NOT NULL DEFAULT 0,
                     `completionTokens` INTEGER NOT NULL DEFAULT 0,
@@ -257,6 +253,78 @@ object DatabaseHelper {
         }
     }
 
+    private val MIGRATION_14_15 = object : Migration(14, 15) {
+        override fun migrate(database: SupportSQLiteDatabase) {
+            database.execSQL("DROP TABLE IF EXISTS execution_records")
+            database.execSQL("DROP TABLE IF EXISTS study_records")
+            database.execSQL("DROP TABLE IF EXISTS favorite_records")
+            database.execSQL("DROP TABLE IF EXISTS cache_suggestion")
+        }
+    }
+
+    private val MIGRATION_15_16 = object : Migration(15, 16) {
+        override fun migrate(database: SupportSQLiteDatabase) {
+            database.execSQL(
+                """
+                CREATE TABLE IF NOT EXISTS `token_usage_records_new` (
+                    `id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                    `conversationId` INTEGER NOT NULL,
+                    `model` TEXT NOT NULL DEFAULT '',
+                    `promptTokens` INTEGER NOT NULL DEFAULT 0,
+                    `completionTokens` INTEGER NOT NULL DEFAULT 0,
+                    `reasoningTokens` INTEGER NOT NULL DEFAULT 0,
+                    `textTokens` INTEGER NOT NULL DEFAULT 0,
+                    `cachedTokens` INTEGER NOT NULL DEFAULT 0,
+                    `createdAt` INTEGER NOT NULL
+                )
+                """.trimIndent()
+            )
+            database.execSQL(
+                """
+                INSERT INTO `token_usage_records_new` (
+                    `id`,
+                    `conversationId`,
+                    `model`,
+                    `promptTokens`,
+                    `completionTokens`,
+                    `reasoningTokens`,
+                    `textTokens`,
+                    `cachedTokens`,
+                    `createdAt`
+                )
+                SELECT
+                    `id`,
+                    `conversationId`,
+                    `model`,
+                    `promptTokens`,
+                    `completionTokens`,
+                    `reasoningTokens`,
+                    `textTokens`,
+                    `cachedTokens`,
+                    `createdAt`
+                FROM `token_usage_records`
+                WHERE `isLocal` = 0
+                """.trimIndent()
+            )
+            database.execSQL("DROP TABLE `token_usage_records`")
+            database.execSQL(
+                "ALTER TABLE `token_usage_records_new` RENAME TO `token_usage_records`"
+            )
+            database.execSQL(
+                """
+                CREATE INDEX IF NOT EXISTS `index_token_usage_records_createdAt`
+                ON `token_usage_records` (`createdAt`)
+                """.trimIndent()
+            )
+            database.execSQL(
+                """
+                CREATE INDEX IF NOT EXISTS `index_token_usage_records_conversationId`
+                ON `token_usage_records` (`conversationId`)
+                """.trimIndent()
+            )
+        }
+    }
+
     internal val ALL_MIGRATIONS = arrayOf(
         MIGRATION_1_2,
         MIGRATION_2_3,
@@ -270,7 +338,9 @@ object DatabaseHelper {
         MIGRATION_10_11,
         MIGRATION_11_12,
         MIGRATION_12_13,
-        MIGRATION_13_14
+        MIGRATION_13_14,
+        MIGRATION_14_15,
+        MIGRATION_15_16
     )
 
     fun init(context: Context) {
@@ -291,108 +361,6 @@ object DatabaseHelper {
 
     suspend fun getAppIconsByPackageNames(packageNames: List<String>): List<AppIcons> {
         return getDatabase().appIconsDao().getByPackageNames(packageNames)
-    }
-
-    // StudyRecord相关方法
-    suspend fun getAllStudyRecords(): List<StudyRecord> {
-        return getDatabase().studyRecordDao().getAll()
-    }
-
-    suspend fun getStudyRecordsByAppName(appName: String): List<StudyRecord> {
-        return getDatabase().studyRecordDao().getByAppName(appName)
-    }
-
-    suspend fun getStudyRecordCountByAppName(): List<StudyRecordDao.AppNameCount> {
-        return getDatabase().studyRecordDao().getNumGroupByAppName()
-    }
-
-    suspend fun deleteStudyRecordById(id: Long) {
-        getDatabase().studyRecordDao().deleteById(id)
-    }
-
-    // FavoriteRecord新增方法
-    suspend fun getAllFavoriteRecords(): List<FavoriteRecord> {
-        return getDatabase().favoriteRecordDao().getAll()
-    }
-
-    // StudyRecord新增方法
-    suspend fun updateStudyRecordFavoriteStatus(id: Long, isFavorite: Boolean) {
-        getDatabase().studyRecordDao().updateIsFavoriteById(id, isFavorite)
-    }
-
-    suspend fun updateStudyRecordTitleAndReturnSuggestionId(id: Long, title: String): String {
-        getDatabase().studyRecordDao().updateTitleById(id, title)
-        var record = getDatabase().studyRecordDao().getById(id)
-        return record.suggestionId
-    }
-
-    suspend fun getStudyRecordById(id: Long): StudyRecord {
-        return getDatabase().studyRecordDao().getById(id)
-    }
-
-    suspend fun getFavoriteRecordsByType(type: String): List<FavoriteRecord> {
-        return getDatabase().favoriteRecordDao().getByType(type)
-    }
-
-    suspend fun getFavoriteRecordById(id: Long): FavoriteRecord? {
-        return getDatabase().favoriteRecordDao().getById(id)
-    }
-
-    suspend fun getFavoriteRecordCountByType(): List<FavoriteRecordDao.FavoriteCount> {
-        return getDatabase().favoriteRecordDao().getFavoriteRecordCountByType()
-    }
-
-    suspend fun deleteFavoriteRecordById(id: Long) {
-        getDatabase().favoriteRecordDao().deleteById(id)
-    }
-
-    suspend fun getFavoriteRecordsByTitle(title: String): List<FavoriteRecord> {
-        return getDatabase().favoriteRecordDao().getByTitle(title)
-    }
-
-    suspend fun getStudyRecordsByTitle(title: String): List<StudyRecord> {
-        return getDatabase().studyRecordDao().getByTitle(title)
-    }
-
-    // ExecutionRecord相关方法
-    suspend fun getAllExecutionRecords(): List<ExecutionRecord> {
-        return getDatabase().executionRecordDao().getAll()
-    }
-
-    suspend fun getExecutionRecordsByAppName(appName: String): List<ExecutionRecord> {
-        return getDatabase().executionRecordDao().getByAppName(appName)
-    }
-
-    suspend fun getExecutionRecordCountByAppName(): List<ExecutionRecordDao.ExecutionRecordCount> {
-        return getDatabase().executionRecordDao().getNumGroupByAppName()
-    }
-
-    suspend fun updateExecutionRecordTitle(id: Long, title: String) {
-        getDatabase().executionRecordDao().updateTitleById(id, title)
-    }
-
-    suspend fun getExecutionRecordsByTitle(title: String): List<ExecutionRecord> {
-        return getDatabase().executionRecordDao().getByTitle(title)
-    }
-
-    suspend fun getExecutionRecordCountByTitle(): List<ExecutionRecordDao.ExecutionRecordTitleCount> {
-        return getDatabase().executionRecordDao().getNumGroupByTitle()
-    }
-
-    suspend fun deleteExecutionRecordById(id: Long) {
-        getDatabase().executionRecordDao().deleteById(id)
-    }
-
-    suspend fun deleteExecutionRecordByNodeAndSuggestionId(nodeId: String, suggestionId: String) {
-        getDatabase().executionRecordDao().deleteByNodeAndSuggestionId(nodeId, suggestionId)
-    }
-
-    suspend fun getExecutionRecordsByNodeAndSuggestionId(nodeId: String, suggestionId: String): List<ExecutionRecord> {
-        return getDatabase().executionRecordDao().getByNodeAndSuggestionId(nodeId, suggestionId)
-    }
-
-    suspend fun getTaskExecutionInfos(): List<ExecutionRecordDao.TaskExecutionInfoDTO> {
-        return getDatabase().executionRecordDao().getTaskExecutionInfos()
     }
 
     // Message相关方法
@@ -446,308 +414,6 @@ object DatabaseHelper {
         ) > 0
     }
 
-
-    /**
-     * 沉淀学习记录方法
-     */
-    suspend fun saveStudyRecord(
-        context: Context,
-        title: String,
-        packageName: String,
-        suggestionId: String
-    ): Long {
-        var appName = APPPackageUtil.getAppName(context, packageName)
-        val appIconBase64 = APPPackageUtil.getAppIconBase64(context, packageName)
-        val appIconPath = APPPackageUtil.getAppIconFilePath(context, packageName)
-
-        val app = getDatabase().appIconsDao().getByPackageName(packageName)
-        if (appName.isNotEmpty() && appIconBase64.isNotEmpty()) {
-            if (app == null) {
-                getDatabase().appIconsDao().insert(
-                    AppIcons(
-                        id = 0,
-                        appName = APPPackageUtil.getAppName(context, packageName),
-                        packageName = packageName,
-                        icon_base64 = APPPackageUtil.getAppIconBase64(context, packageName),
-                        icon_path = appIconPath,
-                        createdAt = System.currentTimeMillis(),
-                        updatedAt = System.currentTimeMillis()
-                    )
-                )
-            } else {
-                getDatabase().appIconsDao().update(
-                    AppIcons(
-                        id = app.id,
-                        appName = appName,
-                        packageName = packageName,
-                        icon_base64 = appIconBase64,
-                        icon_path = appIconPath,
-                        createdAt = app.createdAt,
-                        updatedAt = System.currentTimeMillis()
-                    )
-                )
-            }
-        } else {
-            if (app != null) {
-                appName = app.appName
-            }
-        }
-
-        var id = getDatabase().studyRecordDao().insert(
-            StudyRecord(
-                id = 0,
-                suggestionId = suggestionId,
-                title = "${appName}-${title}",
-                appName = appName,
-                packageName = packageName,
-                createdAt = System.currentTimeMillis(),
-                updatedAt = System.currentTimeMillis()
-            )
-        )
-        return id
-    }
-
-    suspend fun insertExecutionRecord(
-        title: String, 
-        appName: String, 
-        packageName: String,
-        nodeId: String,
-        suggestionId: String,
-        iconUrl: String? = null,
-        type: String = "unknown",
-        content: String? = null
-    ): Boolean {
-        return getDatabase().executionRecordDao().insert(
-            ExecutionRecord(
-                id = 0,
-                title = title,
-                appName = appName,
-                packageName = packageName,
-                nodeId = nodeId,
-                suggestionId = suggestionId,
-                iconUrl = iconUrl,
-                type = type,
-                content = content,
-                createdAt = System.currentTimeMillis(),
-                updatedAt = System.currentTimeMillis()
-            )
-        ) > 0
-    }
-
-    /**
-     * 沉淀学习记录方法
-     * @return 返回新插入记录的 ID，如果插入失败返回 -1
-     */
-    suspend fun saveExecutionRecord(
-        context: Context, 
-        title: String, 
-        packageName: String,
-        nodeId: String,
-        suggestionId: String,
-        iconUrl: String? = null,
-        type: String = "unknown",
-        content: String? = null
-    ): Long {
-        return try {
-            var appName = APPPackageUtil.getAppName(context, packageName)
-            val appIconBase64 = APPPackageUtil.getAppIconBase64(context, packageName)
-            val appIconPath = APPPackageUtil.getAppIconFilePath(context, packageName)
-
-            val app = getDatabase().appIconsDao().getByPackageName(packageName)
-            if (appName.isNotEmpty() && appIconBase64.isNotEmpty()) {
-                if (app == null) {
-                    getDatabase().appIconsDao().insert(
-                        AppIcons(
-                            id = 0,
-                            appName = appName,
-                            packageName = packageName,
-                            icon_path = appIconPath,
-                            icon_base64 = appIconPath,
-                            createdAt = System.currentTimeMillis(),
-                            updatedAt = System.currentTimeMillis()
-                        )
-                    )
-                } else {
-                    getDatabase().appIconsDao().update(
-                        AppIcons(
-                            id = app.id,
-                            appName = appName,
-                            packageName = packageName,
-                            icon_base64 = appIconBase64,
-                            icon_path = appIconPath,
-                            createdAt = app.createdAt,
-                            updatedAt = System.currentTimeMillis()
-                        )
-                    )
-                }
-            } else {
-                if (app != null) {
-                    appName = app.appName
-                }
-            }
-            getDatabase().executionRecordDao().insert(
-                ExecutionRecord(
-                    id = 0,
-                    title = title,
-                    appName = appName,
-                    packageName = packageName,
-                    nodeId = nodeId,
-                    suggestionId = suggestionId,
-                    iconUrl = iconUrl,
-                    type = type,
-                    content = content,
-                    createdAt = System.currentTimeMillis(),
-                    updatedAt = System.currentTimeMillis()
-                )
-            )
-        } catch (e: Exception) {
-            OmniLog.e("DatabaseHelper", "Failed to save execution record: ${e.message}")
-            -1L
-        }
-    }
-
-    /**
-     * 更新执行记录的状态
-     */
-    suspend fun updateExecutionRecordStatus(id: Long, status: String) {
-        if (id > 0) {
-            getDatabase().executionRecordDao().updateStatusById(id, status, System.currentTimeMillis())
-        }
-    }
-
-    suspend fun insertFavoriteRecord(
-        title: String, desc: String, type: String, imagePath: String, packageName: String = ""
-    ): Long {
-        return getDatabase().favoriteRecordDao().insert(
-            FavoriteRecord(
-                id = 0,
-                title = title,
-                desc = desc,
-                type = type,
-                imagePath = imagePath,
-                packageName = packageName, // 添加packageName参数
-                status = 0, // 默认为识别中
-                createdAt = System.currentTimeMillis(),
-                updatedAt = System.currentTimeMillis()
-            )
-        )
-    }
-
-    suspend fun saveFavoriteRecord(
-        context: Context, title: String, desc: String, type: String, imagePath: String, packageName: String = ""
-    ): Long {
-        var appName = APPPackageUtil.getAppName(context, packageName)
-        val appIconBase64 = APPPackageUtil.getAppIconBase64(context, packageName)
-        val appIconPath = APPPackageUtil.getAppIconFilePath(context, packageName)
-
-        val app = getDatabase().appIconsDao().getByPackageName(packageName)
-        if (appName.isNotEmpty() && appIconBase64.isNotEmpty()) {
-            if (app == null) {
-                getDatabase().appIconsDao().insert(
-                    AppIcons(
-                        id = 0,
-                        appName = appName,
-                        packageName = packageName,
-                        icon_path = appIconPath,
-                        icon_base64 = appIconPath,
-                        createdAt = System.currentTimeMillis(),
-                        updatedAt = System.currentTimeMillis()
-                    )
-                )
-            } else {
-                getDatabase().appIconsDao().update(
-                    AppIcons(
-                        id = app.id,
-                        appName = appName,
-                        packageName = packageName,
-                        icon_base64 = appIconBase64,
-                        icon_path = appIconPath,
-                        createdAt = app.createdAt,
-                        updatedAt = System.currentTimeMillis()
-                    )
-                )
-            }
-        } else {
-            if (app != null) {
-                appName = app.appName
-            }
-        }
-
-        return getDatabase().favoriteRecordDao().insert(
-            FavoriteRecord(
-                id = 0,
-                title = title,
-                desc = desc,
-                type = type,
-                imagePath = imagePath,
-                packageName = packageName, // 添加packageName参数
-                status = 0, // 默认为识别中
-                createdAt = System.currentTimeMillis(),
-                updatedAt = System.currentTimeMillis()
-            )
-        )
-    }
-
-    // 添加更新状态的方法
-    suspend fun updateFavoriteRecordStatus(id: Long, status: Int) {
-        val record = getDatabase().favoriteRecordDao().getById(id)
-        if (record != null) {
-            val updatedRecord = record.copy(status = status, updatedAt = System.currentTimeMillis())
-            getDatabase().favoriteRecordDao().update(updatedRecord)
-        }
-    }
-
-    // 添加更新标题的方法
-    suspend fun updateFavoriteRecordTitle(id: Long, title: String) {
-        val record = getDatabase().favoriteRecordDao().getById(id)
-        if (record != null) {
-            val updatedRecord = record.copy(title = title, updatedAt = System.currentTimeMillis())
-            getDatabase().favoriteRecordDao().update(updatedRecord)
-        }
-    }
-
-    // 添加更新标题的方法
-    suspend fun updateFavoriteRecordDesc(id: Long, desc: String) {
-        val record = getDatabase().favoriteRecordDao().getById(id)
-        if (record != null) {
-            val updatedRecord = record.copy(desc = desc, updatedAt = System.currentTimeMillis())
-            getDatabase().favoriteRecordDao().update(updatedRecord)
-        }
-    }
-
-    // 保存缓存的suggestion
-    suspend fun saveCacheSuggestion(packageName: String, suggestionIds: List<String>) {
-        getDatabase().cacheSuggestionDao().deleteByPackageName(packageName)
-        if (!suggestionIds.isEmpty()) {
-            val cacheSuggestions = suggestionIds.map { suggestionId ->
-                CacheSuggestion(
-                    id = 0,
-                    suggestionId = suggestionId,
-                    packageName = packageName,
-                    indexNum = suggestionIds.indexOf(suggestionId)
-                )
-            }
-            getDatabase().cacheSuggestionDao().insertList(cacheSuggestions)
-        }
-
-    }
-
-    // 通过 ID 更新执行记录的总结内容（精确更新单条记录，避免覆盖历史）
-    suspend fun updateExecutionRecordContentById(
-        id: Long,
-        content: String
-    ) {
-        getDatabase().executionRecordDao().updateContentById(
-            id = id,
-            content = content,
-            updatedAt = System.currentTimeMillis()
-        )
-    }
-
-    // 获取缓存的suggestion
-    suspend fun getCacheSuggestion(packageName: String): List<CacheSuggestion> {
-        return getDatabase().cacheSuggestionDao().getListByPackageName(packageName)
-    }
 
     // TokenUsageRecord相关方法
     suspend fun insertTokenUsageRecord(record: TokenUsageRecord): Long {
@@ -971,67 +637,24 @@ object DatabaseHelper {
         getDatabase().conversationDao().incrementMessageCount(id, System.currentTimeMillis())
     }
 
-    suspend fun upsertCodexThreadBinding(binding: CodexThreadBinding) {
-        getDatabase().codexThreadBindingDao().upsert(binding)
+    suspend fun upsertAgentSessionBinding(binding: AgentSessionBinding) {
+        getDatabase().agentSessionBindingDao().upsert(binding)
     }
 
-    suspend fun getAllCodexThreadBindings(): List<CodexThreadBinding> {
-        return getDatabase().codexThreadBindingDao().getAll()
+    suspend fun getAllAgentSessionBindings(): List<AgentSessionBinding> {
+        return getDatabase().agentSessionBindingDao().getAll()
     }
 
-    suspend fun getCodexThreadBindingByConversationId(conversationId: Long): CodexThreadBinding? {
-        return getDatabase().codexThreadBindingDao().getByConversationId(conversationId)
+    suspend fun getAgentSessionBindingByConversationId(conversationId: Long): AgentSessionBinding? {
+        return getDatabase().agentSessionBindingDao().getByConversationId(conversationId)
     }
 
-    suspend fun getCodexThreadBindingByThreadId(threadId: String): CodexThreadBinding? {
-        return getDatabase().codexThreadBindingDao().getByThreadId(threadId)
+    suspend fun getAgentSessionBindingByThreadId(threadId: String): AgentSessionBinding? {
+        return getDatabase().agentSessionBindingDao().getByThreadId(threadId)
     }
 
-    suspend fun deleteCodexThreadBindingByConversationId(conversationId: Long): Int {
-        return getDatabase().codexThreadBindingDao().deleteByConversationId(conversationId)
+    suspend fun deleteAgentSessionBindingByConversationId(conversationId: Long): Int {
+        return getDatabase().agentSessionBindingDao().deleteByConversationId(conversationId)
     }
 
-    /**
-     * 保存任务结果消息到Message表
-     * 用于将任务总结结果包含在聊天上下文中
-     *
-     * @param messageId 消息ID（如 "task-summary-123"）
-     * @param taskType 任务类型（如 "task_summary"）
-     * @param content 任务结果文本内容
-     * @param executionRecordId 关联的执行记录ID
-     * @param metadata 额外的元数据（如goal, finishType等）
-     * @return 新插入消息的行ID，失败返回-1
-     */
-    suspend fun insertTaskResultMessage(
-        messageId: String,
-        taskType: String,
-        content: String,
-        executionRecordId: Long,
-        metadata: Map<String, Any> = emptyMap()
-    ): Long {
-        return try {
-            val payload = JSONObject().apply {
-                put("text", content)
-                put("taskType", taskType)
-                put("executionRecordId", executionRecordId)
-                metadata.forEach { (key, value) ->
-                    put(key, value.toString())
-                }
-            }.toString()
-
-            insertMessage(
-                Message(
-                    messageId = messageId,
-                    type = 1,  // 普通消息
-                    user = 2,  // AI消息
-                    content = payload,
-                    createdAt = System.currentTimeMillis(),
-                    updatedAt = System.currentTimeMillis()
-                )
-            )
-        } catch (e: Exception) {
-            OmniLog.e("DatabaseHelper", "Failed to insert task result message: ${e.message}")
-            -1L
-        }
-    }
 }

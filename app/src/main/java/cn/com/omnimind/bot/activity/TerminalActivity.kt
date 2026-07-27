@@ -7,12 +7,13 @@ import androidx.activity.ComponentActivity
 import androidx.lifecycle.lifecycleScope
 import com.ai.assistance.operit.terminal.TerminalManager
 import com.ai.assistance.operit.terminal.setup.EnvironmentSetupLogic
+import com.ai.assistance.operit.terminal.utils.SourceManager
 import cn.com.omnimind.bot.terminal.EmbeddedTerminalRuntime
 import com.rk.libcommons.ShellArgv
 import com.rk.libcommons.TerminalCommand
 import com.rk.libcommons.pendingCommand
+import com.rk.settings.Settings
 import com.rk.terminal.ui.activities.terminal.MainActivity
-import com.rk.terminal.ui.screens.settings.WorkingMode
 import kotlinx.coroutines.launch
 import java.io.File
 
@@ -59,20 +60,21 @@ class TerminalActivity : ComponentActivity() {
 
         val commands = EnvironmentSetupLogic.buildInstallCommands(
             selectedPackageIds = selectedPackageIds,
-            repositorySetupCommand = ""
+            sourceManager = SourceManager(this)
         )
         if (commands.isEmpty()) {
             return
         }
 
         val initHostPath = File(filesDir.parentFile, "local/bin/init-host").absolutePath
-        val installScriptPath = prepareSetupScript(commands, selectedPackageIds)
+        val workingMode = Settings.terminal_distribution
+        val installScriptPath = prepareSetupScript(commands, selectedPackageIds, workingMode)
 
         pendingCommand = TerminalCommand(
             shell = ShellArgv.SYSTEM_SH,
             args = ShellArgv.buildShellScriptArgv(initHostPath, "/bin/sh", installScriptPath),
             id = "setup-${System.currentTimeMillis()}",
-            workingMode = WorkingMode.ALPINE,
+            workingMode = workingMode,
             terminatePreviousSession = false,
             workingDir = "/"
         )
@@ -82,11 +84,19 @@ class TerminalActivity : ComponentActivity() {
         )
     }
 
-    private fun prepareSetupScript(commands: List<String>, selectedPackageIds: List<String>): String {
+    private fun prepareSetupScript(
+        commands: List<String>,
+        selectedPackageIds: List<String>,
+        workingMode: Int
+    ): String {
         val scriptFile = File(filesDir.parentFile, "local/bin/omni-setup.sh").apply {
             parentFile?.mkdirs()
         }
-        val content = EnvironmentSetupLogic.buildSetupScript(commands, selectedPackageIds)
+        val content = EnvironmentSetupLogic.buildSetupScript(
+            commands = commands,
+            selectedPackageIds = selectedPackageIds,
+            workingMode = workingMode
+        )
         scriptFile.writeText(content)
         scriptFile.setExecutable(true, false)
         return scriptFile.absolutePath

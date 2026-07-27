@@ -28,12 +28,49 @@ mixin _ChatPageUiMixin on _ChatPageStateBase {
   final Map<ChatPageMode, bool> _messageListInputFocusByMode = {
     ChatPageMode.normal: false,
     ChatPageMode.openclaw: false,
-    ChatPageMode.codex: false,
+    ChatPageMode.agent: false,
   };
+  bool _isHomeDrawerSearchFocused = false;
+
+  void _handleHomeDrawerSearchFocusChanged(bool hasFocus) {
+    if (!mounted || _isHomeDrawerSearchFocused == hasFocus) {
+      return;
+    }
+    final chatInputWasFocused = _inputFocusNode.hasFocus;
+    final composerLiftWasLatched = _composerLiftIntentTracker.isLatched;
+    if (hasFocus && _inputFocusNode.hasFocus) {
+      _inputFocusNode.unfocus();
+    }
+    _composerLiftIntentTracker.reset();
+    // Avoid an unconditional ChatPage rebuild just to record focus ownership.
+    // The search field repaints itself locally, while the next focus/IME
+    // metrics frame normally reads this flag for composer suppression.
+    _isHomeDrawerSearchFocused = hasFocus;
+    if (hasFocus && composerLiftWasLatched && !chatInputWasFocused) {
+      // A previously lost chat focus may have left the lift latched against a
+      // stable IME inset, so no new focus/metrics notification is guaranteed.
+      setState(() {});
+    }
+  }
+
+  void _handleHomeDrawerChanged(bool isOpen) {
+    if (!mounted) {
+      return;
+    }
+    if (isOpen) {
+      _dismissChatInputFocus();
+      _composerLiftIntentTracker.reset();
+      _drawerKey.currentState?.reloadConversations();
+    } else {
+      _isHomeDrawerSearchFocused = false;
+      _composerLiftIntentTracker.reset();
+      checkAndHandleDeletedConversation();
+    }
+  }
 
   ChatPageMode get _primaryChatMessagePageMode =>
-      _activeMode == ChatPageMode.codex
-      ? ChatPageMode.codex
+      _activeMode == ChatPageMode.agent
+      ? ChatPageMode.agent
       : ChatPageMode.normal;
 
   @override
@@ -153,8 +190,8 @@ mixin _ChatPageUiMixin on _ChatPageStateBase {
 
   List<Map<String, dynamic>> _buildSlashCommandCards() {
     final route = _resolveSlashCommandPanelRoute(_messageController.text);
-    if (_activeMode == ChatPageMode.codex) {
-      return _buildCodexSlashCommandCards(route);
+    if (_activeMode == ChatPageMode.agent) {
+      return _buildAgentSlashCommandCards(route);
     }
     if (route == _SlashCommandPanelRoute.effort &&
         _supportsReasoningEffortCommand) {
@@ -225,49 +262,49 @@ mixin _ChatPageUiMixin on _ChatPageStateBase {
     };
   }
 
-  List<Map<String, dynamic>> _buildCodexSlashCommandCards(
+  List<Map<String, dynamic>> _buildAgentSlashCommandCards(
     _SlashCommandPanelRoute route,
   ) {
-    if (route == _SlashCommandPanelRoute.codexModel) {
-      return _buildCodexModelCards();
+    if (route == _SlashCommandPanelRoute.agentModel) {
+      return _buildAgentModelCards();
     }
-    return _buildCodexRootCommandCards();
+    return _buildAgentRootCommandCards();
   }
 
-  List<Map<String, dynamic>> _buildCodexRootCommandCards() {
+  List<Map<String, dynamic>> _buildAgentRootCommandCards() {
     final query = _messageController.text.trimLeft().toLowerCase();
-    final planModeEnabled = _isCodexPlanMode(_activeCodexCollaborationMode);
+    final planModeEnabled = _isAgentPlanMode(_activeAgentCollaborationMode);
     final commands = <Map<String, dynamic>>[
-      _buildCodexCommandCard(
-        cardId: 'slash-command-codex-model',
+      _buildAgentCommandCard(
+        cardId: 'slash-command-agent-model',
         toolTitle: '/model',
         displayName: '/model',
         toolTypeLabel: LegacyTextLocalizer.isEnglish ? 'Model' : '模型',
-        status: _activeCodexModelId == null ? 'running' : 'success',
-        statusLabel: _activeCodexModelId == null
+        status: _activeAgentModelId == null ? 'running' : 'success',
+        statusLabel: _activeAgentModelId == null
             ? (LegacyTextLocalizer.isEnglish ? 'Select' : '选择')
-            : (_activeCodexModelId!),
-        summary: _activeCodexModelId == null
+            : (_activeAgentModelId!),
+        summary: _activeAgentModelId == null
             ? (LegacyTextLocalizer.isEnglish
-                  ? 'Choose a Codex model'
-                  : '选择 Codex 模型')
+                  ? 'Choose a model for $_activeAcpAgentDisplayName'
+                  : '选择 $_activeAcpAgentDisplayName 的模型')
             : (LegacyTextLocalizer.isEnglish
-                  ? 'Current model: $_activeCodexModelId'
-                  : '当前模型：$_activeCodexModelId'),
-        progress: _codexModelListError != null
-            ? _codexModelListError!
-            : _isCodexModelListLoading
+                  ? 'Current model: $_activeAgentModelId'
+                  : '当前模型：$_activeAgentModelId'),
+        progress: _agentModelListError != null
+            ? _agentModelListError!
+            : _isAgentModelListLoading
             ? (LegacyTextLocalizer.isEnglish ? 'Loading models' : '加载模型中')
-            : (_codexModelOptions.isEmpty
+            : (_agentModelOptions.isEmpty
                   ? (LegacyTextLocalizer.isEnglish
                         ? 'Tap to load models'
                         : '点击加载模型')
-                  : (_codexModelOptions.length == 1
+                  : (_agentModelOptions.length == 1
                         ? '1 model'
-                        : '${_codexModelOptions.length} models')),
+                        : '${_agentModelOptions.length} models')),
       ),
-      _buildCodexCommandCard(
-        cardId: 'slash-command-codex-review',
+      _buildAgentCommandCard(
+        cardId: 'slash-command-agent-review',
         toolTitle: '/review',
         displayName: '/review',
         toolTypeLabel: LegacyTextLocalizer.isEnglish ? 'Review' : '审查',
@@ -277,11 +314,11 @@ mixin _ChatPageUiMixin on _ChatPageStateBase {
             ? 'Review changes in the current workspace'
             : '审查当前工作区改动',
         progress: LegacyTextLocalizer.isEnglish
-            ? 'Runs Codex review on the active thread'
-            : '在当前线程中启动 Codex review',
+            ? 'Runs an Agent review on the active thread'
+            : '在当前线程中启动 Agent review',
       ),
-      _buildCodexCommandCard(
-        cardId: 'slash-command-codex-init',
+      _buildAgentCommandCard(
+        cardId: 'slash-command-agent-init',
         toolTitle: '/init',
         displayName: '/init',
         toolTypeLabel: LegacyTextLocalizer.isEnglish ? 'Init' : '初始化',
@@ -291,11 +328,11 @@ mixin _ChatPageUiMixin on _ChatPageStateBase {
             ? 'Generate or update AGENTS.md'
             : '生成或更新 AGENTS.md',
         progress: LegacyTextLocalizer.isEnglish
-            ? 'Creates Codex initialization guidance'
-            : '生成 Codex 初始化指引',
+            ? 'Creates $_activeAcpAgentDisplayName initialization guidance'
+            : '生成 $_activeAcpAgentDisplayName 初始化指引',
       ),
-      _buildCodexCommandCard(
-        cardId: 'slash-command-codex-plan',
+      _buildAgentCommandCard(
+        cardId: 'slash-command-agent-plan',
         toolTitle: '/plan',
         displayName: '/plan',
         toolTypeLabel: LegacyTextLocalizer.isEnglish ? 'Plan' : '计划',
@@ -310,17 +347,17 @@ mixin _ChatPageUiMixin on _ChatPageStateBase {
             : (LegacyTextLocalizer.isEnglish
                   ? 'Plan mode is off'
                   : '当前未启用 Plan 模式'),
-        progress: _codexCollaborationModeListError != null
-            ? _codexCollaborationModeListError!
-            : _isCodexCollaborationModeListLoading
+        progress: _agentCollaborationModeListError != null
+            ? _agentCollaborationModeListError!
+            : _isAgentCollaborationModeListLoading
             ? (LegacyTextLocalizer.isEnglish ? 'Loading modes' : '加载模式中')
-            : (_codexCollaborationModes.isEmpty
+            : (_agentCollaborationModes.isEmpty
                   ? (LegacyTextLocalizer.isEnglish
                         ? 'Tap to load modes'
                         : '点击加载模式')
-                  : (_codexCollaborationModes.length == 1
+                  : (_agentCollaborationModes.length == 1
                         ? '1 mode'
-                        : '${_codexCollaborationModes.length} modes')),
+                        : '${_agentCollaborationModes.length} modes')),
         isToggle: true,
         toggleValue: planModeEnabled,
       ),
@@ -336,60 +373,60 @@ mixin _ChatPageUiMixin on _ChatPageStateBase {
         .toList(growable: false);
   }
 
-  List<Map<String, dynamic>> _buildCodexModelCards() {
-    if (_codexModelOptions.isEmpty &&
-        !_isCodexModelListLoading &&
-        _codexModelListError == null) {
-      unawaited(_loadCodexModelOptions());
+  List<Map<String, dynamic>> _buildAgentModelCards() {
+    if (_agentModelOptions.isEmpty &&
+        !_isAgentModelListLoading &&
+        _agentModelListError == null) {
+      unawaited(_loadAgentModelOptionsWhenReady());
     }
     final query = _slashCommandRouteQuery(
-      _SlashCommandPanelRoute.codexModel,
+      _SlashCommandPanelRoute.agentModel,
     ).toLowerCase();
-    final availableModels = _codexModelOptions.isEmpty
+    final availableModels = _agentModelOptions.isEmpty
         ? <String>[]
-        : _codexModelOptions;
+        : _agentModelOptions;
     final filteredModels = availableModels
         .where(
           (modelId) => query.isEmpty || modelId.toLowerCase().contains(query),
         )
         .toList(growable: false);
-    final selectedModel = _activeCodexModelId;
+    final selectedModel = _activeAgentModelId;
     final orderedModels = <String>[
       if (selectedModel != null && filteredModels.contains(selectedModel))
         selectedModel,
       ...filteredModels.where((modelId) => modelId != selectedModel),
     ];
     if (orderedModels.isEmpty) {
-      final statusLabel = _codexModelListError != null
+      final statusLabel = _agentModelListError != null
           ? (LegacyTextLocalizer.isEnglish ? 'Error' : '错误')
-          : _isCodexModelListLoading
+          : _isAgentModelListLoading
           ? (LegacyTextLocalizer.isEnglish ? 'Loading' : '加载中')
           : (LegacyTextLocalizer.isEnglish ? 'No models' : '暂无模型');
       return <Map<String, dynamic>>[
-        _buildCodexCommandCard(
-          cardId: 'slash-command-codex-model-placeholder',
+        _buildAgentCommandCard(
+          cardId: 'slash-command-agent-model-placeholder',
           toolTitle: '/model',
           displayName: '/model',
           toolTypeLabel: LegacyTextLocalizer.isEnglish ? 'Model' : '模型',
-          status: _codexModelListError != null ? 'failed' : 'running',
+          status: _agentModelListError != null ? 'failed' : 'running',
           statusLabel: statusLabel,
           summary:
-              _codexModelListError ??
-              (_isCodexModelListLoading
+              _agentModelListError ??
+              (_isAgentModelListLoading
                   ? (LegacyTextLocalizer.isEnglish
                         ? 'Loading available models'
                         : '正在加载可用模型')
                   : (LegacyTextLocalizer.isEnglish
-                        ? 'Open /model to load Codex models'
-                        : '输入 /model 加载 Codex 模型')),
+                        ? 'Open /model to load $_activeAcpAgentDisplayName models'
+                        : '输入 /model 加载 $_activeAcpAgentDisplayName 模型')),
           progress: query.isEmpty ? '/model' : query,
         ),
       ];
     }
     return orderedModels
         .map(
-          (modelId) => _buildCodexCommandCard(
-            cardId: 'slash-command-codex-model-$modelId',
+          (modelId) => _buildAgentCommandCard(
+            cardId: 'slash-command-agent-model-$modelId',
             toolTitle: modelId,
             displayName: modelId,
             toolTypeLabel: LegacyTextLocalizer.isEnglish ? 'Model' : '模型',
@@ -408,7 +445,7 @@ mixin _ChatPageUiMixin on _ChatPageStateBase {
         .toList(growable: false);
   }
 
-  Map<String, dynamic> _buildCodexCommandCard({
+  Map<String, dynamic> _buildAgentCommandCard({
     required String cardId,
     required String toolTitle,
     required String displayName,
@@ -439,8 +476,8 @@ mixin _ChatPageUiMixin on _ChatPageStateBase {
   }
 
   void _handleSlashCommandCardSelected(Map<String, dynamic> cardData) {
-    if (_activeMode == ChatPageMode.codex) {
-      unawaited(_handleCodexSlashCommandCardSelected(cardData));
+    if (_activeMode == ChatPageMode.agent) {
+      unawaited(_handleAgentSlashCommandCardSelected(cardData));
       return;
     }
     final command = (cardData['toolTitle'] ?? cardData['displayName'] ?? '')
@@ -830,7 +867,16 @@ mixin _ChatPageUiMixin on _ChatPageStateBase {
   }) {
     final runtime = _runtimeForMode(mode);
     final resolvedMessages = runtime?.messages ?? _messagesByMode[mode]!;
-    final activeAgentTaskIds = runtime?.activeAgentTaskIds ?? const <String>{};
+    final activeAgentTaskIds = <String>{...?runtime?.activeAgentTaskIds};
+    final pendingDispatchTaskId =
+        runtime?.currentDispatchTaskId ?? _currentDispatchTaskIdByMode[mode];
+    final isAwaitingAgent =
+        runtime?.isAiResponding ?? (_isAiRespondingByMode[mode] ?? false);
+    if (mode == ChatPageMode.agent &&
+        isAwaitingAgent &&
+        pendingDispatchTaskId?.trim().isNotEmpty == true) {
+      activeAgentTaskIds.add(pendingDispatchTaskId!.trim());
+    }
     final toolActivitySnapshot = resolveAgentToolActivitySnapshot(
       List<ChatMessageModel>.from(resolvedMessages),
       activeTaskIds: activeAgentTaskIds,
@@ -856,6 +902,8 @@ mixin _ChatPageUiMixin on _ChatPageStateBase {
     return ChatMessageList(
       messages: resolvedMessages,
       activeAgentTaskIds: activeAgentTaskIds,
+      useAcpPresentation: mode == ChatPageMode.agent,
+      activeAcpAgentId: mode == ChatPageMode.agent ? _activeAcpAgentId : null,
       onRetryAgentMessage: _retryFailedAgentTurn,
       onContinueAgentMessage: _continueFailedAgentTurn,
       expandedAgentRunTaskIds: _expandedAgentRunTaskIdsForMode(mode),
@@ -868,11 +916,11 @@ mixin _ChatPageUiMixin on _ChatPageStateBase {
       emptyGreetingPinnedQuickPromptIds:
           homeGreetingSettings.pinnedQuickPromptIds,
       onQuickPromptSelected: _applyHomeQuickPrompt,
-      emptyGreetingCodexWorkspaceName: mode == ChatPageMode.codex
-          ? _codexRemoteWorkspaceNameForGreeting()
+      emptyGreetingAgentWorkspaceName: mode == ChatPageMode.agent
+          ? _remoteCodexWorkspaceNameForGreeting()
           : null,
-      onEmptyGreetingCodexWorkspaceTap: mode == ChatPageMode.codex
-          ? () => unawaited(_openCodexRemoteWorkspacePicker())
+      onEmptyGreetingAgentWorkspaceTap: mode == ChatPageMode.agent
+          ? () => unawaited(_openRemoteCodexWorkspacePicker())
           : null,
       scrollController: _scrollControllerForMode(mode),
       navigator: _messageListNavigatorByMode[mode],
@@ -891,17 +939,8 @@ mixin _ChatPageUiMixin on _ChatPageStateBase {
       onUserMessageLongPressStart: mode == ChatPageMode.normal
           ? _handleUserMessageLongPressStart
           : null,
-      editingUserMessageId: mode == ChatPageMode.normal
-          ? _editingUserMessageIdByMode[mode]
-          : null,
-      userMessageEditController: mode == ChatPageMode.normal
-          ? _userMessageEditControllerForMode(mode)
-          : null,
-      onUserMessageEditCancelled: mode == ChatPageMode.normal
-          ? _cancelUserMessageEditing
-          : null,
-      onUserMessageEditSaved: mode == ChatPageMode.normal
-          ? _saveAndResendEditedUserMessage
+      onLatestUserMessageEditTap: mode == ChatPageMode.normal
+          ? _startEditingLatestUserMessage
           : null,
       onLoadMore: loadMoreMessages,
       hasMore: hasMoreMessages,
@@ -952,11 +991,11 @@ mixin _ChatPageUiMixin on _ChatPageStateBase {
   }
 
   bool _shouldUseRemoteCodexWorkspace() {
-    if (_activeMode != ChatPageMode.codex) {
+    if (_activeMode != ChatPageMode.agent) {
       return false;
     }
-    final runtime = _codexStatus.runtime?.trim();
-    return runtime == 'remote' || _codexStatus.remoteEnabled;
+    final runtime = _agentRuntimeStatus.runtime?.trim();
+    return runtime == 'remote' || _agentRuntimeStatus.remoteEnabled;
   }
 
   Widget _buildRemoteCodexWorkspaceBrowser({
@@ -964,9 +1003,9 @@ mixin _ChatPageUiMixin on _ChatPageStateBase {
     required bool translucentSurfaces,
     required bool enableSystemBackHandler,
   }) {
-    final workspacePath = (_codexStatus.remoteCwd ?? _codexStatus.cwd ?? '')
-        .trim();
-    final bridgeUrl = (_codexStatus.remoteBridgeUrl ?? '').trim();
+    final workspacePath =
+        (_agentRuntimeStatus.remoteCwd ?? _agentRuntimeStatus.cwd ?? '').trim();
+    final bridgeUrl = (_agentRuntimeStatus.remoteBridgeUrl ?? '').trim();
     if (workspacePath.isEmpty) {
       return _buildRemoteCodexWorkspaceUnavailable();
     }
@@ -1009,8 +1048,8 @@ mixin _ChatPageUiMixin on _ChatPageStateBase {
             const SizedBox(height: 12),
             Text(
               LegacyTextLocalizer.isEnglish
-                  ? 'Remote Codex workspace is not configured'
-                  : '远程 Codex 工作目录尚未配置',
+                  ? 'Remote Agent workspace is not configured'
+                  : '远程 Agent 工作目录尚未配置',
               textAlign: TextAlign.center,
               style: TextStyle(
                 color: palette.textPrimary,
@@ -1021,8 +1060,8 @@ mixin _ChatPageUiMixin on _ChatPageStateBase {
             const SizedBox(height: 8),
             Text(
               LegacyTextLocalizer.isEnglish
-                  ? 'Open Codex settings and set a remote cwd, or scan the PC Bridge QR code.'
-                  : '请在 Codex 配置中设置远程工作目录，或扫描 PC Bridge 二维码。',
+                  ? 'Open Agent settings and set a remote cwd, or scan the PC Bridge QR code.'
+                  : '请在 Agent 配置中设置远程工作目录，或扫描 PC Bridge 二维码。',
               textAlign: TextAlign.center,
               style: TextStyle(
                 color: palette.textSecondary,
@@ -1032,9 +1071,10 @@ mixin _ChatPageUiMixin on _ChatPageStateBase {
             ),
             const SizedBox(height: 14),
             TextButton.icon(
-              onPressed: () => GoRouterManager.push('/home/codex_setting'),
+              onPressed: () =>
+                  GoRouterManager.push('/home/remote_codex_setting'),
               icon: const Icon(Icons.settings_outlined, size: 18),
-              label: Text(LegacyTextLocalizer.localize('Codex 配置')),
+              label: Text(LegacyTextLocalizer.localize('Agent 配置')),
             ),
           ],
         ),
@@ -1186,21 +1226,26 @@ mixin _ChatPageUiMixin on _ChatPageStateBase {
           children: [
             ChatAppBar(
               onMenuTap: onMenuTap,
-              onAgentTap: () {
+              onPetTap: () {
+                unawaited(_handlePetOverlayTap());
+              },
+              isPetOpening: _isPetOverlayOpening,
+              isPetShowing: _isPetOverlayShowing,
+              onOmniAiTap: () {
                 unawaited(_handleAgentModeShortcutTap());
               },
               onPureChatToggleTap: () {
                 unawaited(_handlePureChatModeShortcutTap());
               },
-              onCodexTap: () {
-                unawaited(_handleCodexTap());
+              onAgentTap: () {
+                unawaited(_handleAgentTap());
               },
-              onPrimaryModeTap: _activeMode == ChatPageMode.codex
-                  ? () => GoRouterManager.push('/home/codex_sessions')
+              onAcpAgentTap: (agentId) {
+                unawaited(_handleAcpAgentModeShortcutTap(agentId));
+              },
+              onPrimaryModeTap: _activeMode == ChatPageMode.agent
+                  ? () => GoRouterManager.push('/home/agent_sessions')
                   : null,
-              onCompanionTap: () {
-                unawaited(_toggleCompanionMode());
-              },
               activeMode: appBarMode,
               onModeChanged: (value) {
                 unawaited(_switchChatMode(value, syncPage: true));
@@ -1215,14 +1260,15 @@ mixin _ChatPageUiMixin on _ChatPageStateBase {
               hasTerminalEnvironment: _terminalEnvironmentVariables.isNotEmpty,
               isBrowserEnabled: _isBrowserSessionAvailable,
               activeToolType: _lastAgentToolType,
-              isCompanionModeEnabled: _isCompanionModeEnabled,
-              isCompanionToggleLoading: _isCompanionToggleLoading,
-              isCodexReady: _codexStatus.ready,
-              isCodexConnected: _codexStatus.connected,
-              isCodexLoading: _isCodexStatusLoading,
-              isCodexSelected: _activeMode == ChatPageMode.codex,
-              isAgentSelected:
+              isAgentReady: _agentRuntimeStatus.ready,
+              isAgentConnected: _agentRuntimeStatus.connected,
+              isAgentLoading:
+                  _isAgentRuntimeStatusLoading || _isAcpAgentSwitching,
+              isAgentSelected: _activeMode == ChatPageMode.agent,
+              isOmniAiSelected:
                   _activeMode == ChatPageMode.normal && !_isPureChatSelected,
+              acpAgentModes: _chatAcpAgentModeOptions,
+              activeAcpAgentId: _activeAcpAgentId,
               showAppUpdateIndicator: showAppUpdateIndicator,
               appUpdateTooltip: appUpdateTooltip,
               onAppUpdateTap: showAppUpdateIndicator
@@ -1236,7 +1282,7 @@ mixin _ChatPageUiMixin on _ChatPageStateBase {
               showSurfaceSwitcher: showSurfaceSwitcher,
               showPureChatToggle:
                   _activeMode == ChatPageMode.normal ||
-                  _activeMode == ChatPageMode.codex,
+                  _activeMode == ChatPageMode.agent,
               isPureChatSelected: _isPureChatSelected,
               isPureChatToggleLocked: _isPureChatToggleLocked,
               showDebugConversationIdCopy: !kReleaseMode,
@@ -1251,22 +1297,6 @@ mixin _ChatPageUiMixin on _ChatPageStateBase {
             Expanded(child: conversationBody),
           ],
         ),
-        if (_vlmInfoQuestion != null)
-          Positioned(
-            left: 0,
-            right: 0,
-            bottom: composerReservedInset,
-            child: _buildNormalSurfaceTransition(
-              viewportWidth: constraints.maxWidth,
-              child: VlmInfoPrompt(
-                question: _vlmInfoQuestion!,
-                controller: _vlmAnswerController,
-                isSubmitting: _isSubmittingVlmReply,
-                onSubmit: onSubmitVlmInfo,
-                onDismiss: dismissVlmInfo,
-              ),
-            ),
-          ),
         if (_isInputAreaVisible)
           Positioned(
             left: 0,
@@ -1285,8 +1315,9 @@ mixin _ChatPageUiMixin on _ChatPageStateBase {
                       controller: _messageController,
                       focusNode: _inputFocusNode,
                       onRequestFocus: _armComposerLiftIntent,
-                      isProcessing: _isAiResponding,
-                      onSendMessage: _sendMessage,
+                      isProcessing:
+                          _isAiResponding && _editingUserMessageId == null,
+                      onSendMessage: _handleComposerSendMessage,
                       onCancelTask: _onCancelTask,
                       onPopupVisibilityChanged: _onPopupVisibilityChanged,
                       onTerminalTap: _handleTerminalToolTap,
@@ -1295,6 +1326,7 @@ mixin _ChatPageUiMixin on _ChatPageStateBase {
                       onPickAttachment: _pickAttachments,
                       onTriggerSlashCommand: _triggerSlashCommandPanel,
                       attachments: _pendingAttachments,
+                      hasExternalSendPayload: _editingUserMessageHasAttachments,
                       onRemoveAttachment: _removePendingAttachment,
                       selectedModelOverrideId:
                           _activeMode == ChatPageMode.normal &&
@@ -1324,28 +1356,32 @@ mixin _ChatPageUiMixin on _ChatPageStateBase {
                                   _openConversationModelSelector(anchorContext),
                             )
                           : null,
-                      codexRunSettings: _activeMode == ChatPageMode.codex
-                          ? CodexRunSettings(
-                              modelId: _activeCodexModelId ?? '',
+                      agentRunSettings: _activeMode == ChatPageMode.agent
+                          ? AgentRunSettings(
+                              agentName:
+                                  _agentRuntimeStatus.activeAgentName ??
+                                  _agentCatalog?.selectedAgent?.name ??
+                                  '',
+                              modelId: _activeAgentModelId ?? '',
                               reasoningEffort:
-                                  _activeCodexReasoningEffort ?? 'xhigh',
-                              modelOptions: _codexModelOptions,
+                                  _activeAgentReasoningEffort ?? '',
+                              modelOptions: _agentModelOptions,
                               reasoningEffortOptions:
-                                  _codexReasoningEffortOptions,
-                              isLoadingModels: _isCodexModelListLoading,
-                              modelListError: _codexModelListError,
+                                  _agentReasoningEffortOptions,
+                              isLoadingModels: _isAgentModelListLoading,
+                              modelListError: _agentModelListError,
                             )
                           : null,
-                      onCodexRunSettingsOpened:
-                          _activeMode == ChatPageMode.codex
-                          ? () => _loadCodexModelOptions(force: true)
+                      onAgentRunSettingsOpened:
+                          _activeMode == ChatPageMode.agent
+                          ? _loadAgentModelOptionsWhenReady
                           : null,
-                      onCodexRunSettingsChanged:
-                          _activeMode == ChatPageMode.codex
+                      onAgentRunSettingsChanged:
+                          _activeMode == ChatPageMode.agent
                           ? ({String? modelId, String? reasoningEffort}) {
                               if (modelId != null) {
                                 unawaited(
-                                  _selectCodexModel(
+                                  _selectAgentModel(
                                     modelId,
                                     clearComposer: false,
                                   ),
@@ -1353,19 +1389,28 @@ mixin _ChatPageUiMixin on _ChatPageStateBase {
                               }
                               if (reasoningEffort != null) {
                                 unawaited(
-                                  _selectCodexReasoningEffort(reasoningEffort),
+                                  _selectAgentReasoningEffort(reasoningEffort),
                                 );
                               }
                             }
                           : null,
-                      codexPermissionMode: _activeMode == ChatPageMode.codex
-                          ? _codexPermissionMode
+                      agentPermissionMode: _activeMode == ChatPageMode.agent
+                          ? _agentPermissionMode
                           : null,
-                      onCodexPermissionModeChanged:
-                          _activeMode == ChatPageMode.codex
+                      agentPermissionModes:
+                          _activeMode == ChatPageMode.agent &&
+                              _agentRuntimeStatus.runtime != 'remote' &&
+                              !_agentRuntimeStatus.remoteEnabled
+                          ? const <AgentPermissionMode>[
+                              AgentPermissionMode.defaultMode,
+                              AgentPermissionMode.fullAccess,
+                            ]
+                          : AgentPermissionMode.values,
+                      onAgentPermissionModeChanged:
+                          _activeMode == ChatPageMode.agent
                           ? (mode) {
                               setState(() {
-                                _codexPermissionMode = mode;
+                                _agentPermissionMode = mode;
                               });
                             }
                           : null,
@@ -1493,7 +1538,6 @@ mixin _ChatPageUiMixin on _ChatPageStateBase {
     );
     final visible =
         _isInputAreaVisible &&
-        _vlmInfoQuestion == null &&
         !_showModelMentionPanel &&
         !_openClawPanelExpanded &&
         !_isPopupVisible;
@@ -1506,6 +1550,12 @@ mixin _ChatPageUiMixin on _ChatPageStateBase {
       visible: visible,
       onJumpToEntry: (entryKey) =>
           _messageListNavigatorByMode[mode]!.animateToEntry(entryKey),
+      onExpandedChanged: (expanded) {
+        if (!mounted || _messageAnchorExpanded == expanded) {
+          return;
+        }
+        setState(() => _messageAnchorExpanded = expanded);
+      },
     );
   }
 
@@ -1625,6 +1675,9 @@ mixin _ChatPageUiMixin on _ChatPageStateBase {
                               key: _drawerKey,
                               embedded: true,
                               closeOnNavigate: false,
+                              onSearchFocusChanged:
+                                  _handleHomeDrawerSearchFocusChanged,
+                              searchFieldKey: _drawerSearchFieldKey,
                               newConversationMode: _conversationModeForPageMode(
                                 _activeMode,
                               ),
@@ -1819,13 +1872,15 @@ mixin _ChatPageUiMixin on _ChatPageStateBase {
     final activeMessageListInputFocused = _isMessageListInputFocusedForMode(
       _activeMode,
     );
-    final shouldLiftComposerForKeyboard = _composerLiftIntentTracker.update(
-      hasInputIntent:
-          _inputFocusNode.hasFocus ||
-          _editingUserMessageId != null ||
-          activeMessageListInputFocused,
-      bottomInset: bottomInset,
-    );
+    final shouldLiftComposerForKeyboard = _isHomeDrawerSearchFocused
+        ? false
+        : _composerLiftIntentTracker.update(
+            hasInputIntent:
+                _inputFocusNode.hasFocus ||
+                _editingUserMessageId != null ||
+                activeMessageListInputFocused,
+            bottomInset: bottomInset,
+          );
     final composerKeyboardMetrics = _composerKeyboardMetricsTracker.update(
       shouldLiftComposerForKeyboard: shouldLiftComposerForKeyboard,
       bottomInset: bottomInset,
@@ -1882,6 +1937,8 @@ mixin _ChatPageUiMixin on _ChatPageStateBase {
                 key: _scaffoldKey,
                 backgroundColor: Colors.transparent,
                 resizeToAvoidBottomInset: false,
+                // 锚点面板展开时关闭抽屉的边缘侧滑，避免轻滑误触发 home_drawer。
+                drawerEnableOpenDragGesture: !_messageAnchorExpanded,
                 drawer: isHdPadLandscape
                     ? null
                     : HomeDrawer(
@@ -1889,18 +1946,13 @@ mixin _ChatPageUiMixin on _ChatPageStateBase {
                         newConversationMode: _conversationModeForPageMode(
                           _activeMode,
                         ),
+                        onSearchFocusChanged:
+                            _handleHomeDrawerSearchFocusChanged,
+                        searchFieldKey: _drawerSearchFieldKey,
                       ),
-                onDrawerChanged: (isOpen) {
-                  if (isHdPadLandscape) {
-                    return;
-                  }
-                  if (isOpen) {
-                    _dismissChatInputFocus();
-                    _drawerKey.currentState?.reloadConversations();
-                  } else {
-                    checkAndHandleDeletedConversation();
-                  }
-                },
+                onDrawerChanged: isHdPadLandscape
+                    ? null
+                    : _handleHomeDrawerChanged,
                 body: Stack(
                   fit: StackFit.expand,
                   children: [
@@ -2196,6 +2248,35 @@ mixin _ChatPageUiMixin on _ChatPageStateBase {
     return false;
   }
 
+  ChatMessageModel? _currentEditingUserMessage() {
+    final editingMessageId = _editingUserMessageId;
+    if (editingMessageId == null) return null;
+    for (final message in _messages) {
+      if (message.id == editingMessageId && message.user == 1) {
+        return message;
+      }
+    }
+    return null;
+  }
+
+  bool get _editingUserMessageHasAttachments {
+    final message = _currentEditingUserMessage();
+    return message != null && _extractRetryAttachments(message).isNotEmpty;
+  }
+
+  Future<void> _handleComposerSendMessage({String? text}) async {
+    if (_editingUserMessageId != null) {
+      final message = _currentEditingUserMessage();
+      if (message == null) {
+        _stopUserMessageEditing();
+        return;
+      }
+      await _saveAndResendEditedUserMessage(message);
+      return;
+    }
+    await _sendMessage(text: text);
+  }
+
   void _startEditingLatestUserMessage(ChatMessageModel message) {
     if (!_isLatestUserMessage(message)) {
       showToast(
@@ -2205,31 +2286,37 @@ mixin _ChatPageUiMixin on _ChatPageStateBase {
       return;
     }
     final originalText = message.text ?? '';
+    _suppressNextOutsideTapKeyboardHide = true;
+    _armComposerLiftIntent();
     setState(() {
-      _armComposerLiftIntent();
       _editingUserMessageId = message.id;
-      _editingUserMessageController.value = TextEditingValue(
-        text: originalText,
-        selection: TextSelection.collapsed(offset: originalText.length),
-      );
+      _draftMessageByMode[_activeMode] = originalText;
+      _pendingAttachments.clear();
+    });
+    _messageController.value = TextEditingValue(
+      text: originalText,
+      selection: TextSelection.collapsed(offset: originalText.length),
+    );
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || _editingUserMessageId != message.id) return;
+      _requestComposerFocus(showKeyboard: true);
     });
   }
 
-  void _cancelUserMessageEditing() {
-    if (_editingUserMessageId == null &&
-        _editingUserMessageController.text.isEmpty) {
-      return;
-    }
+  void _stopUserMessageEditing() {
+    if (_editingUserMessageId == null) return;
+    final mode = _activeMode;
     setState(() {
       _editingUserMessageId = null;
-      _editingUserMessageController.clear();
     });
+    _draftMessageByMode[mode] = '';
+    _messageController.clear();
   }
 
   Future<void> _saveAndResendEditedUserMessage(ChatMessageModel message) async {
     if (_editingUserMessageId != message.id) return;
     if (!_isLatestUserMessage(message)) {
-      _cancelUserMessageEditing();
+      _stopUserMessageEditing();
       showToast(
         'Only the latest user message can be edited',
         type: ToastType.warning,
@@ -2237,7 +2324,7 @@ mixin _ChatPageUiMixin on _ChatPageStateBase {
       return;
     }
 
-    final editedText = _editingUserMessageController.text.trim();
+    final editedText = _messageController.text.trim();
     final attachments = _extractRetryAttachments(message);
     if (editedText.isEmpty && attachments.isEmpty) {
       showToast('No content to send after editing', type: ToastType.warning);
@@ -2246,9 +2333,6 @@ mixin _ChatPageUiMixin on _ChatPageStateBase {
     if (!await _ensureNormalChatModelConfigurationForSend()) {
       return;
     }
-
-    _cancelUserMessageEditing();
-    if (!mounted) return;
 
     await _clearRetriedMessageRound(message);
     if (!mounted) return;
@@ -2276,10 +2360,13 @@ mixin _ChatPageUiMixin on _ChatPageStateBase {
     setState(() {
       if (shouldClearEditState) {
         _editingUserMessageId = null;
-        _editingUserMessageController.clear();
       }
       _messages.removeRange(0, removeCount);
     });
+    if (shouldClearEditState) {
+      _draftMessageByMode[_activeMode] = '';
+      _messageController.clear();
+    }
 
     final conversationId = _currentConversationId;
     if (conversationId == null) return;
@@ -2363,7 +2450,7 @@ mixin _ChatPageUiMixin on _ChatPageStateBase {
     }
 
     if (_editingUserMessageId == message.id) {
-      _cancelUserMessageEditing();
+      _stopUserMessageEditing();
       if (!mounted) return;
     }
 
@@ -2606,9 +2693,12 @@ mixin _ChatPageUiMixin on _ChatPageStateBase {
     // resolveAgentFinalErrorResolution 设了 persistAsError=true → isError=true),
     // 续跑前清掉它,避免在新流到达前残留 "Failed to connect..." 一类文字。
     // 若 isError=false,说明 text 是真实的半截输出,保留待新流首帧整体替换。
-    final errorTextSnapshot = (content['agentErrorText'] ?? '').toString().trim();
+    final errorTextSnapshot = (content['agentErrorText'] ?? '')
+        .toString()
+        .trim();
     final bubbleText = (content['text'] ?? '').toString().trim();
-    final textIsErrorOnly = message.isError == true ||
+    final textIsErrorOnly =
+        message.isError == true ||
         (errorTextSnapshot.isNotEmpty && errorTextSnapshot == bubbleText);
     if (textIsErrorOnly) {
       content['text'] = '';
@@ -2715,7 +2805,16 @@ class _UserMessageQuickMenuContent extends StatelessWidget {
                 onTap: () => _select(context, _UserMessageQuickAction.copy),
               ),
               if (showEditAction) ...[
-                Divider(height: 1, thickness: 1, color: dividerColor),
+                Divider(
+                  height: 1,
+                  thickness: 1,
+                  // 横线不占满宽度——两侧缩进到与菜单项内容 (icon/文字,
+                  // 水平 padding 14) 对齐,像原生"全选｜复制｜发送"那样只占
+                  // 中间一段,而不是贴着面板左右边。
+                  indent: 14,
+                  endIndent: 14,
+                  color: dividerColor,
+                ),
                 _buildAction(
                   context,
                   icon: Icons.edit_outlined,
@@ -2724,7 +2823,16 @@ class _UserMessageQuickMenuContent extends StatelessWidget {
                 ),
               ],
               if (showRetryAction) ...[
-                Divider(height: 1, thickness: 1, color: dividerColor),
+                Divider(
+                  height: 1,
+                  thickness: 1,
+                  // 横线不占满宽度——两侧缩进到与菜单项内容 (icon/文字,
+                  // 水平 padding 14) 对齐,像原生"全选｜复制｜发送"那样只占
+                  // 中间一段,而不是贴着面板左右边。
+                  indent: 14,
+                  endIndent: 14,
+                  color: dividerColor,
+                ),
                 _buildAction(
                   context,
                   icon: Icons.refresh_rounded,

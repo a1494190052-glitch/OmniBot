@@ -106,16 +106,15 @@ object OobActionSchema {
             name = "click",
             kind = Kind.ACTION,
             uiLabel = LocalizedText(zhCn = "点击", enUs = "Click"),
-            description = LocalizedText(zhCn = "点击一个可见目标；必须按 schema 提供 target_description、x、y。", enUs = "Tap a visible target; provide target_description, x, and y as required by the schema."),
-            promptGuide = LocalizedText(zhCn = "- click(target_description, x, y): 点击可见目标；x/y 是 required 的 0..1000 相对坐标。", enUs = "- click(target_description, x, y): Tap a visible target; x/y are required 0..1000 relative coordinates."),
+            description = LocalizedText(zhCn = "点击一个可见目标；x、y 必须提供，target_description 可选。", enUs = "Tap a visible target; x and y are required, while target_description is optional."),
+            promptGuide = LocalizedText(zhCn = "- click(target_description?, x, y): 点击可见目标；x/y 是 required 的 0..1000 相对坐标，target_description 用于补充 grounding。", enUs = "- click(target_description?, x, y): Tap a visible target; x/y are required 0..1000 relative coordinates, and target_description is an optional grounding hint."),
             argsTemplate = emptyMap(),
             args = listOf(
 ArgSpec(
                     name = "target_description",
                     type = Type.STRING,
-                    required = true,
                     persisted = false,
-                    description = LocalizedText(zhCn = "要点击的目标描述。", enUs = "Description of the target to tap."),
+                    description = LocalizedText(zhCn = "可选。要点击的目标描述，用于补充 grounding。", enUs = "Optional. Description of the target to tap, used as a grounding hint."),
                 ),
 ArgSpec(
                     name = "node_id",
@@ -159,15 +158,14 @@ ArgSpec(
             kind = Kind.ACTION,
             uiLabel = LocalizedText(zhCn = "长按", enUs = "Long press"),
             description = LocalizedText(zhCn = "长按一个目标。", enUs = "Long-press a target."),
-            promptGuide = LocalizedText(zhCn = "- long_press(target_description, x, y): 长按目标；x/y 是 required 的 0..1000 相对坐标。", enUs = "- long_press(target_description, x, y): Long-press a target; x/y are required 0..1000 relative coordinates."),
+            promptGuide = LocalizedText(zhCn = "- long_press(target_description?, x, y): 长按目标；x/y 是 required 的 0..1000 相对坐标，target_description 用于补充 grounding。", enUs = "- long_press(target_description?, x, y): Long-press a target; x/y are required 0..1000 relative coordinates, and target_description is an optional grounding hint."),
             argsTemplate = emptyMap(),
             args = listOf(
 ArgSpec(
                     name = "target_description",
                     type = Type.STRING,
-                    required = true,
                     persisted = false,
-                    description = LocalizedText(zhCn = "要长按的目标描述。", enUs = "Description of the target to long-press."),
+                    description = LocalizedText(zhCn = "可选。要长按的目标描述，用于补充 grounding。", enUs = "Optional. Description of the target to long-press, used as a grounding hint."),
                 ),
 ArgSpec(
                     name = "node_id",
@@ -216,16 +214,15 @@ ArgSpec(
             name = "input_text",
             kind = Kind.ACTION,
             uiLabel = LocalizedText(zhCn = "输入文本", enUs = "Input text"),
-            description = LocalizedText(zhCn = "向一个可见输入目标输入文本；必须按 schema 提供 target_description、text、x、y。", enUs = "Type text into a visible input target; provide target_description, text, x, and y as required by the schema."),
-            promptGuide = LocalizedText(zhCn = "- input_text(target_description, text, x, y): 向输入框输入；x/y 是 required 的 0..1000 相对坐标。", enUs = "- input_text(target_description, text, x, y): Type into an input field; x/y are required 0..1000 relative coordinates."),
+            description = LocalizedText(zhCn = "向一个可见输入目标输入文本；text、x、y 必须提供，target_description 可选。", enUs = "Type text into a visible input target; text, x, and y are required, while target_description is optional."),
+            promptGuide = LocalizedText(zhCn = "- input_text(target_description?, text, x, y): 向输入框输入；text、x/y 是 required，target_description 用于补充 grounding。", enUs = "- input_text(target_description?, text, x, y): Type into an input field; text and x/y are required, and target_description is an optional grounding hint."),
             argsTemplate = emptyMap(),
             args = listOf(
 ArgSpec(
                     name = "target_description",
                     type = Type.STRING,
-                    required = true,
                     persisted = false,
-                    description = LocalizedText(zhCn = "要输入文本的目标输入框描述。", enUs = "Description of the input target."),
+                    description = LocalizedText(zhCn = "可选。目标输入框描述，用于补充 grounding。", enUs = "Optional. Description of the input target, used as a grounding hint."),
                 ),
 ArgSpec(
                     name = "text",
@@ -277,15 +274,14 @@ ArgSpec(
             kind = Kind.ACTION,
             uiLabel = LocalizedText(zhCn = "滑动", enUs = "Swipe"),
             description = LocalizedText(zhCn = "在屏幕或可滚动区域内按方向滑动。", enUs = "Swipe in a direction on the screen or inside a scrollable region."),
-            promptGuide = LocalizedText(zhCn = "- swipe(target_description, direction, x1, y1, x2, y2, duration_ms?): 在屏幕或指定可滚动区域内滑动；direction 和 x1/y1/x2/y2 必须满足 schema.required。", enUs = "- swipe(target_description, direction, x1, y1, x2, y2, duration_ms?): Swipe on the screen or a target scrollable region; direction and x1/y1/x2/y2 must satisfy schema.required."),
+            promptGuide = LocalizedText(zhCn = "- swipe(target_description?, direction, x1, y1, x2, y2, duration_ms?): 在屏幕或指定可滚动区域内滑动；direction 和 x1/y1/x2/y2 必须提供，target_description 用于补充 grounding。", enUs = "- swipe(target_description?, direction, x1, y1, x2, y2, duration_ms?): Swipe on the screen or a target scrollable region; direction and x1/y1/x2/y2 are required, and target_description is an optional grounding hint."),
             argsTemplate = emptyMap(),
             args = listOf(
 ArgSpec(
                     name = "target_description",
                     type = Type.STRING,
-                    required = true,
                     persisted = false,
-                    description = LocalizedText(zhCn = "本次滑动想浏览或定位的目标描述。", enUs = "Description of what this swipe action is trying to browse or locate."),
+                    description = LocalizedText(zhCn = "可选。本次滑动想浏览或定位的目标描述，用于补充 grounding。", enUs = "Optional. Description of what this swipe action is trying to browse or locate, used as a grounding hint."),
                 ),
 ArgSpec(
                     name = "direction",
@@ -428,7 +424,7 @@ ArgSpec(
                     minimum = 0,
                 ),
             ),
-            modelVisible = true,
+            modelVisible = false,
             replayable = true,
             editorVisible = true,
             recordable = false,

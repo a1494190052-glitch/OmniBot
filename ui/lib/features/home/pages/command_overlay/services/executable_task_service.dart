@@ -11,12 +11,14 @@ class ExecutableTaskService {
     required String runMode,
     bool skipGoHome = false,
   }) async {
-    // OSS 版本统一走 VLM 执行。
-    return AssistsMessageService.createVLMOperationTask(
-      instruction,
-      taskId: taskId,
-      packageName: packageName,
-      skipGoHome: skipGoHome,
+    final goal = instruction.trim();
+    if (goal.isEmpty) return false;
+    final normalizedTaskId = taskId?.trim() ?? '';
+    return AssistsMessageService.createAgentTask(
+      taskId: normalizedTaskId.isEmpty
+          ? 'gui-${DateTime.now().microsecondsSinceEpoch}'
+          : normalizedTaskId,
+      userMessage: goal,
     );
   }
 

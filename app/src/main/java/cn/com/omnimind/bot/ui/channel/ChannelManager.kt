@@ -1,7 +1,6 @@
 package cn.com.omnimind.bot.ui.channel
 
 import android.content.Context
-import cn.com.omnimind.bot.localmodel.LocalModelFeature
 import io.flutter.embedding.engine.FlutterEngine
 
 /**
@@ -20,7 +19,6 @@ class ChannelManager {
     private var pdfPreviewChannel: PdfPreviewChannel = PdfPreviewChannel()
     private var hideFromRecentsChannel: HideFromRecentsChannel = HideFromRecentsChannel()
     private var appUpdateChannel: AppUpdateChannel = AppUpdateChannel()
-    private var screenDialogChannel: ScreenDialogChannel = ScreenDialogChannel()
 
     private var uiRouterChannel: UIRouterChannel = UIRouterChannel()
 
@@ -29,8 +27,7 @@ class ChannelManager {
     private var overlayChannel: OverlayChannel = OverlayChannel()
     private var browserSessionChannel: BrowserSessionChannel = BrowserSessionChannel()
     private var storageUsageChannel: StorageUsageChannel = StorageUsageChannel()
-    private var codexAppServerChannel: CodexAppServerChannel = CodexAppServerChannel()
-    private var imChannel: ImChannel = ImChannel()
+    private var agentRuntimeChannel: AgentRuntimeChannel = AgentRuntimeChannel()
     fun getUIRouterChannel(): UIRouterChannel {
         return uiRouterChannel
     }
@@ -51,16 +48,13 @@ class ChannelManager {
         pdfPreviewChannel.setChannel(flutterEngine)
         hideFromRecentsChannel.setChannel(flutterEngine)
         appUpdateChannel.setChannel(flutterEngine)
-        screenDialogChannel.setChannel(flutterEngine)
-        LocalModelFeature.setChannel(flutterEngine)
         uiRouterChannel.setChannel(flutterEngine)
         mcpServerChannel.setChannel(flutterEngine)
         remoteMcpConfigChannel.setChannel(flutterEngine)
         overlayChannel.setChannel(flutterEngine)
         browserSessionChannel.setChannel(flutterEngine)
         storageUsageChannel.setChannel(flutterEngine)
-        codexAppServerChannel.setChannel(flutterEngine)
-        imChannel.setChannel(flutterEngine)
+        agentRuntimeChannel.setChannel(flutterEngine)
     }
 
     fun onCreate(context: Context) {
@@ -73,13 +67,11 @@ class ChannelManager {
         pdfPreviewChannel.onCreate(context)
         hideFromRecentsChannel.onCreate(context)
         appUpdateChannel.onCreate(context)
-        LocalModelFeature.onChannelManagerCreate(context)
         mcpServerChannel.onCreate(context)
         remoteMcpConfigChannel.onCreate()
         overlayChannel.onCreate(context)
         storageUsageChannel.onCreate(context)
-        codexAppServerChannel.onCreate(context)
-        imChannel.onCreate(context)
+        agentRuntimeChannel.onCreate(context)
     }
 
     fun clearChannel() {
@@ -92,8 +84,6 @@ class ChannelManager {
         pdfPreviewChannel.clear()
         hideFromRecentsChannel.clear()
         appUpdateChannel.clear()
-        screenDialogChannel.clear()
-        LocalModelFeature.clearChannel()
         uiRouterChannel.clear()
         cacheChannel.clear()
         httpChannel.clear()
@@ -102,8 +92,7 @@ class ChannelManager {
         overlayChannel.clear()
         browserSessionChannel.clear()
         storageUsageChannel.clear()
-        codexAppServerChannel.clear()
-        imChannel.clear()
+        agentRuntimeChannel.clear()
     }
 
 

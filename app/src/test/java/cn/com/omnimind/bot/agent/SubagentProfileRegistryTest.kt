@@ -106,13 +106,12 @@ class SubagentProfileRegistryTest {
     @Test
     fun `general allows file_write and memory_upsert_longterm`() {
         val general = SubagentProfileRegistry.get("general")
-        // 扩容后:可写文件 + 可写长期记忆 + 视觉自动化 + 媒体 + 浏览
+        // 扩容后:可写文件 + 可写长期记忆 + 媒体 + 浏览
         assertTrue("file_write" in general.allowedTools)
         assertTrue("file_edit" in general.allowedTools)
         assertTrue("file_move" in general.allowedTools)
         assertTrue("memory_upsert_longterm" in general.allowedTools)
         assertTrue("memory_write_daily" in general.allowedTools)
-        assertTrue("vlm_task" in general.allowedTools)
         assertTrue("music_playback_control" in general.allowedTools)
         assertTrue("browser_use" in general.allowedTools)
     }

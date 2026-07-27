@@ -36,6 +36,12 @@ from omniflow.trajectory import (
     canonicalize_run_log,
     canonicalize_run_log_step,
 )
+from omniflow.transfer_memory import (
+    TRANSFER_PAIR_MEMORY_VERSION,
+    TransferDirection,
+    TransferPair,
+    TransferPairStore,
+)
 
 __all__ = [
     "Action",
@@ -63,6 +69,10 @@ __all__ = [
     "RuntimeSettings",
     "StepResult",
     "TreeEmbedding",
+    "TRANSFER_PAIR_MEMORY_VERSION",
+    "TransferDirection",
+    "TransferPair",
+    "TransferPairStore",
     "compile_runlog_to_store",
     "canonicalize_run_log",
     "canonicalize_run_log_step",

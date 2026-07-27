@@ -8,6 +8,7 @@ import android.os.Build
 import android.os.IBinder
 import com.rk.terminal.service.SessionService
 import com.rk.terminal.ui.screens.settings.WorkingMode
+import com.rk.settings.Settings
 import com.termux.terminal.TerminalSession
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
@@ -43,12 +44,17 @@ object ReTerminalSessionBridge {
         sessionId: String? = null,
         sessionTitle: String? = null,
         extraEnv: Map<String, String> = emptyMap(),
-        workingMode: Int = WorkingMode.ALPINE
+        workingMode: Int = Settings.terminal_distribution
     ): SessionAccessResult = withContext(Dispatchers.Main.immediate) {
         val sessionBinder = awaitBinder(context)
         val requestedSessionId = sessionId?.trim()?.takeIf { it.isNotEmpty() }
         requestedSessionId?.let { existingId ->
             sessionBinder.getSession(existingId)?.let { existing ->
+                val existingWorkingMode = sessionBinder.getService().sessionList[existingId]
+                if (existingWorkingMode != workingMode) {
+                    sessionBinder.terminateSession(existingId)
+                    return@let
+                }
                 if (existing.isRunning || awaitSessionRunning(existing)) {
                     return@withContext SessionAccessResult(
                         sessionId = requestedSessionId,

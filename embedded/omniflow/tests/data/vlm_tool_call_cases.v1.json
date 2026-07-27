@@ -1,0 +1,413 @@
+{
+  "schema_version": "oob.vlm_tool_call_cases.v1",
+  "valid_tool_calls": [
+    {
+      "id": "click_all_fields",
+      "tool": "click",
+      "arguments": {
+        "summary": "点击搜索",
+        "target_description": "Search",
+        "node_id": "node-7",
+        "node_resource_id": "demo:id/search",
+        "x": 500,
+        "y": 300
+      }
+    },
+    {
+      "id": "long_press_all_fields",
+      "tool": "long_press",
+      "arguments": {
+        "summary": "长按项目",
+        "target_description": "Item",
+        "node_id": "node-8",
+        "node_resource_id": "demo:id/item",
+        "x": 420,
+        "y": 610,
+        "duration_ms": 800
+      }
+    },
+    {
+      "id": "input_text_all_fields",
+      "tool": "input_text",
+      "arguments": {
+        "summary": "输入关键词",
+        "target_description": "Search field",
+        "text": "green tea",
+        "node_id": "node-9",
+        "node_resource_id": "demo:id/input",
+        "x": 500,
+        "y": 180
+      }
+    },
+    {
+      "id": "swipe_all_fields",
+      "tool": "swipe",
+      "arguments": {
+        "summary": "向上浏览",
+        "target_description": "Settings list",
+        "direction": "up",
+        "x": 500,
+        "y": 700,
+        "distance": 450,
+        "x1": 500,
+        "y1": 800,
+        "x2": 500,
+        "y2": 250,
+        "duration_ms": 450
+      }
+    },
+    {
+      "id": "open_app",
+      "tool": "open_app",
+      "arguments": {
+        "summary": "打开设置",
+        "package_name": "com.android.settings"
+      }
+    },
+    {
+      "id": "press_key",
+      "tool": "press_key",
+      "arguments": {
+        "summary": "返回上页",
+        "key": "back"
+      }
+    },
+    {
+      "id": "finished",
+      "tool": "finished",
+      "arguments": {
+        "summary": "目标完成",
+        "content": "Settings opened"
+      }
+    },
+    {
+      "id": "info",
+      "tool": "info",
+      "arguments": {
+        "summary": "询问账号",
+        "value": "Which account should I use?"
+      }
+    },
+    {
+      "id": "feedback",
+      "tool": "feedback",
+      "arguments": {
+        "summary": "请求重规划",
+        "value": "The current app does not match the goal"
+      }
+    },
+    {
+      "id": "abort",
+      "tool": "abort",
+      "arguments": {
+        "summary": "无法继续",
+        "value": "Required app is unavailable"
+      }
+    },
+    {
+      "id": "require_user_choice",
+      "tool": "require_user_choice",
+      "arguments": {
+        "summary": "请求选择",
+        "options": ["Personal", "Work"],
+        "prompt": "Choose an account type"
+      }
+    },
+    {
+      "id": "require_user_confirmation",
+      "tool": "require_user_confirmation",
+      "arguments": {
+        "summary": "请求确认",
+        "prompt": "Confirm the payment details"
+      }
+    }
+  ],
+  "invalid_tool_calls": [
+    {
+      "id": "hidden_wait",
+      "tool": "wait",
+      "arguments": {"summary": "等待", "duration_ms": 1000},
+      "error": "model_turn_tool_not_visible:wait"
+    },
+    {
+      "id": "hidden_get_state",
+      "tool": "get_state",
+      "arguments": {"summary": "刷新", "reason": "page changed"},
+      "error": "model_turn_tool_not_visible:get_state"
+    },
+    {
+      "id": "hidden_call_tool",
+      "tool": "call_tool",
+      "arguments": {"summary": "调用", "arguments": {}},
+      "error": "model_turn_tool_not_visible:call_tool"
+    },
+    {
+      "id": "unsupported_action_wrapper",
+      "tool": "action",
+      "arguments": {
+        "summary": "点击搜索",
+        "tool": "click",
+        "args": {"x": 500, "y": 300}
+      },
+      "error": "model_turn_tool_not_visible:action"
+    },
+    {
+      "id": "coordinate_pair_array",
+      "tool": "click",
+      "arguments": {"summary": "点击搜索", "x": [500, 300]},
+      "error": "canonical_action_arg_type_invalid:x"
+    },
+    {
+      "id": "coordinate_object",
+      "tool": "click",
+      "arguments": {"summary": "点击搜索", "x": {"x": 500, "y": 300}, "y": 300},
+      "error": "canonical_action_arg_type_invalid:x"
+    },
+    {
+      "id": "coordinate_string",
+      "tool": "click",
+      "arguments": {"summary": "点击搜索", "x": "500", "y": "300"},
+      "error": "canonical_action_arg_type_invalid:x"
+    },
+    {
+      "id": "coordinate_boolean",
+      "tool": "click",
+      "arguments": {"summary": "点击搜索", "x": true, "y": 300},
+      "error": "canonical_action_arg_type_invalid:x"
+    },
+    {
+      "id": "legacy_target_wrapper",
+      "tool": "click",
+      "arguments": {"summary": "点击搜索", "x": 500, "y": 300, "target": {"text": "Search"}},
+      "error": "canonical_action_args_unknown:click:target"
+    },
+    {
+      "id": "missing_click_y",
+      "tool": "click",
+      "arguments": {"summary": "点击搜索", "x": 500},
+      "error": "canonical_action_required_args_missing:click:y"
+    },
+    {
+      "id": "invalid_swipe_direction",
+      "tool": "swipe",
+      "arguments": {
+        "summary": "滑动",
+        "direction": "forward",
+        "x1": 500,
+        "y1": 800,
+        "x2": 500,
+        "y2": 200
+      },
+      "error": "canonical_action_arg_enum_invalid:direction"
+    },
+    {
+      "id": "invalid_press_key",
+      "tool": "press_key",
+      "arguments": {"summary": "按键", "key": "menu"},
+      "error": "canonical_action_arg_enum_invalid:key"
+    },
+    {
+      "id": "negative_duration",
+      "tool": "long_press",
+      "arguments": {"summary": "长按", "x": 500, "y": 300, "duration_ms": -1},
+      "error": "canonical_action_arg_range_invalid:duration_ms"
+    },
+    {
+      "id": "coordinate_overflow",
+      "tool": "click",
+      "arguments": {"summary": "点击", "x": 1001, "y": 300},
+      "error": "canonical_action_arg_range_invalid:x"
+    },
+    {
+      "id": "choice_options_wrong_type",
+      "tool": "require_user_choice",
+      "arguments": {"summary": "选择", "options": "Personal", "prompt": "Choose"},
+      "error": "canonical_action_arg_type_invalid:options"
+    }
+  ],
+  "adapted_tool_calls": [
+    {
+      "id": "qwen3_click_pair_missing_y",
+      "requested_model": "scene.vlm.operation.primary",
+      "resolved_model": "Qwen3-VL-235B-A22B-Instruct",
+      "adapter_model": "Qwen3-VL-235B-A22B-Instruct",
+      "tool": "click",
+      "arguments": {"summary": "点击返回", "x": [67, 83]},
+      "expected_args": {"x": 67, "y": 83},
+      "expected_changes": [
+        {"source_field": "x", "source_shape": "number_pair", "target_fields": ["x", "y"]}
+      ]
+    },
+    {
+      "id": "qwen3_click_pair_with_singleton_y",
+      "requested_model": "scene.vlm.operation.primary",
+      "resolved_model": "Qwen3-VL-235B-A22B-Instruct",
+      "adapter_model": "Qwen3-VL-235B-A22B-Instruct",
+      "tool": "click",
+      "arguments": {"summary": "点击隐私", "x": [333.3333333333333, 150], "y": [150]},
+      "expected_args": {"x": 333.3333333333333, "y": 150},
+      "expected_changes": [
+        {"source_field": "x", "source_shape": "number_pair", "target_fields": ["x", "y"]}
+      ]
+    },
+    {
+      "id": "qwen25_click_singleton_coordinates",
+      "requested_model": "scene.vlm.operation.primary",
+      "resolved_model": "Qwen/Qwen2.5-VL-72B-Instruct",
+      "adapter_model": "Qwen/Qwen2.5-VL-72B-Instruct",
+      "tool": "click",
+      "arguments": {"summary": "点击服务", "x": [500], "y": [464]},
+      "expected_args": {"x": 500, "y": 464},
+      "expected_changes": [
+        {"source_field": "x", "source_shape": "singleton_number_array", "target_fields": ["x"]},
+        {"source_field": "y", "source_shape": "singleton_number_array", "target_fields": ["y"]}
+      ]
+    },
+    {
+      "id": "qwen3_long_press_pair_with_scalar_y",
+      "requested_model": "scene.vlm.operation.primary",
+      "resolved_model": "Qwen3-VL-235B-A22B-Instruct",
+      "adapter_model": "Qwen3-VL-235B-A22B-Instruct",
+      "tool": "long_press",
+      "arguments": {"summary": "长按项目", "x": [420, 610], "y": 610, "duration_ms": 800},
+      "expected_args": {"x": 420, "y": 610, "duration_ms": 800},
+      "expected_changes": [
+        {"source_field": "x", "source_shape": "number_pair", "target_fields": ["x", "y"]}
+      ]
+    },
+    {
+      "id": "qwen3_input_text_pair_with_singleton_y",
+      "requested_model": "scene.vlm.operation.primary",
+      "resolved_model": "Qwen3-VL-235B-A22B-Instruct",
+      "adapter_model": "Qwen3-VL-235B-A22B-Instruct",
+      "tool": "input_text",
+      "arguments": {"summary": "输入关键词", "text": "green tea", "x": [500, 180], "y": [180]},
+      "expected_args": {"text": "green tea", "x": 500, "y": 180},
+      "expected_changes": [
+        {"source_field": "x", "source_shape": "number_pair", "target_fields": ["x", "y"]}
+      ]
+    },
+    {
+      "id": "qwen3_swipe_coordinate_pairs",
+      "requested_model": "scene.vlm.operation.primary",
+      "resolved_model": "Qwen3-VL-235B-A22B-Instruct",
+      "adapter_model": "Qwen3-VL-235B-A22B-Instruct",
+      "tool": "swipe",
+      "arguments": {"summary": "向上浏览", "direction": "up", "x1": [500, 800], "x2": [500, 250]},
+      "expected_args": {"direction": "up", "x1": 500, "y1": 800, "x2": 500, "y2": 250},
+      "expected_changes": [
+        {"source_field": "x1", "source_shape": "number_pair", "target_fields": ["x1", "y1"]},
+        {"source_field": "x2", "source_shape": "number_pair", "target_fields": ["x2", "y2"]}
+      ]
+    },
+    {
+      "id": "qwen3_swipe_singleton_coordinates",
+      "requested_model": "scene.vlm.operation.primary",
+      "resolved_model": "Qwen3-VL-235B-A22B-Instruct",
+      "adapter_model": "Qwen3-VL-235B-A22B-Instruct",
+      "tool": "swipe",
+      "arguments": {"summary": "向下浏览", "direction": "down", "x1": [499], "y1": [837], "x2": [499], "y2": [331]},
+      "expected_args": {"direction": "down", "x1": 499, "y1": 837, "x2": 499, "y2": 331},
+      "expected_changes": [
+        {"source_field": "x1", "source_shape": "singleton_number_array", "target_fields": ["x1"]},
+        {"source_field": "y1", "source_shape": "singleton_number_array", "target_fields": ["y1"]},
+        {"source_field": "x2", "source_shape": "singleton_number_array", "target_fields": ["x2"]},
+        {"source_field": "y2", "source_shape": "singleton_number_array", "target_fields": ["y2"]}
+      ]
+    },
+    {
+      "id": "requested_qwen_model_fallback",
+      "requested_model": "Qwen3-VL-235B-A22B-Instruct",
+      "resolved_model": "scene.vlm.operation.primary",
+      "adapter_model": "Qwen3-VL-235B-A22B-Instruct",
+      "tool": "click",
+      "arguments": {"summary": "点击中心", "x": [500, 464]},
+      "expected_args": {"x": 500, "y": 464},
+      "expected_changes": [
+        {"source_field": "x", "source_shape": "number_pair", "target_fields": ["x", "y"]}
+      ]
+    }
+  ],
+  "adapter_rejection_cases": [
+    {
+      "id": "non_qwen_pair_is_not_adapted",
+      "requested_model": "gui-model",
+      "resolved_model": "resolved-gui-model",
+      "tool": "click",
+      "arguments": {"summary": "点击搜索", "x": [500, 300]},
+      "error": "canonical_action_arg_type_invalid:x"
+    },
+    {
+      "id": "qwen_pair_conflicts_with_scalar_y",
+      "requested_model": "scene.vlm.operation.primary",
+      "resolved_model": "Qwen3-VL-235B-A22B-Instruct",
+      "tool": "click",
+      "arguments": {"summary": "点击搜索", "x": [500, 300], "y": 301},
+      "error": "canonical_action_arg_type_invalid:x"
+    },
+    {
+      "id": "qwen_pair_conflicts_with_singleton_y",
+      "requested_model": "scene.vlm.operation.primary",
+      "resolved_model": "Qwen3-VL-235B-A22B-Instruct",
+      "tool": "click",
+      "arguments": {"summary": "点击搜索", "x": [500, 300], "y": [301]},
+      "error": "canonical_action_arg_type_invalid:x"
+    },
+    {
+      "id": "qwen_coordinate_array_has_extra_values",
+      "requested_model": "scene.vlm.operation.primary",
+      "resolved_model": "Qwen3-VL-235B-A22B-Instruct",
+      "tool": "click",
+      "arguments": {"summary": "点击搜索", "x": [500, 300, 1]},
+      "error": "canonical_action_arg_type_invalid:x"
+    },
+    {
+      "id": "qwen_coordinate_pair_contains_text",
+      "requested_model": "scene.vlm.operation.primary",
+      "resolved_model": "Qwen3-VL-235B-A22B-Instruct",
+      "tool": "click",
+      "arguments": {"summary": "点击搜索", "x": ["500", 300]},
+      "error": "canonical_action_arg_type_invalid:x"
+    },
+    {
+      "id": "qwen_singleton_x_does_not_invent_missing_y",
+      "requested_model": "scene.vlm.operation.primary",
+      "resolved_model": "Qwen3-VL-235B-A22B-Instruct",
+      "tool": "click",
+      "arguments": {"summary": "点击搜索", "x": [500]},
+      "error": "canonical_action_required_args_missing:click:y"
+    },
+    {
+      "id": "qwen_swipe_pair_conflicts_with_y1",
+      "requested_model": "scene.vlm.operation.primary",
+      "resolved_model": "Qwen3-VL-235B-A22B-Instruct",
+      "tool": "swipe",
+      "arguments": {"summary": "向上浏览", "direction": "up", "x1": [500, 800], "y1": 801, "x2": 500, "y2": 250},
+      "error": "canonical_action_arg_type_invalid:x1"
+    },
+    {
+      "id": "qwen_coordinate_object_is_not_adapted",
+      "requested_model": "scene.vlm.operation.primary",
+      "resolved_model": "Qwen3-VL-235B-A22B-Instruct",
+      "tool": "click",
+      "arguments": {"summary": "点击搜索", "x": {"x": 500, "y": 300}, "y": 300},
+      "error": "canonical_action_arg_type_invalid:x"
+    },
+    {
+      "id": "qwen_legacy_coordinate_alias_is_not_adapted",
+      "requested_model": "scene.vlm.operation.primary",
+      "resolved_model": "Qwen3-VL-235B-A22B-Instruct",
+      "tool": "click",
+      "arguments": {"summary": "点击搜索", "x": 500, "y": 300, "coordinates": [500, 300]},
+      "error": "canonical_action_args_unknown:click:coordinates"
+    },
+    {
+      "id": "qwen_non_coordinate_field_is_not_adapted",
+      "requested_model": "scene.vlm.operation.primary",
+      "resolved_model": "Qwen3-VL-235B-A22B-Instruct",
+      "tool": "open_app",
+      "arguments": {"summary": "打开设置", "package_name": ["com.android.settings"]},
+      "error": "canonical_action_arg_type_invalid:package_name"
+    }
+  ]
+}

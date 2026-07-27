@@ -5,6 +5,7 @@ import android.content.Context
 import android.content.Intent
 import android.util.Base64
 import cn.com.omnimind.baselib.util.OmniLog
+import cn.com.omnimind.bot.function.FunctionApi
 import cn.com.omnimind.bot.function.FunctionService
 import com.google.gson.GsonBuilder
 import com.google.gson.reflect.TypeToken
@@ -41,17 +42,23 @@ class DebugFunctionUpdateReceiver : BroadcastReceiver() {
 
                 val service = FunctionService(appContext)
                 val before = if (functionId.isNotBlank()) {
-                    service.getFunction(linkedMapOf("function_id" to functionId))
+                    service.executeTool(
+                        FunctionApi.FUNCTION_GET,
+                        linkedMapOf("function_id" to functionId),
+                    )
                 } else {
                     emptyMap()
                 }
                 val updateStartedAtMs = System.currentTimeMillis()
-                val update = service.updateFunction(args)
+                val update = service.executeTool(FunctionApi.FUNCTION_UPDATE, args)
                 val updateEndedAtMs = System.currentTimeMillis()
                 val afterFunctionId = update["function_id"]?.toString()?.takeIf { it.isNotBlank() }
                     ?: functionId
                 val after = if (afterFunctionId.isNotBlank()) {
-                    service.getFunction(linkedMapOf("function_id" to afterFunctionId))
+                    service.executeTool(
+                        FunctionApi.FUNCTION_GET,
+                        linkedMapOf("function_id" to afterFunctionId),
+                    )
                 } else {
                     emptyMap()
                 }

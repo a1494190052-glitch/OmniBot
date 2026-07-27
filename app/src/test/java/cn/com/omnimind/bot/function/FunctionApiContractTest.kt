@@ -78,4 +78,26 @@ class FunctionApiContractTest {
         assertTrue(enhance["description"].toString().contains("After base registration"))
         assertTrue(updateTool["description"].toString().contains("registers the base Function first"))
     }
+
+    @Test
+    fun `recall uses the bridge limit field without a Kotlin alias`() {
+        val recallTool = FunctionApi.mcpToolDefinitions.single {
+            it["name"] == FunctionApi.FUNCTION_RECALL
+        }
+        val properties = mapArg(mapArg(recallTool["inputSchema"])["properties"])
+
+        assertEquals(setOf("goal", "limit"), properties.keys)
+        assertFalse(properties.containsKey("k"))
+    }
+
+    @Test
+    fun `function skill exposes exactly its profile tools`() {
+        val names = FunctionApi.staticToolDefinitions(PromptLocale.EN_US).map { definition ->
+            val function = definition["function"] as JsonObject
+            function["name"]!!.jsonPrimitive.content
+        }.toSet()
+
+        assertEquals(FunctionApi.profileTools, names)
+        assertFalse(FunctionApi.FUNCTION_RECALL in names)
+    }
 }

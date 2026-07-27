@@ -97,9 +97,9 @@ class EmbeddedTerminalSetupManager(
                     .takeLast(1000)
                 throw IllegalStateException(
                     if (details.isNotBlank()) {
-                        "Alpine 终端启动失败，无法读取环境配置：$details"
+                        "终端环境启动失败，无法读取环境配置：$details"
                     } else {
-                        "Alpine 终端启动失败，无法读取环境配置。"
+                        "终端环境启动失败，无法读取环境配置。"
                     }
                 )
             }

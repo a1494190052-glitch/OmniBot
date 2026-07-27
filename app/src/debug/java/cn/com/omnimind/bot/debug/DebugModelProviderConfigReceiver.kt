@@ -8,8 +8,6 @@ import cn.com.omnimind.baselib.llm.ModelProviderProfile
 import cn.com.omnimind.baselib.llm.SceneModelBindingEntry
 import cn.com.omnimind.baselib.llm.SceneModelBindingStore
 import cn.com.omnimind.baselib.util.OmniLog
-import cn.com.omnimind.bot.agent.AgentAiCapabilityConfigSync
-import cn.com.omnimind.bot.manager.AssistsCoreManager
 import com.google.gson.GsonBuilder
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -23,6 +21,7 @@ class DebugModelProviderConfigReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent?) {
         val pendingResult = goAsync()
         val appContext = context.applicationContext
+        val operation = intent.stringExtra("operation").ifBlank { OPERATION_CONFIGURE }
         val baseUrl = intent.stringExtra("baseUrl", "base_url")
         val apiKey = intent.stringExtra("apiKey", "api_key")
         val modelId = intent.stringExtra("modelId", "model_id")
@@ -39,17 +38,23 @@ class DebugModelProviderConfigReceiver : BroadcastReceiver() {
         scope.launch {
             try {
                 val result = runCatching {
-                    configure(
-                        context = appContext,
-                        profileId = profileId,
-                        name = name,
-                        baseUrl = baseUrl,
-                        apiKey = apiKey,
-                        modelId = modelId,
-                        protocolType = protocolType,
-                        sceneIds = sceneIds,
-                        clearLegacyDefaultDebugBindings = useDefaultSceneIds,
-                    )
+                    when (operation) {
+                        OPERATION_QUERY -> queryState()
+                        OPERATION_SNAPSHOT -> snapshotState(appContext, profileId, sceneIds)
+                        OPERATION_RESTORE -> restoreState(appContext)
+                        OPERATION_CONFIGURE -> configure(
+                            context = appContext,
+                            profileId = profileId,
+                            name = name,
+                            baseUrl = baseUrl,
+                            apiKey = apiKey,
+                            modelId = modelId,
+                            protocolType = protocolType,
+                            sceneIds = sceneIds,
+                            clearLegacyDefaultDebugBindings = useDefaultSceneIds,
+                        )
+                        else -> error("unsupported operation: $operation")
+                    }
                 }.getOrElse { error ->
                     linkedMapOf<String, Any?>(
                         "success" to false,
@@ -65,6 +70,86 @@ class DebugModelProviderConfigReceiver : BroadcastReceiver() {
                 pendingResult.finish()
             }
         }
+    }
+
+    private fun queryState(): Map<String, Any?> = linkedMapOf(
+        "success" to true,
+        "editingProfileId" to ModelProviderConfigStore.getEditingProfileId(),
+        "profiles" to ModelProviderConfigStore.listProfiles().map { it.toSafePayload() },
+        "sceneBindings" to SceneModelBindingStore.getBindingEntries().map { it.toPayload() },
+    )
+
+    private fun snapshotState(
+        context: Context,
+        profileId: String,
+        sceneIds: List<String>,
+    ): Map<String, Any?> {
+        val preferences = context.getSharedPreferences(
+            FLUTTER_PREFERENCES,
+            Context.MODE_PRIVATE,
+        )
+        val snapshot = ProviderStateSnapshot(
+            profileId = profileId,
+            profile = ModelProviderConfigStore.getProfile(profileId),
+            editingProfileId = ModelProviderConfigStore.getEditingProfileId(),
+            sceneIds = sceneIds,
+            bindings = sceneIds.mapNotNull(SceneModelBindingStore::getBinding),
+            manualModelIds = preferences.getString(FLUTTER_MANUAL_MODEL_IDS_KEY, null),
+        )
+        File(context.filesDir, SNAPSHOT_FILE).writeText(gson.toJson(snapshot))
+        return queryState() + mapOf("snapshotStored" to true)
+    }
+
+    private fun restoreState(context: Context): Map<String, Any?> {
+        val file = File(context.filesDir, SNAPSHOT_FILE)
+        require(file.isFile) { "provider state snapshot is missing" }
+        val snapshot = gson.fromJson(file.readText(), ProviderStateSnapshot::class.java)
+        val previousProfile = snapshot.profile
+        val currentProfile = ModelProviderConfigStore.getProfile(snapshot.profileId)
+        if (previousProfile != null) {
+            ModelProviderConfigStore.saveProfile(
+                id = previousProfile.id,
+                name = previousProfile.name,
+                baseUrl = previousProfile.baseUrl,
+                apiKey = previousProfile.apiKey,
+                customHeaders = previousProfile.customHeaders,
+                sourceType = previousProfile.sourceType,
+                protocolType = previousProfile.protocolType,
+                wireApi = previousProfile.wireApi,
+            )
+        } else if (currentProfile != null && ModelProviderConfigStore.listProfiles().size > 1) {
+            ModelProviderConfigStore.deleteProfile(snapshot.profileId)
+        }
+
+        val previousBindings = snapshot.bindings.associateBy(SceneModelBindingEntry::sceneId)
+        snapshot.sceneIds.forEach { sceneId ->
+            val binding = previousBindings[sceneId]
+            if (binding == null) {
+                SceneModelBindingStore.clearBinding(sceneId)
+            } else {
+                SceneModelBindingStore.saveBinding(
+                    sceneId = binding.sceneId,
+                    providerProfileId = binding.providerProfileId,
+                    modelId = binding.modelId,
+                    toolCall = binding.toolCall,
+                )
+            }
+        }
+        if (ModelProviderConfigStore.getProfile(snapshot.editingProfileId) != null) {
+            ModelProviderConfigStore.setEditingProfile(snapshot.editingProfileId)
+        }
+        context.getSharedPreferences(FLUTTER_PREFERENCES, Context.MODE_PRIVATE)
+            .edit()
+            .apply {
+                if (snapshot.manualModelIds == null) {
+                    remove(FLUTTER_MANUAL_MODEL_IDS_KEY)
+                } else {
+                    putString(FLUTTER_MANUAL_MODEL_IDS_KEY, snapshot.manualModelIds)
+                }
+            }
+            .apply()
+        check(file.delete()) { "provider state snapshot cleanup failed" }
+        return queryState() + mapOf("restored" to true)
     }
 
     private fun configure(
@@ -103,11 +188,6 @@ class DebugModelProviderConfigReceiver : BroadcastReceiver() {
             emptyList()
         }
         seedFlutterManualModelId(context, profile.id, modelId)
-        AgentAiCapabilityConfigSync.get(context).syncFileFromStores()
-        AssistsCoreManager.dispatchAgentAiConfigChanged(
-            source = "debug_model_provider_config",
-            path = "broadcast_configure_model_provider",
-        )
 
         return linkedMapOf(
             "success" to true,
@@ -134,8 +214,8 @@ class DebugModelProviderConfigReceiver : BroadcastReceiver() {
         val normalizedModelId = modelId.trim()
         if (normalizedProfileId.isEmpty() || normalizedModelId.isEmpty()) return
 
-        val prefs = context.getSharedPreferences("FlutterSharedPreferences", Context.MODE_PRIVATE)
-        val key = "flutter.manual_provider_model_ids_v2"
+        val prefs = context.getSharedPreferences(FLUTTER_PREFERENCES, Context.MODE_PRIVATE)
+        val key = FLUTTER_MANUAL_MODEL_IDS_KEY
         val current = runCatching {
             JSONObject(prefs.getString(key, null).orEmpty())
         }.getOrElse {
@@ -192,6 +272,13 @@ class DebugModelProviderConfigReceiver : BroadcastReceiver() {
     companion object {
         private const val TAG = "DebugModelProviderConfigReceiver"
         private const val RESULT_FILE = "debug-model-provider-config-result.json"
+        private const val SNAPSHOT_FILE = "debug-model-provider-state-snapshot.json"
+        private const val OPERATION_CONFIGURE = "configure"
+        private const val OPERATION_QUERY = "query"
+        private const val OPERATION_SNAPSHOT = "snapshot"
+        private const val OPERATION_RESTORE = "restore"
+        private const val FLUTTER_PREFERENCES = "FlutterSharedPreferences"
+        private const val FLUTTER_MANUAL_MODEL_IDS_KEY = "flutter.manual_provider_model_ids_v2"
         private const val DEFAULT_PROFILE_ID = "debug-runtime-provider"
         private const val DEFAULT_PROFILE_NAME = "Provider 1"
         private val DEFAULT_SCENE_IDS = listOf(
@@ -208,4 +295,13 @@ class DebugModelProviderConfigReceiver : BroadcastReceiver() {
         private val gson = GsonBuilder().disableHtmlEscaping().create()
         private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     }
+
+    private data class ProviderStateSnapshot(
+        val profileId: String,
+        val profile: ModelProviderProfile?,
+        val editingProfileId: String,
+        val sceneIds: List<String>,
+        val bindings: List<SceneModelBindingEntry>,
+        val manualModelIds: String?,
+    )
 }

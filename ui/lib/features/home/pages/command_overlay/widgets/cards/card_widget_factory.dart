@@ -3,7 +3,8 @@ import 'package:ui/services/app_background_service.dart';
 import 'artifact_card.dart';
 import 'agent_tool_summary_card.dart';
 import 'context_compaction_marker_card.dart';
-import 'codex_request_card.dart';
+import 'agent_request_card.dart';
+import 'package:ui/services/agent_message_kinds.dart';
 import 'deep_thinking_card.dart';
 import 'executable_task_card.dart';
 import 'permission_button_card.dart';
@@ -27,6 +28,7 @@ class CardWidgetFactory {
     void Function(String taskId)? onCancelTask,
     bool enableThinkingCollapse = false,
     bool thinkingAutoCollapseOnComplete = true,
+    bool useAgentToolPresentation = true,
     bool? showThinkingAvatarOverride,
     ScrollController? parentScrollController,
     VoidCallback? onParentScrollHandoff,
@@ -36,6 +38,9 @@ class CardWidgetFactory {
         AppBackgroundVisualProfile.defaultProfile,
   }) {
     final type = cardData['type'] as String? ?? 'unknown';
+    if (isAgentRequestCardType(type)) {
+      return AgentRequestCard(cardData: cardData);
+    }
 
     switch (type) {
       case 'executable_task':
@@ -106,13 +111,12 @@ class CardWidgetFactory {
       case 'agent_tool_summary':
         return AgentToolSummaryCard(
           cardData: cardData,
+          useAgentToolPresentation: useAgentToolPresentation,
           parentScrollController: parentScrollController,
           visualProfile: visualProfile,
         );
       case 'context_compaction_marker':
         return ContextCompactionMarkerCard(cardData: cardData);
-      case 'codex_request':
-        return CodexRequestCard(cardData: cardData);
       case 'history_omitted_card':
         return _HistoryOmittedCard(cardData: cardData);
       case 'artifact_card':

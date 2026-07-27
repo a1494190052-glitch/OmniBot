@@ -40,7 +40,7 @@ class InternalRunLogStoreTimelineTest {
             goal = "preserve state XML",
             source = "manual",
         )
-        InternalRunLogStore.appendRecordedStep(
+        InternalRunLogStore.upsertRecordedStep(
             context = context,
             runId = runId,
             record = RunLogStepRecord(
