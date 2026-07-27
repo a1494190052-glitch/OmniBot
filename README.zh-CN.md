@@ -191,6 +191,16 @@ Android 构建会自动处理 WebUI：Gradle 使用锁文件安装依赖、执�
 ./gradlew :app:syncWebChatBundle -Ptarget=lib/main_standard.dart
 ```
 
+### 一键生成手机远程控制链接
+
+对于已 root 或可通过 adb shell 管理的设备，可以启动本机服务并生成带安全登录片段的 WebChat 链接：
+
+```bash
+bash scripts/oob-remote-link.sh --device <serial>
+```
+
+脚本也可以直接在被控手机的 Termux 中运行。跨网络使用时建议两台手机加入同一 Tailscale；不要把 `8899` 端口映射到公网。完整用法、威胁模型和同类开源方案对比见 [远程控制启动说明](docs/reference/remote-control-bootstrap.md)。
+
 此流程不再使用 Flutter Web。
 
 ### 构建并安装

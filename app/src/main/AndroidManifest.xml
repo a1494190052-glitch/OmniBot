@@ -170,6 +170,16 @@
                 <action android:name="android.intent.action.TIME_SET" />
             </intent-filter>
         </receiver>
+        <!-- adb shell/root-only bootstrap for generating a private WebChat link. -->
+        <receiver
+            android:name=".mcp.RemoteAccessBootstrapReceiver"
+            android:enabled="true"
+            android:exported="true"
+            android:permission="android.permission.DUMP">
+            <intent-filter>
+                <action android:name="cn.com.omnimind.bot.action.BOOTSTRAP_REMOTE_ACCESS" />
+            </intent-filter>
+        </receiver>
         <receiver
             android:name=".quicklog.QuickLogWidgetProvider"
             android:enabled="true"

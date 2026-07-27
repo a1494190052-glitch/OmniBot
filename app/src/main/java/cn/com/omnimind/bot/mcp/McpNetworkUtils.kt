@@ -33,30 +33,59 @@ object McpNetworkUtils {
      * 获取当前局域网 IP 地址
      */
     fun currentLanIp(): String? {
+        return currentLanAddresses(includeVirtual = false).firstOrNull()
+            ?: currentLanAddresses(includeVirtual = true)
+                .firstOrNull(::isTailscaleAddress)
+    }
+
+    /**
+     * Resolve the best address for a link intended to leave the current Wi-Fi.
+     * Tailscale CGNAT addresses win when available; otherwise use the first LAN
+     * address using the same address policy as the local MCP server.
+     */
+    fun currentRemoteAccessIp(): String? {
+        return preferredRemoteAccessAddress(
+            currentLanAddresses(includeVirtual = true)
+        )
+    }
+
+    internal fun preferredRemoteAccessAddress(addresses: List<String>): String? {
+        val candidates = addresses
+            .map(String::trim)
+            .filter(::isLanAddress)
+            .distinct()
+        return candidates.firstOrNull(::isTailscaleAddress)
+            ?: candidates.firstOrNull()
+    }
+
+    private fun currentLanAddresses(includeVirtual: Boolean): List<String> {
         val interfaces = runCatching {
             NetworkInterface.getNetworkInterfaces()
                 ?.let { Collections.list(it) }
                 .orEmpty()
         }.getOrDefault(emptyList())
 
+        val result = mutableListOf<String>()
         for (netIf in interfaces) {
             val interfaceUsable = runCatching {
-                netIf.isUp && !netIf.isLoopback && !netIf.isVirtual
+                netIf.isUp &&
+                    !netIf.isLoopback &&
+                    (includeVirtual || !netIf.isVirtual)
             }.getOrDefault(true)
             if (!interfaceUsable) continue
 
             val addresses = runCatching { Collections.list(netIf.inetAddresses) }
                 .getOrDefault(emptyList())
-            val lanAddress = addresses.firstOrNull { address ->
-                !address.isLoopbackAddress &&
+            addresses.forEach { address ->
+                if (!address.isLoopbackAddress &&
                     address is Inet4Address &&
                     isLanAddress(address.hostAddress)
-            } as? Inet4Address
-            if (lanAddress != null) {
-                return lanAddress.hostAddress
+                ) {
+                    address.hostAddress?.let(result::add)
+                }
             }
         }
-        return null
+        return result.distinct()
     }
 
     /**
@@ -91,5 +120,11 @@ object McpNetworkUtils {
         }
 
         return false
+    }
+
+    private fun isTailscaleAddress(host: String): Boolean {
+        if (!host.startsWith("100.")) return false
+        val second = host.split(".").getOrNull(1)?.toIntOrNull() ?: return false
+        return second in 64..127
     }
 }

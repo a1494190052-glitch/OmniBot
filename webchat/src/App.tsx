@@ -10,6 +10,10 @@ import {
   isPersistedConversation,
 } from "./conversationDraft";
 import { conversationKey } from "./format";
+import {
+  bootstrapTokenFromUrl,
+  sanitizedBootstrapLocation,
+} from "./bootstrapToken";
 import { useRealtime } from "./hooks/useRealtime";
 import { reconcileCodexMessages } from "./messageReconciliation";
 import type {
@@ -50,8 +54,9 @@ function errorMessage(error: unknown): string {
 }
 
 function initialToken(): string {
-  const queryToken = new URLSearchParams(window.location.search).get("token")?.trim();
-  return queryToken || localStorage.getItem(TOKEN_STORAGE_KEY)?.trim() || "";
+  return bootstrapTokenFromUrl(new URL(window.location.href))
+    || localStorage.getItem(TOKEN_STORAGE_KEY)?.trim()
+    || "";
 }
 
 function createTaskId(): string {
@@ -252,9 +257,9 @@ export default function App() {
       setAuthenticated(true);
 
       const url = new URL(window.location.href);
-      if (url.searchParams.has("token")) {
-        url.searchParams.delete("token");
-        window.history.replaceState(null, "", `${url.pathname}${url.search}${url.hash}`);
+      const sanitizedLocation = sanitizedBootstrapLocation(url);
+      if (sanitizedLocation !== `${url.pathname}${url.search}${url.hash}`) {
+        window.history.replaceState(null, "", sanitizedLocation);
       }
       await Promise.all([
         loadConversations(false),
