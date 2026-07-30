@@ -310,10 +310,11 @@ class _PluginDetailPageState extends State<PluginDetailPage> {
         _buildInfoRow(context.l10n.pluginPublisherLabel, plugin.publisher),
         _buildInfoRow(context.l10n.pluginVersionLabel, plugin.version),
         _buildInfoRow(context.l10n.pluginTypeLabel, _kindLabel(plugin.kind)),
-        _buildInfoRow(
-          context.l10n.pluginDownloadSizeLabel,
-          _formatBytes(plugin.downloadSizeBytes),
-        ),
+        if (plugin.downloadSizeBytes > 0)
+          _buildInfoRow(
+            context.l10n.pluginDownloadSizeLabel,
+            _formatBytes(plugin.downloadSizeBytes),
+          ),
         _buildInfoRow(
           context.l10n.pluginInterfaceVersionLabel,
           plugin.interfaceVersion.toString(),

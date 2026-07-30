@@ -11,7 +11,8 @@ class OmniPluginHost private constructor(context: Context) {
     private val platform = OmniPluginPlatform(
         providerSource = { providers },
         stateStore = SharedPreferencesOmniPluginStateStore(applicationContext),
-        reservedToolNames = AgentToolDefinitions.reservedToolNames()
+        reservedToolNames =
+            AgentToolDefinitions.reservedToolNames() + PluginDiscoveryToolHandler.TOOL_NAMES
     )
 
     suspend fun list(): List<OmniPluginState> = platform.list()
@@ -24,7 +25,15 @@ class OmniPluginHost private constructor(context: Context) {
 
     suspend fun uninstall(pluginId: String) = platform.uninstall(pluginId)
 
-    suspend fun openSession(): OmniPluginSession = platform.openSession()
+    suspend fun openSession(): OmniPluginSession {
+        val pluginSession = platform.openSession()
+        val discoveryHandler = PluginDiscoveryToolHandler(applicationContext, ::list)
+        return OmniPluginSession(
+            toolDefinitions =
+                PluginDiscoveryToolHandler.definitions() + pluginSession.toolDefinitions,
+            toolHandlers = listOf(discoveryHandler) + pluginSession.toolHandlers,
+        )
+    }
 
     companion object {
         @Volatile

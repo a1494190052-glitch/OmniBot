@@ -222,7 +222,12 @@ class _PluginMarketPageState extends State<PluginMarketPage> {
                     ),
                     const SizedBox(height: 4),
                     Text(
-                      '${plugin.publisher} · ${_kindLabel(plugin.kind)} · ${_formatBytes(plugin.downloadSizeBytes)}',
+                      [
+                        plugin.publisher,
+                        _kindLabel(plugin.kind),
+                        if (plugin.downloadSizeBytes > 0)
+                          _formatBytes(plugin.downloadSizeBytes),
+                      ].join(' · '),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: TextStyle(

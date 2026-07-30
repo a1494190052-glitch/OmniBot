@@ -93,8 +93,6 @@ android {
         buildConfigField("String", "IMAGE_BASE_URL", buildConfigString(omnibotImageBaseUrl))
         buildConfigField("String", "IMAGE_MODEL", buildConfigString(omnibotImageModel))
         buildConfigField("String", "IMAGE_API_KEY", buildConfigString(omnibotImageApiKey))
-
-
         ndk {
             abiFilters.addAll(listOf("arm64-v8a"))
         }
@@ -218,6 +216,8 @@ dependencies {
     implementation(project(":flutter"))
     implementation(project(":uikit"))
     implementation(project(":baselib"))
+    implementation(project(":androidgui"))
+    implementation(project(":omniflow-android"))
     implementation(project(":core:main"))
     implementation(project(":core:terminal-view"))
     implementation(project(":core:terminal-emulator"))

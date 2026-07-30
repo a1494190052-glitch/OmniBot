@@ -100,6 +100,23 @@ void main() {
             case 'getSceneModelCatalog':
               return <Map<String, dynamic>>[
                 <String, dynamic>{
+                  'sceneId': 'scene.vlm.operation.primary',
+                  'description': '负责 Android GUI 观察与动作决策',
+                  'defaultModel': 'qwen3-vl-plus',
+                  'effectiveModel': 'qwen3-vl-plus',
+                  'effectiveProviderProfileId': '',
+                  'effectiveProviderProfileName': '',
+                  'boundProviderProfileId': '',
+                  'boundProviderProfileName': '',
+                  'transport': 'openai_compatible',
+                  'configSource': 'builtin',
+                  'overrideApplied': false,
+                  'overrideModel': '',
+                  'providerConfigured': false,
+                  'bindingExists': false,
+                  'bindingProfileMissing': false,
+                },
+                <String, dynamic>{
                   'sceneId': 'scene.voice',
                   'description': '负责 AI 回复文本的语音合成与播放',
                   'defaultModel': '',
@@ -245,6 +262,7 @@ void main() {
     await tester.pump(const Duration(milliseconds: 50));
 
     expect(find.text('Voice'), findsOneWidget);
+    expect(find.text('GUI Agent'), findsOneWidget);
     expect(find.text('Compactor'), findsNothing);
     expect(find.text('Chat Compactor'), findsOneWidget);
     expect(find.text('未绑定'), findsOneWidget);

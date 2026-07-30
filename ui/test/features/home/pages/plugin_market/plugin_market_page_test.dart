@@ -63,10 +63,10 @@ Map<String, Object?> _runtimePlugin() => <String, Object?>{
   'name': 'omni-vlm-lite',
   'version': '1.0.0',
   'interfaceVersion': 1,
-  'description': '按需下载的视觉操作运行时',
+  'description': '内置的视觉操作能力',
   'publisher': 'OmniMind',
-  'kind': 'runtime_bundle',
-  'downloadSizeBytes': 18000000,
+  'kind': 'bundled_module',
+  'downloadSizeBytes': 0,
   'capabilities': <String>['agent_tool'],
   'settingsSchema': <String, Object?>{},
   'installed': false,
@@ -147,7 +147,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('omni-vlm-lite'), findsOneWidget);
-    expect(find.textContaining('运行时包'), findsOneWidget);
+    expect(find.textContaining('内置模块'), findsOneWidget);
     expect(find.byType(Card), findsNothing);
     expect(find.text('安装'), findsNothing);
 
@@ -155,7 +155,8 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('插件详情'), findsOneWidget);
-    expect(find.text('按需下载的视觉操作运行时'), findsOneWidget);
+    expect(find.text('内置的视觉操作能力'), findsOneWidget);
+    expect(find.text('下载大小'), findsNothing);
     expect(find.text('agent_tool'), findsOneWidget);
     expect(find.text('安装'), findsOneWidget);
   });
