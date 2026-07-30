@@ -27,6 +27,10 @@ class OmniPluginService {
     return _invokeState('install', <String, Object?>{'pluginId': pluginId});
   }
 
+  static Future<OmniPluginItem> update(String pluginId) async {
+    return _invokeState('update', <String, Object?>{'pluginId': pluginId});
+  }
+
   static Future<OmniPluginItem> setEnabled(
     String pluginId,
     bool enabled,

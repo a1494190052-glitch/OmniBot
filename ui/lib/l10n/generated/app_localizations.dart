@@ -1130,6 +1130,12 @@ abstract class AppLocalizations {
   /// **'安装'**
   String get pluginInstall;
 
+  /// No description provided for @pluginUpdate.
+  ///
+  /// In zh, this message translates to:
+  /// **'更新'**
+  String get pluginUpdate;
+
   /// No description provided for @pluginUninstall.
   ///
   /// In zh, this message translates to:
@@ -1166,6 +1172,12 @@ abstract class AppLocalizations {
   /// **'插件安装失败'**
   String get pluginInstallFailed;
 
+  /// No description provided for @pluginUpdateFailed.
+  ///
+  /// In zh, this message translates to:
+  /// **'插件更新失败'**
+  String get pluginUpdateFailed;
+
   /// No description provided for @pluginToggleFailed.
   ///
   /// In zh, this message translates to:
@@ -1195,6 +1207,12 @@ abstract class AppLocalizations {
   /// In zh, this message translates to:
   /// **'已安装 {name}'**
   String pluginInstalledMsg(Object name);
+
+  /// No description provided for @pluginUpdatedMsg.
+  ///
+  /// In zh, this message translates to:
+  /// **'已更新 {name}'**
+  String pluginUpdatedMsg(Object name);
 
   /// No description provided for @pluginEnabledMsg.
   ///

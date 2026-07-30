@@ -1,6 +1,8 @@
 package cn.com.omnimind.bot.omniflow
 
 import android.content.Context
+import cn.com.omnimind.baselib.llm.ChatCompletionRequest
+import cn.com.omnimind.baselib.llm.ChatCompletionTurn
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -11,7 +13,7 @@ import org.junit.Test
 class OmniVlmPluginTest {
 
     @Test
-    fun `built in VLM lifecycle needs no downloaded runtime`() = runBlocking {
+    fun `installed VLM routes online execution through run gui`() = runBlocking {
         val backend = RecordingBackend()
         val plugin = OmniVlmPlugin(backend)
 
@@ -19,7 +21,7 @@ class OmniVlmPluginTest {
             plugin.setEnabled(true)
         }
 
-        plugin.install(enabled = false)
+        plugin.install(TestPlatform, enabled = false)
         assertFalse(plugin.isEnabled())
 
         plugin.setEnabled(true)
@@ -30,11 +32,13 @@ class OmniVlmPluginTest {
             modelClient = UnusedModelClient,
         )
 
-        assertEquals("open settings", backend.request?.goal)
-        assertEquals("run-1", backend.request?.runId)
+        assertEquals("run_gui", backend.toolName)
+        assertEquals("open settings", backend.goal)
+        assertEquals("run-1", backend.runId)
+        assertEquals(OmniVlmPlugin.MODEL_SCENE, backend.arguments["model"])
         assertEquals(true, result.payload["success"])
 
-        plugin.setEnabled(false)
+        plugin.uninstall()
         assertFalse(plugin.isEnabled())
         assertEquals(1, backend.shutdownCount)
     }
@@ -53,7 +57,17 @@ class OmniVlmPluginTest {
 
     private class RecordingBackend : OmniVlmBackend {
         var shutdownCount = 0
-        var request: OmniVlmPlugin.Request? = null
+        var toolName = ""
+        var arguments: Map<String, Any?> = emptyMap()
+        var goal = ""
+        var runId = ""
+
+        override fun configure(
+            platform: OmniFlowPlatform,
+            runtimeProvider: OmniFlowRuntimeProvider,
+        ) = Unit
+
+        override fun warmup(context: Context) = Unit
 
         override suspend fun shutdown() {
             shutdownCount += 1
@@ -61,12 +75,18 @@ class OmniVlmPluginTest {
 
         override suspend fun execute(
             context: Context,
-            request: OmniVlmPlugin.Request,
+            toolName: String,
+            arguments: Map<String, Any?>,
+            goal: String,
+            runId: String,
             modelClient: OmniFlowModelClient,
-            hooks: OmniVlmPlugin.Hooks,
-        ): OmniVlmPlugin.Result {
-            this.request = request
-            return OmniVlmPlugin.Result(mapOf("success" to true), null)
+            hooks: OmniFlow.Hooks,
+        ): OmniFlow.Result {
+            this.toolName = toolName
+            this.arguments = arguments
+            this.goal = goal
+            this.runId = runId
+            return OmniFlow.Result(mapOf("success" to true), null)
         }
 
         override fun stop(runId: String): Boolean = false
@@ -74,9 +94,33 @@ class OmniVlmPluginTest {
 
     private object UnusedModelClient : OmniFlowModelClient {
         override suspend fun streamTurn(
-            request: cn.com.omnimind.baselib.llm.ChatCompletionRequest,
+            request: ChatCompletionRequest,
             onReasoningUpdate: (suspend (String) -> Unit)?,
-        ): cn.com.omnimind.baselib.llm.ChatCompletionTurn = error("not used")
+        ): ChatCompletionTurn = error("not used")
+    }
+
+    private object TestPlatform : OmniFlowPlatform {
+        override suspend fun startProcess(
+            context: Context,
+            command: String,
+            environment: Map<String, String>,
+        ): Process = error("not used")
+
+        override suspend fun ensurePython(context: Context, expectedVersion: String) = Unit
+
+        override suspend fun resolveRuntimeSkill(
+            context: Context,
+            refresh: Boolean,
+        ): OmniFlowSkillLocation = error("not used")
+
+        override suspend fun bootstrapRuntimeSkill(
+            context: Context,
+            location: OmniFlowSkillLocation,
+        ) = Unit
+
+        override suspend fun reclaimRuntimeSkill(context: Context) = Unit
+
+        override suspend fun completeJson(request: ChatCompletionRequest): String = error("not used")
     }
 
     private object TestContext : android.content.ContextWrapper(null)

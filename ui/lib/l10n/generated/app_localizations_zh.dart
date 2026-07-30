@@ -543,6 +543,9 @@ class AppLocalizationsZh extends AppLocalizations {
   String get pluginInstall => '安装';
 
   @override
+  String get pluginUpdate => '更新';
+
+  @override
   String get pluginUninstall => '卸载';
 
   @override
@@ -561,6 +564,9 @@ class AppLocalizationsZh extends AppLocalizations {
   String get pluginInstallFailed => '插件安装失败';
 
   @override
+  String get pluginUpdateFailed => '插件更新失败';
+
+  @override
   String get pluginToggleFailed => '插件启停失败';
 
   @override
@@ -577,6 +583,11 @@ class AppLocalizationsZh extends AppLocalizations {
   @override
   String pluginInstalledMsg(Object name) {
     return '已安装 $name';
+  }
+
+  @override
+  String pluginUpdatedMsg(Object name) {
+    return '已更新 $name';
   }
 
   @override

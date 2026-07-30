@@ -30,22 +30,16 @@ class OmniPluginPlatformTest {
     }
 
     @Test
-    fun `installed plugin contributes tools only while enabled`() = runBlocking {
+    fun `install atomically enables plugin tools`() = runBlocking {
         val provider = RecordingProvider("com.omnimind.test", "test_action")
         val platform = platform(provider)
 
         val installed = platform.install(provider.descriptor.id)
         assertTrue(installed.installed)
-        assertFalse(installed.enabled)
+        assertTrue(installed.enabled)
         assertEquals(1, provider.installCount)
-
-        platform.openSession().useSuspending { session ->
-            assertTrue(session.toolDefinitions.isEmpty())
-        }
-
-        val enabled = platform.setEnabled(provider.descriptor.id, true)
-        assertTrue(enabled.enabled)
         assertEquals(1, provider.enableCount)
+
         platform.openSession().useSuspending { session ->
             assertEquals(listOf("test_action"), session.toolDefinitions.map { it.name })
             assertEquals(setOf("test_action"), session.toolHandlers.single().toolNames)
@@ -61,16 +55,32 @@ class OmniPluginPlatformTest {
     }
 
     @Test
+    fun `update refreshes an installed plugin and preserves enabled state`() = runBlocking {
+        val provider = RecordingProvider("com.omnimind.updated", "updated_action")
+        val platform = platform(provider)
+        platform.install(provider.descriptor.id)
+
+        val updated = platform.update(provider.descriptor.id)
+
+        assertTrue(updated.installed)
+        assertTrue(updated.enabled)
+        assertEquals(1, provider.updateCount)
+        assertEquals(2, provider.enableCount)
+        assertEquals(1, provider.disableCount)
+        platform.openSession().useSuspending { session ->
+            assertEquals(listOf("updated_action"), session.toolDefinitions.map { it.name })
+        }
+    }
+
+    @Test
     fun `tool conflict rejects enable without replacing active plugin`() = runBlocking {
         val first = RecordingProvider("com.omnimind.first", "shared_action")
         val second = RecordingProvider("com.omnimind.second", "shared_action")
         val platform = platform(first, second)
         platform.install(first.descriptor.id)
-        platform.install(second.descriptor.id)
-        platform.setEnabled(first.descriptor.id, true)
 
         assertFailsWithMessage("shared_action") {
-            platform.setEnabled(second.descriptor.id, true)
+            platform.install(second.descriptor.id)
         }
 
         val states = platform.list().associateBy { it.descriptor.id }
@@ -85,13 +95,33 @@ class OmniPluginPlatformTest {
     fun `built in tool name is reserved`() = runBlocking {
         val provider = RecordingProvider("com.omnimind.conflict", "file_read")
         val platform = platform(provider, reservedToolNames = setOf("file_read"))
-        platform.install(provider.descriptor.id)
 
         assertFailsWithMessage("file_read") {
-            platform.setEnabled(provider.descriptor.id, true)
+            platform.install(provider.descriptor.id)
         }
 
-        assertFalse(platform.list().single().enabled)
+        assertFalse(platform.list().single().installed)
+    }
+
+    @Test
+    fun `failed install rolls back provider resources`() = runBlocking {
+        val provider = RecordingProvider(
+            pluginId = "com.omnimind.install-failure",
+            toolName = "failed_action",
+            installFailure = IllegalStateException("runtime download failed"),
+        )
+        val platform = platform(provider)
+
+        try {
+            platform.install(provider.descriptor.id)
+            fail("Expected install failure")
+        } catch (error: IllegalStateException) {
+            assertEquals("runtime download failed", error.message)
+        }
+
+        assertEquals(1, provider.installCount)
+        assertEquals(1, provider.uninstallCount)
+        assertFalse(platform.list().single().installed)
     }
 
     @Test
@@ -179,9 +209,12 @@ class OmniPluginPlatformTest {
     private class RecordingProvider(
         pluginId: String,
         private val toolName: String,
-        interfaceVersion: Int = OmniPluginContract.CURRENT_INTERFACE_VERSION
+        interfaceVersion: Int = OmniPluginContract.CURRENT_INTERFACE_VERSION,
+        private val installFailure: Throwable? = null,
     ) : OmniPluginProvider {
         var installCount = 0
+        var updateCount = 0
+        var uninstallCount = 0
         var enableCount = 0
         var disableCount = 0
         var handlerDisposeCount = 0
@@ -197,6 +230,15 @@ class OmniPluginPlatformTest {
 
         override suspend fun install() {
             installCount += 1
+            installFailure?.let { throw it }
+        }
+
+        override suspend fun uninstall() {
+            uninstallCount += 1
+        }
+
+        override suspend fun update() {
+            updateCount += 1
         }
 
         override fun create(): OmniPlugin {

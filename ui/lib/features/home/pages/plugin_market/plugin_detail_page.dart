@@ -77,6 +77,20 @@ class _PluginDetailPageState extends State<PluginDetailPage> {
     );
   }
 
+  Future<void> _update() async {
+    final plugin = _plugin;
+    if (plugin == null) return;
+    await _runStateAction(
+      () => OmniPluginService.update(plugin.id),
+      successMessage: context.l10n.pluginUpdatedMsg(plugin.name),
+      failureMessage: context.l10n.pluginUpdateFailed,
+    );
+  }
+
+  void _openExecutionCenter() {
+    context.push('/task/omniflow');
+  }
+
   Future<void> _runStateAction(
     Future<OmniPluginItem> Function() action, {
     required String successMessage,
@@ -372,43 +386,76 @@ class _PluginDetailPageState extends State<PluginDetailPage> {
         child: Padding(
           padding: const EdgeInsets.fromLTRB(20, 12, 20, 14),
           child: plugin.installed
-              ? Row(
+              ? Column(
+                  mainAxisSize: MainAxisSize.min,
                   children: [
-                    Expanded(
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            context.l10n.pluginEnableTitle,
-                            style: TextStyle(
-                              color: palette.textPrimary,
-                              fontSize: 14,
-                              fontWeight: FontWeight.w500,
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                context.l10n.pluginEnableTitle,
+                                style: TextStyle(
+                                  color: palette.textPrimary,
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.w500,
+                                ),
+                              ),
+                              const SizedBox(height: 2),
+                              Text(
+                                context.l10n.pluginEnableDescription,
+                                style: TextStyle(
+                                  color: palette.textTertiary,
+                                  fontSize: 11,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        Switch.adaptive(
+                          value: plugin.enabled,
+                          onChanged: _busy || !plugin.compatible
+                              ? null
+                              : _toggle,
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    Row(
+                      children: [
+                        if (plugin.id == 'com.omnimind.omni-vlm-lite') ...[
+                          Expanded(
+                            child: FilledButton.tonalIcon(
+                              onPressed: _busy || !plugin.enabled
+                                  ? null
+                                  : _openExecutionCenter,
+                              icon: const Icon(Icons.route_rounded),
+                              label: Text(
+                                Localizations.localeOf(context).languageCode ==
+                                        'en'
+                                    ? 'Open Execution Center'
+                                    : '打开执行中心',
+                              ),
                             ),
                           ),
-                          const SizedBox(height: 2),
-                          Text(
-                            context.l10n.pluginEnableDescription,
-                            style: TextStyle(
-                              color: palette.textTertiary,
-                              fontSize: 11,
-                            ),
-                          ),
+                          const SizedBox(width: 8),
                         ],
-                      ),
-                    ),
-                    TextButton(
-                      onPressed: _busy ? null : _uninstall,
-                      style: TextButton.styleFrom(
-                        foregroundColor: AppColors.alertRed,
-                      ),
-                      child: Text(context.l10n.pluginUninstall),
-                    ),
-                    const SizedBox(width: 4),
-                    Switch.adaptive(
-                      value: plugin.enabled,
-                      onChanged: _busy || !plugin.compatible ? null : _toggle,
+                        TextButton(
+                          onPressed: _busy ? null : _update,
+                          child: Text(context.l10n.pluginUpdate),
+                        ),
+                        const SizedBox(width: 4),
+                        TextButton(
+                          onPressed: _busy ? null : _uninstall,
+                          style: TextButton.styleFrom(
+                            foregroundColor: AppColors.alertRed,
+                          ),
+                          child: Text(context.l10n.pluginUninstall),
+                        ),
+                      ],
                     ),
                   ],
                 )

@@ -5,6 +5,7 @@ import android.content.Context
 import cn.com.omnimind.baselib.util.OmniLog
 import cn.com.omnimind.bot.App
 import cn.com.omnimind.bot.manager.AssistsCoreManager
+import cn.com.omnimind.bot.omniflow.OmniFlowToolChannel
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
 import kotlinx.coroutines.CoroutineScope
@@ -21,8 +22,10 @@ class AssistsCoreChannel {
 
     @SuppressLint("StaticFieldLeak")
     private var assistsCoreManager: AssistsCoreManager? = null
+    private var omniFlowToolChannel: OmniFlowToolChannel? = null
     fun onCreate(context: Context) {
         assistsCoreManager = AssistsCoreManager(context)
+        omniFlowToolChannel = OmniFlowToolChannel(context)
         assistsCoreManager?.setChannel(channel!!);
 
     }
@@ -37,6 +40,9 @@ class AssistsCoreChannel {
         }
         channel!!.setMethodCallHandler { call, result ->
             OmniLog.d(TAG, "setMethodCallHandler " + call.method)
+            if (omniFlowToolChannel?.handle(call, result) == true) {
+                return@setMethodCallHandler
+            }
             when (call.method) {
                 "createChatTask" -> {
                     assistsCoreManager!!.createChatTask( call, result)
@@ -320,6 +326,8 @@ class AssistsCoreChannel {
     fun clear() {
         channel?.setMethodCallHandler(null)
         channel = null
+        omniFlowToolChannel?.clear()
+        omniFlowToolChannel = null
     }
 
 }

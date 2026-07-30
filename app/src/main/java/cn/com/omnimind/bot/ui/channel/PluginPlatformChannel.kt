@@ -50,6 +50,7 @@ class PluginPlatformChannel {
                 when (call.method) {
                     "list" -> host.list().map(::stateToMap)
                     "install" -> stateToMap(host.install(call.requirePluginId()))
+                    "update" -> stateToMap(host.update(call.requirePluginId()))
                     "setEnabled" -> stateToMap(
                         host.setEnabled(
                             pluginId = call.requirePluginId(),

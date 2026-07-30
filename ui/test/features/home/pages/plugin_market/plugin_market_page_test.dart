@@ -93,10 +93,17 @@ void main() {
               final installed = <String, Object?>{
                 ...plugins.single,
                 'installed': true,
-                'enabled': false,
+                'enabled': true,
               };
               plugins = <Map<String, Object?>>[installed];
               return installed;
+            case 'update':
+              final updated = <String, Object?>{
+                ...plugins.single,
+                'version': '2.0.0',
+              };
+              plugins = <Map<String, Object?>>[updated];
+              return updated;
             case 'setEnabled':
               final arguments = Map<Object?, Object?>.from(
                 call.arguments as Map,
@@ -161,7 +168,7 @@ void main() {
     expect(find.text('安装'), findsOneWidget);
   });
 
-  testWidgets('installs and enables a plugin from its detail page', (
+  testWidgets('install atomically enables a plugin from its detail page', (
     tester,
   ) async {
     plugins = <Map<String, Object?>>[_runtimePlugin()];
@@ -177,11 +184,31 @@ void main() {
     expect(calls.any((call) => call.method == 'install'), isTrue);
     expect(find.text('卸载'), findsOneWidget);
     expect(find.byType(Switch), findsOneWidget);
+    expect(calls.any((call) => call.method == 'setEnabled'), isFalse);
+    expect(find.text('已启用'), findsWidgets);
+    expect(find.text('打开执行中心'), findsOneWidget);
+  });
 
-    await tester.tap(find.byType(Switch));
+  testWidgets('updates an installed plugin from its detail page', (
+    tester,
+  ) async {
+    plugins = <Map<String, Object?>>[
+      <String, Object?>{
+        ..._runtimePlugin(),
+        'installed': true,
+        'enabled': true,
+      },
+    ];
+
+    await tester.pumpWidget(_app());
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('omni-vlm-lite'));
     await tester.pumpAndSettle();
 
-    expect(calls.any((call) => call.method == 'setEnabled'), isTrue);
-    expect(find.text('已启用'), findsWidgets);
+    await tester.tap(find.text('更新'));
+    await tester.pumpAndSettle();
+
+    expect(calls.any((call) => call.method == 'update'), isTrue);
+    expect(find.textContaining('v2.0.0'), findsOneWidget);
   });
 }

@@ -53,7 +53,7 @@ void main() {
         .setMockMethodCallHandler(assistChannel, null);
   });
 
-  testWidgets('plugin market is the fifth peer shortcut beside memory', (
+  testWidgets('plugin market and trajectory are peer shortcuts', (
     tester,
   ) async {
     await tester.pumpWidget(
@@ -80,6 +80,7 @@ void main() {
     expect(find.byTooltip('设置'), findsOneWidget);
     expect(find.byTooltip('记忆中心'), findsOneWidget);
     expect(find.byTooltip('插件市场'), findsOneWidget);
+    expect(find.byTooltip('轨迹'), findsOneWidget);
     expect(find.byTooltip('技能仓库'), findsOneWidget);
     expect(find.byTooltip('定时'), findsOneWidget);
   });

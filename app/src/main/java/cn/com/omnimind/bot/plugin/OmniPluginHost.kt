@@ -19,6 +19,8 @@ class OmniPluginHost private constructor(context: Context) {
 
     suspend fun install(pluginId: String): OmniPluginState = platform.install(pluginId)
 
+    suspend fun update(pluginId: String): OmniPluginState = platform.update(pluginId)
+
     suspend fun setEnabled(pluginId: String, enabled: Boolean): OmniPluginState {
         return platform.setEnabled(pluginId, enabled)
     }

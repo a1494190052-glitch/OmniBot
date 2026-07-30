@@ -579,6 +579,9 @@ class AppLocalizationsEn extends AppLocalizations {
   String get pluginInstall => 'Install';
 
   @override
+  String get pluginUpdate => 'Update';
+
+  @override
   String get pluginUninstall => 'Uninstall';
 
   @override
@@ -598,6 +601,9 @@ class AppLocalizationsEn extends AppLocalizations {
   String get pluginInstallFailed => 'Failed to install plugin';
 
   @override
+  String get pluginUpdateFailed => 'Failed to update plugin';
+
+  @override
   String get pluginToggleFailed => 'Failed to toggle plugin';
 
   @override
@@ -614,6 +620,11 @@ class AppLocalizationsEn extends AppLocalizations {
   @override
   String pluginInstalledMsg(Object name) {
     return 'Installed $name';
+  }
+
+  @override
+  String pluginUpdatedMsg(Object name) {
+    return 'Updated $name';
   }
 
   @override

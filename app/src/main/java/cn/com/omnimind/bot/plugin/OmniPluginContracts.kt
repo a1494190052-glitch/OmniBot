@@ -56,6 +56,8 @@ interface OmniPluginProvider {
 
     suspend fun install() = Unit
 
+    suspend fun update() = install()
+
     suspend fun uninstall() = Unit
 
     fun create(): OmniPlugin

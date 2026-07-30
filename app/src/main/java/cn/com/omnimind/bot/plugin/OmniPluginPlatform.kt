@@ -31,14 +31,27 @@ class OmniPluginPlatform(
         requireCompatible(provider.descriptor)
         storedStates[pluginId]?.let { return@withLock stateFor(provider) }
 
-        provider.install()
-        val nextState = OmniPluginStoredState(pluginId = pluginId, enabled = false)
         try {
-            persist(storedStates.values + nextState)
+            provider.install()
         } catch (error: Throwable) {
             runCatching { provider.uninstall() }
             throw error
         }
+        val active = try {
+            activate(provider)
+        } catch (error: Throwable) {
+            runCatching { provider.uninstall() }
+            throw error
+        }
+        val nextState = OmniPluginStoredState(pluginId = pluginId, enabled = true)
+        try {
+            persist(storedStates.values + nextState)
+        } catch (error: Throwable) {
+            runCatching { active.plugin.onDisable() }
+            runCatching { provider.uninstall() }
+            throw error
+        }
+        activePlugins[pluginId] = active
         storedStates[pluginId] = nextState
         errors.remove(pluginId)
         stateFor(provider)
@@ -78,6 +91,43 @@ class OmniPluginPlatform(
             storedStates[pluginId] = nextState
             errors.remove(pluginId)
         }
+        stateFor(provider)
+    }
+
+    suspend fun update(pluginId: String): OmniPluginState = mutex.withLock {
+        ensureInitialized()
+        val provider = requireProvider(pluginId)
+        requireCompatible(provider.descriptor)
+        val current = storedStates[pluginId]
+            ?: throw IllegalArgumentException("Plugin $pluginId is not installed")
+        val previousActive = activePlugins[pluginId]
+
+        if (current.enabled) {
+            previousActive?.plugin?.onDisable()
+        }
+        try {
+            provider.update()
+        } catch (error: Throwable) {
+            if (current.enabled) runCatching { previousActive?.plugin?.onEnable() }
+            errors[pluginId] = error.message ?: error.javaClass.simpleName
+            throw error
+        }
+
+        val nextActive = if (current.enabled) {
+            try {
+                activate(provider)
+            } catch (error: Throwable) {
+                runCatching { previousActive?.plugin?.onEnable() }
+                errors[pluginId] = error.message ?: error.javaClass.simpleName
+                throw error
+            }
+        } else {
+            null
+        }
+        if (nextActive != null) {
+            activePlugins[pluginId] = nextActive
+        }
+        errors.remove(pluginId)
         stateFor(provider)
     }
 

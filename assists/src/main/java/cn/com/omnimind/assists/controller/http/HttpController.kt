@@ -147,6 +147,14 @@ object HttpController {
             .build()
     }
 
+    private val sceneCompletionClient: OkHttpClient by lazy {
+        OkHttpClient.Builder()
+            .connectTimeout(60, java.util.concurrent.TimeUnit.SECONDS)
+            .readTimeout(180, java.util.concurrent.TimeUnit.SECONDS)
+            .writeTimeout(60, java.util.concurrent.TimeUnit.SECONDS)
+            .build()
+    }
+
     private val completionJson = Json {
         ignoreUnknownKeys = true
         isLenient = true
@@ -2874,7 +2882,7 @@ object HttpController {
             logRequestHeaders("[anthropic model=${resolved.resolvedModel}]", requestCall.headers.toMultimap().mapValues {
                 it.value.joinToString(",")
             })
-            val response = OkHttpClient().newCall(requestCall).execute()
+            val response = sceneCompletionClient.newCall(requestCall).execute()
             val responseBody = response.body?.string()
             OmniLog.d(TAG, "Anthropic Response Status: ${response.code}")
             logResponseBody("[anthropic model=${resolved.resolvedModel}]", responseBody)
@@ -2956,7 +2964,7 @@ object HttpController {
                 it.value.joinToString(",")
             })
 
-            val response = OkHttpClient().newCall(requestCall).execute()
+            val response = sceneCompletionClient.newCall(requestCall).execute()
             val responseBody = response.body?.string()
             OmniLog.d(TAG, "Response Status: ${response.code}")
             logResponseBody("[openai_compatible model=${variant.request.model}]", responseBody)
