@@ -9,6 +9,7 @@ import cn.com.omnimind.baselib.shizuku.ShizukuCapabilityManager
 import cn.com.omnimind.baselib.util.OmniLog
 import cn.com.omnimind.bot.mcp.RemoteMcpDiscoveredServer
 import cn.com.omnimind.bot.mcp.RemoteMcpToolDescriptor
+import cn.com.omnimind.bot.plugin.OmniPluginToolDefinition
 import com.rk.terminal.runtime.TerminalDistribution
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
@@ -26,7 +27,8 @@ class AgentToolRegistry(
     private val context: Context,
     discoveredServers: List<RemoteMcpDiscoveredServer>,
     conversationMode: String = AgentConversationModePolicy.NORMAL_MODE,
-    terminalDistribution: TerminalDistribution.Spec = TerminalDistribution.alpine
+    terminalDistribution: TerminalDistribution.Spec = TerminalDistribution.alpine,
+    pluginToolDefinitions: List<OmniPluginToolDefinition> = emptyList()
 ) : AgentToolCatalog {
     data class RuntimeToolDescriptor(
         val name: String,
@@ -90,6 +92,37 @@ class AgentToolRegistry(
         }
         runtimeDefinitions.addAll(AgentToolDefinitions.memoryTools(locale))
         runtimeDefinitions.addAll(AgentToolDefinitions.subagentTools(locale))
+        if (pluginToolDefinitions.isNotEmpty()) {
+            val occupiedNames = runtimeDefinitions.mapNotNullTo(linkedSetOf()) { definition ->
+                (definition["function"] as? JsonObject)
+                    ?.get("name")
+                    ?.jsonPrimitive
+                    ?.contentOrNull
+            }
+            pluginToolDefinitions.forEach { pluginTool ->
+                require(pluginTool.name !in occupiedNames) {
+                    "Plugin tool conflicts with an existing tool: ${pluginTool.name}"
+                }
+                occupiedNames += pluginTool.name
+                runtimeDefinitions += AgentToolDefinitions.decorateToolDefinition(
+                    buildJsonObject {
+                        put("type", JsonPrimitive("function"))
+                        put("function", buildJsonObject {
+                            put("name", JsonPrimitive(pluginTool.name))
+                            put("displayName", JsonPrimitive(pluginTool.displayName))
+                            put("toolType", JsonPrimitive("plugin"))
+                            pluginTool.ownerPluginId?.let {
+                                put("serverName", JsonPrimitive(it))
+                            }
+                            put("description", JsonPrimitive(pluginTool.description))
+                            put("parameters", pluginTool.parameters)
+                        })
+                    },
+                    locale,
+                    terminalDistribution
+                )
+            }
+        }
         discoveredServers.flatMap { it.tools }.forEach { tool ->
             runtimeDefinitions.add(toDynamicMcpToolDefinition(tool, locale))
         }
