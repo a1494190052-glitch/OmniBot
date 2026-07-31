@@ -436,8 +436,8 @@ class _PluginDetailPageState extends State<PluginDetailPage> {
                               label: Text(
                                 Localizations.localeOf(context).languageCode ==
                                         'en'
-                                    ? 'Open Execution Center'
-                                    : '打开执行中心',
+                                    ? 'Functions & Run Logs'
+                                    : '运行记录与复用指令',
                               ),
                             ),
                           ),

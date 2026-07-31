@@ -40,11 +40,6 @@ extension _HomeDrawerHeaderFooter on HomeDrawerState {
         onTap: () => _navigateTo('/home/plugin_market'),
       ),
       _DrawerShortcutAction(
-        label: 'RunLog',
-        svgString: _kDrawerTrajectoryIconSvg,
-        onTap: () => _navigateTo('/task/omniflow'),
-      ),
-      _DrawerShortcutAction(
         label: context.l10n.skillStoreTitle,
         svgString: _kDrawerSkillStoreIconSvg,
         onTap: () => _navigateTo('/home/skill_store'),

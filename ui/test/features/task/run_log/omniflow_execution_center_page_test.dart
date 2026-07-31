@@ -106,6 +106,33 @@ void main() {
                 },
               ],
             },
+            'get_function' => <String, Object?>{
+              'success': true,
+              'function': <String, Object?>{
+                'function_id': 'function.demo',
+                'name': '演示指令',
+                'description': '复用已成功执行的操作',
+                'agent_visible': true,
+                'input_schema': <String, Object?>{
+                  'type': 'object',
+                  'properties': <String, Object?>{
+                    'query': <String, Object?>{
+                      'type': 'string',
+                      'description': '要搜索的文本',
+                    },
+                  },
+                  'required': <String>['query'],
+                },
+                'steps': <Object?>[
+                  <String, Object?>{
+                    'action': <String, Object?>{
+                      'tool': 'click',
+                      'args': <String, Object?>{'x': 500, 'y': 500},
+                    },
+                  },
+                ],
+              },
+            },
             'function.demo' => <String, Object?>{'success': true},
             'convert_run_log' => <String, Object?>{
               'success': true,
@@ -123,7 +150,37 @@ void main() {
         .setMockMethodCallHandler(assistChannel, null);
   });
 
-  testWidgets('exposes reuse and RunLog without a duplicate trajectory tab', (
+  testWidgets('opens Function details from the Functions list', (tester) async {
+    tester.view.physicalSize = const Size(360, 800);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    await tester.pumpWidget(
+      const MaterialApp(
+        locale: Locale('zh'),
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
+        home: OmniFlowExecutionCenterPage(),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('演示指令'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('复用指令详情'), findsOneWidget);
+    expect(find.text('参数'), findsOneWidget);
+    expect(find.text('步骤'), findsOneWidget);
+    expect(find.text('要搜索的文本'), findsOneWidget);
+    expect(toolCalls.any((call) => call['name'] == 'get_function'), isTrue);
+
+    await tester.tap(find.widgetWithText(FilledButton, '执行').last);
+    await tester.pumpAndSettle();
+    expect(find.text('填写执行参数'), findsOneWidget);
+  });
+
+  testWidgets('uses consistent Chinese labels across the execution center', (
     tester,
   ) async {
     await tester.pumpWidget(
@@ -138,12 +195,13 @@ void main() {
 
     expect(find.text('复用指令'), findsOneWidget);
     expect(find.text('轨迹'), findsNothing);
-    expect(find.text('RunLog'), findsOneWidget);
-    await tester.tap(find.text('回放'));
+    expect(find.text('运行记录'), findsOneWidget);
+    expect(find.text('RunLog'), findsNothing);
+    await tester.tap(find.text('执行'));
     await tester.pumpAndSettle();
-    expect(find.text('填写参数'), findsOneWidget);
+    expect(find.text('填写执行参数'), findsOneWidget);
     await tester.enterText(find.byType(TextFormField), 'replay acceptance');
-    await tester.tap(find.text('开始回放'));
+    await tester.tap(find.text('开始执行'));
     await tester.pumpAndSettle();
     expect(
       toolCalls.any(
@@ -154,15 +212,43 @@ void main() {
       isTrue,
     );
 
-    await tester.tap(find.text('RunLog'));
+    await tester.tap(find.text('运行记录'));
     await tester.pumpAndSettle();
     expect(find.text('2026-07-31 09:18:00'), findsOneWidget);
     expect(find.text('2.35 s'), findsOneWidget);
-    expect(find.text('1.23k tokens'), findsOneWidget);
+    expect(find.text('模型用量 1.23k'), findsOneWidget);
     expect(find.text('qwen-vl-max'), findsOneWidget);
-    expect(find.text('2 VLM 调用'), findsOneWidget);
+    expect(find.text('2 次 VLM 调用'), findsOneWidget);
+    expect(find.text('成功'), findsOneWidget);
+    expect(find.text('查看运行记录'), findsOneWidget);
     await tester.tap(find.text('注册为复用指令'));
     await tester.pumpAndSettle();
     expect(toolCalls.any((call) => call['name'] == 'convert_run_log'), isTrue);
+  });
+
+  testWidgets('uses consistent English labels across the execution center', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      const MaterialApp(
+        locale: Locale('en'),
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
+        home: OmniFlowExecutionCenterPage(),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Functions'), findsOneWidget);
+    expect(find.text('Run Logs'), findsOneWidget);
+    expect(find.text('Run'), findsOneWidget);
+    expect(find.text('复用指令'), findsNothing);
+
+    await tester.tap(find.text('Run Logs'));
+    await tester.pumpAndSettle();
+    expect(find.text('Succeeded'), findsOneWidget);
+    expect(find.text('1.23k tokens'), findsOneWidget);
+    expect(find.text('2 VLM calls'), findsOneWidget);
+    expect(find.text('View Run Log'), findsOneWidget);
   });
 }

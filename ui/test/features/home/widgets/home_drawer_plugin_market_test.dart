@@ -53,7 +53,7 @@ void main() {
         .setMockMethodCallHandler(assistChannel, null);
   });
 
-  testWidgets('plugin market and RunLog are peer shortcuts', (tester) async {
+  testWidgets('keeps only five primary drawer shortcuts', (tester) async {
     await tester.pumpWidget(
       ProviderScope(
         child: MaterialApp(
@@ -78,7 +78,7 @@ void main() {
     expect(find.byTooltip('设置'), findsOneWidget);
     expect(find.byTooltip('记忆中心'), findsOneWidget);
     expect(find.byTooltip('插件市场'), findsOneWidget);
-    expect(find.byTooltip('RunLog'), findsOneWidget);
+    expect(find.byTooltip('RunLog'), findsNothing);
     expect(find.byTooltip('技能仓库'), findsOneWidget);
     expect(find.byTooltip('定时'), findsOneWidget);
   });

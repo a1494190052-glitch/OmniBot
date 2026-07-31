@@ -118,7 +118,7 @@ class _RunLogDetailPageState extends State<RunLogDetailPage> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('RunLog'),
+        title: Text(_text(context, '运行记录', 'Run Log')),
         actions: [
           IconButton(
             tooltip: _text(context, '刷新', 'Refresh'),

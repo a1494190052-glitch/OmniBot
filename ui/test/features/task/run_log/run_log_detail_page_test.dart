@@ -112,7 +112,7 @@ void main() {
       expect(find.text('Cached 100'), findsOneWidget);
       expect(find.text('Step 1'), findsOneWidget);
       expect(find.text('Tap · 100, 200'), findsOneWidget);
-      expect(find.text('1.23k tk'), findsOneWidget);
+      expect(find.text('1.23k tokens'), findsOneWidget);
       expect(find.textContaining('"tool": "click"'), findsNothing);
 
       await tester.tap(find.text('Tap · 100, 200'));

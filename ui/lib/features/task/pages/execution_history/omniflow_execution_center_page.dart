@@ -3,6 +3,7 @@ import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:ui/features/task/pages/execution_history/widgets/function_detail_sheet.dart';
 import 'package:ui/features/task/run_log/run_log_metrics.dart';
 import 'package:ui/features/task/run_log/omniflow_tool_client.dart';
 import 'package:ui/models/omni_plugin_item.dart';
@@ -87,6 +88,22 @@ class _OmniFlowExecutionCenterPageState
     }
   }
 
+  Future<void> _showFunctionDetails(Map<String, dynamic> function) {
+    return showModalBottomSheet<void>(
+      context: context,
+      useRootNavigator: true,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      barrierColor: Colors.black.withValues(alpha: 0.28),
+      builder: (_) => FunctionDetailSheet(
+        initialFunction: function,
+        loadFunction: OmniFlowToolClient.getFunction,
+        onReplay: _replay,
+        onDelete: _deleteFunction,
+      ),
+    );
+  }
+
   Future<void> _replay(Map<String, dynamic> function) async {
     final functionId = _string(function['function_id']);
     if (functionId.isEmpty) return;
@@ -94,7 +111,7 @@ class _OmniFlowExecutionCenterPageState
     if (arguments == null || !mounted) return;
     await _runAction(
       () => OmniFlowToolClient.replayFunction(functionId, arguments),
-      success: _text(context, '回放已完成', 'Replay completed'),
+      success: _text(context, '执行已完成', 'Run completed'),
     );
   }
 
@@ -112,7 +129,7 @@ class _OmniFlowExecutionCenterPageState
     final result = await showDialog<Map<String, dynamic>>(
       context: context,
       builder: (dialogContext) => AlertDialog(
-        title: Text(_text(context, '填写参数', 'Function arguments')),
+        title: Text(_text(context, '填写执行参数', 'Run arguments')),
         content: SingleChildScrollView(
           child: Column(
             mainAxisSize: MainAxisSize.min,
@@ -157,7 +174,7 @@ class _OmniFlowExecutionCenterPageState
               }
               Navigator.pop(dialogContext, parsedValues);
             },
-            child: Text(_text(context, '开始回放', 'Replay')),
+            child: Text(_text(context, '开始执行', 'Run')),
           ),
         ],
       ),
@@ -172,7 +189,7 @@ class _OmniFlowExecutionCenterPageState
       context: context,
       builder: (dialogContext) => AlertDialog(
         title: Text(_text(context, '删除复用指令', 'Delete Function')),
-        content: Text(_text(context, '删除后无法继续回放。', 'This cannot be undone.')),
+        content: Text(_text(context, '删除后无法继续执行。', 'This cannot be undone.')),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(dialogContext, false),
@@ -215,7 +232,7 @@ class _OmniFlowExecutionCenterPageState
         throw StateError(
           _string(result['error_message']).nullIfEmpty ??
               _string(result['error_code']).nullIfEmpty ??
-              'OmniFlow operation failed',
+              _text(context, 'OmniFlow 操作失败', 'OmniFlow operation failed'),
         );
       }
       ScaffoldMessenger.of(
@@ -244,10 +261,10 @@ class _OmniFlowExecutionCenterPageState
               icon: const Icon(Icons.refresh_rounded),
             ),
           ],
-          bottom: const TabBar(
+          bottom: TabBar(
             tabs: [
-              Tab(text: '复用指令'),
-              Tab(text: 'RunLog'),
+              Tab(text: _text(context, '复用指令', 'Functions')),
+              Tab(text: _text(context, '运行记录', 'Run Logs')),
             ],
           ),
         ),
@@ -281,8 +298,8 @@ class _OmniFlowExecutionCenterPageState
         message: installed
             ? _text(
                 context,
-                '启用后即可查看 RunLog、注册和回放复用指令。',
-                'Enable it to inspect RunLogs and register replayable Functions.',
+                '启用后即可查看运行记录、注册和执行复用指令。',
+                'Enable it to inspect Run Logs and register reusable Functions.',
               )
             : _text(
                 context,
@@ -301,6 +318,7 @@ class _OmniFlowExecutionCenterPageState
       children: [
         _FunctionsTab(
           functions: _functions,
+          onOpenDetails: _showFunctionDetails,
           onReplay: _replay,
           onDelete: _deleteFunction,
         ),
@@ -313,11 +331,13 @@ class _OmniFlowExecutionCenterPageState
 class _FunctionsTab extends StatelessWidget {
   const _FunctionsTab({
     required this.functions,
+    required this.onOpenDetails,
     required this.onReplay,
     required this.onDelete,
   });
 
   final List<Map<String, dynamic>> functions;
+  final ValueChanged<Map<String, dynamic>> onOpenDetails;
   final ValueChanged<Map<String, dynamic>> onReplay;
   final ValueChanged<Map<String, dynamic>> onDelete;
 
@@ -329,8 +349,8 @@ class _FunctionsTab extends StatelessWidget {
         title: _text(context, '暂无复用指令', 'No Functions yet'),
         message: _text(
           context,
-          '在 RunLog 中选择成功记录并注册。',
-          'Register a successful execution from RunLog.',
+          '在运行记录中选择成功记录并注册。',
+          'Register a successful execution from Run Logs.',
         ),
       );
     }
@@ -344,36 +364,53 @@ class _FunctionsTab extends StatelessWidget {
             _string(function['name']).nullIfEmpty ??
             _string(function['function_id']);
         return Card(
-          child: Padding(
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(name, style: Theme.of(context).textTheme.titleMedium),
-                const SizedBox(height: 6),
-                Text(
-                  _string(function['description']).nullIfEmpty ??
-                      _string(function['function_id']),
-                  style: Theme.of(context).textTheme.bodySmall,
-                ),
-                const SizedBox(height: 12),
-                Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
-                  children: [
-                    FilledButton.icon(
-                      onPressed: () => onReplay(function),
-                      icon: const Icon(Icons.play_arrow_rounded),
-                      label: Text(_text(context, '回放', 'Replay')),
-                    ),
-                    TextButton.icon(
-                      onPressed: () => onDelete(function),
-                      icon: const Icon(Icons.delete_outline_rounded),
-                      label: Text(_text(context, '删除', 'Delete')),
-                    ),
-                  ],
-                ),
-              ],
+          clipBehavior: Clip.antiAlias,
+          child: InkWell(
+            onTap: () => onOpenDetails(function),
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          name,
+                          style: Theme.of(context).textTheme.titleMedium,
+                        ),
+                      ),
+                      Icon(
+                        Icons.chevron_right_rounded,
+                        color: Theme.of(context).colorScheme.outline,
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    _string(function['description']).nullIfEmpty ??
+                        _string(function['function_id']),
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
+                  const SizedBox(height: 12),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      FilledButton.icon(
+                        onPressed: () => onReplay(function),
+                        icon: const Icon(Icons.play_arrow_rounded),
+                        label: Text(_text(context, '执行', 'Run')),
+                      ),
+                      TextButton.icon(
+                        onPressed: () => onDelete(function),
+                        icon: const Icon(Icons.delete_outline_rounded),
+                        label: Text(_text(context, '删除', 'Delete')),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
             ),
           ),
         );
@@ -393,11 +430,11 @@ class _RunLogsTab extends StatelessWidget {
     if (runLogs.isEmpty) {
       return _EmptyTab(
         icon: Icons.receipt_long_outlined,
-        title: _text(context, '暂无 RunLog', 'No RunLogs yet'),
+        title: _text(context, '暂无运行记录', 'No Run Logs yet'),
         message: _text(
           context,
-          'Online VLM 执行后会保存 canonical RunLog。',
-          'Online VLM executions persist canonical RunLogs.',
+          '在线 VLM 执行完成后会保存规范运行记录。',
+          'Online VLM executions save canonical run logs.',
         ),
       );
     }
@@ -424,7 +461,7 @@ class _RunLogsTab extends StatelessWidget {
                         style: Theme.of(context).textTheme.titleMedium,
                       ),
                     ),
-                    Chip(label: Text(status)),
+                    Chip(label: Text(_runStatusLabel(context, status))),
                   ],
                 ),
                 Text(runId, style: Theme.of(context).textTheme.bodySmall),
@@ -446,13 +483,20 @@ class _RunLogsTab extends StatelessWidget {
                     if (metrics.tokenUsage.totalTokens != null)
                       _RunLogMetricChip(
                         icon: Icons.data_usage_rounded,
-                        label:
-                            '${formatRunLogTokens(metrics.tokenUsage.totalTokens!)} tokens',
+                        label: _text(
+                          context,
+                          '模型用量 ${formatRunLogTokens(metrics.tokenUsage.totalTokens!)}',
+                          '${formatRunLogTokens(metrics.tokenUsage.totalTokens!)} tokens',
+                        ),
                       )
                     else
                       _RunLogMetricChip(
                         icon: Icons.data_usage_rounded,
-                        label: _text(context, 'Token 未提供', 'Token unavailable'),
+                        label: _text(
+                          context,
+                          '模型用量未提供',
+                          'Token usage unavailable',
+                        ),
                       ),
                     if (metrics.model != null)
                       _RunLogMetricChip(
@@ -464,7 +508,7 @@ class _RunLogsTab extends StatelessWidget {
                         icon: Icons.repeat_rounded,
                         label: _text(
                           context,
-                          '${metrics.callCount} VLM 调用',
+                          '${metrics.callCount} 次 VLM 调用',
                           '${metrics.callCount} VLM calls',
                         ),
                       ),
@@ -478,7 +522,7 @@ class _RunLogsTab extends StatelessWidget {
                     FilledButton.tonalIcon(
                       onPressed: () => context.push('/task/run_log/$runId'),
                       icon: const Icon(Icons.timeline_rounded),
-                      label: Text(_text(context, '查看 RunLog', 'View RunLog')),
+                      label: Text(_text(context, '查看运行记录', 'View Run Log')),
                     ),
                     OutlinedButton.icon(
                       onPressed: () => onConvert(runLog),
@@ -588,6 +632,15 @@ Map<String, dynamic> _map(dynamic value) => value is Map
     : <String, dynamic>{};
 
 String _string(dynamic value) => value?.toString().trim() ?? '';
+
+String _runStatusLabel(BuildContext context, String status) => switch (status
+    .toLowerCase()) {
+  'success' || 'succeeded' || 'completed' => _text(context, '成功', 'Succeeded'),
+  'running' || 'pending' => _text(context, '执行中', 'Running'),
+  'failed' || 'error' => _text(context, '失败', 'Failed'),
+  'cancelled' || 'canceled' => _text(context, '已取消', 'Cancelled'),
+  _ => _text(context, '未知', 'Unknown'),
+};
 
 dynamic _parseArgument(String value, String type) => switch (type) {
   'integer' => int.tryParse(value) ?? value,

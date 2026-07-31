@@ -111,13 +111,13 @@ class RunLogOverviewPanel extends StatelessWidget {
                 ),
               if (usage.totalTokens != null)
                 _MetricPill(
-                  label: _text(context, 'Token', 'Tokens'),
+                  label: _text(context, '模型用量', 'Tokens'),
                   value: formatRunLogTokens(usage.totalTokens!),
                   emphasis: true,
                 )
               else
                 _MetricPill(
-                  label: 'Token',
+                  label: _text(context, '模型用量', 'Tokens'),
                   value: _text(context, '未提供', 'Unavailable'),
                 ),
               if (usage.promptTokens != null)
@@ -258,8 +258,11 @@ class RunLogTimelineStepCard extends StatelessWidget {
                             if (tokenUsage?.totalTokens != null) ...[
                               const SizedBox(width: 7),
                               _TinyMetric(
-                                value:
-                                    '${formatRunLogTokens(tokenUsage!.totalTokens!)} tk',
+                                value: _text(
+                                  context,
+                                  '用量 ${formatRunLogTokens(tokenUsage!.totalTokens!)}',
+                                  '${formatRunLogTokens(tokenUsage!.totalTokens!)} tokens',
+                                ),
                               ),
                             ],
                             const SizedBox(width: 7),

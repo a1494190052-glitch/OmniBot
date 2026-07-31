@@ -45,6 +45,11 @@ Widget _app() {
           ),
         ],
       ),
+      GoRoute(
+        path: '/task/omniflow',
+        builder: (context, state) =>
+            const Scaffold(body: Center(child: Text('Execution center route'))),
+      ),
     ],
   );
   return MaterialApp.router(
@@ -186,7 +191,11 @@ void main() {
     expect(find.byType(Switch), findsOneWidget);
     expect(calls.any((call) => call.method == 'setEnabled'), isFalse);
     expect(find.text('已启用'), findsWidgets);
-    expect(find.text('打开执行中心'), findsOneWidget);
+    expect(find.text('运行记录与复用指令'), findsOneWidget);
+
+    await tester.tap(find.text('运行记录与复用指令'));
+    await tester.pumpAndSettle();
+    expect(find.text('Execution center route'), findsOneWidget);
   });
 
   testWidgets('updates an installed plugin from its detail page', (
