@@ -775,7 +775,7 @@ object HttpController {
         val wireApi = when {
             explicitWire != null -> explicitWire
             bindingApplied -> boundProfile?.wireApi ?: OpenAiWireApi.CHAT_COMPLETIONS
-            officialVlmApplied -> OpenAiWireApi.CHAT_COMPLETIONS
+            officialVlmApplied -> officialVlmConfig.wireApi
             providerBase != null -> providerConfig.wireApi
             else -> ModelProviderConfigStore.getEditingProfile().wireApi
         }

@@ -8,6 +8,7 @@ import androidx.work.ExistingPeriodicWorkPolicy
 import androidx.work.NetworkType
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
+import cn.com.omnimind.baselib.llm.OpenAiWireApi
 import cn.com.omnimind.baselib.llm.OfficialVlmOperationConfig
 import cn.com.omnimind.baselib.llm.OfficialVlmOperationConfigStore
 import cn.com.omnimind.baselib.service.DeviceInfoService
@@ -493,7 +494,9 @@ object AppUpdateManager {
                 "url"
             ),
             apiKey = firstJsonString(raw, "apiKey", "api_key", "key"),
-            model = firstJsonString(raw, "model", "modelId", "model_id")
+            model = firstJsonString(raw, "model", "modelId", "model_id"),
+            wireApi = firstJsonString(raw, "wireApi", "wire_api")
+                .ifEmpty { OpenAiWireApi.CHAT_COMPLETIONS }
         )
     }
 

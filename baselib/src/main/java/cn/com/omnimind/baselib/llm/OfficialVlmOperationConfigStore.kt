@@ -35,7 +35,8 @@ object OfficialVlmOperationConfigStore {
             enabled = config.enabled,
             apiBase = config.apiBase.trim().trimEnd('/'),
             apiKey = config.apiKey.trim(),
-            model = config.model.trim()
+            model = config.model.trim(),
+            wireApi = OpenAiWireApi.normalize(config.wireApi)
         )
     }
 

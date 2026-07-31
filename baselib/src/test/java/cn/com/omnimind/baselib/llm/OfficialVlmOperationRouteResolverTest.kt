@@ -7,13 +7,14 @@ import org.junit.Test
 class OfficialVlmOperationRouteResolverTest {
     private val configured = OfficialVlmOperationConfig(
         enabled = true,
-        apiBase = "https://gelab.example/v1",
+        apiBase = "https://chatgpt.example/codex",
         apiKey = "secret",
-        model = "qwen-vl"
+        model = "gpt-5.6-sol",
+        wireApi = OpenAiWireApi.RESPONSES
     )
 
     @Test
-    fun `official Gelab route is the fresh default`() {
+    fun `official ChatGPT Luna route is the fresh default`() {
         val route = OfficialVlmOperationRouteResolver.resolve(
             sceneId = SceneOperationConfigStore.SCENE_ID,
             hasExplicitRoute = false,
@@ -23,6 +24,7 @@ class OfficialVlmOperationRouteResolverTest {
         )
 
         assertEquals(configured, route)
+        assertEquals(OpenAiWireApi.RESPONSES, route?.wireApi)
     }
 
     @Test

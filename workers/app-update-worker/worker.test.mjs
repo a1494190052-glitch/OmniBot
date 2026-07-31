@@ -167,13 +167,13 @@ test("returns 503 before GitHub Actions publishes the first catalog", async () =
   assert.equal(response.status, 503);
 });
 
-test("update checks deliver the official Gelab VLM configuration", async () => {
+test("update checks deliver the ChatGPT Luna VLM configuration", async () => {
   const bucket = new MemoryR2Bucket();
   const env = {
     ...testEnv(bucket),
-    OFFICIAL_VLM_OPERATION_API_BASE: "https://gelab.example/v1",
-    OFFICIAL_VLM_OPERATION_API_KEY: "server-managed-key",
-    OFFICIAL_VLM_OPERATION_MODEL: "qwen-vl",
+    CHATGPT_LUNA_VLM_API_BASE: "https://chatgpt.example/codex",
+    CHATGPT_LUNA_VLM_API_KEY: "server-managed-key",
+    CHATGPT_LUNA_VLM_MODEL: "gpt-5.6-sol",
   };
 
   const response = await worker.fetch(
@@ -184,9 +184,34 @@ test("update checks deliver the official Gelab VLM configuration", async () => {
   const payload = await response.json();
   assert.deepEqual(payload.officialVlmOperation, {
     enabled: true,
-    apiBase: "https://gelab.example/v1",
+    apiBase: "https://chatgpt.example/codex",
     apiKey: "server-managed-key",
+    model: "gpt-5.6-sol",
+    wireApi: "responses",
+  });
+});
+
+test("update checks retain the legacy official VLM configuration fallback", async () => {
+  const bucket = new MemoryR2Bucket();
+  const env = {
+    ...testEnv(bucket),
+    OFFICIAL_VLM_OPERATION_API_BASE: "https://gelab.example/v1",
+    OFFICIAL_VLM_OPERATION_API_KEY: "legacy-server-key",
+    OFFICIAL_VLM_OPERATION_MODEL: "qwen-vl",
+  };
+
+  const response = await worker.fetch(
+    new Request("https://worker.example/updates?currentVersion=0.0.0"),
+    env,
+  );
+  assert.equal(response.status, 200);
+  const payload = await response.json();
+  assert.deepEqual(payload.officialVlmOperation, {
+    enabled: true,
+    apiBase: "https://gelab.example/v1",
+    apiKey: "legacy-server-key",
     model: "qwen-vl",
+    wireApi: "chat_completions",
   });
 });
 

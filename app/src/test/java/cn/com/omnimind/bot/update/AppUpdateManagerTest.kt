@@ -1,5 +1,6 @@
 package cn.com.omnimind.bot.update
 
+import cn.com.omnimind.baselib.llm.OpenAiWireApi
 import cn.com.omnimind.baselib.llm.OfficialVlmOperationConfig
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
@@ -185,15 +186,16 @@ class AppUpdateManagerTest {
     }
 
     @Test
-    fun parseOfficialVlmOperationConfigAcceptsGelabPayloadAliases() {
+    fun parseOfficialVlmOperationConfigAcceptsChatGptPayloadAliases() {
         val config = AppUpdateManager.parseOfficialVlmOperationConfig(
             """
             {
               "official_vlm_operation": {
                 "enabled": true,
-                "base_url": "https://gelab.example/v1",
+                "base_url": "https://chatgpt.example/codex",
                 "api_key": "server-delivered-key",
-                "model_id": "qwen-vl"
+                "model_id": "gpt-5.6-sol",
+                "wire_api": "responses"
               }
             }
             """.trimIndent()
@@ -202,9 +204,10 @@ class AppUpdateManagerTest {
         assertEquals(
             OfficialVlmOperationConfig(
                 enabled = true,
-                apiBase = "https://gelab.example/v1",
+                apiBase = "https://chatgpt.example/codex",
                 apiKey = "server-delivered-key",
-                model = "qwen-vl"
+                model = "gpt-5.6-sol",
+                wireApi = OpenAiWireApi.RESPONSES
             ),
             config
         )
