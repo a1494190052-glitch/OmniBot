@@ -43,7 +43,7 @@ void main() {
                 'total_tokens': 1234,
                 'call_count': 2,
                 'cached_tokens': 100,
-                'resolved_model': 'qwen-vl-max',
+                'resolved_model': 'qwen-vl-max-online-production-2026-07-31',
               },
               'token_usage_by_step': <Object?>[
                 <String, Object?>{
@@ -53,7 +53,8 @@ void main() {
                     'prompt_tokens': 1000,
                     'completion_tokens': 234,
                     'total_tokens': 1234,
-                    'resolved_model': 'qwen-vl-max',
+                    'resolved_model':
+                        'qwen-vl-max-online-production-2026-07-31',
                   },
                 },
               ],
@@ -79,31 +80,49 @@ void main() {
         .setMockMethodCallHandler(assistChannel, null);
   });
 
-  testWidgets('shows time model and token usage from canonical RunLog', (
-    tester,
-  ) async {
-    await tester.pumpWidget(
-      const MaterialApp(
-        locale: Locale('en'),
-        home: RunLogDetailPage(runId: 'run-1'),
-      ),
-    );
-    await tester.pumpAndSettle();
+  testWidgets(
+    'uses compact vlm-core timeline components for canonical RunLog',
+    (tester) async {
+      tester.view.physicalSize = const Size(360, 800);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
 
-    expect(find.text('Run summary'), findsOneWidget);
-    expect(find.text('2026-07-31 09:18:00'), findsOneWidget);
-    expect(find.text('2.35 s'), findsOneWidget);
-    expect(find.text('qwen-vl-max'), findsOneWidget);
-    expect(find.text('VLM calls'), findsOneWidget);
-    expect(find.text('2'), findsOneWidget);
-    expect(find.text('Prompt'), findsOneWidget);
-    expect(find.text('1.00k'), findsOneWidget);
-    expect(find.text('Completion'), findsOneWidget);
-    expect(find.text('234'), findsOneWidget);
-    expect(find.text('Total'), findsOneWidget);
-    expect(find.text('1.23k'), findsOneWidget);
-    expect(find.text('Cached'), findsOneWidget);
-    expect(find.text('100'), findsOneWidget);
-    expect(find.text('Step Token 1.23k · P1.00k/C234'), findsOneWidget);
-  });
+      await tester.pumpWidget(
+        const MaterialApp(
+          locale: Locale('en'),
+          home: RunLogDetailPage(runId: 'run-1'),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('Execution completed'), findsOneWidget);
+      expect(find.text('Open Settings'), findsOneWidget);
+      expect(find.text('Steps 1'), findsOneWidget);
+      expect(find.text('Started 2026-07-31 09:18:00'), findsOneWidget);
+      expect(find.text('Duration 2.35 s'), findsOneWidget);
+      expect(
+        find.text('Model qwen-vl-max-online-production-2026-07-31'),
+        findsOneWidget,
+      );
+      expect(find.text('Calls 2'), findsOneWidget);
+      expect(find.text('Tokens 1.23k'), findsOneWidget);
+      expect(find.text('Prompt 1.00k'), findsOneWidget);
+      expect(find.text('Completion 234'), findsOneWidget);
+      expect(find.text('Cached 100'), findsOneWidget);
+      expect(find.text('Step 1'), findsOneWidget);
+      expect(find.text('Tap · 100, 200'), findsOneWidget);
+      expect(find.text('1.23k tk'), findsOneWidget);
+      expect(find.textContaining('"tool": "click"'), findsNothing);
+
+      await tester.tap(find.text('Tap · 100, 200'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Action details'), findsOneWidget);
+      expect(find.text('Total 1.23k'), findsOneWidget);
+      expect(find.textContaining('"tool": "click"'), findsOneWidget);
+      expect(find.text('Before state'), findsOneWidget);
+      expect(find.text('After state'), findsOneWidget);
+    },
+  );
 }

@@ -1,8 +1,8 @@
 import 'dart:async';
-import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:ui/features/task/pages/execution_history/widgets/run_log_timeline_components.dart';
 import 'package:ui/features/task/run_log/omniflow_tool_client.dart';
 import 'package:ui/features/task/run_log/run_log_metrics.dart';
 
@@ -94,6 +94,26 @@ class _RunLogDetailPageState extends State<RunLogDetailPage> {
     }
   }
 
+  Future<void> _showStepDetails(
+    Map<String, dynamic> step,
+    int fallbackIndex,
+    RunLogTokenUsage? tokenUsage,
+  ) {
+    return showModalBottomSheet<void>(
+      context: context,
+      useRootNavigator: true,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      barrierColor: Colors.black.withValues(alpha: 0.28),
+      builder: (_) => RunLogStepDetailSheet(
+        step: step,
+        fallbackIndex: fallbackIndex,
+        tokenUsage: tokenUsage,
+        onShowState: _showState,
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -141,208 +161,27 @@ class _RunLogDetailPageState extends State<RunLogDetailPage> {
     return ListView(
       padding: const EdgeInsets.fromLTRB(16, 16, 16, 100),
       children: [
-        Text(
-          runLog['goal']?.toString() ?? widget.runId,
-          style: Theme.of(context).textTheme.titleLarge,
+        RunLogOverviewPanel(
+          payload: runLog,
+          metrics: metrics,
+          stepCount: steps.length,
         ),
-        const SizedBox(height: 4),
-        SelectableText(widget.runId),
-        const SizedBox(height: 16),
-        _RunLogSummaryCard(metrics: metrics),
-        const SizedBox(height: 16),
+        const SizedBox(height: 14),
         if (steps.isEmpty)
           Text(_text(context, '没有可显示的步骤', 'No steps to display'))
         else
-          for (final step in steps)
-            _buildStep(step, runLogStepTokenUsage(runLog, step)),
-      ],
-    );
-  }
-
-  Widget _buildStep(Map<String, dynamic> step, RunLogTokenUsage? tokenUsage) {
-    final result = _map(step['result']);
-    final succeeded = result['success'] == true;
-    final beforeStateId = step['before_state_id']?.toString() ?? '';
-    final afterStateId = step['after_state_id']?.toString() ?? '';
-    return Card(
-      margin: const EdgeInsets.only(bottom: 12),
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                CircleAvatar(
-                  radius: 14,
-                  child: Text('${step['step_index'] ?? '?'}'),
-                ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: Text(
-                    _actionLabel(step['action']),
-                    style: Theme.of(context).textTheme.titleMedium,
-                  ),
-                ),
-                Icon(
-                  succeeded ? Icons.check_circle_rounded : Icons.error_rounded,
-                  color: succeeded ? Colors.green : Colors.red,
-                ),
-              ],
-            ),
-            const SizedBox(height: 10),
-            SelectableText(
-              const JsonEncoder.withIndent('  ').convert(step['action']),
-              style: Theme.of(context).textTheme.bodySmall,
-            ),
-            if (tokenUsage?.totalTokens != null) ...[
-              const SizedBox(height: 10),
-              Text(
-                'Step Token ${formatRunLogStepTokens(tokenUsage!)}',
-                style: Theme.of(context).textTheme.labelMedium,
+          for (var index = 0; index < steps.length; index++)
+            RunLogTimelineStepCard(
+              step: steps[index],
+              fallbackIndex: index,
+              isLast: index == steps.length - 1,
+              tokenUsage: runLogStepTokenUsage(runLog, steps[index]),
+              onTap: () => _showStepDetails(
+                steps[index],
+                index,
+                runLogStepTokenUsage(runLog, steps[index]),
               ),
-            ],
-            const SizedBox(height: 10),
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: [
-                OutlinedButton(
-                  onPressed: beforeStateId.isEmpty
-                      ? null
-                      : () => _showState(beforeStateId),
-                  child: Text(_text(context, '前置状态', 'Before state')),
-                ),
-                OutlinedButton(
-                  onPressed: afterStateId.isEmpty
-                      ? null
-                      : () => _showState(afterStateId),
-                  child: Text(_text(context, '后置状态', 'After state')),
-                ),
-              ],
             ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _RunLogSummaryCard extends StatelessWidget {
-  const _RunLogSummaryCard({required this.metrics});
-
-  final RunLogMetrics metrics;
-
-  @override
-  Widget build(BuildContext context) {
-    final usage = metrics.tokenUsage;
-    return Card(
-      margin: EdgeInsets.zero,
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              _text(context, '运行概览', 'Run summary'),
-              style: Theme.of(context).textTheme.titleMedium,
-            ),
-            const SizedBox(height: 12),
-            Wrap(
-              spacing: 20,
-              runSpacing: 12,
-              children: [
-                if (metrics.startedAt != null)
-                  _RunLogMetric(
-                    label: _text(context, '开始时间', 'Started'),
-                    value: formatRunLogTimestamp(metrics.startedAt!),
-                  ),
-                if (metrics.durationMs != null)
-                  _RunLogMetric(
-                    label: _text(context, '耗时', 'Duration'),
-                    value: formatRunLogDuration(metrics.durationMs!),
-                  ),
-                if (metrics.model != null)
-                  _RunLogMetric(
-                    label: _text(context, '模型', 'Model'),
-                    value: metrics.model!,
-                  ),
-                if (metrics.callCount != null)
-                  _RunLogMetric(
-                    label: _text(context, 'VLM 调用', 'VLM calls'),
-                    value: '${metrics.callCount}',
-                  ),
-              ],
-            ),
-            const Divider(height: 28),
-            Text(
-              _text(context, 'Token 消耗', 'Token usage'),
-              style: Theme.of(context).textTheme.labelLarge,
-            ),
-            const SizedBox(height: 10),
-            if (!usage.hasUsage)
-              Text(
-                _text(
-                  context,
-                  '当前模型服务未提供 Token 统计',
-                  'The model provider did not report token usage',
-                ),
-                style: Theme.of(context).textTheme.bodySmall,
-              )
-            else
-              Wrap(
-                spacing: 20,
-                runSpacing: 12,
-                children: [
-                  if (usage.promptTokens != null)
-                    _RunLogMetric(
-                      label: _text(context, '输入', 'Prompt'),
-                      value: formatRunLogTokens(usage.promptTokens!),
-                    ),
-                  if (usage.completionTokens != null)
-                    _RunLogMetric(
-                      label: _text(context, '输出', 'Completion'),
-                      value: formatRunLogTokens(usage.completionTokens!),
-                    ),
-                  if (usage.totalTokens != null)
-                    _RunLogMetric(
-                      label: _text(context, '总计', 'Total'),
-                      value: formatRunLogTokens(usage.totalTokens!),
-                    ),
-                  if (usage.cachedTokens != null)
-                    _RunLogMetric(
-                      label: _text(context, '缓存', 'Cached'),
-                      value: formatRunLogTokens(usage.cachedTokens!),
-                    ),
-                ],
-              ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _RunLogMetric extends StatelessWidget {
-  const _RunLogMetric({required this.label, required this.value});
-
-  final String label;
-  final String value;
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(label, style: Theme.of(context).textTheme.bodySmall),
-        const SizedBox(height: 2),
-        Text(
-          value,
-          style: Theme.of(
-            context,
-          ).textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w700),
-        ),
       ],
     );
   }
@@ -399,14 +238,6 @@ List<Map<String, dynamic>> _mapList(dynamic value) => value is List
 Map<String, dynamic> _map(dynamic value) => value is Map
     ? value.map((key, nested) => MapEntry(key.toString(), nested))
     : <String, dynamic>{};
-
-String _actionLabel(dynamic value) {
-  final action = _map(value);
-  return action['tool']?.toString() ??
-      action['type']?.toString() ??
-      action['action_type']?.toString() ??
-      'action';
-}
 
 String _text(BuildContext context, String zh, String en) =>
     Localizations.localeOf(context).languageCode == 'en' ? en : zh;
