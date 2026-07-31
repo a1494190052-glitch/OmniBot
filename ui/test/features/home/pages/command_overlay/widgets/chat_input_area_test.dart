@@ -108,6 +108,24 @@ void main() {
     expect(tapped, isTrue);
   });
 
+  testWidgets('shows manual recording without trajectory menu entries', (
+    tester,
+  ) async {
+    await tester.pumpWidget(_buildTestApp(contextUsageRatio: null));
+    await tester.pump();
+
+    expect(
+      find.byKey(const ValueKey('chat-input-manual-record-button')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey('chat-input-trajectory-button')),
+      findsNothing,
+    );
+    expect(find.text('轨迹'), findsNothing);
+    expect(find.text('上一个'), findsNothing);
+  });
+
   testWidgets('agent permission selector opens menu and selects mode', (
     tester,
   ) async {

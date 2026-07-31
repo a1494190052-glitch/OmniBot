@@ -194,9 +194,15 @@ Flutter Web is not part of this workflow.
 
 ### Build and install
 
+APK builds can preconfigure the GUI VLM with an OpenAI Responses endpoint.
+`OMNIMIND_API_KEY` is required; `OMNIMIND_API_BASE` and `OMNIMIND_MODEL` are
+optional. The values become the replaceable default for VLM operations only;
+chat and other agent model settings are unchanged.
+
 ```bash
 cd ..
 
+export OMNIMIND_API_KEY=your_vlm_key
 ./gradlew :app:installDevelopStandardDebug -Ptarget=lib/main_standard.dart
 ```
 

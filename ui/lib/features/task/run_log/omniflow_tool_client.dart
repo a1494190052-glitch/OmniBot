@@ -38,6 +38,27 @@ class OmniFlowToolClient {
     });
   }
 
+  static Future<Map<String, dynamic>> startHumanTrajectoryLearning({
+    required String name,
+    required String description,
+    bool enableDebugScreenshots = false,
+  }) async {
+    final result = await AssistsMessageService.assistCore.invokeMethod<Object?>(
+      'startHumanTrajectoryLearning',
+      <String, dynamic>{
+        'name': name,
+        'description': description,
+        'enable_debug_screenshots': enableDebugScreenshots,
+      },
+    );
+    if (result is! Map) {
+      throw StateError('Manual recording returned an invalid response');
+    }
+    return result.map(
+      (key, value) => MapEntry(key.toString(), _normalize(value)),
+    );
+  }
+
   static Future<Map<String, dynamic>> deleteFunction(String functionId) {
     return _call('delete_function', {'function_id': functionId});
   }

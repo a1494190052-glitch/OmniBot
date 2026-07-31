@@ -248,6 +248,14 @@ mixin _ChatInputAreaComposerMixin on _ChatInputAreaStateBase {
             child: _buildSlashTriggerButton(iconSize: 20),
           ),
         ],
+        if (_hasManualRecordingAction) ...[
+          const SizedBox(width: 4),
+          SizedBox(
+            width: 28,
+            height: 28,
+            child: _buildManualRecordingButton(iconSize: 20),
+          ),
+        ],
         const SizedBox(width: 4),
         Expanded(
           child: Align(
@@ -364,6 +372,49 @@ mixin _ChatInputAreaComposerMixin on _ChatInputAreaStateBase {
               }
               widget.onTriggerSlashCommand?.call();
             },
+    );
+  }
+
+  Widget _buildManualRecordingButton({required double iconSize}) {
+    final palette = context.omniPalette;
+    final color = context.isDarkTheme
+        ? palette.accentPrimary
+        : const Color(0xFFD84A4A);
+    return IconButton(
+      key: const ValueKey('chat-input-manual-record-button'),
+      padding: EdgeInsets.zero,
+      iconSize: iconSize,
+      tooltip: Localizations.localeOf(context).languageCode == 'en'
+          ? 'Manual recording'
+          : '手动录制',
+      icon: Container(
+        width: 24,
+        height: 24,
+        decoration: BoxDecoration(
+          color: color.withValues(alpha: 0.12),
+          shape: BoxShape.circle,
+        ),
+        child: Icon(
+          Icons.fiber_manual_record_rounded,
+          size: iconSize,
+          color: color,
+        ),
+      ),
+      onPressed: () {
+        if (_isPopupVisible) {
+          setState(() => _isPopupVisible = false);
+          widget.onPopupVisibilityChanged?.call(false);
+        }
+        unawaited(
+          ManualRecordingFlowController.startStandalone(
+            context: context,
+            inputFocusNode: widget.focusNode,
+            userMessageText: widget.controller.text.trim(),
+            recordDebugScreenshots: false,
+            isMounted: () => mounted,
+          ),
+        );
+      },
     );
   }
 
@@ -716,6 +767,14 @@ mixin _ChatInputAreaComposerMixin on _ChatInputAreaStateBase {
             width: 24,
             height: 24,
             child: _buildSlashTriggerButton(iconSize: 18),
+          ),
+          const SizedBox(width: 2),
+        ],
+        if (_hasManualRecordingAction) ...[
+          SizedBox(
+            width: 24,
+            height: 24,
+            child: _buildManualRecordingButton(iconSize: 18),
           ),
           const SizedBox(width: 2),
         ],

@@ -25,7 +25,7 @@ class OmniVlmLiteProvider(context: Context) : OmniPluginProvider {
         id = ID,
         name = "Omni VLM Lite",
         version = VERSION,
-        description = "可重放的 Android GUI 视觉操作能力。首次执行或更新时从官方 Skills 仓库准备隔离运行时，APK 不包含 Python、NumPy 或模型文件。",
+        description = "可重放的 Android GUI 视觉操作能力。安装时通过 Skill 准备隔离运行时，APK 不包含 Python、NumPy 或模型文件。",
         publisher = "OmniMind",
         kind = OmniPluginKind.RUNTIME_BUNDLE,
         downloadSizeBytes = DOWNLOAD_SIZE_BYTES,
@@ -121,6 +121,6 @@ class OmniVlmLiteProvider(context: Context) : OmniPluginProvider {
         const val ID = "com.omnimind.omni-vlm-lite"
         const val VERSION = "2.0.0"
         const val TOOL_NAME = "vlm_task"
-        private const val DOWNLOAD_SIZE_BYTES = 18_500_000L
+        private const val DOWNLOAD_SIZE_BYTES = 24_000_000L
     }
 }

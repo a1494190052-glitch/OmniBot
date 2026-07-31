@@ -7,14 +7,14 @@ import org.junit.Test
 class OfficialVlmOperationRouteResolverTest {
     private val configured = OfficialVlmOperationConfig(
         enabled = true,
-        apiBase = "https://chatgpt.example/codex",
+        apiBase = "https://chatgpt.example/v1",
         apiKey = "secret",
         model = "gpt-5.6-sol",
-        wireApi = OpenAiWireApi.RESPONSES
+        wireApi = OpenAiWireApi.RESPONSES,
     )
 
     @Test
-    fun `official ChatGPT Luna route is the fresh default`() {
+    fun `bundled ChatGPT route is the fresh default`() {
         val route = OfficialVlmOperationRouteResolver.resolve(
             sceneId = SceneOperationConfigStore.SCENE_ID,
             hasExplicitRoute = false,

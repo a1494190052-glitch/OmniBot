@@ -257,6 +257,7 @@ class _FunctionDetailSheetState extends State<FunctionDetailSheet> {
                     ),
                     const Spacer(),
                     FilledButton.icon(
+                      key: const ValueKey('function-detail-run'),
                       onPressed: functionId.isEmpty
                           ? null
                           : () => _closeAndRun(widget.onReplay),

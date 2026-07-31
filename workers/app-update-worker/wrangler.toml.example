@@ -33,9 +33,3 @@ CF_ACCOUNT_ID = ""
 #   wrangler secret put CF_ANALYTICS_API_TOKEN
 #     Cloudflare API token with "Account Analytics: Read" permission,
 #     used to run SQL queries against Analytics Engine for the dashboards.
-#   wrangler secret put CHATGPT_LUNA_VLM_API_BASE
-#   wrangler secret put CHATGPT_LUNA_VLM_API_KEY
-#   wrangler secret put CHATGPT_LUNA_VLM_MODEL
-#     ChatGPT Luna OpenAI Responses route delivered to the Android app.
-#   wrangler secret put CHATGPT_LUNA_VLM_ENABLED
-#     Optional; defaults to enabled when the three values above are configured.

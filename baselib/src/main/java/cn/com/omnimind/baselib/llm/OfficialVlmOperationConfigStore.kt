@@ -12,13 +12,16 @@ object OfficialVlmOperationConfigStore {
     private val gson = Gson()
     private val defaultConfig = OfficialVlmOperationConfig()
 
+    @Volatile
+    private var bundledDefault: OfficialVlmOperationConfig? = null
+
     fun getConfig(): OfficialVlmOperationConfig {
-        val raw = MMKV.defaultMMKV()
-            ?.decodeString(KEY_OFFICIAL_VLM_OPERATION_CONFIG)
+        val raw = runCatching {
+            MMKV.defaultMMKV().decodeString(KEY_OFFICIAL_VLM_OPERATION_CONFIG)
+        }.getOrNull()
             ?.trim()
             ?.takeIf(String::isNotEmpty)
-            ?: return defaultConfig
-        return parse(raw) ?: defaultConfig
+        return raw?.let(::parse) ?: bundledDefault ?: defaultConfig
     }
 
     fun saveConfig(config: OfficialVlmOperationConfig): OfficialVlmOperationConfig {
@@ -28,6 +31,12 @@ object OfficialVlmOperationConfigStore {
             gson.toJson(normalized)
         )
         return normalized
+    }
+
+    fun setBundledDefault(config: OfficialVlmOperationConfig?) {
+        bundledDefault = config
+            ?.let(::normalize)
+            ?.takeIf(OfficialVlmOperationConfig::isConfigured)
     }
 
     fun normalize(config: OfficialVlmOperationConfig): OfficialVlmOperationConfig {

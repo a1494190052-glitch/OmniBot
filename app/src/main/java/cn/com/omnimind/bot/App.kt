@@ -17,6 +17,7 @@ import cn.com.omnimind.bot.quicklog.QuickLogWidgetUpdater
 import cn.com.omnimind.bot.terminal.EmbeddedTerminalRuntime
 import cn.com.omnimind.bot.update.AppUpdateManager
 import cn.com.omnimind.bot.util.NestedBackgroundStateUtil
+import cn.com.omnimind.bot.vlm.BundledVlmOperationConfig
 import cn.com.omnimind.baselib.shizuku.ShizukuCapabilityManager
 import com.rk.resources.Res
 import com.tencent.mmkv.MMKV
@@ -75,6 +76,7 @@ class App : BaseApplication() {
         Res.application = this
 
         MMKV.initialize(this)
+        BundledVlmOperationConfig.install()
         OfficialOmniPluginProviders.register()
         AgentPromptSettingsStore.initializeAndCleanupLegacyFiles(this)
         LegacyLocalModelDataCleanup.start(this)

@@ -1,9 +1,9 @@
 package cn.com.omnimind.baselib.llm
 
 object OfficialVlmOperationRouteResolver {
-    const val PROFILE_ID = "official-chatgpt-luna-vlm"
-    const val PROFILE_NAME = "ChatGPT Luna"
-    const val ROUTE_TAG = "official_chatgpt_luna_vlm"
+    const val PROFILE_ID = "official-chatgpt-vlm"
+    const val PROFILE_NAME = "ChatGPT VLM"
+    const val ROUTE_TAG = "official_chatgpt_vlm"
 
     fun resolve(
         sceneId: String?,

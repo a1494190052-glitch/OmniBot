@@ -320,7 +320,7 @@ async function handleUpdateCheck(request, url, env) {
   });
 
   if (!selected) {
-    return json(emptyUpdateResponse({ currentVersion, checkedAt, edition, source, env }));
+    return json(emptyUpdateResponse({ currentVersion, checkedAt, edition, source }));
   }
 
   return json({
@@ -338,7 +338,6 @@ async function handleUpdateCheck(request, url, env) {
     apkDownloadUrl: asset ? assetDownloadUrl(asset, source, url, selected.tag) : "",
     edition,
     source,
-    officialVlmOperation: officialVlmOperationConfig(env),
     assets: (selected.assets || []).map((releaseAsset) => publicAsset(releaseAsset, url, selected.tag)),
   });
 }
@@ -1264,7 +1263,7 @@ function normalizeTimestamp(raw) {
   return Number.isNaN(parsed) ? 0 : parsed;
 }
 
-function emptyUpdateResponse({ currentVersion, checkedAt, edition, source, env }) {
+function emptyUpdateResponse({ currentVersion, checkedAt, edition, source }) {
   return {
     ok: true,
     currentVersion,
@@ -1280,36 +1279,8 @@ function emptyUpdateResponse({ currentVersion, checkedAt, edition, source, env }
     apkDownloadUrl: "",
     edition,
     source,
-    officialVlmOperation: officialVlmOperationConfig(env),
     assets: [],
   };
-}
-
-function officialVlmOperationConfig(env) {
-  const lunaConfig = {
-    apiBase: stringValue(env.CHATGPT_LUNA_VLM_API_BASE),
-    apiKey: stringValue(env.CHATGPT_LUNA_VLM_API_KEY),
-    model: stringValue(env.CHATGPT_LUNA_VLM_MODEL),
-  };
-  const legacyConfig = {
-    apiBase: stringValue(env.OFFICIAL_VLM_OPERATION_API_BASE),
-    apiKey: stringValue(env.OFFICIAL_VLM_OPERATION_API_KEY),
-    model: stringValue(env.OFFICIAL_VLM_OPERATION_MODEL),
-  };
-  const lunaConfigured = Boolean(
-    lunaConfig.apiBase && lunaConfig.apiKey && lunaConfig.model,
-  );
-  const selected = lunaConfigured ? lunaConfig : legacyConfig;
-  const { apiBase, apiKey, model } = selected;
-  const configured = Boolean(apiBase && apiKey && model);
-  const enabledValue = lunaConfigured
-    ? env.CHATGPT_LUNA_VLM_ENABLED
-    : env.OFFICIAL_VLM_OPERATION_ENABLED;
-  const enabled = enabledValue === undefined
-    ? configured
-    : parseBoolean(enabledValue) && configured;
-  const wireApi = lunaConfigured ? "responses" : "chat_completions";
-  return { enabled, apiBase, apiKey, model, wireApi };
 }
 
 function stringValue(value) {

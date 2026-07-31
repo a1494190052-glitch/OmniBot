@@ -57,13 +57,6 @@ class MemoryR2Bucket {
     this.objects.set(key, object);
     return object;
   }
-
-  async list({ prefix = "" } = {}) {
-    return {
-      objects: [...this.objects.values()].filter((object) => object.key.startsWith(prefix)),
-      truncated: false,
-    };
-  }
 }
 
 function testEnv(bucket) {
@@ -165,54 +158,6 @@ test("returns 503 before GitHub Actions publishes the first catalog", async () =
     testEnv(new MemoryR2Bucket()),
   );
   assert.equal(response.status, 503);
-});
-
-test("update checks deliver the ChatGPT Luna VLM configuration", async () => {
-  const bucket = new MemoryR2Bucket();
-  const env = {
-    ...testEnv(bucket),
-    CHATGPT_LUNA_VLM_API_BASE: "https://chatgpt.example/codex",
-    CHATGPT_LUNA_VLM_API_KEY: "server-managed-key",
-    CHATGPT_LUNA_VLM_MODEL: "gpt-5.6-sol",
-  };
-
-  const response = await worker.fetch(
-    new Request("https://updates.example/updates?currentVersion=0.5.6.14&edition=standard"),
-    env,
-  );
-  assert.equal(response.status, 200);
-  const payload = await response.json();
-  assert.deepEqual(payload.officialVlmOperation, {
-    enabled: true,
-    apiBase: "https://chatgpt.example/codex",
-    apiKey: "server-managed-key",
-    model: "gpt-5.6-sol",
-    wireApi: "responses",
-  });
-});
-
-test("update checks retain the legacy official VLM configuration fallback", async () => {
-  const bucket = new MemoryR2Bucket();
-  const env = {
-    ...testEnv(bucket),
-    OFFICIAL_VLM_OPERATION_API_BASE: "https://gelab.example/v1",
-    OFFICIAL_VLM_OPERATION_API_KEY: "legacy-server-key",
-    OFFICIAL_VLM_OPERATION_MODEL: "qwen-vl",
-  };
-
-  const response = await worker.fetch(
-    new Request("https://worker.example/updates?currentVersion=0.0.0"),
-    env,
-  );
-  assert.equal(response.status, 200);
-  const payload = await response.json();
-  assert.deepEqual(payload.officialVlmOperation, {
-    enabled: true,
-    apiBase: "https://gelab.example/v1",
-    apiKey: "legacy-server-key",
-    model: "qwen-vl",
-    wireApi: "chat_completions",
-  });
 });
 
 test("admin status is authenticated and combines R2 metadata with CI status", async () => {

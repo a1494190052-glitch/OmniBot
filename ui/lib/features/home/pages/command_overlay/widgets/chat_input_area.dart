@@ -6,6 +6,7 @@ import 'dart:ui';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
+import 'package:ui/features/home/pages/command_overlay/services/manual_recording_flow_controller.dart';
 import 'package:ui/services/model_vendor_catalog.dart';
 import 'package:ui/services/special_permission.dart';
 import 'package:ui/services/storage_service.dart';
@@ -485,6 +486,7 @@ abstract class _ChatInputAreaStateBase extends State<ChatInputArea>
   final ScrollController _textFieldScrollController = ScrollController();
 
   bool get isPopupVisible => _isPopupVisible;
+  bool get _hasManualRecordingAction => true;
   double _lastReportedInputHeight = 44;
   bool _inputHeightReportScheduled = false;
   bool _isComposerHovered = false;

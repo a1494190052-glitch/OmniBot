@@ -1,6 +1,7 @@
 package cn.com.omnimind.bot.omniflow
 
 import android.content.Context
+import android.content.res.AssetManager
 import cn.com.omnimind.assists.controller.http.HttpController
 import cn.com.omnimind.baselib.llm.ChatCompletionRequest
 import cn.com.omnimind.bot.agent.AgentWorkspaceManager
@@ -59,22 +60,25 @@ internal object OmniFlowAppPlatform : OmniFlowPlatform {
         val skills = SkillIndexService(appContext, workspace)
         val existing = skills.listSkillsForManagement()
             .firstOrNull { it.id == OmniFlowRuntimeProvider.SKILL_ID && it.installed }
-        if (refresh || existing == null) {
+        if (existing == null || (refresh && !isPackagedRuntimeSkill(existing.rootPath))) {
             runCatching { skills.syncOfficialSkillsRepository() }
                 .getOrElse { error ->
                     if (existing == null) throw error
                 }
         }
-        val entry = skills.listSkillsForManagement()
+        var entry = skills.listSkillsForManagement()
             .firstOrNull { it.id == OmniFlowRuntimeProvider.SKILL_ID && it.installed }
-            ?: error("omniflow_runtime_skill_not_found")
-        if (!entry.enabled) {
-            skills.setSkillEnabled(entry.id, true)
+        if (entry == null || (refresh && isPackagedRuntimeSkill(entry.rootPath))) {
+            entry = installPackagedRuntimeSkill(appContext, skills)
+        }
+        val resolvedEntry = requireNotNull(entry) { "omniflow_runtime_skill_not_found" }
+        if (!resolvedEntry.enabled) {
+            skills.setSkillEnabled(resolvedEntry.id, true)
         }
         return OmniFlowSkillLocation(
-            androidRoot = File(entry.rootPath).canonicalFile,
-            shellRoot = entry.shellRootPath,
-            source = entry.source,
+            androidRoot = File(resolvedEntry.rootPath).canonicalFile,
+            shellRoot = resolvedEntry.shellRootPath,
+            source = resolvedEntry.source,
         )
     }
 
@@ -107,6 +111,10 @@ internal object OmniFlowAppPlatform : OmniFlowPlatform {
         val entry = skills.listSkillsForManagement()
             .firstOrNull { it.id == OmniFlowRuntimeProvider.SKILL_ID && it.installed }
             ?: return
+        if (isPackagedRuntimeSkill(entry.rootPath)) {
+            require(skills.deleteSkill(entry.id)) { "omniflow_skill_delete_failed" }
+            return
+        }
         if (entry.enabled) {
             skills.setSkillEnabled(entry.id, false)
         }
@@ -121,4 +129,45 @@ internal object OmniFlowAppPlatform : OmniFlowPlatform {
         check(response.success) { response.message.ifBlank { "model_completion_failed" } }
         return response.content.ifBlank { response.message }
     }
+
+    private fun installPackagedRuntimeSkill(
+        context: Context,
+        skills: SkillIndexService,
+    ) = File(context.cacheDir, "omniflow-runtime-skill-${UUID.randomUUID()}").let { temporary ->
+        val skillSource = File(temporary, OmniFlowRuntimeProvider.SKILL_ID)
+        try {
+            copyAssetTree(context.assets, PACKAGED_RUNTIME_SKILL_ASSET, skillSource)
+            copyAssetTree(context.assets, PACKAGED_SCHEMA_ASSET, File(skillSource, "schemas"))
+            skills.installSkillFromDirectory(skillSource.absolutePath)
+        } finally {
+            temporary.deleteRecursively()
+        }
+    }
+
+    private fun copyAssetTree(
+        assets: AssetManager,
+        assetPath: String,
+        target: File,
+    ) {
+        val children = assets.list(assetPath).orEmpty()
+        if (children.isEmpty()) {
+            target.parentFile?.mkdirs()
+            assets.open(assetPath).use { input ->
+                target.outputStream().use(input::copyTo)
+            }
+            return
+        }
+        target.mkdirs()
+        children.forEach { child ->
+            copyAssetTree(assets, "$assetPath/$child", File(target, child))
+        }
+    }
+
+    private fun isPackagedRuntimeSkill(rootPath: String): Boolean =
+        File(rootPath, PACKAGED_RUNTIME_SKILL_MARKER).isFile
+
+    private const val PACKAGED_RUNTIME_SKILL_ASSET =
+        "runtime-skill/omniflow-gui-runtime"
+    private const val PACKAGED_SCHEMA_ASSET = "schemas"
+    private const val PACKAGED_RUNTIME_SKILL_MARKER = "PACKAGED_RUNTIME_SKILL"
 }

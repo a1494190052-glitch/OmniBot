@@ -195,9 +195,15 @@ Android 构建会自动处理 WebUI：Gradle 使用锁文件安装依赖、执�
 
 ### 构建并安装
 
+APK 构建可以为 GUI VLM 预置 OpenAI Responses 端点。
+`OMNIMIND_API_KEY` 为必填项，`OMNIMIND_API_BASE` 和 `OMNIMIND_MODEL`
+可选。这些值只作为 VLM 操作的可替换默认配置，不会改变聊天或其他 Agent
+的模型设置。
+
 ```bash
 cd ..
 
+export OMNIMIND_API_KEY=your_vlm_key
 ./gradlew :app:installDevelopStandardDebug -Ptarget=lib/main_standard.dart
 ```
 

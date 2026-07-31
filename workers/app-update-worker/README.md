@@ -137,18 +137,8 @@ cp wrangler.toml.example wrangler.toml
 # Put the created bucket name and your Cloudflare account id in wrangler.toml.
 wrangler secret put ADMIN_TOKEN            # admin console + release API token
 wrangler secret put CF_ANALYTICS_API_TOKEN # API token with "Account Analytics: Read"
-wrangler secret put CHATGPT_LUNA_VLM_API_BASE
-wrangler secret put CHATGPT_LUNA_VLM_API_KEY
-wrangler secret put CHATGPT_LUNA_VLM_MODEL
 wrangler deploy
 ```
-
-The three `CHATGPT_LUNA_VLM_*` values configure the ChatGPT Luna VLM route
-returned by `/updates`. They are Worker secrets and are not compiled into the
-APK, and the app sends this route through the OpenAI Responses API. Set
-`CHATGPT_LUNA_VLM_ENABLED=false` to disable the route without deleting its
-configuration. The legacy `OFFICIAL_VLM_OPERATION_*` names remain accepted for
-a staged backend migration and keep using Chat Completions.
 
 The checked-in example config enables `global_fetch_strictly_public`. There is
 no Worker Cron Trigger for the catalog; scheduling belongs exclusively to

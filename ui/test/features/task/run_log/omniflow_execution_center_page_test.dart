@@ -175,7 +175,7 @@ void main() {
     expect(find.text('要搜索的文本'), findsOneWidget);
     expect(toolCalls.any((call) => call['name'] == 'get_function'), isTrue);
 
-    await tester.tap(find.widgetWithText(FilledButton, '执行').last);
+    await tester.tap(find.byKey(const ValueKey('function-detail-run')));
     await tester.pumpAndSettle();
     expect(find.text('填写执行参数'), findsOneWidget);
   });

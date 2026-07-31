@@ -23,6 +23,11 @@ val omnibotImageBaseUrl = prop("OMNIBOT_IMAGE_BASE_URL")
 val omnibotImageModel = prop("OMNIBOT_IMAGE_MODEL")
     .ifBlank { "gpt-image-2" }
 val omnibotImageApiKey = prop("OMNIBOT_IMAGE_API_KEY")
+val bundledVlmApiBase = prop("OMNIMIND_API_BASE")
+    .ifBlank { "http://cloud.omnimind.com.cn/v1" }
+val bundledVlmApiKey = prop("OMNIMIND_API_KEY")
+val bundledVlmModel = prop("OMNIMIND_MODEL")
+    .ifBlank { "gpt-5.6-sol" }
 
 val webChatSourceDir = rootProject.file("webchat")
 val webChatDistDir = File(webChatSourceDir, "dist")
@@ -93,6 +98,9 @@ android {
         buildConfigField("String", "IMAGE_BASE_URL", buildConfigString(omnibotImageBaseUrl))
         buildConfigField("String", "IMAGE_MODEL", buildConfigString(omnibotImageModel))
         buildConfigField("String", "IMAGE_API_KEY", buildConfigString(omnibotImageApiKey))
+        buildConfigField("String", "BUNDLED_VLM_API_BASE", buildConfigString(bundledVlmApiBase))
+        buildConfigField("String", "BUNDLED_VLM_API_KEY", buildConfigString(bundledVlmApiKey))
+        buildConfigField("String", "BUNDLED_VLM_MODEL", buildConfigString(bundledVlmModel))
         ndk {
             abiFilters.addAll(listOf("arm64-v8a"))
         }
@@ -190,7 +198,12 @@ android {
 
     sourceSets {
         getByName("main") {
-            assets.srcDirs("src/main/assets", "../skills", webChatAssetsRootDir)
+            assets.srcDirs(
+                "src/main/assets",
+                "../skills",
+                "../plugins/omni-vlm-lite",
+                webChatAssetsRootDir
+            )
         }
     }
 

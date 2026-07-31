@@ -71,6 +71,15 @@ class SpecialPermissionChannel {
                         result
                     )
 
+                    "isAndroidGuiAccessibilityEnabled" -> specialPermissionManager!!
+                        .isAndroidGuiAccessibilityEnabled(result)
+
+                    "isAndroidGuiAccessibilityReady" -> specialPermissionManager!!
+                        .isAndroidGuiAccessibilityReady(result)
+
+                    "openAndroidGuiAccessibilitySettings" -> specialPermissionManager!!
+                        .openAndroidGuiAccessibilitySettings(result)
+
                     "isInstalledAppsPermissionGranted" -> specialPermissionManager!!.isInstalledAppsPermissionGranted(
                         result
                     )
