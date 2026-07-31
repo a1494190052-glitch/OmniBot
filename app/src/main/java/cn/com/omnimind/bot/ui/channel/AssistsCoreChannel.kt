@@ -120,6 +120,12 @@ class AssistsCoreChannel {
                 "saveSceneVoiceConfig" -> {
                     assistsCoreManager!!.saveSceneVoiceConfig(call, result)
                 }
+                "getSceneOperationConfig" -> {
+                    assistsCoreManager!!.getSceneOperationConfig(call, result)
+                }
+                "saveSceneOperationConfig" -> {
+                    assistsCoreManager!!.saveSceneOperationConfig(call, result)
+                }
                 "getSceneModelOverrides" -> {
                     assistsCoreManager!!.getSceneModelOverrides(call, result)
                 }

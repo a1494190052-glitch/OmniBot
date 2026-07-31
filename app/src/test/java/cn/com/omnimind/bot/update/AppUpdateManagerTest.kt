@@ -1,5 +1,6 @@
 package cn.com.omnimind.bot.update
 
+import cn.com.omnimind.baselib.llm.OfficialVlmOperationConfig
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Test
@@ -181,6 +182,37 @@ class AppUpdateManagerTest {
         assertEquals("35", url?.queryParameter("sdkInt"))
         assertEquals("11111111-2222-3333-4444-555555555555", url?.queryParameter("installId"))
         assertEquals(null, url?.queryParameter("blankValueIsSkipped"))
+    }
+
+    @Test
+    fun parseOfficialVlmOperationConfigAcceptsGelabPayloadAliases() {
+        val config = AppUpdateManager.parseOfficialVlmOperationConfig(
+            """
+            {
+              "official_vlm_operation": {
+                "enabled": true,
+                "base_url": "https://gelab.example/v1",
+                "api_key": "server-delivered-key",
+                "model_id": "qwen-vl"
+              }
+            }
+            """.trimIndent()
+        )
+
+        assertEquals(
+            OfficialVlmOperationConfig(
+                enabled = true,
+                apiBase = "https://gelab.example/v1",
+                apiKey = "server-delivered-key",
+                model = "qwen-vl"
+            ),
+            config
+        )
+    }
+
+    @Test
+    fun parseOfficialVlmOperationConfigIgnoresMissingPayload() {
+        assertNull(AppUpdateManager.parseOfficialVlmOperationConfig("{}"))
     }
 
 }

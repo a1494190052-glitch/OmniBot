@@ -8,11 +8,15 @@ import androidx.work.ExistingPeriodicWorkPolicy
 import androidx.work.NetworkType
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
+import cn.com.omnimind.baselib.llm.OfficialVlmOperationConfig
+import cn.com.omnimind.baselib.llm.OfficialVlmOperationConfigStore
 import cn.com.omnimind.baselib.service.DeviceInfoService
 import cn.com.omnimind.baselib.util.OmniLog
 import cn.com.omnimind.bot.BuildConfig
 import cn.com.omnimind.bot.manager.ExternalApkInstallResult
 import cn.com.omnimind.bot.manager.ExternalApkInstaller
+import com.google.gson.JsonObject
+import com.google.gson.JsonParser
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -443,6 +447,7 @@ object AppUpdateManager {
                 throw IOException("App update worker response body is empty")
             }
             val payload = JSONObject(body)
+            cacheOfficialVlmOperationConfig(body)
             return parseWorkerUpdateState(
                 payload = payload,
                 currentVersion = currentVersion,
@@ -452,6 +457,60 @@ object AppUpdateManager {
                 checkedAt = checkedAt
             )
         }
+    }
+
+    private fun cacheOfficialVlmOperationConfig(payloadJson: String) {
+        val config = parseOfficialVlmOperationConfig(payloadJson) ?: return
+        val saved = OfficialVlmOperationConfigStore.saveConfig(config)
+        OmniLog.i(
+            TAG,
+            "Official VLM config cached: enabled=${saved.enabled}, " +
+                "configured=${saved.isConfigured()}"
+        )
+    }
+
+    @VisibleForTesting
+    internal fun parseOfficialVlmOperationConfig(
+        payloadJson: String
+    ): OfficialVlmOperationConfig? {
+        val payload = runCatching {
+            JsonParser.parseString(payloadJson).asJsonObject
+        }.getOrNull() ?: return null
+        val raw = firstJsonObject(
+            payload,
+            "officialVlmOperation",
+            "official_vlm_operation",
+            "officialVLMOperation"
+        ) ?: return null
+        return OfficialVlmOperationConfig(
+            enabled = raw.get("enabled")?.runCatching { asBoolean }?.getOrNull() ?: false,
+            apiBase = firstJsonString(
+                raw,
+                "apiBase",
+                "api_base",
+                "baseUrl",
+                "base_url",
+                "url"
+            ),
+            apiKey = firstJsonString(raw, "apiKey", "api_key", "key"),
+            model = firstJsonString(raw, "model", "modelId", "model_id")
+        )
+    }
+
+    private fun firstJsonObject(raw: JsonObject, vararg keys: String): JsonObject? {
+        return keys.firstNotNullOfOrNull { key ->
+            raw.get(key)?.takeIf { it.isJsonObject }?.asJsonObject
+        }
+    }
+
+    private fun firstJsonString(raw: JsonObject, vararg keys: String): String {
+        return keys.firstNotNullOfOrNull { key ->
+            raw.get(key)
+                ?.takeUnless { it.isJsonNull }
+                ?.runCatching { asString.trim() }
+                ?.getOrNull()
+                ?.takeIf(String::isNotEmpty)
+        }.orEmpty()
     }
 
     @VisibleForTesting

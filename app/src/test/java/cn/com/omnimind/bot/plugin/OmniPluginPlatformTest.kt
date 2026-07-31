@@ -158,15 +158,42 @@ class OmniPluginPlatformTest {
         assertTrue(platform.list().single().enabled)
     }
 
+    @Test
+    fun `default plugin enables once and explicit uninstall is preserved`() = runBlocking {
+        val provider = RecordingProvider("com.omnimind.default", "default_action")
+        val store = OneShotDefaultStore()
+        val firstPlatform = platform(
+            provider,
+            store = store,
+            defaultEnabledPluginIds = setOf(provider.descriptor.id)
+        )
+
+        assertTrue(firstPlatform.list().single().enabled)
+        assertEquals(0, provider.installCount)
+        assertEquals(1, provider.enableCount)
+
+        firstPlatform.uninstall(provider.descriptor.id)
+        assertFalse(firstPlatform.list().single().installed)
+
+        val restoredPlatform = platform(
+            provider,
+            store = store,
+            defaultEnabledPluginIds = setOf(provider.descriptor.id)
+        )
+        assertFalse(restoredPlatform.list().single().installed)
+    }
+
     private fun platform(
         vararg providers: OmniPluginProvider,
         store: OmniPluginStateStore = RecordingStore(),
-        reservedToolNames: Set<String> = emptySet()
+        reservedToolNames: Set<String> = emptySet(),
+        defaultEnabledPluginIds: Set<String> = emptySet()
     ): OmniPluginPlatform {
         return OmniPluginPlatform(
             providerSource = { providers.toList() },
             stateStore = store,
-            reservedToolNames = reservedToolNames
+            reservedToolNames = reservedToolNames,
+            defaultEnabledPluginIds = defaultEnabledPluginIds
         )
     }
 
@@ -200,6 +227,27 @@ class OmniPluginPlatformTest {
         private var states = initial
 
         override fun read(): List<OmniPluginStoredState> = states
+
+        override fun write(states: List<OmniPluginStoredState>) {
+            this.states = states
+        }
+    }
+
+    private class OneShotDefaultStore : OmniPluginStateStore {
+        private var states = emptyList<OmniPluginStoredState>()
+        private var defaultsSeeded = false
+
+        override fun read(): List<OmniPluginStoredState> = states
+
+        override fun readWithDefaults(
+            defaults: List<OmniPluginStoredState>
+        ): List<OmniPluginStoredState> {
+            if (!defaultsSeeded) {
+                states = defaults
+                defaultsSeeded = true
+            }
+            return states
+        }
 
         override fun write(states: List<OmniPluginStoredState>) {
             this.states = states

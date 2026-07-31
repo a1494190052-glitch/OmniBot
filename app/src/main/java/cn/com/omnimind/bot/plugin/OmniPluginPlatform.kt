@@ -7,7 +7,8 @@ import kotlinx.coroutines.sync.withLock
 class OmniPluginPlatform(
     private val providerSource: () -> List<OmniPluginProvider>,
     private val stateStore: OmniPluginStateStore,
-    private val reservedToolNames: Set<String>
+    private val reservedToolNames: Set<String>,
+    private val defaultEnabledPluginIds: Set<String> = emptySet()
 ) {
     private data class ActivePlugin(
         val plugin: OmniPlugin,
@@ -192,7 +193,11 @@ class OmniPluginPlatform(
 
     private suspend fun ensureInitialized() {
         if (initialized) return
-        val restored = runCatching { stateStore.read() }.getOrDefault(emptyList())
+        val defaults = defaultEnabledPluginIds.map { pluginId ->
+            OmniPluginStoredState(pluginId = pluginId, enabled = true)
+        }
+        val restored = runCatching { stateStore.readWithDefaults(defaults) }
+            .getOrDefault(emptyList())
         restored.forEach { state -> storedStates[state.pluginId] = state }
         initialized = true
 

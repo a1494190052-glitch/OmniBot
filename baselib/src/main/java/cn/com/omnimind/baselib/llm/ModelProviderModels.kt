@@ -101,3 +101,21 @@ data class SceneVoiceConfig(
     @field:SerializedName(value = "customCurlCommand", alternate = ["f"])
     val customCurlCommand: String = ""
 )
+
+data class SceneOperationConfig(
+    val useOfficialService: Boolean = true
+)
+
+data class OfficialVlmOperationConfig(
+    val enabled: Boolean = false,
+    val apiBase: String = "",
+    val apiKey: String = "",
+    val model: String = ""
+) {
+    fun isConfigured(): Boolean {
+        return enabled &&
+            apiBase.trim().isNotEmpty() &&
+            apiKey.trim().isNotEmpty() &&
+            model.trim().isNotEmpty()
+    }
+}

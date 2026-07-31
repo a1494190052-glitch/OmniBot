@@ -57,6 +57,13 @@ class MemoryR2Bucket {
     this.objects.set(key, object);
     return object;
   }
+
+  async list({ prefix = "" } = {}) {
+    return {
+      objects: [...this.objects.values()].filter((object) => object.key.startsWith(prefix)),
+      truncated: false,
+    };
+  }
 }
 
 function testEnv(bucket) {
@@ -158,6 +165,29 @@ test("returns 503 before GitHub Actions publishes the first catalog", async () =
     testEnv(new MemoryR2Bucket()),
   );
   assert.equal(response.status, 503);
+});
+
+test("update checks deliver the official Gelab VLM configuration", async () => {
+  const bucket = new MemoryR2Bucket();
+  const env = {
+    ...testEnv(bucket),
+    OFFICIAL_VLM_OPERATION_API_BASE: "https://gelab.example/v1",
+    OFFICIAL_VLM_OPERATION_API_KEY: "server-managed-key",
+    OFFICIAL_VLM_OPERATION_MODEL: "qwen-vl",
+  };
+
+  const response = await worker.fetch(
+    new Request("https://updates.example/updates?currentVersion=0.5.6.14&edition=standard"),
+    env,
+  );
+  assert.equal(response.status, 200);
+  const payload = await response.json();
+  assert.deepEqual(payload.officialVlmOperation, {
+    enabled: true,
+    apiBase: "https://gelab.example/v1",
+    apiKey: "server-managed-key",
+    model: "qwen-vl",
+  });
 });
 
 test("admin status is authenticated and combines R2 metadata with CI status", async () => {

@@ -69,6 +69,7 @@ void main() {
   }
 
   late Map<String, dynamic> savedVoiceConfig;
+  late Map<String, dynamic> savedOperationConfig;
   late Map<String, dynamic> codexReadConfig;
   late Map<String, dynamic>? savedCodexConfig;
   late int codexWriteCount;
@@ -93,6 +94,7 @@ void main() {
       'stylePreset': '默认',
       'customStyle': '',
     };
+    savedOperationConfig = <String, dynamic>{'useOfficialService': true};
 
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(channel, (call) async {
@@ -176,6 +178,13 @@ void main() {
                 (call.arguments as Map).cast<String, dynamic>(),
               );
               return savedVoiceConfig;
+            case 'getSceneOperationConfig':
+              return savedOperationConfig;
+            case 'saveSceneOperationConfig':
+              savedOperationConfig = Map<String, dynamic>.from(
+                (call.arguments as Map).cast<String, dynamic>(),
+              );
+              return savedOperationConfig;
             default:
               return null;
           }
@@ -263,6 +272,7 @@ void main() {
 
     expect(find.text('Voice'), findsOneWidget);
     expect(find.text('GUI Agent'), findsOneWidget);
+    expect(find.text('小万官方 VLM'), findsOneWidget);
     expect(find.text('Compactor'), findsNothing);
     expect(find.text('Chat Compactor'), findsOneWidget);
     expect(find.text('未绑定'), findsOneWidget);
@@ -273,7 +283,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('AI 响应完成后自动播放'), findsOneWidget);
-    expect(find.byType(FlutterSwitch), findsOneWidget);
+    expect(find.byType(FlutterSwitch), findsNWidgets(2));
     expect(find.byType(Switch), findsNothing);
     expect(find.byKey(const Key('voice-scene-voice-id-field')), findsOneWidget);
     expect(
@@ -304,6 +314,28 @@ void main() {
 
     expect(codexWriteCount, 0);
   });
+
+  testWidgets(
+    'GUI Agent defaults to official Gelab and can select custom provider',
+    (tester) async {
+      tester.view.physicalSize = const Size(1080, 2000);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      await tester.pumpWidget(buildTestApp(const SceneModelSettingPage()));
+      await tester.pumpAndSettle();
+
+      expect(find.text('小万官方 VLM'), findsOneWidget);
+      await tester.tap(
+        find.byKey(const Key('operation-scene-official-toggle')),
+      );
+      await tester.pumpAndSettle();
+
+      expect(savedOperationConfig['useOfficialService'], isFalse);
+      expect(find.text('小万官方 VLM'), findsNothing);
+    },
+  );
 
   testWidgets('remote bridge setting autosaves only bridge fields', (
     tester,

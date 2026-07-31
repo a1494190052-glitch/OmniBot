@@ -97,7 +97,7 @@ void main() {
         .setMockMethodCallHandler(assistChannel, null);
   });
 
-  testWidgets('exposes reuse, trajectory and RunLog with canonical actions', (
+  testWidgets('exposes reuse and RunLog without a duplicate trajectory tab', (
     tester,
   ) async {
     await tester.pumpWidget(
@@ -111,13 +111,8 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('复用指令'), findsOneWidget);
-    expect(find.text('轨迹'), findsOneWidget);
+    expect(find.text('轨迹'), findsNothing);
     expect(find.text('RunLog'), findsOneWidget);
-    await tester.tap(find.text('轨迹'));
-    await tester.pumpAndSettle();
-    expect(find.text('click'), findsOneWidget);
-    await tester.tap(find.text('复用指令'));
-    await tester.pumpAndSettle();
     await tester.tap(find.text('回放'));
     await tester.pumpAndSettle();
     expect(find.text('填写参数'), findsOneWidget);

@@ -18,9 +18,12 @@ import cn.com.omnimind.baselib.util.OmniLog
 import cn.com.omnimind.baselib.llm.ModelSceneRegistry
 import cn.com.omnimind.baselib.llm.OpenAiWireApi
 import cn.com.omnimind.baselib.llm.OpenAIResponsesRequest
+import cn.com.omnimind.baselib.llm.OfficialVlmOperationConfigStore
+import cn.com.omnimind.baselib.llm.OfficialVlmOperationRouteResolver
 import cn.com.omnimind.baselib.llm.ProviderModelOption
 import cn.com.omnimind.baselib.llm.ProviderCustomHeaderUtils
 import cn.com.omnimind.baselib.llm.SceneModelBindingStore
+import cn.com.omnimind.baselib.llm.SceneOperationConfigStore
 import cn.com.omnimind.baselib.llm.contentText
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
@@ -705,6 +708,18 @@ object HttpController {
         }
         val sceneBinding = sceneProfile?.sceneId?.let(SceneModelBindingStore::getBinding)
         val boundProfile = sceneBinding?.providerProfileId?.let(ModelProviderConfigStore::getProfile)
+        val officialVlmConfig = if (sceneProfile?.sceneId == SceneOperationConfigStore.SCENE_ID) {
+            OfficialVlmOperationRouteResolver.resolve(
+                sceneId = sceneProfile.sceneId,
+                hasExplicitRoute = explicitBase != null || explicitResolvedModel != null,
+                hasSceneBinding = sceneBinding != null,
+                sceneConfig = SceneOperationConfigStore.getConfig(),
+                officialConfig = OfficialVlmOperationConfigStore.getConfig()
+            )
+        } else {
+            null
+        }
+        val officialVlmApplied = officialVlmConfig != null
         val bindingApplied =
             explicitBase == null &&
                 explicitResolvedModel == null &&
@@ -718,26 +733,33 @@ object HttpController {
         val overrideModel = when {
             explicitResolvedModel != null -> explicitResolvedModel
             bindingApplied -> sceneBinding?.modelId
+            officialVlmApplied -> officialVlmConfig?.model
             else -> null
         }
         val overrideApplied =
-            explicitBase != null || explicitResolvedModel != null || bindingApplied
+            explicitBase != null ||
+                explicitResolvedModel != null ||
+                bindingApplied ||
+                officialVlmApplied
 
         val providerBase = when {
             explicitBase != null -> explicitBase
             bindingApplied -> boundProfile?.baseUrl
+            officialVlmApplied -> officialVlmConfig?.apiBase
             providerConfig.isConfigured() -> providerConfig.baseUrl
             else -> null
         }
         val providerKey = when {
             explicitBase != null -> explicitKey
             bindingApplied -> boundProfile?.apiKey?.takeIf { it.isNotBlank() }
+            officialVlmApplied -> officialVlmConfig?.apiKey
             providerBase != null -> providerConfig.apiKey.takeIf { it.isNotBlank() }
             else -> null
         }
         val providerHeaders = when {
             explicitBase != null -> explicitHeaders
             bindingApplied -> ProviderCustomHeaderUtils.sanitizeCustomHeaders(boundProfile?.customHeaders)
+            officialVlmApplied -> emptyMap()
             providerBase != null -> ProviderCustomHeaderUtils.sanitizeCustomHeaders(
                 providerConfig.customHeaders
             )
@@ -747,11 +769,13 @@ object HttpController {
             explicitProtocol != null -> explicitProtocol
             explicitBase != null -> DeepSeekProvider.normalizeProtocolType(null)
             bindingApplied -> boundProfile?.protocolType?.ifEmpty { "openai_compatible" } ?: "openai_compatible"
+            officialVlmApplied -> "openai_compatible"
             else -> ModelProviderConfigStore.getEditingProfile().protocolType.ifEmpty { "openai_compatible" }
         }
         val wireApi = when {
             explicitWire != null -> explicitWire
             bindingApplied -> boundProfile?.wireApi ?: OpenAiWireApi.CHAT_COMPLETIONS
+            officialVlmApplied -> OpenAiWireApi.CHAT_COMPLETIONS
             providerBase != null -> providerConfig.wireApi
             else -> ModelProviderConfigStore.getEditingProfile().wireApi
         }
@@ -761,6 +785,7 @@ object HttpController {
             ModelSceneRegistry.SceneTransport.CONVERSATION_CHAT -> ModelSceneRegistry.ResponseParser.TEXT_CONTENT
         }
         val routeTag = when {
+            officialVlmApplied -> OfficialVlmOperationRouteResolver.ROUTE_TAG
             overrideApplied -> ROUTE_CUSTOM_OPENAI_COMPAT
             effectiveTransport == ModelSceneRegistry.SceneTransport.OPENAI_COMPATIBLE -> "openai_compatible"
             effectiveTransport == ModelSceneRegistry.SceneTransport.CONVERSATION_CHAT -> "conversation_chat"
@@ -772,6 +797,7 @@ object HttpController {
             resolvedModel = when {
                 explicitResolvedModel != null -> explicitResolvedModel
                 bindingApplied -> sceneBinding?.modelId.orEmpty()
+                officialVlmApplied -> officialVlmConfig?.model.orEmpty()
                 else -> defaultResolvedModel
             },
             sceneProfile = sceneProfile,
@@ -780,8 +806,16 @@ object HttpController {
             apiBase = providerBase,
             apiKey = providerKey,
             customHeaders = providerHeaders,
-            providerProfileId = if (bindingApplied) boundProfile?.id else null,
-            providerProfileName = if (bindingApplied) boundProfile?.name else null,
+            providerProfileId = when {
+                bindingApplied -> boundProfile?.id
+                officialVlmApplied -> OfficialVlmOperationRouteResolver.PROFILE_ID
+                else -> null
+            },
+            providerProfileName = when {
+                bindingApplied -> boundProfile?.name
+                officialVlmApplied -> OfficialVlmOperationRouteResolver.PROFILE_NAME
+                else -> null
+            },
             routeTag = routeTag,
             customApiBaseApplied = !providerBase.isNullOrBlank(),
             bindingApplied = bindingApplied,

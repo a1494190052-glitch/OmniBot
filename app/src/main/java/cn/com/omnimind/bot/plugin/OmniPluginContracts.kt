@@ -71,6 +71,10 @@ data class OmniPluginStoredState(
 interface OmniPluginStateStore {
     fun read(): List<OmniPluginStoredState>
 
+    fun readWithDefaults(
+        defaults: List<OmniPluginStoredState>
+    ): List<OmniPluginStoredState> = read()
+
     fun write(states: List<OmniPluginStoredState>)
 }
 

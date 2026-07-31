@@ -2,6 +2,10 @@ package cn.com.omnimind.bot.plugin.official
 
 import android.content.Context
 import cn.com.omnimind.baselib.llm.AssistantToolCall
+import cn.com.omnimind.baselib.llm.ModelProviderConfigStore
+import cn.com.omnimind.baselib.llm.OfficialVlmOperationConfigStore
+import cn.com.omnimind.baselib.llm.SceneModelBindingStore
+import cn.com.omnimind.baselib.llm.SceneOperationConfigStore
 import cn.com.omnimind.bot.agent.AgentCallback
 import cn.com.omnimind.bot.agent.AgentExecutionEnvironment
 import cn.com.omnimind.bot.agent.AgentToolExecutionHandle
@@ -14,6 +18,7 @@ import cn.com.omnimind.bot.omniflow.OmniVlmPlugin
 import cn.com.omnimind.bot.omniflow.asOmniFlowModelClient
 import cn.com.omnimind.bot.runlog.firstNonBlank
 import cn.com.omnimind.bot.runlog.mapArg
+import cn.com.omnimind.bot.update.AppUpdateManager
 import cn.com.omnimind.bot.util.AndroidAutomationPermissionGate
 import java.util.UUID
 import kotlinx.coroutines.CancellationException
@@ -53,6 +58,12 @@ class OmniVlmToolHandler(context: Context) : ToolHandler {
         val permission = AndroidAutomationPermissionGate.check(helper.context)
         if (!permission.granted) {
             return helper.permissionRequiredResult(callback, permission.displayNames)
+        }
+        prepareOfficialModelRoute()?.let { message ->
+            return ToolExecutionResult.Error(
+                OmniVlmLiteProvider.TOOL_NAME,
+                helper.localized(message),
+            )
         }
 
         val runId = "gui-${UUID.randomUUID()}"
@@ -137,5 +148,22 @@ class OmniVlmToolHandler(context: Context) : ToolHandler {
                 helper.localized(error.message.orEmpty().ifBlank { error.javaClass.simpleName }),
             )
         }
+    }
+
+    private suspend fun prepareOfficialModelRoute(): String? {
+        if (!SceneOperationConfigStore.getConfig().useOfficialService) return null
+        if (OfficialVlmOperationConfigStore.getConfig().isConfigured()) return null
+
+        runCatching { AppUpdateManager.checkNow(helper.context, force = true) }
+        if (OfficialVlmOperationConfigStore.getConfig().isConfigured()) return null
+
+        val binding = SceneModelBindingStore.getBinding(SceneOperationConfigStore.SCENE_ID)
+        val boundProviderReady = binding
+            ?.providerProfileId
+            ?.let(ModelProviderConfigStore::getProfile)
+            ?.isConfigured() == true
+        if (boundProviderReady || ModelProviderConfigStore.getConfig().isConfigured()) return null
+
+        return "小万官方 VLM 服务暂不可用，请稍后重试或在模型场景中选择其他 Provider。"
     }
 }

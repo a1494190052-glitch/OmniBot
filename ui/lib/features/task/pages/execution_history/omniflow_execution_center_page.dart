@@ -232,7 +232,7 @@ class _OmniFlowExecutionCenterPageState
   @override
   Widget build(BuildContext context) {
     return DefaultTabController(
-      length: 3,
+      length: 2,
       child: Scaffold(
         appBar: AppBar(
           title: Text(_text(context, '执行中心', 'Execution Center')),
@@ -246,7 +246,6 @@ class _OmniFlowExecutionCenterPageState
           bottom: const TabBar(
             tabs: [
               Tab(text: '复用指令'),
-              Tab(text: '轨迹'),
               Tab(text: 'RunLog'),
             ],
           ),
@@ -281,8 +280,8 @@ class _OmniFlowExecutionCenterPageState
         message: installed
             ? _text(
                 context,
-                '启用后即可查看、注册和回放轨迹。',
-                'Enable it to inspect, register and replay trajectories.',
+                '启用后即可查看 RunLog、注册和回放复用指令。',
+                'Enable it to inspect RunLogs and register replayable Functions.',
               )
             : _text(
                 context,
@@ -304,7 +303,6 @@ class _OmniFlowExecutionCenterPageState
           onReplay: _replay,
           onDelete: _deleteFunction,
         ),
-        _TrajectoryTab(functions: _functions),
         _RunLogsTab(runLogs: _runLogs, onConvert: _convertRunLog),
       ],
     );
@@ -330,8 +328,8 @@ class _FunctionsTab extends StatelessWidget {
         title: _text(context, '暂无复用指令', 'No Functions yet'),
         message: _text(
           context,
-          '在 RunLog 中选择成功轨迹并注册。',
-          'Register a successful trajectory from RunLog.',
+          '在 RunLog 中选择成功记录并注册。',
+          'Register a successful execution from RunLog.',
         ),
       );
     }
@@ -377,67 +375,6 @@ class _FunctionsTab extends StatelessWidget {
               ],
             ),
           ),
-        );
-      },
-    );
-  }
-}
-
-class _TrajectoryTab extends StatelessWidget {
-  const _TrajectoryTab({required this.functions});
-
-  final List<Map<String, dynamic>> functions;
-
-  @override
-  Widget build(BuildContext context) {
-    if (functions.isEmpty) {
-      return _EmptyTab(
-        icon: Icons.route_outlined,
-        title: _text(context, '暂无轨迹', 'No trajectories yet'),
-        message: _text(
-          context,
-          '注册 Function 后会显示 canonical action 轨迹。',
-          'Canonical actions appear after a Function is registered.',
-        ),
-      );
-    }
-    return ListView.builder(
-      padding: const EdgeInsets.all(16),
-      itemCount: functions.length,
-      itemBuilder: (context, index) {
-        final function = functions[index];
-        final steps = _mapList(function['steps']);
-        return ExpansionTile(
-          initiallyExpanded: index == 0,
-          leading: const Icon(Icons.route_rounded),
-          title: Text(
-            _string(function['name']).nullIfEmpty ??
-                _string(function['function_id']),
-          ),
-          subtitle: Text(
-            _text(
-              context,
-              '${steps.length} 个 canonical action',
-              '${steps.length} canonical actions',
-            ),
-          ),
-          children: [
-            for (var stepIndex = 0; stepIndex < steps.length; stepIndex++)
-              ListTile(
-                leading: CircleAvatar(
-                  radius: 13,
-                  child: Text('${stepIndex + 1}'),
-                ),
-                title: Text(_actionLabel(steps[stepIndex]['action'])),
-                subtitle: Text(
-                  const JsonEncoder.withIndent(
-                    '  ',
-                  ).convert(steps[stepIndex]['action']),
-                  maxLines: 3,
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ),
-          ],
         );
       },
     );
@@ -581,14 +518,6 @@ Map<String, dynamic> _map(dynamic value) => value is Map
     : <String, dynamic>{};
 
 String _string(dynamic value) => value?.toString().trim() ?? '';
-
-String _actionLabel(dynamic value) {
-  final action = _map(value);
-  return _string(action['tool']).nullIfEmpty ??
-      _string(action['type']).nullIfEmpty ??
-      _string(action['action_type']).nullIfEmpty ??
-      'action';
-}
 
 dynamic _parseArgument(String value, String type) => switch (type) {
   'integer' => int.tryParse(value) ?? value,

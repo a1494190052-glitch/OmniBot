@@ -73,6 +73,7 @@ class _SceneModelSettingPageState extends State<SceneModelSettingPage> {
   bool _isLoading = true;
   bool _isRefreshingModels = false;
   bool _isSavingVoiceConfig = false;
+  bool _isSavingOperationConfig = false;
 
   List<SceneCatalogItem> _catalog = const [];
   List<SceneModelBindingEntry> _bindings = const [];
@@ -81,6 +82,7 @@ class _SceneModelSettingPageState extends State<SceneModelSettingPage> {
   Set<String> _savingSceneIds = <String>{};
   Set<String> _expandedSceneIds = <String>{};
   SceneVoiceConfig _voiceConfig = const SceneVoiceConfig();
+  SceneOperationConfig _operationConfig = const SceneOperationConfig();
   late final TextEditingController _voiceIdController;
   late final TextEditingController _voiceCustomStyleController;
   late final TextEditingController _voiceCurlController;
@@ -181,6 +183,10 @@ class _SceneModelSettingPageState extends State<SceneModelSettingPage> {
     return sceneId == 'scene.voice';
   }
 
+  bool _isOperationScene(String sceneId) {
+    return sceneId == 'scene.vlm.operation.primary';
+  }
+
   void _syncVoiceControllers(SceneVoiceConfig config) {
     if (_voiceIdController.text != config.voiceId) {
       _voiceIdController.value = TextEditingValue(
@@ -235,6 +241,7 @@ class _SceneModelSettingPageState extends State<SceneModelSettingPage> {
         SceneModelConfigService.getSceneModelBindings(),
         ModelProviderConfigService.listProfiles(),
         SceneModelConfigService.getSceneVoiceConfig(),
+        SceneModelConfigService.getSceneOperationConfig(),
       ]);
       if (!mounted) return;
 
@@ -242,6 +249,7 @@ class _SceneModelSettingPageState extends State<SceneModelSettingPage> {
       final bindings = results[1] as List<SceneModelBindingEntry>;
       final profilesPayload = results[2] as ModelProviderProfilesPayload;
       final voiceConfig = results[3] as SceneVoiceConfig;
+      final operationConfig = results[4] as SceneOperationConfig;
       final providerModelsByProfileId = <String, List<ProviderModelOption>>{};
       for (final profile in profilesPayload.profiles) {
         providerModelsByProfileId[profile.id] =
@@ -263,6 +271,7 @@ class _SceneModelSettingPageState extends State<SceneModelSettingPage> {
         _profiles = profilesPayload.profiles;
         _providerModelsByProfileId = enriched;
         _voiceConfig = voiceConfig;
+        _operationConfig = operationConfig;
       });
       _syncVoiceControllers(voiceConfig);
       _scheduleMetadataRefresh(
@@ -590,6 +599,44 @@ class _SceneModelSettingPageState extends State<SceneModelSettingPage> {
   Future<void> _enqueueVoiceConfigSave(SceneVoiceConfig nextConfig) async {
     _pendingVoiceConfig = nextConfig;
     await _saveVoiceConfig(nextConfig);
+  }
+
+  Future<void> _saveOperationConfig(SceneOperationConfig nextConfig) async {
+    if (_operationConfig == nextConfig || _isSavingOperationConfig) return;
+    final previous = _operationConfig;
+    setState(() {
+      _operationConfig = nextConfig;
+      _isSavingOperationConfig = true;
+    });
+    try {
+      final saved = await SceneModelConfigService.saveSceneOperationConfig(
+        nextConfig,
+      );
+      if (!mounted) return;
+      setState(() {
+        _operationConfig = saved;
+        if (saved.useOfficialService) {
+          _bindings = _bindings
+              .where((item) => !_isOperationScene(item.sceneId))
+              .toList(growable: false);
+        }
+      });
+      showToast(
+        context.trLegacy(
+          saved.useOfficialService ? '已启用小万官方 VLM' : '已切换为自定义 Provider',
+        ),
+        type: ToastType.success,
+      );
+    } catch (error) {
+      if (!mounted) return;
+      setState(() => _operationConfig = previous);
+      showToast(
+        context.trLegacy('保存 GUI Agent 配置失败：$error'),
+        type: ToastType.error,
+      );
+    } finally {
+      if (mounted) setState(() => _isSavingOperationConfig = false);
+    }
   }
 
   Future<void> _openSceneSelector(
@@ -1164,6 +1211,104 @@ class _SceneModelSettingPageState extends State<SceneModelSettingPage> {
     );
   }
 
+  Widget _buildOperationSceneRow(SceneCatalogItem scene) {
+    final isSaving = _isSavingScene(scene.sceneId);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: const EdgeInsets.symmetric(vertical: 6),
+          child: Row(
+            children: [
+              Expanded(flex: 4, child: _buildSceneLabel(scene)),
+              const SizedBox(width: 10),
+              Expanded(
+                flex: 6,
+                child: _operationConfig.useOfficialService
+                    ? _buildOfficialOperationServiceField()
+                    : _buildSceneSelectorField(scene, isSaving: isSaving),
+              ),
+              if (isSaving) ...[
+                const SizedBox(width: 8),
+                const SizedBox(
+                  width: 14,
+                  height: 14,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                ),
+              ],
+            ],
+          ),
+        ),
+        Container(
+          width: double.infinity,
+          margin: const EdgeInsets.only(top: 2, bottom: 6),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+          decoration: BoxDecoration(
+            color: _mutedSurfaceColor,
+            borderRadius: BorderRadius.circular(10),
+          ),
+          child: Row(
+            children: [
+              Expanded(
+                child: Text(
+                  context.trLegacy('默认使用官方 Gelab 服务'),
+                  style: TextStyle(
+                    color: _primaryTextColor,
+                    fontSize: 12.5,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ),
+              KeyedSubtree(
+                key: const Key('operation-scene-official-toggle'),
+                child: _buildCompactSettingsSwitch(
+                  value: _operationConfig.useOfficialService,
+                  loading: _isSavingOperationConfig,
+                  semanticsLabel: context.trLegacy('使用小万官方 VLM'),
+                  onToggle: (value) {
+                    unawaited(
+                      _saveOperationConfig(
+                        _operationConfig.copyWith(useOfficialService: value),
+                      ),
+                    );
+                  },
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildOfficialOperationServiceField() {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 11),
+      decoration: BoxDecoration(
+        color: _cardColor,
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Row(
+        children: [
+          Icon(
+            Icons.verified_rounded,
+            size: 16,
+            color: Theme.of(context).colorScheme.primary,
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              context.trLegacy('小万官方 VLM'),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(color: _primaryTextColor, fontSize: 13),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildDefaultSceneRow(SceneCatalogItem scene) {
     final isSaving = _isSavingScene(scene.sceneId);
 
@@ -1339,6 +1484,9 @@ class _SceneModelSettingPageState extends State<SceneModelSettingPage> {
   }
 
   Widget _buildSceneRow(SceneCatalogItem scene) {
+    if (_isOperationScene(scene.sceneId)) {
+      return _buildOperationSceneRow(scene);
+    }
     if (_isVoiceScene(scene.sceneId)) {
       return _buildVoiceSceneRow(scene);
     }

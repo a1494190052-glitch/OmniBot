@@ -137,8 +137,16 @@ cp wrangler.toml.example wrangler.toml
 # Put the created bucket name and your Cloudflare account id in wrangler.toml.
 wrangler secret put ADMIN_TOKEN            # admin console + release API token
 wrangler secret put CF_ANALYTICS_API_TOKEN # API token with "Account Analytics: Read"
+wrangler secret put OFFICIAL_VLM_OPERATION_API_BASE
+wrangler secret put OFFICIAL_VLM_OPERATION_API_KEY
+wrangler secret put OFFICIAL_VLM_OPERATION_MODEL
 wrangler deploy
 ```
+
+The three `OFFICIAL_VLM_OPERATION_*` values configure the official Gelab VLM
+route returned by `/updates`. They are Worker secrets and are not compiled into
+the APK. Set `OFFICIAL_VLM_OPERATION_ENABLED=false` to disable the route without
+deleting its configuration.
 
 The checked-in example config enables `global_fetch_strictly_public`. There is
 no Worker Cron Trigger for the catalog; scheduling belongs exclusively to

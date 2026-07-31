@@ -25,7 +25,7 @@ class OmniVlmLiteProvider(context: Context) : OmniPluginProvider {
         id = ID,
         name = "Omni VLM Lite",
         version = VERSION,
-        description = "可重放的 Android GUI 视觉操作能力。安装时从官方 Skills 仓库准备隔离运行时，APK 不包含 Python、NumPy 或模型文件。",
+        description = "可重放的 Android GUI 视觉操作能力。首次执行或更新时从官方 Skills 仓库准备隔离运行时，APK 不包含 Python、NumPy 或模型文件。",
         publisher = "OmniMind",
         kind = OmniPluginKind.RUNTIME_BUNDLE,
         downloadSizeBytes = DOWNLOAD_SIZE_BYTES,
@@ -89,7 +89,6 @@ class OmniVlmLiteProvider(context: Context) : OmniPluginProvider {
 
             override suspend fun onEnable() {
                 OmniVlmPlugin.setEnabled(true)
-                OmniVlmPlugin.warmup(appContext)
             }
 
             override suspend fun onDisable() {

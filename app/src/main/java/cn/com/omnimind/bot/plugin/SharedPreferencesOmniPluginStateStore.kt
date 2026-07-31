@@ -11,6 +11,28 @@ internal class SharedPreferencesOmniPluginStateStore(context: Context) : OmniPlu
             .sortedBy { it.pluginId }
     }
 
+    override fun readWithDefaults(
+        defaults: List<OmniPluginStoredState>
+    ): List<OmniPluginStoredState> {
+        if (preferences.getBoolean(DEFAULTS_SEEDED_KEY, false)) {
+            return read()
+        }
+        val current = read()
+        val currentIds = current.mapTo(mutableSetOf()) { it.pluginId }
+        val seeded = (current + defaults.filter { currentIds.add(it.pluginId) })
+            .sortedBy { it.pluginId }
+        val encoded = seeded.mapTo(linkedSetOf(), ::encode)
+        check(
+            preferences.edit()
+                .putStringSet(STATES_KEY, encoded)
+                .putBoolean(DEFAULTS_SEEDED_KEY, true)
+                .commit()
+        ) {
+            "Failed to seed default plugin state"
+        }
+        return seeded
+    }
+
     override fun write(states: List<OmniPluginStoredState>) {
         val encoded = states.mapTo(linkedSetOf(), ::encode)
         check(preferences.edit().putStringSet(STATES_KEY, encoded).commit()) {
@@ -37,6 +59,7 @@ internal class SharedPreferencesOmniPluginStateStore(context: Context) : OmniPlu
     private companion object {
         const val PREFERENCES_NAME = "omni_plugin_platform"
         const val STATES_KEY = "installed_plugins"
+        const val DEFAULTS_SEEDED_KEY = "default_plugins_seeded_v1"
         const val SEPARATOR = "|"
         const val ENABLED = "1"
         const val DISABLED = "0"

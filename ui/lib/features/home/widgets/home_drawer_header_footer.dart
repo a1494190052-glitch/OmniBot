@@ -40,7 +40,7 @@ extension _HomeDrawerHeaderFooter on HomeDrawerState {
         onTap: () => _navigateTo('/home/plugin_market'),
       ),
       _DrawerShortcutAction(
-        label: context.trLegacy('轨迹'),
+        label: 'RunLog',
         svgString: _kDrawerTrajectoryIconSvg,
         onTap: () => _navigateTo('/task/omniflow'),
       ),
