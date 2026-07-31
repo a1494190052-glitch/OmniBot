@@ -4,6 +4,7 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:ui/features/task/run_log/omniflow_tool_client.dart';
+import 'package:ui/features/task/run_log/run_log_metrics.dart';
 
 class RunLogDetailPage extends StatefulWidget {
   const RunLogDetailPage({super.key, required this.runId});
@@ -136,6 +137,7 @@ class _RunLogDetailPageState extends State<RunLogDetailPage> {
     final runLog = _runLog;
     if (runLog == null) return const SizedBox.shrink();
     final steps = _mapList(runLog['steps']);
+    final metrics = RunLogMetrics.fromPayload(runLog);
     return ListView(
       padding: const EdgeInsets.fromLTRB(16, 16, 16, 100),
       children: [
@@ -146,15 +148,18 @@ class _RunLogDetailPageState extends State<RunLogDetailPage> {
         const SizedBox(height: 4),
         SelectableText(widget.runId),
         const SizedBox(height: 16),
+        _RunLogSummaryCard(metrics: metrics),
+        const SizedBox(height: 16),
         if (steps.isEmpty)
           Text(_text(context, '没有可显示的步骤', 'No steps to display'))
         else
-          for (final step in steps) _buildStep(step),
+          for (final step in steps)
+            _buildStep(step, runLogStepTokenUsage(runLog, step)),
       ],
     );
   }
 
-  Widget _buildStep(Map<String, dynamic> step) {
+  Widget _buildStep(Map<String, dynamic> step, RunLogTokenUsage? tokenUsage) {
     final result = _map(step['result']);
     final succeeded = result['success'] == true;
     final beforeStateId = step['before_state_id']?.toString() ?? '';
@@ -190,6 +195,13 @@ class _RunLogDetailPageState extends State<RunLogDetailPage> {
               const JsonEncoder.withIndent('  ').convert(step['action']),
               style: Theme.of(context).textTheme.bodySmall,
             ),
+            if (tokenUsage?.totalTokens != null) ...[
+              const SizedBox(height: 10),
+              Text(
+                'Step Token ${formatRunLogStepTokens(tokenUsage!)}',
+                style: Theme.of(context).textTheme.labelMedium,
+              ),
+            ],
             const SizedBox(height: 10),
             Wrap(
               spacing: 8,
@@ -212,6 +224,126 @@ class _RunLogDetailPageState extends State<RunLogDetailPage> {
           ],
         ),
       ),
+    );
+  }
+}
+
+class _RunLogSummaryCard extends StatelessWidget {
+  const _RunLogSummaryCard({required this.metrics});
+
+  final RunLogMetrics metrics;
+
+  @override
+  Widget build(BuildContext context) {
+    final usage = metrics.tokenUsage;
+    return Card(
+      margin: EdgeInsets.zero,
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              _text(context, '运行概览', 'Run summary'),
+              style: Theme.of(context).textTheme.titleMedium,
+            ),
+            const SizedBox(height: 12),
+            Wrap(
+              spacing: 20,
+              runSpacing: 12,
+              children: [
+                if (metrics.startedAt != null)
+                  _RunLogMetric(
+                    label: _text(context, '开始时间', 'Started'),
+                    value: formatRunLogTimestamp(metrics.startedAt!),
+                  ),
+                if (metrics.durationMs != null)
+                  _RunLogMetric(
+                    label: _text(context, '耗时', 'Duration'),
+                    value: formatRunLogDuration(metrics.durationMs!),
+                  ),
+                if (metrics.model != null)
+                  _RunLogMetric(
+                    label: _text(context, '模型', 'Model'),
+                    value: metrics.model!,
+                  ),
+                if (metrics.callCount != null)
+                  _RunLogMetric(
+                    label: _text(context, 'VLM 调用', 'VLM calls'),
+                    value: '${metrics.callCount}',
+                  ),
+              ],
+            ),
+            const Divider(height: 28),
+            Text(
+              _text(context, 'Token 消耗', 'Token usage'),
+              style: Theme.of(context).textTheme.labelLarge,
+            ),
+            const SizedBox(height: 10),
+            if (!usage.hasUsage)
+              Text(
+                _text(
+                  context,
+                  '当前模型服务未提供 Token 统计',
+                  'The model provider did not report token usage',
+                ),
+                style: Theme.of(context).textTheme.bodySmall,
+              )
+            else
+              Wrap(
+                spacing: 20,
+                runSpacing: 12,
+                children: [
+                  if (usage.promptTokens != null)
+                    _RunLogMetric(
+                      label: _text(context, '输入', 'Prompt'),
+                      value: formatRunLogTokens(usage.promptTokens!),
+                    ),
+                  if (usage.completionTokens != null)
+                    _RunLogMetric(
+                      label: _text(context, '输出', 'Completion'),
+                      value: formatRunLogTokens(usage.completionTokens!),
+                    ),
+                  if (usage.totalTokens != null)
+                    _RunLogMetric(
+                      label: _text(context, '总计', 'Total'),
+                      value: formatRunLogTokens(usage.totalTokens!),
+                    ),
+                  if (usage.cachedTokens != null)
+                    _RunLogMetric(
+                      label: _text(context, '缓存', 'Cached'),
+                      value: formatRunLogTokens(usage.cachedTokens!),
+                    ),
+                ],
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _RunLogMetric extends StatelessWidget {
+  const _RunLogMetric({required this.label, required this.value});
+
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(label, style: Theme.of(context).textTheme.bodySmall),
+        const SizedBox(height: 2),
+        Text(
+          value,
+          style: Theme.of(
+            context,
+          ).textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w700),
+        ),
+      ],
     );
   }
 }

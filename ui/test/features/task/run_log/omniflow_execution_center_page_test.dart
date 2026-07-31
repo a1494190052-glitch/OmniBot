@@ -77,6 +77,32 @@ void main() {
                   'goal': '完成演示',
                   'status': 'success',
                   'step_count': 1,
+                  'started_at_ms': DateTime(
+                    2026,
+                    7,
+                    31,
+                    9,
+                    18,
+                  ).millisecondsSinceEpoch,
+                  'finished_at_ms': DateTime(
+                    2026,
+                    7,
+                    31,
+                    9,
+                    18,
+                    2,
+                    345,
+                  ).millisecondsSinceEpoch,
+                  'diagnostics': <String, Object?>{
+                    'duration_ms': 2345,
+                    'token_usage': <String, Object?>{
+                      'prompt_tokens': 1000,
+                      'completion_tokens': 234,
+                      'total_tokens': 1234,
+                      'call_count': 2,
+                      'resolved_model': 'qwen-vl-max',
+                    },
+                  },
                 },
               ],
             },
@@ -130,6 +156,11 @@ void main() {
 
     await tester.tap(find.text('RunLog'));
     await tester.pumpAndSettle();
+    expect(find.text('2026-07-31 09:18:00'), findsOneWidget);
+    expect(find.text('2.35 s'), findsOneWidget);
+    expect(find.text('1.23k tokens'), findsOneWidget);
+    expect(find.text('qwen-vl-max'), findsOneWidget);
+    expect(find.text('2 VLM 调用'), findsOneWidget);
     await tester.tap(find.text('注册为复用指令'));
     await tester.pumpAndSettle();
     expect(toolCalls.any((call) => call['name'] == 'convert_run_log'), isTrue);

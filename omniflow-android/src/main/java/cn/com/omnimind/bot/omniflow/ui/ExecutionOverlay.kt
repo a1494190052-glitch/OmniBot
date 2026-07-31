@@ -5,13 +5,13 @@ import android.graphics.Color
 import android.graphics.PixelFormat
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
-import android.os.Build
 import android.provider.Settings
 import android.view.Gravity
 import android.view.View
 import android.view.WindowManager
 import android.widget.LinearLayout
 import android.widget.TextView
+import cn.com.omnimind.androidgui.AndroidGuiAccessibilityService
 import cn.com.omnimind.baselib.util.OmniLog
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlinx.coroutines.CancellationException
@@ -34,25 +34,29 @@ internal object ExecutionOverlay {
     ): Session? = synchronized(this) {
         activeSession?.dismissLocked()
         val appContext = context.applicationContext
-        if (!Settings.canDrawOverlays(appContext)) return@synchronized null
-        val manager = appContext.getSystemService(Context.WINDOW_SERVICE) as WindowManager
+        val accessibilityService = AndroidGuiAccessibilityService.instance
+        val host = ExecutionOverlayHostPolicy.resolve(
+            accessibilityServiceAvailable = accessibilityService != null,
+            applicationOverlayAllowed = Settings.canDrawOverlays(appContext),
+        ) ?: return@synchronized null
+        OmniLog.d(TAG, "show GUI controls with ${host.name.lowercase()} host")
+        val windowContext = when (host) {
+            ExecutionOverlayHost.ACCESSIBILITY -> accessibilityService ?: return@synchronized null
+            ExecutionOverlayHost.APPLICATION -> appContext
+        }
+        val manager = windowContext.getSystemService(Context.WINDOW_SERVICE) as WindowManager
         val session = Session(manager, onStop, initialPhase)
-        val view = buildView(appContext, goal, session)
+        val view = buildView(windowContext, goal, session)
         val params = WindowManager.LayoutParams().apply {
-            type = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
-            } else {
-                @Suppress("DEPRECATION")
-                WindowManager.LayoutParams.TYPE_PHONE
-            }
+            type = host.windowType
             format = PixelFormat.TRANSLUCENT
             flags = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
                 WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
                 WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN
             gravity = Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL
-            width = appContext.resources.displayMetrics.widthPixels - appContext.dp(32)
+            width = windowContext.resources.displayMetrics.widthPixels - windowContext.dp(32)
             height = WindowManager.LayoutParams.WRAP_CONTENT
-            y = appContext.dp(32)
+            y = windowContext.dp(32)
         }
         runCatching {
             manager.addView(view, params)
@@ -238,5 +242,21 @@ internal object ExecutionOverlay {
             pause?.text = if (isPaused) "继续" else "接管"
             status?.text = statusState.label
         }
+    }
+}
+
+internal enum class ExecutionOverlayHost(val windowType: Int) {
+    ACCESSIBILITY(WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY),
+    APPLICATION(WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY),
+}
+
+internal object ExecutionOverlayHostPolicy {
+    fun resolve(
+        accessibilityServiceAvailable: Boolean,
+        applicationOverlayAllowed: Boolean,
+    ): ExecutionOverlayHost? = when {
+        accessibilityServiceAvailable -> ExecutionOverlayHost.ACCESSIBILITY
+        applicationOverlayAllowed -> ExecutionOverlayHost.APPLICATION
+        else -> null
     }
 }

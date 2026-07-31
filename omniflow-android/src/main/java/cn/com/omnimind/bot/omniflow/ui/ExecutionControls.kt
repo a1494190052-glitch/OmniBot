@@ -1,6 +1,8 @@
 package cn.com.omnimind.bot.omniflow.ui
 
 import android.content.Context
+import cn.com.omnimind.androidgui.AndroidGuiAccessibilityStatus
+import cn.com.omnimind.androidgui.AndroidGuiEnvironment
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -45,6 +47,13 @@ internal class ExecutionControls private constructor(
             val stopRequested = AtomicBoolean(false)
             val dispatchStop = {
                 if (stopRequested.compareAndSet(false, true)) onStop()
+            }
+            val guiEnvironment = AndroidGuiEnvironment(context)
+            if (
+                guiEnvironment.accessibilityStatus() ==
+                AndroidGuiAccessibilityStatus.CONNECTING
+            ) {
+                guiEnvironment.awaitReady()
             }
             val controls = withContext(Dispatchers.Main) {
                 ExecutionOverlay.show(context, title, initialPhase, dispatchStop)

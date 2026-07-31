@@ -3,6 +3,7 @@ import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:ui/features/task/run_log/run_log_metrics.dart';
 import 'package:ui/features/task/run_log/omniflow_tool_client.dart';
 import 'package:ui/models/omni_plugin_item.dart';
 import 'package:ui/services/omni_plugin_service.dart';
@@ -406,6 +407,7 @@ class _RunLogsTab extends StatelessWidget {
       separatorBuilder: (_, __) => const SizedBox(height: 12),
       itemBuilder: (context, index) {
         final runLog = runLogs[index];
+        final metrics = RunLogMetrics.fromPayload(runLog);
         final runId = _string(runLog['run_id']);
         final status = _string(runLog['status']).nullIfEmpty ?? 'unknown';
         return Card(
@@ -426,6 +428,48 @@ class _RunLogsTab extends StatelessWidget {
                   ],
                 ),
                 Text(runId, style: Theme.of(context).textTheme.bodySmall),
+                const SizedBox(height: 10),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    if (metrics.startedAt != null)
+                      _RunLogMetricChip(
+                        icon: Icons.schedule_rounded,
+                        label: formatRunLogTimestamp(metrics.startedAt!),
+                      ),
+                    if (metrics.durationMs != null)
+                      _RunLogMetricChip(
+                        icon: Icons.timer_outlined,
+                        label: formatRunLogDuration(metrics.durationMs!),
+                      ),
+                    if (metrics.tokenUsage.totalTokens != null)
+                      _RunLogMetricChip(
+                        icon: Icons.data_usage_rounded,
+                        label:
+                            '${formatRunLogTokens(metrics.tokenUsage.totalTokens!)} tokens',
+                      )
+                    else
+                      _RunLogMetricChip(
+                        icon: Icons.data_usage_rounded,
+                        label: _text(context, 'Token 未提供', 'Token unavailable'),
+                      ),
+                    if (metrics.model != null)
+                      _RunLogMetricChip(
+                        icon: Icons.smart_toy_outlined,
+                        label: metrics.model!,
+                      ),
+                    if (metrics.callCount != null)
+                      _RunLogMetricChip(
+                        icon: Icons.repeat_rounded,
+                        label: _text(
+                          context,
+                          '${metrics.callCount} VLM 调用',
+                          '${metrics.callCount} VLM calls',
+                        ),
+                      ),
+                  ],
+                ),
                 const SizedBox(height: 12),
                 Wrap(
                   spacing: 8,
@@ -450,6 +494,32 @@ class _RunLogsTab extends StatelessWidget {
           ),
         );
       },
+    );
+  }
+}
+
+class _RunLogMetricChip extends StatelessWidget {
+  const _RunLogMetricChip({required this.icon, required this.label});
+
+  final IconData icon;
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 6),
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 14),
+          const SizedBox(width: 5),
+          Text(label, style: Theme.of(context).textTheme.bodySmall),
+        ],
+      ),
     );
   }
 }
