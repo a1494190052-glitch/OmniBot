@@ -10,12 +10,14 @@ class FunctionDetailSheet extends StatefulWidget {
     required this.initialFunction,
     required this.loadFunction,
     required this.onReplay,
+    required this.onEnhance,
     required this.onDelete,
   });
 
   final Map<String, dynamic> initialFunction;
   final Future<Map<String, dynamic>> Function(String functionId) loadFunction;
   final ValueChanged<Map<String, dynamic>> onReplay;
+  final ValueChanged<Map<String, dynamic>> onEnhance;
   final ValueChanged<Map<String, dynamic>> onDelete;
 
   @override
@@ -254,6 +256,15 @@ class _FunctionDetailSheetState extends State<FunctionDetailSheet> {
                           : () => _closeAndRun(widget.onDelete),
                       icon: const Icon(Icons.delete_outline_rounded, size: 18),
                       label: Text(_text(context, '删除', 'Delete')),
+                    ),
+                    const SizedBox(width: 8),
+                    OutlinedButton.icon(
+                      key: const ValueKey('function-detail-enhance'),
+                      onPressed: functionId.isEmpty
+                          ? null
+                          : () => _closeAndRun(widget.onEnhance),
+                      icon: const Icon(Icons.auto_fix_high_rounded, size: 18),
+                      label: Text(_text(context, '增强', 'Enhance')),
                     ),
                     const Spacer(),
                     FilledButton.icon(

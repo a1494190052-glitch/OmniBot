@@ -175,9 +175,76 @@ void main() {
     expect(find.text('要搜索的文本'), findsOneWidget);
     expect(toolCalls.any((call) => call['name'] == 'get_function'), isTrue);
 
+    expect(
+      find.byKey(const ValueKey('function-detail-enhance')),
+      findsOneWidget,
+    );
+    await tester.tap(find.byKey(const ValueKey('function-detail-enhance')));
+    await tester.pumpAndSettle();
+    expect(find.text('增强复用指令'), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('function-enhancement-instruction')),
+      findsOneWidget,
+    );
+    await tester.tap(
+      find.byKey(const ValueKey('function-enhancement-default')),
+    );
+    await tester.pumpAndSettle();
+    expect(
+      toolCalls.any(
+        (call) =>
+            call['name'] == 'update_function' &&
+            (call['arguments'] as Map?)?['function_id'] == 'function.demo' &&
+            (call['arguments'] as Map?)?['mode'] == 'enhance' &&
+            !(call['arguments'] as Map).containsKey('instruction'),
+      ),
+      isTrue,
+    );
+
+    await tester.tap(find.text('演示指令'));
+    await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('function-detail-run')));
     await tester.pumpAndSettle();
     expect(find.text('填写执行参数'), findsOneWidget);
+  });
+
+  testWidgets('passes optional Function enhancement instruction', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(360, 800);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    await tester.pumpWidget(
+      const MaterialApp(
+        locale: Locale('zh'),
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
+        home: OmniFlowExecutionCenterPage(),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('演示指令'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('function-detail-enhance')));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const ValueKey('function-enhancement-instruction')),
+      '优先使用搜索框，不要依赖菜单位置',
+    );
+    await tester.tap(find.byKey(const ValueKey('function-enhancement-submit')));
+    await tester.pumpAndSettle();
+
+    expect(
+      toolCalls.any(
+        (call) =>
+            call['name'] == 'update_function' &&
+            (call['arguments'] as Map?)?['instruction'] == '优先使用搜索框，不要依赖菜单位置',
+      ),
+      isTrue,
+    );
   });
 
   testWidgets('uses consistent Chinese labels across the execution center', (

@@ -71,6 +71,9 @@ object OmniFlowManagementTools {
                 "patch" to objectProperty("Canonical action edit patch."),
                 "dry_run" to booleanProperty("Preview without saving."),
                 "run_id" to stringProperty("Optional source RunLog id for enhancement."),
+                "instruction" to stringProperty(
+                    "Optional user guidance for semantic enhancement; omit for default enhancement.",
+                ),
             ),
         ),
         definition(

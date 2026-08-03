@@ -99,7 +99,68 @@ class _OmniFlowExecutionCenterPageState
         initialFunction: function,
         loadFunction: OmniFlowToolClient.getFunction,
         onReplay: _replay,
+        onEnhance: _enhanceFunction,
         onDelete: _deleteFunction,
+      ),
+    );
+  }
+
+  Future<void> _enhanceFunction(Map<String, dynamic> function) async {
+    final functionId = _string(function['function_id']);
+    if (functionId.isEmpty) return;
+    final instruction = await _collectEnhancementInstruction();
+    if (instruction == null || !mounted) return;
+    final sourceRunId = _string(
+      function['source_run_id'] ?? function['run_id'],
+    ).nullIfEmpty;
+    await _runAction(
+      () => OmniFlowToolClient.enhanceFunction(
+        functionId,
+        runId: sourceRunId,
+        instruction: instruction,
+      ),
+      success: _text(context, '复用指令已增强', 'Function enhanced'),
+      reload: true,
+    );
+  }
+
+  Future<String?> _collectEnhancementInstruction() {
+    var instruction = '';
+    return showDialog<String>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text(_text(context, '增强复用指令', 'Enhance Function')),
+        content: TextField(
+          key: const ValueKey('function-enhancement-instruction'),
+          autofocus: true,
+          minLines: 2,
+          maxLines: 5,
+          maxLength: 2000,
+          onChanged: (value) => instruction = value,
+          decoration: InputDecoration(
+            hintText: _text(
+              context,
+              '可选：例如“把搜索内容设为参数”或“优先使用搜索框”',
+              'Optional: for example, “make the search text a parameter”',
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: Text(_text(context, '取消', 'Cancel')),
+          ),
+          TextButton(
+            key: const ValueKey('function-enhancement-default'),
+            onPressed: () => Navigator.pop(dialogContext, ''),
+            child: Text(_text(context, '默认增强', 'Default')),
+          ),
+          FilledButton(
+            key: const ValueKey('function-enhancement-submit'),
+            onPressed: () => Navigator.pop(dialogContext, instruction.trim()),
+            child: Text(_text(context, '增强', 'Enhance')),
+          ),
+        ],
       ),
     );
   }
