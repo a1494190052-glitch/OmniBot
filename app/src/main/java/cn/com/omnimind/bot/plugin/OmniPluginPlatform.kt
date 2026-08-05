@@ -1,5 +1,6 @@
 package cn.com.omnimind.bot.plugin
 
+import cn.com.omnimind.baselib.util.OmniLog
 import cn.com.omnimind.bot.agent.tool.handlers.ToolHandler
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -196,8 +197,15 @@ class OmniPluginPlatform(
         val defaults = defaultEnabledPluginIds.map { pluginId ->
             OmniPluginStoredState(pluginId = pluginId, enabled = true)
         }
-        val restored = runCatching { stateStore.readWithDefaults(defaults) }
+        val storedBeforeDefaults = runCatching { stateStore.read() }
             .getOrDefault(emptyList())
+        val restored = runCatching { stateStore.readWithDefaults(defaults) }
+            .getOrDefault(storedBeforeDefaults)
+        val storedPluginIds = storedBeforeDefaults.mapTo(mutableSetOf()) { it.pluginId }
+        val newlySeededDefaultIds = restored.asSequence()
+            .map { it.pluginId }
+            .filter { it in defaultEnabledPluginIds && it !in storedPluginIds }
+            .toSet()
         restored.forEach { state -> storedStates[state.pluginId] = state }
         initialized = true
 
@@ -210,16 +218,29 @@ class OmniPluginPlatform(
             }
             runCatching {
                 requireCompatible(provider.descriptor)
+                if (state.pluginId in newlySeededDefaultIds) {
+                    provider.install()
+                }
                 activePlugins[state.pluginId] = activate(provider)
             }.onFailure { error ->
+                OmniLog.e(
+                    "[OmniPluginPlatform]",
+                    "provider_init_failed plugin=${state.pluginId} " +
+                        "error=${error.message ?: error.javaClass.simpleName}",
+                    error,
+                )
+                if (state.pluginId in newlySeededDefaultIds) {
+                    runCatching { provider.uninstall() }
+                }
                 errors[state.pluginId] = error.message ?: error.javaClass.simpleName
-                storedStates[state.pluginId] = state.copy(enabled = false)
+                if (state.pluginId in newlySeededDefaultIds) {
+                    storedStates.remove(state.pluginId)
+                } else {
+                    storedStates[state.pluginId] = state.copy(enabled = false)
+                }
             }
         }
-        if (storedStates.values.any { restoredState ->
-                restored.firstOrNull { it.pluginId == restoredState.pluginId } != restoredState
-            }
-        ) {
+        if (storedStates != restored.associateBy { it.pluginId }) {
             runCatching { persist(storedStates.values) }
         }
     }

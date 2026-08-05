@@ -25,8 +25,8 @@ class OnboardingDevelopmentPage extends StatelessWidget {
       title: onbTr(context, '选择开发环境', 'Choose a development setup'),
       description: onbTr(
         context,
-        '选择最接近你日常工作的初始工具组合，之后仍可单独增删。',
-        'Pick the starter toolset closest to your work. Components can be changed later.',
+        '一般使用直接选择“聊天 Agent 助手”；有明确开发需求时再选择对应技术栈。',
+        'Choose Chat Agent Assistant for general use, or select a specific stack when needed.',
       ),
       scrollController: scrollController,
       children: [

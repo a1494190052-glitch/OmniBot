@@ -611,7 +611,8 @@ class AssistsMessageService {
     }
   }
 
-  /// 停止当前 Agent 正在执行的工具调用，但不终止整轮 Agent 响应
+  /// 停止当前 Agent 正在执行的工具调用。
+  /// GUI 任务被用户停止后会同时结束当前 Agent 响应，避免再次发起 GUI 操作。
   static Future<bool> stopAgentToolCall({
     required String taskId,
     required String cardId,

@@ -15,7 +15,14 @@ List<GoRoute> taskRoutes = [
   GoRoute(
     path: '/task/omniflow',
     name: 'task/omniflow',
-    builder: (context, state) => const OmniFlowExecutionCenterPage(),
+    builder: (context, state) => OmniFlowExecutionCenterPage(
+      initialTab: state.uri.queryParameters['tab'],
+    ),
+  ),
+  GoRoute(
+    path: '/task/run_logs',
+    name: 'task/run_logs',
+    redirect: (context, state) => '/task/omniflow?tab=run_logs',
   ),
   GoRoute(
     path: '/task/run_log/:runId',

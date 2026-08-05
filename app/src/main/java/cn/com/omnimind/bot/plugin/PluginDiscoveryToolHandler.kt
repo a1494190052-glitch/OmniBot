@@ -24,7 +24,9 @@ internal object PluginDiscoveryPayloads {
         plugins: List<OmniPluginState>,
         installedOnly: Boolean,
     ): JsonObject {
-        val visiblePlugins = plugins.filter { !installedOnly || it.installed }
+        val visiblePlugins = plugins.filter { plugin ->
+            plugin.isVisibleToUsers() && (!installedOnly || plugin.installed)
+        }
         return buildJsonObject {
             put("plugins", buildJsonArray {
                 visiblePlugins.forEach { add(it.toDiscoveryJson(includeDescription = false)) }
@@ -38,8 +40,11 @@ internal object PluginDiscoveryPayloads {
     }
 
     fun get(plugins: List<OmniPluginState>, pluginId: String): JsonObject? =
-        plugins.firstOrNull { it.descriptor.id == pluginId }
+        plugins.firstOrNull { it.descriptor.id == pluginId && it.isVisibleToUsers() }
             ?.toDiscoveryJson(includeDescription = true)
+
+    private fun OmniPluginState.isVisibleToUsers(): Boolean =
+        descriptor.presentation["visibility"]?.jsonPrimitive?.contentOrNull != "hidden"
 
     private fun OmniPluginState.toDiscoveryJson(includeDescription: Boolean) = buildJsonObject {
         put("id", descriptor.id)

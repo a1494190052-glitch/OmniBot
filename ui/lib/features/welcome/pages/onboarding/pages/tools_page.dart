@@ -7,7 +7,7 @@ import '../onboarding_environment_controller.dart';
 import '../onboarding_l10n.dart';
 import '../widgets/onboarding_page_scaffold.dart';
 
-/// Step 3: pick optional tools and review what will be installed.
+/// Step 3: pick optional agents and connection tools, then review the setup.
 class OnboardingToolsPage extends StatelessWidget {
   const OnboardingToolsPage({
     super.key,
@@ -22,11 +22,11 @@ class OnboardingToolsPage extends StatelessWidget {
   Widget build(BuildContext context) {
     return OnboardingPageScaffold(
       icon: LucideIcons.packagePlus,
-      title: onbTr(context, '添加需要的开发工具', 'Add the tools you need'),
+      title: onbTr(context, '配置 Agent 与连接工具', 'Configure agents and connections'),
       description: onbTr(
         context,
-        '这些工具是可选项。编程 Agent 的账号登录可在安装完成后进行。',
-        'These tools are optional. Sign in to coding agents after installation.',
+        '可选安装 Codex、Claude Code、OpenCode 或 SSH；账号登录可在安装完成后进行。',
+        'Optionally install Codex, Claude Code, OpenCode, or SSH. Sign in after installation.',
       ),
       scrollController: scrollController,
       children: [
@@ -159,7 +159,7 @@ class _SetupSummary extends StatelessWidget {
           hairline(),
           summaryRow(
             LucideIcons.packagePlus,
-            '${onbTr(context, '附加', 'Extras')}: $extras',
+            '${onbTr(context, 'Agent / 工具', 'Agents / tools')}: $extras',
           ),
         ],
       ],

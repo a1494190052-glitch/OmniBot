@@ -1,7 +1,10 @@
 package cn.com.omnimind.bot.omniflow
 
 import cn.com.omnimind.baselib.llm.ChatCompletionMessage
+import cn.com.omnimind.baselib.llm.ChatCompletionFunction
 import cn.com.omnimind.baselib.llm.ChatCompletionRequest
+import cn.com.omnimind.baselib.llm.ChatCompletionStreamOptions
+import cn.com.omnimind.baselib.llm.ChatCompletionTool
 import cn.com.omnimind.baselib.llm.ChatCompletionTurn
 import cn.com.omnimind.baselib.util.ImageCompressor
 import kotlinx.coroutines.withTimeout
@@ -70,16 +73,40 @@ class OmniFlowModelHost(
         ).filterValues { it != null }
     }
 
+    suspend fun completeJson(
+        payload: Map<String, Any?>,
+        modelOverride: String? = null,
+    ): Map<String, Any?> {
+        val request = jsonCompletionRequest(
+            payload = payload,
+            model = modelOverride ?: firstText(payload["model"], "scene.dispatch.model"),
+        )
+        val turn = withTimeout(180_000L) {
+            modelClient.streamTurn(request)
+        }
+        val content = submitJsonArguments(turn)
+        return mapOf("content" to content)
+    }
+
     private fun usage(turn: ChatCompletionTurn): Map<String, Any?>? {
         val usage = turn.usage ?: return null
+        val promptDetails = usage.promptTokensDetails as? JsonObject
+        val completionDetails = usage.completionTokensDetails as? JsonObject
         return linkedMapOf<String, Any?>(
             "prompt_tokens" to usage.promptTokens,
             "completion_tokens" to usage.completionTokens,
             "total_tokens" to usage.totalTokens,
+            "reasoning_tokens" to completionDetails.intValue("reasoning_tokens"),
+            "text_tokens" to completionDetails.intValue("text_tokens"),
+            "image_tokens" to promptDetails.intValue("image_tokens"),
+            "cached_tokens" to promptDetails.intValue("cached_tokens"),
             "prefill_tokens_per_second" to usage.prefillTokensPerSecond,
             "decode_tokens_per_second" to usage.decodeTokensPerSecond,
         ).filterValues { it != null }.takeIf(Map<String, Any?>::isNotEmpty)
     }
+
+    private fun JsonObject?.intValue(key: String): Int? =
+        this?.get(key)?.jsonPrimitive?.contentOrNull?.toIntOrNull()
 
     private fun compressImages(content: JsonElement?): JsonElement? {
         val blocks = content as? JsonArray ?: return content
@@ -115,9 +142,27 @@ class OmniFlowModelHost(
             return if (payload.isBlank()) value else "data:image/jpeg;base64,$payload"
         }
 
-        suspend fun completeJson(payload: Map<String, Any?>): Map<String, Any?> {
-            val request = ChatCompletionRequest(
-                model = firstText(payload["model"], "scene.dispatch.model"),
+        suspend fun completeJson(
+            payload: Map<String, Any?>,
+            modelOverride: String? = null,
+        ): Map<String, Any?> {
+            val request = jsonCompletionRequest(
+                payload = payload,
+                model = modelOverride ?: firstText(payload["model"], "scene.dispatch.model"),
+            )
+            val content = withTimeout(180_000L) {
+                OmniFlowPythonRuntime.completeJson(request)
+            }
+            check(content.isNotBlank()) { "model_completion_empty" }
+            return mapOf("content" to content)
+        }
+
+        private fun jsonCompletionRequest(
+            payload: Map<String, Any?>,
+            model: String,
+        ): ChatCompletionRequest =
+            ChatCompletionRequest(
+                model = model,
                 messages = listOf(
                     ChatCompletionMessage(
                         role = "user",
@@ -126,15 +171,31 @@ class OmniFlowModelHost(
                 ),
                 maxCompletionTokens = intValue(payload["max_tokens"], defaultValue = 1800),
                 temperature = (payload["temperature"] as? Number)?.toDouble() ?: 0.1,
-                responseFormat = buildJsonObject {
-                    put("type", JsonPrimitive("json_object"))
-                },
+                stream = true,
+                streamOptions = ChatCompletionStreamOptions(),
+                tools = listOf(
+                    ChatCompletionTool(
+                        function = ChatCompletionFunction(
+                            name = "submit_json",
+                            description = "Submit the requested JSON object.",
+                            parameters = buildJsonObject {
+                                put("type", JsonPrimitive("object"))
+                                put("additionalProperties", JsonPrimitive(true))
+                            },
+                        ),
+                    ),
+                ),
+                toolChoice = JsonPrimitive("required"),
+                parallelToolCalls = false,
             )
-            val content = withTimeout(180_000L) {
-                OmniFlowPythonRuntime.completeJson(request)
+
+        private fun submitJsonArguments(turn: ChatCompletionTurn): String {
+            val toolCall = turn.message.toolCalls.orEmpty().singleOrNull {
+                it.function.name == "submit_json"
+            } ?: error("model_completion_submit_json_required")
+            return toolCall.function.arguments.trim().ifBlank {
+                error("model_completion_submit_json_empty")
             }
-            check(content.isNotBlank()) { "model_completion_empty" }
-            return mapOf("content" to content)
         }
     }
 }

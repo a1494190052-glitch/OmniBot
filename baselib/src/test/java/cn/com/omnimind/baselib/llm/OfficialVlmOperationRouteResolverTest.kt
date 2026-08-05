@@ -8,7 +8,6 @@ class OfficialVlmOperationRouteResolverTest {
     private val configured = OfficialVlmOperationConfig(
         enabled = true,
         apiBase = "https://chatgpt.example/v1",
-        apiKey = "secret",
         model = "gpt-5.6-sol",
         wireApi = OpenAiWireApi.RESPONSES,
     )
@@ -18,7 +17,7 @@ class OfficialVlmOperationRouteResolverTest {
         val route = OfficialVlmOperationRouteResolver.resolve(
             sceneId = SceneOperationConfigStore.SCENE_ID,
             hasExplicitRoute = false,
-            hasSceneBinding = false,
+            hasEffectiveSceneBinding = false,
             sceneConfig = SceneOperationConfig(),
             officialConfig = configured
         )
@@ -33,7 +32,21 @@ class OfficialVlmOperationRouteResolverTest {
             OfficialVlmOperationRouteResolver.resolve(
                 sceneId = SceneOperationConfigStore.SCENE_ID,
                 hasExplicitRoute = false,
-                hasSceneBinding = true,
+                hasEffectiveSceneBinding = true,
+                sceneConfig = SceneOperationConfig(),
+                officialConfig = configured
+            )
+        )
+    }
+
+    @Test
+    fun `stale scene binding does not block Gelab default`() {
+        assertEquals(
+            configured,
+            OfficialVlmOperationRouteResolver.resolve(
+                sceneId = SceneOperationConfigStore.SCENE_ID,
+                hasExplicitRoute = false,
+                hasEffectiveSceneBinding = false,
                 sceneConfig = SceneOperationConfig(),
                 officialConfig = configured
             )
@@ -46,9 +59,9 @@ class OfficialVlmOperationRouteResolverTest {
             OfficialVlmOperationRouteResolver.resolve(
                 sceneId = SceneOperationConfigStore.SCENE_ID,
                 hasExplicitRoute = false,
-                hasSceneBinding = false,
+                hasEffectiveSceneBinding = false,
                 sceneConfig = SceneOperationConfig(),
-                officialConfig = configured.copy(apiKey = "")
+                officialConfig = configured.copy(apiBase = "")
             )
         )
     }

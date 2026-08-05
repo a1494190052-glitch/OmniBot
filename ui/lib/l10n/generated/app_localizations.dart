@@ -3379,6 +3379,12 @@ abstract class AppLocalizations {
   /// In zh, this message translates to:
   /// **'好好和今天说晚安～'**
   String get homeDrawerLateNightSub2;
+
+  /// No description provided for @omnibotGuide.
+  ///
+  /// In zh, this message translates to:
+  /// **'小万指南'**
+  String get omnibotGuide;
 }
 
 class _AppLocalizationsDelegate

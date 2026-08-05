@@ -15,6 +15,10 @@ import 'package:ui/widgets/omnibot_resource_widgets.dart';
 
 enum _ArtifactPreviewAction { openWithSystem, shareFile }
 
+bool shouldOpenOmnibotArtifactInFullPage(String previewKind) {
+  return previewKind == 'html';
+}
+
 class OmnibotArtifactPreviewPage extends StatefulWidget {
   final String path;
   final String? uri;
@@ -354,6 +358,19 @@ class _OmnibotArtifactPreviewPageState
     );
   }
 
+  Widget _buildHtmlPreview() {
+    final metadata = _currentMetadata();
+    return LayoutBuilder(
+      builder: (context, constraints) => OmnibotInlineResourceEmbed(
+        key: const ValueKey('artifact-preview-html-view'),
+        metadata: metadata,
+        plainStyle: true,
+        maxWidth: constraints.maxWidth,
+        preferredHeight: constraints.maxHeight,
+      ),
+    );
+  }
+
   Widget _buildEditor() {
     final palette = context.omniPalette;
     return Column(
@@ -434,8 +451,9 @@ class _OmnibotArtifactPreviewPageState
       case 'audio':
       case 'video':
       case 'pdf':
-      case 'html':
         return _buildInlineResourcePreview(context);
+      case 'html':
+        return _buildHtmlPreview();
       case 'office_word':
       case 'office_sheet':
       case 'office_slide':
@@ -644,6 +662,17 @@ Future<void> showOmnibotArtifactPreviewSheet(
       absolutePath: resolvedMetadata.path,
       shellPath: resolvedMetadata.shellPath,
       uri: resolvedMetadata.uri,
+    );
+    return;
+  }
+  if (shouldOpenOmnibotArtifactInFullPage(resolvedMetadata.previewKind)) {
+    await OmnibotResourceService.openFilePath(
+      resolvedMetadata.path,
+      uri: resolvedMetadata.uri,
+      title: resolvedMetadata.title,
+      previewKind: resolvedMetadata.previewKind,
+      mimeType: resolvedMetadata.mimeType,
+      shellPath: resolvedMetadata.shellPath,
     );
     return;
   }

@@ -57,6 +57,17 @@ class AgentOrchestrator(
         val reason: String
     )
 
+    private data class SkillCompletionPolicy(
+        val skillId: String,
+        val startTools: Set<String>,
+        val completionTools: List<String>
+    )
+
+    private data class PendingSkillCompletion(
+        val policy: SkillCompletionPolicy,
+        val nextTool: String
+    )
+
     data class Input(
         val callback: AgentCallback,
         val initialMessages: List<ChatCompletionMessage>,
@@ -115,6 +126,11 @@ class AgentOrchestrator(
         val callback = input.callback
         val memory: AgentChatMemory = MutableListChatMemory(input.initialMessages)
         val primaryUserGoal = resolvePrimaryUserGoal(input)
+        val completionPolicies = resolveSkillCompletionPolicies(input.executionEnv.resolvedSkills)
+        val availableToolNames = toolRegistry.toolsForModel
+            .mapTo(linkedSetOf()) { it.function.name }
+        val completionProgress = mutableMapOf<String, Int>()
+        val completionRecoveryRounds = mutableMapOf<String, Int>()
         val executedTools = mutableListOf<ToolExecutionResult>()
         var outputKind = AgentOutputKind.NONE
         var hasUserFacingOutput = false
@@ -254,6 +270,47 @@ class AgentOrchestrator(
                             "round=$round finish_reason=${lastFinishReason.orEmpty()} auto_continue=$lengthContinuationRounds/${maxLengthContinuationRounds} accumulated_content_len=${accumulatedAssistantContent.length}"
                         )
                         continue@roundLoop
+                    }
+                    val pendingCompletion = pendingSkillCompletion(
+                        policies = completionPolicies,
+                        completionProgress = completionProgress
+                    )
+                    if (pendingCompletion != null && isStopFinishReason(lastFinishReason)) {
+                        val unavailableTools = pendingCompletion.policy.completionTools
+                            .filterNot(availableToolNames::contains)
+                        if (unavailableTools.isNotEmpty()) {
+                            val message = t(
+                                "Skill ${pendingCompletion.policy.skillId} 无法完成：缺少工具 ${unavailableTools.joinToString(", ")}。",
+                                "Skill ${pendingCompletion.policy.skillId} cannot complete because these tools are unavailable: ${unavailableTools.joinToString(", ")}."
+                            )
+                            callback.onError(message, false)
+                            terminalError = AgentResult.Error(message)
+                            terminated = true
+                            break@roundLoop
+                        }
+                        val recoveryCount = completionRecoveryRounds
+                            .getOrDefault(pendingCompletion.policy.skillId, 0)
+                        val maxRecoveryRounds = pendingCompletion.policy.completionTools.size + 1
+                        if (recoveryCount < maxRecoveryRounds) {
+                            completionRecoveryRounds[pendingCompletion.policy.skillId] = recoveryCount + 1
+                            memory.add(buildSkillCompletionRecoveryMessage(pendingCompletion))
+                            logInfo(
+                                tag,
+                                "round=$round skill_completion_pending " +
+                                    "skill=${pendingCompletion.policy.skillId} " +
+                                    "next_tool=${pendingCompletion.nextTool} " +
+                                    "recovery=${recoveryCount + 1}/$maxRecoveryRounds"
+                            )
+                            continue@roundLoop
+                        }
+                        val message = t(
+                            "项目文件已生成，但 ${pendingCompletion.nextTool} 尚未成功，不能标记为已完成。",
+                            "Project files were generated, but ${pendingCompletion.nextTool} has not succeeded, so the task cannot be marked complete."
+                        )
+                        callback.onError(message, false)
+                        terminalError = AgentResult.Error(message)
+                        terminated = true
+                        break@roundLoop
                     }
                     val textOnlyStopDecision = evaluateTextOnlyStopDecision(
                         finishReason = lastFinishReason,
@@ -451,6 +508,12 @@ class AgentOrchestrator(
                             val desc = descriptorMap.getValue(call.id)
                             val args = parsedArgsMap.getValue(call.id)
                             executedTools.add(result)
+                            recordSkillCompletionToolAttempt(
+                                policies = completionPolicies,
+                                completionProgress = completionProgress,
+                                toolName = call.function.name,
+                                successful = isSuccessfulToolResult(result)
+                            )
                             val failureLearning = buildFailureLearningPayload(
                                 env = input.executionEnv,
                                 toolCall = call,
@@ -475,6 +538,16 @@ class AgentOrchestrator(
                                 if (mappedKind != AgentOutputKind.NONE) {
                                     outputKind = mappedKind
                                 }
+                            }
+                            if (
+                                !terminated &&
+                                isUserStoppedVlmTask(call.function.name, result)
+                            ) {
+                                terminated = true
+                                pendingToolCallBackfillReason = t(
+                                    "GUI 任务已被用户停止，当前 assistant 消息中的剩余 tool_call 未继续处理。",
+                                    "The GUI task was stopped by the user, so the remaining tool calls in this assistant message were not processed."
+                                )
                             }
                             if (!terminated && eventAdapter.isConversationStoppingResult(result)) {
                                 terminated = true
@@ -783,6 +856,14 @@ class AgentOrchestrator(
             toolName == "android_privileged_session_stop"
     }
 
+    private fun isUserStoppedVlmTask(
+        toolName: String,
+        result: ToolExecutionResult
+    ): Boolean =
+        toolName == "vlm_task" &&
+            result is ToolExecutionResult.Interrupted &&
+            result.interruptedBy.equals("user", ignoreCase = true)
+
     private fun buildInterruptedToolResult(
         toolName: String,
         toolHandle: AgentToolExecutionHandle
@@ -993,6 +1074,78 @@ class AgentOrchestrator(
             ?.let(AgentTextSanitizer::sanitizeUtf16)
             ?.trim()
             .orEmpty()
+    }
+
+    private fun resolveSkillCompletionPolicies(
+        skills: List<ResolvedSkillContext>
+    ): List<SkillCompletionPolicy> {
+        return skills.mapNotNull { skill ->
+            val completionTools = parseToolNameList(skill.frontmatter["completion-tools"])
+            if (completionTools.isEmpty()) {
+                return@mapNotNull null
+            }
+            SkillCompletionPolicy(
+                skillId = skill.skillId,
+                startTools = parseToolNameList(skill.frontmatter["completion-start-tools"]).toSet(),
+                completionTools = completionTools
+            )
+        }
+    }
+
+    private fun parseToolNameList(raw: String?): List<String> {
+        return raw.orEmpty()
+            .split(Regex("[,\\s]+"))
+            .map(String::trim)
+            .filter(String::isNotEmpty)
+            .distinct()
+    }
+
+    private fun pendingSkillCompletion(
+        policies: List<SkillCompletionPolicy>,
+        completionProgress: Map<String, Int>
+    ): PendingSkillCompletion? {
+        return policies.firstNotNullOfOrNull { policy ->
+            val completedCount = completionProgress[policy.skillId]
+                ?: return@firstNotNullOfOrNull null
+            policy.completionTools.getOrNull(completedCount)?.let { nextTool ->
+                PendingSkillCompletion(policy = policy, nextTool = nextTool)
+            }
+        }
+    }
+
+    private fun recordSkillCompletionToolAttempt(
+        policies: List<SkillCompletionPolicy>,
+        completionProgress: MutableMap<String, Int>,
+        toolName: String,
+        successful: Boolean
+    ) {
+        policies.forEach { policy ->
+            if (
+                policy.skillId !in completionProgress &&
+                (policy.startTools.isEmpty() || toolName in policy.startTools)
+            ) {
+                completionProgress[policy.skillId] = 0
+            }
+            val completedCount = completionProgress[policy.skillId] ?: return@forEach
+            if (successful && policy.completionTools.getOrNull(completedCount) == toolName) {
+                completionProgress[policy.skillId] = completedCount + 1
+            }
+        }
+    }
+
+    private fun isSuccessfulToolResult(result: ToolExecutionResult): Boolean {
+        return when (result) {
+            is ToolExecutionResult.ChatMessage,
+            is ToolExecutionResult.Clarify -> true
+            is ToolExecutionResult.Error,
+            is ToolExecutionResult.PermissionRequired,
+            is ToolExecutionResult.Interrupted -> false
+            is ToolExecutionResult.ScheduleResult -> result.success
+            is ToolExecutionResult.McpResult -> result.success
+            is ToolExecutionResult.MemoryResult -> result.success
+            is ToolExecutionResult.TerminalResult -> result.success && !result.timedOut
+            is ToolExecutionResult.ContextResult -> result.success
+        }
     }
 
     private fun evaluateTextOnlyStopDecision(
@@ -1227,6 +1380,20 @@ class AgentOrchestrator(
                 t(
                     "你上一条回复还停留在执行中间态，但没有真正发起 tool_call，也没有给出完整最终答案。请继续同一任务：如果还需要操作、查询、点击、筛选或导航，必须返回标准 tool_call；如果不需要工具，请直接给出完整最终答案。不要只回复“我先查一下”“接下来继续处理”这类过渡语。",
                     "Your previous reply was still in an in-progress execution state, but you did not emit a tool_call or provide a complete final answer. Continue the same task: if any action, lookup, click, filter, or navigation is still needed, you must return a standard tool_call; if no tool is needed, reply with the complete final answer directly. Do not answer with transitional text such as 'let me check' or 'next I will continue' only."
+                )
+            )
+        )
+    }
+
+    private fun buildSkillCompletionRecoveryMessage(
+        pending: PendingSkillCompletion
+    ): ChatCompletionMessage {
+        return ChatCompletionMessage(
+            role = "user",
+            content = JsonPrimitive(
+                t(
+                    "当前已加载的 Skill ${pending.policy.skillId} 声明了完成契约。你已经开始执行该流程，但 ${pending.nextTool} 尚未成功。不要声称任务已完成；请继续修复必要文件并调用 ${pending.nextTool}。只有完成工具序列 ${pending.policy.completionTools.joinToString(" -> ")} 全部成功后，才能给出最终完成回复。",
+                    "The loaded skill ${pending.policy.skillId} declares a completion contract. You started that workflow, but ${pending.nextTool} has not succeeded. Do not claim completion; continue fixing the required files and call ${pending.nextTool}. Give a final completion response only after the full tool sequence ${pending.policy.completionTools.joinToString(" -> ")} succeeds."
                 )
             )
         )

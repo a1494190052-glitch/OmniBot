@@ -47,9 +47,14 @@ void main() {
 
       await tester.tap(find.text('start'));
       await tester.pumpAndSettle();
-      expect(find.text('Enable accessibility to continue'), findsOneWidget);
+      expect(find.text('Enable accessibility permission'), findsOneWidget);
+      expect(find.text('Where to enable it'), findsOneWidget);
+      expect(
+        find.textContaining('Downloaded apps (or Installed services)'),
+        findsOneWidget,
+      );
 
-      await tester.tap(find.text('Open accessibility'));
+      await tester.tap(find.text('Open Accessibility settings'));
       await tester.pump();
       expect(
         calls.map((call) => call.method),
@@ -62,7 +67,7 @@ void main() {
       await tester.pump(const Duration(milliseconds: 250));
       await tester.pumpAndSettle();
 
-      expect(find.text('Enable accessibility to continue'), findsNothing);
+      expect(find.text('Enable accessibility permission'), findsNothing);
       expect(await result, isTrue);
     },
   );

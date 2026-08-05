@@ -13,12 +13,16 @@ import android.provider.Settings
 import android.view.Display
 import android.view.WindowManager
 import android.view.accessibility.AccessibilityNodeInfo
+import cn.com.omnimind.accessibility.service.AssistsService
 import cn.com.omnimind.baselib.runlog.Action
 import cn.com.omnimind.baselib.runlog.OobActionSchema
 import java.io.ByteArrayOutputStream
 import kotlin.coroutines.resume
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.Dispatchers
 
@@ -46,6 +50,8 @@ internal interface AndroidGuiPlatform {
 
     fun displaySize(): Pair<Int, Int>
 
+    fun screenshotExcludesOverlays(): Boolean
+
     suspend fun observe(captureScreenshot: Boolean): AndroidGuiPlatformState
 
     suspend fun dispatch(action: Action): AndroidGuiActionResult
@@ -61,7 +67,7 @@ internal class AccessibilityAndroidGuiPlatform(
     private val context: Context,
 ) : AndroidGuiPlatform {
     override fun isAccessibilityEnabled(): Boolean {
-        val expected = ComponentName(context, AndroidGuiAccessibilityService::class.java)
+        val expected = ComponentName(context, AssistsService::class.java)
         val enabledServices = Settings.Secure.getString(
             context.contentResolver,
             Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES,
@@ -75,26 +81,35 @@ internal class AccessibilityAndroidGuiPlatform(
             .any { component -> component == expected }
     }
 
-    override fun isReady(): Boolean = AndroidGuiAccessibilityService.isReady()
+    override fun isReady(): Boolean = AssistsService.isReady()
 
-    override suspend fun observe(captureScreenshot: Boolean): AndroidGuiPlatformState {
-        val service = requireService()
+    override suspend fun observe(captureScreenshot: Boolean): AndroidGuiPlatformState = coroutineScope {
+        val service = awaitService()
         val display = displaySize()
         val root = withContext(Dispatchers.Main.immediate) { service.rootInActiveWindow }
-        val xml = withContext(Dispatchers.Default) { AndroidGuiXml.serialize(root) }
-        val screenshot = if (captureScreenshot) captureScreenshot(service) else null
-        return AndroidGuiPlatformState(
+        val windowId = root?.windowId
+        val xmlDeferred = async(Dispatchers.Default) { AndroidGuiXml.serialize(root) }
+        val screenshotDeferred = if (captureScreenshot) {
+            async { captureScreenshot(service, windowId) }
+        } else {
+            null
+        }
+        val xml = xmlDeferred.await()
+        AndroidGuiPlatformState(
             packageName = rootPackage(xml).ifBlank { service.lastPackageName },
             activityName = service.lastActivityName,
             displayWidth = display.first,
             displayHeight = display.second,
             xml = xml,
-            screenshotJpeg = screenshot,
+            screenshotJpeg = screenshotDeferred?.await(),
         )
     }
 
+    override fun screenshotExcludesOverlays(): Boolean =
+        Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE
+
     override suspend fun dispatch(action: Action): AndroidGuiActionResult {
-        val service = requireService()
+        val service = awaitService()
         return when (action.tool) {
             OobActionSchema.TOOL_CLICK -> gesture(
                 service = service,
@@ -137,15 +152,19 @@ internal class AccessibilityAndroidGuiPlatform(
             .asSequence()
             .mapNotNull { info ->
                 val packageName = info.packageName?.trim().orEmpty()
+                if (packageName.isEmpty() || manager.getLaunchIntentForPackage(packageName) == null) {
+                    return@mapNotNull null
+                }
                 val label = runCatching { manager.getApplicationLabel(info).toString().trim() }
                     .getOrDefault("")
-                packageName.takeIf(String::isNotEmpty)?.let { label.ifBlank { packageName } to packageName }
+                label.ifBlank { packageName } to packageName
             }
             .toMap(linkedMapOf())
     }
 
     override fun inputMethodTop(): Int? {
-        val window = requireService().windows
+        val service = AssistsService.readyInstance() ?: return null
+        val window = service.windows
             .firstOrNull { it.type == android.view.accessibility.AccessibilityWindowInfo.TYPE_INPUT_METHOD }
             ?: return null
         val bounds = Rect().also(window::getBoundsInScreen)
@@ -183,7 +202,7 @@ internal class AccessibilityAndroidGuiPlatform(
     }
 
     private suspend fun pressKey(
-        service: AndroidGuiAccessibilityService,
+        service: AssistsService,
         action: Action,
     ): AndroidGuiActionResult {
         val key = action.args[OobActionSchema.ARG_KEY]?.toString()?.trim()?.lowercase().orEmpty()
@@ -217,7 +236,7 @@ internal class AccessibilityAndroidGuiPlatform(
     }
 
     private suspend fun gesture(
-        service: AndroidGuiAccessibilityService,
+        service: AssistsService,
         x1: Float,
         y1: Float,
         x2: Float = x1,
@@ -253,39 +272,55 @@ internal class AccessibilityAndroidGuiPlatform(
         }
     }
 
-    private suspend fun captureScreenshot(service: AndroidGuiAccessibilityService): ByteArray? =
+    private suspend fun captureScreenshot(
+        service: AssistsService,
+        accessibilityWindowId: Int?,
+    ): ByteArray? =
         suspendCancellableCoroutine { continuation ->
             if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) {
                 continuation.resume(null)
                 return@suspendCancellableCoroutine
             }
-            service.takeScreenshot(
-                Display.DEFAULT_DISPLAY,
-                service.mainExecutor,
-                object : AccessibilityService.TakeScreenshotCallback {
-                    override fun onSuccess(result: AccessibilityService.ScreenshotResult) {
-                        val buffer = result.hardwareBuffer
-                        val bitmap = Bitmap.wrapHardwareBuffer(buffer, result.colorSpace)
-                            ?.copy(Bitmap.Config.ARGB_8888, false)
-                        buffer.close()
-                        val bytes = bitmap?.let { image ->
-                            ByteArrayOutputStream().use { output ->
-                                image.compress(Bitmap.CompressFormat.JPEG, 88, output)
-                                output.toByteArray()
-                            }.also { image.recycle() }
-                        }
-                        if (continuation.isActive) continuation.resume(bytes)
+            val callback = object : AccessibilityService.TakeScreenshotCallback {
+                override fun onSuccess(result: AccessibilityService.ScreenshotResult) {
+                    val buffer = result.hardwareBuffer
+                    val bitmap = Bitmap.wrapHardwareBuffer(buffer, result.colorSpace)
+                        ?.copy(Bitmap.Config.ARGB_8888, false)
+                    buffer.close()
+                    val bytes = bitmap?.let { image ->
+                        ByteArrayOutputStream().use { output ->
+                            image.compress(Bitmap.CompressFormat.JPEG, 88, output)
+                            output.toByteArray()
+                        }.also { image.recycle() }
                     }
+                    if (continuation.isActive) continuation.resume(bytes)
+                }
 
-                    override fun onFailure(errorCode: Int) {
-                        if (continuation.isActive) continuation.resume(null)
-                    }
-                },
-            )
+                override fun onFailure(errorCode: Int) {
+                    if (continuation.isActive) continuation.resume(null)
+                }
+            }
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+                if (accessibilityWindowId == null) {
+                    continuation.resume(null)
+                    return@suspendCancellableCoroutine
+                }
+                service.takeScreenshotOfWindow(
+                    accessibilityWindowId,
+                    service.mainExecutor,
+                    callback,
+                )
+            } else {
+                service.takeScreenshot(
+                    Display.DEFAULT_DISPLAY,
+                    service.mainExecutor,
+                    callback,
+                )
+            }
         }
 
     private suspend fun <T> withNodes(block: (List<AccessibilityNodeInfo>) -> T): T {
-        val root = withContext(Dispatchers.Main.immediate) { requireService().rootInActiveWindow }
+        val root = withContext(Dispatchers.Main.immediate) { awaitService().rootInActiveWindow }
             ?: return block(emptyList())
         val nodes = mutableListOf<AccessibilityNodeInfo>()
         fun collect(node: AccessibilityNodeInfo, depth: Int) {
@@ -342,8 +377,13 @@ internal class AccessibilityAndroidGuiPlatform(
         )
     }
 
-    private fun requireService(): AndroidGuiAccessibilityService =
-        AndroidGuiAccessibilityService.instance ?: error("android_gui_accessibility_not_ready")
+    private suspend fun awaitService(): AssistsService {
+        AssistsService.readyInstance()?.let { return it }
+        return withTimeoutOrNull(ACCESSIBILITY_RECONNECT_TIMEOUT_MS) {
+            while (!AssistsService.isReady()) delay(50L)
+            checkNotNull(AssistsService.readyInstance())
+        } ?: error("android_gui_accessibility_not_ready")
+    }
 
     private fun rootPackage(xml: String): String = PACKAGE.find(xml)?.groupValues?.getOrNull(1).orEmpty()
 
@@ -364,6 +404,7 @@ internal class AccessibilityAndroidGuiPlatform(
 
     private companion object {
         const val MAX_WAIT_MS = 60_000L
+        const val ACCESSIBILITY_RECONNECT_TIMEOUT_MS = 5_000L
         const val MAX_NODE_DEPTH = 50
         val PACKAGE = Regex("package=\\\"([^\\\"]+)\\\"")
     }

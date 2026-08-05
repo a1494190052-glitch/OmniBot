@@ -59,7 +59,7 @@ internal class SharedPreferencesOmniPluginStateStore(context: Context) : OmniPlu
     private companion object {
         const val PREFERENCES_NAME = "omni_plugin_platform"
         const val STATES_KEY = "installed_plugins"
-        const val DEFAULTS_SEEDED_KEY = "default_plugins_seeded_v1"
+        const val DEFAULTS_SEEDED_KEY = "default_plugins_seeded_v2"
         const val SEPARATOR = "|"
         const val ENABLED = "1"
         const val DISABLED = "0"

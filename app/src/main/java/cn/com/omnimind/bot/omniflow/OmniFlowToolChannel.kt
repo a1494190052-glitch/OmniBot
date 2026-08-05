@@ -39,12 +39,14 @@ class OmniFlowToolChannel(context: Context) {
             ?.entries
             ?.associate { (key, value) -> key.toString() to value }
             .orEmpty()
+        val goal = payload?.get("goal")?.toString()?.trim().orEmpty()
         scope.launch {
             runCatching {
                 OmniFlow.callTool(
                     context = appContext,
                     toolCall = OmniFlow.ToolCall(name, arguments),
-                    modelClient = if (OmniVlmPlugin.isEnabled()) {
+                    goal = goal.ifBlank { name },
+                    modelClient = if (OmniFlowPluginRuntime.isEnabled()) {
                         HttpAgentLlmClient(CoroutineScope(currentCoroutineContext()))
                             .asOmniFlowModelClient()
                     } else {
@@ -172,11 +174,17 @@ class OmniFlowToolChannel(context: Context) {
                             "run_id" to result.runId,
                             "register" to true,
                             "agent_visible" to true,
-                            "enhance" to false,
+                            "enhance" to true,
                             "name" to result.name,
                             "description" to result.description,
                         ),
                     ),
+                    modelClient = if (OmniFlowPluginRuntime.isEnabled()) {
+                        HttpAgentLlmClient(CoroutineScope(currentCoroutineContext()))
+                            .asOmniFlowModelClient()
+                    } else {
+                        null
+                    },
                 ).payload
             }.getOrElse { error ->
                 OmniLog.e(TAG, "manual recording conversion failed: ${error.message}", error)

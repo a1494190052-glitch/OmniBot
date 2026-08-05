@@ -1,4 +1,0 @@
-<resources>
-    <string name="android_gui_accessibility_label">OmniBot GUI control</string>
-    <string name="android_gui_accessibility_description">Observe and control Android apps for GUI tasks and manual recording.</string>
-</resources>

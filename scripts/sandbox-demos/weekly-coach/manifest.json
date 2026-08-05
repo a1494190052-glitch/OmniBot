@@ -1,0 +1,9 @@
+{
+  "slug": "weekly-coach-demo",
+  "name": "每周教练 Demo",
+  "description": "用小万 Connector 直接生成一周行动计划。",
+  "version": "1.0.0",
+  "entry_path": "index.html",
+  "icon_path": "icon.svg",
+  "permissions": ["xiaowan"]
+}

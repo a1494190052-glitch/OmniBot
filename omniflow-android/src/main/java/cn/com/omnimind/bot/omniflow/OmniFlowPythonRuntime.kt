@@ -8,6 +8,9 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.Deferred
+import kotlinx.coroutines.async
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -16,6 +19,7 @@ object OmniFlowPythonRuntime {
     private const val TAG = "[OmniFlowPythonRuntime]"
     private val runtimeScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val prepareMutex = Mutex()
+    private val warmupLock = Any()
 
     @Volatile
     private var client: OmniFlowPythonClient? = null
@@ -32,6 +36,9 @@ object OmniFlowPythonRuntime {
     @Volatile
     private var runtimeProvider: OmniFlowRuntimeProvider = OmniFlowRuntimeProvider()
 
+    @Volatile
+    private var warmupDeferred: Deferred<OmniFlowRuntimeManifest>? = null
+
     fun configure(
         value: OmniFlowPlatform,
         provider: OmniFlowRuntimeProvider,
@@ -41,6 +48,10 @@ object OmniFlowPythonRuntime {
     }
 
     suspend fun shutdown() = prepareMutex.withLock {
+        synchronized(warmupLock) {
+            warmupDeferred?.cancel()
+            warmupDeferred = null
+        }
         val activeClient = client
         client = null
         activeManifest = null
@@ -50,29 +61,7 @@ object OmniFlowPythonRuntime {
 
     fun start(context: Context) {
         if (ready) return
-        val startedAt = SystemClock.elapsedRealtime()
-        runtimeScope.launch {
-            runCatching {
-                ensureReady(context.applicationContext)
-            }
-                .onSuccess { manifest ->
-                    OmniLog.i(
-                        TAG,
-                        "warmup_ready durationMs=${SystemClock.elapsedRealtime() - startedAt} " +
-                            "protocol=${manifest.protocol}",
-                    )
-                }
-                .onFailure { error ->
-                    ready = false
-                    if (error !is CancellationException) {
-                        OmniLog.w(
-                            TAG,
-                            "warmup_failed durationMs=${SystemClock.elapsedRealtime() - startedAt} " +
-                                "error=${error.message}",
-                        )
-                    }
-                }
-        }
+        warmupJob(context.applicationContext)
     }
 
     suspend fun call(
@@ -81,7 +70,7 @@ object OmniFlowPythonRuntime {
         payload: Map<String, Any?> = emptyMap(),
         hostCall: OmniFlowPythonHostCall? = null,
     ): Map<String, Any?> {
-        ensureReady(context.applicationContext)
+        awaitReady(context.applicationContext)
         return requireNotNull(client) { "omniflow_python_client_unavailable" }
             .call(operation, payload, hostCall)
     }
@@ -117,7 +106,7 @@ object OmniFlowPythonRuntime {
         payload: Map<String, Any?> = emptyMap(),
         hostCall: OmniFlowPythonHostCall? = null,
     ): Map<String, Any?> {
-        ensureReady(context.applicationContext)
+        awaitReady(context.applicationContext)
         val host = requireNotNull(platform) { "omniflow_platform_not_configured" }
         val preparedRuntime = runtimeProvider.prepare(context.applicationContext, host)
         val candidate = OmniFlowPythonClient(
@@ -128,6 +117,7 @@ object OmniFlowPythonRuntime {
                 preparedRuntime.shellPythonSourcePath,
                 preparedRuntime.shellSitePackagesPath,
                 preparedRuntime.shellOmniTransferRoot,
+                preparedRuntime.shellOmniTransferCheckpointPath,
             ),
         )
         return try {
@@ -155,6 +145,7 @@ object OmniFlowPythonRuntime {
                     preparedRuntime.shellPythonSourcePath,
                     preparedRuntime.shellSitePackagesPath,
                     preparedRuntime.shellOmniTransferRoot,
+                    preparedRuntime.shellOmniTransferCheckpointPath,
                 ),
             )
             try {
@@ -215,5 +206,49 @@ object OmniFlowPythonRuntime {
                 throw error
             }
         }
+    }
+
+    private fun warmupJob(context: Context): Deferred<OmniFlowRuntimeManifest> =
+        synchronized(warmupLock) {
+            warmupDeferred?.let { existing ->
+                if (!existing.isCancelled) return@synchronized existing
+            }
+            val startedAt = SystemClock.elapsedRealtime()
+            runtimeScope.async {
+                OmniLog.i(TAG, "warmup_start")
+                runCatching { ensureReady(context) }
+                    .onSuccess { manifest ->
+                        OmniLog.i(
+                            TAG,
+                            "warmup_ready durationMs=${SystemClock.elapsedRealtime() - startedAt} " +
+                                "protocol=${manifest.protocol}",
+                        )
+                    }
+                    .onFailure { error ->
+                        ready = false
+                        if (error !is CancellationException) {
+                            OmniLog.w(
+                                TAG,
+                                "warmup_failed durationMs=${SystemClock.elapsedRealtime() - startedAt} " +
+                                    "error=${error.message}",
+                            )
+                        }
+                    }
+                    .getOrThrow()
+            }.also { created ->
+                warmupDeferred = created
+                created.invokeOnCompletion { error ->
+                    if (error != null) {
+                        synchronized(warmupLock) {
+                            if (warmupDeferred === created) warmupDeferred = null
+                        }
+                    }
+                }
+            }
+        }
+
+    private suspend fun awaitReady(context: Context) {
+        if (ready && client != null) return
+        warmupJob(context).await()
     }
 }

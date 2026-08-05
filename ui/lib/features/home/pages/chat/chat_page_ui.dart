@@ -924,6 +924,9 @@ mixin _ChatPageUiMixin on _ChatPageStateBase {
       onEmptyGreetingAgentWorkspaceTap: mode == ChatPageMode.agent
           ? () => unawaited(_openRemoteCodexWorkspacePicker())
           : null,
+      onEmptyGreetingGuideTap: () {
+        GoRouterManager.push('/home/first_use_tutorial');
+      },
       scrollController: _scrollControllerForMode(mode),
       navigator: _messageListNavigatorByMode[mode],
       bottomOverlayInset:

@@ -13,6 +13,7 @@ import android.view.View
 import android.view.ViewConfiguration
 import android.view.WindowManager
 import cn.com.omnimind.androidgui.AndroidGuiEnvironment
+import cn.com.omnimind.androidgui.AndroidGuiOverlayHost
 import cn.com.omnimind.assists.HumanTrajectoryLearningSession
 import cn.com.omnimind.assists.ManualInputTarget
 import cn.com.omnimind.assists.ManualOverlayTouchGesture
@@ -67,8 +68,8 @@ object ManualTouchRecordLoader {
     private val pendingGestures = ArrayDeque<ManualOverlayTouchGesture>()
 
     fun show(context: Context? = UIKit.appContext): Boolean {
-        val appContext = context?.applicationContext ?: UIKit.appContext
-        if (appContext == null) return false
+        val fallbackContext = context ?: UIKit.appContext ?: return false
+        val overlayHandle = AndroidGuiOverlayHost.resolve(fallbackContext)
         var shouldEnsureControlsOnTop = false
         val shown = synchronized(this) {
             if (overlayView?.isAttachedToWindow == true) {
@@ -77,7 +78,12 @@ object ManualTouchRecordLoader {
                 shouldEnsureControlsOnTop = true
                 return@synchronized true
             }
-            if (tryShowLocked(appContext)) {
+            if (tryShowLocked(
+                    context = overlayHandle.context,
+                    windowType = overlayHandle.windowType,
+                    trusted = overlayHandle.trusted,
+                )
+            ) {
                 isAcceptingGestures = true
                 shouldEnsureControlsOnTop = true
                 return@synchronized true
@@ -168,11 +174,15 @@ object ManualTouchRecordLoader {
         }
     }
 
-    private fun tryShowLocked(context: Context): Boolean {
+    private fun tryShowLocked(
+        context: Context,
+        windowType: Int,
+        trusted: Boolean,
+    ): Boolean {
         val manager = context.getSystemService(Context.WINDOW_SERVICE) as WindowManager
         val view = buildTouchView(context)
         val displaySize = realDisplaySize(context)
-        val params = buildParams(context, touchable = true)
+        val params = buildParams(context, windowType, touchable = true)
         return runCatching {
             manager.addView(view, params)
             windowManager = manager
@@ -182,10 +192,10 @@ object ManualTouchRecordLoader {
             currentOverlayHeight = params.height
             displayWidth = displaySize.x
             displayHeight = displaySize.y
-            OmniLog.d(TAG, "manual touch recording overlay shown type=application")
+            OmniLog.d(TAG, "manual touch recording overlay shown trusted=$trusted")
             true
         }.getOrElse { error ->
-            OmniLog.e(TAG, "show failed type=application: ${error.message}", error)
+            OmniLog.e(TAG, "show failed trusted=$trusted: ${error.message}", error)
             false
         }
     }
@@ -225,17 +235,11 @@ object ManualTouchRecordLoader {
 
     private fun buildParams(
         context: Context,
+        windowType: Int,
         touchable: Boolean
     ): WindowManager.LayoutParams {
         return WindowManager.LayoutParams().apply {
-            type = when {
-                Build.VERSION.SDK_INT >= Build.VERSION_CODES.O ->
-                    WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
-                else -> {
-                    @Suppress("DEPRECATION")
-                    WindowManager.LayoutParams.TYPE_PHONE
-                }
-            }
+            type = windowType
             val touchFlag = if (touchable) {
                 WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL
             } else {
@@ -436,7 +440,10 @@ object ManualTouchRecordLoader {
                     lockTouchLocked()
                 }
                 ManualRecordingControlOverlay.showTransientStatus(
-                    "请使用自动输入栏，或点「动作」补录",
+                    ManualRecordingControlOverlay.localizedText(
+                        "请使用自动输入栏，或点「动作」补录",
+                        "Use the assisted input bar or tap Action",
+                    ),
                     1_800L,
                 )
             }
@@ -561,7 +568,11 @@ object ManualTouchRecordLoader {
         val manager = windowManager ?: return
         val context = view.context ?: return
         if (!view.isAttachedToWindow) return
-        val params = buildParams(context, touchable)
+        val params = buildParams(
+            context = context,
+            windowType = overlayParams?.type ?: AndroidGuiOverlayHost.resolve(context).windowType,
+            touchable = touchable,
+        )
         if (currentTouchable == touchable && currentOverlayHeight == params.height) return
         overlayParams = params
         runCatching { manager.updateViewLayout(view, params) }

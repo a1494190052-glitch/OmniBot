@@ -623,7 +623,7 @@ class _SceneModelSettingPageState extends State<SceneModelSettingPage> {
       });
       showToast(
         context.trLegacy(
-          saved.useOfficialService ? '已启用 ChatGPT VLM' : '已切换为自定义 Provider',
+          saved.useOfficialService ? '已启用小万官方内置模型' : '已切换为自定义 Provider',
         ),
         type: ToastType.success,
       );
@@ -1251,7 +1251,7 @@ class _SceneModelSettingPageState extends State<SceneModelSettingPage> {
             children: [
               Expanded(
                 child: Text(
-                  context.trLegacy('默认使用 ChatGPT VLM'),
+                  context.trLegacy('默认使用：小万官方内置模型'),
                   style: TextStyle(
                     color: _primaryTextColor,
                     fontSize: 12.5,
@@ -1264,7 +1264,7 @@ class _SceneModelSettingPageState extends State<SceneModelSettingPage> {
                 child: _buildCompactSettingsSwitch(
                   value: _operationConfig.useOfficialService,
                   loading: _isSavingOperationConfig,
-                  semanticsLabel: context.trLegacy('使用 ChatGPT VLM'),
+                  semanticsLabel: context.trLegacy('使用小万官方内置模型'),
                   onToggle: (value) {
                     unawaited(
                       _saveOperationConfig(
@@ -1298,7 +1298,7 @@ class _SceneModelSettingPageState extends State<SceneModelSettingPage> {
           const SizedBox(width: 8),
           Expanded(
             child: Text(
-              context.trLegacy('ChatGPT VLM'),
+              context.trLegacy('小万官方内置模型'),
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
               style: TextStyle(color: _primaryTextColor, fontSize: 13),

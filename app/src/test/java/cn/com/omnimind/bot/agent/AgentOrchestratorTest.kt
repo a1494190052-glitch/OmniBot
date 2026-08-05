@@ -282,6 +282,113 @@ class AgentOrchestratorTest {
     }
 
     @Test
+    fun loadedSkillCompletionToolsPreventEarlyStopBeforeProjectPublish() = runBlocking {
+        val llmClient = FakeLlmClient(
+            turns = listOf(
+                assistantTurn(toolCalls = listOf(toolCall("file_write"))),
+                assistantTurn(content = "页面已经创建完成。", finishReason = "stop"),
+                assistantTurn(toolCalls = listOf(toolCall("project_check"))),
+                assistantTurn(content = "项目检查完成。", finishReason = "stop"),
+                assistantTurn(toolCalls = listOf(toolCall("project_publish"))),
+                assistantTurn(content = "插件已发布，可以直接打开。", finishReason = "stop")
+            )
+        )
+        val toolExecutor = FakeToolExecutor(
+            results = mapOf(
+                "file_write" to listOf(successfulContextResult("file_write")),
+                "project_check" to listOf(successfulContextResult("project_check")),
+                "project_publish" to listOf(successfulContextResult("project_publish"))
+            )
+        )
+        val completionSkill = ResolvedSkillContext(
+            skillId = "vibe-project-builder",
+            frontmatter = mapOf(
+                "completion-start-tools" to "file_write, file_edit, terminal_execute",
+                "completion-tools" to "project_check, project_publish"
+            ),
+            bodyMarkdown = "Build and publish the project.",
+            triggerReason = "test"
+        )
+
+        val result = createOrchestrator(
+            llmClient = llmClient,
+            toolExecutor = toolExecutor,
+            availableToolNames = setOf("file_write", "project_check", "project_publish")
+        ).run(
+            AgentOrchestrator.Input(
+                callback = RecordingCallback(),
+                initialMessages = initialMessages("创建一个 NBA HTML 应用"),
+                executionEnv = FakeExecutionEnvironment(
+                    userMessage = "创建一个 NBA HTML 应用",
+                    resolvedSkills = listOf(completionSkill)
+                )
+            )
+        )
+
+        assertEquals(
+            listOf("file_write", "project_check", "project_publish"),
+            toolExecutor.executeCalls
+        )
+        assertEquals(6, llmClient.requests.size)
+        assertTrue(result is AgentResult.Success)
+    }
+
+    @Test
+    fun projectCheckBeforeFileWriteDoesNotSatisfySkillCompletionContract() = runBlocking {
+        val llmClient = FakeLlmClient(
+            turns = listOf(
+                assistantTurn(toolCalls = listOf(toolCall("project_check"))),
+                assistantTurn(toolCalls = listOf(toolCall("file_write"))),
+                assistantTurn(content = "文件已经更新完成。", finishReason = "stop"),
+                assistantTurn(toolCalls = listOf(toolCall("project_check"))),
+                assistantTurn(toolCalls = listOf(toolCall("project_publish"))),
+                assistantTurn(content = "插件已重新检查并发布。", finishReason = "stop")
+            )
+        )
+        val toolExecutor = FakeToolExecutor(
+            results = mapOf(
+                "project_check" to listOf(
+                    successfulContextResult("project_check"),
+                    successfulContextResult("project_check")
+                ),
+                "file_write" to listOf(successfulContextResult("file_write")),
+                "project_publish" to listOf(successfulContextResult("project_publish"))
+            )
+        )
+        val completionSkill = ResolvedSkillContext(
+            skillId = "vibe-project-builder",
+            frontmatter = mapOf(
+                "completion-start-tools" to "file_write, file_edit, terminal_execute",
+                "completion-tools" to "project_check, project_publish"
+            ),
+            bodyMarkdown = "Build and publish the project.",
+            triggerReason = "test"
+        )
+
+        val result = createOrchestrator(
+            llmClient = llmClient,
+            toolExecutor = toolExecutor,
+            availableToolNames = setOf("file_write", "project_check", "project_publish")
+        ).run(
+            AgentOrchestrator.Input(
+                callback = RecordingCallback(),
+                initialMessages = initialMessages("更新现有 HTML 应用"),
+                executionEnv = FakeExecutionEnvironment(
+                    userMessage = "更新现有 HTML 应用",
+                    resolvedSkills = listOf(completionSkill)
+                )
+            )
+        )
+
+        assertEquals(
+            listOf("project_check", "file_write", "project_check", "project_publish"),
+            toolExecutor.executeCalls
+        )
+        assertEquals(6, llmClient.requests.size)
+        assertTrue(result is AgentResult.Success)
+    }
+
+    @Test
     fun traceStyleRetryIntentStillStopsAfterSingleGuardRound() = runBlocking {
         val llmClient = FakeLlmClient(
             turns = listOf(
@@ -503,6 +610,52 @@ class AgentOrchestratorTest {
         assertEquals(2, llmClient.requests.size)
         assertEquals("tool", llmClient.requests[1].messages.last().role)
         assertTrue(callback.finalChatMessages().last().contains("用户手动停止"))
+    }
+
+    @Test
+    fun interruptedVlmTaskStopsWithoutStartingAnotherModelRound() = runBlocking {
+        val llmClient = FakeLlmClient(
+            turns = listOf(
+                assistantTurn(
+                    toolCalls = listOf(
+                        toolCall(
+                            name = "vlm_task",
+                            arguments = """{"goal":"打开蓝牙"}"""
+                        )
+                    )
+                ),
+                assistantTurn(content = "不应该在用户停止 GUI 任务后继续执行。")
+            )
+        )
+        val toolExecutor = FakeToolExecutor(
+            results = mapOf(
+                "vlm_task" to listOf(
+                    ToolExecutionResult.Interrupted(
+                        toolName = "vlm_task",
+                        summaryText = "视觉任务已停止",
+                        previewJson =
+                            """{"run_id":"gui-run-stopped","status":"interrupted"}""",
+                        rawResultJson =
+                            """{"run_id":"gui-run-stopped","status":"interrupted"}""",
+                        interruptedBy = "user",
+                        interruptionReason = "manual_stop",
+                    )
+                )
+            )
+        )
+
+        val result = createOrchestrator(llmClient, toolExecutor).run(
+            AgentOrchestrator.Input(
+                callback = RecordingCallback(),
+                initialMessages = initialMessages("打开蓝牙"),
+                executionEnv = FakeExecutionEnvironment("打开蓝牙")
+            )
+        )
+
+        assertEquals(1, llmClient.requests.size)
+        assertEquals(listOf("vlm_task"), toolExecutor.executeCalls)
+        assertTrue(result is AgentResult.Success)
+        assertTrue((result as AgentResult.Success).hasUserVisibleOutput)
     }
 
     @Test
@@ -987,12 +1140,13 @@ class AgentOrchestratorTest {
     private fun createOrchestrator(
         llmClient: FakeLlmClient,
         toolExecutor: FakeToolExecutor,
+        availableToolNames: Set<String> = emptySet(),
         toolImageContinuationPolicy: AgentToolImageContinuationPolicy =
             AgentToolImageContinuationPolicy.DEFAULT
     ): AgentOrchestrator {
         return AgentOrchestrator(
             llmClient = llmClient,
-            toolRegistry = FakeToolCatalog(),
+            toolRegistry = FakeToolCatalog(availableToolNames = availableToolNames),
             toolRouter = toolExecutor,
             eventAdapter = AgentEventAdapter(eventJson),
             model = "test-model",
@@ -1055,6 +1209,15 @@ class AgentOrchestratorTest {
         )
     }
 
+    private fun successfulContextResult(toolName: String): ToolExecutionResult.ContextResult {
+        return ToolExecutionResult.ContextResult(
+            toolName = toolName,
+            summaryText = "$toolName succeeded",
+            previewJson = "{}",
+            rawResultJson = "{}"
+        )
+    }
+
     private class FakeLlmClient(
         turns: List<ChatCompletionTurn>,
         reasoningUpdates: List<List<String>> = emptyList(),
@@ -1094,9 +1257,12 @@ class AgentOrchestratorTest {
     }
 
     private class FakeToolCatalog(
-        private val validationErrors: Map<String, String> = emptyMap()
+        private val validationErrors: Map<String, String> = emptyMap(),
+        availableToolNames: Set<String> = emptySet()
     ) : AgentToolCatalog {
-        override val toolsForModel: List<ChatCompletionTool> = emptyList()
+        override val toolsForModel: List<ChatCompletionTool> = availableToolNames.map { toolName ->
+            ChatCompletionTool(function = ChatCompletionFunction(name = toolName))
+        }
 
         override fun runtimeDescriptor(toolName: String): AgentToolRegistry.RuntimeToolDescriptor {
             return AgentToolRegistry.RuntimeToolDescriptor(
@@ -1245,15 +1411,14 @@ class AgentOrchestratorTest {
         override val userMessage: String,
         override val conversationMode: String = "normal",
         override val reasoningEffort: String? = null,
-        override val runControl: AgentRunControl = NoOpAgentRunControl
+        override val runControl: AgentRunControl = NoOpAgentRunControl,
+        override val resolvedSkills: List<ResolvedSkillContext> = emptyList()
     ) : AgentExecutionEnvironment {
         override val agentRunId: String = "test-run"
         override val runtimeContextRepository: AgentRuntimeContextRepository
             get() = throw UnsupportedOperationException("unused in test")
         override val workspaceDescriptor: AgentWorkspaceDescriptor
             get() = throw UnsupportedOperationException("unused in test")
-        override val resolvedSkills: List<ResolvedSkillContext>
-            get() = emptyList()
         override val failureLearningSkill: ResolvedSkillContext?
             get() = null
         override val workspaceManager: AgentWorkspaceManager

@@ -109,14 +109,12 @@ data class SceneOperationConfig(
 data class OfficialVlmOperationConfig(
     val enabled: Boolean = false,
     val apiBase: String = "",
-    val apiKey: String = "",
     val model: String = "",
     val wireApi: String = OpenAiWireApi.CHAT_COMPLETIONS
 ) {
     fun isConfigured(): Boolean {
         return enabled &&
             apiBase.trim().isNotEmpty() &&
-            apiKey.trim().isNotEmpty() &&
             model.trim().isNotEmpty()
     }
 }

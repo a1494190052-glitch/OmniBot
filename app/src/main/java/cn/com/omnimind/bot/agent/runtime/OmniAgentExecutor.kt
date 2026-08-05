@@ -233,7 +233,11 @@ class OmniAgentExecutor(
                 discoveredServers = discoveredServers,
                 conversationMode = conversationMode,
                 terminalDistribution = terminalDistribution,
-                pluginToolDefinitions = activePluginSession.toolDefinitions
+                pluginToolDefinitions = activePluginSession.toolDefinitions,
+                userMessage = userMessage,
+                toolRoutingMode = AgentToolRoutingMode.fromSkillFrontmatter(
+                    resolvedSkills.map(ResolvedSkillContext::frontmatter),
+                ),
             )
             val initialMessages = buildInitialMessages(
                 promptSeed = historyRepository.buildPromptSeed(

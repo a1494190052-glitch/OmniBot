@@ -1,20 +1,27 @@
 package cn.com.omnimind.bot.omniflow
 
 import android.content.Context
+import android.os.SystemClock
 import cn.com.omnimind.androidgui.AndroidGuiEnvironment
 import cn.com.omnimind.baselib.runlog.Action
 import cn.com.omnimind.baselib.runlog.InternalRunLogStore
+import cn.com.omnimind.baselib.runlog.OobActionSchema
 import cn.com.omnimind.baselib.runlog.RunLogWriter
 import cn.com.omnimind.baselib.runlog.State
 import cn.com.omnimind.bot.omniflow.ui.ExecutionControls
 import cn.com.omnimind.bot.omniflow.ui.ExecutionPhase
+import cn.com.omnimind.bot.omniflow.ui.ManualCompletionRequested
 import cn.com.omnimind.bot.omniflow.ui.initialExecutionPhase
+import java.io.File
+import java.util.Base64
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.UUID
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
-import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -74,60 +81,108 @@ object OmniFlow {
         request: ExecutionRequest,
         modelClient: OmniFlowModelClient? = null,
         hooks: Hooks = Hooks(),
-    ): Result = executionMutex.withLock {
+    ): Result {
         require(request.id.isNotBlank()) { "run_id_required" }
-
-        val executionJob = currentCoroutineContext()[Job]
-        val stopped = AtomicBoolean(false)
-        val requestStop = {
-            if (stopped.compareAndSet(false, true)) {
-                executionJob?.cancel(CancellationException("OmniFlow execution stopped"))
-            }
-        }
-        val executionUi = ExecutionControls.start(
-            context = context,
-            title = request.title,
-            initialPhase = initialExecutionPhase(usesModel = modelClient != null),
-            onStop = requestStop,
-        )
-        val registration = executions.begin(
+        val appContext = context.applicationContext
+        val runFinished = AtomicBoolean(false)
+        InternalRunLogStore.beginRun(
+            context = appContext,
             runId = request.id,
-            onStop = requestStop,
+            goal = request.goal,
+            source = request.source,
+            toolName = request.runLogToolName,
+            operationDescription = request.operationDescription,
+            startedAtMs = request.startedAtMs,
         )
-        var result: Map<String, Any?>? = null
-        var cancelled = false
-        try {
-            val beforeOperation: suspend () -> Unit = {
-                executionUi.awaitRunning()
-                ensureRunning(stopped, hooks)
-                hooks.beforeOperation()
-                ensureRunning(stopped, hooks)
+        return try {
+            executionMutex.withLock {
+                coroutineScope {
+                    val stopped = AtomicBoolean(false)
+                    val completionRequested = AtomicBoolean(false)
+                    var executionJob: Job? = null
+                    val requestStop = {
+                        if (stopped.compareAndSet(false, true)) {
+                            executionJob?.cancel(CancellationException("OmniFlow execution stopped"))
+                        }
+                    }
+                    val requestComplete = {
+                        if (completionRequested.compareAndSet(false, true)) {
+                            executionJob?.cancel(ManualCompletionRequested())
+                        }
+                    }
+                    val executionUi = ExecutionControls.start(
+                        context = context,
+                        title = request.title,
+                        initialPhase = initialExecutionPhase(usesModel = modelClient != null),
+                        onStop = requestStop,
+                        onComplete = requestComplete,
+                    )
+                    val registration = executions.begin(
+                        runId = request.id,
+                        onStop = requestStop,
+                    )
+                    var result: Map<String, Any?>? = null
+                    var cancelled = false
+                    try {
+                        val beforeOperation: suspend () -> Unit = {
+                            executionUi.awaitRunning()
+                            ensureRunning(stopped, hooks)
+                            hooks.beforeOperation()
+                            ensureRunning(stopped, hooks)
+                        }
+                        val host = AndroidHost(
+                            context = context,
+                            request = request,
+                            runFinished = runFinished,
+                            modelClient = modelClient,
+                            beforeOperation = beforeOperation,
+                            stopRequested = { stopped.get() || hooks.stopRequested() },
+                            onPhase = executionUi::updatePhase,
+                            beforeAction = executionUi::avoidAction,
+                            afterAction = executionUi::restoreDefaultPosition,
+                            beforeScreenshot = executionUi::hideForScreenshot,
+                            afterScreenshot = executionUi::showAfterScreenshot,
+                            onProgress = { progress, extras ->
+                                executionUi.update(progress)
+                                hooks.onProgress(progress, extras)
+                            },
+                        )
+                        val operation = async(start = CoroutineStart.LAZY) { host.execute() }
+                        executionJob = operation
+                        when {
+                            completionRequested.get() ->
+                                operation.cancel(ManualCompletionRequested())
+                            stopped.get() -> operation.cancel(
+                                CancellationException("OmniFlow execution stopped"),
+                            )
+                        }
+                        try {
+                            operation.start()
+                            val payload = operation.await()
+                            result = payload
+                            Result(payload, host.currentStateId)
+                        } catch (error: CancellationException) {
+                            if (!completionRequested.get()) throw error
+                            val payload = host.finishManualCompletion()
+                            result = payload
+                            Result(payload, host.currentStateId)
+                        }
+                    } catch (error: CancellationException) {
+                        cancelled = true
+                        throw error
+                    } finally {
+                        executions.end(registration)
+                        val message = completionMessage(result, cancelled || stopped.get())
+                        val visibleMs = completionOverlayVisibleMs(request.source, result)
+                        withContext(NonCancellable) {
+                            executionUi.finish(message, visibleMs)
+                        }
+                    }
+                }
             }
-            val host = AndroidHost(
-                context = context,
-                request = request,
-                modelClient = modelClient,
-                beforeOperation = beforeOperation,
-                stopRequested = { stopped.get() || hooks.stopRequested() },
-                onPhase = executionUi::updatePhase,
-                onProgress = { progress, extras ->
-                    executionUi.update(progress)
-                    hooks.onProgress(progress, extras)
-                },
-            )
-            val payload = host.execute()
-            result = payload
-            Result(payload, host.currentStateId)
         } catch (error: CancellationException) {
-            cancelled = true
+            finishCancelledRun(appContext, request, runFinished, error)
             throw error
-        } finally {
-            executions.end(registration)
-            val message = completionMessage(result, cancelled || stopped.get())
-            val visibleMs = if (result?.get("success") == false) 2_500L else 900L
-            withContext(NonCancellable) {
-                executionUi.finish(message, visibleMs)
-            }
         }
     }
 
@@ -144,7 +199,10 @@ object OmniFlow {
         require(toolCall.name.isNotBlank()) { "tool_call_name_required" }
         if (toolCall.name in NON_INTERACTIVE_TOOL_NAMES) {
             return Result(
-                payload = AndroidHost(context).call(
+                payload = AndroidHost(
+                    context = context,
+                    modelClient = modelClient,
+                ).call(
                     operation = "tools/call",
                     payload = mapOf(
                         "name" to toolCall.name,
@@ -228,10 +286,15 @@ object OmniFlow {
 private class AndroidHost(
     context: Context,
     private val request: ExecutionRequest? = null,
+    private val runFinished: AtomicBoolean = AtomicBoolean(false),
     modelClient: OmniFlowModelClient? = null,
     private val beforeOperation: suspend () -> Unit = {},
     private val stopRequested: () -> Boolean = { false },
     private val onPhase: (ExecutionPhase) -> Unit = {},
+    private val beforeAction: suspend (Action) -> Unit = {},
+    private val afterAction: suspend () -> Unit = {},
+    private val beforeScreenshot: suspend () -> Unit = {},
+    private val afterScreenshot: suspend () -> Unit = {},
     private val onProgress: suspend (String, Map<String, Any?>) -> Unit = { _, _ -> },
 ) {
     private val appContext = context.applicationContext
@@ -246,10 +309,13 @@ private class AndroidHost(
             onProgress(thinking, progressPayload(mapOf("thinking" to thinking)))
         }
     }
+    private val modelMetrics = ModelRunLogMetrics()
     private val hostCall = OmniFlowPythonHostCall(::handleHostCall)
 
     var currentStateId: String? = null
         private set
+
+    private var previousActionTool: String? = null
 
     suspend fun call(
         operation: String,
@@ -263,15 +329,6 @@ private class AndroidHost(
 
     suspend fun execute(): Map<String, Any?> {
         val activeRun = requireNotNull(request) { "run_not_configured" }
-        InternalRunLogStore.beginRun(
-            context = appContext,
-            runId = activeRun.id,
-            goal = activeRun.goal,
-            source = activeRun.source,
-            toolName = activeRun.runLogToolName,
-            operationDescription = activeRun.operationDescription,
-            startedAtMs = activeRun.startedAtMs,
-        )
         return try {
             beforeOperation()
             check(environment.awaitReady()) { "android_gui_accessibility_not_ready" }
@@ -294,12 +351,24 @@ private class AndroidHost(
                 }
                 finishRun(result)
             }
+        } catch (error: ManualCompletionRequested) {
+            throw error
         } catch (error: CancellationException) {
             finishRun(cancelledFailure(activeRun.cancelledDoneReason, error))
             throw error
         } catch (error: Exception) {
             failure(activeRun, error).also(::finishRun)
         }
+    }
+
+    fun finishManualCompletion(): Map<String, Any?> {
+        val activeRun = requireNotNull(request) { "run_not_configured" }
+        return manualCompletionResult(
+            runId = activeRun.id,
+            startedAtMs = activeRun.startedAtMs,
+            source = activeRun.source,
+            functionId = activeRun.toolCall.name,
+        ).also(::finishRun)
     }
 
     private suspend fun handleHostCall(
@@ -324,9 +393,19 @@ private class AndroidHost(
 
     private suspend fun observe(payload: Map<String, Any?>): Map<String, Any?> {
         beforeOperation()
-        return environment.observe(captureScreenshot = payload["screenshot"] != false)
-            .also { currentStateId = it.stateId }
-            .asMap()
+        val captureScreenshot = payload["screenshot"] != false
+        val suppressOverlay = shouldSuppressOverlayForScreenshot(
+            captureScreenshot = captureScreenshot,
+            screenshotExcludesOverlays = environment.screenshotExcludesOverlays(),
+        )
+        if (suppressOverlay) beforeScreenshot()
+        return try {
+            environment.observe(captureScreenshot = captureScreenshot)
+                .also { currentStateId = it.stateId }
+                .asHostMap(includeImage = captureScreenshot)
+        } finally {
+            if (suppressOverlay) afterScreenshot()
+        }
     }
 
     private suspend fun act(payload: Map<String, Any?>): Map<String, Any?> {
@@ -335,20 +414,43 @@ private class AndroidHost(
         val action = Action.fromMap(mapValue(payload["action"]))
         val sourceState = State.fromMap(mapValue(payload["state"]))
         require(sourceState.stateId == currentStateId) { "host_action_state_stale" }
-        val metadata = mapValue(payload["metadata"])
-        onProgress(
-            firstText(metadata["summary"], action.tool).ifBlank { "GUI action" },
-            progressPayload(metadata + mapOf("action" to action.asMap())),
-        )
-        val result = environment.act(action)
-        return linkedMapOf<String, Any?>(
-            "success" to result.success,
-            "error" to result.message.takeUnless { result.success },
-            "extra" to linkedMapOf(
-                "message" to result.message,
-                "diagnostics" to result.diagnostics,
-            ),
-        ).filterValues { it != null }
+        beforeAction(action)
+        return try {
+            val metadata = mapValue(payload["metadata"])
+            onProgress(
+                firstText(metadata["summary"], action.tool).ifBlank { "GUI action" },
+                progressPayload(metadata + mapOf("action" to action.asMap())),
+            )
+            if (
+                shouldSkipFunctionReplayImeBack(
+                    source = request?.source,
+                    previousTool = previousActionTool,
+                    action = action,
+                    inputMethodTop = environment.inputMethodTop(),
+                )
+            ) {
+                previousActionTool = action.tool
+                return mapOf(
+                    "success" to true,
+                    "extra" to mapOf(
+                        "message" to "press_key_back_noop_ime_absent",
+                        "diagnostics" to mapOf("ime_dismiss" to "already_hidden"),
+                    ),
+                )
+            }
+            val result = environment.act(action)
+            if (result.success) previousActionTool = action.tool
+            linkedMapOf<String, Any?>(
+                "success" to result.success,
+                "error" to result.message.takeUnless { result.success },
+                "extra" to linkedMapOf(
+                    "message" to result.message,
+                    "diagnostics" to result.diagnostics,
+                ),
+            ).filterValues { it != null }
+        } finally {
+            afterAction()
+        }
     }
 
     private fun getRunLog(payload: Map<String, Any?>): Map<String, Any?> {
@@ -389,12 +491,26 @@ private class AndroidHost(
     private suspend fun modelTurn(payload: Map<String, Any?>): Map<String, Any?> {
         beforeOperation()
         onPhase(ExecutionPhase.REASONING)
-        return requireNotNull(modelHost) { "model_turn_not_available" }.modelTurn(payload)
+        val startedAtMs = SystemClock.elapsedRealtime()
+        return try {
+            requireNotNull(modelHost) { "model_turn_not_available" }.modelTurn(payload).also {
+                modelMetrics.recordSuccess(
+                    result = it,
+                    durationMs = SystemClock.elapsedRealtime() - startedAtMs,
+                )
+            }
+        } catch (error: Throwable) {
+            modelMetrics.recordFailure(SystemClock.elapsedRealtime() - startedAtMs)
+            throw error
+        }
     }
 
     private suspend fun completeJson(payload: Map<String, Any?>): Map<String, Any?> {
         beforeOperation()
-        return OmniFlowModelHost.completeJson(payload)
+        return modelHost?.completeJson(
+            payload = payload,
+            modelOverride = OmniVlmPlugin.MODEL_SCENE,
+        ) ?: OmniFlowModelHost.completeJson(payload)
     }
 
     private fun schedule(payload: Map<String, Any?>): Map<String, Any?> =
@@ -426,13 +542,18 @@ private class AndroidHost(
 
     private fun finishRun(result: Map<String, Any?>) {
         val activeRun = requireNotNull(request)
+        if (!runFinished.compareAndSet(false, true)) return
         val success = result["success"] == true
         val resultFinalStateId = firstText(mapValue(result["final_state"])["state_id"])
-        plannerRunLogDiagnostics(result)?.let { diagnostics ->
+        val diagnostics = buildMap<String, Any?> {
+            plannerRunLogDiagnostics(result)?.let(::putAll)
+            putAll(modelMetrics.diagnostics())
+        }
+        diagnostics.takeIf(Map<String, Any?>::isNotEmpty)?.let {
             InternalRunLogStore.updateDiagnostics(
                 context = appContext,
                 runId = activeRun.id,
-                diagnostics = diagnostics,
+                diagnostics = it,
             )
         }
         InternalRunLogStore.finishRun(
@@ -474,6 +595,155 @@ private class AndroidHost(
             "done_reason" to doneReason,
             "error_message" to error.message.orEmpty().ifBlank { error.javaClass.simpleName },
         )
+}
+
+private fun finishCancelledRun(
+    context: Context,
+    request: ExecutionRequest,
+    runFinished: AtomicBoolean,
+    error: CancellationException,
+) {
+    if (!runFinished.compareAndSet(false, true)) return
+    InternalRunLogStore.finishRun(
+        context = context,
+        runId = request.id,
+        success = false,
+        doneReason = request.cancelledDoneReason,
+        errorMessage = error.message.orEmpty().ifBlank { "OmniFlow execution cancelled" },
+    )
+}
+
+internal fun manualCompletionResult(
+    runId: String,
+    startedAtMs: Long,
+    source: String,
+    functionId: String,
+    finishedAtMs: Long = System.currentTimeMillis(),
+): Map<String, Any?> = mapOf(
+    "success" to true,
+    "status" to "succeeded",
+    "run_id" to runId,
+    "function_id" to functionId,
+    "source" to source,
+    "started_at_ms" to startedAtMs,
+    "finished_at_ms" to finishedAtMs,
+    "duration_ms" to (finishedAtMs - startedAtMs).coerceAtLeast(0L),
+    "done_reason" to "manual_finished",
+)
+
+internal fun State.asHostMap(includeImage: Boolean): Map<String, Any?> {
+    if (!includeImage) return asMap()
+    val screenshot = screenshotPath
+        ?.takeIf(String::isNotBlank)
+        ?.let(::File)
+        ?.takeIf(File::isFile)
+        ?: return asMap()
+    return asMap() + (
+        "image_base64" to Base64.getEncoder().encodeToString(screenshot.readBytes())
+    )
+}
+
+internal fun shouldSkipFunctionReplayImeBack(
+    source: String?,
+    previousTool: String?,
+    action: Action,
+    inputMethodTop: Int?,
+): Boolean =
+    source == "function" &&
+        previousTool == OobActionSchema.TOOL_INPUT_TEXT &&
+        action.tool == OobActionSchema.TOOL_PRESS_KEY &&
+        action.args[OobActionSchema.ARG_KEY]?.toString()?.trim()?.lowercase() == "back" &&
+        inputMethodTop == null
+
+internal fun completionOverlayVisibleMs(
+    source: String,
+    result: Map<String, Any?>?,
+): Long = when {
+    source.equals("vlm", ignoreCase = true) -> 0L
+    result?.get("success") == false -> 2_500L
+    else -> 900L
+}
+
+internal fun shouldSuppressOverlayForScreenshot(
+    captureScreenshot: Boolean,
+    screenshotExcludesOverlays: Boolean,
+): Boolean = captureScreenshot && !screenshotExcludesOverlays
+
+internal class ModelRunLogMetrics {
+    private data class Call(
+        val durationMs: Long,
+        val success: Boolean,
+        val requestedModel: String,
+        val resolvedModel: String,
+        val usage: Map<String, Any?>,
+    )
+
+    private val calls = mutableListOf<Call>()
+
+    fun recordSuccess(result: Map<String, Any?>, durationMs: Long) {
+        calls += Call(
+            durationMs = durationMs.coerceAtLeast(0L),
+            success = true,
+            requestedModel = firstText(result["requested_model"]),
+            resolvedModel = firstText(result["resolved_model"]),
+            usage = mapValue(result["usage"]),
+        )
+    }
+
+    fun recordFailure(durationMs: Long) {
+        calls += Call(
+            durationMs = durationMs.coerceAtLeast(0L),
+            success = false,
+            requestedModel = "",
+            resolvedModel = "",
+            usage = emptyMap(),
+        )
+    }
+
+    fun diagnostics(): Map<String, Any?> {
+        if (calls.isEmpty()) return emptyMap()
+        val resolvedModels = calls.map(Call::resolvedModel).filter(String::isNotEmpty).distinct()
+        val requestedModels = calls.map(Call::requestedModel).filter(String::isNotEmpty).distinct()
+        val tokenUsage = linkedMapOf<String, Any?>(
+            "call_count" to calls.size,
+            "successful_call_count" to calls.count(Call::success),
+            "failed_call_count" to calls.count { !it.success },
+        )
+        sumUsage("prompt_tokens")?.let { tokenUsage["prompt_tokens"] = it }
+        sumUsage("completion_tokens")?.let { tokenUsage["completion_tokens"] = it }
+        sumUsage("total_tokens")?.let { tokenUsage["total_tokens"] = it }
+        if (resolvedModels.isNotEmpty()) {
+            tokenUsage["resolved_models"] = resolvedModels
+            if (resolvedModels.size == 1) tokenUsage["resolved_model"] = resolvedModels.single()
+        }
+        if (requestedModels.size == 1) tokenUsage["model"] = requestedModels.single()
+        return linkedMapOf(
+            "model_duration_ms" to calls.sumOf(Call::durationMs),
+            "token_usage" to tokenUsage,
+            "token_usage_by_call" to calls.mapIndexed { index, call ->
+                linkedMapOf<String, Any?>(
+                    "call_index" to index,
+                    "duration_ms" to call.durationMs,
+                    "success" to call.success,
+                    "requested_model" to call.requestedModel.takeIf(String::isNotEmpty),
+                    "resolved_model" to call.resolvedModel.takeIf(String::isNotEmpty),
+                    "token_usage" to call.usage.takeIf(Map<String, Any?>::isNotEmpty),
+                ).filterValues { it != null }
+            },
+            "resolved_models" to resolvedModels.takeIf(List<String>::isNotEmpty),
+        ).filterValues { it != null }
+    }
+
+    private fun sumUsage(key: String): Long? {
+        val values = calls.mapNotNull { call ->
+            when (val value = call.usage[key]) {
+                is Number -> value.toLong()
+                is String -> value.toLongOrNull()
+                else -> null
+            }
+        }
+        return values.takeIf(List<Long>::isNotEmpty)?.sum()
+    }
 }
 
 internal fun plannerRunLogDiagnostics(

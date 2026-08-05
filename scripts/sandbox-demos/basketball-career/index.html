@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>我的篮球生涯</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <main class="app-shell">
+    <section id="loading" class="center-state">
+      <div class="ball-loader" aria-hidden="true"></div>
+      <p>正在载入生涯存档…</p>
+    </section>
+
+    <section id="setup" class="setup hidden">
+      <div class="eyebrow">ROOKIE DRAFT · 虚构模拟</div>
+      <h1>写下你的<br><em>篮球生涯</em></h1>
+      <p class="lede">创建一名球员。每场比赛、成长轨迹和小万建议都会保存在你的独立存档里。</p>
+      <form id="player-form" class="setup-card">
+        <label>球员名<input id="player-name" maxlength="24" placeholder="例如：阿万" required></label>
+        <div class="field-grid">
+          <label>场上位置
+            <select id="player-position">
+              <option>控球后卫</option><option>得分后卫</option><option>小前锋</option><option>大前锋</option><option>中锋</option>
+            </select>
+          </label>
+          <label>球员类型
+            <select id="player-archetype">
+              <option>球场指挥官</option><option>关键先生</option><option>攻防一体</option><option>空间型内线</option><option>禁区守护者</option>
+            </select>
+          </label>
+        </div>
+        <button class="primary-button" type="submit">签下新秀合同 <span>→</span></button>
+        <p id="setup-error" class="error-text" role="alert"></p>
+      </form>
+    </section>
+
+    <section id="career" class="career hidden">
+      <header class="topbar">
+        <div><span class="eyebrow">MY CAREER</span><h2 id="player-title"></h2></div>
+        <div class="season-pill">S<span id="season-number">1</span></div>
+      </header>
+
+      <article class="hero-card">
+        <div class="court-lines" aria-hidden="true"></div>
+        <div class="rating"><strong id="overall">68</strong><span>OVR</span></div>
+        <div class="player-meta"><span id="position"></span><b id="archetype"></b></div>
+        <div class="fans"><span id="fans">1,200</span><small>生涯粉丝</small></div>
+      </article>
+
+      <div class="stat-grid">
+        <div><span id="games-count">0</span><small>场比赛</small></div>
+        <div><span id="avg-points">0.0</span><small>场均得分</small></div>
+        <div><span id="win-rate">0%</span><small>胜率</small></div>
+      </div>
+
+      <button id="simulate-button" class="primary-button game-button">模拟下一场 <span>开球 →</span></button>
+      <p class="simulation-note">所有对局均为本地虚构模拟，不对应现实比赛。</p>
+
+      <section id="latest-game" class="latest-game hidden" aria-live="polite"></section>
+
+      <section class="section-block">
+        <div class="section-heading"><div><span class="eyebrow">RUN LOG</span><h3>生涯比赛</h3></div><span id="record-summary"></span></div>
+        <div id="game-list" class="game-list"></div>
+      </section>
+
+      <section class="coach-card">
+        <div class="coach-mark">小万</div>
+        <div><span class="eyebrow">CAREER COACH</span><h3>让小万读懂你的比赛</h3></div>
+        <p id="coach-output">基于真实存档生成下一阶段训练重点，不会编造你的比赛数据。</p>
+        <button id="coach-button" class="secondary-button">生成生涯建议</button>
+      </section>
+    </section>
+  </main>
+  <script src="app.js"></script>
+</body>
+</html>

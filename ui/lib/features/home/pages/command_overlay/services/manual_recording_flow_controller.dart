@@ -57,7 +57,6 @@ class ManualRecordingFlowController {
     FutureOr<void> Function()? beforeNativeRecording,
     FutureOr<void> Function()? afterNativeRecording,
     FutureOr<void> Function()? onFinally,
-    void Function(String runId)? openRunLogTimeline,
     ManualRecordingAuthorizer? ensureAuthorized,
     ManualRecordingNativeStarter? startNativeRecording,
   }) async {
@@ -128,11 +127,6 @@ class ManualRecordingFlowController {
         insertResultMessage?.call(resultMessageId, result);
       }
       _showCompletionToast(locale, result);
-      _openRunLogTimelineIfAvailable(
-        result,
-        isMounted,
-        openRunLogTimeline,
-      );
     } catch (error) {
       await restoreNativeSurfaceIfNeeded();
       if (!isMounted()) return true;
@@ -172,10 +166,7 @@ class ManualRecordingFlowController {
     );
   }
 
-  static void _showCompletionToast(
-    Locale locale,
-    Map<String, dynamic> result,
-  ) {
+  static void _showCompletionToast(Locale locale, Map<String, dynamic> result) {
     final recordingSuccess = _recordingSucceeded(result);
     final conversionSuccess = result['function'] is Map;
     showToast(
@@ -201,26 +192,48 @@ class ManualRecordingFlowController {
   }
 
   static Future<void> openRunLogList() async {
-    GoRouterManager.push('/task/run_logs');
+    GoRouterManager.push('/task/omniflow?tab=run_logs');
   }
 
-  static void _openRunLogTimelineIfAvailable(
-    Map<String, dynamic> result,
-    bool Function() isMounted,
-    void Function(String runId)? openRunLogTimeline,
-  ) {
-    final recordingSuccess = _recordingSucceeded(result);
-    final runLog = result['run_log'];
-    final runId = runLog is Map
-        ? (runLog['run_id'] ?? '').toString().trim()
-        : '';
-    if (!recordingSuccess || runId.isEmpty || !isMounted()) return;
-    final opener =
-        openRunLogTimeline ??
-        (id) {
-          GoRouterManager.push('/task/run_log/$id');
-        };
-    opener.call(runId);
+  static Future<void> openPreviousRunLog(
+    BuildContext context, {
+    required bool Function() isMounted,
+    bool isBusy = false,
+  }) async {
+    if (isBusy) return;
+    final locale = Localizations.localeOf(context);
+    try {
+      final snapshot = await OmniFlowToolClient.listRunLogs(limit: 1);
+      if (!isMounted()) return;
+      Map<String, dynamic>? latest;
+      final rawRuns = snapshot['runs'];
+      if (rawRuns is List) {
+        for (final rawRun in rawRuns) {
+          if (rawRun is! Map) continue;
+          final run = rawRun.map(
+            (key, value) => MapEntry(key.toString(), value),
+          );
+          if ((run['run_id'] ?? '').toString().trim().isNotEmpty) {
+            latest = run;
+            break;
+          }
+        }
+      }
+      if (latest == null) {
+        showToast(
+          _text(locale, '暂无可查看的 RunLog', 'No RunLog available'),
+          type: ToastType.warning,
+        );
+        return;
+      }
+      final runId = (latest['run_id'] ?? '').toString().trim();
+      if (runId.isNotEmpty) {
+        GoRouterManager.push('/task/run_log/$runId');
+      }
+    } catch (error) {
+      if (!isMounted()) return;
+      showToast(error.toString(), type: ToastType.error);
+    }
   }
 
   static String _text(Locale locale, String zh, String en) =>

@@ -205,18 +205,6 @@ class ChatConversationRuntimeCoordinator extends ChangeNotifier {
 
   static const int _maxTerminalOutputChars = 64 * 1024;
   static const int _maxTerminalOutputLines = 600;
-  static const Map<String, String> _executionPermissionNameToId =
-      <String, String>{
-        '悬浮窗权限': kOverlayPermissionId,
-        'Overlay': kOverlayPermissionId,
-        '应用列表读取权限': kInstalledAppsPermissionId,
-        'Installed Apps Access': kInstalledAppsPermissionId,
-        'Shizuku 权限': kShizukuPermissionId,
-        'Shizuku Permission': kShizukuPermissionId,
-        '公共文件访问': kPublicStoragePermissionId,
-        'Public Storage Access': kPublicStoragePermissionId,
-      };
-
   String _agentTextBaseId(String taskId) => '$taskId-text';
 
   final AgentStreamReducer _agentStreamReducer = const AgentStreamReducer();
@@ -2647,12 +2635,9 @@ class ChatConversationRuntimeCoordinator extends ChangeNotifier {
       cardId: completedThinkingCardId,
     );
 
-    final executionPermissionIds = event.missingPermissions
-        .map((item) => item.trim())
-        .map((item) => _executionPermissionNameToId[item])
-        .whereType<String>()
-        .toSet()
-        .toList(growable: false);
+    final executionPermissionIds = resolveExecutionPermissionIds(
+      event.missingPermissions,
+    );
     final permissionCardId =
         (event.raw['permissionCardId'] ?? '${event.taskId}-permission')
             .toString();

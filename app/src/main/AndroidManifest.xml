@@ -113,6 +113,15 @@
             android:windowSoftInputMode="adjustResize" />
 
         <activity
+            android:name=".activity.PluginAppActivity"
+            android:documentLaunchMode="intoExisting"
+            android:exported="true"
+            android:launchMode="standard"
+            android:taskAffinity="cn.com.omnimind.bot.vibe"
+            android:theme="@style/Theme.OmnibotApp"
+            android:windowSoftInputMode="adjustResize" />
+
+        <activity
             android:name=".activity.QuickLogEntryActivity"
             android:exported="true"
             android:excludeFromRecents="true"

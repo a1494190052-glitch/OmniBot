@@ -63,7 +63,9 @@ class _PluginMarketPageState extends State<PluginMarketPage> {
       final plugins = await OmniPluginService.listPlugins();
       if (!mounted) return;
       setState(() {
-        _plugins = plugins;
+        _plugins = plugins
+            .where((plugin) => !plugin.hidden)
+            .toList(growable: false);
         _loading = false;
       });
     } catch (_) {
@@ -79,6 +81,17 @@ class _PluginMarketPageState extends State<PluginMarketPage> {
       extra: plugin,
     );
     if (changed == true && mounted) await _loadPlugins();
+  }
+
+  Future<void> _openDashboard(OmniPluginItem plugin) async {
+    final action = plugin.dashboardAction;
+    final route = action['route']?.toString().trim() ?? '';
+    if (route.isEmpty) return;
+    if (action['navigation'] == 'go') {
+      context.go(route);
+      return;
+    }
+    await context.push<void>(route);
   }
 
   @override
@@ -208,9 +221,7 @@ class _PluginMarketPageState extends State<PluginMarketPage> {
                     ),
                     const SizedBox(height: 2),
                     Text(
-                      plugin.description.trim().isEmpty
-                          ? context.l10n.pluginNoDescription
-                          : plugin.description,
+                      _pluginDescription(plugin),
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
                       style: TextStyle(
@@ -253,11 +264,26 @@ class _PluginMarketPageState extends State<PluginMarketPage> {
                     ),
                   ),
                   const SizedBox(height: 8),
-                  Icon(
-                    Icons.chevron_right_rounded,
-                    size: 20,
-                    color: palette.textTertiary,
-                  ),
+                  if (plugin.installed &&
+                      plugin.enabled &&
+                      plugin.dashboardAction.isNotEmpty)
+                    IconButton(
+                      key: ValueKey('plugin-dashboard-${plugin.id}'),
+                      onPressed: () => _openDashboard(plugin),
+                      visualDensity: VisualDensity.compact,
+                      tooltip: _text('进入 Dashboard', 'Open Dashboard'),
+                      icon: Icon(
+                        Icons.dashboard_outlined,
+                        size: 20,
+                        color: palette.accentPrimary,
+                      ),
+                    )
+                  else
+                    Icon(
+                      Icons.chevron_right_rounded,
+                      size: 20,
+                      color: palette.textTertiary,
+                    ),
                 ],
               ),
             ],
@@ -344,4 +370,26 @@ class _PluginMarketPageState extends State<PluginMarketPage> {
     }
     return '${(bytes / 1024).toStringAsFixed(0)} KB';
   }
+
+  String _pluginDescription(OmniPluginItem plugin) {
+    final presented = _localized(plugin.presentation['description']);
+    if (presented.isNotEmpty) return presented;
+    return plugin.description.trim().isEmpty
+        ? context.l10n.pluginNoDescription
+        : plugin.description;
+  }
+
+  String _localized(Object? value) {
+    if (value is String) return value.trim();
+    if (value is! Map) return '';
+    final localized = Map<String, dynamic>.from(value);
+    final languageCode = Localizations.localeOf(context).languageCode;
+    return (localized[languageCode] ?? localized['en'] ?? localized['zh'])
+            ?.toString()
+            .trim() ??
+        '';
+  }
+
+  String _text(String zh, String en) =>
+      Localizations.localeOf(context).languageCode == 'en' ? en : zh;
 }

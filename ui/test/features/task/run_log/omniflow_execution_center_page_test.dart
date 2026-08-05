@@ -9,9 +9,12 @@ void main() {
   const pluginChannel = MethodChannel('cn.com.omnimind.bot/PluginPlatform');
   const assistChannel = MethodChannel('cn.com.omnimind.bot/AssistCoreEvent');
   final toolCalls = <Map<Object?, Object?>>[];
+  Map<String, Object?>? Function(String name, Map<Object?, Object?> call)?
+  toolResponseOverride;
 
   setUp(() {
     toolCalls.clear();
+    toolResponseOverride = null;
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(pluginChannel, (call) async {
           if (call.method != 'list') return null;
@@ -38,6 +41,11 @@ void main() {
           if (call.method != 'tools/call') return null;
           final arguments = Map<Object?, Object?>.from(call.arguments as Map);
           toolCalls.add(arguments);
+          final override = toolResponseOverride?.call(
+            arguments['name'].toString(),
+            arguments,
+          );
+          if (override != null) return override;
           return switch (arguments['name']) {
             'list_functions' => <String, Object?>{
               'success': true,
@@ -150,6 +158,145 @@ void main() {
         .setMockMethodCallHandler(assistChannel, null);
   });
 
+  testWidgets('loads only the active tab with a small first page', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      const MaterialApp(
+        locale: Locale('zh'),
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
+        home: OmniFlowExecutionCenterPage(),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final functionCalls = toolCalls
+        .where((call) => call['name'] == 'list_functions')
+        .toList(growable: false);
+    expect(functionCalls, hasLength(1));
+    expect((functionCalls.single['arguments'] as Map)['limit'], 20);
+    expect((functionCalls.single['arguments'] as Map)['offset'], 0);
+    expect(toolCalls.where((call) => call['name'] == 'list_run_logs'), isEmpty);
+
+    await tester.tap(find.text('运行记录'));
+    await tester.pumpAndSettle();
+
+    expect(
+      toolCalls.where((call) => call['name'] == 'list_run_logs'),
+      hasLength(1),
+    );
+  });
+
+  testWidgets('paginates Functions with the backend next offset', (
+    tester,
+  ) async {
+    toolResponseOverride = (name, call) {
+      if (name != 'list_functions') return null;
+      final arguments = call['arguments'] as Map;
+      final offset = arguments['offset'] as int;
+      final count = offset == 0 ? 20 : 1;
+      return <String, Object?>{
+        'success': true,
+        'count': count,
+        'has_more': offset == 0,
+        'next_offset': offset + count,
+        'functions': List<Object?>.generate(
+          count,
+          (index) => <String, Object?>{
+            'function_id': 'function.page.${offset + index}',
+            'name': '分页指令 ${offset + index}',
+            'description': '分页测试',
+            'steps': <Object?>[],
+            'input_schema': <String, Object?>{
+              'properties': <String, Object?>{},
+            },
+          },
+        ),
+      };
+    };
+
+    await tester.pumpWidget(
+      const MaterialApp(
+        locale: Locale('zh'),
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
+        home: OmniFlowExecutionCenterPage(),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.fling(find.byType(ListView), const Offset(0, -2400), 1200);
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const ValueKey('functions-load-more')), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('functions-load-more')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('分页指令 20'), findsOneWidget);
+    expect(
+      toolCalls.any(
+        (call) =>
+            call['name'] == 'list_functions' &&
+            (call['arguments'] as Map)['limit'] == 20 &&
+            (call['arguments'] as Map)['offset'] == 20,
+      ),
+      isTrue,
+    );
+  });
+
+  testWidgets('paginates Run Logs with the backend next offset', (
+    tester,
+  ) async {
+    toolResponseOverride = (name, call) {
+      if (name != 'list_run_logs') return null;
+      final arguments = call['arguments'] as Map;
+      final offset = arguments['offset'] as int;
+      final count = offset == 0 ? 20 : 1;
+      return <String, Object?>{
+        'success': true,
+        'count': count,
+        'has_more': offset == 0,
+        'next_offset': offset + count,
+        'runs': List<Object?>.generate(
+          count,
+          (index) => <String, Object?>{
+            'run_id': 'run-page-${offset + index}',
+            'goal': '分页记录 ${offset + index}',
+            'status': 'succeeded',
+            'step_count': 1,
+          },
+        ),
+      };
+    };
+
+    await tester.pumpWidget(
+      const MaterialApp(
+        locale: Locale('zh'),
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
+        home: OmniFlowExecutionCenterPage(initialTab: 'run_logs'),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.fling(find.byType(ListView), const Offset(0, -2400), 1200);
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const ValueKey('run-logs-load-more')), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('run-logs-load-more')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('分页记录 20'), findsOneWidget);
+    expect(
+      toolCalls.any(
+        (call) =>
+            call['name'] == 'list_run_logs' &&
+            (call['arguments'] as Map)['limit'] == 20 &&
+            (call['arguments'] as Map)['offset'] == 20,
+      ),
+      isTrue,
+    );
+  });
+
   testWidgets('opens Function details from the Functions list', (tester) async {
     tester.view.physicalSize = const Size(360, 800);
     tester.view.devicePixelRatio = 1;
@@ -250,6 +397,11 @@ void main() {
   testWidgets('uses consistent Chinese labels across the execution center', (
     tester,
   ) async {
+    tester.view.physicalSize = const Size(360, 800);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
     await tester.pumpWidget(
       const MaterialApp(
         locale: Locale('zh'),
@@ -261,6 +413,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('复用指令'), findsOneWidget);
+    expect(find.byType(Card), findsNothing);
     expect(find.text('轨迹'), findsNothing);
     expect(find.text('运行记录'), findsOneWidget);
     expect(find.text('RunLog'), findsNothing);
@@ -278,24 +431,53 @@ void main() {
       ),
       isTrue,
     );
+    final replayCall = toolCalls.lastWhere(
+      (call) => call['name'] == 'function.demo',
+    );
+    expect(replayCall['goal'], contains('演示指令'));
+    expect(replayCall['goal'], contains('复用已成功执行的轨迹'));
+    expect(replayCall['goal'], contains('replay acceptance'));
 
     await tester.tap(find.text('运行记录'));
     await tester.pumpAndSettle();
+    expect(find.byType(Card), findsNothing);
+    expect(find.byType(Chip), findsNothing);
     expect(find.text('2026-07-31 09:18:00'), findsOneWidget);
     expect(find.text('2.35 s'), findsOneWidget);
     expect(find.text('模型用量 1.23k'), findsOneWidget);
     expect(find.text('qwen-vl-max'), findsOneWidget);
     expect(find.text('2 次 VLM 调用'), findsOneWidget);
     expect(find.text('成功'), findsOneWidget);
-    expect(find.text('查看运行记录'), findsOneWidget);
+    expect(find.byKey(const ValueKey('run-log-open-run-1')), findsOneWidget);
     await tester.tap(find.text('注册为复用指令'));
     await tester.pumpAndSettle();
     expect(toolCalls.any((call) => call['name'] == 'convert_run_log'), isTrue);
   });
 
+  testWidgets('opens directly on the Run Logs tab', (tester) async {
+    await tester.pumpWidget(
+      const MaterialApp(
+        locale: Locale('zh'),
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
+        home: OmniFlowExecutionCenterPage(initialTab: 'run_logs'),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('完成演示'), findsOneWidget);
+    expect(find.byKey(const ValueKey('run-log-open-run-1')), findsOneWidget);
+    expect(find.text('演示指令'), findsNothing);
+  });
+
   testWidgets('uses consistent English labels across the execution center', (
     tester,
   ) async {
+    tester.view.physicalSize = const Size(360, 800);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
     await tester.pumpWidget(
       const MaterialApp(
         locale: Locale('en'),
@@ -316,6 +498,6 @@ void main() {
     expect(find.text('Succeeded'), findsOneWidget);
     expect(find.text('1.23k tokens'), findsOneWidget);
     expect(find.text('2 VLM calls'), findsOneWidget);
-    expect(find.text('View Run Log'), findsOneWidget);
+    expect(find.byKey(const ValueKey('run-log-open-run-1')), findsOneWidget);
   });
 }

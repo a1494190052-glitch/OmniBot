@@ -1,5 +1,7 @@
 package cn.com.omnimind.bot.update
 
+import cn.com.omnimind.baselib.llm.OpenAiWireApi
+import cn.com.omnimind.baselib.llm.OfficialVlmOperationConfig
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Test
@@ -181,6 +183,37 @@ class AppUpdateManagerTest {
         assertEquals("35", url?.queryParameter("sdkInt"))
         assertEquals("11111111-2222-3333-4444-555555555555", url?.queryParameter("installId"))
         assertEquals(null, url?.queryParameter("blankValueIsSkipped"))
+    }
+
+    @Test
+    fun parseOfficialVlmOperationConfigAcceptsChatGptPayloadAliases() {
+        val config = AppUpdateManager.parseOfficialVlmOperationConfig(
+            """
+            {
+              "official_vlm_operation": {
+                "enabled": true,
+                "base_url": "https://chatgpt.example/codex",
+                "model_id": "gpt-5.6-sol",
+                "wire_api": "responses"
+              }
+            }
+            """.trimIndent()
+        )
+
+        assertEquals(
+            OfficialVlmOperationConfig(
+                enabled = true,
+                apiBase = "https://chatgpt.example/codex",
+                model = "gpt-5.6-sol",
+                wireApi = OpenAiWireApi.RESPONSES
+            ),
+            config
+        )
+    }
+
+    @Test
+    fun parseOfficialVlmOperationConfigIgnoresMissingPayload() {
+        assertNull(AppUpdateManager.parseOfficialVlmOperationConfig("{}"))
     }
 
 }

@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:ui/features/home/pages/chat/tool_activity_utils.dart';
 import 'package:ui/features/home/pages/command_overlay/widgets/cards/agent_tool_transcript.dart';
@@ -38,6 +39,16 @@ class _AgentToolSummaryCardState extends State<AgentToolSummaryCard> {
   @override
   Widget build(BuildContext context) {
     final cardData = widget.cardData;
+    if (_isCompletedVlmTask(cardData)) {
+      return _VlmTaskResultCard(cardData: cardData);
+    }
+    final dashboardRoute = _publishedDashboardRoute(cardData);
+    if (dashboardRoute != null) {
+      return _PublishedProjectCard(
+        cardData: cardData,
+        dashboardRoute: dashboardRoute,
+      );
+    }
     if (_usesInlineToolStyle(
       cardData,
       useAgentToolPresentation: widget.useAgentToolPresentation,
@@ -234,6 +245,246 @@ class _AgentToolSummaryCardState extends State<AgentToolSummaryCard> {
       ),
     );
   }
+}
+
+String? _publishedDashboardRoute(Map<String, dynamic> cardData) {
+  final toolName = canonicalAgentToolName(
+    (cardData['toolName'] ?? '').toString(),
+  );
+  if (toolName != 'project_publish' ||
+      (cardData['status'] ?? '').toString() != 'success') {
+    return null;
+  }
+  for (final rawJson in [
+    (cardData['resultPreviewJson'] ?? '').toString(),
+    (cardData['rawResultJson'] ?? '').toString(),
+  ]) {
+    final route = (_decodeJsonMap(rawJson)['dashboardRoute'] ?? '')
+        .toString()
+        .trim();
+    if (route.startsWith('/home/plugin_dashboard?pluginId=') &&
+        route.length > '/home/plugin_dashboard?pluginId='.length) {
+      return route;
+    }
+  }
+  return null;
+}
+
+class _PublishedProjectCard extends StatelessWidget {
+  const _PublishedProjectCard({
+    required this.cardData,
+    required this.dashboardRoute,
+  });
+
+  final Map<String, dynamic> cardData;
+  final String dashboardRoute;
+
+  @override
+  Widget build(BuildContext context) {
+    final palette = context.omniPalette;
+    final payload = _decodeJsonMap(
+      (cardData['resultPreviewJson'] ?? cardData['rawResultJson'] ?? '')
+          .toString(),
+    );
+    final name = (payload['name'] ?? payload['title'] ?? 'Vibe App')
+        .toString()
+        .trim();
+    return Align(
+      alignment: Alignment.centerLeft,
+      child: Container(
+        key: const ValueKey('published-project-card'),
+        constraints: BoxConstraints(
+          maxWidth: MediaQuery.sizeOf(context).width * 0.84,
+        ),
+        margin: const EdgeInsets.only(top: 7, bottom: 3),
+        padding: const EdgeInsets.fromLTRB(13, 11, 10, 8),
+        decoration: BoxDecoration(
+          color: context.isDarkTheme
+              ? palette.surfaceSecondary
+              : const Color(0xFFF5F8FC),
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: palette.borderSubtle),
+        ),
+        child: Row(
+          children: [
+            const Icon(LucideIcons.layoutDashboard, size: 18),
+            const SizedBox(width: 9),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    name.isEmpty ? 'Vibe App' : name,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: palette.textPrimary,
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  Text(
+                    LegacyTextLocalizer.localize('已发布并启用'),
+                    style: TextStyle(
+                      color: palette.textSecondary,
+                      fontSize: 11,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            TextButton.icon(
+              key: const ValueKey('published-project-open-dashboard'),
+              onPressed: () => context.push(dashboardRoute),
+              icon: const Icon(LucideIcons.arrowUpRight, size: 15),
+              label: Text(LegacyTextLocalizer.localize('打开 Dashboard')),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+bool _isCompletedVlmTask(Map<String, dynamic> cardData) {
+  final toolName = canonicalAgentToolName(
+    (cardData['toolName'] ?? '').toString(),
+  );
+  return toolName == 'vlm_task' &&
+      (cardData['status'] ?? '').toString() != 'running';
+}
+
+class _VlmTaskResultCard extends StatelessWidget {
+  const _VlmTaskResultCard({required this.cardData});
+
+  final Map<String, dynamic> cardData;
+
+  @override
+  Widget build(BuildContext context) {
+    final palette = context.omniPalette;
+    final status = (cardData['status'] ?? 'success').toString();
+    final success = status == 'success';
+    final payload = _vlmResultPayload(cardData);
+    final runId = _firstNonEmptyVlmValue([
+      payload['run_id'],
+      payload['runId'],
+      cardData['run_id'],
+      cardData['runId'],
+    ]);
+    final summary = (payload['content'] ?? cardData['summary'] ?? '')
+        .toString()
+        .trim();
+    final title = LegacyTextLocalizer.localize(
+      success ? 'GUI 任务已完成' : 'GUI 任务未完成',
+    );
+    final stateColor = success
+        ? const Color(0xFF2F8F4E)
+        : resolveAgentToolStatusColor(status);
+
+    return Align(
+      alignment: Alignment.centerLeft,
+      child: Container(
+        key: const ValueKey('vlm-task-result-card'),
+        constraints: BoxConstraints(
+          maxWidth: MediaQuery.sizeOf(context).width * 0.84,
+        ),
+        margin: const EdgeInsets.only(top: 7, bottom: 3),
+        padding: const EdgeInsets.fromLTRB(13, 12, 10, 8),
+        decoration: BoxDecoration(
+          color: context.isDarkTheme
+              ? palette.surfaceSecondary
+              : const Color(0xFFF5F8FC),
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: palette.borderSubtle),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(
+                  success
+                      ? LucideIcons.circleCheck
+                      : resolveAgentToolStatusIcon(status, 'builtin'),
+                  size: 17,
+                  color: stateColor,
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    title,
+                    style: TextStyle(
+                      color: palette.textPrimary,
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            if (summary.isNotEmpty) ...[
+              const SizedBox(height: 6),
+              Text(
+                summary,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  color: palette.textSecondary,
+                  fontSize: 12,
+                  height: 1.4,
+                ),
+              ),
+            ],
+            if (runId.isNotEmpty || success) ...[
+              const SizedBox(height: 4),
+              Wrap(
+                spacing: 2,
+                children: [
+                  if (runId.isNotEmpty)
+                    TextButton.icon(
+                      key: const ValueKey('vlm-task-open-run-log'),
+                      onPressed: () => context.push('/task/run_log/$runId'),
+                      icon: const Icon(LucideIcons.logs, size: 15),
+                      label: Text(LegacyTextLocalizer.localize('查看 RunLog')),
+                    ),
+                  if (success)
+                    TextButton.icon(
+                      key: const ValueKey('vlm-task-open-functions'),
+                      onPressed: () => context.push('/task/omniflow'),
+                      icon: const Icon(LucideIcons.workflow, size: 15),
+                      label: Text(LegacyTextLocalizer.localize('复用指令')),
+                    ),
+                ],
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+Map<String, dynamic> _vlmResultPayload(Map<String, dynamic> cardData) {
+  for (final rawJson in [
+    (cardData['resultPreviewJson'] ?? '').toString(),
+    (cardData['rawResultJson'] ?? '').toString(),
+  ]) {
+    final decoded = _decodeJsonMap(rawJson);
+    if (decoded.containsKey('run_id') || decoded.containsKey('content')) {
+      return decoded;
+    }
+  }
+  return const <String, dynamic>{};
+}
+
+String _firstNonEmptyVlmValue(Iterable<dynamic> values) {
+  for (final value in values) {
+    final text = value?.toString().trim() ?? '';
+    if (text.isNotEmpty) return text;
+  }
+  return '';
 }
 
 String? _resolveDiffStatLabel(Map<String, dynamic> cardData) {

@@ -99,7 +99,7 @@ class _AccessibilityPermissionDialogState
   Widget build(BuildContext context) {
     return AlertDialog(
       title: Text(
-        _text(context, '开启无障碍以继续', 'Enable accessibility to continue'),
+        _text(context, '开启无障碍权限', 'Enable accessibility permission'),
       ),
       content: Column(
         mainAxisSize: MainAxisSize.min,
@@ -108,8 +108,21 @@ class _AccessibilityPermissionDialogState
           Text(
             _text(
               context,
-              '小万需要读取页面并执行点击、滑动和输入。点击后进入系统无障碍设置；支持的手机会直接打开小万开关。',
-              'Omnibot needs to observe the screen and perform taps, swipes, and text input. The button opens system accessibility settings and goes directly to the Omnibot switch when supported.',
+              '小万需要读取页面并执行点击、滑动和输入。',
+              'Omnibot needs to observe the screen and perform taps, swipes, and text input.',
+            ),
+          ),
+          const SizedBox(height: 14),
+          Text(
+            _text(context, '开启位置', 'Where to enable it'),
+            style: const TextStyle(fontWeight: FontWeight.w600),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            _text(
+              context,
+              '系统设置 → 无障碍 → 已下载的应用（或已安装的服务）→ 小万 → 开启',
+              'System Settings → Accessibility → Downloaded apps (or Installed services) → Omnibot → On',
             ),
           ),
           if (_checking) ...[
@@ -132,7 +145,9 @@ class _AccessibilityPermissionDialogState
         ),
         FilledButton(
           onPressed: _checking ? null : _openSettings,
-          child: Text(_text(context, '打开无障碍', 'Open accessibility')),
+          child: Text(
+            _text(context, '打开系统无障碍设置', 'Open Accessibility settings'),
+          ),
         ),
       ],
     );

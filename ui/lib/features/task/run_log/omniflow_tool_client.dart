@@ -81,19 +81,23 @@ class OmniFlowToolClient {
 
   static Future<Map<String, dynamic>> replayFunction(
     String functionId,
-    Map<String, dynamic> arguments,
-  ) {
-    return _call(functionId, arguments);
+    Map<String, dynamic> arguments, {
+    String? goal,
+  }) {
+    return _call(functionId, arguments, goal: goal);
   }
 
   static Future<Map<String, dynamic>> _call(
     String name,
-    Map<String, dynamic> arguments,
-  ) async {
-    final result = await AssistsMessageService.assistCore.invokeMethod<Object?>(
-      'tools/call',
-      {'name': name, 'arguments': arguments},
-    );
+    Map<String, dynamic> arguments, {
+    String? goal,
+  }) async {
+    final result = await AssistsMessageService.assistCore
+        .invokeMethod<Object?>('tools/call', {
+          'name': name,
+          'arguments': arguments,
+          if (goal?.trim().isNotEmpty == true) 'goal': goal!.trim(),
+        });
     if (result is! Map) {
       throw StateError('OmniFlow tool $name returned an invalid response');
     }

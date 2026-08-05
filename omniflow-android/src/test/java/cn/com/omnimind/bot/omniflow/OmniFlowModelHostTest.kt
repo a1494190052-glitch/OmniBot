@@ -10,6 +10,7 @@ import cn.com.omnimind.baselib.llm.ChatCompletionUsage
 import java.io.File
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.boolean
 import kotlinx.serialization.json.double
 import kotlinx.serialization.json.jsonArray
@@ -20,6 +21,141 @@ import org.junit.Assert.assertFalse
 import org.junit.Test
 
 class OmniFlowModelHostTest {
+    @Test
+    fun `json completion uses streamed native submit json tool call`() = runBlocking {
+        var receivedRequest: ChatCompletionRequest? = null
+        val host = OmniFlowModelHost(
+            modelClient = object : OmniFlowModelClient {
+                override suspend fun streamTurn(
+                    request: ChatCompletionRequest,
+                    onReasoningUpdate: (suspend (String) -> Unit)?,
+                ): ChatCompletionTurn {
+                    receivedRequest = request
+                    return ChatCompletionTurn(
+                        message = ChatCompletionMessage(
+                            role = "assistant",
+                            toolCalls = listOf(
+                                AssistantToolCall(
+                                    id = "call-submit-json",
+                                    function = AssistantToolCallFunction(
+                                        name = "submit_json",
+                                        arguments = """{"parameters":[]}""",
+                                    ),
+                                ),
+                            ),
+                        ),
+                        finishReason = "tool_calls",
+                    )
+                }
+            },
+        )
+
+        val result = host.completeJson(
+            payload = mapOf(
+                "prompt" to "Enhance this Function",
+                "max_tokens" to 321,
+                "temperature" to 0.0,
+            ),
+            modelOverride = OmniVlmPlugin.MODEL_SCENE,
+        )
+
+        assertEquals("""{"parameters":[]}""", result["content"])
+        assertEquals(OmniVlmPlugin.MODEL_SCENE, receivedRequest?.model)
+        assertEquals(321, receivedRequest?.maxCompletionTokens)
+        assertEquals(0.0, receivedRequest?.temperature)
+        assertEquals("required", receivedRequest?.toolChoice?.jsonPrimitive?.content)
+        assertEquals("submit_json", receivedRequest?.tools?.single()?.function?.name)
+    }
+
+    @Test
+    fun `json completion can use the bound VLM scene through the platform parser`() = runBlocking {
+        var receivedRequest: ChatCompletionRequest? = null
+        OmniFlow.configure(
+            object : OmniFlowPlatform {
+                override suspend fun startProcess(
+                    context: Context,
+                    command: String,
+                    environment: Map<String, String>,
+                ): Process = error("process_not_expected")
+
+                override suspend fun ensurePython(context: Context, expectedVersion: String) = Unit
+
+                override suspend fun resolveRuntimeSkill(
+                    context: Context,
+                    refresh: Boolean,
+                ): OmniFlowSkillLocation = OmniFlowSkillLocation(File("."), "/workspace", "test")
+
+                override suspend fun bootstrapRuntimeSkill(
+                    context: Context,
+                    location: OmniFlowSkillLocation,
+                ) = Unit
+
+                override suspend fun reclaimRuntimeSkill(context: Context) = Unit
+
+                override suspend fun completeJson(request: ChatCompletionRequest): String {
+                    receivedRequest = request
+                    return """{"parameters":[]}"""
+                }
+            },
+        )
+
+        val result = OmniFlowModelHost.completeJson(
+            payload = mapOf(
+                "model" to "scene.dispatch.model",
+                "prompt" to "Enhance this Function",
+                "max_tokens" to 321,
+                "temperature" to 0.0,
+            ),
+            modelOverride = OmniVlmPlugin.MODEL_SCENE,
+        )
+
+        assertEquals("""{"parameters":[]}""", result["content"])
+        assertEquals(OmniVlmPlugin.MODEL_SCENE, receivedRequest?.model)
+        assertEquals(321, receivedRequest?.maxCompletionTokens)
+        assertEquals(0.0, receivedRequest?.temperature)
+        assertEquals("required", receivedRequest?.toolChoice?.jsonPrimitive?.content)
+        assertEquals("submit_json", receivedRequest?.tools?.single()?.function?.name)
+        assertEquals(null, receivedRequest?.responseFormat)
+    }
+
+    @Test
+    fun `run metrics include terminal model turn tokens and latency`() {
+        val metrics = ModelRunLogMetrics()
+        metrics.recordSuccess(
+            result = mapOf(
+                "requested_model" to OmniVlmPlugin.MODEL_SCENE,
+                "resolved_model" to "gpt-5.6-sol",
+                "usage" to mapOf(
+                    "prompt_tokens" to 100,
+                    "completion_tokens" to 20,
+                    "total_tokens" to 120,
+                ),
+            ),
+            durationMs = 900,
+        )
+        metrics.recordSuccess(
+            result = mapOf(
+                "requested_model" to OmniVlmPlugin.MODEL_SCENE,
+                "resolved_model" to "gpt-5.6-sol",
+                "usage" to mapOf(
+                    "prompt_tokens" to 80,
+                    "completion_tokens" to 10,
+                    "total_tokens" to 90,
+                ),
+            ),
+            durationMs = 600,
+        )
+
+        val diagnostics = metrics.diagnostics()
+        val usage = diagnostics["token_usage"] as Map<*, *>
+        assertEquals(2, usage["call_count"])
+        assertEquals(180L, usage["prompt_tokens"])
+        assertEquals(30L, usage["completion_tokens"])
+        assertEquals(210L, usage["total_tokens"])
+        assertEquals(1500L, diagnostics["model_duration_ms"])
+        assertEquals(2, (diagnostics["token_usage_by_call"] as List<*>).size)
+    }
+
     @Test
     fun `model turn compresses data uri screenshots before provider call`() = runBlocking {
         var compressedInput = ""
@@ -117,6 +253,14 @@ class OmniFlowModelHostTest {
                         promptTokens = 20,
                         completionTokens = 5,
                         totalTokens = 25,
+                        promptTokensDetails = buildJsonObject {
+                            put("cached_tokens", JsonPrimitive(7))
+                            put("image_tokens", JsonPrimitive(8))
+                        },
+                        completionTokensDetails = buildJsonObject {
+                            put("reasoning_tokens", JsonPrimitive(3))
+                            put("text_tokens", JsonPrimitive(2))
+                        },
                     ),
                 )
             }
@@ -176,7 +320,12 @@ class OmniFlowModelHostTest {
         val function = toolCall["function"] as Map<*, *>
         assertEquals("click", function["name"])
         assertEquals("""{"summary":"点击搜索","x":540,"y":1200}""", function["arguments"])
-        assertEquals(25, (result["usage"] as Map<*, *>)["total_tokens"])
+        val usage = result["usage"] as Map<*, *>
+        assertEquals(25, usage["total_tokens"])
+        assertEquals(3, usage["reasoning_tokens"])
+        assertEquals(2, usage["text_tokens"])
+        assertEquals(8, usage["image_tokens"])
+        assertEquals(7, usage["cached_tokens"])
     }
 
     @Test
@@ -224,9 +373,8 @@ class OmniFlowModelHostTest {
         assertEquals("scene.dispatch.model", receivedRequest?.model)
         assertEquals(321, receivedRequest?.maxCompletionTokens)
         assertEquals(0.0, receivedRequest?.temperature)
-        assertEquals(
-            "json_object",
-            receivedRequest?.responseFormat?.get("type")?.jsonPrimitive?.content,
-        )
+        assertEquals("required", receivedRequest?.toolChoice?.jsonPrimitive?.content)
+        assertEquals("submit_json", receivedRequest?.tools?.single()?.function?.name)
+        assertEquals(null, receivedRequest?.responseFormat)
     }
 }

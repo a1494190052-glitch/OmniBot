@@ -1,11 +1,24 @@
 package cn.com.omnimind.bot.omniflow.ui
 
 import android.view.WindowManager
+import android.view.Gravity
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Test
 
 class ExecutionOverlayHostPolicyTest {
+    @Test
+    fun `execution overlay moves away from action target`() {
+        assertEquals(
+            Gravity.TOP or Gravity.CENTER_HORIZONTAL,
+            executionOverlayGravityForTarget(867.0),
+        )
+        assertEquals(
+            Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL,
+            executionOverlayGravityForTarget(120.0),
+        )
+    }
+
     @Test
     fun `accessibility overlay is preferred on protected pages`() {
         val host = ExecutionOverlayHostPolicy.resolve(

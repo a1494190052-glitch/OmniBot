@@ -7,11 +7,12 @@ import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.provider.Settings
 import android.view.Gravity
+import android.view.MotionEvent
 import android.view.View
 import android.view.WindowManager
 import android.widget.LinearLayout
 import android.widget.TextView
-import cn.com.omnimind.androidgui.AndroidGuiAccessibilityService
+import cn.com.omnimind.androidgui.AndroidGuiOverlayHost
 import cn.com.omnimind.baselib.util.OmniLog
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlinx.coroutines.CancellationException
@@ -21,31 +22,34 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
+import kotlin.math.abs
 
 internal object ExecutionOverlay {
     private const val TAG = "OmniFlowOverlay"
+    private val DEFAULT_GRAVITY = Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL
     private var activeSession: Session? = null
 
     fun show(
         context: Context,
         goal: String,
         initialPhase: ExecutionPhase,
+        onComplete: () -> Unit,
         onStop: () -> Unit,
     ): Session? = synchronized(this) {
         activeSession?.dismissLocked()
         val appContext = context.applicationContext
-        val accessibilityService = AndroidGuiAccessibilityService.instance
+        val overlayHandle = AndroidGuiOverlayHost.resolve(appContext)
         val host = ExecutionOverlayHostPolicy.resolve(
-            accessibilityServiceAvailable = accessibilityService != null,
+            accessibilityServiceAvailable = overlayHandle.trusted,
             applicationOverlayAllowed = Settings.canDrawOverlays(appContext),
         ) ?: return@synchronized null
         OmniLog.d(TAG, "show GUI controls with ${host.name.lowercase()} host")
         val windowContext = when (host) {
-            ExecutionOverlayHost.ACCESSIBILITY -> accessibilityService ?: return@synchronized null
+            ExecutionOverlayHost.ACCESSIBILITY -> overlayHandle.context
             ExecutionOverlayHost.APPLICATION -> appContext
         }
         val manager = windowContext.getSystemService(Context.WINDOW_SERVICE) as WindowManager
-        val session = Session(manager, onStop, initialPhase)
+        val session = Session(manager, onComplete, onStop, initialPhase)
         val view = buildView(windowContext, goal, session)
         val params = WindowManager.LayoutParams().apply {
             type = host.windowType
@@ -53,14 +57,14 @@ internal object ExecutionOverlay {
             flags = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
                 WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
                 WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN
-            gravity = Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL
+            gravity = DEFAULT_GRAVITY
             width = windowContext.resources.displayMetrics.widthPixels - windowContext.dp(32)
             height = WindowManager.LayoutParams.WRAP_CONTENT
             y = windowContext.dp(32)
         }
         runCatching {
             manager.addView(view, params)
-            session.attach(view)
+            session.attach(view, params)
             activeSession = session
             session
         }.onFailure { error ->
@@ -81,6 +85,9 @@ internal object ExecutionOverlay {
             textSize = 14f
             typeface = Typeface.DEFAULT_BOLD
             maxLines = 2
+            setOnTouchListener { _, event ->
+                session.onTitleDrag(event, context.dp(20).toFloat())
+            }
         }
         val row = LinearLayout(context).apply {
             orientation = LinearLayout.HORIZONTAL
@@ -98,11 +105,21 @@ internal object ExecutionOverlay {
         val stop = action(context, "停止", "#FFF0F0", "#C73636") {
             session.requestStop()
         }
+        val complete = action(context, "已完成", "#EAF7EE", "#257A43") {
+            session.requestComplete()
+        }
         row.addView(
             status,
             LinearLayout.LayoutParams(0, WindowManager.LayoutParams.WRAP_CONTENT, 1f),
         )
         row.addView(pause)
+        row.addView(
+            complete,
+            LinearLayout.LayoutParams(
+                WindowManager.LayoutParams.WRAP_CONTENT,
+                WindowManager.LayoutParams.WRAP_CONTENT,
+            ).apply { marginStart = context.dp(8) },
+        )
         row.addView(
             stop,
             LinearLayout.LayoutParams(
@@ -112,7 +129,7 @@ internal object ExecutionOverlay {
         )
         container.addView(title)
         container.addView(row)
-        session.bind(title, status, pause, stop)
+        session.bind(title, status, pause, complete, stop)
         return container
     }
 
@@ -145,34 +162,43 @@ internal object ExecutionOverlay {
 
     class Session internal constructor(
         private val manager: WindowManager,
+        private val onComplete: () -> Unit,
         private val onStop: () -> Unit,
         initialPhase: ExecutionPhase,
     ) {
         private val statusState = ExecutionStatusState(initialPhase)
         private val paused = MutableStateFlow(false)
         private val stopped = AtomicBoolean(false)
+        private val terminalRequested = AtomicBoolean(false)
         private var view: View? = null
+        private var params: WindowManager.LayoutParams? = null
         private var title: TextView? = null
         private var status: TextView? = null
         private var pause: TextView? = null
+        private var complete: TextView? = null
         private var stop: TextView? = null
+        private var dragStartY: Float? = null
+        private var manuallyPositioned = false
 
         internal val statusLabel: String
             get() = statusState.label
 
-        internal fun attach(view: View) {
+        internal fun attach(view: View, params: WindowManager.LayoutParams) {
             this.view = view
+            this.params = params
         }
 
         internal fun bind(
             title: TextView,
             status: TextView,
             pause: TextView,
+            complete: TextView,
             stop: TextView,
         ) {
             this.title = title
             this.status = status
             this.pause = pause
+            this.complete = complete
             this.stop = stop
         }
 
@@ -183,16 +209,82 @@ internal object ExecutionOverlay {
 
         fun update(message: String) {
             val text = message.trim().take(64)
-            if (text.isEmpty() || stopped.get()) return
+            if (text.isEmpty() || stopped.get() || terminalRequested.get()) return
             view?.post { title?.text = text }
         }
 
         fun updatePhase(phase: ExecutionPhase) {
             statusState.updatePhase(phase)
-            if (stopped.get()) return
+            if (stopped.get() || terminalRequested.get()) return
             view?.post {
                 if (!stopped.get()) status?.text = statusState.label
             }
+        }
+
+        suspend fun avoidTarget(relativeY: Double?) {
+            val targetY = relativeY ?: return
+            val moved = withContext(Dispatchers.Main.immediate) {
+                if (manuallyPositioned) return@withContext false
+                val attached = view ?: return@withContext false
+                val layout = params ?: return@withContext false
+                val gravity = executionOverlayGravityForTarget(targetY)
+                if (layout.gravity == gravity) return@withContext false
+                layout.gravity = gravity
+                manager.updateViewLayout(attached, layout)
+                true
+            }
+            if (moved) delay(80L)
+        }
+
+        suspend fun restoreDefaultPosition() {
+            withContext(Dispatchers.Main.immediate) {
+                if (manuallyPositioned) return@withContext
+                val attached = view ?: return@withContext
+                val layout = params ?: return@withContext
+                if (layout.gravity == DEFAULT_GRAVITY) return@withContext
+                layout.gravity = DEFAULT_GRAVITY
+                manager.updateViewLayout(attached, layout)
+            }
+        }
+
+        suspend fun hideForScreenshot() {
+            val hidden = withContext(Dispatchers.Main.immediate) {
+                if (stopped.get()) return@withContext false
+                val attached = view ?: return@withContext false
+                attached.visibility = View.INVISIBLE
+                true
+            }
+            if (hidden) delay(32L)
+        }
+
+        suspend fun showAfterScreenshot() {
+            withContext(Dispatchers.Main.immediate) {
+                if (stopped.get()) return@withContext
+                view?.visibility = View.VISIBLE
+            }
+        }
+
+        internal fun onTitleDrag(event: MotionEvent, thresholdPx: Float): Boolean {
+            when (event.actionMasked) {
+                MotionEvent.ACTION_DOWN -> dragStartY = event.rawY
+                MotionEvent.ACTION_UP -> {
+                    val deltaY = event.rawY - (dragStartY ?: event.rawY)
+                    dragStartY = null
+                    if (abs(deltaY) >= thresholdPx) {
+                        moveTo(if (deltaY < 0f) Gravity.TOP else Gravity.BOTTOM)
+                    }
+                }
+                MotionEvent.ACTION_CANCEL -> dragStartY = null
+            }
+            return true
+        }
+
+        private fun moveTo(verticalGravity: Int) {
+            val attached = view ?: return
+            val layout = params ?: return
+            layout.gravity = verticalGravity or Gravity.CENTER_HORIZONTAL
+            manuallyPositioned = true
+            manager.updateViewLayout(attached, layout)
         }
 
         internal fun togglePaused() {
@@ -202,23 +294,42 @@ internal object ExecutionOverlay {
         }
 
         fun requestStop() {
-            if (!stopped.compareAndSet(false, true)) return
+            if (!terminalRequested.compareAndSet(false, true)) return
+            stopped.set(true)
             paused.value = false
             view?.post {
                 status?.text = "正在停止"
                 pause?.isEnabled = false
+                complete?.isEnabled = false
                 stop?.isEnabled = false
             }
             onStop()
         }
 
+        fun requestComplete() {
+            if (!terminalRequested.compareAndSet(false, true)) return
+            paused.value = false
+            view?.post {
+                status?.text = "正在完成"
+                pause?.isEnabled = false
+                complete?.isEnabled = false
+                stop?.isEnabled = false
+            }
+            onComplete()
+        }
+
         suspend fun finish(message: String, visibleMs: Long = 900L) {
+            if (visibleMs <= 0L) {
+                withContext(Dispatchers.Main) { dismiss() }
+                return
+            }
             withContext(Dispatchers.Main) {
                 stopped.set(true)
                 paused.value = false
                 title?.text = message.take(64)
                 status?.text = message.take(24)
                 pause?.visibility = View.GONE
+                complete?.visibility = View.GONE
                 stop?.visibility = View.GONE
             }
             delay(visibleMs)
@@ -234,6 +345,7 @@ internal object ExecutionOverlay {
             val attached = view ?: return
             runCatching { manager.removeViewImmediate(attached) }
             view = null
+            params = null
         }
 
         private fun renderPaused() {
@@ -244,6 +356,13 @@ internal object ExecutionOverlay {
         }
     }
 }
+
+internal fun executionOverlayGravityForTarget(relativeY: Double): Int =
+    if (relativeY >= 500.0) {
+        Gravity.TOP or Gravity.CENTER_HORIZONTAL
+    } else {
+        Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL
+    }
 
 internal enum class ExecutionOverlayHost(val windowType: Int) {
     ACCESSIBILITY(WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY),

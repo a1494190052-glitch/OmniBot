@@ -5,6 +5,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.provider.Settings
+import cn.com.omnimind.accessibility.service.AssistsService
 import cn.com.omnimind.baselib.runlog.Action
 import cn.com.omnimind.baselib.runlog.ActionCoordinateCodec
 import cn.com.omnimind.baselib.runlog.InternalRunLogStore
@@ -64,7 +65,7 @@ class AndroidGuiEnvironment internal constructor(
 
     fun openAccessibilitySettings() {
         val context = checkNotNull(appContext) { "android_gui_context_required" }
-        val component = ComponentName(context, AndroidGuiAccessibilityService::class.java)
+        val component = ComponentName(context, AssistsService::class.java)
         val detailsIntent = Intent(ACTION_ACCESSIBILITY_DETAILS_SETTINGS)
             .putExtra(Intent.EXTRA_COMPONENT_NAME, component)
             .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
@@ -85,7 +86,10 @@ class AndroidGuiEnvironment internal constructor(
 
     fun displaySize(): Pair<Int, Int> = platform.displaySize()
 
+    fun screenshotExcludesOverlays(): Boolean = platform.screenshotExcludesOverlays()
+
     suspend fun observe(captureScreenshot: Boolean = true): State {
+        check(awaitReady()) { "android_gui_accessibility_not_ready" }
         val context = checkNotNull(appContext) { "android_gui_context_required" }
         val observed = platform.observe(captureScreenshot)
         val state = State.create(
@@ -100,6 +104,7 @@ class AndroidGuiEnvironment internal constructor(
 
     /** Capture a transient preview without writing a RunLog state or image to disk. */
     suspend fun captureScreenSnapshot(): AndroidGuiScreenSnapshot {
+        check(awaitReady()) { "android_gui_accessibility_not_ready" }
         val observed = platform.observe(captureScreenshot = true)
         return AndroidGuiScreenSnapshot(
             packageName = observed.packageName,
@@ -111,10 +116,20 @@ class AndroidGuiEnvironment internal constructor(
     }
 
     suspend fun act(action: Action): AndroidGuiActionResult {
+        if (!awaitReady()) {
+            return AndroidGuiActionResult(
+                success = false,
+                message = "android_gui_accessibility_not_ready",
+            )
+        }
         return try {
             val result = platform.dispatch(canonicalForDisplay(action))
             if (!result.success) return result
-            result.copy(diagnostics = result.diagnostics + awaitStateStabilization(action))
+            result.copy(
+                diagnostics = result.diagnostics + mapOf(
+                    "state_stabilization" to "runtime_delegated",
+                ),
+            )
         } catch (error: CancellationException) {
             throw error
         } catch (error: Exception) {
@@ -125,48 +140,8 @@ class AndroidGuiEnvironment internal constructor(
         }
     }
 
-    private suspend fun awaitStateStabilization(action: Action): Map<String, String> {
-        return try {
-            val expectedPackage = action.args["package_name"]
-                ?.toString()
-                ?.trim()
-                .orEmpty()
-                .takeIf { action.tool == OobActionSchema.TOOL_OPEN_APP && it.isNotEmpty() }
-            delay(STATE_STABILIZATION_INITIAL_DELAY_MS)
-            var previous = platform.observe(captureScreenshot = false)
-            var observations = 1
-            repeat(STATE_STABILIZATION_MAX_OBSERVATIONS - 1) {
-                delay(STATE_STABILIZATION_POLL_DELAY_MS)
-                val current = platform.observe(captureScreenshot = false)
-                observations += 1
-                if (
-                    current.sameScreenAs(previous) &&
-                    (expectedPackage == null || current.packageName == expectedPackage)
-                ) {
-                    return mapOf(
-                        "state_stabilization" to "stable",
-                        "state_stabilization_observations" to observations.toString(),
-                    )
-                }
-                previous = current
-            }
-            mapOf(
-                "state_stabilization" to "timeout",
-                "state_stabilization_observations" to observations.toString(),
-            )
-        } catch (error: CancellationException) {
-            throw error
-        } catch (error: Exception) {
-            mapOf(
-                "state_stabilization" to "error",
-                "state_stabilization_error" to
-                    (error.message ?: "android_gui_state_stabilization_failed"),
-            )
-        }
-    }
-
     suspend fun inputTarget(x: Float? = null, y: Float? = null): AndroidGuiInputTarget? =
-        platform.inputTarget(x, y)
+        if (awaitReady()) platform.inputTarget(x, y) else null
 
     suspend fun installedApplications(): Map<String, String> = platform.installedApplications()
 
@@ -186,13 +161,5 @@ class AndroidGuiEnvironment internal constructor(
     }
 }
 
-private fun AndroidGuiPlatformState.sameScreenAs(other: AndroidGuiPlatformState): Boolean =
-    packageName == other.packageName &&
-        activityName == other.activityName &&
-        xml == other.xml
-
 private const val ACTION_ACCESSIBILITY_DETAILS_SETTINGS =
     "android.settings.ACCESSIBILITY_DETAILS_SETTINGS"
-private const val STATE_STABILIZATION_INITIAL_DELAY_MS = 250L
-private const val STATE_STABILIZATION_POLL_DELAY_MS = 200L
-private const val STATE_STABILIZATION_MAX_OBSERVATIONS = 5

@@ -1,6 +1,10 @@
 package cn.com.omnimind.bot.agent
 
 import cn.com.omnimind.assists.controller.http.HttpController
+import cn.com.omnimind.baselib.llm.ChatCompletionFunction
+import cn.com.omnimind.baselib.llm.ChatCompletionStreamOptions
+import cn.com.omnimind.baselib.llm.ChatCompletionTool
+import cn.com.omnimind.baselib.llm.OpenAiWireApi
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -9,9 +13,15 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import okhttp3.Protocol
 import okhttp3.Request
 import okhttp3.Response
+import okhttp3.ResponseBody.Companion.toResponseBody
 import okhttp3.sse.EventSource
 import okhttp3.sse.EventSourceListener
 import org.junit.Assert.assertEquals
@@ -25,6 +35,111 @@ class HttpAgentLlmClientTest {
         isLenient = true
         encodeDefaults = true
         explicitNulls = false
+    }
+
+    @Test
+    fun `official GLM VLM route normalizes mixed multimodal content and keeps native tools`() {
+        val scope = CoroutineScope(Job() + Dispatchers.Default)
+        try {
+            val client = HttpAgentLlmClient(scope = scope, modelOverride = testOverride())
+            val request = simpleRequest().copy(
+                messages = listOf(
+                    cn.com.omnimind.baselib.llm.ChatCompletionMessage(
+                        role = "system",
+                        content = JsonPrimitive("Choose one tool"),
+                    ),
+                    cn.com.omnimind.baselib.llm.ChatCompletionMessage(
+                        role = "user",
+                        content = JsonArray(
+                            listOf(
+                                JsonObject(
+                                    mapOf(
+                                        "type" to JsonPrimitive("text"),
+                                        "text" to JsonPrimitive("Current screen"),
+                                    )
+                                )
+                            )
+                        ),
+                    ),
+                ),
+                tools = listOf(
+                    ChatCompletionTool(
+                        function = ChatCompletionFunction(name = "click"),
+                    ),
+                ),
+                toolChoice = JsonPrimitive("required"),
+                parallelToolCalls = false,
+                streamOptions = ChatCompletionStreamOptions(),
+            )
+
+            val variants = client.buildRequestVariants(
+                request = request,
+                routeInfo = routeInfo(
+                    requestedModel = "scene.vlm.operation.primary",
+                    resolvedModel = "GLM-5.1",
+                    protocolType = "openai_compatible",
+                    requiresReasoningEcho = false,
+                    apiBase = "https://llmapi.paratera.com/v1/chat/completions",
+                ),
+            )
+
+            assertEquals(listOf("default"), variants.map { it.name })
+            assertNull(variants.first().request.streamOptions)
+            assertEquals("click", variants.first().request.tools.single().function.name)
+            assertNull(variants.first().request.functions)
+            assertTrue(variants.first().request.messages.all { it.content is JsonArray })
+            val systemText = (variants.first().request.messages.first().content as JsonArray)
+                .first()
+                .jsonObject
+                .getValue("text")
+                .jsonPrimitive
+                .content
+            assertEquals("Choose one tool", systemText)
+        } finally {
+            scope.cancel()
+        }
+    }
+
+    @Test
+    fun `successful non streaming responses body completes a stream turn`() = runBlocking {
+        val scope = CoroutineScope(Job() + Dispatchers.Default)
+        try {
+            val client = HttpAgentLlmClient(
+                scope = scope,
+                modelOverride = testOverride(),
+                resolveRouteInfoOp = { model, _, _, _, _, protocolType, _ ->
+                    routeInfo(
+                        requestedModel = model,
+                        resolvedModel = "gpt-5.6-sol",
+                        protocolType = protocolType ?: "openai_compatible",
+                        requiresReasoningEcho = false,
+                        wireApi = OpenAiWireApi.RESPONSES,
+                    )
+                },
+                streamRequestOp = { _, _, listener, _, _, _, _, _, _, _ ->
+                    val source = dummyEventSource()
+                    listener.onFailure(
+                        source,
+                        IllegalStateException("Expected text/event-stream"),
+                        okResponse(
+                            """{"object":"response","status":"completed","output":[{"type":"function_call","call_id":"call-1","name":"click","arguments":"{\"summary\":\"打开蓝牙\",\"x\":900,\"y\":300}"}],"usage":{"prompt_tokens":120,"completion_tokens":15,"total_tokens":135}}""",
+                        ),
+                    )
+                    source
+                },
+                json = json,
+            )
+
+            val turn = client.streamTurn(request = simpleRequest())
+
+            assertEquals("gpt-5.6-sol", turn.resolvedModel)
+            assertEquals("click", turn.message.toolCalls?.single()?.function?.name)
+            assertEquals(120, turn.usage?.promptTokens)
+            assertEquals(15, turn.usage?.completionTokens)
+            assertEquals(135, turn.usage?.totalTokens)
+        } finally {
+            scope.cancel()
+        }
     }
 
     @Test
@@ -340,12 +455,13 @@ class HttpAgentLlmClientTest {
         }
     }
 
-    private fun okResponse(): Response {
+    private fun okResponse(body: String? = null): Response {
         return Response.Builder()
             .request(Request.Builder().url("https://example.com").build())
             .protocol(Protocol.HTTP_1_1)
             .code(200)
             .message("OK")
+            .body(body?.toResponseBody())
             .build()
     }
 
@@ -354,7 +470,8 @@ class HttpAgentLlmClientTest {
         resolvedModel: String,
         protocolType: String,
         requiresReasoningEcho: Boolean,
-        apiBase: String = "https://example.com"
+        apiBase: String = "https://example.com",
+        wireApi: String = OpenAiWireApi.CHAT_COMPLETIONS,
     ) = HttpController.ChatCompletionRouteInfo(
         requestedModel = requestedModel,
         resolvedModel = resolvedModel,
@@ -366,6 +483,7 @@ class HttpAgentLlmClientTest {
         bindingProfileMissing = false,
         overrideApplied = true,
         protocolType = protocolType,
+        wireApi = wireApi,
         requiresReasoningEcho = requiresReasoningEcho
     )
     @Test

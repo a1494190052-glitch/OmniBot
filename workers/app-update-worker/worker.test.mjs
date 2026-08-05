@@ -57,6 +57,13 @@ class MemoryR2Bucket {
     this.objects.set(key, object);
     return object;
   }
+
+  async list({ prefix = "" } = {}) {
+    return {
+      objects: [...this.objects.values()].filter((object) => object.key.startsWith(prefix)),
+      truncated: false,
+    };
+  }
 }
 
 function testEnv(bucket) {
@@ -158,6 +165,184 @@ test("returns 503 before GitHub Actions publishes the first catalog", async () =
     testEnv(new MemoryR2Bucket()),
   );
   assert.equal(response.status, 503);
+});
+
+test("update checks prefer Gelab while keeping both upstream keys private", async () => {
+  const bucket = new MemoryR2Bucket();
+  const env = {
+    ...testEnv(bucket),
+    CHATGPT_LUNA_VLM_API_BASE: "https://chatgpt.example/codex",
+    CHATGPT_LUNA_VLM_API_KEY: "server-managed-key",
+    CHATGPT_LUNA_VLM_MODEL: "gpt-5.6-sol",
+    OFFICIAL_VLM_OPERATION_API_BASE: "https://gelab.example/v1",
+    OFFICIAL_VLM_OPERATION_API_KEY: "gelab-server-key",
+    OFFICIAL_VLM_OPERATION_MODEL: "qwen-vl",
+  };
+
+  const response = await worker.fetch(
+    new Request("https://updates.example/updates?currentVersion=0.5.6.14&edition=standard"),
+    env,
+  );
+  assert.equal(response.status, 200);
+  const payload = await response.json();
+  assert.deepEqual(payload.officialVlmOperation, {
+    enabled: true,
+    apiBase: "https://updates.example",
+    model: "qwen-vl",
+    wireApi: "chat_completions",
+  });
+  assert.equal(JSON.stringify(payload).includes("server-managed-key"), false);
+  assert.equal(JSON.stringify(payload).includes("gelab-server-key"), false);
+});
+
+test("update checks retain the legacy official VLM configuration fallback", async () => {
+  const bucket = new MemoryR2Bucket();
+  const env = {
+    ...testEnv(bucket),
+    OFFICIAL_VLM_OPERATION_API_BASE: "https://gelab.example/v1",
+    OFFICIAL_VLM_OPERATION_API_KEY: "legacy-server-key",
+    OFFICIAL_VLM_OPERATION_MODEL: "qwen-vl",
+  };
+
+  const response = await worker.fetch(
+    new Request("https://worker.example/updates?currentVersion=0.0.0"),
+    env,
+  );
+  assert.equal(response.status, 200);
+  const payload = await response.json();
+  assert.deepEqual(payload.officialVlmOperation, {
+    enabled: true,
+    apiBase: "https://worker.example",
+    model: "qwen-vl",
+    wireApi: "chat_completions",
+  });
+  assert.equal(JSON.stringify(payload).includes("legacy-server-key"), false);
+});
+
+test("Luna VLM proxy forwards the debug OmniMind key", async () => {
+  const env = {
+    ...testEnv(new MemoryR2Bucket()),
+    CHATGPT_LUNA_VLM_API_BASE: "https://chatgpt.example/codex",
+    CHATGPT_LUNA_VLM_API_KEY: "server-managed-key",
+    CHATGPT_LUNA_VLM_MODEL: "gpt-5.6-sol",
+  };
+  const originalFetch = globalThis.fetch;
+  let capturedRequest;
+  globalThis.fetch = async (url, init) => {
+    capturedRequest = new Request(url, init);
+    return new Response("data: {\"type\":\"response.completed\"}\n\n", {
+      status: 200,
+      headers: {
+        "content-type": "text/event-stream",
+        "x-request-id": "upstream-request",
+      },
+    });
+  };
+
+  try {
+    const response = await worker.fetch(
+      new Request("https://updates.example/v1/responses", {
+        method: "POST",
+        headers: {
+          "authorization": "Bearer client-supplied-key",
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({ model: "client-selected-model", stream: true, input: "hello" }),
+      }),
+      env,
+    );
+
+    assert.equal(response.status, 200);
+    assert.equal(response.headers.get("content-type"), "text/event-stream");
+    assert.equal(response.headers.get("x-request-id"), "upstream-request");
+    assert.equal(capturedRequest.url, "https://chatgpt.example/codex/v1/responses");
+    assert.equal(capturedRequest.headers.get("authorization"), "Bearer client-supplied-key");
+    const upstreamPayload = await capturedRequest.json();
+    assert.equal(upstreamPayload.model, "gpt-5.6-sol");
+    assert.equal(upstreamPayload.input, "hello");
+    assert.equal(await response.text(), "data: {\"type\":\"response.completed\"}\n\n");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("VLM proxy exposes Gelab and Luna on their own wire routes", async () => {
+  const env = {
+    ...testEnv(new MemoryR2Bucket()),
+    CHATGPT_LUNA_VLM_API_BASE: "https://chatgpt.example/codex",
+    CHATGPT_LUNA_VLM_API_KEY: "luna-server-key",
+    CHATGPT_LUNA_VLM_MODEL: "gpt-5.6-sol",
+    OFFICIAL_VLM_OPERATION_API_BASE: "https://gelab.example/v1",
+    OFFICIAL_VLM_OPERATION_API_KEY: "gelab-server-key",
+    OFFICIAL_VLM_OPERATION_MODEL: "qwen-vl",
+  };
+  const originalFetch = globalThis.fetch;
+  const capturedRequests = [];
+  globalThis.fetch = async (url, init) => {
+    capturedRequests.push(new Request(url, init));
+    return new Response("{}", {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+  };
+
+  try {
+    const gelabResponse = await worker.fetch(
+      new Request("https://updates.example/v1/chat/completions", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ model: "client-model", messages: [] }),
+      }),
+      env,
+    );
+    const lunaResponse = await worker.fetch(
+      new Request("https://updates.example/v1/responses", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ model: "client-model", input: "hello" }),
+      }),
+      env,
+    );
+
+    assert.equal(gelabResponse.status, 200);
+    assert.equal(lunaResponse.status, 200);
+    assert.equal(capturedRequests[0].url, "https://gelab.example/v1/chat/completions");
+    assert.equal(capturedRequests[0].headers.get("authorization"), "Bearer gelab-server-key");
+    assert.equal((await capturedRequests[0].json()).model, "qwen-vl");
+    assert.equal(capturedRequests[1].url, "https://chatgpt.example/codex/v1/responses");
+    assert.equal(capturedRequests[1].headers.get("authorization"), "Bearer luna-server-key");
+    assert.equal((await capturedRequests[1].json()).model, "gpt-5.6-sol");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("VLM proxy rejects unsupported content and disabled wire routes", async () => {
+  const env = {
+    ...testEnv(new MemoryR2Bucket()),
+    CHATGPT_LUNA_VLM_API_BASE: "https://chatgpt.example/v1",
+    CHATGPT_LUNA_VLM_API_KEY: "server-managed-key",
+    CHATGPT_LUNA_VLM_MODEL: "gpt-5.6-sol",
+  };
+  const wrongContentType = await worker.fetch(
+    new Request("https://updates.example/v1/responses", {
+      method: "POST",
+      headers: { "content-type": "text/plain" },
+      body: "{}",
+    }),
+    env,
+  );
+  assert.equal(wrongContentType.status, 415);
+
+  const disabledWireRoute = await worker.fetch(
+    new Request("https://updates.example/v1/chat/completions", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: "{}",
+    }),
+    env,
+  );
+  assert.equal(disabledWireRoute.status, 404);
 });
 
 test("admin status is authenticated and combines R2 metadata with CI status", async () => {

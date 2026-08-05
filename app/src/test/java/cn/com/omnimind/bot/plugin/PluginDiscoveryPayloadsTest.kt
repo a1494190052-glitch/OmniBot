@@ -3,6 +3,9 @@ package cn.com.omnimind.bot.plugin
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -38,10 +41,26 @@ class PluginDiscoveryPayloadsTest {
         assertEquals("runtime_bundle", payload.getValue("kind").jsonPrimitive.content)
     }
 
+    @Test
+    fun `agent discovery omits hidden core plugins`() {
+        val hidden = state(
+            id = "com.omnimind.vibe-project-builder",
+            installed = false,
+            enabled = false,
+            presentation = buildJsonObject { put("visibility", "hidden") },
+        )
+
+        val payload = PluginDiscoveryPayloads.list(listOf(hidden), installedOnly = false)
+
+        assertEquals(0, payload.getValue("count").jsonPrimitive.content.toInt())
+        assertEquals(null, PluginDiscoveryPayloads.get(listOf(hidden), hidden.descriptor.id))
+    }
+
     private fun state(
         id: String,
         installed: Boolean,
         enabled: Boolean,
+        presentation: JsonObject = JsonObject(emptyMap()),
     ) = OmniPluginState(
         descriptor = OmniPluginDescriptor(
             id = id,
@@ -50,6 +69,7 @@ class PluginDiscoveryPayloadsTest {
             description = "test plugin",
             publisher = "OmniMind",
             capabilities = listOf("Android GUI"),
+            presentation = presentation,
         ),
         installed = installed,
         enabled = enabled,

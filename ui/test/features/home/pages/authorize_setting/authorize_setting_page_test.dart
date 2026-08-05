@@ -38,6 +38,8 @@ void main() {
             case 'isOverlayPermission':
             case 'isInstalledAppsPermissionGranted':
               return true;
+            case 'isAndroidGuiAccessibilityReady':
+              return false;
             case 'isPublicStorageAccessGranted':
               return false;
             case 'getShizukuStatus':
@@ -82,6 +84,70 @@ void main() {
     expect(
       permissionCalls.map((call) => call.method),
       contains('openPublicStorageSettings'),
+    );
+  });
+
+  testWidgets('shows where to enable accessibility when permission is missing', (
+    tester,
+  ) async {
+    final permissionCalls = <MethodCall>[];
+
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(cacheEvent, (call) async => true);
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(spePermission, (call) async {
+          permissionCalls.add(call);
+          switch (call.method) {
+            case 'isBackgroundRunAllowed':
+            case 'isOverlayPermission':
+            case 'isInstalledAppsPermissionGranted':
+              return true;
+            case 'isAndroidGuiAccessibilityReady':
+            case 'isPublicStorageAccessGranted':
+              return false;
+            case 'getShizukuStatus':
+              return <String, dynamic>{
+                'status': 'NOT_INSTALLED',
+                'backend': 'NONE',
+                'installed': false,
+                'running': false,
+                'permissionGranted': false,
+                'binderReady': false,
+                'serviceBound': false,
+                'availableActions': <String>[],
+                'message': '',
+              };
+            case 'openAndroidGuiAccessibilitySettings':
+              return null;
+          }
+          return null;
+        });
+
+    await tester.pumpWidget(
+      MaterialApp(
+        locale: const Locale('zh'),
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
+        theme: AppTheme.lightTheme,
+        home: const AuthorizeSettingPage(),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('3 / 4 项核心授权已就绪'), findsOneWidget);
+    expect(find.text('无障碍权限'), findsOneWidget);
+
+    await tester.tap(find.text('无障碍权限'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('开启位置'), findsOneWidget);
+    expect(find.textContaining('已下载的应用'), findsOneWidget);
+
+    await tester.tap(find.text('打开系统无障碍设置'));
+    await tester.pump();
+    expect(
+      permissionCalls.map((call) => call.method),
+      contains('openAndroidGuiAccessibilitySettings'),
     );
   });
 }

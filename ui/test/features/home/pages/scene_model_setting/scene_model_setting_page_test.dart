@@ -272,7 +272,7 @@ void main() {
 
     expect(find.text('Voice'), findsOneWidget);
     expect(find.text('GUI Agent'), findsOneWidget);
-    expect(find.text('ChatGPT VLM'), findsOneWidget);
+    expect(find.text('小万官方内置模型'), findsOneWidget);
     expect(find.text('Compactor'), findsNothing);
     expect(find.text('Chat Compactor'), findsOneWidget);
     expect(find.text('未绑定'), findsOneWidget);
@@ -326,14 +326,14 @@ void main() {
       await tester.pumpWidget(buildTestApp(const SceneModelSettingPage()));
       await tester.pumpAndSettle();
 
-      expect(find.text('ChatGPT VLM'), findsOneWidget);
+      expect(find.text('小万官方内置模型'), findsOneWidget);
       await tester.tap(
         find.byKey(const Key('operation-scene-official-toggle')),
       );
       await tester.pumpAndSettle();
 
       expect(savedOperationConfig['useOfficialService'], isFalse);
-      expect(find.text('ChatGPT VLM'), findsNothing);
+      expect(find.text('小万官方内置模型'), findsNothing);
     },
   );
 

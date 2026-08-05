@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:ui/features/task/pages/execution_history/widgets/function_detail_sheet.dart';
@@ -10,7 +11,9 @@ import 'package:ui/models/omni_plugin_item.dart';
 import 'package:ui/services/omni_plugin_service.dart';
 
 class OmniFlowExecutionCenterPage extends StatefulWidget {
-  const OmniFlowExecutionCenterPage({super.key});
+  const OmniFlowExecutionCenterPage({super.key, this.initialTab});
+
+  final String? initialTab;
 
   @override
   State<OmniFlowExecutionCenterPage> createState() =>
@@ -18,28 +21,59 @@ class OmniFlowExecutionCenterPage extends StatefulWidget {
 }
 
 class _OmniFlowExecutionCenterPageState
-    extends State<OmniFlowExecutionCenterPage> {
+    extends State<OmniFlowExecutionCenterPage>
+    with SingleTickerProviderStateMixin {
   static const _pluginId = 'com.omnimind.omni-vlm-lite';
+  static const _pageSize = 20;
 
+  late final TabController _tabController;
   OmniPluginItem? _plugin;
   List<Map<String, dynamic>> _functions = const [];
   List<Map<String, dynamic>> _runLogs = const [];
-  bool _loading = true;
-  String? _error;
+  bool _pluginLoading = true;
+  String? _pluginError;
+  bool _functionsLoaded = false;
+  bool _functionsLoading = false;
+  bool _functionsHasMore = false;
+  int _functionsNextOffset = 0;
+  String? _functionsError;
+  bool _runLogsLoaded = false;
+  bool _runLogsLoading = false;
+  bool _runLogsHasMore = false;
+  int _runLogsNextOffset = 0;
+  String? _runLogsError;
 
   bool get _ready => _plugin?.installed == true && _plugin?.enabled == true;
 
   @override
   void initState() {
     super.initState();
-    unawaited(_load());
+    _tabController = TabController(
+      length: 2,
+      initialIndex: _initialTabIndex(widget.initialTab),
+      vsync: this,
+    )..addListener(_handleTabChanged);
+    unawaited(_loadPluginAndActive());
   }
 
-  Future<void> _load() async {
+  @override
+  void dispose() {
+    _tabController
+      ..removeListener(_handleTabChanged)
+      ..dispose();
+    super.dispose();
+  }
+
+  void _handleTabChanged() {
+    if (_tabController.indexIsChanging) return;
+    unawaited(_ensureActiveLoaded());
+  }
+
+  Future<void> _loadPluginAndActive() async {
     if (mounted) {
       setState(() {
-        _loading = true;
-        _error = null;
+        _pluginLoading = true;
+        _pluginError = null;
       });
     }
     try {
@@ -50,40 +84,128 @@ class _OmniFlowExecutionCenterPageState
           _plugin = plugin;
           _functions = const [];
           _runLogs = const [];
-          _loading = false;
+          _functionsLoaded = false;
+          _runLogsLoaded = false;
+          _pluginLoading = false;
         });
         return;
       }
-      final results = await Future.wait([
-        OmniFlowToolClient.listFunctions(),
-        OmniFlowToolClient.listRunLogs(),
-      ]);
       if (!mounted) return;
       setState(() {
         _plugin = plugin;
-        _functions = _mapList(results[0]['functions']);
-        _runLogs = _mapList(results[1]['runs']);
-        _loading = false;
+        _pluginLoading = false;
       });
+      await _loadActive(reset: true);
     } catch (error) {
       if (!mounted) return;
       setState(() {
-        _loading = false;
-        _error = error.toString();
+        _pluginLoading = false;
+        _pluginError = error.toString();
       });
     }
   }
 
-  Future<void> _enablePlugin() async {
-    setState(() => _loading = true);
+  Future<void> _ensureActiveLoaded() async {
+    if (!_ready) return;
+    if (_tabController.index == 0) {
+      if (!_functionsLoaded) await _loadFunctions(reset: true);
+    } else if (!_runLogsLoaded) {
+      await _loadRunLogs(reset: true);
+    }
+  }
+
+  Future<void> _loadActive({required bool reset}) {
+    return _tabController.index == 0
+        ? _loadFunctions(reset: reset)
+        : _loadRunLogs(reset: reset);
+  }
+
+  Future<void> _loadFunctions({required bool reset}) async {
+    if (_functionsLoading) return;
+    final offset = reset ? 0 : _functionsNextOffset;
+    setState(() {
+      _functionsLoading = true;
+      if (reset) _functionsError = null;
+    });
     try {
-      await OmniPluginService.setEnabled(_pluginId, true);
-      await _load();
+      final result = await OmniFlowToolClient.listFunctions(
+        limit: _pageSize,
+        offset: offset,
+      );
+      if (!mounted) return;
+      final items = _mapList(result['functions']);
+      final merged = reset
+          ? items
+          : _mergeById(_functions, items, idKey: 'function_id');
+      setState(() {
+        _functions = merged;
+        _functionsLoaded = true;
+        _functionsLoading = false;
+        _functionsHasMore = _hasMore(result, items.length, merged.length);
+        _functionsNextOffset = _nextOffset(
+          result,
+          fallback: offset + items.length,
+        );
+      });
     } catch (error) {
       if (!mounted) return;
       setState(() {
-        _loading = false;
-        _error = error.toString();
+        _functionsLoaded = true;
+        _functionsLoading = false;
+        _functionsError = error.toString();
+      });
+    }
+  }
+
+  Future<void> _loadRunLogs({required bool reset}) async {
+    if (_runLogsLoading) return;
+    final offset = reset ? 0 : _runLogsNextOffset;
+    setState(() {
+      _runLogsLoading = true;
+      if (reset) _runLogsError = null;
+    });
+    try {
+      final result = await OmniFlowToolClient.listRunLogs(
+        limit: _pageSize,
+        offset: offset,
+      );
+      if (!mounted) return;
+      final items = _mapList(result['runs']);
+      final merged = reset
+          ? items
+          : _mergeById(_runLogs, items, idKey: 'run_id');
+      setState(() {
+        _runLogs = merged;
+        _runLogsLoaded = true;
+        _runLogsLoading = false;
+        _runLogsHasMore = _hasMore(result, items.length, merged.length);
+        _runLogsNextOffset = _nextOffset(
+          result,
+          fallback: offset + items.length,
+        );
+      });
+    } catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _runLogsLoaded = true;
+        _runLogsLoading = false;
+        _runLogsError = error.toString();
+      });
+    }
+  }
+
+  Future<void> _refreshActive() => _loadActive(reset: true);
+
+  Future<void> _enablePlugin() async {
+    setState(() => _pluginLoading = true);
+    try {
+      await OmniPluginService.setEnabled(_pluginId, true);
+      await _loadPluginAndActive();
+    } catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _pluginLoading = false;
+        _pluginError = error.toString();
       });
     }
   }
@@ -171,9 +293,33 @@ class _OmniFlowExecutionCenterPageState
     final arguments = await _collectArguments(function);
     if (arguments == null || !mounted) return;
     await _runAction(
-      () => OmniFlowToolClient.replayFunction(functionId, arguments),
+      () => OmniFlowToolClient.replayFunction(
+        functionId,
+        arguments,
+        goal: _replayGoal(function, arguments),
+      ),
       success: _text(context, '执行已完成', 'Run completed'),
     );
+  }
+
+  String _replayGoal(
+    Map<String, dynamic> function,
+    Map<String, dynamic> arguments,
+  ) {
+    final name = _string(function['name']);
+    final description = _string(function['description']);
+    final summary = <String>[
+      if (name.isNotEmpty) name,
+      if (description.isNotEmpty && description != name) description,
+    ];
+    final argumentText = arguments.isEmpty
+        ? ''
+        : '参数: ${jsonEncode(arguments)}';
+    final goal = [
+      ...summary,
+      if (argumentText.isNotEmpty) argumentText,
+    ].join('\n').trim();
+    return goal.isNotEmpty ? goal : _string(function['function_id']);
   }
 
   Future<Map<String, dynamic>?> _collectArguments(
@@ -274,6 +420,7 @@ class _OmniFlowExecutionCenterPageState
   Future<void> _convertRunLog(Map<String, dynamic> runLog) async {
     final runId = _string(runLog['run_id']);
     if (runId.isEmpty) return;
+    _functionsLoaded = false;
     await _runAction(
       () => OmniFlowToolClient.convertRunLog(runId),
       success: _text(context, '已注册为复用指令', 'Function registered'),
@@ -299,7 +446,7 @@ class _OmniFlowExecutionCenterPageState
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(SnackBar(content: Text(success)));
-      if (reload) await _load();
+      if (reload) await _refreshActive();
     } catch (error) {
       if (!mounted) return;
       ScaffoldMessenger.of(
@@ -310,39 +457,48 @@ class _OmniFlowExecutionCenterPageState
 
   @override
   Widget build(BuildContext context) {
-    return DefaultTabController(
-      length: 2,
-      child: Scaffold(
-        appBar: AppBar(
-          title: Text(_text(context, '执行中心', 'Execution Center')),
-          actions: [
-            IconButton(
-              tooltip: _text(context, '刷新', 'Refresh'),
-              onPressed: _loading ? null : _load,
-              icon: const Icon(Icons.refresh_rounded),
-            ),
-          ],
-          bottom: TabBar(
-            tabs: [
-              Tab(text: _text(context, '复用指令', 'Functions')),
-              Tab(text: _text(context, '运行记录', 'Run Logs')),
-            ],
+    return Scaffold(
+      appBar: AppBar(
+        title: Text(_text(context, '执行中心', 'Execution Center')),
+        actions: [
+          IconButton(
+            tooltip: _text(context, '刷新', 'Refresh'),
+            onPressed: _pluginLoading
+                ? null
+                : (_ready ? _refreshActive : _loadPluginAndActive),
+            icon: const Icon(Icons.refresh_rounded),
           ),
+        ],
+        bottom: TabBar(
+          controller: _tabController,
+          tabs: [
+            Tab(text: _text(context, '复用指令', 'Functions')),
+            Tab(text: _text(context, '运行记录', 'Run Logs')),
+          ],
         ),
-        body: _buildBody(),
       ),
+      body: _buildBody(),
     );
   }
 
+  int _initialTabIndex(String? value) {
+    return switch (value?.trim().toLowerCase()) {
+      'run_log' || 'run_logs' || 'runlog' || 'runlogs' || 'logs' || '1' => 1,
+      _ => 0,
+    };
+  }
+
   Widget _buildBody() {
-    if (_loading) return const Center(child: CircularProgressIndicator());
-    if (_error != null) {
+    if (_pluginLoading) {
+      return const Center(child: CircularProgressIndicator());
+    }
+    if (_pluginError != null) {
       return _MessageState(
         icon: Icons.error_outline_rounded,
         title: _text(context, '加载失败', 'Failed to load'),
-        message: _error!,
+        message: _pluginError!,
         actionLabel: _text(context, '重试', 'Retry'),
-        onAction: _load,
+        onAction: _loadPluginAndActive,
       );
     }
     if (!_ready) {
@@ -350,12 +506,8 @@ class _OmniFlowExecutionCenterPageState
       return _MessageState(
         icon: Icons.extension_outlined,
         title: installed
-            ? _text(context, 'Omni VLM Lite 未启用', 'Omni VLM Lite is disabled')
-            : _text(
-                context,
-                '先安装 Omni VLM Lite',
-                'Install Omni VLM Lite first',
-              ),
+            ? _text(context, 'OmniFlow 未启用', 'OmniFlow is disabled')
+            : _text(context, '先安装 OmniFlow', 'Install OmniFlow first'),
         message: installed
             ? _text(
                 context,
@@ -364,8 +516,8 @@ class _OmniFlowExecutionCenterPageState
               )
             : _text(
                 context,
-                '运行时会作为 Skill 下载，不会打入 APK。',
-                'The runtime is installed as a Skill and is not bundled in the APK.',
+                '小万原生 GUI 无需安装；复用指令与 OmniTransfer 运行时会在首次使用时按需准备。',
+                'XiaoWan GUI needs no installation. Functions and the OmniTransfer runtime are prepared lazily on first use.',
               ),
         actionLabel: installed
             ? _text(context, '启用插件', 'Enable plugin')
@@ -376,14 +528,27 @@ class _OmniFlowExecutionCenterPageState
       );
     }
     return TabBarView(
+      controller: _tabController,
       children: [
         _FunctionsTab(
           functions: _functions,
+          loading: _functionsLoading,
+          error: _functionsError,
+          hasMore: _functionsHasMore,
+          onRefresh: () => _loadFunctions(reset: true),
+          onLoadMore: () => _loadFunctions(reset: false),
           onOpenDetails: _showFunctionDetails,
           onReplay: _replay,
-          onDelete: _deleteFunction,
         ),
-        _RunLogsTab(runLogs: _runLogs, onConvert: _convertRunLog),
+        _RunLogsTab(
+          runLogs: _runLogs,
+          loading: _runLogsLoading,
+          error: _runLogsError,
+          hasMore: _runLogsHasMore,
+          onRefresh: () => _loadRunLogs(reset: true),
+          onLoadMore: () => _loadRunLogs(reset: false),
+          onConvert: _convertRunLog,
+        ),
       ],
     );
   }
@@ -392,18 +557,38 @@ class _OmniFlowExecutionCenterPageState
 class _FunctionsTab extends StatelessWidget {
   const _FunctionsTab({
     required this.functions,
+    required this.loading,
+    required this.error,
+    required this.hasMore,
+    required this.onRefresh,
+    required this.onLoadMore,
     required this.onOpenDetails,
     required this.onReplay,
-    required this.onDelete,
   });
 
   final List<Map<String, dynamic>> functions;
+  final bool loading;
+  final String? error;
+  final bool hasMore;
+  final AsyncCallback onRefresh;
+  final AsyncCallback onLoadMore;
   final ValueChanged<Map<String, dynamic>> onOpenDetails;
   final ValueChanged<Map<String, dynamic>> onReplay;
-  final ValueChanged<Map<String, dynamic>> onDelete;
 
   @override
   Widget build(BuildContext context) {
+    if (loading && functions.isEmpty) {
+      return const Center(child: CircularProgressIndicator());
+    }
+    if (error != null && functions.isEmpty) {
+      return _MessageState(
+        icon: Icons.error_outline_rounded,
+        title: _text(context, '加载失败', 'Failed to load'),
+        message: error!,
+        actionLabel: _text(context, '重试', 'Retry'),
+        onAction: onRefresh,
+      );
+    }
     if (functions.isEmpty) {
       return _EmptyTab(
         icon: Icons.replay_rounded,
@@ -415,79 +600,148 @@ class _FunctionsTab extends StatelessWidget {
         ),
       );
     }
-    return ListView.separated(
-      padding: const EdgeInsets.all(16),
-      itemCount: functions.length,
-      separatorBuilder: (_, __) => const SizedBox(height: 12),
-      itemBuilder: (context, index) {
-        final function = functions[index];
-        final name =
-            _string(function['name']).nullIfEmpty ??
-            _string(function['function_id']);
-        return Card(
-          clipBehavior: Clip.antiAlias,
-          child: InkWell(
-            onTap: () => onOpenDetails(function),
-            child: Padding(
-              padding: const EdgeInsets.all(16),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      Expanded(
-                        child: Text(
-                          name,
-                          style: Theme.of(context).textTheme.titleMedium,
-                        ),
+    return RefreshIndicator(
+      onRefresh: onRefresh,
+      child: ListView.separated(
+        padding: const EdgeInsets.symmetric(vertical: 6),
+        itemCount: functions.length + (hasMore ? 1 : 0),
+        separatorBuilder: (_, __) =>
+            const Divider(height: 1, indent: 16, endIndent: 16),
+        itemBuilder: (context, index) {
+          if (index >= functions.length) {
+            return _LoadMoreRow(
+              key: const ValueKey('functions-load-more'),
+              loading: loading,
+              onPressed: onLoadMore,
+            );
+          }
+          final function = functions[index];
+          return _FunctionListItem(
+            function: function,
+            onOpenDetails: () => onOpenDetails(function),
+            onReplay: () => onReplay(function),
+          );
+        },
+      ),
+    );
+  }
+}
+
+class _FunctionListItem extends StatelessWidget {
+  const _FunctionListItem({
+    required this.function,
+    required this.onOpenDetails,
+    required this.onReplay,
+  });
+
+  final Map<String, dynamic> function;
+  final VoidCallback onOpenDetails;
+  final VoidCallback onReplay;
+
+  @override
+  Widget build(BuildContext context) {
+    final functionId = _string(function['function_id']);
+    final name = _string(function['name']).nullIfEmpty ?? functionId;
+    final description = _string(function['description']);
+    final steps = _mapList(function['steps']).length;
+    final parameters = _map(
+      _map(function['input_schema'])['properties'],
+    ).length;
+    final meta = _text(
+      context,
+      '$steps 个步骤 · $parameters 个参数',
+      '$steps steps · $parameters parameters',
+    );
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onOpenDetails,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 13, 8, 13),
+          child: Row(
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      name,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                        fontWeight: FontWeight.w600,
                       ),
-                      Icon(
-                        Icons.chevron_right_rounded,
+                    ),
+                    if (description.isNotEmpty && description != name) ...[
+                      const SizedBox(height: 3),
+                      Text(
+                        description,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: Theme.of(context).textTheme.bodySmall,
+                      ),
+                    ],
+                    const SizedBox(height: 4),
+                    Text(
+                      meta,
+                      style: Theme.of(context).textTheme.labelSmall?.copyWith(
                         color: Theme.of(context).colorScheme.outline,
                       ),
-                    ],
-                  ),
-                  const SizedBox(height: 6),
-                  Text(
-                    _string(function['description']).nullIfEmpty ??
-                        _string(function['function_id']),
-                    style: Theme.of(context).textTheme.bodySmall,
-                  ),
-                  const SizedBox(height: 12),
-                  Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
-                    children: [
-                      FilledButton.icon(
-                        onPressed: () => onReplay(function),
-                        icon: const Icon(Icons.play_arrow_rounded),
-                        label: Text(_text(context, '执行', 'Run')),
-                      ),
-                      TextButton.icon(
-                        onPressed: () => onDelete(function),
-                        icon: const Icon(Icons.delete_outline_rounded),
-                        label: Text(_text(context, '删除', 'Delete')),
-                      ),
-                    ],
-                  ),
-                ],
+                    ),
+                  ],
+                ),
               ),
-            ),
+              TextButton.icon(
+                onPressed: onReplay,
+                icon: const Icon(Icons.play_arrow_rounded, size: 18),
+                label: Text(_text(context, '执行', 'Run')),
+              ),
+              Icon(
+                Icons.chevron_right_rounded,
+                color: Theme.of(context).colorScheme.outline,
+                size: 20,
+              ),
+            ],
           ),
-        );
-      },
+        ),
+      ),
     );
   }
 }
 
 class _RunLogsTab extends StatelessWidget {
-  const _RunLogsTab({required this.runLogs, required this.onConvert});
+  const _RunLogsTab({
+    required this.runLogs,
+    required this.loading,
+    required this.error,
+    required this.hasMore,
+    required this.onRefresh,
+    required this.onLoadMore,
+    required this.onConvert,
+  });
 
   final List<Map<String, dynamic>> runLogs;
+  final bool loading;
+  final String? error;
+  final bool hasMore;
+  final AsyncCallback onRefresh;
+  final AsyncCallback onLoadMore;
   final ValueChanged<Map<String, dynamic>> onConvert;
 
   @override
   Widget build(BuildContext context) {
+    if (loading && runLogs.isEmpty) {
+      return const Center(child: CircularProgressIndicator());
+    }
+    if (error != null && runLogs.isEmpty) {
+      return _MessageState(
+        icon: Icons.error_outline_rounded,
+        title: _text(context, '加载失败', 'Failed to load'),
+        message: error!,
+        actionLabel: _text(context, '重试', 'Retry'),
+        onAction: onRefresh,
+      );
+    }
     if (runLogs.isEmpty) {
       return _EmptyTab(
         icon: Icons.receipt_long_outlined,
@@ -499,131 +753,174 @@ class _RunLogsTab extends StatelessWidget {
         ),
       );
     }
-    return ListView.separated(
-      padding: const EdgeInsets.all(16),
-      itemCount: runLogs.length,
-      separatorBuilder: (_, __) => const SizedBox(height: 12),
-      itemBuilder: (context, index) {
-        final runLog = runLogs[index];
-        final metrics = RunLogMetrics.fromPayload(runLog);
-        final runId = _string(runLog['run_id']);
-        final status = _string(runLog['status']).nullIfEmpty ?? 'unknown';
-        return Card(
-          child: Padding(
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    Expanded(
-                      child: Text(
-                        _string(runLog['goal']).nullIfEmpty ?? runId,
-                        style: Theme.of(context).textTheme.titleMedium,
-                      ),
-                    ),
-                    Chip(label: Text(_runStatusLabel(context, status))),
-                  ],
-                ),
-                Text(runId, style: Theme.of(context).textTheme.bodySmall),
-                const SizedBox(height: 10),
-                Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
-                  children: [
-                    if (metrics.startedAt != null)
-                      _RunLogMetricChip(
-                        icon: Icons.schedule_rounded,
-                        label: formatRunLogTimestamp(metrics.startedAt!),
-                      ),
-                    if (metrics.durationMs != null)
-                      _RunLogMetricChip(
-                        icon: Icons.timer_outlined,
-                        label: formatRunLogDuration(metrics.durationMs!),
-                      ),
-                    if (metrics.tokenUsage.totalTokens != null)
-                      _RunLogMetricChip(
-                        icon: Icons.data_usage_rounded,
-                        label: _text(
-                          context,
-                          '模型用量 ${formatRunLogTokens(metrics.tokenUsage.totalTokens!)}',
-                          '${formatRunLogTokens(metrics.tokenUsage.totalTokens!)} tokens',
-                        ),
-                      )
-                    else
-                      _RunLogMetricChip(
-                        icon: Icons.data_usage_rounded,
-                        label: _text(
-                          context,
-                          '模型用量未提供',
-                          'Token usage unavailable',
-                        ),
-                      ),
-                    if (metrics.model != null)
-                      _RunLogMetricChip(
-                        icon: Icons.smart_toy_outlined,
-                        label: metrics.model!,
-                      ),
-                    if (metrics.callCount != null)
-                      _RunLogMetricChip(
-                        icon: Icons.repeat_rounded,
-                        label: _text(
-                          context,
-                          '${metrics.callCount} 次 VLM 调用',
-                          '${metrics.callCount} VLM calls',
-                        ),
-                      ),
-                  ],
-                ),
-                const SizedBox(height: 12),
-                Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
-                  children: [
-                    FilledButton.tonalIcon(
-                      onPressed: () => context.push('/task/run_log/$runId'),
-                      icon: const Icon(Icons.timeline_rounded),
-                      label: Text(_text(context, '查看运行记录', 'View Run Log')),
-                    ),
-                    OutlinedButton.icon(
-                      onPressed: () => onConvert(runLog),
-                      icon: const Icon(Icons.add_task_rounded),
-                      label: Text(
-                        _text(context, '注册为复用指令', 'Register Function'),
-                      ),
-                    ),
-                  ],
-                ),
-              ],
-            ),
-          ),
-        );
-      },
+    return RefreshIndicator(
+      onRefresh: onRefresh,
+      child: ListView.separated(
+        padding: const EdgeInsets.symmetric(vertical: 6),
+        itemCount: runLogs.length + (hasMore ? 1 : 0),
+        separatorBuilder: (_, __) =>
+            const Divider(height: 1, indent: 16, endIndent: 16),
+        itemBuilder: (context, index) {
+          if (index >= runLogs.length) {
+            return _LoadMoreRow(
+              key: const ValueKey('run-logs-load-more'),
+              loading: loading,
+              onPressed: onLoadMore,
+            );
+          }
+          final runLog = runLogs[index];
+          return _RunLogListItem(
+            runLog: runLog,
+            onOpen: () =>
+                context.push('/task/run_log/${_string(runLog['run_id'])}'),
+            onConvert: () => onConvert(runLog),
+          );
+        },
+      ),
     );
   }
 }
 
-class _RunLogMetricChip extends StatelessWidget {
-  const _RunLogMetricChip({required this.icon, required this.label});
+class _RunLogListItem extends StatelessWidget {
+  const _RunLogListItem({
+    required this.runLog,
+    required this.onOpen,
+    required this.onConvert,
+  });
 
-  final IconData icon;
-  final String label;
+  final Map<String, dynamic> runLog;
+  final VoidCallback onOpen;
+  final VoidCallback onConvert;
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 6),
-      decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.surfaceContainerHighest,
-        borderRadius: BorderRadius.circular(8),
+    final metrics = RunLogMetrics.fromPayload(runLog);
+    final runId = _string(runLog['run_id']);
+    final status = _string(runLog['status']).nullIfEmpty ?? 'unknown';
+    final meta = <String>[
+      if (metrics.startedAt != null) formatRunLogTimestamp(metrics.startedAt!),
+      if (metrics.durationMs != null) formatRunLogDuration(metrics.durationMs!),
+      if (metrics.tokenUsage.totalTokens != null)
+        _text(
+          context,
+          '模型用量 ${formatRunLogTokens(metrics.tokenUsage.totalTokens!)}',
+          '${formatRunLogTokens(metrics.tokenUsage.totalTokens!)} tokens',
+        )
+      else
+        _text(context, '模型用量未提供', 'Token usage unavailable'),
+      if (metrics.model != null) metrics.model!,
+      if (metrics.callCount != null)
+        _text(
+          context,
+          '${metrics.callCount} 次 VLM 调用',
+          '${metrics.callCount} VLM calls',
+        ),
+    ];
+    return Material(
+      key: ValueKey('run-log-open-$runId'),
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onOpen,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 13, 8, 10),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      _string(runLog['goal']).nullIfEmpty ?? runId,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                  Text(
+                    _runStatusLabel(context, status),
+                    style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                      color: _runStatusColor(context, status),
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  const SizedBox(width: 4),
+                ],
+              ),
+              const SizedBox(height: 5),
+              Wrap(
+                spacing: 6,
+                runSpacing: 3,
+                children: [
+                  for (var index = 0; index < meta.length; index++) ...[
+                    if (index > 0)
+                      Text('·', style: Theme.of(context).textTheme.labelSmall),
+                    Text(
+                      meta[index],
+                      style: Theme.of(context).textTheme.labelSmall,
+                    ),
+                  ],
+                ],
+              ),
+              const SizedBox(height: 3),
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      runId,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                        color: Theme.of(context).colorScheme.outline,
+                        fontFamily: 'monospace',
+                      ),
+                    ),
+                  ),
+                  TextButton(
+                    onPressed: onConvert,
+                    child: Text(_text(context, '注册为复用指令', 'Register Function')),
+                  ),
+                  Icon(
+                    Icons.chevron_right_rounded,
+                    color: Theme.of(context).colorScheme.outline,
+                    size: 20,
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
       ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(icon, size: 14),
-          const SizedBox(width: 5),
-          Text(label, style: Theme.of(context).textTheme.bodySmall),
-        ],
+    );
+  }
+}
+
+class _LoadMoreRow extends StatelessWidget {
+  const _LoadMoreRow({
+    super.key,
+    required this.loading,
+    required this.onPressed,
+  });
+
+  final bool loading;
+  final AsyncCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      height: 52,
+      child: Center(
+        child: loading
+            ? const SizedBox(
+                width: 18,
+                height: 18,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              )
+            : TextButton(
+                onPressed: onPressed,
+                child: Text(_text(context, '加载更多', 'Load more')),
+              ),
       ),
     );
   }
@@ -688,6 +985,40 @@ List<Map<String, dynamic>> _mapList(dynamic value) => value is List
     ? value.whereType<Map>().map(_map).toList(growable: false)
     : const [];
 
+List<Map<String, dynamic>> _mergeById(
+  List<Map<String, dynamic>> current,
+  List<Map<String, dynamic>> next, {
+  required String idKey,
+}) {
+  final merged = <Map<String, dynamic>>[];
+  final seen = <String>{};
+  for (final item in [...current, ...next]) {
+    final id = _string(item[idKey]);
+    if (id.isNotEmpty && !seen.add(id)) continue;
+    merged.add(item);
+  }
+  return List.unmodifiable(merged);
+}
+
+bool _hasMore(Map<String, dynamic> result, int fetchedCount, int loadedCount) {
+  final explicit = result['has_more'];
+  if (explicit is bool) return explicit;
+  final total = _intValue(result['total_count']);
+  if (total != null) return loadedCount < total;
+  return fetchedCount >= 20;
+}
+
+int _nextOffset(Map<String, dynamic> result, {required int fallback}) {
+  final next = _intValue(result['next_offset']);
+  return next != null && next >= 0 ? next : fallback;
+}
+
+int? _intValue(dynamic value) {
+  if (value is int) return value;
+  if (value is num) return value.toInt();
+  return int.tryParse(value?.toString() ?? '');
+}
+
 Map<String, dynamic> _map(dynamic value) => value is Map
     ? value.map((key, nested) => MapEntry(key.toString(), nested))
     : <String, dynamic>{};
@@ -702,6 +1033,14 @@ String _runStatusLabel(BuildContext context, String status) => switch (status
   'cancelled' || 'canceled' => _text(context, '已取消', 'Cancelled'),
   _ => _text(context, '未知', 'Unknown'),
 };
+
+Color _runStatusColor(BuildContext context, String status) =>
+    switch (status.toLowerCase()) {
+      'success' || 'succeeded' || 'completed' => Colors.green.shade700,
+      'running' || 'pending' => Theme.of(context).colorScheme.primary,
+      'failed' || 'error' => Theme.of(context).colorScheme.error,
+      _ => Theme.of(context).colorScheme.outline,
+    };
 
 dynamic _parseArgument(String value, String type) => switch (type) {
   'integer' => int.tryParse(value) ?? value,

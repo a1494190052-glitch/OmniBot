@@ -108,22 +108,62 @@ void main() {
     expect(tapped, isTrue);
   });
 
-  testWidgets('shows manual recording without trajectory menu entries', (
-    tester,
-  ) async {
-    await tester.pumpWidget(_buildTestApp(contextUsageRatio: null));
+  testWidgets('opens vlm-core RunLog recording menu', (tester) async {
+    final inputKey = GlobalKey<ChatInputAreaState>();
+    final controller = TextEditingController();
+    final focusNode = FocusNode();
+    addTearDown(controller.dispose);
+    addTearDown(focusNode.dispose);
+    var popupVisible = false;
+    await tester.pumpWidget(
+      DefaultAssetBundle(
+        bundle: _TestAssetBundle(),
+        child: MaterialApp(
+          home: StatefulBuilder(
+            builder: (context, setState) {
+              return Scaffold(
+                body: Column(
+                  children: [
+                    ChatInputArea(
+                      key: inputKey,
+                      controller: controller,
+                      focusNode: focusNode,
+                      isProcessing: false,
+                      onSendMessage: () {},
+                      onCancelTask: () {},
+                      onPopupVisibilityChanged: (visible) {
+                        setState(() => popupVisible = visible);
+                      },
+                    ),
+                    if (popupVisible)
+                      inputKey.currentState?.buildPopupMenu() ??
+                          const SizedBox.shrink(),
+                  ],
+                ),
+              );
+            },
+          ),
+        ),
+      ),
+    );
     await tester.pump();
 
     expect(
-      find.byKey(const ValueKey('chat-input-manual-record-button')),
+      find.byKey(const ValueKey('chat-input-trajectory-button')),
       findsOneWidget,
     );
-    expect(
+    await tester.tap(
       find.byKey(const ValueKey('chat-input-trajectory-button')),
-      findsNothing,
     );
-    expect(find.text('轨迹'), findsNothing);
-    expect(find.text('上一个'), findsNothing);
+    await tester.pump();
+
+    expect(
+      find.byKey(const ValueKey('chat-input-trajectory-popup')),
+      findsOneWidget,
+    );
+    expect(find.text('RunLog'), findsOneWidget);
+    expect(find.text('Previous'), findsOneWidget);
+    expect(find.text('Record'), findsOneWidget);
   });
 
   testWidgets('agent permission selector opens menu and selects mode', (

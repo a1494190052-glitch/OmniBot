@@ -136,6 +136,9 @@ object EmbeddedTerminalRuntime {
 
     private val sessionHandles = ConcurrentHashMap<String, SessionHandle>()
     private val packageInstallMutex = Mutex()
+    private val environmentWarmupMutex = Mutex()
+    @Volatile
+    private var environmentWarmupReady = false
     private val requiredCliCommands = listOf(
         "bash",
         "curl",
@@ -225,11 +228,33 @@ object EmbeddedTerminalRuntime {
         context: Context,
         onProgress: suspend (EnvironmentProgress) -> Unit = {}
     ): EnvironmentStatus {
-        return prepareEnvironment(
-            context = context,
-            installBasePackages = false,
-            onProgress = onProgress
-        )
+        if (environmentWarmupReady) {
+            return EnvironmentStatus(
+                success = true,
+                initialized = true,
+                basePackagesReady = isBasePackagesReady(context),
+                message = "内嵌终端环境已就绪。"
+            )
+        }
+        return environmentWarmupMutex.withLock {
+            if (environmentWarmupReady) {
+                return@withLock EnvironmentStatus(
+                    success = true,
+                    initialized = true,
+                    basePackagesReady = isBasePackagesReady(context),
+                    message = "内嵌终端环境已就绪。"
+                )
+            }
+            prepareEnvironment(
+                context = context,
+                installBasePackages = false,
+                onProgress = onProgress
+            ).also { status ->
+                if (status.success && status.initialized) {
+                    environmentWarmupReady = true
+                }
+            }
+        }
     }
 
     suspend fun inspectRuntimeReadiness(

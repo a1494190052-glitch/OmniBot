@@ -611,5 +611,6 @@
   "homeDrawerLateNightGreeting": "Put the phone down and sleep earlier",
   "homeDrawerLateNightSub": "Recharge for tomorrow",
   "homeDrawerLateNightGreeting2": "It is late",
-  "homeDrawerLateNightSub2": "Say good night to today"
+  "homeDrawerLateNightSub2": "Say good night to today",
+  "omnibotGuide": "Omnibot Guide"
 }

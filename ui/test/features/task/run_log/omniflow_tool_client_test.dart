@@ -38,16 +38,26 @@ void main() {
       await OmniFlowToolClient.listFunctions();
       await OmniFlowToolClient.listRunLogs();
       await OmniFlowToolClient.convertRunLog('run-1');
+      await OmniFlowToolClient.replayFunction(
+        'function.demo',
+        <String, dynamic>{'query': 'ice'},
+        goal: '演示指令\n参数: {"query":"ice"}',
+      );
 
       expect(calls.map((call) => call.method), everyElement('tools/call'));
       expect(calls.map((call) => (call.arguments as Map)['name']), <String>[
         'list_functions',
         'list_run_logs',
         'convert_run_log',
+        'function.demo',
       ]);
       expect(
-        ((calls.last.arguments as Map)['arguments'] as Map)['run_id'],
+        ((calls[2].arguments as Map)['arguments'] as Map)['run_id'],
         'run-1',
+      );
+      expect(
+        (calls.last.arguments as Map)['goal'],
+        '演示指令\n参数: {"query":"ice"}',
       );
     },
   );

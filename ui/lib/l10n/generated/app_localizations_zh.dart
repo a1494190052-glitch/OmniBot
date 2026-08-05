@@ -1757,4 +1757,7 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get homeDrawerLateNightSub2 => '好好和今天说晚安～';
+
+  @override
+  String get omnibotGuide => '小万指南';
 }

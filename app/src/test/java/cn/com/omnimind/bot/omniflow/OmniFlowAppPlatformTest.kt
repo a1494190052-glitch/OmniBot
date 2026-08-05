@@ -1,0 +1,34 @@
+package cn.com.omnimind.bot.omniflow
+
+import cn.com.omnimind.assists.controller.http.SceneChatCompletionResponse
+import cn.com.omnimind.baselib.llm.AssistantToolCall
+import cn.com.omnimind.baselib.llm.AssistantToolCallFunction
+import cn.com.omnimind.baselib.llm.ModelSceneRegistry
+import org.junit.Assert.assertEquals
+import org.junit.Test
+
+class OmniFlowAppPlatformTest {
+    @Test
+    fun `json completion reads submit json native tool arguments`() {
+        val response = SceneChatCompletionResponse(
+            success = true,
+            code = "200",
+            message = "success",
+            parser = ModelSceneRegistry.ResponseParser.TEXT_CONTENT,
+            toolCalls = listOf(
+                AssistantToolCall(
+                    id = "call-1",
+                    function = AssistantToolCallFunction(
+                        name = "submit_json",
+                        arguments = """{"parameters":[]}""",
+                    ),
+                ),
+            ),
+        )
+
+        assertEquals(
+            """{"parameters":[]}""",
+            resolveOmniFlowJsonCompletion(response),
+        )
+    }
+}

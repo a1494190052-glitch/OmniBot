@@ -5,8 +5,10 @@ import cn.com.omnimind.baselib.llm.ChatCompletionRequest
 import cn.com.omnimind.baselib.llm.ChatCompletionMessage
 import cn.com.omnimind.baselib.llm.ChatCompletionThinking
 import cn.com.omnimind.baselib.llm.ChatCompletionTurn
+import cn.com.omnimind.baselib.llm.ChatCompletionUsage
 import cn.com.omnimind.baselib.llm.DeepSeekProvider
 import cn.com.omnimind.baselib.llm.ModelProviderConfigStore
+import cn.com.omnimind.baselib.llm.OpenAiWireApi
 import cn.com.omnimind.baselib.llm.ReasoningStreamUpdatePolicy
 import cn.com.omnimind.baselib.util.OmniLog
 import kotlinx.coroutines.CompletableDeferred
@@ -17,10 +19,13 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.channels.Channel
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import okhttp3.Response
 import okhttp3.sse.EventSource
 import okhttp3.sse.EventSourceListener
@@ -113,7 +118,7 @@ class HttpAgentLlmClient(
             "chat completion stream closed before completion signal"
     }
 
-    private data class StreamRequestVariant(
+    internal data class StreamRequestVariant(
         val name: String,
         val request: ChatCompletionRequest
     )
@@ -460,7 +465,15 @@ class HttpAgentLlmClient(
             override fun onFailure(eventSource: EventSource, t: Throwable?, response: Response?) {
                 if (!completed.compareAndSet(false, true)) return
                 cancelWatchdog()
-                val responseBody = extractResponseBody(response)
+                val responseBody = extractRawResponseBody(response)
+                parseSuccessfulNonStreamingResponsesTurn(
+                    statusCode = response?.code,
+                    responseBody = responseBody,
+                    routeInfo = routeInfo,
+                )?.let { turn ->
+                    streamDone.complete(turn)
+                    return
+                }
                 val reason = extractErrorReason(responseBody)
                     ?: sanitizeReason(t?.message)
                     ?: "unknown stream failure"
@@ -468,7 +481,7 @@ class HttpAgentLlmClient(
                     AgentStreamRequestException(
                         statusCode = response?.code,
                         reason = reason,
-                        responseBody = responseBody
+                        responseBody = responseBody?.take(4000)
                     )
                 )
             }
@@ -517,10 +530,13 @@ class HttpAgentLlmClient(
         )
     }
 
-    private fun buildRequestVariants(
+    internal fun buildRequestVariants(
         request: ChatCompletionRequest,
         routeInfo: HttpController.ChatCompletionRouteInfo
     ): List<StreamRequestVariant> {
+        val compatibleRequest = normalizeMultimodalMessageContent(request, routeInfo).let {
+            if (isParateraGlm(routeInfo)) it.copy(streamOptions = null) else it
+        }
         val variants = mutableListOf<StreamRequestVariant>()
         val seenRequests = LinkedHashSet<ChatCompletionRequest>()
         // Dedup by structural equality of the request itself instead of by its
@@ -534,7 +550,7 @@ class HttpAgentLlmClient(
         }
 
         if (shouldGuardNvidiaKimiReasoningLeak(routeInfo)) {
-            val noThinkingRequest = request.copy(
+            val noThinkingRequest = compatibleRequest.copy(
                 enableThinking = false,
                 reasoningEffort = "none",
                 thinking = ChatCompletionThinking(type = "disabled")
@@ -546,35 +562,83 @@ class HttpAgentLlmClient(
             )
         }
 
-        add("default", request)
+        add("default", compatibleRequest)
         add(
             "no_stream_options",
-            request.copy(streamOptions = null)
+            compatibleRequest.copy(streamOptions = null)
         )
+        val requiresNativeToolCalls = compatibleRequest.tools.isNotEmpty() &&
+            compatibleRequest.parallelToolCalls == false &&
+            (compatibleRequest.toolChoice as? JsonPrimitive)
+                ?.contentOrNull
+                ?.equals("required", ignoreCase = true) == true
+        if (requiresNativeToolCalls) {
+            return variants
+        }
+
+        val legacyFunctions = compatibleRequest.tools.map { it.function }
+        val legacyRequest = legacyFunctions
+            .takeIf {
+                it.isNotEmpty() &&
+                    !routeInfo.wireApi.equals("responses", ignoreCase = true)
+            }
+            ?.let {
+                compatibleRequest.copy(
+                    streamOptions = null,
+                    parallelToolCalls = null,
+                    toolChoice = null,
+                    tools = emptyList(),
+                    functions = it,
+                    functionCall = toLegacyFunctionCall(request.toolChoice)
+                )
+            }
         add(
             "minimal",
-            request.copy(
+            compatibleRequest.copy(
                 streamOptions = null,
                 parallelToolCalls = null,
                 toolChoice = null
             )
         )
 
-        val legacyFunctions = request.tools.map { it.function }
-        if (legacyFunctions.isNotEmpty() && !routeInfo.wireApi.equals("responses", ignoreCase = true)) {
-            add(
-                "legacy_functions",
-                request.copy(
-                    streamOptions = null,
-                    parallelToolCalls = null,
-                    toolChoice = null,
-                    tools = emptyList(),
-                    functions = legacyFunctions,
-                    functionCall = toLegacyFunctionCall(request.toolChoice)
+        if (legacyRequest != null) {
+            add("legacy_functions", legacyRequest)
+        }
+        return variants
+    }
+
+    private fun normalizeMultimodalMessageContent(
+        request: ChatCompletionRequest,
+        routeInfo: HttpController.ChatCompletionRouteInfo
+    ): ChatCompletionRequest {
+        if (!isParateraGlm(routeInfo) || request.messages.none { it.content is JsonArray }) {
+            return request
+        }
+        val messages = request.messages.map { message ->
+            val content = message.content as? JsonPrimitive ?: return@map message
+            if (!content.isString) return@map message
+            message.copy(
+                content = JsonArray(
+                    listOf(
+                        JsonObject(
+                            mapOf(
+                                "type" to JsonPrimitive("text"),
+                                "text" to JsonPrimitive(content.content),
+                            )
+                        )
+                    )
                 )
             )
         }
-        return variants
+        return request.copy(messages = messages)
+    }
+
+    private fun isParateraGlm(routeInfo: HttpController.ChatCompletionRouteInfo): Boolean {
+        val model = routeInfo.resolvedModel.trim().lowercase()
+        val host = runCatching { URI(routeInfo.apiBase.orEmpty()).host.orEmpty() }
+            .getOrDefault("")
+            .lowercase()
+        return model == "glm-5.1" && host == "llmapi.paratera.com"
     }
 
     private fun shouldRetryNextVariantAfterReasoningLeak(
@@ -719,9 +783,52 @@ class HttpAgentLlmClient(
         }
     }
 
-    private fun extractResponseBody(response: Response?): String? {
+    private fun extractRawResponseBody(response: Response?): String? {
         val body = runCatching { response?.body?.string() }.getOrNull()?.trim().orEmpty()
-        return body.takeIf { it.isNotEmpty() }?.take(4000)
+        return body.takeIf { it.isNotEmpty() }
+    }
+
+    private fun parseSuccessfulNonStreamingResponsesTurn(
+        statusCode: Int?,
+        responseBody: String?,
+        routeInfo: HttpController.ChatCompletionRouteInfo,
+    ): ChatCompletionTurn? {
+        if (
+            statusCode == null ||
+            statusCode !in 200..299 ||
+            !OpenAiWireApi.isResponses(routeInfo.wireApi)
+        ) return null
+        val parsed = HttpController.parseOpenAiResponsesBody(responseBody)
+        if (!parsed.success) return null
+        val content = parsed.content.takeIf(String::isNotBlank)?.let(::JsonPrimitive)
+        val turn = ChatCompletionTurn(
+            message = ChatCompletionMessage(
+                role = "assistant",
+                content = content,
+                toolCalls = parsed.toolCalls.takeIf { it.isNotEmpty() },
+            ),
+            reasoning = parsed.reasoning,
+            finishReason = parsed.finishReason,
+            usage = parseResponsesUsage(responseBody),
+            resolvedModel = routeInfo.resolvedModel,
+        )
+        enforceReasoningEchoIfRequired(turn, routeInfo)
+        return turn
+    }
+
+    private fun parseResponsesUsage(responseBody: String?): ChatCompletionUsage? {
+        val usage = runCatching {
+            json.parseToJsonElement(responseBody.orEmpty()).jsonObject["usage"]?.jsonObject
+        }.getOrNull() ?: return null
+        return ChatCompletionUsage(
+            promptTokens = usage.tokenCount("input_tokens", "prompt_tokens"),
+            completionTokens = usage.tokenCount("output_tokens", "completion_tokens"),
+            totalTokens = usage["total_tokens"]?.jsonPrimitive?.contentOrNull?.toIntOrNull(),
+        )
+    }
+
+    private fun JsonObject.tokenCount(vararg names: String): Int? = names.firstNotNullOfOrNull {
+        get(it)?.jsonPrimitive?.contentOrNull?.toIntOrNull()
     }
 
     private fun extractErrorReason(responseBody: String?): String? {

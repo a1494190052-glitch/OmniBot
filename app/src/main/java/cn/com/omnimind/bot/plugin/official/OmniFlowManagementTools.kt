@@ -35,7 +35,8 @@ object OmniFlowManagementTools {
         definition(
             LIST_FUNCTIONS,
             "List Functions",
-            "List registered replayable GUI Functions.",
+            "List registered replayable GUI Functions. Use this before replay/recall when the " +
+                "Function id is not already known; the returned function_id is an internal id.",
             properties = mapOf(
                 "limit" to integerProperty("Maximum number of Functions to return."),
                 "offset" to integerProperty("Pagination offset."),
@@ -54,7 +55,9 @@ object OmniFlowManagementTools {
         definition(
             CREATE_FUNCTION,
             "Create Function",
-            "Register a complete canonical Function artifact.",
+            "Register a complete canonical Function artifact. This is a low-level operation; " +
+                "to register a completed VLM RunLog as a reusable instruction, use " +
+                "convert_run_log instead.",
             required = listOf("function"),
             properties = mapOf(
                 "function" to objectProperty("Canonical OmniFlow Function artifact."),
@@ -128,7 +131,11 @@ object OmniFlowManagementTools {
         definition(
             CONVERT_RUN_LOG,
             "Convert RunLog",
-            "Convert a successful RunLog into a replayable Function and optionally enhance it.",
+            "Register a successful VLM RunLog as a replayable Function. Workflow: use the " +
+                "run_id from the preceding VLM result (or list_run_logs/get_run_log), then " +
+                "call this tool with register=true and agent_visible=true. Set enhance=true " +
+                "only when semantic enhancement is requested. The returned function_id is " +
+                "the internal id used for later recall; do not invent one.",
             required = listOf("run_id"),
             properties = mapOf(
                 "run_id" to stringProperty("Source RunLog id."),

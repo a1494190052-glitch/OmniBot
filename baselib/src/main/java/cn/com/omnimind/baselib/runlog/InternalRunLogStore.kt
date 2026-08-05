@@ -462,7 +462,10 @@ object InternalRunLogStore {
         val record = readRunLocked(context, normalizedRunId)
             ?: return notFoundPayload(normalizedRunId)
         val steps = record.steps
-        val tokenUsage = tokenUsageSummary(steps)
+        val recordedTokenUsage = stringMap(record.diagnostics["token_usage"])
+        val tokenUsage = recordedTokenUsage.ifEmpty { tokenUsageSummary(steps) }
+        val recordedTokenUsageByCall = listOfMaps(record.diagnostics["token_usage_by_call"])
+        val tokenUsageByCall = recordedTokenUsageByCall.ifEmpty { tokenUsageByCall(steps) }
         val diagnostics = linkedMapOf<String, Any?>().apply {
             putAll(record.diagnostics - "event_seq")
             putAll(linkedMapOf(
@@ -473,7 +476,7 @@ object InternalRunLogStore {
             "done_reason" to record.doneReason,
             "token_usage" to tokenUsage.takeIf { it.isNotEmpty() },
             "token_usage_by_step" to tokenUsageByStep(steps).takeIf { it.isNotEmpty() },
-            "token_usage_by_call" to tokenUsageByCall(steps).takeIf { it.isNotEmpty() },
+            "token_usage_by_call" to tokenUsageByCall.takeIf { it.isNotEmpty() },
             ).filterValues { it != null })
         }
         return linkedMapOf(

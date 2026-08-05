@@ -2,84 +2,44 @@ package cn.com.omnimind.bot.plugin.official
 
 import android.content.Context
 import cn.com.omnimind.bot.omniflow.OmniFlowAppPlatform
+import cn.com.omnimind.bot.omniflow.OmniFlowPluginRuntime
 import cn.com.omnimind.bot.omniflow.OmniFlowRuntimeProvider
-import cn.com.omnimind.bot.omniflow.OmniVlmPlugin
 import cn.com.omnimind.bot.plugin.OmniPlugin
 import cn.com.omnimind.bot.plugin.OmniPluginContribution
-import cn.com.omnimind.bot.plugin.OmniPluginDescriptor
-import cn.com.omnimind.bot.plugin.OmniPluginKind
-import cn.com.omnimind.bot.plugin.OmniPluginProvider
-import cn.com.omnimind.bot.plugin.OmniPluginToolDefinition
 import cn.com.omnimind.bot.plugin.OmniPluginToolGroup
-import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.JsonPrimitive
-import kotlinx.serialization.json.buildJsonArray
-import kotlinx.serialization.json.buildJsonObject
-import kotlinx.serialization.json.put
+import cn.com.omnimind.bot.plugin.runtime.RuntimeBundleAdapter
+import cn.com.omnimind.bot.plugin.runtime.RuntimeBundleDefinition
+import cn.com.omnimind.bot.plugin.runtime.RuntimeBundlePrepareMode
+import cn.com.omnimind.bot.plugin.runtime.RuntimeSkillBundleManager
 
-class OmniVlmLiteProvider(context: Context) : OmniPluginProvider {
+class OmniVlmLiteProvider(
+    context: Context,
+    definition: RuntimeBundleDefinition,
+) : RuntimeBundleAdapter {
     private val appContext = context.applicationContext
     private val runtimeProvider = OmniFlowRuntimeProvider()
-
-    override val descriptor = OmniPluginDescriptor(
-        id = ID,
-        name = "Omni VLM Lite",
-        version = VERSION,
-        description = "可重放的 Android GUI 视觉操作能力。安装时通过 Skill 准备隔离运行时，APK 不包含 Python、NumPy 或模型文件。",
-        publisher = "OmniMind",
-        kind = OmniPluginKind.RUNTIME_BUNDLE,
-        downloadSizeBytes = DOWNLOAD_SIZE_BYTES,
-        capabilities = listOf(
-            "Android GUI observation",
-            "Android GUI actions",
-            "VLM planning",
-            "Canonical RunLog",
-            "Function replay with OmniTransfer",
-        ),
-        settingsSchema = JsonObject(emptyMap()),
+    private val platform = OmniFlowAppPlatform(
+        RuntimeSkillBundleManager(appContext, definition.runtimeSkill)
     )
 
-    override suspend fun install() {
-        OmniVlmPlugin.install(
-            platform = OmniFlowAppPlatform,
-            enabled = false,
-            runtimeProvider = runtimeProvider,
-        )
-        runtimeProvider.install(appContext, OmniFlowAppPlatform)
-    }
-
-    override suspend fun uninstall() {
-        OmniVlmPlugin.uninstall()
-        runtimeProvider.reclaim(appContext, OmniFlowAppPlatform)
-    }
-
-    override suspend fun update() {
-        OmniVlmPlugin.uninstall()
-        try {
-            runtimeProvider.update(appContext, OmniFlowAppPlatform)
-        } finally {
-            OmniVlmPlugin.install(
-                platform = OmniFlowAppPlatform,
-                enabled = false,
-                runtimeProvider = runtimeProvider,
-            )
+    override suspend fun prepare(mode: RuntimeBundlePrepareMode) {
+        when (mode) {
+            RuntimeBundlePrepareMode.INSTALL -> runtimeProvider.install(appContext, platform)
+            RuntimeBundlePrepareMode.UPDATE -> runtimeProvider.update(appContext, platform)
         }
     }
 
-    override fun create(): OmniPlugin {
-        OmniVlmPlugin.install(
-            platform = OmniFlowAppPlatform,
-            enabled = false,
-            runtimeProvider = runtimeProvider,
-        )
+    override suspend fun remove() {
+        OmniFlowPluginRuntime.uninstall()
+        runtimeProvider.reclaim(appContext, platform)
+    }
+
+    override fun open(): OmniPlugin {
+        OmniFlowPluginRuntime.install(platform, runtimeProvider)
         return object : OmniPlugin {
             override fun contribution(): OmniPluginContribution =
                 OmniPluginContribution(
                     toolGroups = listOf(
-                        OmniPluginToolGroup(
-                            definitions = listOf(toolDefinition()),
-                            handlerFactory = { OmniVlmToolHandler(appContext) },
-                        ),
                         OmniPluginToolGroup(
                             definitions = OmniFlowManagementTools.definitions(),
                             handlerFactory = { OmniFlowManagementToolHandler(appContext) },
@@ -88,39 +48,17 @@ class OmniVlmLiteProvider(context: Context) : OmniPluginProvider {
                 )
 
             override suspend fun onEnable() {
-                OmniVlmPlugin.setEnabled(true)
+                OmniFlowPluginRuntime.enable(appContext)
             }
 
             override suspend fun onDisable() {
-                OmniVlmPlugin.setEnabled(false)
+                OmniFlowPluginRuntime.disable()
             }
         }
     }
 
-    private fun toolDefinition(): OmniPluginToolDefinition =
-        OmniPluginToolDefinition(
-            name = TOOL_NAME,
-            displayName = "VLM GUI",
-            description =
-                "Use vision to operate the current Android UI. The plugin observes the screen, " +
-                    "plans actions, executes them, and records a canonical RunLog.",
-            parameters = buildJsonObject {
-                put("type", "object")
-                put("required", buildJsonArray { add(JsonPrimitive("goal")) })
-                put("properties", buildJsonObject {
-                    put("goal", buildJsonObject {
-                        put("type", "string")
-                        put("description", "The concrete goal to complete in the Android UI.")
-                    })
-                })
-                put("additionalProperties", false)
-            },
-        )
-
     companion object {
         const val ID = "com.omnimind.omni-vlm-lite"
-        const val VERSION = "2.0.0"
-        const val TOOL_NAME = "vlm_task"
-        private const val DOWNLOAD_SIZE_BYTES = 24_000_000L
+        const val ADAPTER_ID = "omniflow_android_gui"
     }
 }

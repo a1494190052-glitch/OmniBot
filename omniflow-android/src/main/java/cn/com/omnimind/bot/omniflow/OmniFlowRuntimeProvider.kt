@@ -1,6 +1,7 @@
 package cn.com.omnimind.bot.omniflow
 
 import android.content.Context
+import cn.com.omnimind.baselib.util.OmniLog
 import java.io.File
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
@@ -12,6 +13,7 @@ data class PreparedOmniFlowRuntime(
     val shellPythonSourcePath: String,
     val shellSitePackagesPath: String,
     val shellOmniTransferRoot: String,
+    val shellOmniTransferCheckpointPath: String,
     val source: String,
 )
 
@@ -31,7 +33,7 @@ class OmniFlowRuntimeProvider {
         platform: OmniFlowPlatform,
     ): PreparedOmniFlowRuntime = prepareMutex.withLock {
         prepared = null
-        prepareFresh(context.applicationContext, platform)
+        prepareFresh(context.applicationContext, platform, refresh = true)
     }
 
     suspend fun prepare(
@@ -41,7 +43,7 @@ class OmniFlowRuntimeProvider {
         prepared?.let { return it }
         return prepareMutex.withLock {
             prepared?.let { return@withLock it }
-            prepareFresh(context.applicationContext, platform)
+            prepareFresh(context.applicationContext, platform, refresh = false)
         }
     }
 
@@ -56,15 +58,29 @@ class OmniFlowRuntimeProvider {
     private suspend fun prepareFresh(
         appContext: Context,
         platform: OmniFlowPlatform,
+        refresh: Boolean,
     ): PreparedOmniFlowRuntime {
-        val location = platform.resolveRuntimeSkill(appContext, refresh = true)
+        val startedAt = System.currentTimeMillis()
+        log("prepare_start refresh=$refresh")
+        val location = platform.resolveRuntimeSkill(appContext, refresh = refresh)
+        log(
+            "prepare_skill_resolved durationMs=${System.currentTimeMillis() - startedAt} " +
+                "source=${location.source}",
+        )
         val manifest = withContext(Dispatchers.IO) {
             val manifestFile = File(location.androidRoot, MANIFEST_PATH)
             require(manifestFile.isFile) { "omniflow_skill_manifest_missing" }
             manifestFile.inputStream().use(::parseOmniFlowRuntimeManifest)
         }
         platform.ensurePython(appContext, manifest.pythonVersion)
+        log(
+            "prepare_python_ready durationMs=${System.currentTimeMillis() - startedAt} " +
+                "python=${manifest.pythonVersion}",
+        )
         platform.bootstrapRuntimeSkill(appContext, location)
+        log(
+            "prepare_bootstrap_ready durationMs=${System.currentTimeMillis() - startedAt}",
+        )
         val runtime = withContext(Dispatchers.IO) {
             requireRuntimeFiles(location.androidRoot, manifest)
             alignPythonStoreWithRuntime(appContext, manifest)
@@ -75,10 +91,23 @@ class OmniFlowRuntimeProvider {
                     "${location.shellRoot}/scripts/runtime/.runtime/site-packages",
                 shellOmniTransferRoot =
                     "${location.shellRoot}/scripts/runtime/.runtime/omnitransfer",
+                shellOmniTransferCheckpointPath =
+                    "${location.shellRoot}/scripts/runtime/.runtime/omnitransfer/" +
+                        "src/omnitransfer/${manifest.omniTransferCheckpoint}",
                 source = location.source,
             )
         }
-        return runtime.also { prepared = it }
+        return runtime.also {
+            prepared = it
+            log(
+                "prepare_ready durationMs=${System.currentTimeMillis() - startedAt} " +
+                    "runtime=${manifest.version}",
+            )
+        }
+    }
+
+    private fun log(message: String) {
+        runCatching { OmniLog.i(TAG, message) }
     }
 
     private fun requireRuntimeFiles(
@@ -87,6 +116,7 @@ class OmniFlowRuntimeProvider {
     ) {
         val required = listOf(
             "scripts/runtime/python/omniflow/bridge.py",
+            "scripts/runtime/python/src/integrations/runlog.py",
             "scripts/runtime/python/schemas/oob/oob_canonical_actions.v1.json",
             "scripts/runtime/python/schemas/oob/omniflow_canonical_run_log.v1.json",
             "scripts/runtime/python/schemas/oob/omniflow_function.v2.json",
@@ -129,6 +159,7 @@ class OmniFlowRuntimeProvider {
     ).joinToString(":")
 
     companion object {
+        private const val TAG = "[OmniFlowRuntimeProvider]"
         const val SKILL_ID = "omniflow-gui-runtime"
         private const val MANIFEST_PATH = "scripts/runtime/runtime.properties"
     }

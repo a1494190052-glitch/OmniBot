@@ -486,7 +486,7 @@ abstract class _ChatInputAreaStateBase extends State<ChatInputArea>
   final ScrollController _textFieldScrollController = ScrollController();
 
   bool get isPopupVisible => _isPopupVisible;
-  bool get _hasManualRecordingAction => true;
+  bool get _hasTrajectoryActions => true;
   double _lastReportedInputHeight = 44;
   bool _inputHeightReportScheduled = false;
   bool _isComposerHovered = false;

@@ -137,8 +137,21 @@ cp wrangler.toml.example wrangler.toml
 # Put the created bucket name and your Cloudflare account id in wrangler.toml.
 wrangler secret put ADMIN_TOKEN            # admin console + release API token
 wrangler secret put CF_ANALYTICS_API_TOKEN # API token with "Account Analytics: Read"
+wrangler secret put CHATGPT_LUNA_VLM_API_BASE
+wrangler secret put CHATGPT_LUNA_VLM_API_KEY
+wrangler secret put CHATGPT_LUNA_VLM_MODEL
 wrangler deploy
 ```
+
+The three `CHATGPT_LUNA_VLM_*` values configure the optional ChatGPT Luna
+upstream served by `POST /v1/responses`. `OFFICIAL_VLM_OPERATION_*` configures
+the Gelab upstream served by `POST /v1/chat/completions`; when both are present,
+`/updates` advertises Gelab as the normal APK default while both proxy routes
+remain available. The update payload never returns either upstream URL or API
+key. The Worker overwrites the request model and streams the upstream response.
+The Luna Responses route forwards a caller-provided Bearer key (used by the
+credentialed debug APK) and falls back to its server key; the Gelab route always
+uses its server-managed key.
 
 The checked-in example config enables `global_fetch_strictly_public`. There is
 no Worker Cron Trigger for the catalog; scheduling belongs exclusively to

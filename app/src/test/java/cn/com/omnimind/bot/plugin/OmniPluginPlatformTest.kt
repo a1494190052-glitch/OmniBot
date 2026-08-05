@@ -159,28 +159,53 @@ class OmniPluginPlatformTest {
     }
 
     @Test
-    fun `default plugin enables once and explicit uninstall is preserved`() = runBlocking {
-        val provider = RecordingProvider("com.omnimind.default", "default_action")
-        val store = OneShotDefaultStore()
-        val firstPlatform = platform(
+    fun `default plugin installs backend before enable and explicit uninstall is preserved`() =
+        runBlocking {
+            val provider = RecordingProvider("com.omnimind.default", "default_action")
+            val store = OneShotDefaultStore()
+            val firstPlatform = platform(
+                provider,
+                store = store,
+                defaultEnabledPluginIds = setOf(provider.descriptor.id)
+            )
+
+            assertTrue(firstPlatform.list().single().enabled)
+            assertEquals(1, provider.installCount)
+            assertEquals(1, provider.enableCount)
+            assertEquals(listOf("install", "enable"), provider.lifecycleEvents)
+
+            firstPlatform.uninstall(provider.descriptor.id)
+            assertFalse(firstPlatform.list().single().installed)
+
+            val restoredPlatform = platform(
+                provider,
+                store = store,
+                defaultEnabledPluginIds = setOf(provider.descriptor.id)
+            )
+            assertFalse(restoredPlatform.list().single().installed)
+        }
+
+    @Test
+    fun `failed default backend install is not persisted as installed`() = runBlocking {
+        val provider = RecordingProvider(
+            pluginId = "com.omnimind.default-failure",
+            toolName = "default_failure_action",
+            installFailure = IllegalStateException("backend preparation failed"),
+        )
+        val platform = platform(
             provider,
-            store = store,
-            defaultEnabledPluginIds = setOf(provider.descriptor.id)
+            store = OneShotDefaultStore(),
+            defaultEnabledPluginIds = setOf(provider.descriptor.id),
         )
 
-        assertTrue(firstPlatform.list().single().enabled)
-        assertEquals(0, provider.installCount)
-        assertEquals(1, provider.enableCount)
+        val state = platform.list().single()
 
-        firstPlatform.uninstall(provider.descriptor.id)
-        assertFalse(firstPlatform.list().single().installed)
-
-        val restoredPlatform = platform(
-            provider,
-            store = store,
-            defaultEnabledPluginIds = setOf(provider.descriptor.id)
-        )
-        assertFalse(restoredPlatform.list().single().installed)
+        assertFalse(state.installed)
+        assertFalse(state.enabled)
+        assertEquals("backend preparation failed", state.errorMessage)
+        assertEquals(1, provider.installCount)
+        assertEquals(1, provider.uninstallCount)
+        assertEquals(0, provider.enableCount)
     }
 
     private fun platform(
@@ -266,6 +291,7 @@ class OmniPluginPlatformTest {
         var enableCount = 0
         var disableCount = 0
         var handlerDisposeCount = 0
+        val lifecycleEvents = mutableListOf<String>()
 
         override val descriptor = OmniPluginDescriptor(
             id = pluginId,
@@ -278,25 +304,30 @@ class OmniPluginPlatformTest {
 
         override suspend fun install() {
             installCount += 1
+            lifecycleEvents += "install"
             installFailure?.let { throw it }
         }
 
         override suspend fun uninstall() {
             uninstallCount += 1
+            lifecycleEvents += "uninstall"
         }
 
         override suspend fun update() {
             updateCount += 1
+            lifecycleEvents += "update"
         }
 
         override fun create(): OmniPlugin {
             return object : OmniPlugin {
                 override suspend fun onEnable() {
                     enableCount += 1
+                    lifecycleEvents += "enable"
                 }
 
                 override suspend fun onDisable() {
                     disableCount += 1
+                    lifecycleEvents += "disable"
                 }
 
                 override fun contribution(): OmniPluginContribution {

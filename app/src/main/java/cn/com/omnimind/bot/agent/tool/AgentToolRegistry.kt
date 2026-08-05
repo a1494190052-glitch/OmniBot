@@ -28,7 +28,9 @@ class AgentToolRegistry(
     discoveredServers: List<RemoteMcpDiscoveredServer>,
     conversationMode: String = AgentConversationModePolicy.NORMAL_MODE,
     terminalDistribution: TerminalDistribution.Spec = TerminalDistribution.alpine,
-    pluginToolDefinitions: List<OmniPluginToolDefinition> = emptyList()
+    pluginToolDefinitions: List<OmniPluginToolDefinition> = emptyList(),
+    userMessage: String? = null,
+    toolRoutingMode: AgentToolRoutingMode = AgentToolRoutingMode.DEFAULT,
 ) : AgentToolCatalog {
     data class RuntimeToolDescriptor(
         val name: String,
@@ -127,8 +129,44 @@ class AgentToolRegistry(
             runtimeDefinitions.add(toDynamicMcpToolDefinition(tool, locale))
         }
 
-        val filteredDefinitions = AgentConversationModePolicy
+        val conversationDefinitions = AgentConversationModePolicy
             .filterToolDefinitionsForConversationMode(runtimeDefinitions, conversationMode)
+        val visibleToolNames = userMessage?.let { message ->
+            AgentToolVisibilitySelector.select(
+                userMessage = message,
+                routingMode = toolRoutingMode,
+                candidates = conversationDefinitions.mapNotNull { definition ->
+                    val function = definition["function"] as? JsonObject
+                        ?: return@mapNotNull null
+                    val name = function["name"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty()
+                    if (name.isBlank()) return@mapNotNull null
+                    val toolType = function["toolType"]?.jsonPrimitive?.contentOrNull?.trim()
+                        .orEmpty()
+                    AgentToolVisibilitySelector.ToolCandidate(
+                        name = name,
+                        displayName = function["displayName"]?.jsonPrimitive?.contentOrNull
+                            .orEmpty(),
+                        description = function["description"]?.jsonPrimitive?.contentOrNull
+                            .orEmpty(),
+                        owner = function["serverName"]?.jsonPrimitive?.contentOrNull,
+                        dynamic = toolType == "plugin" || toolType == "mcp",
+                    )
+                },
+            )
+        }
+        val filteredDefinitions = if (visibleToolNames == null) {
+            conversationDefinitions
+        } else {
+            conversationDefinitions.filter { definition ->
+                val toolName = (definition["function"] as? JsonObject)
+                    ?.get("name")
+                    ?.jsonPrimitive
+                    ?.contentOrNull
+                    ?.trim()
+                    .orEmpty()
+                toolName in visibleToolNames
+            }
+        }
 
         toolsForModel = filteredDefinitions.mapNotNull { definition ->
             val function = definition["function"] as? JsonObject ?: return@mapNotNull null
@@ -165,6 +203,7 @@ class AgentToolRegistry(
             tag,
             "registered_tools count=${toolsForModel.size} " +
                 "conversationMode=$conversationMode " +
+                "toolRoutingMode=$toolRoutingMode " +
                 "subagent_present=${"subagent_dispatch" in runtimeDescriptors.keys} " +
                 "memory_load_present=${"memory_load" in runtimeDescriptors.keys} " +
                 "names=[${runtimeDescriptors.keys.joinToString(",")}]"

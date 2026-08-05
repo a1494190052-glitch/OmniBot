@@ -108,12 +108,12 @@ class SceneDefinition {
 const List<EnvironmentPreset> environmentPresets = <EnvironmentPreset>[
   EnvironmentPreset(
     id: 'general',
-    icon: LucideIcons.layers3,
-    titleZh: '通用开发',
-    titleEn: 'General development',
-    descriptionZh: '适合大多数项目，一次准备 Web、脚本和版本管理工具。',
+    icon: LucideIcons.messageCircleMore,
+    titleZh: '聊天 Agent 助手',
+    titleEn: 'Chat Agent Assistant',
+    descriptionZh: '适合日常对话、任务协作和工具调用，也保留常用开发能力。',
     descriptionEn:
-        'A balanced setup for web projects, scripts, and version control.',
+        'For everyday chat, task collaboration, and tool use, with common development capabilities included.',
     packageIds: <String>['nodejs', 'npm', 'git', 'python', 'pip', 'uv'],
     contents: 'Node.js · npm · Python · pip · uv · Git',
   ),

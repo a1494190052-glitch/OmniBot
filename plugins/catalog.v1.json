@@ -1,0 +1,172 @@
+{
+  "schemaVersion": 1,
+  "plugins": [
+    {
+      "id": "com.omnimind.omni-vlm-lite",
+      "name": "OmniFlow",
+      "version": "2.1.4",
+      "interfaceVersion": 1,
+      "description": "Android GUI automation powered by the OmniFlow VLM runtime.",
+      "publisher": "OmniMind",
+      "kind": "runtime_bundle",
+      "downloadSizeBytes": 100000000,
+      "capabilities": [
+        "Manual recording",
+        "Canonical RunLog",
+        "RunLog to Function",
+        "Function recall and parameter binding",
+        "Function replay with OmniTransfer",
+        "Mobilerun Manager and Executor",
+        "OmniFlow Python runtime"
+      ],
+      "settingsSchema": {},
+      "adapter": "omniflow_android_gui",
+      "runtimeSkill": {
+        "id": "omniflow-gui-runtime",
+        "packagedAssetPath": "omni-vlm-lite/runtime-skill/omniflow-gui-runtime",
+        "schemaAssetPath": "omni-vlm-lite/schemas",
+        "markerFile": "PACKAGED_RUNTIME_SKILL",
+        "bootstrapScript": "scripts/bootstrap_runtime.py",
+        "runtimeDataPath": "scripts/runtime/.runtime",
+        "bootstrapTimeoutSeconds": 900
+      },
+      "presentation": {
+        "description": {
+          "zh": "安装后即可通过 VLM 操作手机，并可录下操作过程、查看每一步、保存成功流程，在相似任务中再次使用。投资人 Debug 包已默认安装并启用。",
+          "en": "Install to operate the phone through the VLM, record actions, inspect every step, and save successful flows for reuse. Investor debug builds install and enable it by default."
+        },
+        "readiness": "vlm_provider",
+        "usage": [
+          {
+            "icon": "power",
+            "title": {"zh": "安装即准备完整后端", "en": "Complete backend on install"},
+            "description": {
+              "zh": "安装过程会下载并校验 OmniFlow、Python、NumPy 和 OmniTransfer；全部成功后才显示为已安装，用户不需要单独安装 Python。",
+              "en": "Installation downloads and verifies OmniFlow, Python, NumPy, and OmniTransfer. The plugin is marked installed only after every backend component succeeds; Python needs no separate setup."
+            }
+          },
+          {
+            "icon": "touch",
+            "title": {"zh": "投资人版本开箱即用", "en": "Ready in investor builds"},
+            "description": {
+              "zh": "投资人 Debug 包首次启动会自动安装并启用插件；只需打开无障碍权限即可开始操作手机。",
+              "en": "Investor debug builds install and enable the plugin on first launch; enable accessibility permission to start controlling the phone."
+            }
+          },
+          {
+            "icon": "layers",
+            "title": {"zh": "不增加基础安装包体积", "en": "Keeps the base app small"},
+            "description": {
+              "zh": "录制、保存、自动复用和跨设备执行所需的高级组件会按需下载，不会增加基础 APK 的体积。",
+              "en": "Advanced components for recording, saving, automatic reuse, and cross-device execution are downloaded only when needed and do not increase the base APK size."
+            }
+          }
+        ],
+        "ready": {
+          "key": "omniflow-ready-guide",
+          "title": {"zh": "OmniFlow 自动化增强已启用", "en": "OmniFlow automation is enabled"},
+          "steps": [
+            {
+              "zh": "在线执行：回到聊天，直接说“打开蓝牙”或“新建联系人”。",
+              "en": "Online: return to chat and ask “Turn on Bluetooth” or “Create a contact”."
+            },
+            {
+              "zh": "录下操作：在聊天中发送“手动录制”，完成后会保存整个操作过程，方便以后再次使用。",
+              "en": "Record actions: send “Manual recording” in chat. The complete flow is saved for later reuse."
+            },
+            {
+              "zh": "自动复用：再次提出相似要求时，系统会找到已保存的流程，替换新的联系人、商品或地址后执行。",
+              "en": "Reuse automatically: for a similar request, the system finds a saved flow, substitutes the new contact, product, or address, and runs it."
+            }
+          ],
+          "actions": [
+            {
+              "route": "/home/chat",
+              "navigation": "go",
+              "icon": "chat",
+              "requiresReadiness": true,
+              "label": {"zh": "去聊天试用", "en": "Try in chat"}
+            },
+            {
+              "route": "/task/omniflow",
+              "navigation": "push",
+              "icon": "route",
+              "requiresReadiness": false,
+              "label": {"zh": "查看已保存操作", "en": "View saved actions"}
+            }
+          ]
+        },
+        "installedAction": {
+          "route": "/task/omniflow",
+          "navigation": "push",
+          "icon": "route",
+          "label": {"zh": "已保存操作与执行记录", "en": "Saved actions & history"}
+        },
+        "dashboard": {
+          "route": "/task/omniflow",
+          "navigation": "push",
+          "icon": "dashboard",
+          "label": {"zh": "进入 Dashboard", "en": "Open Dashboard"}
+        },
+        "capabilityLabels": {
+          "Manual recording": {"zh": "录下你的手机操作", "en": "Record your phone actions"},
+          "Canonical RunLog": {"zh": "查看任务执行的每一步", "en": "Review every step of a task"},
+          "RunLog to Function": {"zh": "把成功操作保存下来重复使用", "en": "Save successful actions for reuse"},
+          "Function recall and parameter binding": {
+            "zh": "相似任务自动找到流程并替换新内容",
+            "en": "Find a matching flow and substitute new details"
+          },
+          "Function replay with OmniTransfer": {
+            "zh": "换一台手机也能找到对应按钮并执行",
+            "en": "Adapt saved actions to another phone"
+          },
+          "Mobilerun Manager and Executor": {
+            "zh": "管理并执行已保存的手机操作",
+            "en": "Manage and run saved phone actions"
+          },
+          "OmniFlow Python runtime": {
+            "zh": "需要高级能力时自动准备运行环境",
+            "en": "Prepare advanced automation only when needed"
+          }
+        }
+      }
+    },
+    {
+      "id": "com.omnimind.vibe-project-builder",
+      "name": "Vibe Builder",
+      "version": "0.2.1",
+      "interfaceVersion": 1,
+      "description": "Build standalone phone-first Apps linked to Xiaowan, isolated data, and reusable backend connectors.",
+      "publisher": "OmniMind",
+      "kind": "runtime_bundle",
+      "downloadSizeBytes": 0,
+      "capabilities": [
+        "Standalone HTML Apps",
+        "SVG launcher icons",
+        "Installable Xiaowan Skills",
+        "Agent-callable business tools",
+        "Reusable backend connectors",
+        "Isolated optional SQLite storage"
+      ],
+      "settingsSchema": {},
+      "adapter": "sandbox_bundle",
+      "runtimeSkill": {
+        "id": "vibe-project-builder",
+        "packagedAssetPath": "vibe-project/runtime-skill/vibe-project-builder",
+        "markerFile": "PACKAGED_RUNTIME_SKILL"
+      },
+      "presentation": {
+        "description": {
+          "zh": "启用后，Agent 可以生成带独立 HTML 界面和 SVG 桌面图标的小 App，并快速连接小万、可调用工具与隔离数据；发布后作为独立插件管理。",
+          "en": "Enable the Agent to generate a standalone HTML App with an SVG home-screen icon, then link Xiaowan, callable tools, and isolated data behind it as an independent plugin."
+        },
+        "dashboard": {
+          "route": "/home/plugin_market/com.omnimind.vibe-project-builder",
+          "navigation": "push",
+          "icon": "dashboard",
+          "label": {"zh": "进入 Vibe Builder", "en": "Open Vibe Builder"}
+        }
+      }
+    }
+  ]
+}

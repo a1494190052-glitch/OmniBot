@@ -311,10 +311,21 @@ class SkillIndexService(
 
     fun installSkillFromDirectory(sourcePath: String): SkillIndexEntry {
         val sourceDir = File(sourcePath).canonicalFile
+        return installSkillFromDirectory(sourcePath, sourceDir.name)
+    }
+
+    internal fun installSkillFromDirectory(
+        sourcePath: String,
+        targetDirectoryName: String,
+    ): SkillIndexEntry {
+        val sourceDir = File(sourcePath).canonicalFile
         require(sourceDir.isDirectory) { "skill source 必须是目录" }
         val skillFile = File(sourceDir, "SKILL.md")
         require(skillFile.exists()) { "skill source 缺少 SKILL.md" }
-        val targetDir = File(workspaceManager.skillsRoot(), sourceDir.name)
+        require(SKILL_TARGET_DIRECTORY.matches(targetDirectoryName)) {
+            "skill target directory 非法：$targetDirectoryName"
+        }
+        val targetDir = File(workspaceManager.skillsRoot(), targetDirectoryName)
         copyRecursively(sourceDir, targetDir)
         val entry = buildInstalledEntry(
             skillDir = targetDir,
@@ -612,6 +623,10 @@ class SkillIndexService(
             else -> 2
         }
     }
+
+    private companion object {
+        val SKILL_TARGET_DIRECTORY = Regex("^[a-z0-9][a-z0-9-]{0,79}$")
+    }
 }
 
 class SkillLoader(
@@ -715,11 +730,26 @@ object SkillTriggerMatcher {
             score += 0.9
         }
         extractCandidatePhrases(entry.description).forEach { phrase ->
-            if (phrase.isNotBlank() && normalizedMessage.contains(normalize(phrase))) {
+            if (matchesTriggerPhrase(normalizedMessage, phrase)) {
                 score += 0.35
             }
         }
         return min(score, 1.5)
+    }
+
+    private fun matchesTriggerPhrase(normalizedMessage: String, phrase: String): Boolean {
+        val normalizedPhrase = normalize(phrase)
+        if (normalizedPhrase.isBlank()) return false
+        if ('*' !in normalizedPhrase) return normalizedMessage.contains(normalizedPhrase)
+        val segments = normalizedPhrase.split('*').filter(String::isNotBlank)
+        if (segments.size < 2) return false
+        var searchFrom = 0
+        segments.forEach { segment ->
+            val matchAt = normalizedMessage.indexOf(segment, startIndex = searchFrom)
+            if (matchAt < 0) return false
+            searchFrom = matchAt + segment.length
+        }
+        return true
     }
 
     private fun extractCandidatePhrases(description: String): List<String> {

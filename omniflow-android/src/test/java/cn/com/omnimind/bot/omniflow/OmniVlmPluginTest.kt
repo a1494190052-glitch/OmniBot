@@ -3,91 +3,176 @@ package cn.com.omnimind.bot.omniflow
 import android.content.Context
 import cn.com.omnimind.baselib.llm.ChatCompletionRequest
 import cn.com.omnimind.baselib.llm.ChatCompletionTurn
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
-import org.junit.Assert.assertTrue
-import org.junit.Assert.fail
 import org.junit.Test
 
 class OmniVlmPluginTest {
 
     @Test
-    fun `installed VLM routes online execution through run gui`() = runBlocking {
+    fun `VLM delegates execution to its configured backend`() = runBlocking {
         val backend = RecordingBackend()
-        val plugin = OmniVlmPlugin(backend)
+        val runtime = OmniVlmPlugin(backend)
+        var afterExecutionCount = 0
 
-        assertFailsWithMessage("not_installed") {
-            plugin.setEnabled(true)
-        }
-
-        plugin.install(TestPlatform, enabled = false)
-        assertFalse(plugin.isEnabled())
-
-        plugin.setEnabled(true)
-        assertTrue(plugin.isEnabled())
-        val result = plugin.execute(
+        val result = runtime.execute(
             context = TestContext,
             request = OmniVlmPlugin.Request(goal = " open settings ", runId = " run-1 "),
             modelClient = UnusedModelClient,
+            hooks = OmniVlmPlugin.Hooks(
+                afterExecution = { afterExecutionCount += 1 },
+            ),
         )
 
-        assertEquals("run_gui", backend.toolName)
-        assertEquals("open settings", backend.goal)
-        assertEquals("run-1", backend.runId)
-        assertEquals(OmniVlmPlugin.MODEL_SCENE, backend.arguments["model"])
+        assertEquals("open settings", backend.request?.goal)
+        assertEquals("run-1", backend.request?.runId)
         assertEquals(true, result.payload["success"])
-
-        plugin.uninstall()
-        assertFalse(plugin.isEnabled())
-        assertEquals(1, backend.shutdownCount)
+        assertEquals(1, afterExecutionCount)
     }
 
-    private suspend fun assertFailsWithMessage(
-        messageFragment: String,
-        block: suspend () -> Unit,
-    ) {
-        try {
-            block()
-            fail("Expected failure containing $messageFragment")
-        } catch (error: IllegalStateException) {
-            assertTrue(error.message.orEmpty().contains(messageFragment, ignoreCase = true))
+    @Test
+    fun `VLM defaults to stable search first navigation guidance`() {
+        val guidance = OmniVlmPlugin.Request(goal = "find a contact").stepSkillGuidance
+
+        assertEquals(true, guidance.contains("use search"))
+        assertEquals(true, guidance.contains("type the requested text directly"))
+        assertEquals(true, guidance.contains("before browsing long menus or swiping"))
+        assertEquals(true, guidance.contains("Do not select history"))
+        assertEquals(true, guidance.contains("Swipe only when no usable search"))
+    }
+
+    @Test
+    fun `VLM runs completion hook when backend fails`() = runBlocking {
+        val runtime = OmniVlmPlugin(FailingBackend)
+        var afterExecutionCount = 0
+
+        val error = runCatching {
+            runtime.execute(
+                context = TestContext,
+                request = OmniVlmPlugin.Request(goal = "open settings", runId = "run-2"),
+                modelClient = UnusedModelClient,
+                hooks = OmniVlmPlugin.Hooks(
+                    afterExecution = { afterExecutionCount += 1 },
+                ),
+            )
+        }.exceptionOrNull()
+
+        assertEquals("backend_failed", error?.message)
+        assertEquals(1, afterExecutionCount)
+    }
+
+    @Test
+    fun `successful recalled Function skips online VLM`() = runBlocking {
+        var onlineCalls = 0
+
+        val result = executeRecallThenOnline(
+            hooks = OmniVlmPlugin.Hooks(),
+            recall = {
+                OmniVlmPlugin.Result(
+                    payload = mapOf("success" to true, "recall_hit" to true),
+                    finalStateId = "state-recall",
+                )
+            },
+            online = {
+                onlineCalls += 1
+                OmniVlmPlugin.Result(mapOf("success" to true), "state-online")
+            },
+        )
+
+        assertEquals(true, result.payload["recall_hit"])
+        assertEquals("state-recall", result.finalStateId)
+        assertEquals(0, onlineCalls)
+    }
+
+    @Test
+    fun `failed recalled Function falls back to online VLM`() = runBlocking {
+        val progress = mutableListOf<Map<String, Any?>>()
+        var onlineCalls = 0
+
+        val result = executeRecallThenOnline(
+            hooks = OmniVlmPlugin.Hooks(
+                onProgress = { _, extras -> progress += extras },
+            ),
+            recall = {
+                OmniVlmPlugin.Result(
+                    payload = mapOf(
+                        "success" to false,
+                        "recall_hit" to true,
+                        "recalled_function_id" to "create_contact",
+                        "error_code" to "omnitransfer_target_candidates_missing",
+                    ),
+                    finalStateId = "state-recall-failed",
+                )
+            },
+            online = {
+                onlineCalls += 1
+                OmniVlmPlugin.Result(mapOf("success" to true), "state-online")
+            },
+        )
+
+        assertEquals(true, result.payload["success"])
+        assertEquals("state-online", result.finalStateId)
+        assertEquals(1, onlineCalls)
+        assertEquals("online_vlm", progress.single()["fallback"])
+    }
+
+    @Test
+    fun `cancelled recalled Function never falls back`() = runBlocking {
+        var onlineCalls = 0
+
+        val result = executeRecallThenOnline(
+            hooks = OmniVlmPlugin.Hooks(),
+            recall = {
+                OmniVlmPlugin.Result(
+                    payload = mapOf("success" to false, "done_reason" to "cancelled"),
+                    finalStateId = null,
+                )
+            },
+            online = {
+                onlineCalls += 1
+                OmniVlmPlugin.Result(mapOf("success" to true), null)
+            },
+        )
+
+        assertEquals("cancelled", result.payload["done_reason"])
+        assertEquals(0, onlineCalls)
+    }
+
+    @Test(expected = CancellationException::class)
+    fun `recall cancellation propagates without fallback`() {
+        runBlocking {
+            executeRecallThenOnline(
+                hooks = OmniVlmPlugin.Hooks(),
+                recall = { throw CancellationException("stopped") },
+                online = { error("online VLM must not run") },
+            )
         }
     }
 
     private class RecordingBackend : OmniVlmBackend {
-        var shutdownCount = 0
-        var toolName = ""
-        var arguments: Map<String, Any?> = emptyMap()
-        var goal = ""
-        var runId = ""
-
-        override fun configure(
-            platform: OmniFlowPlatform,
-            runtimeProvider: OmniFlowRuntimeProvider,
-        ) = Unit
-
-        override fun warmup(context: Context) = Unit
-
-        override suspend fun shutdown() {
-            shutdownCount += 1
-        }
+        var request: OmniVlmPlugin.Request? = null
 
         override suspend fun execute(
             context: Context,
-            toolName: String,
-            arguments: Map<String, Any?>,
-            goal: String,
-            runId: String,
+            request: OmniVlmPlugin.Request,
             modelClient: OmniFlowModelClient,
-            hooks: OmniFlow.Hooks,
-        ): OmniFlow.Result {
-            this.toolName = toolName
-            this.arguments = arguments
-            this.goal = goal
-            this.runId = runId
-            return OmniFlow.Result(mapOf("success" to true), null)
+            hooks: OmniVlmPlugin.Hooks,
+        ): OmniVlmPlugin.Result {
+            this.request = request
+            return OmniVlmPlugin.Result(mapOf("success" to true), null)
         }
+
+        override fun stop(runId: String): Boolean = false
+    }
+
+    private object FailingBackend : OmniVlmBackend {
+        override suspend fun execute(
+            context: Context,
+            request: OmniVlmPlugin.Request,
+            modelClient: OmniFlowModelClient,
+            hooks: OmniVlmPlugin.Hooks,
+        ): OmniVlmPlugin.Result = error("backend_failed")
 
         override fun stop(runId: String): Boolean = false
     }
@@ -97,30 +182,6 @@ class OmniVlmPluginTest {
             request: ChatCompletionRequest,
             onReasoningUpdate: (suspend (String) -> Unit)?,
         ): ChatCompletionTurn = error("not used")
-    }
-
-    private object TestPlatform : OmniFlowPlatform {
-        override suspend fun startProcess(
-            context: Context,
-            command: String,
-            environment: Map<String, String>,
-        ): Process = error("not used")
-
-        override suspend fun ensurePython(context: Context, expectedVersion: String) = Unit
-
-        override suspend fun resolveRuntimeSkill(
-            context: Context,
-            refresh: Boolean,
-        ): OmniFlowSkillLocation = error("not used")
-
-        override suspend fun bootstrapRuntimeSkill(
-            context: Context,
-            location: OmniFlowSkillLocation,
-        ) = Unit
-
-        override suspend fun reclaimRuntimeSkill(context: Context) = Unit
-
-        override suspend fun completeJson(request: ChatCompletionRequest): String = error("not used")
     }
 
     private object TestContext : android.content.ContextWrapper(null)

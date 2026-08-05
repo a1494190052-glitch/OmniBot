@@ -1169,6 +1169,14 @@ mixin _ChatPageConversationFlowMixin on _ChatPageStateBase {
   }
 
   @override
+  Future<void> onAgentPermissionRequired(List<String> permissionIds) async {
+    if (!mounted || _activeConversationMode != ChatPageMode.normal) {
+      return;
+    }
+    await _requestAuthorizeForExecution(permissionIds);
+  }
+
+  @override
   Future<void> _requestAuthorizeForExecution(
     List<String> requiredPermissionIds,
   ) async {

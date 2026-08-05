@@ -12,12 +12,13 @@ import cn.com.omnimind.bot.agent.WorkspaceScheduledTaskScheduler
 import cn.com.omnimind.bot.activity.StartupThemeResolver
 import cn.com.omnimind.bot.cleanup.LegacyLocalModelDataCleanup
 import cn.com.omnimind.bot.mcp.McpServerManager
+import cn.com.omnimind.bot.plugin.OmniPluginHost
 import cn.com.omnimind.bot.plugin.official.OfficialOmniPluginProviders
 import cn.com.omnimind.bot.quicklog.QuickLogWidgetUpdater
 import cn.com.omnimind.bot.terminal.EmbeddedTerminalRuntime
 import cn.com.omnimind.bot.update.AppUpdateManager
 import cn.com.omnimind.bot.util.NestedBackgroundStateUtil
-import cn.com.omnimind.bot.vlm.BundledVlmOperationConfig
+import cn.com.omnimind.bot.vlm.DebugOmniMindProviderBootstrap
 import cn.com.omnimind.baselib.shizuku.ShizukuCapabilityManager
 import com.rk.resources.Res
 import com.tencent.mmkv.MMKV
@@ -76,8 +77,9 @@ class App : BaseApplication() {
         Res.application = this
 
         MMKV.initialize(this)
-        BundledVlmOperationConfig.install()
+        DebugOmniMindProviderBootstrap.install()
         OfficialOmniPluginProviders.register()
+        initializeOfficialPlugins()
         AgentPromptSettingsStore.initializeAndCleanupLegacyFiles(this)
         LegacyLocalModelDataCleanup.start(this)
         setupUncaughtExceptionHandler()
@@ -146,6 +148,19 @@ class App : BaseApplication() {
                     android.os.Process.killProcess(android.os.Process.myPid())
                     kotlin.system.exitProcess(10)
                 }
+            }
+        }
+    }
+
+    private fun initializeOfficialPlugins() {
+        CoroutineScope(Dispatchers.IO).launch {
+            runCatching {
+                OmniPluginHost.get(this@App).list()
+            }.onFailure { error ->
+                OmniLog.w(
+                    "AppStartup",
+                    "Official plugin initialization failed: ${error.message}",
+                )
             }
         }
     }

@@ -16,7 +16,6 @@ class OfficialVlmOperationConfigStoreTest {
             OfficialVlmOperationConfig(
                 enabled = true,
                 apiBase = " https://omnimind.example/v1/ ",
-                apiKey = " bundled-key ",
                 model = " gpt-5.6-sol ",
                 wireApi = "responses",
             )
@@ -26,11 +25,20 @@ class OfficialVlmOperationConfigStoreTest {
             OfficialVlmOperationConfig(
                 enabled = true,
                 apiBase = "https://omnimind.example/v1",
-                apiKey = "bundled-key",
                 model = "gpt-5.6-sol",
                 wireApi = OpenAiWireApi.RESPONSES,
             ),
             OfficialVlmOperationConfigStore.getConfig(),
+        )
+    }
+
+    @Test
+    fun `legacy persisted upstream keys are detected for removal`() {
+        assertEquals(
+            true,
+            OfficialVlmOperationConfigStore.containsLegacySecretField(
+                """{"enabled":true,"apiKey":"must-not-remain"}"""
+            )
         )
     }
 }

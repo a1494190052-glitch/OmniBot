@@ -6,6 +6,30 @@ import 'package:ui/services/permission_registry.dart';
 import 'package:ui/services/permission_service.dart';
 
 void main() {
+  test('task execution resolves accessibility permission aliases', () {
+    expect(
+      kTaskExecutionRequiredPermissionIds,
+      contains(kAccessibilityPermissionId),
+    );
+    expect(
+      resolveExecutionPermissionIds(const <String>[
+        '无障碍权限',
+        'Overlay',
+        'unknown permission',
+      ]),
+      <String>[kAccessibilityPermissionId, kOverlayPermissionId],
+    );
+  });
+
+  test('builds accessibility display permission', () {
+    final permissions = PermissionService.buildDisplayPermissionsForIds(const [
+      kAccessibilityPermissionId,
+    ]);
+
+    expect(permissions, hasLength(1));
+    expect(permissions.single.id, kAccessibilityPermissionId);
+  });
+
   tearDown(LegacyTextLocalizer.clearResolvedLocale);
 
   test('rebuilds special permission labels from current locale', () {

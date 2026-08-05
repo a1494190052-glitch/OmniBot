@@ -1858,4 +1858,7 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get homeDrawerLateNightSub2 => 'Say good night to today';
+
+  @override
+  String get omnibotGuide => 'Omnibot Guide';
 }

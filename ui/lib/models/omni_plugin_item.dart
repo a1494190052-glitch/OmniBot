@@ -10,6 +10,7 @@ class OmniPluginItem {
     required this.downloadSizeBytes,
     required this.capabilities,
     required this.settingsSchema,
+    required this.presentation,
     required this.installed,
     required this.enabled,
     required this.compatible,
@@ -26,10 +27,20 @@ class OmniPluginItem {
   final int downloadSizeBytes;
   final List<String> capabilities;
   final Map<String, dynamic> settingsSchema;
+  final Map<String, dynamic> presentation;
   final bool installed;
   final bool enabled;
   final bool compatible;
   final String? errorMessage;
+
+  bool get hidden => presentation['visibility'] == 'hidden';
+
+  Map<String, dynamic> get dashboardAction {
+    final value = presentation['dashboard'];
+    return value is Map
+        ? Map<String, dynamic>.from(value)
+        : const <String, dynamic>{};
+  }
 
   factory OmniPluginItem.fromMap(Map<dynamic, dynamic> raw) {
     return OmniPluginItem(
@@ -48,6 +59,9 @@ class OmniPluginItem {
           const <String>[],
       settingsSchema: Map<String, dynamic>.from(
         (raw['settingsSchema'] as Map?) ?? const <String, dynamic>{},
+      ),
+      presentation: Map<String, dynamic>.from(
+        (raw['presentation'] as Map?) ?? const <String, dynamic>{},
       ),
       installed: raw['installed'] == true,
       enabled: raw['enabled'] == true,

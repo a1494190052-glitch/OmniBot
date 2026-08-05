@@ -21,7 +21,11 @@ object OfficialVlmOperationConfigStore {
         }.getOrNull()
             ?.trim()
             ?.takeIf(String::isNotEmpty)
-        return raw?.let(::parse) ?: bundledDefault ?: defaultConfig
+        val saved = raw?.let(::parse)
+        if (saved != null && containsLegacySecretField(raw)) {
+            saveConfig(saved)
+        }
+        return saved ?: bundledDefault ?: defaultConfig
     }
 
     fun saveConfig(config: OfficialVlmOperationConfig): OfficialVlmOperationConfig {
@@ -43,7 +47,6 @@ object OfficialVlmOperationConfigStore {
         return OfficialVlmOperationConfig(
             enabled = config.enabled,
             apiBase = config.apiBase.trim().trimEnd('/'),
-            apiKey = config.apiKey.trim(),
             model = config.model.trim(),
             wireApi = OpenAiWireApi.normalize(config.wireApi)
         )
@@ -55,5 +58,9 @@ object OfficialVlmOperationConfigStore {
         }.onFailure {
             OmniLog.w(TAG, "parse official VLM config failed: ${it.message}")
         }.getOrNull()?.let(::normalize)
+    }
+
+    internal fun containsLegacySecretField(raw: String): Boolean {
+        return raw.contains("\"apiKey\"") || raw.contains("\"api_key\"")
     }
 }

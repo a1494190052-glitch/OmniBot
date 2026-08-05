@@ -1,0 +1,52 @@
+{
+  "schemaVersion": 1,
+  "connectors": [
+    {
+      "id": "fitness_store",
+      "type": "sqlite",
+      "config": {}
+    }
+  ],
+  "tools": [
+    {
+      "name": "record_workout",
+      "displayName": "记录训练",
+      "description": "直接保存一条已完成的训练记录。",
+      "parameters": {
+        "type": "object",
+        "required": ["exercise", "weight", "repetitions", "recorded_at"],
+        "properties": {
+          "exercise": {"type": "string"},
+          "weight": {"type": "number"},
+          "repetitions": {"type": "integer"},
+          "recorded_at": {"type": "string"}
+        },
+        "additionalProperties": false
+      },
+      "executor": {
+        "connector": "fitness_store",
+        "action": "insert",
+        "config": {"table": "workouts"}
+      }
+    },
+    {
+      "name": "list_workouts",
+      "displayName": "查询训练",
+      "description": "直接查询最近的训练记录。",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "exercise": {"type": "string"},
+          "_limit": {"type": "integer", "minimum": 1, "maximum": 500},
+          "_order_by": {"type": "string"}
+        },
+        "additionalProperties": false
+      },
+      "executor": {
+        "connector": "fitness_store",
+        "action": "query",
+        "config": {"table": "workouts"}
+      }
+    }
+  ]
+}

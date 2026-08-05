@@ -354,6 +354,9 @@ class RunLogStepDetailSheet extends StatelessWidget {
         : _string(action['tool']);
     final beforeStateId = _string(step['before_state_id']);
     final afterStateId = _string(step['after_state_id']);
+    final metadata = _map(step['metadata']);
+    final summary = _string(metadata['summary']);
+    final thinking = _string(metadata['thinking']);
     final actionJson = const JsonEncoder.withIndent('  ').convert(action);
     final usage = tokenUsage;
     return SafeArea(
@@ -427,6 +430,83 @@ class RunLogStepDetailSheet extends StatelessWidget {
                   controller: controller,
                   padding: const EdgeInsets.fromLTRB(16, 14, 16, 24),
                   children: [
+                    if (summary.isNotEmpty) ...[
+                      Text(
+                        _text(context, '决策', 'Decision'),
+                        style: TextStyle(
+                          color: palette.textSecondary,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: palette.surfacePrimary,
+                          borderRadius: BorderRadius.circular(10),
+                          border: Border.all(color: palette.borderSubtle),
+                        ),
+                        child: Text(
+                          summary,
+                          style: TextStyle(
+                            color: palette.textPrimary,
+                            fontSize: 13,
+                            height: 1.4,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+                    ],
+                    if (thinking.isNotEmpty) ...[
+                      Material(
+                        color: palette.surfacePrimary,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(10),
+                          side: BorderSide(color: palette.borderSubtle),
+                        ),
+                        clipBehavior: Clip.antiAlias,
+                        child: ExpansionTile(
+                          key: const ValueKey('run-log-step-thinking'),
+                          tilePadding: const EdgeInsets.symmetric(
+                            horizontal: 12,
+                          ),
+                          childrenPadding: const EdgeInsets.fromLTRB(
+                            12,
+                            0,
+                            12,
+                            12,
+                          ),
+                          title: Text(
+                            _text(
+                              context,
+                              '模型思考（可选）',
+                              'Raw reasoning (optional)',
+                            ),
+                            style: TextStyle(
+                              color: palette.textSecondary,
+                              fontSize: 12,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                          children: [
+                            Align(
+                              alignment: Alignment.centerLeft,
+                              child: SelectableText(
+                                thinking,
+                                style: TextStyle(
+                                  color: palette.textSecondary,
+                                  fontSize: 12,
+                                  height: 1.4,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+                    ],
                     if (usage?.hasUsage == true) ...[
                       Text(
                         _text(context, '模型用量', 'Model usage'),

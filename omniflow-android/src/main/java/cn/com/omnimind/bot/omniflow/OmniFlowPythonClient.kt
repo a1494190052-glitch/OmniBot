@@ -324,19 +324,22 @@ class OmniFlowPythonClient(
             shellPythonSourcePath: String,
             shellSitePackagesPath: String,
             shellOmniTransferRoot: String,
+            shellOmniTransferCheckpointPath: String,
         ): String {
             listOf(
                 shellPythonSourcePath,
                 shellSitePackagesPath,
                 shellOmniTransferRoot,
+                shellOmniTransferCheckpointPath,
             ).forEach { path ->
                 require(path.matches(Regex("/[A-Za-z0-9_./-]+"))) {
                     "omniflow_runtime_path_invalid"
                 }
             }
             return """
-            export PYTHONPATH='$shellPythonSourcePath:$shellSitePackagesPath'
+            export PYTHONPATH='$shellPythonSourcePath:$shellSitePackagesPath:$shellOmniTransferRoot/src'
             export OMNITRANSFER_ROOT='$shellOmniTransferRoot'
+            export OMNITRANSFER_MATCHER_CHECKPOINT='$shellOmniTransferCheckpointPath'
             python_bin="${'$'}(command -v python3 || true)"
             if [ -z "${'$'}python_bin" ]; then echo 'omniflow_python_not_installed' >&2; exit 127; fi
             exec "${'$'}python_bin" -u -m omniflow.bridge --store /workspace/.omnibot/omniflow/omniflow.json

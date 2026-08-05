@@ -66,6 +66,34 @@ class AgentLlmStreamAccumulatorTest {
     }
 
     @Test
+    fun `reconciles multiple OmniMind calls sharing the arguments index`() {
+        val accumulator = AgentLlmStreamAccumulator(json = json)
+
+        accumulator.consume(
+            """{"choices":[{"delta":{"tool_calls":[{"function":{"arguments":"","name":"file_list"},"id":"call_list","index":0,"type":"function"}]}}]}"""
+        )
+        accumulator.consume(
+            """{"choices":[{"delta":{"tool_calls":[{"function":{"arguments":"{\"path\":\"/workspace\"}"},"index":1}]}}]}"""
+        )
+        accumulator.consume(
+            """{"choices":[{"delta":{"tool_calls":[{"function":{"arguments":"","name":"skills_read"},"id":"call_skill","index":2,"type":"function"}]}}]}"""
+        )
+        accumulator.consume(
+            """{"choices":[{"delta":{"tool_calls":[{"function":{"arguments":"{\"skillId\":\"vibe-project-builder\"}"},"index":1}]}}]}"""
+        )
+        accumulator.consume("""{"choices":[{"delta":{},"finish_reason":"tool_calls"}]}""")
+
+        val toolCalls = requireNotNull(accumulator.buildTurn().message.toolCalls)
+
+        assertEquals(listOf("file_list", "skills_read"), toolCalls.map { it.function.name })
+        assertEquals("""{"path":"/workspace"}""", toolCalls[0].function.arguments)
+        assertEquals(
+            """{"skillId":"vibe-project-builder"}""",
+            toolCalls[1].function.arguments,
+        )
+    }
+
+    @Test
     fun `blank continuation preserves existing streamed tool call identity and name`() {
         val accumulator = AgentLlmStreamAccumulator(json = json)
 

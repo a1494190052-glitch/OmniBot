@@ -23,7 +23,8 @@ internal class ExecutionRegistry {
             val execution = active ?: return false
             if (
                 normalizedId.isNotEmpty() &&
-                normalizedId != execution.runId
+                normalizedId != execution.runId &&
+                !execution.runId.startsWith("$normalizedId-")
             ) {
                 return false
             }

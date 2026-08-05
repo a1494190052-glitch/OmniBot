@@ -1,20 +1,24 @@
 package cn.com.omnimind.bot.plugin
 
 import android.content.Context
+import cn.com.omnimind.bot.BuildConfig
 import cn.com.omnimind.bot.agent.AgentToolDefinitions
 import cn.com.omnimind.bot.plugin.official.OmniVlmLiteProvider
 
 class OmniPluginHost private constructor(context: Context) {
     private val applicationContext = context.applicationContext
-    private val providers by lazy {
-        OmniPluginProviderRegistry.createProviders(applicationContext)
-    }
     private val platform = OmniPluginPlatform(
-        providerSource = { providers },
+        providerSource = {
+            OmniPluginProviderRegistry.createProviders(applicationContext)
+        },
         stateStore = SharedPreferencesOmniPluginStateStore(applicationContext),
         reservedToolNames =
             AgentToolDefinitions.reservedToolNames() + PluginDiscoveryToolHandler.TOOL_NAMES,
-        defaultEnabledPluginIds = setOf(OmniVlmLiteProvider.ID)
+        defaultEnabledPluginIds = if (BuildConfig.DEFAULT_INSTALL_GUI_PLUGIN) {
+            setOf(OmniVlmLiteProvider.ID)
+        } else {
+            emptySet()
+        },
     )
 
     suspend fun list(): List<OmniPluginState> = platform.list()

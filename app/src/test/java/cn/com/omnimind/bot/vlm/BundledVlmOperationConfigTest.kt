@@ -7,14 +7,13 @@ import org.junit.Test
 
 class BundledVlmOperationConfigTest {
     @Test
-    fun `configured build creates Responses default`() {
+    fun `configured build creates Chat Completions default`() {
         val config = BundledVlmOperationConfig.create(
             apiBase = "https://omnimind.example/v1",
-            apiKey = "test-key",
             model = "gpt-5.6-sol",
         )
 
-        assertEquals(OpenAiWireApi.RESPONSES, config?.wireApi)
+        assertEquals(OpenAiWireApi.CHAT_COMPLETIONS, config?.wireApi)
         assertEquals("https://omnimind.example/v1", config?.apiBase)
     }
 
@@ -22,8 +21,7 @@ class BundledVlmOperationConfigTest {
     fun `incomplete build does not create default`() {
         assertNull(
             BundledVlmOperationConfig.create(
-                apiBase = "https://omnimind.example/v1",
-                apiKey = "",
+                apiBase = "",
                 model = "gpt-5.6-sol",
             )
         )

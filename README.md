@@ -194,15 +194,26 @@ Flutter Web is not part of this workflow.
 
 ### Build and install
 
-APK builds can preconfigure the GUI VLM with an OpenAI Responses endpoint.
-`OMNIMIND_API_KEY` is required; `OMNIMIND_API_BASE` and `OMNIMIND_MODEL` are
-optional. The values become the replaceable default for VLM operations only;
-chat and other agent model settings are unchanged.
+Release APK builds use `OMNIBOT_UPDATE_WORKER_URL` as the default GUI VLM proxy
+and receive the Gelab route from the update Worker. The upstream Gelab key stays
+in the Worker. Debug APK builds use the OpenAI-compatible LLM API configured by
+`LLMTHU_API_BASE`, `LLMTHU_API_KEY`, and `LLMTHU_MODEL` for normal LLM requests,
+context compaction, and `scene.vlm.operation.primary`. `scripts/install-dev.sh`
+verifies this provider/model pair before building and configures it after the
+in-place APK update.
+
+For HTML/CSS/JavaScript, Skill, tool, schema, or SVG changes in a Vibe project,
+skip APK installation entirely so app data and Android/ColorOS permissions stay
+untouched:
+
+```bash
+bash scripts/install-dev.sh --device <serial> \
+  --hot-project scripts/sandbox-demos/basketball-career
+```
 
 ```bash
 cd ..
 
-export OMNIMIND_API_KEY=your_vlm_key
 ./gradlew :app:installDevelopStandardDebug -Ptarget=lib/main_standard.dart
 ```
 

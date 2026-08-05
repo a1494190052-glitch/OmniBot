@@ -68,6 +68,10 @@ void main() {
                   'args': <String, Object?>{'x': 100, 'y': 200},
                 },
                 'result': <String, Object?>{'success': true},
+                'metadata': <String, Object?>{
+                  'summary': 'Tap the visible Settings result',
+                  'thinking': 'The Settings result is visible and enabled.',
+                },
                 'after_state_id': 'after-1',
               },
             ],
@@ -118,9 +122,25 @@ void main() {
       await tester.tap(find.text('Tap · 100, 200'));
       await tester.pumpAndSettle();
 
+      expect(find.text('Decision'), findsOneWidget);
+      expect(find.text('Tap the visible Settings result'), findsNWidgets(2));
+      expect(find.text('Raw reasoning (optional)'), findsOneWidget);
+      expect(
+        find.text('The Settings result is visible and enabled.'),
+        findsNothing,
+      );
       expect(find.text('Action details'), findsOneWidget);
       expect(find.text('Total 1.23k'), findsOneWidget);
       expect(find.textContaining('"tool": "click"'), findsOneWidget);
+
+      await tester.tap(find.text('Raw reasoning (optional)'));
+      await tester.pumpAndSettle();
+      expect(
+        find.text('The Settings result is visible and enabled.'),
+        findsOneWidget,
+      );
+      await tester.drag(find.byType(ListView).last, const Offset(0, -500));
+      await tester.pumpAndSettle();
       expect(find.text('Before state'), findsOneWidget);
       expect(find.text('After state'), findsOneWidget);
     },

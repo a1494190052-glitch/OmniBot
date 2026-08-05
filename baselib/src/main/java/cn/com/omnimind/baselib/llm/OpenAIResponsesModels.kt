@@ -15,5 +15,7 @@ data class OpenAIResponsesRequest(
     val tools: List<JsonElement> = emptyList(),
     @SerialName("tool_choice")
     val toolChoice: JsonElement? = null,
+    @SerialName("parallel_tool_calls")
+    val parallelToolCalls: Boolean? = null,
     val reasoning: JsonElement? = null
 )

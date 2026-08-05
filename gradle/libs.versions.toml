@@ -49,6 +49,7 @@ navigationFragment = "2.8.9"
 navigationUi = "2.8.9"
 palette = "1.0.0"
 shizuku = "13.1.5"
+androidSvg = "1.4"
 [libraries]
 agent-client-protocol = { module = "com.agentclientprotocol:acp", version.ref = "agentClientProtocol" }
 accompanist-systemuicontroller = { module = "com.google.accompanist:accompanist-systemuicontroller", version.ref = "accompanistSystemuicontroller" }
@@ -58,6 +59,7 @@ androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = 
 androidx-documentfile = { group = "androidx.documentfile", name = "documentfile", version = "1.0.1" }
 androidx-material-icons-core = { group = "androidx.compose.material", name = "material-icons-core" }
 androidx-palette = { module = "androidx.palette:palette", version.ref = "palette" }
+androidsvg = { module = "com.caverock:androidsvg-aar", version.ref = "androidSvg" }
 shizuku-api = { module = "dev.rikka.shizuku:api", version.ref = "shizuku" }
 shizuku-provider = { module = "dev.rikka.shizuku:provider", version.ref = "shizuku" }
 androidx-lifecycle-livedata-ktx = { module = "androidx.lifecycle:lifecycle-livedata-ktx", version.ref = "lifecycleLivedataKtx" }
