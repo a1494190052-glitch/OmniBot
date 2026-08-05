@@ -4,7 +4,7 @@
     {
       "id": "com.omnimind.omni-vlm-lite",
       "name": "OmniFlow",
-      "version": "2.1.4",
+      "version": "2.1.5",
       "interfaceVersion": 1,
       "description": "Android GUI automation powered by the OmniFlow VLM runtime.",
       "publisher": "OmniMind",
@@ -28,12 +28,14 @@
         "markerFile": "PACKAGED_RUNTIME_SKILL",
         "bootstrapScript": "scripts/bootstrap_runtime.py",
         "runtimeDataPath": "scripts/runtime/.runtime",
+        "prebuiltRuntimeArchive": "scripts/runtime.prebuilt.zip",
+        "prebuiltRuntimeSha256": "18d1fd2fa24a3bde6d0aefcd1d2defd2175e30cb9263b634f0194f79a2f0ef74",
         "bootstrapTimeoutSeconds": 900
       },
       "presentation": {
         "description": {
-          "zh": "安装后即可通过 VLM 操作手机，并可录下操作过程、查看每一步、保存成功流程，在相似任务中再次使用。投资人 Debug 包已默认安装并启用。",
-          "en": "Install to operate the phone through the VLM, record actions, inspect every step, and save successful flows for reuse. Investor debug builds install and enable it by default."
+          "zh": "Debug APK 已内置并启用完整 GUI/VLM 插件；安装 APK 后即可操作手机、录制流程并在相似任务中复用。",
+          "en": "Debug APKs include and enable the complete GUI/VLM plugin. Install the APK to operate the phone, record flows, and reuse similar tasks."
         },
         "readiness": "vlm_provider",
         "usage": [
@@ -41,24 +43,24 @@
             "icon": "power",
             "title": {"zh": "安装即准备完整后端", "en": "Complete backend on install"},
             "description": {
-              "zh": "安装过程会下载并校验 OmniFlow、Python、NumPy 和 OmniTransfer；全部成功后才显示为已安装，用户不需要单独安装 Python。",
-              "en": "Installation downloads and verifies OmniFlow, Python, NumPy, and OmniTransfer. The plugin is marked installed only after every backend component succeeds; Python needs no separate setup."
+              "zh": "Debug APK 直接内置并校验 OmniFlow、OmniTransfer、模型 checkpoint 和 Python 依赖；Python 解释器由内嵌终端环境提供。",
+              "en": "Debug APKs bundle and verify OmniFlow, OmniTransfer, the model checkpoint, and Python dependencies; the embedded terminal environment provides the Python interpreter."
             }
           },
           {
             "icon": "touch",
             "title": {"zh": "投资人版本开箱即用", "en": "Ready in investor builds"},
             "description": {
-              "zh": "投资人 Debug 包首次启动会自动安装并启用插件；只需打开无障碍权限即可开始操作手机。",
-              "en": "Investor debug builds install and enable the plugin on first launch; enable accessibility permission to start controlling the phone."
+              "zh": "Debug APK 已预置全部官方插件；只需打开无障碍权限即可开始操作手机。",
+              "en": "Debug APKs ship with all official plugins enabled; only Android accessibility permission is needed to control the phone."
             }
           },
           {
             "icon": "layers",
             "title": {"zh": "不增加基础安装包体积", "en": "Keeps the base app small"},
             "description": {
-              "zh": "录制、保存、自动复用和跨设备执行所需的高级组件会按需下载，不会增加基础 APK 的体积。",
-              "en": "Advanced components for recording, saving, automatic reuse, and cross-device execution are downloaded only when needed and do not increase the base APK size."
+              "zh": "Debug APK 已包含录制、保存、自动复用和跨设备执行所需组件；生产版仍可按需下载以控制包体积。",
+              "en": "Debug APKs include recording, saving, automatic reuse, and cross-device execution components; production builds may download them on demand to keep the base APK small."
             }
           }
         ],
