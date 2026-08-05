@@ -29,7 +29,7 @@
         "bootstrapScript": "scripts/bootstrap_runtime.py",
         "runtimeDataPath": "scripts/runtime/.runtime",
         "prebuiltRuntimeArchive": "scripts/runtime.prebuilt.zip",
-        "prebuiltRuntimeSha256": "18d1fd2fa24a3bde6d0aefcd1d2defd2175e30cb9263b634f0194f79a2f0ef74",
+        "prebuiltRuntimeSha256": "89204a4d2eb623becc665105b009313845f5576cc6d4d5845fe97f07221f45ee",
         "bootstrapTimeoutSeconds": 900
       },
       "presentation": {
@@ -167,6 +167,122 @@
           "navigation": "push",
           "icon": "dashboard",
           "label": {"zh": "进入 Vibe Builder", "en": "Open Vibe Builder"}
+        }
+      }
+    },
+    {
+      "id": "com.omnimind.omnilink-agent",
+      "name": "OmniLink 协作工具箱",
+      "version": "0.2.0",
+      "interfaceVersion": 1,
+      "description": "Give Xiaowan a bounded toolbox for collaborating with Xiaowan on another trusted device over the local OmniLink gateway.",
+      "publisher": "OmniMind",
+      "kind": "runtime_bundle",
+      "downloadSizeBytes": 0,
+      "capabilities": [
+        "List connected devices",
+        "Compose remote battery and device-readiness queries",
+        "Send idempotent Agent messages",
+        "Read and subscribe to Agent-safe event types",
+        "Surface privacy-safe event summaries",
+        "Reconnect-safe event cursors"
+      ],
+      "settingsSchema": {},
+      "adapter": "omnilink_agent",
+      "runtimeSkill": {
+        "id": "omnilink-agent",
+        "packagedAssetPath": "omnilink-agent/runtime-skill/omnilink-agent",
+        "markerFile": "PACKAGED_RUNTIME_SKILL"
+      },
+      "presentation": {
+        "description": {
+          "zh": "让小万在聊天中直接组合 OmniLink 原语：查询另一台手机的电量和在线状态，订阅隐私安全的事件摘要，给另一台设备上的小万发信号，并自动把事件回流当前会话。",
+          "en": "Let Xiaowan compose OmniLink primitives from chat: query another phone's battery and reachability, subscribe to privacy-safe event summaries, signal another Xiaowan, and surface events in the current conversation."
+        },
+        "readiness": "omnilink_local_gateway",
+        "usage": [
+          {
+            "icon": "devices",
+            "title": {"zh": "先看协作设备", "en": "Inspect devices first"},
+            "description": {
+              "zh": "说“列出协作设备”，小万会读取设备 readiness，再按你的意图组合查询。",
+              "en": "Say “list collaboration devices”; Xiaowan reads readiness and composes the requested query."
+            }
+          },
+          {
+            "icon": "battery",
+            "title": {"zh": "查询另一台手机状态", "en": "Query the other phone"},
+            "description": {
+              "zh": "说“查另一台手机的电量和是否在线”，小万会读取实时 readiness。",
+              "en": "Say “check the other phone's battery and reachability”; Xiaowan reads live readiness."
+            }
+          },
+          {
+            "icon": "notifications",
+            "title": {"zh": "接收另一台手机通知", "en": "Receive remote notifications"},
+            "description": {
+              "zh": "说“开始接收另一台手机的通知”，通知会持续回流当前聊天，正文按隐私策略隐藏。",
+              "en": "Say “start receiving notifications from the other phone”; safe summaries return to this chat while content stays private."
+            }
+          },
+          {
+            "icon": "notifications",
+            "title": {"zh": "小万自己组合事件订阅", "en": "Compose event subscriptions"},
+            "description": {
+              "zh": "说“开始接收另一台手机的通知”，小万会选择安全事件类型并建立持续回流。",
+              "en": "Say “start receiving notifications from the other phone”; Xiaowan selects safe event types and starts the stream."
+            }
+          },
+          {
+            "icon": "send",
+            "title": {"zh": "让两个小万互相发信号", "en": "Message between Agents"},
+            "description": {
+              "zh": "说“给另一台设备上的小万发消息：……”；消息带幂等 ID，可安全重试。",
+              "en": "Say “send a message to the other Xiaowan: …”; messages carry an idempotency ID and can be retried safely."
+            }
+          },
+          {
+            "icon": "sync",
+            "title": {"zh": "入站消息实时回流", "en": "Inbound events return live"},
+            "description": {
+              "zh": "另一台设备的 Agent 消息和事件摘要会自动回到当前聊天，不需要用户复制 CLI 输出。",
+              "en": "Agent messages and notification events from the other device return to the current chat without copying CLI output."
+            }
+          }
+        ],
+        "ready": {
+          "key": "omnilink-agent-ready-guide",
+          "title": {"zh": "OmniLink 协作已启用", "en": "OmniLink collaboration is enabled"},
+          "steps": [
+            {
+              "zh": "回到聊天，说“列出协作设备”。",
+              "en": "Return to chat and say “List collaboration devices.”"
+            },
+            {
+              "zh": "再说“给设备 <device_id> 上的小万发消息：请回复 READY”。",
+              "en": "Then say “Send to device <device_id>: reply READY.”"
+            },
+            {
+              "zh": "对方事件会作为一条 OmniLink 协作消息出现在聊天中。",
+              "en": "The peer event appears as an OmniLink collaboration message in chat."
+            }
+          ],
+          "actions": [
+            {
+              "route": "/home/chat",
+              "navigation": "go",
+              "icon": "chat",
+              "requiresReadiness": true,
+              "label": {"zh": "去聊天试用", "en": "Try in chat"}
+            }
+          ]
+        },
+        "capabilityLabels": {
+          "List connected devices": {"zh": "查看已连接协作设备", "en": "List connected devices"},
+          "Read device readiness": {"zh": "读取设备状态与能力就绪度", "en": "Read device readiness"},
+          "Send idempotent Agent messages": {"zh": "向另一个小万发送可重试消息", "en": "Send retry-safe Agent messages"},
+          "Subscribe to Agent message events": {"zh": "订阅另一台设备的小万消息", "en": "Subscribe to peer Agent events"},
+          "Reconnect-safe event cursors": {"zh": "断线重连后不丢消息", "en": "Recover events after reconnect"}
         }
       }
     }

@@ -201,7 +201,7 @@ android {
             assets.srcDirs(
                 "src/main/assets",
                 "../skills",
-                "../plugins/omni-vlm-lite",
+                "../plugins",
                 webChatAssetsRootDir
             )
         }

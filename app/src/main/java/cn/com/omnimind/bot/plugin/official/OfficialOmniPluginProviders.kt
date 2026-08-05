@@ -15,6 +15,9 @@ object OfficialOmniPluginProviders {
         RuntimeBundleAdapterRegistry.register(OmniVlmLiteProvider.ADAPTER_ID) { context, definition ->
             OmniVlmLiteProvider(context, definition)
         }
+        RuntimeBundleAdapterRegistry.register(OmniLinkAgentProvider.ADAPTER_ID) { context, definition ->
+            OmniLinkAgentProvider(context, definition)
+        }
         RuntimeBundleAdapterRegistry.register(SandboxRuntimeBundleAdapter.ADAPTER_ID) { context, definition ->
             SandboxRuntimeBundleAdapter(context, definition)
         }

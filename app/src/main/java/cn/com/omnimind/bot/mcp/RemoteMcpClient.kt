@@ -96,20 +96,47 @@ object RemoteMcpClient {
     suspend fun callTool(
         config: RemoteMcpServerConfig,
         toolName: String,
-        arguments: Map<String, Any?>
+        arguments: Map<String, Any?>,
+        meta: Map<String, Any?> = emptyMap()
+    ): RemoteMcpCallResult = try {
+        callToolOnce(config, toolName, arguments, meta)
+    } catch (error: HttpStatusException) {
+        if (error.code !in setOf(401, 403)) throw error
+        // The local OmniLink gateway may restart independently of Omnibot.
+        // Drop the stale MCP session and perform one bounded re-initialize so
+        // background plugin polling recovers without user interaction.
+        invalidateSession(config.id)
+        callToolOnce(config, toolName, arguments, meta)
+    }
+
+    private suspend fun callToolOnce(
+        config: RemoteMcpServerConfig,
+        toolName: String,
+        arguments: Map<String, Any?>,
+        meta: Map<String, Any?>,
     ): RemoteMcpCallResult {
+        val params = buildMap<String, Any?> {
+            put("name", toolName)
+            put("arguments", arguments)
+            // MCP request metadata is carried in the reserved `_meta` member.
+            // Using `meta` happens to work for tools that do not inspect
+            // metadata, but drops idempotency and correlation keys at the
+            // Kotlin SDK boundary. OmniLink peer/control calls must receive
+            // those keys to remain retry-safe.
+            if (meta.isNotEmpty()) put("_meta", meta)
+        }
         val result = if (looksLikeSseEndpoint(config.endpointUrl)) {
             callSseMethodWithInitialize(
                 config = config,
                 method = "tools/call",
-                params = mapOf("name" to toolName, "arguments" to arguments),
+                params = params,
             )
         } else {
             initialize(config)
             callJsonRpc(
                 config = config,
                 method = "tools/call",
-                params = mapOf("name" to toolName, "arguments" to arguments)
+                params = params
             )
         }
         val rawJson = gson.toJson(result)

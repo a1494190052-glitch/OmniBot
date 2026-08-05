@@ -33,6 +33,7 @@ import 'package:ui/services/app_background_service.dart';
 import 'package:ui/services/agent_browser_session_service.dart';
 import 'package:ui/services/chat_terminal_environment_service.dart';
 import 'package:ui/services/agent_runtime_service.dart';
+import 'package:ui/services/omnilink_plugin_service.dart';
 import 'package:ui/services/agent_diff_parser.dart';
 import 'package:ui/services/agent_tool_call_parser.dart';
 import 'package:ui/services/agent_message_kinds.dart';
@@ -396,6 +397,7 @@ abstract class _ChatPageStateBase extends State<ChatPage>
   StreamSubscription<Map<String, dynamic>>?
   _browserSessionSnapshotChangedSubscription;
   StreamSubscription<Map<String, dynamic>>? _agentEventSubscription;
+  StreamSubscription<Map<String, dynamic>>? _omniLinkEventSubscription;
   Timer? _remoteCodexSessionSyncTimer;
   bool _remoteCodexSessionSyncInFlight = false;
   String? _remoteCodexSessionSyncThreadId;

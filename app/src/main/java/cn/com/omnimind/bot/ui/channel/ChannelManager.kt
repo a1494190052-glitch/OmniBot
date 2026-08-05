@@ -30,6 +30,7 @@ class ChannelManager {
     private var storageUsageChannel: StorageUsageChannel = StorageUsageChannel()
     private var agentRuntimeChannel: AgentRuntimeChannel = AgentRuntimeChannel()
     private var pluginPlatformChannel: PluginPlatformChannel = PluginPlatformChannel()
+    private var omniLinkPluginChannel: OmniLinkPluginChannel = OmniLinkPluginChannel()
     fun getUIRouterChannel(): UIRouterChannel {
         return uiRouterChannel
     }
@@ -59,6 +60,7 @@ class ChannelManager {
         storageUsageChannel.setChannel(flutterEngine)
         agentRuntimeChannel.setChannel(flutterEngine)
         pluginPlatformChannel.setChannel(flutterEngine)
+        omniLinkPluginChannel.setChannel(flutterEngine)
     }
 
     fun onCreate(context: Context) {
@@ -77,6 +79,7 @@ class ChannelManager {
         storageUsageChannel.onCreate(context)
         agentRuntimeChannel.onCreate(context)
         pluginPlatformChannel.onCreate(context)
+        omniLinkPluginChannel.onCreate(context)
     }
 
     fun clearChannel() {
@@ -100,6 +103,7 @@ class ChannelManager {
         storageUsageChannel.clear()
         agentRuntimeChannel.clear()
         pluginPlatformChannel.clear()
+        omniLinkPluginChannel.clear()
     }
 
 
