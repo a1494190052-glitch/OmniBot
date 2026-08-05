@@ -19,11 +19,9 @@ import kotlinx.coroutines.launch
 
 class DebugOmniFlowToolReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent?) {
-        val pendingResult = goAsync()
         val appContext = context.applicationContext
         scope.launch {
-            try {
-                val payload = runCatching {
+            val payload = runCatching {
                     val name = intent?.getStringExtra("name")?.trim().orEmpty()
                     require(name.isNotEmpty()) { "tool name is required" }
                     val argumentsJson = intent?.getStringExtra("argumentsBase64")
@@ -48,10 +46,7 @@ class DebugOmniFlowToolReceiver : BroadcastReceiver() {
                         "error_type" to error.javaClass.name,
                     )
                 }
-                File(appContext.filesDir, RESULT_FILE).writeText(gson.toJson(payload))
-            } finally {
-                pendingResult.finish()
-            }
+            File(appContext.filesDir, RESULT_FILE).writeText(gson.toJson(payload))
         }
     }
 

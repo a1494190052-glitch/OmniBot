@@ -7,6 +7,7 @@ import cn.com.omnimind.baselib.llm.ChatCompletionRequest
 import cn.com.omnimind.baselib.llm.ChatCompletionStreamOptions
 import cn.com.omnimind.baselib.llm.ChatCompletionTool
 import cn.com.omnimind.baselib.llm.ChatCompletionTurn
+import cn.com.omnimind.baselib.llm.contentText
 import cn.com.omnimind.baselib.runlog.InternalRunLogStore
 import kotlinx.coroutines.CancellationException
 import kotlinx.serialization.json.Json
@@ -35,6 +36,7 @@ internal object OmniFlowFunctionRecallRuntime {
         val name: String,
         val description: String,
         val inputSchema: JsonObject,
+        val recordedText: String = "",
     )
 
     data class Selection(
@@ -52,18 +54,30 @@ internal object OmniFlowFunctionRecallRuntime {
             loadCandidates(context, modelClient)
         } catch (error: CancellationException) {
             throw error
-        } catch (_: Exception) {
+        } catch (error: Exception) {
+            recordRecallMiss(context, request.runId, "load_candidates_failed:${error.message ?: error.javaClass.simpleName}")
             return null
         }
-        if (candidates.isEmpty()) return null
+        if (candidates.isEmpty()) {
+            recordRecallMiss(context, request.runId, "no_visible_candidates")
+            return null
+        }
 
         val selection = try {
-            route(request.goal, candidates, modelClient)
+            exactGoalSelection(request.goal, candidates) ?: route(request.goal, candidates, modelClient)
         } catch (error: CancellationException) {
             throw error
-        } catch (_: Exception) {
+        } catch (error: Exception) {
+            recordRecallMiss(context, request.runId, "route_failed:${error.message ?: error.javaClass.simpleName}")
             return null
-        } ?: return null
+        } ?: run {
+            recordRecallMiss(
+                context,
+                request.runId,
+                "model_rejected_or_no_exact_match",
+            )
+            return null
+        }
 
         val execution = OmniFlow.callTool(
             context = context,
@@ -89,6 +103,26 @@ internal object OmniFlowFunctionRecallRuntime {
         )
     }
 
+    private fun exactGoalSelection(
+        goal: String,
+        candidates: List<Candidate>,
+    ): Selection? {
+        val visible = candidates
+            .asSequence()
+            .filter { it.functionId != REJECT_TOOL && functionNamePattern.matches(it.functionId) }
+            .distinctBy(Candidate::functionId)
+            .toList()
+        val functionId = exactGoalMatch(goal, visible) ?: return null
+        return Selection(
+            toolCall = OmniFlow.ToolCall(functionId, emptyMap()),
+            turn = ChatCompletionTurn(
+                message = ChatCompletionMessage(role = "assistant"),
+                finishReason = "exact_goal_match",
+                resolvedModel = "deterministic_exact_goal",
+            ),
+        )
+    }
+
     internal fun recallRunId(runId: String): String = "$runId-recall"
 
     internal suspend fun route(
@@ -105,14 +139,30 @@ internal object OmniFlowFunctionRecallRuntime {
         if (visible.isEmpty()) return null
         val request = buildRequest(goal, visible)
         val turn = modelClient.streamTurn(request)
-        val calls = turn.message.toolCalls.orEmpty()
-        if (calls.size != 1) return null
-        val call = calls.single().function
-        val functionId = call.name.trim()
+        val nativeCall = turn.message.toolCalls.orEmpty().singleOrNull()?.function
+        val fallback = if (nativeCall == null || nativeCall.name == REJECT_TOOL) {
+            fallbackCall(turn.message.contentText(), visible)
+        } else {
+            null
+        }
+        val exactFallback = if (
+            nativeCall == null || nativeCall.name == REJECT_TOOL ||
+                visible.none { it.functionId == nativeCall.name }
+        ) {
+            exactGoalMatch(goal, visible)
+        } else {
+            null
+        }
+        val functionId = (nativeCall?.name
+            ?.takeUnless { it == REJECT_TOOL }
+            ?: fallback?.first
+            ?: exactFallback).orEmpty().trim()
         if (functionId == REJECT_TOOL) return null
         val candidate = visible.singleOrNull { it.functionId == functionId } ?: return null
-        val arguments = runCatching {
-            json.parseToJsonElement(call.arguments.ifBlank { "{}" }) as? JsonObject
+        val arguments = fallback?.second ?: if (exactFallback == functionId) {
+            JsonObject(emptyMap())
+        } else runCatching {
+            json.parseToJsonElement(nativeCall?.arguments.orEmpty().ifBlank { "{}" }) as? JsonObject
         }.getOrNull() ?: return null
         if (!argumentsMatch(candidate.inputSchema, arguments)) return null
         return Selection(
@@ -122,6 +172,58 @@ internal object OmniFlowFunctionRecallRuntime {
             ),
             turn = turn,
         )
+    }
+
+    private fun fallbackCall(
+        content: String,
+        candidates: List<Candidate>,
+    ): Pair<String, JsonObject>? {
+        val text = content.trim()
+        if (text.isBlank()) return null
+        val parsed = runCatching {
+            json.parseToJsonElement(text) as? JsonObject
+        }.getOrNull()
+        if (parsed != null) {
+            val functionId = parsed["function_id"]?.jsonPrimitive?.contentOrNull
+                ?: parsed["name"]?.jsonPrimitive?.contentOrNull
+            if (!functionId.isNullOrBlank()) {
+                val arguments = (parsed["arguments"] as? JsonObject)
+                    ?: (parsed["parameters"] as? JsonObject)
+                    ?: JsonObject(emptyMap())
+                return functionId.trim() to arguments
+            }
+        }
+        val matched = candidates
+            .asSequence()
+            .filter { text.contains(it.functionId) }
+            .maxByOrNull { it.functionId.length }
+            ?: return null
+        return matched.functionId to JsonObject(emptyMap())
+    }
+
+    private fun exactGoalMatch(goal: String, candidates: List<Candidate>): String? {
+        val normalizedGoal = goal.trim().replace(Regex("\\s+"), " ")
+        if (normalizedGoal.isBlank()) return null
+        return candidates
+            .asSequence()
+            .filter { candidate ->
+                if (!argumentsMatch(candidate.inputSchema, JsonObject(emptyMap()))) {
+                    return@filter false
+                }
+                val requiredLiterals = Regex("\\d{4,}")
+                    .findAll(normalizedGoal)
+                    .map(MatchResult::value)
+                    .toList()
+                if (!requiredLiterals.all { literal -> candidate.recordedText.contains(literal) }) {
+                    return@filter false
+                }
+                listOf(candidate.name, candidate.description).any { text ->
+                    text.trim().replace(Regex("\\s+"), " ")
+                        .contains(normalizedGoal, ignoreCase = true)
+                }
+            }
+            .maxByOrNull { it.description.length }
+            ?.functionId
     }
 
     internal fun buildRequest(
@@ -143,7 +245,7 @@ internal object OmniFlowFunctionRecallRuntime {
             ),
             ChatCompletionMessage(
                 role = "user",
-                content = buildJsonObject { put("goal", JsonPrimitive(goal.trim())) },
+                content = JsonPrimitive(goal.trim()),
             ),
         ),
         maxCompletionTokens = 256,
@@ -211,6 +313,7 @@ internal object OmniFlowFunctionRecallRuntime {
             name = firstText(value["name"], functionId),
             description = firstText(value["description"]),
             inputSchema = inputSchema,
+            recordedText = value["steps"]?.toString().orEmpty(),
         )
     }
 
@@ -246,6 +349,20 @@ internal object OmniFlowFunctionRecallRuntime {
                     "completion_tokens" to usage?.completionTokens,
                     "total_tokens" to usage?.totalTokens,
                 ).filterValues { it != null },
+            ),
+        )
+    }
+
+    private fun recordRecallMiss(context: Context, runId: String, reason: String) {
+        InternalRunLogStore.updateDiagnostics(
+            context = context,
+            runId = runId,
+            diagnostics = mapOf(
+                "function_recall" to linkedMapOf(
+                    "hit" to false,
+                    "model" to OmniVlmPlugin.MODEL_SCENE,
+                    "reason" to reason,
+                ),
             ),
         )
     }

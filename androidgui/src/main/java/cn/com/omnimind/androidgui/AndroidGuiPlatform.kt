@@ -320,8 +320,24 @@ internal class AccessibilityAndroidGuiPlatform(
         }
 
     private suspend fun <T> withNodes(block: (List<AccessibilityNodeInfo>) -> T): T {
-        val root = withContext(Dispatchers.Main.immediate) { awaitService().rootInActiveWindow }
-            ?: return block(emptyList())
+        val service = awaitService()
+        // Once an EditText is focused, Android may report the IME window as the
+        // active accessibility window.  The app's editable node is still present
+        // in another window, so searching only rootInActiveWindow makes
+        // input_text fail on otherwise valid targets (notably Contacts).
+        val roots = withContext(Dispatchers.Main.immediate) {
+            val seenWindowIds = mutableSetOf<Int>()
+            buildList {
+                fun addRoot(root: AccessibilityNodeInfo) {
+                    if (seenWindowIds.add(root.windowId)) add(root)
+                }
+                service.rootInActiveWindow?.let(::addRoot)
+                service.windows.forEach { window ->
+                    window.root?.let(::addRoot)
+                }
+            }
+        }
+        if (roots.isEmpty()) return block(emptyList())
         val nodes = mutableListOf<AccessibilityNodeInfo>()
         fun collect(node: AccessibilityNodeInfo, depth: Int) {
             if (depth > MAX_NODE_DEPTH) return
@@ -332,7 +348,7 @@ internal class AccessibilityAndroidGuiPlatform(
                 collect(child, depth + 1)
             }
         }
-        collect(root, 0)
+        roots.forEach { root -> collect(root, 0) }
         return try {
             block(nodes)
         } finally {

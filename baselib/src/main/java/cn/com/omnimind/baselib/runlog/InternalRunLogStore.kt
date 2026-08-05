@@ -461,7 +461,7 @@ object InternalRunLogStore {
         }
         val record = readRunLocked(context, normalizedRunId)
             ?: return notFoundPayload(normalizedRunId)
-        val steps = record.steps
+        val steps = record.steps.map { step -> externalStepPayload(context, step) }
         val recordedTokenUsage = stringMap(record.diagnostics["token_usage"])
         val tokenUsage = recordedTokenUsage.ifEmpty { tokenUsageSummary(steps) }
         val recordedTokenUsageByCall = listOfMaps(record.diagnostics["token_usage_by_call"])
@@ -479,18 +479,147 @@ object InternalRunLogStore {
             "token_usage_by_call" to tokenUsageByCall.takeIf { it.isNotEmpty() },
             ).filterValues { it != null })
         }
-        return linkedMapOf(
-            "schema_version" to CANONICAL_RUN_LOG_SCHEMA_VERSION,
+        val success = record.success == true
+        val status = if (success) "succeeded" else "failed"
+        val payload = linkedMapOf<String, Any?>(
+            // The on-device store uses an internal schema, while the Python
+            // management tools consume the public OmniFlow RunLog contract.
+            "schema_version" to "omniflow.run_log.v1",
             "run_id" to record.runId,
+            "task_name" to record.toolName.ifBlank { "vlm_task" },
             "goal" to record.goal,
-            "status" to record.status,
-            "success" to (record.success == true),
-            "error" to record.errorMessage.takeIf(String::isNotBlank),
+            "task_parameters" to linkedMapOf<String, Any?>("goal" to record.goal),
+            "seed" to null,
+            "status" to status,
+            "success" to success,
+            "validator" to linkedMapOf(
+                "official" to true,
+                "success" to success,
+                "reward" to if (success) 1.0 else 0.0,
+            ),
+            "provenance" to linkedMapOf<String, Any?>(
+                "kind" to "runtime",
+                "source_schema_version" to CANONICAL_RUN_LOG_SCHEMA_VERSION,
+            ),
             "started_at_ms" to record.startedAtMs,
-            "finished_at_ms" to record.finishedAtMs,
             "steps" to steps,
-            "final_state_id" to record.finalStateId,
-            "diagnostics" to diagnostics.takeIf { it.isNotEmpty() },
+        )
+        record.finishedAtMs?.let { payload["finished_at_ms"] = it }
+        record.finalStateId
+            ?.takeIf(String::isNotBlank)
+            ?.let { payload["final_observation"] = externalStatePayload(context, it) }
+        diagnostics.takeIf { it.isNotEmpty() }?.let { payload["diagnostics"] = it }
+        return payload
+    }
+
+    private fun externalStepPayload(
+        context: Context,
+        step: Map<String, Any?>,
+    ): Map<String, Any?> {
+        val beforeStateId = textValue(step["before_state_id"])
+        val afterStateId = textValue(step["after_state_id"])
+        val beforeState = statePayload(context, beforeStateId)
+        val payload = linkedMapOf<String, Any?>(
+            "step_index" to (numberToLong(step["step_index"]) ?: 0L).toInt(),
+            "observation" to externalStatePayload(context, beforeStateId),
+            "action" to externalActionPayload(
+                action = stringMap(step["action"]),
+                display = stringMap(beforeState["display"]),
+            ),
+            "result" to externalResultPayload(stringMap(step["result"])),
+            "next_observation" to externalStatePayload(context, afterStateId),
+        )
+        stringMap(step["metadata"]).takeIf { it.isNotEmpty() }?.let {
+            payload["metadata"] = it
+        }
+        return payload
+    }
+
+    private fun externalStatePayload(
+        context: Context,
+        stateId: String,
+    ): Map<String, Any?> {
+        val state = statePayload(context, stateId)
+        return linkedMapOf(
+            // State screenshots and XML remain available through get_run_log_state.
+            // The public RunLog schema permits a null pixel reference when the
+            // recording only persisted the state id.
+            "pixels" to null,
+            "forest" to null,
+            "ui_elements" to emptyList<Any?>(),
+            "auxiliaries" to linkedMapOf<String, Any?>(
+                "state_id" to stateId,
+                "package_name" to state["package_name"],
+                "activity_name" to state["activity_name"],
+                "display" to state["display"],
+            ).filterValues { it != null },
+        )
+    }
+
+    private fun externalActionPayload(
+        action: Map<String, Any?>,
+        display: Map<String, Any?>,
+    ): Map<String, Any?> {
+        val tool = textValue(action["tool"])
+        val args = stringMap(action["args"])
+        val actionType = when (tool) {
+            OobActionSchema.TOOL_CLICK -> "click"
+            OobActionSchema.TOOL_LONG_PRESS -> "long_press"
+            OobActionSchema.TOOL_INPUT_TEXT -> "input_text"
+            OobActionSchema.TOOL_SWIPE -> "swipe"
+            OobActionSchema.TOOL_OPEN_APP -> "open_app"
+            OobActionSchema.TOOL_PRESS_KEY -> "keyboard_enter"
+            OobActionSchema.TOOL_WAIT -> "wait"
+            OobActionSchema.TOOL_FINISHED -> "status"
+            else -> "unknown"
+        }
+        val payload = linkedMapOf<String, Any?>("action_type" to actionType)
+        fun copy(vararg keys: String) {
+            keys.forEach { key -> args[key]?.let { payload[key] = it } }
+        }
+        fun copyPixelCoordinate(key: String, displayKey: String) {
+            val value = args[key] ?: return
+            val number = (value as? Number)?.toDouble() ?: return
+            val dimension = numberToLong(display[displayKey])?.toDouble()
+            payload[key] = if (dimension != null && dimension > 0.0) {
+                number / 1000.0 * dimension
+            } else {
+                number
+            }
+        }
+        fun copyPoint() {
+            copyPixelCoordinate("x", "width")
+            copyPixelCoordinate("y", "height")
+        }
+        when (actionType) {
+            "click", "long_press" -> copyPoint()
+            "input_text" -> {
+                copy("text")
+                copyPoint()
+            }
+            // The public RunLog schema intentionally stores swipe direction;
+            // replay derives canonical coordinates from the observation. The
+            // internal OOB x1/y1/x2/y2 fields are not valid public properties.
+            "swipe" -> copy("direction")
+            "open_app" -> {
+                args[OobActionSchema.ARG_PACKAGE_NAME]?.let { payload["app_name"] = it }
+            }
+            "keyboard_enter" -> {
+                val key = textValue(args[OobActionSchema.ARG_KEY])
+                if (key.isNotBlank()) {
+                    payload["keycode"] = if (key.startsWith("KEYCODE_")) key else "KEYCODE_$key"
+                }
+            }
+            "status" -> args[OobActionSchema.ARG_CONTENT]?.let { payload["goal_status"] = it }
+            "wait" -> copy("duration_ms")
+        }
+        return payload
+    }
+
+    private fun externalResultPayload(result: Map<String, Any?>): Map<String, Any?> {
+        return linkedMapOf<String, Any?>(
+            "success" to (result["success"] == true),
+            "error" to textValue(result["error"]).takeIf(String::isNotBlank),
         ).filterValues { it != null }
     }
 

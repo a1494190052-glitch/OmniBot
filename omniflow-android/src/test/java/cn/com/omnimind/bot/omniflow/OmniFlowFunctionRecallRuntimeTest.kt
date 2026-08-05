@@ -92,6 +92,54 @@ class OmniFlowFunctionRecallRuntimeTest {
     }
 
     @Test
+    fun `router accepts explicit json content when provider omits tool call`() = runBlocking {
+        val selection = OmniFlowFunctionRecallRuntime.route(
+            goal = "创建联系人 Carol_C，手机号 13700137003",
+            candidates = listOf(contactFunction),
+            modelClient = object : OmniFlowModelClient {
+                override suspend fun streamTurn(
+                    request: ChatCompletionRequest,
+                    onReasoningUpdate: (suspend (String) -> Unit)?,
+                ): ChatCompletionTurn = ChatCompletionTurn(
+                    message = ChatCompletionMessage(
+                        role = "assistant",
+                        content = JsonPrimitive(
+                            "{\"function_id\":\"complete_run_contacts\",\"arguments\":{\"contact_name\":\"Carol_C\",\"phone_number\":\"13700137003\"}}",
+                        ),
+                    ),
+                )
+            },
+        )
+
+        assertEquals(contactFunction.functionId, selection?.toolCall?.name)
+        assertEquals("Carol_C", selection?.toolCall?.arguments?.get("contact_name"))
+    }
+
+    @Test
+    fun `router uses exact recorded goal when provider rejects recall`() = runBlocking {
+        val recorded = OmniFlowFunctionRecallRuntime.Candidate(
+            functionId = "open_contacts_recorded",
+            name = "Open Google Contacts and stop after the Contacts list is visible.",
+            description = "Complete this exact user request with the full recorded action sequence: " +
+                "Open Google Contacts and stop after the Contacts list is visible.",
+            inputSchema = buildJsonObject {
+                put("type", "object")
+                put("properties", buildJsonObject {})
+                put("required", buildJsonArray {})
+                put("additionalProperties", false)
+            },
+        )
+        val selection = OmniFlowFunctionRecallRuntime.route(
+            goal = "Open Google Contacts and stop after the Contacts list is visible.",
+            candidates = listOf(recorded),
+            modelClient = fixedModel("reject_recalled_function", "{}"),
+        )
+
+        assertEquals(recorded.functionId, selection?.toolCall?.name)
+        assertEquals(emptyMap<String, Any?>(), selection?.toolCall?.arguments)
+    }
+
+    @Test
     fun `recall attempt uses a separate run id`() {
         assertEquals(
             "gui-123-recall",

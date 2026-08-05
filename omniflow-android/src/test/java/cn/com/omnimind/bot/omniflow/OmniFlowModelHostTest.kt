@@ -22,6 +22,29 @@ import org.junit.Test
 
 class OmniFlowModelHostTest {
     @Test
+    fun `json completion accepts object content when provider omits tool call`() = runBlocking {
+        val host = OmniFlowModelHost(
+            modelClient = object : OmniFlowModelClient {
+                override suspend fun streamTurn(
+                    request: ChatCompletionRequest,
+                    onReasoningUpdate: (suspend (String) -> Unit)?,
+                ): ChatCompletionTurn = ChatCompletionTurn(
+                    message = ChatCompletionMessage(
+                        role = "assistant",
+                        content = JsonPrimitive("```json\n{\"parameters\":[]}\n```")
+                    ),
+                    finishReason = "stop",
+                )
+            },
+        )
+
+        assertEquals(
+            "{\"parameters\":[]}",
+            host.completeJson(mapOf("prompt" to "Enhance this Function"))["content"],
+        )
+    }
+
+    @Test
     fun `json completion uses streamed native submit json tool call`() = runBlocking {
         var receivedRequest: ChatCompletionRequest? = null
         val host = OmniFlowModelHost(

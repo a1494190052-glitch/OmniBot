@@ -314,10 +314,14 @@ class OmniFlowPythonClient(
         private const val DEFAULT_CALL_TIMEOUT_MS = 30_000L
         private const val SEMANTIC_COMPILE_TIMEOUT_MS = 210_000L
         private const val RUN_TIMEOUT_MS = 10 * 60_000L
-        private val gson = GsonBuilder()
-            .disableHtmlEscaping()
-            .setObjectToNumberStrategy(ToNumberPolicy.LONG_OR_DOUBLE)
-            .create()
+    private val gson = GsonBuilder()
+        .disableHtmlEscaping()
+        // RunLog v1 requires explicit nullable fields such as `seed`. The
+        // Python bridge must receive those fields instead of silently dropping
+        // them during JSON-RPC serialization.
+        .serializeNulls()
+        .setObjectToNumberStrategy(ToNumberPolicy.LONG_OR_DOUBLE)
+        .create()
         private val MAP_TYPE = object : TypeToken<Map<String, Any?>>() {}.type
 
         fun bridgeCommand(

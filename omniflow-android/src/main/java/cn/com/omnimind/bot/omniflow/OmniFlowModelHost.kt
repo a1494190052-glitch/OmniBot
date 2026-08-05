@@ -6,6 +6,7 @@ import cn.com.omnimind.baselib.llm.ChatCompletionRequest
 import cn.com.omnimind.baselib.llm.ChatCompletionStreamOptions
 import cn.com.omnimind.baselib.llm.ChatCompletionTool
 import cn.com.omnimind.baselib.llm.ChatCompletionTurn
+import cn.com.omnimind.baselib.llm.contentText
 import cn.com.omnimind.baselib.util.ImageCompressor
 import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.json.Json
@@ -192,10 +193,26 @@ class OmniFlowModelHost(
         private fun submitJsonArguments(turn: ChatCompletionTurn): String {
             val toolCall = turn.message.toolCalls.orEmpty().singleOrNull {
                 it.function.name == "submit_json"
-            } ?: error("model_completion_submit_json_required")
-            return toolCall.function.arguments.trim().ifBlank {
-                error("model_completion_submit_json_empty")
             }
+            if (toolCall != null) {
+                return toolCall.function.arguments.trim().ifBlank {
+                    error("model_completion_submit_json_empty")
+                }
+            }
+            // Some OpenAI-compatible providers ignore tool_choice=required and
+            // return the requested object as ordinary assistant content. Keep
+            // the structured tool path preferred, but accept a JSON object so
+            // offline Function enhancement remains usable with those providers.
+            val content = turn.message.contentText().trim()
+            val candidate = content
+                .removePrefix("```")
+                .removePrefix("json")
+                .removeSuffix("```")
+                .trim()
+            if (candidate.startsWith("{") && candidate.endsWith("}")) {
+                return candidate
+            }
+            error("model_completion_submit_json_required")
         }
     }
 }
