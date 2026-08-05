@@ -1,6 +1,7 @@
 package cn.com.omnimind.assists.task.recording
 
 import cn.com.omnimind.androidgui.AndroidGuiActionResult
+import cn.com.omnimind.assists.ManualInputTarget
 import cn.com.omnimind.baselib.runlog.State
 import cn.com.omnimind.baselib.runlog.actionOf
 import kotlinx.coroutines.CancellationException
@@ -13,6 +14,27 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ManualRecordingEngineTest {
+    @Test
+    fun `manual enter keeps the selected input target`() {
+        val target = ManualInputTarget(
+            description = "搜索框",
+            x = 408f,
+            y = 112f,
+            nodeResourceId = "com.example:id/search",
+        )
+
+        assertEquals(
+            mapOf(
+                "key" to "enter",
+                "target_description" to "搜索框",
+                "x" to 408f,
+                "y" to 112f,
+                "node_resource_id" to "com.example:id/search",
+            ),
+            manualPressKeyActionArgs("enter", target),
+        )
+    }
+
     @Test
     fun serializesActionsAndCommitsInReceiveOrder() = runBlocking {
         val events = mutableListOf<String>()
@@ -80,6 +102,26 @@ class ManualRecordingEngineTest {
         assertFalse(outcome.executed)
         assertFalse(outcome.recorded)
         assertEquals(0, journal.size())
+        assertEquals(ManualRecordingEngineStats(1, 0, 1, 0, null), engine.stats())
+    }
+
+    @Test
+    fun failedManualTextDispatchIsPersistedWithFailureEvidence() = runBlocking {
+        val journal = ManualRecordingJournal()
+        val engine = ManualRecordingEngine(
+            journal = journal,
+            observe = { _, _ -> observation("<page/>") },
+            execute = { AndroidGuiActionResult(false, "input_target_not_found") },
+        )
+
+        val outcome = engine.perform(
+            action("input_text", 100L).copy(persistOnFailure = true),
+        )
+
+        assertFalse(outcome.executed)
+        assertTrue(outcome.recorded)
+        assertEquals(false, journal.lastOrNull()?.operationSuccess)
+        assertEquals("input_target_not_found", journal.lastOrNull()?.operationError)
         assertEquals(ManualRecordingEngineStats(1, 0, 1, 0, null), engine.stats())
     }
 

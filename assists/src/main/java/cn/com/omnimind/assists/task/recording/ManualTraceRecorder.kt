@@ -12,6 +12,8 @@ import cn.com.omnimind.baselib.runlog.State
 import cn.com.omnimind.baselib.runlog.actionOf
 import cn.com.omnimind.baselib.util.OmniLog
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.withTimeoutOrNull
 
 data class ManualTraceResult(
     val actions: List<ManualRecordedAction>,
@@ -35,6 +37,8 @@ data class ManualRecordedAction(
     val displayHeight: Int = 0,
     val evidenceComplete: Boolean = true,
     val evidenceError: String? = null,
+    val operationSuccess: Boolean = true,
+    val operationError: String? = null,
 ) {
     val beforePackageName: String? get() = beforeState?.packageName
     val afterPackageName: String? get() = afterState?.packageName
@@ -46,8 +50,10 @@ internal fun selectManualInputTargetAfterClick(
     before: ManualInputTarget?,
     after: ManualInputTarget?,
     clickedFocusedTarget: ManualInputTarget?,
-): ManualInputTarget? = after?.takeIf {
-    it != before || clickedFocusedTarget != null
+): ManualInputTarget? = when {
+    clickedFocusedTarget != null -> clickedFocusedTarget
+    after != null && after != before -> after
+    else -> null
 }
 
 internal fun manualInputTextActionArgs(
@@ -59,6 +65,17 @@ internal fun manualInputTextActionArgs(
     OobActionSchema.ARG_X to inputTarget.x,
     OobActionSchema.ARG_Y to inputTarget.y,
     OobActionSchema.ARG_NODE_RESOURCE_ID to inputTarget.nodeResourceId,
+).filterValues { it != null }
+
+internal fun manualPressKeyActionArgs(
+    key: String,
+    inputTarget: ManualInputTarget? = null,
+): Map<String, Any?> = linkedMapOf<String, Any?>(
+    OobActionSchema.ARG_KEY to key,
+    OobActionSchema.ARG_TARGET_DESCRIPTION to inputTarget?.description,
+    OobActionSchema.ARG_X to inputTarget?.x,
+    OobActionSchema.ARG_Y to inputTarget?.y,
+    OobActionSchema.ARG_NODE_RESOURCE_ID to inputTarget?.nodeResourceId,
 ).filterValues { it != null }
 
 internal fun canonicalManualScreenAction(
@@ -241,31 +258,37 @@ class ManualTraceRecorder(
         text: String,
         inputTarget: ManualInputTarget? = null,
     ): Boolean {
-        if (text.isEmpty() || inputTarget == null || inputTarget.password || !isRecording()) {
+        if (text.isEmpty() || !isRecording()) {
             return false
         }
+        val target = inputTarget ?: awaitInputTarget()
+        if (target == null || target.password) return false
         return engine.perform(
             command(
                 tool = OobActionSchema.TOOL_INPUT_TEXT,
-                args = manualInputTextActionArgs(text, inputTarget),
+                args = manualInputTextActionArgs(text, target),
                 title = "输入文本",
                 summary = "输入文本：${text.take(MAX_TEXT_SUMMARY_CHARS)}",
                 source = MANUAL_CONTROL_SOURCE,
                 screenCoordinates = true,
-            )
-        ).recorded
+            ).copy(persistOnFailure = true)
+        ).executed
     }
 
-    suspend fun recordManualPressKey(key: String): Boolean {
+    suspend fun recordManualPressKey(
+        key: String,
+        inputTarget: ManualInputTarget? = null,
+    ): Boolean {
         val canonicalKey = key.trim().lowercase().takeIf { it in SUPPORTED_KEYS } ?: return false
         if (!isRecording()) return false
         return engine.perform(
             command(
                 tool = OobActionSchema.TOOL_PRESS_KEY,
-                args = mapOf(OobActionSchema.ARG_KEY to canonicalKey),
+                args = manualPressKeyActionArgs(canonicalKey, inputTarget),
                 title = "按键 $canonicalKey",
                 summary = "按键：$canonicalKey",
                 source = MANUAL_CONTROL_SOURCE,
+                screenCoordinates = inputTarget != null,
             )
         ).recorded
     }
@@ -302,15 +325,10 @@ class ManualTraceRecorder(
             )
         }
         val inputTarget = if (outcome.recorded && gesture.actionName == OobActionSchema.TOOL_CLICK) {
-            val inputTargetAfter = environment.inputTarget()?.toManualInputTarget()
-            val clickedFocusedTarget = environment.inputTarget(
-                gesture.startX,
-                gesture.startY,
-            )?.toManualInputTarget()
-            selectManualInputTargetAfterClick(
+            awaitInputTargetAfterClick(
                 before = inputTargetBefore,
-                after = inputTargetAfter,
-                clickedFocusedTarget = clickedFocusedTarget,
+                x = gesture.startX,
+                y = gesture.startY,
             )
         } else {
             null
@@ -321,6 +339,34 @@ class ManualTraceRecorder(
             mayOpenIme = outcome.executed && gesture.actionName == OobActionSchema.TOOL_CLICK,
             inputTarget = inputTarget,
         )
+    }
+
+    private suspend fun awaitInputTarget(): ManualInputTarget? = withTimeoutOrNull(INPUT_TARGET_TIMEOUT_MS) {
+        var target: ManualInputTarget? = null
+        while (target == null) {
+            target = environment.inputTarget()?.toManualInputTarget()
+            if (target == null) {
+                delay(INPUT_TARGET_POLL_MS)
+            }
+        }
+        target
+    }
+
+    private suspend fun awaitInputTargetAfterClick(
+        before: ManualInputTarget?,
+        x: Float,
+        y: Float,
+    ): ManualInputTarget? = withTimeoutOrNull(INPUT_TARGET_TIMEOUT_MS) {
+        var target: ManualInputTarget? = null
+        while (target == null) {
+            val after = environment.inputTarget()?.toManualInputTarget()
+            val clicked = environment.inputTarget(x, y)?.toManualInputTarget()
+            target = selectManualInputTargetAfterClick(before, after, clicked)
+            if (target == null) {
+                delay(INPUT_TARGET_POLL_MS)
+            }
+        }
+        target
     }
 
     private fun ManualOverlayTouchGesture.toRecordingCommand(): ManualRecordingCommand {
@@ -508,6 +554,8 @@ class ManualTraceRecorder(
     }
 
     private companion object {
+        const val INPUT_TARGET_TIMEOUT_MS = 1_500L
+        const val INPUT_TARGET_POLL_MS = 100L
         private const val TAG = "ManualTraceRecorder"
         private const val OVERLAY_TOUCH_SOURCE = "overlay_touch"
         private const val MANUAL_CONTROL_SOURCE = "manual_control"

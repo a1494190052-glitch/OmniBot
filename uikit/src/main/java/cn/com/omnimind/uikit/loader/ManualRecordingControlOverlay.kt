@@ -768,11 +768,13 @@ object ManualRecordingControlOverlay {
         pressEnter: Boolean,
     ) {
         showTransientStatus(localizedText(context, "输入中", "Entering text"), 600L)
-        if (!ManualTouchRecordLoader.blockTouches()) {
-            finishManualActionDialog(localizedText(context, "补录失败", "Action failed"))
-            return
-        }
         recordingControlScope.launch {
+            if (!ensureTouchRecordingBlocked(context)) {
+                withContext(Dispatchers.Main) {
+                    finishManualActionDialog(localizedText(context, "补录失败", "Action failed"))
+                }
+                return@launch
+            }
             val recorded = runCatching {
                 HumanTrajectoryLearningSession.recordManualInputText(text, inputTarget)
             }.getOrElse { error ->
@@ -780,7 +782,12 @@ object ManualRecordingControlOverlay {
                 false
             }
             val enterRecorded = if (recorded && pressEnter) {
-                runCatching { HumanTrajectoryLearningSession.recordManualPressKey("enter") }
+                runCatching {
+                    HumanTrajectoryLearningSession.recordManualPressKey(
+                        key = "enter",
+                        inputTarget = inputTarget,
+                    )
+                }
                     .getOrElse { error ->
                         OmniLog.e(TAG, "manual enter action failed: ${error.message}", error)
                         false
@@ -821,11 +828,13 @@ object ManualRecordingControlOverlay {
 
     private fun executeManualPressKey(key: String) {
         showTransientStatus(localizedText("补录中", "Adding action"), 600L)
-        if (!ManualTouchRecordLoader.blockTouches()) {
-            finishManualActionDialog(localizedText("补录失败", "Action failed"))
-            return
-        }
         recordingControlScope.launch {
+            if (!ensureTouchRecordingBlocked()) {
+                withContext(Dispatchers.Main) {
+                    finishManualActionDialog(localizedText("补录失败", "Action failed"))
+                }
+                return@launch
+            }
             val recorded = runCatching {
                 HumanTrajectoryLearningSession.recordManualPressKey(key)
             }.getOrElse { error ->
@@ -850,11 +859,13 @@ object ManualRecordingControlOverlay {
             localizedText("等待 $seconds 秒", "Waiting ${seconds}s"),
             durationMs + 400L,
         )
-        if (!ManualTouchRecordLoader.blockTouches()) {
-            finishManualActionDialog(localizedText("等待失败", "Wait failed"))
-            return
-        }
         recordingControlScope.launch {
+            if (!ensureTouchRecordingBlocked()) {
+                withContext(Dispatchers.Main) {
+                    finishManualActionDialog(localizedText("等待失败", "Wait failed"))
+                }
+                return@launch
+            }
             val recorded = runCatching {
                 HumanTrajectoryLearningSession.recordManualWait(durationMs)
             }.getOrElse { error ->
@@ -885,6 +896,14 @@ object ManualRecordingControlOverlay {
         if (!message.isNullOrBlank()) {
             showTransientStatus(message, 1_000L)
         }
+    }
+
+    private suspend fun ensureTouchRecordingBlocked(context: Context? = UIKit.appContext): Boolean {
+        repeat(6) { attempt ->
+            if (ManualTouchRecordLoader.blockTouches(context)) return true
+            if (attempt < 5) delay(100L)
+        }
+        return false
     }
 
     private fun showOverlayDialog(dialog: AlertDialog): Boolean {

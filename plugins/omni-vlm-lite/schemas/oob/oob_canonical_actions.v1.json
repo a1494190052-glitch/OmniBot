@@ -109,11 +109,16 @@
       "name": "press_key",
       "kind": "action",
       "ui_label": {"zh_cn": "按系统键", "en_us": "Press key"},
-      "description": {"zh_cn": "按一个系统导航键。", "en_us": "Press one system navigation key."},
-      "prompt_guide": {"zh_cn": "- press_key(key): 按系统导航键；key 只能是 back、home 或 enter。", "en_us": "- press_key(key): Press a system navigation key; key must be back, home, or enter."},
+      "description": {"zh_cn": "按一个系统导航键；Enter 可选定目标输入框。", "en_us": "Press one system navigation key; Enter may target a specific input field."},
+      "prompt_guide": {"zh_cn": "- press_key(key, target_description?, x?, y?): 按系统导航键；key 只能是 back、home 或 enter。", "en_us": "- press_key(key, target_description?, x?, y?): Press a system navigation key; key must be back, home, or enter."},
+      "coordinate_action": true,
       "route_action": true,
       "args": [
-        {"name": "key", "type": "string", "required": true, "description": {"zh_cn": "系统键名称。", "en_us": "System key name."}, "enum_values": ["back", "home", "enter"]}
+        {"name": "key", "type": "string", "required": true, "description": {"zh_cn": "系统键名称。", "en_us": "System key name."}, "enum_values": ["back", "home", "enter"]},
+        {"name": "target_description", "type": "string", "persisted": false, "description": {"zh_cn": "可选。Enter 目标输入框描述。", "en_us": "Optional description of the input field targeted by Enter."}},
+        {"name": "node_resource_id", "type": "string", "persisted": false, "description": {"zh_cn": "可选。Enter 目标输入框的 Android resource-id。", "en_us": "Optional Android resource-id of the input field targeted by Enter."}},
+        {"name": "x", "type": "number", "persisted": false, "description": {"zh_cn": "可选。Enter 目标输入框中心的 0..1000 相对 X 坐标。", "en_us": "Optional 0..1000 relative X coordinate of the input field targeted by Enter."}, "minimum": 0, "maximum": 1000},
+        {"name": "y", "type": "number", "persisted": false, "description": {"zh_cn": "可选。Enter 目标输入框中心的 0..1000 相对 Y 坐标。", "en_us": "Optional 0..1000 relative Y coordinate of the input field targeted by Enter."}, "minimum": 0, "maximum": 1000}
       ]
     },
     {

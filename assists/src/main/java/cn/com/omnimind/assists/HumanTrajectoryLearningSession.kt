@@ -290,10 +290,13 @@ object HumanTrajectoryLearningSession {
             }
     }
 
-    suspend fun recordManualPressKey(key: String): Boolean {
+    suspend fun recordManualPressKey(
+        key: String,
+        inputTarget: ManualInputTarget? = null,
+    ): Boolean {
         val session = synchronized(lock) { activeSession } ?: return false
         if (synchronized(lock) { activePaused }) return false
-        return runCatching { session.recorder.recordManualPressKey(key) }
+        return runCatching { session.recorder.recordManualPressKey(key, inputTarget) }
             .getOrElse { error ->
                 OmniLog.w(TAG, "manual press_key record failed: ${error.message}")
                 false
@@ -379,16 +382,19 @@ object HumanTrajectoryLearningSession {
         }
         val hasActions = trace.actions.isNotEmpty()
         val evidenceComplete = trace.actions.all(ManualRecordedAction::evidenceComplete)
-        val success = hasActions && evidenceComplete && persisted.isSuccess
+        val actionsExecuted = manualOperationFailuresResolved(trace.actions)
+        val success = hasActions && evidenceComplete && actionsExecuted && persisted.isSuccess
         val doneReason = when {
             persisted.isFailure -> "runlog_persist_failed"
             !evidenceComplete -> "state_capture_incomplete"
+            !actionsExecuted -> "action_execution_failed"
             success -> "user_completed"
             else -> "empty_recording"
         }
         val errorMessage = when {
             persisted.isFailure -> "RunLog 保存失败：${persisted.exceptionOrNull()?.message.orEmpty()}"
             !evidenceComplete -> "页面状态采集失败，本次轨迹已保存但不能安全重放"
+            !actionsExecuted -> "部分手动操作执行失败，RunLog 已保留失败动作和原因"
             !hasActions -> "未记录到可复用的人类操作"
             else -> null
         }
@@ -549,6 +555,14 @@ object HumanTrajectoryLearningSession {
 
 }
 
+internal fun manualOperationFailuresResolved(actions: List<ManualRecordedAction>): Boolean =
+    actions.indices.all { index ->
+        val failed = actions[index]
+        failed.operationSuccess || actions.drop(index + 1).any { retry ->
+            retry.operationSuccess && retry.action == failed.action
+        }
+    }
+
 private fun manualRunLogFact(
     stepId: String,
     action: ManualRecordedAction,
@@ -559,11 +573,14 @@ private fun manualRunLogFact(
     return linkedMapOf(
         "before_state_id" to beforeState.stateId,
         "action" to action.action.asMap(),
-        "result" to mapOf("success" to true),
+        "result" to linkedMapOf<String, Any?>(
+            "success" to action.operationSuccess,
+            "error" to action.operationError.takeUnless { action.operationSuccess },
+        ).filterValues { it != null },
         "after_state_id" to afterState.stateId,
         "metadata" to linkedMapOf(
             "step_id" to stepId,
-            "status" to "succeeded",
+            "status" to if (action.operationSuccess) "succeeded" else "failed",
             "summary" to action.title,
             "duration_ms" to (action.finishedAtMs - action.startedAtMs).coerceAtLeast(0L),
             "started_at_ms" to action.startedAtMs,

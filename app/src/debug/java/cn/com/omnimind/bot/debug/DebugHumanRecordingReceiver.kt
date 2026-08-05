@@ -84,6 +84,7 @@ class DebugHumanRecordingReceiver : BroadcastReceiver() {
             "press_key" -> statusPayload(
                 HumanTrajectoryLearningSession.recordManualPressKey(
                     intent.text("key").ifBlank { "enter" },
+                    intent.manualInputTarget(),
                 ),
             )
             "wait" -> statusPayload(
@@ -173,6 +174,17 @@ class DebugHumanRecordingReceiver : BroadcastReceiver() {
         is Number -> value.toLong()
         is String -> value.toLongOrNull()
         else -> null
+    }
+
+    private fun Intent?.manualInputTarget(): ManualInputTarget? {
+        val x = float("x") ?: return null
+        val y = float("y") ?: return null
+        return ManualInputTarget(
+            description = text("description").ifBlank { "debug input" },
+            x = x,
+            y = y,
+            nodeResourceId = text("nodeResourceId").ifBlank { null },
+        )
     }
 
     private fun Intent?.int(name: String): Int? = when (val value = this?.extras?.get(name)) {
