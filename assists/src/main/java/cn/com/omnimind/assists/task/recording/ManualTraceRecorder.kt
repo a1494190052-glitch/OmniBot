@@ -554,7 +554,7 @@ class ManualTraceRecorder(
     }
 
     private companion object {
-        const val INPUT_TARGET_TIMEOUT_MS = 1_500L
+        const val INPUT_TARGET_TIMEOUT_MS = 3_500L
         const val INPUT_TARGET_POLL_MS = 100L
         private const val TAG = "ManualTraceRecorder"
         private const val OVERLAY_TOUCH_SOURCE = "overlay_touch"

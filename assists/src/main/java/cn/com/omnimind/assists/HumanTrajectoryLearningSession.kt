@@ -88,6 +88,7 @@ object HumanTrajectoryLearningSession {
     private val lock = Any()
     private var activeSession: ActiveSession? = null
     private var activePaused: Boolean = false
+    private var completingRunId: String? = null
 
     fun isActive(): Boolean = synchronized(lock) { activeSession != null }
 
@@ -171,6 +172,12 @@ object HumanTrajectoryLearningSession {
             },
         )
         synchronized(lock) {
+            if (completingRunId != null) {
+                deferred.completeExceptionally(
+                    IllegalStateException("上一条人工轨迹仍在保存，请稍后再试"),
+                )
+                return deferred
+            }
             // Auto-cancel any stale session whose coroutine was cancelled without
             // calling completeActive() / cancelActive() (e.g. app crash, mainJob cancel).
             val stale = activeSession
@@ -319,8 +326,8 @@ object HumanTrajectoryLearningSession {
             activeSession
                 ?.takeIf { it.runId == expectedRunId }
                 ?.also {
-                    activePaused = false
-                    activeSession = null
+                    activePaused = true
+                    completingRunId = it.runId
                 }
         } ?: run {
             OmniLog.w(
@@ -356,6 +363,7 @@ object HumanTrajectoryLearningSession {
                         actions = emptyList()
                     )
                 )
+                clearCompletedSession(session)
                 OmniLog.w(TAG, "human trajectory learning failed: ${error.message}")
                 return true
             }
@@ -457,6 +465,7 @@ object HumanTrajectoryLearningSession {
                 diagnostics = diagnostics
             )
         )
+        clearCompletedSession(session)
         if (success) {
             OmniLog.d(
                 TAG,
@@ -482,6 +491,7 @@ object HumanTrajectoryLearningSession {
         message: String = "人工轨迹学习已取消"
     ): Boolean {
         val session = synchronized(lock) {
+            if (completingRunId == expectedRunId) return@synchronized null
             activeSession
                 ?.takeIf { it.runId == expectedRunId }
                 ?.also {
@@ -516,6 +526,16 @@ object HumanTrajectoryLearningSession {
             )
         )
         return true
+    }
+
+    private fun clearCompletedSession(session: ActiveSession) {
+        synchronized(lock) {
+            if (activeSession === session) {
+                activeSession = null
+                activePaused = false
+                completingRunId = null
+            }
+        }
     }
 
     internal fun buildRunLogFact(

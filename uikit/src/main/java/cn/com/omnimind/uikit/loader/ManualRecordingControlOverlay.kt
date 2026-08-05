@@ -52,6 +52,7 @@ object ManualRecordingControlOverlay {
     private var manualActionDialogShowing = false
     private var captureStateCallback: (suspend () -> Map<String, Any?>)? = null
     private var sessionRunId: String? = null
+    private var suppressUnexpectedDetach = false
 
     enum class State {
         PREPARING,
@@ -204,8 +205,13 @@ object ManualRecordingControlOverlay {
         captureStateCallback = null
         sessionRunId = null
         if (view != null && manager != null && view.isAttachedToWindow) {
-            runCatching { manager.removeView(view) }
-                .onFailure { OmniLog.w(TAG, "dismiss failed: ${it.message}") }
+            suppressUnexpectedDetach = true
+            try {
+                runCatching { manager.removeView(view) }
+                    .onFailure { OmniLog.w(TAG, "dismiss failed: ${it.message}") }
+            } finally {
+                suppressUnexpectedDetach = false
+            }
         }
     }
 
@@ -321,17 +327,22 @@ object ManualRecordingControlOverlay {
         val manager = windowManager ?: return
         val params = overlayParams ?: return
         if (!view.isAttachedToWindow) return
-        runCatching {
-            manager.removeViewImmediate(view)
-            manager.addView(view, params)
-        }.recoverCatching {
-            if (view.isAttachedToWindow) {
-                manager.updateViewLayout(view, params)
-            } else {
+        suppressUnexpectedDetach = true
+        try {
+            runCatching {
+                manager.removeViewImmediate(view)
                 manager.addView(view, params)
+            }.recoverCatching {
+                if (view.isAttachedToWindow) {
+                    manager.updateViewLayout(view, params)
+                } else {
+                    manager.addView(view, params)
+                }
+            }.onFailure { error ->
+                OmniLog.w(TAG, "keep controls above touch recorder failed: ${error.message}")
             }
-        }.onFailure { error ->
-            OmniLog.w(TAG, "keep controls above touch recorder failed: ${error.message}")
+        } finally {
+            suppressUnexpectedDetach = false
         }
     }
 
@@ -348,6 +359,23 @@ object ManualRecordingControlOverlay {
             }
             elevation = 6.dpToPx().toFloat()
         }
+        container.addOnAttachStateChangeListener(object : View.OnAttachStateChangeListener {
+            override fun onViewAttachedToWindow(view: View) = Unit
+
+            override fun onViewDetachedFromWindow(view: View) {
+                val unexpected = synchronized(this@ManualRecordingControlOverlay) {
+                    overlayView === view && !suppressUnexpectedDetach
+                }
+                if (unexpected) {
+                    cancelRecording(
+                        localizedText(
+                            "录制窗口被系统关闭，轨迹已取消",
+                            "Recording window was closed by the system.",
+                        ),
+                    )
+                }
+            }
+        })
         val title = TextView(context).apply {
             tag = "manual_recording_title"
             text = localizedText(context, "录制", "Record")
@@ -574,8 +602,28 @@ object ManualRecordingControlOverlay {
     }
 
     private fun showManualActionDialog(context: Context) {
-        val inputTarget = runCatching {
-            kotlinx.coroutines.runBlocking {
+        recordingControlScope.launch {
+            val canShow = withContext(Dispatchers.Main.immediate) {
+                synchronized(this@ManualRecordingControlOverlay) {
+                    if (manualActionDialogShowing || state != State.RECORDING) {
+                        false
+                    } else {
+                        manualActionDialogShowing = true
+                        true
+                    }
+                }
+            }
+            if (!canShow) {
+                withContext(Dispatchers.Main.immediate) {
+                    showTransientStatus(
+                        localizedText("先开始录制", "Start recording first"),
+                        900L,
+                    )
+                }
+                return@launch
+            }
+
+            val inputTarget = runCatching {
                 AndroidGuiEnvironment(context).inputTarget()?.let {
                     ManualInputTarget(
                         description = it.description,
@@ -585,67 +633,62 @@ object ManualRecordingControlOverlay {
                         password = it.password,
                     )
                 }
-            }
-        }.getOrNull()
-        val canShow = synchronized(this) {
-            if (manualActionDialogShowing) return
-            if (state != State.RECORDING) return@synchronized false
-            manualActionDialogShowing = true
-            true
-        }
-        if (!canShow) {
-            showTransientStatus(localizedText("先开始录制", "Start recording first"), 900L)
-            return
-        }
-        if (!ManualTouchRecordLoader.prepareForManualAction()) {
-            synchronized(this) {
-                manualActionDialogShowing = false
-            }
-            showTransientStatus(localizedText("稍后再试", "Try again shortly"), 900L)
-            return
-        }
-        val labels = arrayOf(
-            localizedText(context, "输入文字", "Enter text"),
-            localizedText(context, "按回车", "Press Enter"),
-            localizedText(context, "按返回", "Press Back"),
-            localizedText(context, "回到桌面", "Go Home"),
-            localizedText(context, "等待", "Wait"),
-        )
-        val dialog = AlertDialog.Builder(context)
-            .setTitle(localizedText(context, "补录动作", "Add action"))
-            .setItems(labels) { _, which ->
-                when (which) {
-                    0 -> when {
-                        inputTarget == null -> finishManualActionDialog(
-                            localizedText(context, "请先点击输入框", "Tap an input field first"),
-                        )
-                        inputTarget.password -> finishManualActionDialog(
-                            localizedText(
-                                context,
-                                "密码输入不录制",
-                                "Password input is not recorded",
-                            ),
-                        )
-                        else -> showManualInputTextDialog(context, inputTarget)
+            }.getOrNull()
+            withContext(Dispatchers.Main.immediate) {
+                if (!ManualTouchRecordLoader.prepareForManualAction()) {
+                    finishManualActionDialog(
+                        localizedText("稍后再试", "Try again shortly"),
+                    )
+                    return@withContext
+                }
+                val labels = arrayOf(
+                    localizedText(context, "输入文字", "Enter text"),
+                    localizedText(context, "按回车", "Press Enter"),
+                    localizedText(context, "按返回", "Press Back"),
+                    localizedText(context, "回到桌面", "Go Home"),
+                    localizedText(context, "等待", "Wait"),
+                )
+                val dialog = AlertDialog.Builder(context)
+                    .setTitle(localizedText(context, "补录动作", "Add action"))
+                    .setItems(labels) { _, which ->
+                        when (which) {
+                            0 -> when {
+                                inputTarget == null -> finishManualActionDialog(
+                                    localizedText(
+                                        context,
+                                        "请先点击输入框",
+                                        "Tap an input field first",
+                                    ),
+                                )
+                                inputTarget.password -> finishManualActionDialog(
+                                    localizedText(
+                                        context,
+                                        "密码输入不录制",
+                                        "Password input is not recorded",
+                                    ),
+                                )
+                                else -> showManualInputTextDialog(context, inputTarget)
+                            }
+                            1 -> executeManualPressKey("enter", inputTarget)
+                            2 -> executeManualPressKey("back", inputTarget)
+                            3 -> executeManualPressKey("home", inputTarget)
+                            4 -> showManualWaitDialog(context)
+                            else -> finishManualActionDialog()
+                        }
                     }
-                    1 -> executeManualPressKey("enter")
-                    2 -> executeManualPressKey("back")
-                    3 -> executeManualPressKey("home")
-                    4 -> showManualWaitDialog(context)
-                    else -> finishManualActionDialog()
+                    .setNegativeButton(localizedText(context, "取消", "Cancel")) { _, _ ->
+                        finishManualActionDialog()
+                    }
+                    .create()
+                dialog.setOnCancelListener {
+                    finishManualActionDialog()
+                }
+                if (!showOverlayDialog(dialog)) {
+                    finishManualActionDialog(
+                        localizedText(context, "补录窗口失败", "Could not open action dialog"),
+                    )
                 }
             }
-            .setNegativeButton(localizedText(context, "取消", "Cancel")) { _, _ ->
-                finishManualActionDialog()
-            }
-            .create()
-        dialog.setOnCancelListener {
-            finishManualActionDialog()
-        }
-        if (!showOverlayDialog(dialog)) {
-            finishManualActionDialog(
-                localizedText(context, "补录窗口失败", "Could not open action dialog"),
-            )
         }
     }
 
@@ -771,7 +814,13 @@ object ManualRecordingControlOverlay {
         recordingControlScope.launch {
             if (!ensureTouchRecordingBlocked(context)) {
                 withContext(Dispatchers.Main) {
-                    finishManualActionDialog(localizedText(context, "补录失败", "Action failed"))
+                    finishManualActionDialog(
+                        localizedText(
+                            context,
+                            "触控录制层未就绪",
+                            "Touch recording layer is not ready",
+                        ),
+                    )
                 }
                 return@launch
             }
@@ -810,7 +859,11 @@ object ManualRecordingControlOverlay {
                         )
                     }
                     !recorded -> finishManualActionDialog(
-                        localizedText(context, "输入失败", "Input failed"),
+                        localizedText(
+                            context,
+                            "输入失败：未找到可用输入框",
+                            "Input failed: no usable input field",
+                        ),
                     )
                     !enterRecorded -> finishManualActionDialog(
                         localizedText(context, "文字已输入，回车失败", "Text entered; submit failed"),
@@ -826,17 +879,28 @@ object ManualRecordingControlOverlay {
         }
     }
 
-    private fun executeManualPressKey(key: String) {
+    private fun executeManualPressKey(
+        key: String,
+        inputTarget: ManualInputTarget? = null,
+    ) {
         showTransientStatus(localizedText("补录中", "Adding action"), 600L)
         recordingControlScope.launch {
             if (!ensureTouchRecordingBlocked()) {
                 withContext(Dispatchers.Main) {
-                    finishManualActionDialog(localizedText("补录失败", "Action failed"))
+                    finishManualActionDialog(
+                        localizedText(
+                            "触控录制层未就绪",
+                            "Touch recording layer is not ready",
+                        ),
+                    )
                 }
                 return@launch
             }
             val recorded = runCatching {
-                HumanTrajectoryLearningSession.recordManualPressKey(key)
+                HumanTrajectoryLearningSession.recordManualPressKey(
+                    key = key,
+                    inputTarget = inputTarget,
+                )
             }.getOrElse { error ->
                 OmniLog.e(TAG, "manual press_key action failed: ${error.message}", error)
                 false
@@ -846,7 +910,10 @@ object ManualRecordingControlOverlay {
                     if (recorded) {
                         localizedText("已补录 press_key", "press_key added")
                     } else {
-                        localizedText("补录失败", "Action failed")
+                        localizedText(
+                            "按键执行失败：目标控件未响应",
+                            "Key action failed: target did not respond",
+                        )
                     },
                 )
             }
@@ -900,7 +967,10 @@ object ManualRecordingControlOverlay {
 
     private suspend fun ensureTouchRecordingBlocked(context: Context? = UIKit.appContext): Boolean {
         repeat(6) { attempt ->
-            if (ManualTouchRecordLoader.blockTouches(context)) return true
+            val blocked = withContext(Dispatchers.Main.immediate) {
+                ManualTouchRecordLoader.blockTouches(context)
+            }
+            if (blocked) return true
             if (attempt < 5) delay(100L)
         }
         return false

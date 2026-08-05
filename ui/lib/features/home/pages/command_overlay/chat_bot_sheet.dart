@@ -14,6 +14,7 @@ import 'package:ui/services/assists_core_service.dart';
 import 'package:ui/services/agent_stream_meta.dart';
 import 'package:ui/features/home/pages/command_overlay/services/chat_service.dart';
 import 'package:ui/features/home/pages/command_overlay/constants/messages.dart';
+import 'package:ui/features/home/pages/command_overlay/services/manual_recording_flow_controller.dart';
 import 'package:ui/features/home/pages/command_overlay/utils/deep_thinking_parser.dart';
 import 'package:ui/features/home/pages/chat/utils/agent_run_timeline.dart';
 import 'package:ui/features/home/pages/chat/utils/stream_text_merge.dart';
@@ -1604,6 +1605,12 @@ class _ChatBotSheetState extends State<ChatBotSheet>
     final handledSlash = await _tryHandleSlashCommand(messageText);
     if (handledSlash) return;
 
+    if (hasAttachments == false &&
+        ManualRecordingFlowController.isCommand(messageText)) {
+      await _startManualRecordingCommand(messageText);
+      return;
+    }
+
     _inputFocusNode.unfocus();
     final attachments = _pendingAttachments
         .map((item) => item.toMap())
@@ -1644,6 +1651,77 @@ class _ChatBotSheetState extends State<ChatBotSheet>
             : '统一 Agent 启动失败，请检查模型提供商与场景模型配置。',
       );
     }
+  }
+
+  Future<void> _startManualRecordingCommand(String messageText) async {
+    await ManualRecordingFlowController.start(
+      context: context,
+      inputFocusNode: _inputFocusNode,
+      userMessageText: messageText,
+      recordDebugScreenshots: true,
+      isMounted: () => mounted,
+      addUserMessage: (text) {
+        final ids = _addUserMessage(text);
+        setState(() {
+          _messages.insert(
+            0,
+            ChatMessageModel.assistantMessage(
+              '',
+              id: ids.aiMessageId,
+              isLoading: true,
+            ),
+          );
+        });
+        return ManualRecordingFlowMessageIds(
+          userMessageId: ids.userMessageId,
+          aiMessageId: ids.aiMessageId,
+        );
+      },
+      afterUserMessageAdded: (_) => _saveConversationToDb(),
+      insertResultMessage: (messageId, result) {
+        if (!mounted) return;
+        final index = _messages.indexWhere(
+          (message) => message.id == messageId,
+        );
+        final text = _manualRecordingResultText(result);
+        setState(() {
+          final content = <String, dynamic>{'text': text, 'id': messageId};
+          if (index == -1) {
+            _messages.insert(
+              0,
+              ChatMessageModel(
+                id: messageId,
+                type: 1,
+                user: 2,
+                content: content,
+                isError: result['success'] != true,
+              ),
+            );
+          } else {
+            _messages[index] = _messages[index].copyWith(
+              content: content,
+              isLoading: false,
+              isError: result['success'] != true,
+            );
+          }
+        });
+        unawaited(_saveConversationToDb(markComplete: true));
+      },
+      onFinally: () {
+        if (!mounted) return;
+        setState(() => _isAiResponding = false);
+      },
+    );
+  }
+
+  String _manualRecordingResultText(Map<String, dynamic> result) {
+    if (result['success'] == true) {
+      return result['function'] is Map
+          ? '手动录制完成，复用指令已保存'
+          : '手动录制完成，RunLog 已保存；复用指令生成失败';
+    }
+    final error = result['error_message']?.toString().trim() ?? '';
+    return error.isEmpty ? '手动录制失败' : '手动录制失败：$error';
   }
 
   ({String userMessageId, String aiMessageId}) _addUserMessage(

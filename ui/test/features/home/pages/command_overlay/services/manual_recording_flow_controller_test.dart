@@ -3,6 +3,15 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:ui/features/home/pages/command_overlay/services/manual_recording_flow_controller.dart';
 
 void main() {
+  test('recognizes manual recording commands before agent dispatch', () {
+    expect(ManualRecordingFlowController.isCommand('手动录制'), isTrue);
+    expect(
+      ManualRecordingFlowController.isCommand(' manual recording '),
+      isTrue,
+    );
+    expect(ManualRecordingFlowController.isCommand('帮我录制一个流程'), isFalse);
+  });
+
   testWidgets('keeps recording completion inline when conversion fails', (
     tester,
   ) async {
@@ -25,7 +34,7 @@ void main() {
     final started = await ManualRecordingFlowController.start(
       context: context,
       inputFocusNode: focusNode,
-        userMessageText: '手动录制',
+      userMessageText: '手动录制',
       recordDebugScreenshots: false,
       isMounted: () => true,
       addUserMessage: (_) => const ManualRecordingFlowMessageIds(
