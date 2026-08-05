@@ -120,6 +120,13 @@ android {
             dimension = "edition"
             buildConfigField("String", "APP_EDITION", "\"standard\"")
         }
+
+        create("standardNoImpeller") {
+            dimension = "edition"
+            applicationIdSuffix = ".noimpeller"
+            versionNameSuffix = "-no-impeller"
+            buildConfigField("String", "APP_EDITION", "\"standard\"")
+        }
     }
     signingConfigs {
         create("release") {
