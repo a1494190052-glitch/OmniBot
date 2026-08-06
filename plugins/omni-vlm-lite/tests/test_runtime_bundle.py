@@ -1,18 +1,24 @@
 from __future__ import annotations
 
 import importlib.util
+import ast
+import asyncio
 import hashlib
 import json
 import os
 from pathlib import Path
+import shutil
 import subprocess
 import sys
 from tempfile import TemporaryDirectory
 import unittest
+from zipfile import ZipFile
 
 
 BUNDLE_ROOT = Path(__file__).resolve().parents[1] / "runtime-skill/omniflow-gui-runtime"
 BOOTSTRAP_PATH = BUNDLE_ROOT / "scripts/bootstrap_runtime.py"
+PREBUILT_RUNTIME_PATH = BUNDLE_ROOT / "scripts/runtime.prebuilt.zip"
+CATALOG_PATH = BUNDLE_ROOT.parents[2] / "catalog.v1.json"
 
 
 def load_bootstrap():
@@ -25,6 +31,332 @@ def load_bootstrap():
 
 
 class RuntimeBundleTest(unittest.TestCase):
+    def test_prebuilt_runtime_matches_catalog_digest_and_manifest(self) -> None:
+        bootstrap = load_bootstrap()
+        catalog = json.loads(CATALOG_PATH.read_text(encoding="utf-8"))
+        runtime_skill = catalog["plugins"][0]["runtimeSkill"]
+        self.assertEqual(
+            hashlib.sha256(PREBUILT_RUNTIME_PATH.read_bytes()).hexdigest(),
+            runtime_skill["prebuiltRuntimeSha256"],
+        )
+
+        values = bootstrap.read_properties(BUNDLE_ROOT / "scripts/runtime/runtime.properties")
+        marker = (BUNDLE_ROOT / "PACKAGED_RUNTIME_SKILL").read_text(encoding="utf-8").strip()
+        self.assertEqual(marker, values["runtime.version"])
+        with TemporaryDirectory() as temporary:
+            skill_root = Path(temporary) / "omniflow-gui-runtime"
+            runtime_root = skill_root / "scripts/runtime"
+            runtime_root.mkdir(parents=True)
+            shutil.copyfile(
+                BUNDLE_ROOT / "scripts/runtime/runtime.properties",
+                runtime_root / "runtime.properties",
+            )
+            with ZipFile(PREBUILT_RUNTIME_PATH) as archive:
+                archive.extractall(runtime_root)
+
+            fingerprint = bootstrap.sha256_file(runtime_root / "runtime.properties")
+            self.assertTrue(bootstrap.runtime_ready(skill_root, values, fingerprint))
+
+    def test_prebuilt_runtime_contains_pinned_real_omnitransfer(self) -> None:
+        values = load_bootstrap().read_properties(
+            BUNDLE_ROOT / "scripts/runtime/runtime.properties"
+        )
+        with ZipFile(PREBUILT_RUNTIME_PATH) as archive:
+            installed = json.loads(
+                archive.read(".runtime/installed.json").decode("utf-8")
+            )
+            names = set(archive.namelist())
+            runtime_source = archive.read(
+                ".runtime/omnitransfer/src/omnitransfer/runtime.py"
+            ).decode("utf-8")
+
+        self.assertEqual(installed["omnitransfer_commit"], values["omnitransfer.commit"])
+        self.assertIn(
+            ".runtime/omnitransfer/src/omnitransfer/runtime.py",
+            names,
+        )
+        self.assertIn("_DEFAULT_MATCHER_MIN_PROBABILITY = 0.01", runtime_source)
+        self.assertIn("_DEFAULT_MATCHER_MIN_MARGIN = 0.0", runtime_source)
+        self.assertIn("_coordinate_stretch_result", runtime_source)
+        self.assertIn("coordinate_stretch_fallback", runtime_source)
+
+        with ZipFile(PREBUILT_RUNTIME_PATH) as archive:
+            execution_source = archive.read(
+                "python/omniflow/runtime/execution.py"
+            ).decode("utf-8")
+        self.assertIn("_ALIGNMENT_MIN_PROBABILITY = 0.0", execution_source)
+        self.assertIn("_OPEN_APP_READY_MAX_ATTEMPTS = 30", execution_source)
+        self.assertIn("_OBSERVATION_READY_MAX_ATTEMPTS = 20", execution_source)
+        self.assertIn("def _observation_window_outside_display(", execution_source)
+        self.assertIn(
+            ".runtime/omnitransfer/src/omnitransfer/"
+            + values["omnitransfer.checkpoint"],
+            names,
+        )
+        self.assertTrue(
+            values["omnitransfer.checkpoint"].endswith(".npz"),
+            "the embedded Android runtime has NumPy but not PyTorch",
+        )
+        self.assertIn("NumpyMutualGraphMatcher", runtime_source)
+
+    def test_runtime_manifest_schema_digests_match_packaged_schemas(self) -> None:
+        bootstrap = load_bootstrap()
+        values = bootstrap.read_properties(
+            BUNDLE_ROOT / "scripts/runtime/runtime.properties"
+        )
+        schema_root = BUNDLE_ROOT.parents[1] / "schemas"
+        for key, expected in values.items():
+            if not key.startswith("schema.") or not key.endswith(".sha256"):
+                continue
+            filename = key.removeprefix("schema.").removesuffix(".sha256")
+            schema = schema_root / "oob" / filename
+            self.assertTrue(schema.is_file(), schema)
+            self.assertEqual(expected, hashlib.sha256(schema.read_bytes()).hexdigest())
+
+    def test_prebuilt_runtime_trims_setup_prefix_and_honors_host_stabilization(self) -> None:
+        with ZipFile(PREBUILT_RUNTIME_PATH) as archive:
+            compiler = archive.read("python/omniflow/functions/compiler.py").decode("utf-8")
+            execution = archive.read("python/omniflow/runtime/execution.py").decode("utf-8")
+
+        self.assertIn("steps = _trim_leading_setup_steps(steps)", compiler)
+        self.assertIn("def _trim_leading_setup_steps(", compiler)
+        self.assertIn(
+            "steps = await _trim_legacy_host_setup_steps(host, steps)",
+            execution,
+        )
+        self.assertIn("async def _trim_legacy_host_setup_steps(", execution)
+        self.assertIn('== "host_completed"', execution)
+
+        syntax = ast.parse(compiler)
+        helper = next(
+            node
+            for node in syntax.body
+            if isinstance(node, ast.FunctionDef)
+            and node.name == "_trim_leading_setup_steps"
+        )
+        namespace = {"Any": object}
+        exec(compile(ast.Module(body=[helper], type_ignores=[]), "compiler.py", "exec"), namespace)
+        trim = namespace["_trim_leading_setup_steps"]
+        dirty = [
+            {
+                "step_index": 0,
+                "_source_package": "cn.com.omnimind.bot.debug",
+                "action": {"tool": "click", "args": {}},
+            },
+            {
+                "step_index": 1,
+                "_source_package": "cn.com.omnimind.bot.debug",
+                "action": {"tool": "press_key", "args": {"key": "enter"}},
+            },
+            {
+                "step_index": 2,
+                "_source_package": "com.android.launcher",
+                "action": {
+                    "tool": "open_app",
+                    "args": {"package_name": "com.sankuai.meituan"},
+                },
+            },
+        ]
+        cleaned = trim(dirty)
+        self.assertEqual(["open_app"], [step["action"]["tool"] for step in cleaned])
+        self.assertEqual([0], [step["step_index"] for step in cleaned])
+
+        legitimate_multi_app = [
+            {**dirty[0], "_source_package": "com.example.notes"},
+            dirty[2],
+        ]
+        self.assertEqual(legitimate_multi_app, trim(legitimate_multi_app))
+
+        execution_syntax = ast.parse(execution)
+        replay_helper = next(
+            node
+            for node in execution_syntax.body
+            if isinstance(node, ast.AsyncFunctionDef)
+            and node.name == "_trim_legacy_host_setup_steps"
+        )
+
+        class FakeAction:
+            def __init__(self, tool: str) -> None:
+                self.tool = tool
+
+        class FakeStep:
+            def __init__(self, index: int, tool: str, source_state_id: str) -> None:
+                self.step_index = index
+                self.action = FakeAction(tool)
+                self.source_state_id = source_state_id
+
+        class FakeState:
+            def __init__(self, package_name: str) -> None:
+                self.package_name = package_name
+
+        states = {
+            "host-0": FakeState("cn.com.omnimind.bot.debug"),
+            "host-1": FakeState("cn.com.omnimind.bot.debug"),
+            "other-0": FakeState("com.example.notes"),
+        }
+
+        async def fake_load_state(_host, source_state_id):
+            return states.get(source_state_id)
+
+        replay_namespace = {"Any": object, "_load_state": fake_load_state}
+        exec(
+            compile(
+                ast.Module(body=[replay_helper], type_ignores=[]),
+                "execution.py",
+                "exec",
+            ),
+            replay_namespace,
+        )
+        trim_replay = replay_namespace["_trim_legacy_host_setup_steps"]
+        dirty_replay = (
+            FakeStep(0, "click", "host-0"),
+            FakeStep(1, "press_key", "host-1"),
+            FakeStep(2, "open_app", "launcher"),
+            FakeStep(3, "click", "target"),
+        )
+        cleaned_replay = asyncio.run(trim_replay(object(), dirty_replay))
+        self.assertEqual([2, 3], [step.step_index for step in cleaned_replay])
+
+        legitimate_replay = (
+            FakeStep(0, "click", "other-0"),
+            FakeStep(1, "open_app", "launcher"),
+        )
+        self.assertEqual(
+            legitimate_replay,
+            asyncio.run(trim_replay(object(), legitimate_replay)),
+        )
+
+    def test_prebuilt_runtime_seeds_parameterized_beverage_functions_and_checkers(self) -> None:
+        with ZipFile(PREBUILT_RUNTIME_PATH) as archive:
+            store = json.loads(
+                archive.read("python/omniflow/builtin/function_store.json")
+            )
+            states = json.loads(
+                archive.read("python/omniflow/builtin/states.json")
+            )
+            function_store_source = archive.read(
+                "python/omniflow/functions/store.py"
+            ).decode("utf-8")
+            execution = archive.read(
+                "python/omniflow/runtime/execution.py"
+            ).decode("utf-8")
+            bridge_source = archive.read("python/omniflow/bridge.py").decode("utf-8")
+
+        functions = store["functions"]
+        self.assertEqual(
+            {"order_beverage_meituan"},
+            set(functions),
+        )
+        generic = functions["order_beverage_meituan"]
+        self.assertEqual(["beverage"], generic["input_schema"]["required"])
+        self.assertEqual("$.arguments.beverage", generic["bindings"][0]["source"])
+        self.assertGreaterEqual(len(generic["checker_rules"]), 10)
+        self.assertEqual(
+            [
+                "click",
+                "click",
+                "input_text",
+                "press_key",
+                "click",
+                "click",
+                "input_text",
+                "press_key",
+                "click",
+            ],
+            [step["action"]["tool"] for step in generic["steps"]],
+        )
+        self.assertEqual("拿铁", generic["steps"][2]["action"]["args"]["text"])
+        self.assertEqual("拿铁", generic["steps"][6]["action"]["args"]["text"])
+        self.assertEqual(
+            [
+                "$.steps[2].action.args.text",
+                "$.steps[6].action.args.text",
+            ],
+            [binding["target"] for binding in generic["bindings"]],
+        )
+        self.assertEqual(
+            "$.arguments.beverage",
+            generic["bindings"][1]["source"],
+        )
+        self.assertEqual(
+            "$.steps[2].action.args.text",
+            generic["bindings"][0]["target"],
+        )
+        source_state_ids = {
+            step["source_state_id"]
+            for function in functions.values()
+            for step in function["steps"]
+        }
+        self.assertTrue(source_state_ids <= set(states))
+        self.assertIn(
+            "self._seed(seed_functions, replace=replace_seeded)",
+            function_store_source,
+        )
+        self.assertIn("--catalog", bridge_source)
+        self.assertIn("load_default_catalog()", bridge_source)
+        self.assertIn("payment_confirmation_blocked", execution)
+
+        execution_syntax = ast.parse(execution)
+        payment_helper = next(
+            node
+            for node in execution_syntax.body
+            if isinstance(node, ast.FunctionDef)
+            and node.name == "_payment_confirmation_visible"
+        )
+        payment_namespace = {"Observation": object, "Action": object}
+        exec(
+            compile(
+                ast.Module(body=[payment_helper], type_ignores=[]),
+                "execution.py",
+                "exec",
+            ),
+            payment_namespace,
+        )
+        payment_guard = payment_namespace["_payment_confirmation_visible"]
+        observation = type("Observation", (), {"xml": "<node text='立即支付'/>"})()
+        click = type("Action", (), {"tool": "click"})()
+        back = type("Action", (), {"tool": "press_key"})()
+        self.assertTrue(payment_guard(observation, click))
+        self.assertFalse(payment_guard(observation, back))
+
+        with TemporaryDirectory() as temporary:
+            runtime_root = Path(temporary)
+            with ZipFile(PREBUILT_RUNTIME_PATH) as archive:
+                archive.extractall(runtime_root)
+            environment = os.environ.copy()
+            environment["PYTHONPATH"] = os.pathsep.join(
+                (
+                    str(runtime_root / "python"),
+                    str(runtime_root / ".runtime/omnitransfer/src"),
+                )
+            )
+            validation = subprocess.run(
+                [
+                    sys.executable,
+                    "-c",
+                    "from omniflow.catalog import load_default_catalog; "
+                    "from omniflow.functions.store import FunctionStore; "
+                    "catalog=load_default_catalog(); "
+                    "store=FunctionStore(r'%s', "
+                    "seed_functions=catalog.functions.values()); "
+                    "assert [item.function_id for item in store.list_functions()] "
+                    "== ['order_beverage_meituan']"
+                    % (runtime_root / "user-store.json"),
+                ],
+                capture_output=True,
+                check=False,
+                env=environment,
+                text=True,
+            )
+            self.assertEqual(
+                0,
+                validation.returncode,
+                json.dumps(
+                    {"stdout": validation.stdout, "stderr": validation.stderr},
+                    ensure_ascii=False,
+                ),
+            )
+
     def test_download_cache_is_outside_versioned_skill_directory(self) -> None:
         bootstrap = load_bootstrap()
         skill_root = Path("/workspace/.omnibot/skills/omniflow-gui-runtime")
