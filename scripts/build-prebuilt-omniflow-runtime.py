@@ -27,6 +27,7 @@ TRANSFER_FILES = (
     "ui_graph.py",
 )
 PINNED_OMNITRANSFER_COMMIT = "da49fd13698ab14fc7e8aa7b56e0199f4709ab27"
+PYTHON_ENVIRONMENT_PROFILE = "alpine-3.21-system-numpy-v1"
 
 def write_builtin_assets(flow_target: Path) -> None:
     catalog_root = flow_target / "catalog"
@@ -275,6 +276,15 @@ def write_deterministic_zip(source: Path, target: Path) -> None:
     temporary.replace(target)
 
 
+def remove_packaged_numpy(site_packages: Path) -> None:
+    """Keep NumPy in the managed Alpine environment, not the hot-update zip."""
+    for path in site_packages.glob("numpy*"):
+        if path.is_dir():
+            shutil.rmtree(path)
+        else:
+            path.unlink()
+
+
 def update_catalog_digest(path: Path, digest: str) -> None:
     content = path.read_text(encoding="utf-8")
     updated, count = re.subn(
@@ -318,6 +328,7 @@ def main() -> int:
         staging = Path(temporary)
         with ZipFile(args.archive) as archive:
             archive.extractall(staging)
+        remove_packaged_numpy(staging / ".runtime/site-packages")
         flow_target = staging / "python/omniflow"
         shutil.rmtree(flow_target)
         copy_tree(flow_package, flow_target)
@@ -370,9 +381,13 @@ def main() -> int:
         catalog_manifest = (
             flow_target / "catalog/releases" / catalog_release / "manifest.json"
         )
+        environment_sha = hashlib.sha256(
+            PYTHON_ENVIRONMENT_PROFILE.encode("utf-8")
+        ).hexdigest()
         runtime_version = (
-            "2026.08.05.local."
-            f"{flow_sha[:8]}.{transfer_sha[:8]}.{flow_commit[:8]}"
+            "2026.08.07.local."
+            f"{flow_sha[:8]}.{transfer_sha[:8]}.{environment_sha[:8]}."
+            f"{flow_commit[:8]}"
         )
         updates = {
             "runtime.version": runtime_version,
@@ -419,6 +434,7 @@ def main() -> int:
     release_manifest = {
         "schema_version": "omniflow.runtime-release.v1",
         "runtime_version": runtime_version,
+        "python_environment_profile": PYTHON_ENVIRONMENT_PROFILE,
         "archive": args.archive.name,
         "archive_bytes": args.archive.stat().st_size,
         "archive_sha256": archive_sha,

@@ -122,7 +122,6 @@ class OmniFlowRuntimeProvider {
             "scripts/runtime/python/schemas/oob/omniflow_function.v2.json",
             "scripts/runtime/python/schemas/oob/omniflow_checker_rule.v1.json",
             "scripts/runtime/python/schemas/oob/omniflow_android_bridge.v2.json",
-            "scripts/runtime/.runtime/site-packages/numpy/__init__.py",
             "scripts/runtime/.runtime/site-packages/json_repair/__init__.py",
             "scripts/runtime/.runtime/omnitransfer/src/omnitransfer/runtime.py",
             "scripts/runtime/.runtime/omnitransfer/src/omnitransfer/numpy_matcher.py",

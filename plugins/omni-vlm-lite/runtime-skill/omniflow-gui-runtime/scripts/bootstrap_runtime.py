@@ -278,10 +278,7 @@ def runtime_ready(skill_root: Path, values: dict[str, str], fingerprint: str) ->
     ):
         return False
     verify_schema_files(python_root / "schemas/oob", values)
-    return (
-        (runtime_root / ".runtime/site-packages/numpy/__init__.py").is_file()
-        and (runtime_root / ".runtime/site-packages/json_repair/__init__.py").is_file()
-    )
+    return (runtime_root / ".runtime/site-packages/json_repair/__init__.py").is_file()
 
 
 def download_cache_root(skill_root: Path) -> Path:
@@ -325,17 +322,14 @@ def install(skill_root: Path) -> None:
         flow_archive = archives / "omniflow.tar.gz"
         transfer_archive = archives / "omnitransfer.tar.gz"
         checkpoint = archives / "omnitransfer-checkpoint.npz"
-        numpy_wheel = archives / "numpy.whl"
         json_repair_wheel = archives / "json_repair.whl"
         cache_root = download_cache_root(skill_root)
         cache_root.mkdir(parents=True, exist_ok=True)
         cached_flow_archive = cache_root / flow_archive.name
         cached_transfer_archive = cache_root / transfer_archive.name
         cached_checkpoint = cache_root / checkpoint.name
-        cached_numpy_wheel = cache_root / numpy_wheel.name
         cached_json_repair_wheel = cache_root / json_repair_wheel.name
-        numpy_fallback_url = values.get("numpy.fallback_url", "").strip()
-        stage("downloads_start", "count=5")
+        stage("downloads_start", "count=4")
         download_many(
             (
                 (
@@ -360,13 +354,6 @@ def install(skill_root: Path) -> None:
                     (),
                 ),
                 (
-                    "numpy_wheel",
-                    required(values, "numpy.url"),
-                    required(values, "numpy.sha256"),
-                    cached_numpy_wheel,
-                    (numpy_fallback_url,) if numpy_fallback_url else (),
-                ),
-                (
                     "json_repair_wheel",
                     required(values, "json_repair.url"),
                     required(values, "json_repair.sha256"),
@@ -379,7 +366,6 @@ def install(skill_root: Path) -> None:
             (cached_flow_archive, flow_archive),
             (cached_transfer_archive, transfer_archive),
             (cached_checkpoint, checkpoint),
-            (cached_numpy_wheel, numpy_wheel),
             (cached_json_repair_wheel, json_repair_wheel),
         ):
             shutil.copyfile(cached, target)
@@ -403,7 +389,6 @@ def install(skill_root: Path) -> None:
 
         site_packages = staging_root / "runtime/site-packages"
         site_packages.mkdir(parents=True)
-        safe_extract_zip(numpy_wheel, site_packages)
         safe_extract_zip(json_repair_wheel, site_packages)
         if sha256_directory(python_target / "omniflow") != required(values, "omniflow.source.sha256"):
             raise RuntimeError("omniflow_source_checksum_mismatch")

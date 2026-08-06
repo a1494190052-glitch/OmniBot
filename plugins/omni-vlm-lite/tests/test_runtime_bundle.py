@@ -50,6 +50,11 @@ class RuntimeBundleTest(unittest.TestCase):
         )
         self.assertEqual(release["schema_version"], "omniflow.runtime-release.v1")
         self.assertEqual(release["runtime_version"], values["runtime.version"])
+        self.assertEqual(
+            release["python_environment_profile"],
+            "alpine-3.21-system-numpy-v1",
+        )
+        self.assertEqual(values["numpy.version"], "alpine-3.21-py3-numpy")
         self.assertEqual(release["archive"], PREBUILT_RUNTIME_PATH.name)
         self.assertEqual(release["archive_bytes"], PREBUILT_RUNTIME_PATH.stat().st_size)
         self.assertEqual(
@@ -139,10 +144,14 @@ class RuntimeBundleTest(unittest.TestCase):
         )
         self.assertTrue(
             values["omnitransfer.checkpoint"].endswith(".npz"),
-            "the embedded Android runtime has NumPy but not PyTorch",
+            "the mobile checkpoint must remain a portable NumPy archive",
         )
         self.assertIn("NumpyGeometricAlignmentMatcher", runtime_source)
         self.assertIn("v9_direct_text_alignment_seed29.npz", runtime_source)
+        self.assertFalse(
+            any(name.startswith(".runtime/site-packages/numpy") for name in names),
+            "NumPy belongs to the managed Python environment, not each runtime zip",
+        )
 
     def test_runtime_manifest_schema_digests_match_packaged_schemas(self) -> None:
         bootstrap = load_bootstrap()

@@ -43,42 +43,33 @@ internal class OmniFlowAppPlatform(
             terminalStatus.message.ifBlank { "omniflow_terminal_runtime_unavailable" }
         }
         val prefs = appContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-        if (prefs.getString(READY_VERSION_KEY, null) == expectedVersion) {
-            log("python_ready_cached version=$expectedVersion")
+        val environmentVersion = "$expectedVersion+system-numpy-v1"
+        if (prefs.getString(READY_VERSION_KEY, null) == environmentVersion) {
+            log("python_ready_cached version=$environmentVersion")
             return
         }
         val startedAt = System.currentTimeMillis()
-        log("python_prepare_start version=$expectedVersion")
-        val command = """
-            expected='$expectedVersion'
-            packages_ready() {
-              for package in python3 py3-pip libstdc++ ca-certificates; do
-                apk info -e "${'$'}package" >/dev/null 2>&1 || return 1
-              done
-              command -v python3 >/dev/null 2>&1 &&
-              python3 -c 'import sys; print("%d.%d" % sys.version_info[:2])' | grep -qx "${'$'}expected" &&
-              python3 -m pip --version >/dev/null 2>&1 &&
-              test -e /usr/lib/libstdc++.so.6
-            }
-            if ! packages_ready; then
-              apk update >/dev/null &&
-              apk add --no-cache python3 py3-pip libstdc++ ca-certificates >/dev/null
-            fi
-            packages_ready
-        """.trimIndent()
+        log("python_probe_start version=$expectedVersion")
+        val command = buildOmniFlowPythonPrepareCommand(expectedVersion)
         val result = TerminalManager.getInstance(appContext).executeHiddenCommand(
             command = command,
             executorKey = "omniflow-python-runtime",
             timeoutMs = 5 * 60_000L,
+            onOutputChunk = { chunk ->
+                chunk.lineSequence()
+                    .map(String::trim)
+                    .filter(String::isNotBlank)
+                    .forEach { line -> log("python_prepare_output $line") }
+            },
         )
         require(result.isOk && result.exitCode == 0) {
             result.error.takeIf(String::isNotBlank)
                 ?: result.output.takeLast(800).trim()
-                    .ifBlank { "omniflow_python_runtime_unavailable" }
+                    .ifBlank { "omniflow_python_runtime_not_preinstalled" }
         }
-        prefs.edit().putString(READY_VERSION_KEY, expectedVersion).apply()
+        prefs.edit().putString(READY_VERSION_KEY, environmentVersion).apply()
         log(
-            "python_prepare_ready version=$expectedVersion " +
+            "python_probe_ready version=$expectedVersion " +
                 "durationMs=${System.currentTimeMillis() - startedAt}",
         )
     }
@@ -121,6 +112,33 @@ internal class OmniFlowAppPlatform(
         return resolveOmniFlowJsonCompletion(response)
     }
 
+}
+
+internal fun buildOmniFlowPythonPrepareCommand(expectedVersion: String): String {
+    require(Regex("""\d+\.\d+""").matches(expectedVersion)) {
+        "invalid_python_version"
+    }
+    return """
+        set -e
+        expected='$expectedVersion'
+        echo 'OMNIFLOW_PYTHON_STAGE=probe_start'
+        packages_ready() {
+          command -v python3 >/dev/null 2>&1 &&
+          python3 -c 'import sys; print("%d.%d" % sys.version_info[:2])' | grep -qx "${'$'}expected" &&
+          python3 -m pip --version >/dev/null 2>&1 &&
+          python3 -c 'import numpy' >/dev/null 2>&1 &&
+          test -e /usr/lib/libstdc++.so.6
+        }
+        if ! packages_ready; then
+          echo 'OMNIFLOW_PYTHON_STAGE=install_start package=py3-numpy'
+          apk add --no-cache python3 py3-pip py3-numpy libstdc++
+          echo 'OMNIFLOW_PYTHON_STAGE=install_ready package=py3-numpy'
+        else
+          echo 'OMNIFLOW_PYTHON_STAGE=probe_ready source=cache'
+        fi
+        packages_ready
+        echo 'OMNIFLOW_PYTHON_STAGE=ready'
+    """.trimIndent()
 }
 
 internal fun resolveOmniFlowJsonCompletion(response: SceneChatCompletionResponse): String {
