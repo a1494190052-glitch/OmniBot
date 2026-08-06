@@ -124,6 +124,34 @@ if ((install_apk)); then
     exit 1
   }
   adb -s "$device_serial" install -r "$apk_output"
+  package_name='cn.com.omnimind.bot.debug'
+  adb -s "$device_serial" shell am force-stop "$package_name"
+  adb -s "$device_serial" shell monkey \
+    -p "$package_name" -c android.intent.category.LAUNCHER 1 >/dev/null
+  sleep 20
+  installed_runtime_version="$(
+    adb -s "$device_serial" shell run-as "$package_name" \
+      cat workspace/.omnibot/skills/omniflow-gui-runtime/scripts/runtime/runtime.properties \
+      | sed -n 's/^runtime.version=//p' \
+      | tr -d '\r'
+  )"
+  [[ "$installed_runtime_version" == "$runtime_version" ]] || {
+    printf 'Installed runtime version mismatch: expected=%s actual=%s\n' \
+      "$runtime_version" "$installed_runtime_version" >&2
+    exit 1
+  }
+  adb -s "$device_serial" shell am broadcast \
+    -a "$package_name.CALL_OMNIFLOW_TOOL" \
+    -n "$package_name/$package_name.DebugOmniFlowToolReceiver" \
+    --es name list_functions --es arguments e30= >/dev/null
+  sleep 45
+  function_result="$(
+    adb -s "$device_serial" shell run-as "$package_name" \
+      cat files/debug-omniflow-tool-result.json
+  )"
+  grep -q '"success": true' <<<"$function_result"
+  grep -q '"function_id": "order_beverage_meituan"' <<<"$function_result"
+  grep -q '"count": 1' <<<"$function_result"
 fi
 
 printf 'FOOLPROOF_APK=PASS\n'
