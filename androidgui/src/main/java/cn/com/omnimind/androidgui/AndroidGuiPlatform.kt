@@ -478,4 +478,4 @@ internal class AccessibilityAndroidGuiPlatform(
 
 internal val OPEN_APP_INTENT_FLAGS: Int =
     android.content.Intent.FLAG_ACTIVITY_NEW_TASK or
-        android.content.Intent.FLAG_ACTIVITY_CLEAR_TOP
+        android.content.Intent.FLAG_ACTIVITY_CLEAR_TASK
