@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import importlib.util
 import ast
-import asyncio
 import hashlib
 import json
 import os
@@ -19,6 +18,9 @@ BUNDLE_ROOT = Path(__file__).resolve().parents[1] / "runtime-skill/omniflow-gui-
 BOOTSTRAP_PATH = BUNDLE_ROOT / "scripts/bootstrap_runtime.py"
 PREBUILT_RUNTIME_PATH = BUNDLE_ROOT / "scripts/runtime.prebuilt.zip"
 CATALOG_PATH = BUNDLE_ROOT.parents[2] / "catalog.v1.json"
+REPOSITORY_ROOT = BUNDLE_ROOT.parents[3]
+OMNIFLOW_ROOT = REPOSITORY_ROOT.parent / "OmniFlow-exp"
+OMNITRANSFER_ROOT = REPOSITORY_ROOT.parent / "OmniTransfer"
 
 
 def load_bootstrap():
@@ -28,6 +30,13 @@ def load_bootstrap():
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
+
+
+def committed_file(repository: Path, relative: str, *, revision: str = "HEAD") -> str:
+    return subprocess.check_output(
+        ("git", "-C", str(repository), "show", f"{revision}:{relative}"),
+        text=True,
+    )
 
 
 class RuntimeBundleTest(unittest.TestCase):
@@ -75,10 +84,16 @@ class RuntimeBundleTest(unittest.TestCase):
             ".runtime/omnitransfer/src/omnitransfer/runtime.py",
             names,
         )
-        self.assertIn("_DEFAULT_MATCHER_MIN_PROBABILITY = 0.01", runtime_source)
-        self.assertIn("_DEFAULT_MATCHER_MIN_MARGIN = 0.0", runtime_source)
-        self.assertIn("_coordinate_stretch_result", runtime_source)
-        self.assertIn("coordinate_stretch_fallback", runtime_source)
+        canonical_runtime = committed_file(
+            OMNITRANSFER_ROOT,
+            "src/omnitransfer/runtime.py",
+            revision=values["omnitransfer.commit"],
+        )
+        self.assertEqual(canonical_runtime, runtime_source)
+        self.assertIn("_DEFAULT_MATCHER_MIN_PROBABILITY = 0.5", runtime_source)
+        self.assertIn("_DEFAULT_MATCHER_MIN_MARGIN = 0.15", runtime_source)
+        self.assertNotIn("_coordinate_stretch_result", runtime_source)
+        self.assertNotIn("coordinate_stretch_fallback", runtime_source)
 
         with ZipFile(PREBUILT_RUNTIME_PATH) as archive:
             execution_source = archive.read(
@@ -113,117 +128,29 @@ class RuntimeBundleTest(unittest.TestCase):
             self.assertTrue(schema.is_file(), schema)
             self.assertEqual(expected, hashlib.sha256(schema.read_bytes()).hexdigest())
 
-    def test_prebuilt_runtime_trims_setup_prefix_and_honors_host_stabilization(self) -> None:
+    def test_prebuilt_runtime_keeps_canonical_behavior_sources_unchanged(self) -> None:
         with ZipFile(PREBUILT_RUNTIME_PATH) as archive:
             compiler = archive.read("python/omniflow/functions/compiler.py").decode("utf-8")
             execution = archive.read("python/omniflow/runtime/execution.py").decode("utf-8")
+            core = archive.read("python/omniflow/runtime/core.py").decode("utf-8")
 
-        self.assertIn("steps = _trim_leading_setup_steps(steps)", compiler)
-        self.assertIn("def _trim_leading_setup_steps(", compiler)
-        self.assertIn(
-            "steps = await _trim_legacy_host_setup_steps(host, steps)",
-            execution,
-        )
-        self.assertIn("async def _trim_legacy_host_setup_steps(", execution)
-        self.assertIn('== "host_completed"', execution)
-
-        syntax = ast.parse(compiler)
-        helper = next(
-            node
-            for node in syntax.body
-            if isinstance(node, ast.FunctionDef)
-            and node.name == "_trim_leading_setup_steps"
-        )
-        namespace = {"Any": object}
-        exec(compile(ast.Module(body=[helper], type_ignores=[]), "compiler.py", "exec"), namespace)
-        trim = namespace["_trim_leading_setup_steps"]
-        dirty = [
-            {
-                "step_index": 0,
-                "_source_package": "cn.com.omnimind.bot.debug",
-                "action": {"tool": "click", "args": {}},
-            },
-            {
-                "step_index": 1,
-                "_source_package": "cn.com.omnimind.bot.debug",
-                "action": {"tool": "press_key", "args": {"key": "enter"}},
-            },
-            {
-                "step_index": 2,
-                "_source_package": "com.android.launcher",
-                "action": {
-                    "tool": "open_app",
-                    "args": {"package_name": "com.sankuai.meituan"},
-                },
-            },
-        ]
-        cleaned = trim(dirty)
-        self.assertEqual(["open_app"], [step["action"]["tool"] for step in cleaned])
-        self.assertEqual([0], [step["step_index"] for step in cleaned])
-
-        legitimate_multi_app = [
-            {**dirty[0], "_source_package": "com.example.notes"},
-            dirty[2],
-        ]
-        self.assertEqual(legitimate_multi_app, trim(legitimate_multi_app))
-
-        execution_syntax = ast.parse(execution)
-        replay_helper = next(
-            node
-            for node in execution_syntax.body
-            if isinstance(node, ast.AsyncFunctionDef)
-            and node.name == "_trim_legacy_host_setup_steps"
-        )
-
-        class FakeAction:
-            def __init__(self, tool: str) -> None:
-                self.tool = tool
-
-        class FakeStep:
-            def __init__(self, index: int, tool: str, source_state_id: str) -> None:
-                self.step_index = index
-                self.action = FakeAction(tool)
-                self.source_state_id = source_state_id
-
-        class FakeState:
-            def __init__(self, package_name: str) -> None:
-                self.package_name = package_name
-
-        states = {
-            "host-0": FakeState("cn.com.omnimind.bot.debug"),
-            "host-1": FakeState("cn.com.omnimind.bot.debug"),
-            "other-0": FakeState("com.example.notes"),
-        }
-
-        async def fake_load_state(_host, source_state_id):
-            return states.get(source_state_id)
-
-        replay_namespace = {"Any": object, "_load_state": fake_load_state}
-        exec(
-            compile(
-                ast.Module(body=[replay_helper], type_ignores=[]),
-                "execution.py",
-                "exec",
+        self.assertEqual(
+            (OMNIFLOW_ROOT / "omniflow/functions/compiler.py").read_text(
+                encoding="utf-8"
             ),
-            replay_namespace,
-        )
-        trim_replay = replay_namespace["_trim_legacy_host_setup_steps"]
-        dirty_replay = (
-            FakeStep(0, "click", "host-0"),
-            FakeStep(1, "press_key", "host-1"),
-            FakeStep(2, "open_app", "launcher"),
-            FakeStep(3, "click", "target"),
-        )
-        cleaned_replay = asyncio.run(trim_replay(object(), dirty_replay))
-        self.assertEqual([2, 3], [step.step_index for step in cleaned_replay])
-
-        legitimate_replay = (
-            FakeStep(0, "click", "other-0"),
-            FakeStep(1, "open_app", "launcher"),
+            compiler,
         )
         self.assertEqual(
-            legitimate_replay,
-            asyncio.run(trim_replay(object(), legitimate_replay)),
+            (OMNIFLOW_ROOT / "omniflow/runtime/execution.py").read_text(
+                encoding="utf-8"
+            ),
+            execution,
+        )
+        self.assertEqual(
+            (OMNIFLOW_ROOT / "omniflow/runtime/core.py").read_text(
+                encoding="utf-8"
+            ),
+            core,
         )
 
     def test_prebuilt_runtime_seeds_parameterized_beverage_functions_and_checkers(self) -> None:
@@ -254,7 +181,6 @@ class RuntimeBundleTest(unittest.TestCase):
         self.assertEqual(
             [
                 "click",
-                "click",
                 "input_text",
                 "press_key",
                 "click",
@@ -265,12 +191,12 @@ class RuntimeBundleTest(unittest.TestCase):
             ],
             [step["action"]["tool"] for step in generic["steps"]],
         )
-        self.assertEqual("拿铁", generic["steps"][2]["action"]["args"]["text"])
-        self.assertEqual("拿铁", generic["steps"][6]["action"]["args"]["text"])
+        self.assertEqual("拿铁", generic["steps"][1]["action"]["args"]["text"])
+        self.assertEqual("拿铁", generic["steps"][5]["action"]["args"]["text"])
         self.assertEqual(
             [
-                "$.steps[2].action.args.text",
-                "$.steps[6].action.args.text",
+                "$.steps[1].action.args.text",
+                "$.steps[5].action.args.text",
             ],
             [binding["target"] for binding in generic["bindings"]],
         )
@@ -279,7 +205,7 @@ class RuntimeBundleTest(unittest.TestCase):
             generic["bindings"][1]["source"],
         )
         self.assertEqual(
-            "$.steps[2].action.args.text",
+            "$.steps[1].action.args.text",
             generic["bindings"][0]["target"],
         )
         source_state_ids = {
