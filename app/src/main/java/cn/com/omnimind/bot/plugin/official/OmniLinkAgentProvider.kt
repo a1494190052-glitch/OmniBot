@@ -42,6 +42,8 @@ import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonPrimitive
 
+private const val OMNILINK_AGENT_ID = "omnibot-omnilink-agent"
+
 /** Events delivered to the current Flutter chat without exposing MCP tokens. */
 object OmniLinkAgentEventBus {
     private val listeners = CopyOnWriteArrayList<(Map<String, Any?>) -> Unit>()
@@ -50,7 +52,8 @@ object OmniLinkAgentEventBus {
 
     fun subscribe(listener: (Map<String, Any?>) -> Unit): () -> Unit {
         listeners += listener
-        recentEvents.toList().forEach { event ->
+        val replay = synchronized(recentEvents) { recentEvents.toList() }
+        replay.forEach { event ->
             runCatching { listener(event) }
         }
         return { listeners -= listener }
@@ -382,7 +385,10 @@ private class OmniLinkAgentEventPoller(context: Context) {
             val rawEvents = (payload["events"] as? List<*>).orEmpty()
             var deliveredEvents = 0
             rawEvents.forEach { rawEvent ->
-                val incoming = toIncomingEvent(rawEvent)
+                val incoming = toIncomingEvent(
+                    rawEvent,
+                    expectedRecipientAgentId = OMNILINK_AGENT_ID,
+                )
                 if (incoming == null) {
                     Log.w(TAG, "event dropped: sanitized payload shape unavailable")
                 } else {
@@ -401,7 +407,7 @@ private class OmniLinkAgentEventPoller(context: Context) {
                 ?.get(deviceId)
                 ?.toString()
                 ?.takeIf { it.isNotBlank() }
-            if (nextCursor != null) {
+            if (failures.isEmpty() && nextCursor != null) {
                 eventSubscriptionStore.setCursor(deviceId, nextCursor)
             }
         }
@@ -435,11 +441,17 @@ private fun Map<String, Any?>.cursorFor(deviceId: String): String? =
 
 private fun publishIncomingEvents(rawEvents: List<*>) {
     rawEvents.forEach { rawEvent ->
-        toIncomingEvent(rawEvent)?.let(OmniLinkAgentEventBus::publish)
+        toIncomingEvent(
+            rawEvent,
+            expectedRecipientAgentId = OMNILINK_AGENT_ID,
+        )?.let(OmniLinkAgentEventBus::publish)
     }
 }
 
-private fun toIncomingEvent(raw: Any?): Map<String, Any?>? {
+internal fun toIncomingEvent(
+    raw: Any?,
+    expectedRecipientAgentId: String? = null,
+): Map<String, Any?>? {
     val event = raw as? Map<*, *> ?: return null
     val data = event["data"] as? Map<*, *> ?: return null
     val payload = data["payload"] as? Map<*, *> ?: return null
@@ -450,14 +462,18 @@ private fun toIncomingEvent(raw: Any?): Map<String, Any?>? {
         "AGENT_MESSAGE_RECEIVED" -> {
             val message = payload["message"]?.toString()?.trim().orEmpty()
             val messageId = payload["messageId"]?.toString()?.trim().orEmpty()
+            val recipientAgentId = payload["recipientAgentId"]?.toString()?.trim().orEmpty()
             if (message.isBlank() || messageId.isBlank()) return null
+            if (expectedRecipientAgentId != null && recipientAgentId != expectedRecipientAgentId) {
+                return null
+            }
             mapOf(
                 "kind" to "omnilink_agent_message",
                 "messageId" to messageId,
                 "conversationId" to payload["conversationId"]?.toString().orEmpty(),
                 "message" to message,
                 "senderAgentId" to payload["senderAgentId"]?.toString().orEmpty(),
-                "recipientAgentId" to payload["recipientAgentId"]?.toString().orEmpty(),
+                "recipientAgentId" to recipientAgentId,
                 "sourceDeviceId" to sourceDeviceId,
                 "deviceId" to deviceId,
                 "sentAt" to (payload["sentAt"] as? Number)?.toLong(),
@@ -472,6 +488,7 @@ private fun toIncomingEvent(raw: Any?): Map<String, Any?>? {
                 "sourceDeviceId" to sourceDeviceId,
                 "deviceId" to deviceId,
                 "applicationId" to payload["applicationId"]?.toString().orEmpty(),
+                "postedAt" to (payload["postedAt"] as? Number)?.toLong(),
                 "notificationIdDigest" to payload["notificationIdDigest"]?.toString().orEmpty(),
                 "sensitive" to (payload["sensitive"] as? Boolean ?: false),
                 "hasTitle" to (payload["hasTitle"] as? Boolean ?: false),

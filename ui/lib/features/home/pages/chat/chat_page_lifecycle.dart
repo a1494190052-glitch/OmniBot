@@ -659,14 +659,16 @@ mixin _ChatPageLifecycleMixin on _ChatPageStateBase {
     } else if (kind == 'omnilink_device_notification') {
       final applicationId = event['applicationId']?.toString().trim() ?? '';
       final sourceLabel = applicationId.isEmpty ? '协作设备' : applicationId;
+      final postedAt = formatOmniLinkNotificationTime(event['postedAt']);
+      final timeLabel = postedAt.isEmpty ? '' : ' · $postedAt';
       final removed = event['removed'] == true;
       final sensitive = event['sensitive'] == true;
       if (removed) {
-        visibleText = '协作设备通知已撤回：$sourceLabel';
+        visibleText = '协作设备通知已撤回：$sourceLabel$timeLabel';
       } else if (sensitive) {
-        visibleText = '协作设备收到来自 $sourceLabel 的通知（内容已按隐私策略隐藏）。';
+        visibleText = '协作设备收到来自 $sourceLabel$timeLabel 的通知（内容已按隐私策略隐藏）。';
       } else {
-        visibleText = '协作设备收到来自 $sourceLabel 的通知（仅显示安全摘要，正文未传输）。';
+        visibleText = '协作设备收到来自 $sourceLabel$timeLabel 的通知（仅显示安全摘要，正文未传输）。';
       }
     } else {
       visibleText = '';
