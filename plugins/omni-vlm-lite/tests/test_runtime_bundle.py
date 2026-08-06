@@ -90,8 +90,11 @@ class RuntimeBundleTest(unittest.TestCase):
             revision=values["omnitransfer.commit"],
         )
         self.assertEqual(canonical_runtime, runtime_source)
-        self.assertIn("_DEFAULT_MATCHER_MIN_PROBABILITY = 0.5", runtime_source)
-        self.assertIn("_DEFAULT_MATCHER_MIN_MARGIN = 0.15", runtime_source)
+        self.assertIn("def rank_action_candidates(", runtime_source)
+        self.assertIn("min_probability=0.0", runtime_source)
+        self.assertIn("min_margin=0.0", runtime_source)
+        self.assertIn("return rank_action_candidates(**kwargs)", runtime_source)
+        self.assertNotIn('"mapped": True', runtime_source)
         self.assertNotIn("_coordinate_stretch_result", runtime_source)
         self.assertNotIn("coordinate_stretch_fallback", runtime_source)
 
@@ -171,7 +174,10 @@ class RuntimeBundleTest(unittest.TestCase):
 
         functions = store["functions"]
         self.assertEqual(
-            {"order_beverage_meituan"},
+            {
+                "manual_americano_checkout_20260806",
+                "order_beverage_meituan",
+            },
             set(functions),
         )
         generic = functions["order_beverage_meituan"]
@@ -208,6 +214,11 @@ class RuntimeBundleTest(unittest.TestCase):
             "$.steps[1].action.args.text",
             generic["bindings"][0]["target"],
         )
+        manual = functions["manual_americano_checkout_20260806"]
+        self.assertEqual(14, len(manual["steps"]))
+        self.assertEqual([], manual["bindings"])
+        self.assertEqual([], manual["checker_rules"])
+        self.assertIn("不提交、不支付", manual["description"])
         source_state_ids = {
             step["source_state_id"]
             for function in functions.values()
@@ -266,7 +277,8 @@ class RuntimeBundleTest(unittest.TestCase):
                     "store=FunctionStore(r'%s', "
                     "seed_functions=catalog.functions.values()); "
                     "assert [item.function_id for item in store.list_functions()] "
-                    "== ['order_beverage_meituan']"
+                    "== ['manual_americano_checkout_20260806', "
+                    "'order_beverage_meituan']"
                     % (runtime_root / "user-store.json"),
                 ],
                 capture_output=True,

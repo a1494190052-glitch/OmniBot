@@ -25,7 +25,7 @@ TRANSFER_FILES = (
     "schema.py",
     "ui_graph.py",
 )
-PINNED_OMNITRANSFER_COMMIT = "e9b03864a812e4c4bc19ee5ee7d0cb89a2e044f0"
+PINNED_OMNITRANSFER_COMMIT = "b0150045724195fe29504f8506bfd248e863d4e8"
 
 def write_builtin_assets(flow_target: Path) -> None:
     catalog_root = flow_target / "catalog"

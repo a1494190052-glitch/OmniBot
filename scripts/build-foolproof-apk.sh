@@ -151,7 +151,8 @@ if ((install_apk)); then
   )"
   grep -q '"success": true' <<<"$function_result"
   grep -q '"function_id": "order_beverage_meituan"' <<<"$function_result"
-  grep -q '"count": 1' <<<"$function_result"
+  grep -q '"function_id": "manual_americano_checkout_20260806"' <<<"$function_result"
+  grep -q '"count": 2' <<<"$function_result"
 fi
 
 printf 'FOOLPROOF_APK=PASS\n'
