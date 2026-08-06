@@ -8,6 +8,7 @@ canonical_transfer_root="${OMNITRANSFER_ROOT:-$repo_root/../OmniTransfer}"
 output_dir="$repo_root/artifacts"
 device_serial=""
 install_apk=0
+build_apk=1
 
 usage() {
   printf '%s\n' \
@@ -16,6 +17,7 @@ usage() {
     'Options:' \
     '  --device SERIAL   Install and smoke-check only this adb device.' \
     '  --output DIR      Artifact directory (default: artifacts).' \
+    '  --runtime-only    Build the versioned hot-update zip without rebuilding APK.' \
     '  --no-install      Build only (default when --device is omitted).' \
     '  -h, --help        Show this help.'
 }
@@ -32,6 +34,11 @@ while (($#)); do
       shift 2
       ;;
     --no-install)
+      install_apk=0
+      shift
+      ;;
+    --runtime-only)
+      build_apk=0
       install_apk=0
       shift
       ;;
@@ -63,36 +70,39 @@ done
   exit 1
 }
 
-if [[ -z "${JAVA_HOME:-}" ]]; then
+if ((build_apk)) && [[ -z "${JAVA_HOME:-}" ]]; then
   android_studio_jdk='/Applications/Android Studio.app/Contents/jbr/Contents/Home'
   if [[ -x "$android_studio_jdk/bin/java" ]]; then
     export JAVA_HOME="$android_studio_jdk"
   fi
 fi
-[[ -x "${JAVA_HOME:-}/bin/java" ]] || {
+if ((build_apk)) && [[ ! -x "${JAVA_HOME:-}/bin/java" ]]; then
   printf 'JAVA_HOME must point to a working JDK.\n' >&2
   exit 1
-}
-export PATH="$JAVA_HOME/bin:$PATH"
+fi
+if ((build_apk)); then
+  export PATH="$JAVA_HOME/bin:$PATH"
+fi
 
 runtime_archive="$repo_root/plugins/omni-vlm-lite/runtime-skill/omniflow-gui-runtime/scripts/runtime.prebuilt.zip"
 runtime_properties="$repo_root/plugins/omni-vlm-lite/runtime-skill/omniflow-gui-runtime/scripts/runtime/runtime.properties"
+runtime_release_manifest="$repo_root/plugins/omni-vlm-lite/runtime-skill/omniflow-gui-runtime/scripts/runtime.prebuilt.manifest.json"
 apk_source="$repo_root/app/build/outputs/apk/developStandard/debug/app-develop-standard-debug.apk"
 
 cd "$repo_root"
 python3 scripts/build-prebuilt-omniflow-runtime.py \
   --omniflow-root "$omniflow_root" \
-  --omnitransfer-root "$canonical_transfer_root" \
-  --reuse-packaged-omnitransfer
+  --omnitransfer-root "$canonical_transfer_root"
 PYTHONPATH=. python3 -m unittest \
   plugins/omni-vlm-lite/tests/test_runtime_bundle.py
-./gradlew --no-daemon assembleDevelopStandardDebug \
-  -Ptarget=lib/main_standard.dart
-
-[[ -f "$apk_source" ]] || {
-  printf 'APK was not produced: %s\n' "$apk_source" >&2
-  exit 1
-}
+if ((build_apk)); then
+  ./gradlew --no-daemon assembleDevelopStandardDebug \
+    -Ptarget=lib/main_standard.dart
+  [[ -f "$apk_source" ]] || {
+    printf 'APK was not produced: %s\n' "$apk_source" >&2
+    exit 1
+  }
+fi
 [[ -f "$runtime_archive" && -f "$runtime_properties" ]] || {
   printf 'Runtime bundle was not produced.\n' >&2
   exit 1
@@ -101,8 +111,14 @@ PYTHONPATH=. python3 -m unittest \
 runtime_version="$(sed -n 's/^runtime.version=//p' "$runtime_properties")"
 catalog_release="$(sed -n 's/^omniflow.catalog.release=//p' "$runtime_properties")"
 omniflow_commit="$(sed -n 's/^omniflow.commit=//p' "$runtime_properties")"
+omnitransfer_checkpoint="$(sed -n 's/^omnitransfer.checkpoint=//p' "$runtime_properties")"
 [[ -n "$runtime_version" && -n "$catalog_release" && -n "$omniflow_commit" ]] || {
   printf 'Runtime provenance is incomplete.\n' >&2
+  exit 1
+}
+[[ "$omnitransfer_checkpoint" == *"v9"* && "$omnitransfer_checkpoint" == *.npz ]] || {
+  printf 'Runtime did not select the portable OmniTransfer v9 checkpoint: %s\n' \
+    "$omnitransfer_checkpoint" >&2
   exit 1
 }
 
@@ -111,8 +127,12 @@ safe_runtime_version="${runtime_version//[^A-Za-z0-9._-]/_}"
 short_commit="${omniflow_commit:0:8}"
 apk_output="$output_dir/OpenOmniBot-foolproof-${safe_runtime_version}-${short_commit}-debug.apk"
 runtime_output="$output_dir/omniflow-runtime-${safe_runtime_version}-${short_commit}.zip"
-cp "$apk_source" "$apk_output"
+runtime_manifest_output="$output_dir/omniflow-runtime-${safe_runtime_version}-${short_commit}.manifest.json"
+if ((build_apk)); then
+  cp "$apk_source" "$apk_output"
+fi
 cp "$runtime_archive" "$runtime_output"
+cp "$runtime_release_manifest" "$runtime_manifest_output"
 
 if ((install_apk)); then
   command -v adb >/dev/null || {
@@ -155,10 +175,20 @@ if ((install_apk)); then
   grep -q '"count": 2' <<<"$function_result"
 fi
 
-printf 'FOOLPROOF_APK=PASS\n'
-printf 'apk=%s\n' "$apk_output"
+if ((build_apk)); then
+  printf 'FOOLPROOF_APK=PASS\n'
+  printf 'apk=%s\n' "$apk_output"
+else
+  printf 'OMNIFLOW_RUNTIME_HOT_UPDATE=PASS\n'
+fi
 printf 'runtime=%s\n' "$runtime_output"
+printf 'runtime_manifest=%s\n' "$runtime_manifest_output"
 printf 'runtime_version=%s\n' "$runtime_version"
 printf 'catalog_release=%s\n' "$catalog_release"
 printf 'omniflow_commit=%s\n' "$omniflow_commit"
-shasum -a 256 "$apk_output" "$runtime_output"
+printf 'omnitransfer_checkpoint=%s\n' "$omnitransfer_checkpoint"
+if ((build_apk)); then
+  shasum -a 256 "$apk_output" "$runtime_output"
+else
+  shasum -a 256 "$runtime_output"
+fi

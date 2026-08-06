@@ -21,11 +21,12 @@ TRANSFER_FILES = (
     "learned_matcher.py",
     "mutual_matcher.py",
     "numpy_matcher.py",
+    "numpy_v9_matcher.py",
     "runtime.py",
     "schema.py",
     "ui_graph.py",
 )
-PINNED_OMNITRANSFER_COMMIT = "b0150045724195fe29504f8506bfd248e863d4e8"
+PINNED_OMNITRANSFER_COMMIT = "da49fd13698ab14fc7e8aa7b56e0199f4709ab27"
 
 def write_builtin_assets(flow_target: Path) -> None:
     catalog_root = flow_target / "catalog"
@@ -87,6 +88,13 @@ def parse_args() -> argparse.Namespace:
         default=root
         / "plugins/omni-vlm-lite/runtime-skill/omniflow-gui-runtime/scripts/"
         "runtime/runtime.properties",
+    )
+    parser.add_argument(
+        "--release-manifest",
+        type=Path,
+        default=root
+        / "plugins/omni-vlm-lite/runtime-skill/omniflow-gui-runtime/scripts/"
+        "runtime.prebuilt.manifest.json",
     )
     parser.add_argument(
         "--catalog",
@@ -408,10 +416,31 @@ def main() -> int:
 
     archive_sha = sha256_file(args.archive)
     update_catalog_digest(args.catalog, archive_sha)
+    release_manifest = {
+        "schema_version": "omniflow.runtime-release.v1",
+        "runtime_version": runtime_version,
+        "archive": args.archive.name,
+        "archive_bytes": args.archive.stat().st_size,
+        "archive_sha256": archive_sha,
+        "omniflow_commit": flow_commit,
+        "omniflow_source_sha256": flow_sha,
+        "omnitransfer_commit": transfer_commit,
+        "omnitransfer_source_sha256": transfer_sha,
+        "omnitransfer_checkpoint": checkpoint,
+        "omnitransfer_checkpoint_sha256": updates[
+            "omnitransfer.checkpoint.sha256"
+        ],
+    }
+    args.release_manifest.parent.mkdir(parents=True, exist_ok=True)
+    args.release_manifest.write_text(
+        json.dumps(release_manifest, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
     print(f"PREBUILT_OMNIFLOW_RUNTIME=PASS")
     print(f"runtime_version={runtime_version}")
     print(f"omnitransfer_checkpoint={checkpoint}")
     print(f"archive_sha256={archive_sha}")
+    print(f"release_manifest={args.release_manifest}")
     return 0
 
 

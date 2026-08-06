@@ -17,6 +17,9 @@ from zipfile import ZipFile
 BUNDLE_ROOT = Path(__file__).resolve().parents[1] / "runtime-skill/omniflow-gui-runtime"
 BOOTSTRAP_PATH = BUNDLE_ROOT / "scripts/bootstrap_runtime.py"
 PREBUILT_RUNTIME_PATH = BUNDLE_ROOT / "scripts/runtime.prebuilt.zip"
+PREBUILT_RUNTIME_MANIFEST_PATH = (
+    BUNDLE_ROOT / "scripts/runtime.prebuilt.manifest.json"
+)
 CATALOG_PATH = BUNDLE_ROOT.parents[2] / "catalog.v1.json"
 REPOSITORY_ROOT = BUNDLE_ROOT.parents[3]
 OMNIFLOW_ROOT = REPOSITORY_ROOT.parent / "OmniFlow-exp"
@@ -40,6 +43,25 @@ def committed_file(repository: Path, relative: str, *, revision: str = "HEAD") -
 
 
 class RuntimeBundleTest(unittest.TestCase):
+    def test_runtime_release_manifest_supports_verified_hot_update(self) -> None:
+        release = json.loads(PREBUILT_RUNTIME_MANIFEST_PATH.read_text(encoding="utf-8"))
+        values = load_bootstrap().read_properties(
+            BUNDLE_ROOT / "scripts/runtime/runtime.properties"
+        )
+        self.assertEqual(release["schema_version"], "omniflow.runtime-release.v1")
+        self.assertEqual(release["runtime_version"], values["runtime.version"])
+        self.assertEqual(release["archive"], PREBUILT_RUNTIME_PATH.name)
+        self.assertEqual(release["archive_bytes"], PREBUILT_RUNTIME_PATH.stat().st_size)
+        self.assertEqual(
+            release["archive_sha256"],
+            hashlib.sha256(PREBUILT_RUNTIME_PATH.read_bytes()).hexdigest(),
+        )
+        self.assertEqual(
+            release["omnitransfer_checkpoint"],
+            values["omnitransfer.checkpoint"],
+        )
+        self.assertIn("v9", release["omnitransfer_checkpoint"])
+
     def test_prebuilt_runtime_matches_catalog_digest_and_manifest(self) -> None:
         bootstrap = load_bootstrap()
         catalog = json.loads(CATALOG_PATH.read_text(encoding="utf-8"))
@@ -84,6 +106,10 @@ class RuntimeBundleTest(unittest.TestCase):
             ".runtime/omnitransfer/src/omnitransfer/runtime.py",
             names,
         )
+        self.assertIn(
+            ".runtime/omnitransfer/src/omnitransfer/numpy_v9_matcher.py",
+            names,
+        )
         canonical_runtime = committed_file(
             OMNITRANSFER_ROOT,
             "src/omnitransfer/runtime.py",
@@ -115,7 +141,8 @@ class RuntimeBundleTest(unittest.TestCase):
             values["omnitransfer.checkpoint"].endswith(".npz"),
             "the embedded Android runtime has NumPy but not PyTorch",
         )
-        self.assertIn("NumpyMutualGraphMatcher", runtime_source)
+        self.assertIn("NumpyGeometricAlignmentMatcher", runtime_source)
+        self.assertIn("v9_direct_text_alignment_seed29.npz", runtime_source)
 
     def test_runtime_manifest_schema_digests_match_packaged_schemas(self) -> None:
         bootstrap = load_bootstrap()

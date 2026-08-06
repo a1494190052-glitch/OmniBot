@@ -32,6 +32,7 @@ OMNITRANSFER_FILES = (
     "learned_matcher.py",
     "mutual_matcher.py",
     "numpy_matcher.py",
+    "numpy_v9_matcher.py",
     "runtime.py",
     "schema.py",
     "ui_graph.py",

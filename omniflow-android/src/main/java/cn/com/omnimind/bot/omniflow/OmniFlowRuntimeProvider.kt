@@ -126,6 +126,7 @@ class OmniFlowRuntimeProvider {
             "scripts/runtime/.runtime/site-packages/json_repair/__init__.py",
             "scripts/runtime/.runtime/omnitransfer/src/omnitransfer/runtime.py",
             "scripts/runtime/.runtime/omnitransfer/src/omnitransfer/numpy_matcher.py",
+            "scripts/runtime/.runtime/omnitransfer/src/omnitransfer/numpy_v9_matcher.py",
             "scripts/runtime/.runtime/omnitransfer/src/omnitransfer/${manifest.omniTransferCheckpoint}",
             "scripts/runtime/.runtime/installed.json",
         )
