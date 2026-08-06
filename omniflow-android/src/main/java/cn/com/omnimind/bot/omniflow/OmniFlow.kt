@@ -1,6 +1,8 @@
 package cn.com.omnimind.bot.omniflow
 
 import android.content.Context
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.os.SystemClock
 import cn.com.omnimind.androidgui.AndroidGuiEnvironment
 import cn.com.omnimind.baselib.runlog.Action
@@ -13,9 +15,11 @@ import cn.com.omnimind.bot.omniflow.ui.ExecutionPhase
 import cn.com.omnimind.bot.omniflow.ui.ManualCompletionRequested
 import cn.com.omnimind.bot.omniflow.ui.initialExecutionPhase
 import java.io.File
+import java.io.ByteArrayOutputStream
 import java.util.Base64
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.UUID
+import java.util.zip.DeflaterOutputStream
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Job
@@ -462,8 +466,9 @@ private class AndroidHost(
     private fun getState(payload: Map<String, Any?>): Map<String, Any?> {
         val stateId = firstText(payload["state_id"])
         require(stateId.isNotEmpty()) { "state_id_required" }
-        return InternalRunLogStore.statePayload(appContext, stateId)
+        val state = InternalRunLogStore.statePayload(appContext, stateId)
             .also { require(it.isNotEmpty()) { "state_not_found:$stateId" } }
+        return State.fromMap(state).asHostMap(includeImage = true)
     }
 
     private suspend fun installedApps(): Map<String, Any?> =
@@ -638,8 +643,57 @@ internal fun State.asHostMap(includeImage: Boolean): Map<String, Any?> {
         ?.let(::File)
         ?.takeIf(File::isFile)
         ?: return asMap()
-    return asMap() + (
-        "image_base64" to Base64.getEncoder().encodeToString(screenshot.readBytes())
+    val visualRgb = screenshot.visualRgbPayload()
+    return asMap() + buildMap {
+        put("image_base64", Base64.getEncoder().encodeToString(screenshot.readBytes()))
+        visualRgb?.let { put("extra", mapOf("visual_rgb" to it)) }
+    }
+}
+
+private fun File.visualRgbPayload(maxEdge: Int = 384): Map<String, Any?>? =
+    runCatching {
+        val decoded = BitmapFactory.decodeFile(absolutePath) ?: return null
+        val scale = minOf(1.0, maxEdge.toDouble() / maxOf(decoded.width, decoded.height))
+        val width = maxOf(1, (decoded.width * scale).toInt())
+        val height = maxOf(1, (decoded.height * scale).toInt())
+        val bitmap = if (width == decoded.width && height == decoded.height) {
+            decoded
+        } else {
+            Bitmap.createScaledBitmap(decoded, width, height, true).also { decoded.recycle() }
+        }
+        try {
+            val pixels = IntArray(width * height)
+            bitmap.getPixels(pixels, 0, width, 0, 0, width, height)
+            encodeVisualRgb(width, height, pixels)
+        } finally {
+            bitmap.recycle()
+        }
+    }.getOrNull()
+
+internal fun encodeVisualRgb(
+    width: Int,
+    height: Int,
+    argbPixels: IntArray,
+): Map<String, Any?> {
+    require(width > 0 && height > 0 && argbPixels.size == width * height) {
+        "visual_rgb_dimensions_invalid"
+    }
+    val rgb = ByteArray(argbPixels.size * 3)
+    argbPixels.forEachIndexed { index, color ->
+        val offset = index * 3
+        rgb[offset] = (color shr 16).toByte()
+        rgb[offset + 1] = (color shr 8).toByte()
+        rgb[offset + 2] = color.toByte()
+    }
+    val compressed = ByteArrayOutputStream().use { output ->
+        DeflaterOutputStream(output).use { it.write(rgb) }
+        output.toByteArray()
+    }
+    return linkedMapOf(
+        "width" to width,
+        "height" to height,
+        "compression" to "zlib",
+        "data_base64" to Base64.getEncoder().encodeToString(compressed),
     )
 }
 
