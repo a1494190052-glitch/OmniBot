@@ -288,6 +288,7 @@ class _DeepThinkingCardState extends State<DeepThinkingCard>
 
   void _toggleCollapsed() {
     if (!widget.isCollapsible || widget.stage != 4) return;
+    widget.onParentScrollHandoff?.call();
     _setCollapsed(
       !_isCollapsed,
       markCompletionHandled: _shouldAutoCollapse(widget),
@@ -787,8 +788,8 @@ class _DeepThinkingCardState extends State<DeepThinkingCard>
       return false;
     }
 
-    parentPosition.jumpTo(next);
     widget.onParentScrollHandoff?.call();
+    parentPosition.jumpTo(next);
     return true;
   }
 

@@ -1727,6 +1727,44 @@ class ChatMessageList extends StatefulWidget {
   State<ChatMessageList> createState() => _ChatMessageListState();
 }
 
+class _ChatLatestEdgeScrollPhysics extends ClampingScrollPhysics {
+  const _ChatLatestEdgeScrollPhysics({
+    required this.shouldStickToLatest,
+    super.parent,
+  });
+
+  final ValueGetter<bool> shouldStickToLatest;
+
+  @override
+  _ChatLatestEdgeScrollPhysics applyTo(ScrollPhysics? ancestor) {
+    return _ChatLatestEdgeScrollPhysics(
+      shouldStickToLatest: shouldStickToLatest,
+      parent: buildParent(ancestor),
+    );
+  }
+
+  @override
+  double adjustPositionForNewDimensions({
+    required ScrollMetrics oldPosition,
+    required ScrollMetrics newPosition,
+    required bool isScrolling,
+    required double velocity,
+  }) {
+    if (!shouldStickToLatest() || isScrolling || velocity != 0.0) {
+      return super.adjustPositionForNewDimensions(
+        oldPosition: oldPosition,
+        newPosition: newPosition,
+        isScrolling: isScrolling,
+        velocity: velocity,
+      );
+    }
+    return switch (newPosition.axisDirection) {
+      AxisDirection.down || AxisDirection.right => newPosition.maxScrollExtent,
+      AxisDirection.up || AxisDirection.left => newPosition.minScrollExtent,
+    };
+  }
+}
+
 class _ChatMessageListState extends State<ChatMessageList> {
   static const Duration _kAgentRunToggleAutoStickSuppression = Duration(
     milliseconds: 420,
@@ -1787,10 +1825,10 @@ class _ChatMessageListState extends State<ChatMessageList> {
       _autoStickToLatest = true;
       _outerScrollWasUserDriven = false;
       _autoStickSuppressedUntil = null;
+      _scheduleStickToLatest();
+      return;
     }
     if (_autoStickToLatest) {
-      _autoStickToLatest = true;
-      _scheduleStickToLatest();
       return;
     }
     if (_isAutoStickTemporarilySuppressed) {
@@ -1798,7 +1836,6 @@ class _ChatMessageListState extends State<ChatMessageList> {
     }
     if (_isNearLatest(null, _manualLatestAttachTolerance)) {
       _autoStickToLatest = true;
-      _scheduleStickToLatest();
     }
   }
 
@@ -1858,16 +1895,11 @@ class _ChatMessageListState extends State<ChatMessageList> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _stickToBottomScheduled = false;
       if (!mounted) {
-        if (mounted) {
-          _scheduleStickToBottom();
-        }
         return;
       }
       final positions = _attachedPositions();
       if (positions.isEmpty) {
-        if (mounted) {
-          _scheduleStickToBottom();
-        }
+        _scheduleStickToLatest();
         return;
       }
       if (!_autoStickToLatest) {
@@ -1881,12 +1913,6 @@ class _ChatMessageListState extends State<ChatMessageList> {
         position.jumpTo(target);
       }
     });
-  }
-
-  void _handleStreamingTextLayoutChanged() {
-    if (_autoStickToLatest && !_isAutoStickTemporarilySuppressed) {
-      _scheduleStickToLatest();
-    }
   }
 
   void _bindObservableMessages(List<ChatMessageModel> messages) {
@@ -1906,9 +1932,6 @@ class _ChatMessageListState extends State<ChatMessageList> {
       return;
     }
     _collapseCancelledAgentRuns();
-    if (_autoStickToLatest && !_isAutoStickTemporarilySuppressed) {
-      _scheduleStickToLatest();
-    }
     // 流式追加文本这类 content 级变更由每行的 ValueListenableBuilder 精确
     // 刷新，这里不再整表 setState（否则每个 chunk 都会重跑时间线分组和
     // 全部可见行的 itemBuilder）。结构变化仍走完整重建。
@@ -2351,7 +2374,7 @@ class _ChatMessageListState extends State<ChatMessageList> {
         onParentScrollHandoff: _handleParentScrollHandoff,
         onRequestAuthorize: widget.onRequestAuthorize,
         onUserMessageLongPressStart: widget.onUserMessageLongPressStart,
-        onStreamingTextLayoutChanged: _handleStreamingTextLayoutChanged,
+        onStreamingTextLayoutChanged: null,
         onToggleAgentRunGroup: _toggleAgentRunGroup,
         expandedAgentRunTaskIds: _expandedAgentRunTaskIds,
         useAcpPresentation: widget.useAcpPresentation,
@@ -2466,7 +2489,10 @@ class _ChatMessageListState extends State<ChatMessageList> {
     Widget listView = ListView.builder(
       controller: widget.scrollController,
       reverse: false,
-      physics: const ClampingScrollPhysics(),
+      physics: _ChatLatestEdgeScrollPhysics(
+        shouldStickToLatest: () =>
+            _autoStickToLatest && !_isAutoStickTemporarilySuppressed,
+      ),
       clipBehavior: Clip.hardEdge,
       padding: const EdgeInsets.fromLTRB(16, 0, 16, 0),
       itemCount: timelineEntries.length,
