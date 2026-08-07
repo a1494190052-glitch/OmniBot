@@ -43,7 +43,7 @@ internal class OmniFlowAppPlatform(
             terminalStatus.message.ifBlank { "omniflow_terminal_runtime_unavailable" }
         }
         val prefs = appContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-        val environmentVersion = "$expectedVersion+system-numpy-v1"
+        val environmentVersion = "$expectedVersion+preinstalled-numpy-v1"
         if (prefs.getString(READY_VERSION_KEY, null) == environmentVersion) {
             log("python_ready_cached version=$environmentVersion")
             return
@@ -123,6 +123,8 @@ internal fun buildOmniFlowPythonPrepareCommand(expectedVersion: String): String 
         expected='$expectedVersion'
         echo 'OMNIFLOW_PYTHON_STAGE=probe_start'
         packages_ready() {
+          test -f /etc/omnibot-python-environment &&
+          grep -qx 'alpine-3.21-python3.12-numpy2.1.3-v1' /etc/omnibot-python-environment &&
           command -v python3 >/dev/null 2>&1 &&
           python3 -c 'import sys; print("%d.%d" % sys.version_info[:2])' | grep -qx "${'$'}expected" &&
           python3 -m pip --version >/dev/null 2>&1 &&
@@ -130,9 +132,10 @@ internal fun buildOmniFlowPythonPrepareCommand(expectedVersion: String): String 
           test -e /usr/lib/libstdc++.so.6
         }
         if ! packages_ready; then
-          echo 'OMNIFLOW_PYTHON_STAGE=install_start package=py3-numpy'
+          echo 'OMNIFLOW_PYTHON_STAGE=repair_start package=py3-numpy'
           apk add --no-cache python3 py3-pip py3-numpy libstdc++
-          echo 'OMNIFLOW_PYTHON_STAGE=install_ready package=py3-numpy'
+          printf '%s\\n' 'alpine-3.21-python3.12-numpy2.1.3-v1' > /etc/omnibot-python-environment
+          echo 'OMNIFLOW_PYTHON_STAGE=repair_ready package=py3-numpy'
         else
           echo 'OMNIFLOW_PYTHON_STAGE=probe_ready source=cache'
         fi

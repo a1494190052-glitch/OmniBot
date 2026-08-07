@@ -47,8 +47,13 @@ object EmbeddedRuntimeInstaller {
         RuntimeAssetSpec(
             outputName = "ubuntu.tar.gz",
             assetCandidates = listOf("ubuntu.tar.gz", "ubuntu.tar")
+        ),
+        RuntimeAssetSpec(
+            outputName = "runtime-manifest",
+            assetCandidates = listOf("runtime-manifest")
         )
     )
+    private const val INSTALLED_MANIFEST = ".embedded-terminal-runtime-manifest"
 
     suspend fun ensureRuntimeInstalled(
         context: Context,
@@ -71,6 +76,30 @@ object EmbeddedRuntimeInstaller {
                         installed = false,
                         message = "缺少内置终端环境运行资源，请重新安装包含终端资源的构建。"
                     )
+                }
+
+                val manifestAsset = resolvedAssets.entries
+                    .firstOrNull { it.key.outputName == "runtime-manifest" }
+                    ?.value
+                    ?.let { context.assets.open("$ASSET_ROOT/$it").bufferedReader().use { reader -> reader.readText() } }
+                    ?.trim()
+                val manifestFile = File(context.filesDir, INSTALLED_MANIFEST)
+                val expectedSizes = manifestAsset.orEmpty().lineSequence().mapNotNull { line ->
+                    val separator = line.indexOf('=')
+                    if (separator <= 0) null else line.substring(0, separator) to
+                        line.substring(separator + 1).toLongOrNull()
+                }.filter { it.second != null }.associate { it.first to requireNotNull(it.second) }
+                val fastPath = manifestAsset != null && manifestFile.isFile &&
+                    manifestFile.readText().trim() == manifestAsset &&
+                    runtimeAssets.filter { it.outputName != "runtime-manifest" }
+                        .all { spec ->
+                            val target = File(context.filesDir, spec.outputName)
+                            target.isFile && target.length() > 0L &&
+                                (spec.outputName.endsWith(".tar.gz") || expectedSizes[spec.outputName] == target.length())
+                        }
+                if (fastPath) {
+                    onProgress("终端环境运行资源已就绪")
+                    return@withLock InstallStatus(success = true, installed = false, message = "终端环境运行资源已就绪。")
                 }
 
                 onProgress("正在安装终端环境运行资源")
@@ -110,6 +139,9 @@ object EmbeddedRuntimeInstaller {
                     refreshedFiles++
                 }
                 if (writeTextIfChanged(File(localDir(), "vmstat"), vmstat)) {
+                    refreshedFiles++
+                }
+                if (manifestAsset != null && writeTextIfChanged(manifestFile, manifestAsset)) {
                     refreshedFiles++
                 }
 
