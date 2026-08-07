@@ -209,9 +209,10 @@ class HttpAgentLlmClientTest {
     }
 
     @Test
-    fun `qwen route streams content before done after separate reasoning channel`() = runBlocking {
+    fun `qwen route emits pending reasoning before content`() = runBlocking {
         val scope = CoroutineScope(Job() + Dispatchers.Default)
         val firstContentUpdate = CompletableDeferred<String>()
+        val emissions = mutableListOf<String>()
         try {
             val client = HttpAgentLlmClient(
                 scope = scope,
@@ -237,6 +238,12 @@ class HttpAgentLlmClientTest {
                         source,
                         null,
                         "message",
+                        """{"choices":[{"delta":{"content":"","reasoning_content":"更多"}}]}"""
+                    )
+                    listener.onEvent(
+                        source,
+                        null,
+                        "message",
                         """{"choices":[{"delta":{"content":"最终"}}]}"""
                     )
                     withTimeout(1_000L) {
@@ -257,7 +264,11 @@ class HttpAgentLlmClientTest {
 
             val turn = client.streamTurn(
                 request = simpleRequest(),
+                onReasoningUpdate = { reasoning ->
+                    emissions += "reasoning:$reasoning"
+                },
                 onContentUpdate = { content ->
+                    emissions += "content:$content"
                     if (!firstContentUpdate.isCompleted) {
                         firstContentUpdate.complete(content)
                     }
@@ -265,8 +276,17 @@ class HttpAgentLlmClientTest {
             )
 
             assertEquals("最终", firstContentUpdate.await())
-            assertEquals("先分析", turn.reasoning)
+            assertEquals("先分析更多", turn.reasoning)
             assertEquals("最终回答", turn.message.contentText())
+            val lastReasoningIndex = emissions.indexOfLast {
+                it.startsWith("reasoning:")
+            }
+            val firstContentIndex = emissions.indexOfFirst {
+                it.startsWith("content:")
+            }
+            assertTrue(lastReasoningIndex >= 0)
+            assertTrue(firstContentIndex >= 0)
+            assertTrue(lastReasoningIndex < firstContentIndex)
         } finally {
             scope.cancel()
         }

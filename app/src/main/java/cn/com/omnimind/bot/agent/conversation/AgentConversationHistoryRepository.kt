@@ -411,6 +411,19 @@ class AgentConversationHistoryRepository(
             conversationMode = conversationMode,
             entryId = entryId
         )
+        val resolvedPayload = if (
+            entryType == ENTRY_TYPE_UI_CARD &&
+            existing?.entryType == ENTRY_TYPE_UI_CARD
+        ) {
+            AgentConversationHistorySupport.preserveDeepThinkingContent(
+                existingPayload = AgentConversationHistorySupport.readMap(
+                    existing.payloadJson
+                ),
+                incomingPayload = payload
+            )
+        } else {
+            payload
+        }
         upsertEntry(
             AgentConversationEntry(
                 id = existing?.id ?: 0,
@@ -420,7 +433,7 @@ class AgentConversationHistoryRepository(
                 entryType = entryType,
                 status = status,
                 summary = summary.trim(),
-                payloadJson = gson.toJson(payload),
+                payloadJson = gson.toJson(resolvedPayload),
                 createdAt = existing?.createdAt ?: createdAt,
                 updatedAt = System.currentTimeMillis()
             )

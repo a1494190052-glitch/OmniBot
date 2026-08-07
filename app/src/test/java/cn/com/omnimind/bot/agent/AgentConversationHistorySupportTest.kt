@@ -530,6 +530,54 @@ class AgentConversationHistorySupportTest {
     }
 
     @Test
+    fun `preserveDeepThinkingContent keeps prior text when final snapshot is empty`() {
+        val existing = AgentConversationHistorySupport.buildCardMessagePayload(
+            messageId = "task-thinking",
+            cardData = mapOf(
+                "type" to "deep_thinking",
+                "thinkingContent" to "已经收到的思考内容",
+                "thinkingOriginalLength" to 10,
+                "thinkingContentTruncated" to false,
+                "thinkingTruncateMode" to "none",
+                "stage" to 1,
+                "isLoading" to true
+            ),
+            isError = false,
+            streamMeta = null,
+            createdAt = 1000
+        )
+        val incoming = AgentConversationHistorySupport.buildCardMessagePayload(
+            messageId = "task-thinking",
+            cardData = mapOf(
+                "type" to "deep_thinking",
+                "thinkingContent" to "",
+                "thinkingOriginalLength" to 0,
+                "thinkingContentTruncated" to false,
+                "thinkingTruncateMode" to "none",
+                "stage" to 4,
+                "isLoading" to false,
+                "endTime" to 2000
+            ),
+            isError = false,
+            streamMeta = null,
+            createdAt = 1000
+        )
+
+        val merged = AgentConversationHistorySupport.preserveDeepThinkingContent(
+            existingPayload = existing,
+            incomingPayload = incoming
+        )
+        val content = merged["content"] as Map<*, *>
+        val cardData = content["cardData"] as Map<*, *>
+
+        assertEquals("已经收到的思考内容", cardData["thinkingContent"])
+        assertEquals(10, cardData["thinkingOriginalLength"])
+        assertEquals(4, cardData["stage"])
+        assertEquals(false, cardData["isLoading"])
+        assertEquals(2000, cardData["endTime"])
+    }
+
+    @Test
     fun `normalizeInterruptedEntries converts running tools to interrupted`() {
         val runningEntry = AgentConversationEntry(
             id = 1,
