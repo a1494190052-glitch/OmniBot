@@ -64,9 +64,7 @@ class _PredictiveBackGestureWrapperState
     with WidgetsBindingObserver, SingleTickerProviderStateMixin {
   /// 手势期间顶层页的圆角(与框架对设备物理圆角的估值一致,
   /// 见 flutter/flutter#97349)。
-  static final BorderRadius _kGestureBorderRadius = BorderRadius.circular(
-    32.0,
-  );
+  static final BorderRadius _kGestureBorderRadius = BorderRadius.circular(32.0);
 
   /// 提交收尾动画满时长对应的控制器区间(0→1,即整页滑出)。
   static const int _kSettleMilliseconds = 300;
@@ -231,14 +229,24 @@ class _PredictiveBackGestureWrapperState
     final clip = gesturing && route!.isCurrent
         ? _kGestureBorderRadius
         : BorderRadius.zero;
+    // The page is already being composited every frame by the predictive
+    // transition. Avoid an anti-aliased full-screen clip here: on a complex
+    // page it adds a raster/composition pass and can make the gesture miss
+    // display deadlines. Hard clipping keeps the rounded shape while using
+    // the cheaper clip path during the gesture; no clip is needed otherwise.
     return ClipRRect(
+      clipBehavior: gesturing ? Clip.hardEdge : Clip.none,
       borderRadius: clip,
       child: CupertinoPageTransition(
         primaryRouteAnimation: widget.animation,
         secondaryRouteAnimation: widget.secondaryAnimation,
         // 手势期间与手指 1:1 线性映射,普通导航保持原有曲线。
         linearTransition: gesturing,
-        child: widget.child,
+        // Keep the page content in its own retained layer. During a back
+        // gesture only the route transform changes; without a boundary the
+        // large settings/chat subtree can be repainted for every progress
+        // sample before the raster thread submits the next surface.
+        child: RepaintBoundary(child: widget.child),
       ),
     );
   }

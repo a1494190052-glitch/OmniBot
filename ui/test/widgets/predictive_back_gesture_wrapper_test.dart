@@ -62,11 +62,15 @@ Future<void> _startBackGesture(WidgetTester tester, double progress) {
 }
 
 Future<void> _updateBackGesture(WidgetTester tester, double progress) {
-  return _sendBackGesture(tester, 'updateBackGestureProgress', <String, dynamic>{
-    'touchOffset': <double>[100.0, 300.0],
-    'progress': progress,
-    'swipeEdge': 0, // left
-  });
+  return _sendBackGesture(
+    tester,
+    'updateBackGestureProgress',
+    <String, dynamic>{
+      'touchOffset': <double>[100.0, 300.0],
+      'progress': progress,
+      'swipeEdge': 0, // left
+    },
+  );
 }
 
 void main() {
@@ -104,10 +108,8 @@ void main() {
     return route;
   }
 
-  Finder clipFinder() => find.ancestor(
-    of: find.text('second'),
-    matching: find.byType(ClipRRect),
-  );
+  Finder clipFinder() =>
+      find.ancestor(of: find.text('second'), matching: find.byType(ClipRRect));
 
   testWidgets(
     'gesture drives route controller, slide transition and corner clip; '
@@ -123,6 +125,7 @@ void main() {
       expect(route!.popGestureInProgress, isTrue);
       final clip = tester.widget<ClipRRect>(clipFinder());
       expect(clip.borderRadius, BorderRadius.circular(32.0));
+      expect(clip.clipBehavior, Clip.hardEdge);
       final slide = tester.widget<CupertinoPageTransition>(
         find.ancestor(
           of: find.text('second'),
@@ -142,8 +145,11 @@ void main() {
       expect(find.text('second'), findsOneWidget);
       expect(route.popGestureInProgress, isFalse);
       expect(route.animation!.value, closeTo(1.0, 0.001));
-      expect(tester.widget<ClipRRect>(clipFinder()).borderRadius,
-          BorderRadius.zero);
+      expect(
+        tester.widget<ClipRRect>(clipFinder()).borderRadius,
+        BorderRadius.zero,
+      );
+      expect(tester.widget<ClipRRect>(clipFinder()).clipBehavior, Clip.none);
     },
     // wrapper 仅在 Android 消费手势;variant 的 tearDown 会在测试框架
     // 校验 debug 变量之前复位 debugDefaultTargetPlatformOverride。
