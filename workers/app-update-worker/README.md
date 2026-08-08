@@ -8,7 +8,8 @@ The app reads `GET /catalog/models-dev/api.json` instead of contacting
 `models.dev` directly. Public requests only read the last validated R2
 snapshot, so an upstream timeout or outage never replaces a working catalog.
 
-The configured Cron Trigger runs hourly at minute 37 UTC:
+The Worker does not fetch or parse the upstream catalog. The
+`sync-models-dev.yml` GitHub Actions workflow runs hourly at minute 37 UTC:
 
 1. Send `If-None-Match` with the last upstream ETag.
 2. Keep the current object unchanged on `304`.
@@ -17,27 +18,48 @@ The configured Cron Trigger runs hourly at minute 37 UTC:
 4. Store a SHA-256-addressed snapshot, then atomically replace `current.json`.
 5. Keep the most recent snapshots (five by default) for manual rollback.
 
-Refresh failures update the status object but leave the public snapshot intact.
-Before releasing a client that uses this endpoint, seed the mirror once:
+All JSON parsing and SHA-256 work therefore runs on the GitHub-hosted runner,
+not within the Workers Free 10 ms CPU allowance. The workflow uploads directly
+through R2's S3-compatible API using credentials scoped to this bucket.
 
-```bash
-curl --fail-with-body --request POST \
-  --header "Authorization: Bearer $APP_UPDATE_WORKER_TOKEN" \
-  "$APP_UPDATE_WORKER_URL/admin/models-dev/refresh"
-```
+Configure these repository settings before running the workflow:
 
-Inspect its status with:
+- Actions variables:
+  - `CLOUDFLARE_ACCOUNT_ID`
+  - `CLOUDFLARE_R2_BUCKET_NAME`
+  - Optional `CLOUDFLARE_R2_ENDPOINT` for an EU/FedRAMP jurisdiction endpoint.
+    The default is `https://<account-id>.r2.cloudflarestorage.com`.
+  - Optional `MODELS_DEV_PUBLIC_URL`, for example
+    `https://omni.1775885.xyz/catalog/models-dev/api.json`, to enable the
+    post-publish public smoke test.
+- Actions secrets:
+  - `CLOUDFLARE_R2_ACCESS_KEY_ID`
+  - `CLOUDFLARE_R2_SECRET_ACCESS_KEY`
+
+Create the credentials from Cloudflare R2 → Manage API Tokens with **Object
+Read & Write**, scoped only to the app-update bucket. Do not use a
+bucket-admin or account-wide token.
+
+Before releasing a client that uses this endpoint, seed the mirror by running
+**Actions → Sync models.dev catalog → Run workflow**. The scheduled trigger
+only runs from the repository's default branch after the workflow is merged.
+GitHub automatically disables scheduled workflows in a public repository
+after 60 days without repository activity, so include this workflow in normal
+Actions failure/staleness monitoring.
+
+Refresh failures write their error to `status.json` but leave `current.json`
+unchanged. If models.dev intentionally removes more than 35% of providers or
+models, review the change and manually run the workflow with `force=true`.
+This bypasses only the relative-drop guard; JSON, size, minimum-count, and
+required-provider validation still apply.
+
+Inspect the mirror status through the Worker:
 
 ```bash
 curl --fail-with-body \
   --header "Authorization: Bearer $APP_UPDATE_WORKER_TOKEN" \
   "$APP_UPDATE_WORKER_URL/admin/models-dev"
 ```
-
-Use `POST /admin/models-dev/refresh?force=true` only after reviewing an
-intentional upstream provider/model count drop. `force=true` bypasses the
-relative-drop guard, but not JSON, size, minimum-count, or required-provider
-validation.
 
 ## Admin console
 
@@ -58,7 +80,7 @@ A changelog curated in the console survives CI republishes: the CI payload carri
 - `GET|HEAD /catalog/models-dev/api.json`
   - Public, CORS-enabled models.dev `api.json` mirror backed only by R2.
   - Supports `ETag` / `If-None-Match`; returns `503` until the first successful
-    refresh.
+    sync.
 - `GET /downloads/:tag/:asset`
   - Public APK download endpoint backed by R2. APK downloads are counted in Analytics Engine.
 - `GET /admin`
@@ -66,9 +88,7 @@ A changelog curated in the console survives CI republishes: the CI payload carri
 - `GET /admin/api/session`
   - Token check used by the console login.
 - `GET /admin/models-dev`
-  - Returns the current mirror metadata and last refresh result.
-- `POST /admin/models-dev/refresh[?force=true]`
-  - Immediately runs the authenticated refresh flow.
+  - Returns the current R2 mirror metadata and last GitHub Actions sync result.
 - `GET /admin/releases` · `GET /admin/releases/:tag`
   - Requires `Authorization: Bearer <ADMIN_TOKEN>`.
 - `POST /admin/releases`
@@ -120,10 +140,9 @@ wrangler secret put CF_ANALYTICS_API_TOKEN # API token with "Account Analytics: 
 wrangler deploy
 ```
 
-The checked-in example config also enables
-`global_fetch_strictly_public` and installs the hourly Cron Trigger. If
-production is managed in the Cloudflare dashboard instead of Wrangler, add
-the same compatibility flag, variables, and `37 * * * *` trigger there.
+The checked-in example config enables `global_fetch_strictly_public`. There is
+no Worker Cron Trigger for the catalog; scheduling belongs exclusively to
+GitHub Actions.
 
 Dashboard bindings (when not using wrangler):
 
@@ -136,10 +155,11 @@ Notes:
 - Without `CF_ACCOUNT_ID`/`CF_ANALYTICS_API_TOKEN` the console's stats page shows a configuration hint; release management is unaffected.
 - The mirror reuses `APP_UPDATE_BUCKET`; no additional storage binding is
   required.
-- The default validation buffers and parses the approximately 3 MB upstream
-  JSON before replacing the last-known-good snapshot. Cloudflare Workers Free
-  has a very small CPU allowance, so use Workers Paid or verify actual CPU
-  usage before relying on scheduled validation in production.
+- The Worker only reads the current R2 object and streams it to clients. The
+  approximately 3 MB JSON validation and hashing happen in GitHub Actions, so
+  this path is compatible with the Workers Free CPU limit.
+- An hourly unchanged catalog uses roughly 720 status writes per month, far
+  below R2 Standard's monthly free allowance of one million Class A operations.
 
 Use the deployed Worker URL as:
 

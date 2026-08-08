@@ -1302,6 +1302,10 @@ mixin _ChatPageUiMixin on _ChatPageStateBase {
                   : null,
               showWorkspacePaneButton: showWorkspacePaneButton,
               onWorkspacePaneTap: onWorkspacePaneTap,
+              tutorialMenuAnchorKey: _firstUseTourMenuAnchorKey,
+              tutorialPetAnchorKey: _firstUseTourPetAnchorKey,
+              tutorialIslandAnchorKey: _firstUseTourIslandAnchorKey,
+              tutorialModeAnchorKey: _firstUseTourModeAnchorKey,
             ),
             Expanded(child: conversationBody),
           ],
@@ -1358,6 +1362,7 @@ mixin _ChatPageUiMixin on _ChatPageStateBase {
                               modelId: _activeNormalChatModelId ?? '',
                               hasSelectableModels:
                                   _hasSelectableNormalChatModels,
+                              anchorKey: _firstUseTourModelAnchorKey,
                               onPointerDown: () {
                                 _suppressNextOutsideTapKeyboardHide = true;
                               },
@@ -1902,7 +1907,7 @@ mixin _ChatPageUiMixin on _ChatPageStateBase {
         (_popupMenuBottomOffset() + inputBottomPadding + keyboardSpacer + 6)
             .toDouble();
 
-    return ValueListenableBuilder<AppBackgroundConfig>(
+    final chatPage = ValueListenableBuilder<AppBackgroundConfig>(
       valueListenable: AppBackgroundService.notifier,
       builder: (context, backgroundConfig, _) {
         final backgroundActive = backgroundConfig.isActive;
@@ -1913,6 +1918,10 @@ mixin _ChatPageUiMixin on _ChatPageStateBase {
               canPop: false,
               onPopInvokedWithResult: (didPop, _) {
                 if (didPop) return;
+                if (_isFirstUseTourActive) {
+                  _handleFirstUseTourBack();
+                  return;
+                }
                 // 模型选择器是 OverlayEntry，不在 Navigator 栈里，普通 pop
                 // 不会关掉它；这里手动关，让系统返回手势先吃掉它再走原本的退出逻辑。
                 if (_conversationModelSelectorHandle != null) {
@@ -2065,6 +2074,21 @@ mixin _ChatPageUiMixin on _ChatPageStateBase {
           },
         );
       },
+    );
+    if (!_isFirstUseTourActive) {
+      return chatPage;
+    }
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        chatPage,
+        ChatSpotlightTour(
+          step: _firstUseTourStep,
+          anchorKey: _firstUseTourAnchorKey,
+          onNext: _showNextFirstUseTourStep,
+          onFinish: _finishFirstUseTour,
+        ),
+      ],
     );
   }
 

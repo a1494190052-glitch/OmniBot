@@ -1,5 +1,7 @@
 package cn.com.omnimind.baselib.llm
 
+import com.google.gson.annotations.SerializedName
+
 data class ModelProviderConfig(
     val id: String = "",
     val name: String = "",
@@ -77,16 +79,25 @@ data class SceneModelOverrideEntry(
 )
 
 data class SceneModelBindingEntry(
+    @field:SerializedName(value = "sceneId", alternate = ["a"])
     val sceneId: String,
+    @field:SerializedName(value = "providerProfileId", alternate = ["b"])
     val providerProfileId: String,
+    @field:SerializedName(value = "modelId", alternate = ["c"])
     val modelId: String
 )
 
 data class SceneVoiceConfig(
+    @field:SerializedName(value = "autoPlay", alternate = ["a"])
     val autoPlay: Boolean = false,
+    @field:SerializedName(value = "voiceId", alternate = ["b"])
     val voiceId: String = "default_zh",
+    @field:SerializedName(value = "stylePreset", alternate = ["c"])
     val stylePreset: String = "默认",
+    @field:SerializedName(value = "customStyle", alternate = ["d"])
     val customStyle: String = "",
+    @field:SerializedName(value = "ttsMode", alternate = ["e"])
     val ttsMode: String = "builtin",
+    @field:SerializedName(value = "customCurlCommand", alternate = ["f"])
     val customCurlCommand: String = ""
 )

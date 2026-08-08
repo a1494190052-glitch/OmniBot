@@ -426,6 +426,45 @@ class ConversationSnapshotOrderingTest {
         )
     }
 
+    @Test
+    fun `prepareForStorage treats numeric leading Claude message ids as opaque`() {
+        val messages = listOf(
+            assistantMessage(
+                id = "021785489612755572fdc12977fa128088f145c73a50ff1fb0af3-agent-message",
+                createAt = "2026-07-31T17:20:14.558+08:00",
+                text = "第二轮助手"
+            ),
+            userMessage(
+                id = "1785489611128-user",
+                createAt = "2026-07-31T17:20:11.128+08:00",
+                text = "第二轮用户"
+            ),
+            assistantMessage(
+                id = "0217854895877502d60f863e4315e8806c7747df8d2270827ca82-agent-message",
+                createAt = "2026-07-31T17:19:54.407+08:00",
+                text = "第一轮助手"
+            ),
+            userMessage(
+                id = "1785489582671-user",
+                createAt = "2026-07-31T17:19:42.671+08:00",
+                text = "第一轮用户"
+            )
+        )
+
+        val orderedIds = ConversationSnapshotOrdering.prepareForStorage(messages)
+            .map { it.payload["id"] }
+
+        assertEquals(
+            listOf(
+                "1785489582671-user",
+                "0217854895877502d60f863e4315e8806c7747df8d2270827ca82-agent-message",
+                "1785489611128-user",
+                "021785489612755572fdc12977fa128088f145c73a50ff1fb0af3-agent-message"
+            ),
+            orderedIds
+        )
+    }
+
     private fun userMessage(
         id: String,
         createAt: String,

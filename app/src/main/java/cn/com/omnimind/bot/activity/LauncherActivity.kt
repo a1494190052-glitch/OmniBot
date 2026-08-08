@@ -2,14 +2,11 @@ package cn.com.omnimind.bot.activity
 
 import android.content.Intent
 import android.content.pm.ActivityInfo
-import android.content.pm.PackageManager
-import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import cn.com.omnimind.baselib.util.OmniLog
 import cn.com.omnimind.bot.quicklog.QuickLogWidgetActionRouter
 import cn.com.omnimind.bot.util.PredictiveBackGate
-import kotlin.math.abs
 
 /**
  * 启动页 Activity
@@ -20,11 +17,6 @@ class LauncherActivity : ComponentActivity() {
 
     companion object {
         private const val TAG = "LauncherActivity"
-        const val STARTUP_PREFS_NAME = "app_startup"
-        const val KEY_EMBEDDED_TERMINAL_FIRST_LAUNCH_INIT_PENDING =
-            "embedded_terminal_first_launch_init_pending"
-        const val EXTRA_PREPARE_EMBEDDED_TERMINAL_ON_FIRST_LAUNCH =
-            "prepare_embedded_terminal_on_first_launch"
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -62,59 +54,16 @@ class LauncherActivity : ComponentActivity() {
 
 
     private fun startMainActivity() {
-        val shouldPrepareEmbeddedTerminal = shouldPrepareEmbeddedTerminalOnFirstLaunch()
         val intent = Intent(this, MainActivity::class.java).apply {
             // 传递原始 Intent 的数据（用于 Deep Link 处理）
             data = this@LauncherActivity.intent.data
             action = this@LauncherActivity.intent.action
             this@LauncherActivity.intent.extras?.let { putExtras(it) }
-            putExtra(
-                EXTRA_PREPARE_EMBEDDED_TERMINAL_ON_FIRST_LAUNCH,
-                shouldPrepareEmbeddedTerminal
-            )
         }
-        OmniLog.d(
-            TAG,
-            "startMainActivity prepareEmbeddedTerminal=$shouldPrepareEmbeddedTerminal",
-        )
+        OmniLog.d(TAG, "startMainActivity")
         startActivity(intent)
         // 不调用 finish()，让 MainActivity 的 Flutter 页面自然覆盖 Loading
         // LauncherActivity 会在 MainActivity 渲染完成后被系统回收
-    }
-
-    private fun shouldPrepareEmbeddedTerminalOnFirstLaunch(): Boolean {
-        val prefs = getSharedPreferences(STARTUP_PREFS_NAME, MODE_PRIVATE)
-        val pending = prefs.getBoolean(
-            KEY_EMBEDDED_TERMINAL_FIRST_LAUNCH_INIT_PENDING,
-            true
-        )
-        if (!pending) {
-            return false
-        }
-
-        val packageInfo = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            packageManager.getPackageInfo(
-                packageName,
-                PackageManager.PackageInfoFlags.of(0)
-            )
-        } else {
-            @Suppress("DEPRECATION")
-            packageManager.getPackageInfo(packageName, 0)
-        }
-        val isFreshInstall =
-            abs(packageInfo.lastUpdateTime - packageInfo.firstInstallTime) <= 5_000L
-        if (isFreshInstall) {
-            return true
-        }
-
-        prefs.edit()
-            .putBoolean(KEY_EMBEDDED_TERMINAL_FIRST_LAUNCH_INIT_PENDING, false)
-            .apply()
-        OmniLog.d(
-            TAG,
-            "Skip embedded terminal first-launch preparation: app launch is from upgrade, not fresh install.",
-        )
-        return false
     }
 
     override fun onStop() {

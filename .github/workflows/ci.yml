@@ -58,6 +58,10 @@ jobs:
           cache: pnpm
           cache-dependency-path: webchat/pnpm-lock.yaml
 
+      - name: Verify app-update Worker and models.dev sync
+        working-directory: workers/app-update-worker
+        run: npm test
+
       - name: Validate Gradle wrappers
         uses: gradle/actions/wrapper-validation@v4
         with:

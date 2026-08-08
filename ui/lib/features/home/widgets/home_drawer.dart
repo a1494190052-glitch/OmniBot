@@ -9,6 +9,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_slidable/flutter_slidable.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:ui/core/router/go_router_manager.dart';
+import 'package:ui/features/home/pages/chat/chat_page_models.dart';
 import 'package:ui/features/home/widgets/conversation_slidable.dart';
 import 'package:ui/features/home/widgets/home_drawer_search_field.dart';
 import 'package:ui/l10n/legacy_text_localizer.dart';
@@ -221,7 +222,9 @@ class HomeDrawerState extends ConsumerState<HomeDrawer> {
             Expanded(child: _buildConversationSection()),
             const SizedBox(height: 12),
             _buildFooterShortcutBar(),
-            const SizedBox(height: 12),
+            // Aligns this row's bottom edge with the chat composer's bottom
+            // edge (both sit this far above the shared SafeArea bottom).
+            SizedBox(height: kChatComposerEdgeInset),
           ],
         ),
       ),

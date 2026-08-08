@@ -13,8 +13,6 @@ import androidx.lifecycle.lifecycleScope
 import cn.com.omnimind.baselib.util.OmniLog
 import cn.com.omnimind.bot.App
 import cn.com.omnimind.bot.terminal.EmbeddedTerminalAutoStartManager
-import cn.com.omnimind.bot.terminal.EmbeddedTerminalInitCoordinator
-import cn.com.omnimind.bot.terminal.EmbeddedTerminalRuntime
 import cn.com.omnimind.bot.quicklog.QuickLogWidgetActionRouter
 import cn.com.omnimind.bot.ui.channel.ChannelManager
 import cn.com.omnimind.bot.ui.channel.FileSaveChannel
@@ -87,10 +85,6 @@ class MainActivity : FlutterActivity() {
                 OmniLog.e(TAG, "MainActivity auto-start Alpine tasks failed", error)
             }
         }
-        if (savedInstanceState == null) {
-            prepareEmbeddedTerminalOnFirstLaunchIfNeeded()
-        }
-
         OmniLog.d(TAG, "MainActivity onCreate total cost: ${System.currentTimeMillis() - mainActivityStart}ms")
     }
 
@@ -204,54 +198,4 @@ class MainActivity : FlutterActivity() {
         }
     }
 
-    private fun prepareEmbeddedTerminalOnFirstLaunchIfNeeded() {
-        val shouldPrepare = intent?.getBooleanExtra(
-            LauncherActivity.EXTRA_PREPARE_EMBEDDED_TERMINAL_ON_FIRST_LAUNCH,
-            false
-        ) == true
-        if (!shouldPrepare) {
-            return
-        }
-
-        val prefs = getSharedPreferences(LauncherActivity.STARTUP_PREFS_NAME, Context.MODE_PRIVATE)
-        val pending = prefs.getBoolean(
-            LauncherActivity.KEY_EMBEDDED_TERMINAL_FIRST_LAUNCH_INIT_PENDING,
-            true
-        )
-        if (!pending) {
-            return
-        }
-
-        prefs.edit()
-            .putBoolean(
-                LauncherActivity.KEY_EMBEDDED_TERMINAL_FIRST_LAUNCH_INIT_PENDING,
-                false
-            )
-            .apply()
-
-        if (!EmbeddedTerminalRuntime.isSupportedDevice()) {
-            OmniLog.w(TAG, "首次启动后台准备终端环境已跳过：当前设备 ABI 不支持内嵌终端。")
-            return
-        }
-
-        runCatching {
-            val started = EmbeddedTerminalInitCoordinator.startInBackground(applicationContext)
-            OmniLog.d(
-                TAG,
-                if (started) {
-                    "首次启动开始在后台准备内嵌终端环境。"
-                } else {
-                    "首次启动后台终端环境准备已在进行中，跳过重复触发。"
-                }
-            )
-        }.onFailure { error ->
-            prefs.edit()
-                .putBoolean(
-                    LauncherActivity.KEY_EMBEDDED_TERMINAL_FIRST_LAUNCH_INIT_PENDING,
-                    true
-                )
-                .apply()
-            OmniLog.e(TAG, "首次启动后台准备终端环境失败", error)
-        }
-    }
 }

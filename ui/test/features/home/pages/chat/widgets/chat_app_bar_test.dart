@@ -730,6 +730,71 @@ void main() {
     expect(find.text('toggles:1'), findsOneWidget);
   });
 
+  testWidgets(
+    'updates ACP Agent availability while the mode menu remains open',
+    (tester) async {
+      final isAgentLoading = ValueNotifier<bool>(true);
+      addTearDown(isAgentLoading.dispose);
+      String? selectedAgentId;
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: DefaultAssetBundle(
+            bundle: _SvgTestAssetBundle(),
+            child: ValueListenableBuilder<bool>(
+              valueListenable: isAgentLoading,
+              builder: (context, loading, _) => Scaffold(
+                body: ChatAppBar(
+                  onMenuTap: () {},
+                  onOmniAiTap: () {},
+                  onPureChatToggleTap: () {},
+                  onAcpAgentTap: (agentId) {
+                    selectedAgentId = agentId;
+                  },
+                  acpAgentModes: const <ChatAcpAgentModeOption>[
+                    ChatAcpAgentModeOption(id: 'codex-acp', name: 'Codex'),
+                  ],
+                  isAgentLoading: loading,
+                  activeMode: ChatSurfaceMode.normal,
+                  onModeChanged: (_) {},
+                  onDisplayLayerChanged: (_) {},
+                  onTerminalEnvironmentTap: (_) {},
+                  onTerminalTap: () {},
+                  onBrowserTap: () {},
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+
+      await tester.tap(
+        find.byKey(const ValueKey('chat-app-bar-pure-chat-button')),
+      );
+      await tester.pumpAndSettle();
+
+      final agentRow = find.byKey(
+        const ValueKey('chat-app-bar-mode-menu-acp-codex-acp'),
+      );
+      InkWell agentInkWell() => tester.widget<InkWell>(
+        find.descendant(of: agentRow, matching: find.byType(InkWell)),
+      );
+
+      expect(agentInkWell().onTap, isNull);
+
+      isAgentLoading.value = false;
+      await tester.pumpAndSettle();
+
+      expect(agentRow, findsOneWidget);
+      expect(agentInkWell().onTap, isNotNull);
+
+      await tester.tap(agentRow);
+      await tester.pumpAndSettle();
+
+      expect(selectedAgentId, 'codex-acp');
+    },
+  );
+
   testWidgets('shows every ACP Agent with its brand icon and selects it', (
     tester,
   ) async {

@@ -509,6 +509,104 @@ void main() {
     },
   );
 
+  testWidgets('streaming body growth stays pinned during every layout frame', (
+    tester,
+  ) async {
+    final controller = ScrollController();
+    final messages = ObservableChatMessageList()
+      ..replaceAllMessages(<ChatMessageModel>[
+        ChatMessageModel(
+          id: 'body-task-text',
+          type: 1,
+          user: 2,
+          content: const <String, dynamic>{
+            'text': '正文开始',
+            'id': 'body-task-text',
+            'renderMarkdown': true,
+          },
+          streamMeta: const <String, dynamic>{
+            'parentTaskId': 'body-task',
+            'kind': 'text_snapshot',
+            'seq': 1,
+            'isFinal': false,
+          },
+        ),
+        ...List.generate(18, (index) {
+          return ChatMessageModel.assistantMessage(
+            List.generate(
+              4,
+              (line) => '较早正文 ${index + 1} - 第 ${line + 1} 行',
+            ).join('\n'),
+            id: 'body-older-$index',
+          );
+        }),
+      ]);
+
+    await tester.pumpWidget(
+      _buildLocalizedApp(
+        child: SizedBox(
+          width: 400,
+          height: 520,
+          child: ChatMessageList(
+            messages: messages,
+            scrollController: controller,
+            activeAgentTaskIds: const <String>{'body-task'},
+            onBeforeTaskExecute: () async {},
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 16));
+
+    expect(
+      controller.offset,
+      closeTo(controller.position.maxScrollExtent, 0.5),
+    );
+
+    final existing = messages[0];
+    final content = Map<String, dynamic>.from(existing.content ?? const {});
+    content['text'] = List.generate(
+      48,
+      (index) => '正文第 ${index + 1} 行持续流式增长，用于验证布局期间保持最新位置。',
+    ).join('\n');
+    messages[0] = existing.copyWith(
+      content: content,
+      streamMeta: const <String, dynamic>{
+        'parentTaskId': 'body-task',
+        'kind': 'text_snapshot',
+        'seq': 2,
+        'isFinal': false,
+      },
+    );
+
+    for (var frame = 0; frame < 30; frame += 1) {
+      await tester.pump(const Duration(milliseconds: 16));
+      expect(
+        controller.offset,
+        closeTo(controller.position.maxScrollExtent, 0.5),
+        reason: 'frame $frame should remain pinned while body layout grows',
+      );
+    }
+
+    messages[0] = messages[0].copyWith(
+      streamMeta: const <String, dynamic>{
+        'parentTaskId': 'body-task',
+        'kind': 'text_snapshot',
+        'seq': 3,
+        'isFinal': true,
+      },
+    );
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 16));
+
+    expect(
+      controller.offset,
+      closeTo(controller.position.maxScrollExtent, 0.5),
+    );
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets(
     'expanding an older thinking card does not snap the list back to latest',
     (tester) async {

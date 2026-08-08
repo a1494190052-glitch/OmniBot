@@ -1,10 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import worker, {
-  refreshModelsDevCatalog,
-  validateModelsDevCatalog,
-} from "./worker.js";
+import worker from "./worker.js";
 
 const CATALOG = JSON.stringify({
   openai: {
@@ -24,7 +21,7 @@ class MemoryR2Object {
     this.key = key;
     this.value = value;
     this.size = new TextEncoder().encode(value).byteLength;
-    this.etag = `r2-${this.size}`;
+    this.etag = options.etag || `r2-${this.size}`;
     this.uploaded = new Date();
     this.httpMetadata = options.httpMetadata || {};
     this.customMetadata = options.customMetadata || {};
@@ -42,7 +39,6 @@ class MemoryR2Object {
 class MemoryR2Bucket {
   constructor() {
     this.objects = new Map();
-    this.puts = [];
   }
 
   async head(key) {
@@ -59,23 +55,7 @@ class MemoryR2Bucket {
       : new TextDecoder().decode(value);
     const object = new MemoryR2Object(key, text, options);
     this.objects.set(key, object);
-    this.puts.push(key);
     return object;
-  }
-
-  async list({ prefix = "" } = {}) {
-    return {
-      objects: [...this.objects.values()].filter((object) =>
-        object.key.startsWith(prefix)
-      ),
-      truncated: false,
-    };
-  }
-
-  async delete(keys) {
-    for (const key of Array.isArray(keys) ? keys : [keys]) {
-      this.objects.delete(key);
-    }
   }
 }
 
@@ -83,41 +63,61 @@ function testEnv(bucket) {
   return {
     APP_UPDATE_BUCKET: bucket,
     ADMIN_TOKEN: "test-token",
-    MODELS_DEV_MIN_BYTES: "1",
-    MODELS_DEV_MAX_BYTES: "100000",
-    MODELS_DEV_MIN_PROVIDERS: "1",
-    MODELS_DEV_MIN_MODELS: "1",
-    MODELS_DEV_REQUIRED_PROVIDERS: "openai",
   };
 }
 
-function upstreamResponse(body = CATALOG, { status = 200, etag = '"upstream-v1"' } = {}) {
-  return new Response(body, {
-    status,
-    headers: {
-      "content-type": "application/json",
-      etag,
-    },
+async function seedMirror(bucket, {
+  lowercaseMetadata = true,
+  withMetadata = true,
+} = {}) {
+  const status = {
+    schemaVersion: 1,
+    publisher: "github-actions",
+    lastCheckedAt: 1_700_000_000_000,
+    lastSuccessfulAt: 1_700_000_000_000,
+    changed: true,
+    consecutiveFailures: 0,
+    lastError: "",
+    upstreamUrl: "https://models.dev/api.json",
+    upstreamEtag: '"upstream-v1"',
+    sha256: "catalog-sha256",
+    providerCount: 1,
+    modelCount: 1,
+    size: new TextEncoder().encode(CATALOG).byteLength,
+  };
+  const metadata = lowercaseMetadata
+    ? {
+      sha256: status.sha256,
+      upstreametag: status.upstreamEtag,
+      fetchedat: String(status.lastSuccessfulAt),
+      providercount: String(status.providerCount),
+      modelcount: String(status.modelCount),
+      size: String(status.size),
+    }
+    : {
+      sha256: status.sha256,
+      upstreamEtag: status.upstreamEtag,
+      fetchedAt: String(status.lastSuccessfulAt),
+      providerCount: String(status.providerCount),
+      modelCount: String(status.modelCount),
+      size: String(status.size),
+    };
+
+  await bucket.put("metadata/models-dev/current.json", CATALOG, {
+    etag: "r2-catalog-etag",
+    customMetadata: withMetadata ? metadata : {},
   });
+  await bucket.put(
+    "metadata/models-dev/status.json",
+    JSON.stringify(status),
+  );
+  return status;
 }
 
-test("refresh stores a validated snapshot and serves it with conditional GET", async () => {
+test("serves CI-published R2 catalog with SHA conditional GET", async () => {
   const bucket = new MemoryR2Bucket();
   const env = testEnv(bucket);
-  const result = await refreshModelsDevCatalog(env, {
-    fetchImpl: async () => upstreamResponse(),
-  });
-
-  assert.equal(result.changed, true);
-  assert.equal(result.providerCount, 1);
-  assert.equal(result.modelCount, 1);
-  assert.ok(result.sha256);
-  assert.ok(bucket.objects.has("metadata/models-dev/current.json"));
-  assert.ok(
-    bucket.objects.has(
-      `metadata/models-dev/snapshots/${result.sha256}.json`,
-    ),
-  );
+  const status = await seedMirror(bucket);
 
   const response = await worker.fetch(
     new Request("https://updates.example/catalog/models-dev/api.json"),
@@ -125,12 +125,13 @@ test("refresh stores a validated snapshot and serves it with conditional GET", a
   );
   assert.equal(response.status, 200);
   assert.equal(await response.text(), CATALOG);
-  assert.equal(response.headers.get("etag"), `"${result.sha256}"`);
+  assert.equal(response.headers.get("etag"), `"${status.sha256}"`);
+  assert.equal(response.headers.get("x-models-dev-provider-count"), "1");
   assert.equal(response.headers.get("access-control-allow-origin"), "*");
 
   const notModified = await worker.fetch(
     new Request("https://updates.example/catalog/models-dev/api.json", {
-      headers: { "if-none-match": `W/"${result.sha256}"` },
+      headers: { "if-none-match": `W/"${status.sha256}"` },
     }),
     env,
   );
@@ -138,90 +139,31 @@ test("refresh stores a validated snapshot and serves it with conditional GET", a
   assert.equal(await notModified.text(), "");
 });
 
-test("refresh reuses the upstream ETag and handles 304 without replacing current", async () => {
+test("falls back to the R2 object ETag when custom metadata is unavailable", async () => {
   const bucket = new MemoryR2Bucket();
   const env = testEnv(bucket);
-  await refreshModelsDevCatalog(env, {
-    fetchImpl: async () => upstreamResponse(),
-  });
-  const currentBefore = bucket.objects.get("metadata/models-dev/current.json");
-  let conditionalEtag = "";
+  await seedMirror(bucket, { withMetadata: false });
 
-  const result = await refreshModelsDevCatalog(env, {
-    fetchImpl: async (_url, init) => {
-      conditionalEtag = init.headers["if-none-match"];
-      return new Response(null, {
-        status: 304,
-        headers: { etag: '"upstream-v1"' },
-      });
-    },
-  });
-
-  assert.equal(conditionalEtag, '"upstream-v1"');
-  assert.equal(result.changed, false);
-  assert.equal(
-    bucket.objects.get("metadata/models-dev/current.json"),
-    currentBefore,
+  const response = await worker.fetch(
+    new Request("https://updates.example/catalog/models-dev/api.json"),
+    env,
   );
+  assert.equal(response.status, 200);
+  assert.equal(response.headers.get("etag"), '"r2-catalog-etag"');
 });
 
-test("invalid refresh records the failure and preserves the last good snapshot", async () => {
+test("returns 503 before GitHub Actions publishes the first catalog", async () => {
+  const response = await worker.fetch(
+    new Request("https://updates.example/catalog/models-dev/api.json"),
+    testEnv(new MemoryR2Bucket()),
+  );
+  assert.equal(response.status, 503);
+});
+
+test("admin status is authenticated and combines R2 metadata with CI status", async () => {
   const bucket = new MemoryR2Bucket();
   const env = testEnv(bucket);
-  await refreshModelsDevCatalog(env, {
-    fetchImpl: async () => upstreamResponse(),
-  });
-  const currentBefore = bucket.objects.get("metadata/models-dev/current.json");
-
-  await assert.rejects(
-    refreshModelsDevCatalog(env, {
-      fetchImpl: async () => upstreamResponse("{}"),
-    }),
-    /provider count/,
-  );
-
-  assert.equal(
-    bucket.objects.get("metadata/models-dev/current.json"),
-    currentBefore,
-  );
-  const status = JSON.parse(
-    await bucket.objects.get("metadata/models-dev/status.json").text(),
-  );
-  assert.equal(status.consecutiveFailures, 1);
-  assert.match(status.lastError, /provider count/);
-});
-
-test("validation blocks a suspicious model-count drop unless forced", () => {
-  const config = {
-    minBytes: 1,
-    maxBytes: 100000,
-    minProviders: 1,
-    minModels: 1,
-    maxDropRatio: 0.35,
-    requiredProviders: ["openai"],
-  };
-  assert.throws(
-    () => validateModelsDevCatalog(CATALOG, {
-      config,
-      previousStatus: { providerCount: 1, modelCount: 10 },
-    }),
-    /model count dropped/,
-  );
-
-  const result = validateModelsDevCatalog(CATALOG, {
-    config,
-    previousStatus: { providerCount: 1, modelCount: 10 },
-    force: true,
-  });
-  assert.equal(result.modelCount, 1);
-});
-
-test("admin status is authenticated and reports the current mirror", async () => {
-  const bucket = new MemoryR2Bucket();
-  const env = testEnv(bucket);
-  await refreshModelsDevCatalog(env, {
-    fetchImpl: async () => upstreamResponse(),
-  });
+  await seedMirror(bucket, { withMetadata: false });
 
   const unauthorized = await worker.fetch(
     new Request("https://updates.example/admin/models-dev"),
@@ -237,10 +179,21 @@ test("admin status is authenticated and reports the current mirror", async () =>
   );
   assert.equal(response.status, 200);
   const payload = await response.json();
+  assert.equal(payload.upstreamUrl, "https://models.dev/api.json");
+  assert.equal(payload.current.sha256, "catalog-sha256");
   assert.equal(payload.current.providerCount, 1);
   assert.equal(payload.current.modelCount, 1);
-  assert.equal(
-    payload.publicPath,
-    "/catalog/models-dev/api.json",
+  assert.equal(payload.refresh.publisher, "github-actions");
+});
+
+test("Worker no longer exposes an in-process models.dev refresh route", async () => {
+  const bucket = new MemoryR2Bucket();
+  const response = await worker.fetch(
+    new Request("https://updates.example/admin/models-dev/refresh", {
+      method: "POST",
+      headers: { authorization: "Bearer test-token" },
+    }),
+    testEnv(bucket),
   );
+  assert.equal(response.status, 404);
 });

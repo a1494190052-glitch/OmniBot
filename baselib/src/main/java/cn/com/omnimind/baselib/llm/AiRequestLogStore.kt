@@ -2,6 +2,7 @@ package cn.com.omnimind.baselib.llm
 
 import cn.com.omnimind.baselib.util.OmniLog
 import com.google.gson.GsonBuilder
+import com.google.gson.annotations.SerializedName
 import com.google.gson.reflect.TypeToken
 import com.tencent.mmkv.MMKV
 import java.util.UUID
@@ -9,18 +10,31 @@ import org.json.JSONArray
 import org.json.JSONObject
 
 data class AiRequestLogEntry(
+    @field:SerializedName(value = "id", alternate = ["a"])
     val id: String = UUID.randomUUID().toString(),
+    @field:SerializedName(value = "createdAt", alternate = ["b"])
     val createdAt: Long = System.currentTimeMillis(),
+    @field:SerializedName(value = "label", alternate = ["c"])
     val label: String = "",
+    @field:SerializedName(value = "model", alternate = ["d"])
     val model: String = "",
+    @field:SerializedName(value = "protocolType", alternate = ["e"])
     val protocolType: String = "openai_compatible",
+    @field:SerializedName(value = "url", alternate = ["f"])
     val url: String = "",
+    @field:SerializedName(value = "method", alternate = ["g"])
     val method: String = "POST",
+    @field:SerializedName(value = "stream", alternate = ["h"])
     val stream: Boolean = false,
+    @field:SerializedName(value = "statusCode", alternate = ["i"])
     val statusCode: Int? = null,
+    @field:SerializedName(value = "success", alternate = ["j"])
     val success: Boolean = true,
+    @field:SerializedName(value = "requestJson", alternate = ["k"])
     val requestJson: String = "",
+    @field:SerializedName(value = "responseJson", alternate = ["l"])
     val responseJson: String = "",
+    @field:SerializedName(value = "errorMessage", alternate = ["m"])
     val errorMessage: String? = null
 ) {
     fun toMap(): Map<String, Any?> {

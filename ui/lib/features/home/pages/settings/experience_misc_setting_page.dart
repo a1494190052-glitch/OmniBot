@@ -333,6 +333,14 @@ class _ExperienceMiscSettingPageState
             subtitle: context.l10n.settingsHabitualHandSubtitle,
             trailing: _buildHabitualHandDropdown(habitualHand),
           ),
+          _SettingItem(
+            icon: Icons.school_outlined,
+            title: context.trLegacy('初次使用教程'),
+            subtitle: context.trLegacy('重新查看应用首次启动时的引导页面'),
+            onTap: () {
+              GoRouterManager.push('/home/first_use_tutorial');
+            },
+          ),
         ],
       ),
     ];

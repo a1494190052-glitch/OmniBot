@@ -3,6 +3,7 @@ package cn.com.omnimind.baselib.llm
 import cn.com.omnimind.baselib.util.OmniLog
 import cn.com.omnimind.baselib.util.OssIdentity
 import com.google.gson.Gson
+import com.google.gson.annotations.SerializedName
 import com.google.gson.reflect.TypeToken
 import com.tencent.mmkv.MMKV
 
@@ -44,16 +45,27 @@ object ModelProviderConfigStore {
     private val gson = Gson()
 
     private data class StoredModelProviderProfile(
+        @field:SerializedName(value = "id", alternate = ["a"])
         val id: String? = null,
+        @field:SerializedName(value = "name", alternate = ["b"])
         val name: String? = null,
+        @field:SerializedName(value = "baseUrl", alternate = ["c"])
         val baseUrl: String? = null,
+        @field:SerializedName(value = "apiKey", alternate = ["d"])
         val apiKey: String? = null,
+        @field:SerializedName(value = "customHeaders", alternate = ["e"])
         val customHeaders: Map<String, String>? = null,
+        @field:SerializedName(value = "sourceType", alternate = ["f"])
         val sourceType: String? = null,
+        @field:SerializedName(value = "readOnly", alternate = ["g"])
         val readOnly: Boolean? = null,
+        @field:SerializedName(value = "ready", alternate = ["h"])
         val ready: Boolean? = null,
+        @field:SerializedName("statusText")
         val statusText: String? = null,
+        @field:SerializedName(value = "protocolType", alternate = ["i"])
         val protocolType: String? = null,
+        @field:SerializedName(value = "wireApi", alternate = ["j"])
         val wireApi: String? = null
     )
 
@@ -61,7 +73,13 @@ object ModelProviderConfigStore {
         ModelProviderMigration.ensureMigrated()
         val mmkv = MMKV.defaultMMKV()
         val deletedOfficialProfileIds = readDeletedOfficialProfileIds(mmkv)
-        val storedProfiles = readActiveProfiles(mmkv, deletedOfficialProfileIds)
+        val storedProfilesRaw = mmkv.decodeString(KEY_PROVIDER_PROFILES)
+        val decodedProfiles = decodeProfilesJson(storedProfilesRaw)
+        val storedProfiles = readActiveProfiles(
+            mmkv = mmkv,
+            deletedOfficialProfileIds = deletedOfficialProfileIds,
+            profiles = decodedProfiles
+        )
         val current = ensureBuiltinOfficialProfilesSeeded(
             mmkv,
             storedProfiles,
@@ -112,6 +130,7 @@ object ModelProviderConfigStore {
         ModelProviderMigration.ensureMigrated()
         val mmkv = MMKV.defaultMMKV()
         val deletedOfficialProfileIds = readDeletedOfficialProfileIds(mmkv)
+        readProfilesForUpdate(mmkv)
 
         val sanitized = buildList<ModelProviderProfile> {
             profiles
@@ -182,7 +201,11 @@ object ModelProviderConfigStore {
         val mmkv = MMKV.defaultMMKV()
 
         val deletedOfficialProfileIds = readDeletedOfficialProfileIds(mmkv)
-        val current = readActiveProfiles(mmkv, deletedOfficialProfileIds).toMutableList().ifEmpty {
+        val current = readActiveProfiles(
+            mmkv = mmkv,
+            deletedOfficialProfileIds = deletedOfficialProfileIds,
+            profiles = readProfilesForUpdate(mmkv)
+        ).toMutableList().ifEmpty {
             defaultProfiles(deletedOfficialProfileIds).toMutableList()
         }
         val normalizedId = id?.trim()?.takeIf { it.isNotEmpty() } ?: generateProfileId(current)
@@ -226,7 +249,11 @@ object ModelProviderConfigStore {
         val mmkv = MMKV.defaultMMKV()
         val normalizedId = profileId.trim()
         val deletedOfficialProfileIds = readDeletedOfficialProfileIds(mmkv)
-        val current = readActiveProfiles(mmkv, deletedOfficialProfileIds).toMutableList().ifEmpty {
+        val current = readActiveProfiles(
+            mmkv = mmkv,
+            deletedOfficialProfileIds = deletedOfficialProfileIds,
+            profiles = readProfilesForUpdate(mmkv)
+        ).toMutableList().ifEmpty {
             defaultProfiles(deletedOfficialProfileIds).toMutableList()
         }
         require(current.size > 1) { "at least one provider profile must remain" }
@@ -638,15 +665,15 @@ object ModelProviderConfigStore {
         return gson.toJson(normalized)
     }
 
-    private fun readProfiles(mmkv: MMKV): List<ModelProviderProfile> {
+    private fun readProfilesForUpdate(mmkv: MMKV): List<ModelProviderProfile> {
         return decodeProfilesJson(mmkv.decodeString(KEY_PROVIDER_PROFILES))
     }
 
     private fun readActiveProfiles(
         mmkv: MMKV,
-        deletedOfficialProfileIds: Set<String>
+        deletedOfficialProfileIds: Set<String>,
+        profiles: List<ModelProviderProfile>
     ): List<ModelProviderProfile> {
-        val profiles = readProfiles(mmkv)
         val activeProfiles = filterDeletedOfficialProfiles(profiles, deletedOfficialProfileIds)
         if (activeProfiles.size != profiles.size) {
             writeProfiles(mmkv, activeProfiles)
@@ -726,7 +753,8 @@ object ModelProviderConfigStore {
             }
 
             try {
-                val existingProfiles = readProfiles(mmkv)
+                val storedProfilesRaw = mmkv.decodeString(KEY_PROVIDER_PROFILES)
+                val existingProfiles = decodeProfilesJson(storedProfilesRaw)
                 if (existingProfiles.isNotEmpty()) {
                     ensureEditingProfile(mmkv, existingProfiles)
                     syncLegacyFlatConfig(mmkv, existingProfiles.first())

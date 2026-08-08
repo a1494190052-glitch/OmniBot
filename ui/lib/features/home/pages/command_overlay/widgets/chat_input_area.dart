@@ -69,12 +69,17 @@ class ChatModelPickerSettings {
     required this.hasSelectableModels,
     required this.onOpen,
     this.onPointerDown,
+    this.anchorKey,
   });
 
   final String modelId;
   final bool hasSelectableModels;
   final FutureOr<void> Function(BuildContext anchorContext) onOpen;
   final VoidCallback? onPointerDown;
+
+  /// Optional key attached to the model-picker button so callers (e.g. the
+  /// first-use spotlight tour) can locate the model icon precisely.
+  final GlobalKey? anchorKey;
 }
 
 class ChatInputAttachment {

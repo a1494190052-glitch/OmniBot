@@ -911,9 +911,12 @@ Future<void> openPublicStorageSettings() async {
   await spePermission.invokeMethod('openPublicStorageSettings');
 }
 
-Future<Map<String, dynamic>> prepareTermuxLiveWrapper() async {
+Future<Map<String, dynamic>> prepareTermuxLiveWrapper({
+  List<String>? packageIds,
+}) async {
   final result = await spePermission.invokeMethod<Map<dynamic, dynamic>>(
     'prepareTermuxLiveWrapper',
+    <String, dynamic>{if (packageIds != null) 'packageIds': packageIds},
   );
   return Map<String, dynamic>.from(result ?? const {});
 }

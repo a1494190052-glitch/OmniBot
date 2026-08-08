@@ -1,17 +1,25 @@
 package cn.com.omnimind.baselib.util
 
 import com.google.gson.GsonBuilder
+import com.google.gson.annotations.SerializedName
 import com.google.gson.reflect.TypeToken
 import com.tencent.mmkv.MMKV
 import java.util.UUID
 
 data class RuntimeLogEntry(
+    @field:SerializedName(value = "id", alternate = ["a"])
     val id: String = UUID.randomUUID().toString(),
+    @field:SerializedName(value = "createdAt", alternate = ["b"])
     val createdAt: Long = System.currentTimeMillis(),
+    @field:SerializedName(value = "level", alternate = ["c"])
     val level: String = "INFO",
+    @field:SerializedName(value = "tag", alternate = ["d"])
     val tag: String = "",
+    @field:SerializedName(value = "message", alternate = ["e"])
     val message: String = "",
+    @field:SerializedName(value = "stackTrace", alternate = ["f"])
     val stackTrace: String? = null,
+    @field:SerializedName(value = "isCrash", alternate = ["g"])
     val isCrash: Boolean = false,
 ) {
     fun toMap(): Map<String, Any?> {

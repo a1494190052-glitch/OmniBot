@@ -32,6 +32,7 @@ import 'pages/skill_store/skill_store_page.dart';
 import 'pages/termux_setting/termux_setting_page.dart';
 import 'pages/scene_model_setting/scene_model_setting_page.dart';
 import 'pages/model_provider_setting/model_provider_setting_page.dart';
+import 'package:ui/features/welcome/pages/onboarding/onboarding_choice_page.dart';
 
 /// Home模块路由配置
 const String kNativeRouteFlag = '__from_native__';
@@ -368,6 +369,16 @@ List<GoRoute> homeRoutes = [
       key: state.pageKey,
       name: 'home/experience_misc_setting',
       child: const ExperienceMiscSettingPage(),
+    ),
+  ),
+
+  GoRoute(
+    path: '/home/first_use_tutorial',
+    name: 'home/first_use_tutorial',
+    pageBuilder: (context, state) => GoRouterManager.buildActivitySlidePage(
+      key: state.pageKey,
+      name: 'home/first_use_tutorial',
+      child: const OnboardingChoicePage(),
     ),
   ),
 

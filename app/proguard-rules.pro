@@ -14,10 +14,10 @@
     public static final java.lang.String BASE_URL;
 }
 
-# Gson persists these unannotated Kotlin models. Keep only their instance field
-# names; classes, constructors, methods, and service/store fields remain
-# eligible for shrinking and optimization. Prefer @SerializedName on new
-# persisted fields.
+# Gson persists these Kotlin models. Keep only their instance field names as a
+# compatibility safety net; classes, constructors, methods, and service/store
+# fields remain eligible for shrinking and optimization. Persisted baselib
+# models also declare stable @SerializedName values.
 -keepclassmembers,allowoptimization class cn.com.omnimind.bot.agent.runtime.AcpAgentProfile {
     <fields>;
 }

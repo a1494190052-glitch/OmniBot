@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:ui/l10n/legacy_text_localizer.dart';
 import 'package:flutter_svg/flutter_svg.dart';
+import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:ui/services/home_greeting_settings_service.dart';
 import 'package:ui/theme/theme_context.dart';
 import 'package:ui/widgets/agent_brand_icon.dart';
@@ -116,6 +117,10 @@ class ChatAppBar extends StatelessWidget {
   final VoidCallback? onDebugConversationIdCopyTap;
   final bool showWorkspacePaneButton;
   final VoidCallback? onWorkspacePaneTap;
+  final Key? tutorialMenuAnchorKey;
+  final Key? tutorialPetAnchorKey;
+  final Key? tutorialIslandAnchorKey;
+  final Key? tutorialModeAnchorKey;
 
   const ChatAppBar({
     super.key,
@@ -159,6 +164,10 @@ class ChatAppBar extends StatelessWidget {
     this.onDebugConversationIdCopyTap,
     this.showWorkspacePaneButton = false,
     this.onWorkspacePaneTap,
+    this.tutorialMenuAnchorKey,
+    this.tutorialPetAnchorKey,
+    this.tutorialIslandAnchorKey,
+    this.tutorialModeAnchorKey,
   });
 
   @override
@@ -257,20 +266,23 @@ class ChatAppBar extends StatelessWidget {
                       top: 0,
                       bottom: 0,
                       width: _kChatAppBarMenuButtonSize,
-                      child: Center(
-                        child: GestureDetector(
-                          key: const ValueKey('chat-app-bar-menu-button'),
-                          onTap: onMenuTap,
-                          child: Container(
-                            color: Colors.transparent,
-                            padding: const EdgeInsets.all(15),
-                            child: SvgPicture.asset(
-                              'assets/home/drawer_icon.svg',
-                              width: 20,
-                              height: 20,
-                              colorFilter: ColorFilter.mode(
-                                iconTint,
-                                BlendMode.srcIn,
+                      child: KeyedSubtree(
+                        key: tutorialMenuAnchorKey,
+                        child: Center(
+                          child: GestureDetector(
+                            key: const ValueKey('chat-app-bar-menu-button'),
+                            onTap: onMenuTap,
+                            child: Container(
+                              color: Colors.transparent,
+                              padding: const EdgeInsets.all(15),
+                              child: SvgPicture.asset(
+                                'assets/home/drawer_icon.svg',
+                                width: 20,
+                                height: 20,
+                                colorFilter: ColorFilter.mode(
+                                  iconTint,
+                                  BlendMode.srcIn,
+                                ),
                               ),
                             ),
                           ),
@@ -283,35 +295,41 @@ class ChatAppBar extends StatelessWidget {
                       top: 0,
                       bottom: 0,
                       width: leftActionRowWidth,
-                      child: _ChatAppBarPetButton(
-                        isLoading: isPetOpening,
-                        isShowing: isPetShowing,
-                        iconTint: iconTint,
-                        selectedColor: palette.accentPrimary,
-                        onTap: onPetTap!,
+                      child: KeyedSubtree(
+                        key: tutorialPetAnchorKey,
+                        child: _ChatAppBarPetButton(
+                          isLoading: isPetOpening,
+                          isShowing: isPetShowing,
+                          iconTint: iconTint,
+                          selectedColor: palette.accentPrimary,
+                          onTap: onPetTap!,
+                        ),
                       ),
                     ),
                   Center(
-                    child: SizedBox(
-                      key: const ValueKey('chat-app-bar-island'),
-                      width: islandWidth,
-                      child: _ChatIslandSwitcher(
-                        activeMode: activeMode,
-                        onModeChanged: onModeChanged,
-                        displayLayer: displayLayer,
-                        onDisplayLayerChanged: onDisplayLayerChanged,
-                        onTerminalEnvironmentTap: onTerminalEnvironmentTap,
-                        onTerminalTap: onTerminalTap,
-                        onBrowserTap: onBrowserTap,
-                        hasTerminalEnvironment: hasTerminalEnvironment,
-                        isBrowserEnabled: isBrowserEnabled,
-                        activeToolType: activeToolType,
-                        translucent: translucent,
-                        visualProfile: visualProfile,
-                        showSurfaceLayer: showSurfaceSwitcher,
-                        primaryModeIconAsset: primaryModeIconAsset,
-                        primaryModeAgentId: primaryModeAgentId,
-                        onPrimaryModeTap: onPrimaryModeTap,
+                    child: KeyedSubtree(
+                      key: tutorialIslandAnchorKey,
+                      child: SizedBox(
+                        key: const ValueKey('chat-app-bar-island'),
+                        width: islandWidth,
+                        child: _ChatIslandSwitcher(
+                          activeMode: activeMode,
+                          onModeChanged: onModeChanged,
+                          displayLayer: displayLayer,
+                          onDisplayLayerChanged: onDisplayLayerChanged,
+                          onTerminalEnvironmentTap: onTerminalEnvironmentTap,
+                          onTerminalTap: onTerminalTap,
+                          onBrowserTap: onBrowserTap,
+                          hasTerminalEnvironment: hasTerminalEnvironment,
+                          isBrowserEnabled: isBrowserEnabled,
+                          activeToolType: activeToolType,
+                          translucent: translucent,
+                          visualProfile: visualProfile,
+                          showSurfaceLayer: showSurfaceSwitcher,
+                          primaryModeIconAsset: primaryModeIconAsset,
+                          primaryModeAgentId: primaryModeAgentId,
+                          onPrimaryModeTap: onPrimaryModeTap,
+                        ),
                       ),
                     ),
                   ),
@@ -371,22 +389,25 @@ class ChatAppBar extends StatelessWidget {
                           width: _kChatAppBarRightActionSlotWidth,
                           height: _kChatAppBarRightActionSlotWidth,
                           child: Center(
-                            child: _ChatAppBarModeShortcutButton(
-                              key: const ValueKey(
-                                'chat-app-bar-pure-chat-button',
+                            child: KeyedSubtree(
+                              key: tutorialModeAnchorKey,
+                              child: _ChatAppBarModeShortcutButton(
+                                key: const ValueKey(
+                                  'chat-app-bar-pure-chat-button',
+                                ),
+                                iconTint: iconTint,
+                                isAgentLoading: isAgentLoading,
+                                isAgentSelected: isAgentSelected,
+                                isOmniAiSelected: isOmniAiSelected,
+                                acpAgentModes: acpAgentModes,
+                                activeAcpAgentId: activeAcpAgentId,
+                                isPureChatSelected: isPureChatSelected,
+                                isPureChatToggleLocked: isPureChatToggleLocked,
+                                onOmniAiTap: onOmniAiTap,
+                                onAgentTap: onAgentTap,
+                                onAcpAgentTap: onAcpAgentTap,
+                                onPureChatToggleTap: onPureChatToggleTap,
                               ),
-                              iconTint: iconTint,
-                              isAgentLoading: isAgentLoading,
-                              isAgentSelected: isAgentSelected,
-                              isOmniAiSelected: isOmniAiSelected,
-                              acpAgentModes: acpAgentModes,
-                              activeAcpAgentId: activeAcpAgentId,
-                              isPureChatSelected: isPureChatSelected,
-                              isPureChatToggleLocked: isPureChatToggleLocked,
-                              onOmniAiTap: onOmniAiTap,
-                              onAgentTap: onAgentTap,
-                              onAcpAgentTap: onAcpAgentTap,
-                              onPureChatToggleTap: onPureChatToggleTap,
                             ),
                           ),
                         ),
@@ -468,15 +489,7 @@ class _ChatAppBarPetButton extends StatelessWidget {
                         ),
                       ),
                     )
-                  : SvgPicture.asset(
-                      'assets/home/avatar.svg',
-                      width: 20,
-                      height: 20,
-                      colorFilter: ColorFilter.mode(
-                        effectiveColor,
-                        BlendMode.srcIn,
-                      ),
-                    ),
+                  : Icon(LucideIcons.pawPrint, size: 20, color: effectiveColor),
             ),
           ),
         ),
@@ -597,6 +610,33 @@ class _ChatAppBarModeShortcutButton extends StatefulWidget {
 class _ChatAppBarModeShortcutButtonState
     extends State<_ChatAppBarModeShortcutButton> {
   bool _isOpen = false;
+  late final ValueNotifier<bool> _isAgentLoadingNotifier;
+
+  @override
+  void initState() {
+    super.initState();
+    _isAgentLoadingNotifier = ValueNotifier<bool>(widget.isAgentLoading);
+  }
+
+  @override
+  void didUpdateWidget(covariant _ChatAppBarModeShortcutButton oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.isAgentLoading == widget.isAgentLoading) {
+      return;
+    }
+    final isAgentLoading = widget.isAgentLoading;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        _isAgentLoadingNotifier.value = isAgentLoading;
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _isAgentLoadingNotifier.dispose();
+    super.dispose();
+  }
 
   Future<void> _openMenu() async {
     if (_isOpen) {
@@ -631,46 +671,52 @@ class _ChatAppBarModeShortcutButtonState
       transitionDuration: _kChatAppBarModeMenuOpenDuration,
       reverseTransitionDuration: _kChatAppBarModeMenuCloseDuration,
       unfoldAlignment: Alignment.topCenter,
-      child: _ChatAppBarModeShortcutMenuContent(
-        width: _kChatAppBarAccessoryButtonSize,
-        closeTooltip: isEnglish ? 'Close mode menu' : '收起模式菜单',
-        headerIcon: _buildOpenIcon(selectedColor),
-        items: [
-          _ChatAppBarModeShortcutMenuItemData(
-            action: _ChatAppBarModeShortcutAction.omniAi,
-            iconAsset: _kChatAppBarAgentIconAsset,
-            tooltip: isEnglish ? 'OmniAi' : '小万',
-            selected: widget.isOmniAiSelected,
-            enabled: widget.onOmniAiTap != null,
-            iconSize: _kChatAppBarModeMenuOmniAiIconSize,
-            iconOffset: _kChatAppBarModeMenuOmniAiIconOffset,
-          ),
-          for (final agent in acpAgentModes)
-            _ChatAppBarModeShortcutMenuItemData(
-              action: _ChatAppBarModeShortcutAction.acpAgent(agent.id),
-              agentId: agent.id,
-              tooltip: agent.name,
-              selected:
-                  widget.isAgentSelected && agent.id == widget.activeAcpAgentId,
-              enabled:
-                  !widget.isAgentLoading &&
-                  (widget.onAcpAgentTap != null || widget.onAgentTap != null),
-              iconSize: _chatAppBarModeMenuAgentIconSize(agent.id),
+      child: ValueListenableBuilder<bool>(
+        valueListenable: _isAgentLoadingNotifier,
+        builder: (context, isAgentLoading, _) =>
+            _ChatAppBarModeShortcutMenuContent(
+              width: _kChatAppBarAccessoryButtonSize,
+              closeTooltip: isEnglish ? 'Close mode menu' : '收起模式菜单',
+              headerIcon: _buildOpenIcon(selectedColor),
+              items: [
+                _ChatAppBarModeShortcutMenuItemData(
+                  action: _ChatAppBarModeShortcutAction.omniAi,
+                  iconAsset: _kChatAppBarAgentIconAsset,
+                  tooltip: isEnglish ? 'OmniAi' : '小万',
+                  selected: widget.isOmniAiSelected,
+                  enabled: widget.onOmniAiTap != null,
+                  iconSize: _kChatAppBarModeMenuOmniAiIconSize,
+                  iconOffset: _kChatAppBarModeMenuOmniAiIconOffset,
+                ),
+                for (final agent in acpAgentModes)
+                  _ChatAppBarModeShortcutMenuItemData(
+                    action: _ChatAppBarModeShortcutAction.acpAgent(agent.id),
+                    agentId: agent.id,
+                    tooltip: agent.name,
+                    selected:
+                        widget.isAgentSelected &&
+                        agent.id == widget.activeAcpAgentId,
+                    enabled:
+                        !isAgentLoading &&
+                        (widget.onAcpAgentTap != null ||
+                            widget.onAgentTap != null),
+                    iconSize: _chatAppBarModeMenuAgentIconSize(agent.id),
+                  ),
+                _ChatAppBarModeShortcutMenuItemData(
+                  action: _ChatAppBarModeShortcutAction.pureChat,
+                  iconAsset: _kChatAppBarPureChatIconAsset,
+                  tooltip: isEnglish ? 'Pure chat' : '纯聊天模式',
+                  selected: widget.isPureChatSelected,
+                  enabled: canSelectPureChat,
+                  iconSize: _kChatAppBarModeMenuPureChatIconSize,
+                ),
+              ],
+              selectedColor: selectedColor,
+              // popup 有自己的不透明 surface，不能复用为聊天壁纸适配的 AppBar
+              // iconTint；后者在浅色主题 + 深色壁纸时可能接近白色。
+              iconTint: palette.textSecondary,
+              disabledTint: palette.textTertiary,
             ),
-          _ChatAppBarModeShortcutMenuItemData(
-            action: _ChatAppBarModeShortcutAction.pureChat,
-            iconAsset: _kChatAppBarPureChatIconAsset,
-            tooltip: isEnglish ? 'Pure chat' : '纯聊天模式',
-            selected: widget.isPureChatSelected,
-            enabled: canSelectPureChat,
-            iconSize: _kChatAppBarModeMenuPureChatIconSize,
-          ),
-        ],
-        selectedColor: selectedColor,
-        // popup 有自己的不透明 surface，不能复用为聊天壁纸适配的 AppBar
-        // iconTint；后者在浅色主题 + 深色壁纸时可能接近白色。
-        iconTint: palette.textSecondary,
-        disabledTint: palette.textTertiary,
       ),
     );
     if (mounted) {
@@ -1681,6 +1727,44 @@ class ChatMessageList extends StatefulWidget {
   State<ChatMessageList> createState() => _ChatMessageListState();
 }
 
+class _ChatLatestEdgeScrollPhysics extends ClampingScrollPhysics {
+  const _ChatLatestEdgeScrollPhysics({
+    required this.shouldStickToLatest,
+    super.parent,
+  });
+
+  final ValueGetter<bool> shouldStickToLatest;
+
+  @override
+  _ChatLatestEdgeScrollPhysics applyTo(ScrollPhysics? ancestor) {
+    return _ChatLatestEdgeScrollPhysics(
+      shouldStickToLatest: shouldStickToLatest,
+      parent: buildParent(ancestor),
+    );
+  }
+
+  @override
+  double adjustPositionForNewDimensions({
+    required ScrollMetrics oldPosition,
+    required ScrollMetrics newPosition,
+    required bool isScrolling,
+    required double velocity,
+  }) {
+    if (!shouldStickToLatest() || isScrolling || velocity != 0.0) {
+      return super.adjustPositionForNewDimensions(
+        oldPosition: oldPosition,
+        newPosition: newPosition,
+        isScrolling: isScrolling,
+        velocity: velocity,
+      );
+    }
+    return switch (newPosition.axisDirection) {
+      AxisDirection.down || AxisDirection.right => newPosition.maxScrollExtent,
+      AxisDirection.up || AxisDirection.left => newPosition.minScrollExtent,
+    };
+  }
+}
+
 class _ChatMessageListState extends State<ChatMessageList> {
   static const Duration _kAgentRunToggleAutoStickSuppression = Duration(
     milliseconds: 420,
@@ -1741,10 +1825,10 @@ class _ChatMessageListState extends State<ChatMessageList> {
       _autoStickToLatest = true;
       _outerScrollWasUserDriven = false;
       _autoStickSuppressedUntil = null;
+      _scheduleStickToLatest();
+      return;
     }
     if (_autoStickToLatest) {
-      _autoStickToLatest = true;
-      _scheduleStickToLatest();
       return;
     }
     if (_isAutoStickTemporarilySuppressed) {
@@ -1752,7 +1836,6 @@ class _ChatMessageListState extends State<ChatMessageList> {
     }
     if (_isNearLatest(null, _manualLatestAttachTolerance)) {
       _autoStickToLatest = true;
-      _scheduleStickToLatest();
     }
   }
 
@@ -1812,16 +1895,11 @@ class _ChatMessageListState extends State<ChatMessageList> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _stickToBottomScheduled = false;
       if (!mounted) {
-        if (mounted) {
-          _scheduleStickToBottom();
-        }
         return;
       }
       final positions = _attachedPositions();
       if (positions.isEmpty) {
-        if (mounted) {
-          _scheduleStickToBottom();
-        }
+        _scheduleStickToLatest();
         return;
       }
       if (!_autoStickToLatest) {
@@ -1835,12 +1913,6 @@ class _ChatMessageListState extends State<ChatMessageList> {
         position.jumpTo(target);
       }
     });
-  }
-
-  void _handleStreamingTextLayoutChanged() {
-    if (_autoStickToLatest && !_isAutoStickTemporarilySuppressed) {
-      _scheduleStickToLatest();
-    }
   }
 
   void _bindObservableMessages(List<ChatMessageModel> messages) {
@@ -1860,9 +1932,6 @@ class _ChatMessageListState extends State<ChatMessageList> {
       return;
     }
     _collapseCancelledAgentRuns();
-    if (_autoStickToLatest && !_isAutoStickTemporarilySuppressed) {
-      _scheduleStickToLatest();
-    }
     // 流式追加文本这类 content 级变更由每行的 ValueListenableBuilder 精确
     // 刷新，这里不再整表 setState（否则每个 chunk 都会重跑时间线分组和
     // 全部可见行的 itemBuilder）。结构变化仍走完整重建。
@@ -2305,7 +2374,7 @@ class _ChatMessageListState extends State<ChatMessageList> {
         onParentScrollHandoff: _handleParentScrollHandoff,
         onRequestAuthorize: widget.onRequestAuthorize,
         onUserMessageLongPressStart: widget.onUserMessageLongPressStart,
-        onStreamingTextLayoutChanged: _handleStreamingTextLayoutChanged,
+        onStreamingTextLayoutChanged: null,
         onToggleAgentRunGroup: _toggleAgentRunGroup,
         expandedAgentRunTaskIds: _expandedAgentRunTaskIds,
         useAcpPresentation: widget.useAcpPresentation,
@@ -2420,7 +2489,10 @@ class _ChatMessageListState extends State<ChatMessageList> {
     Widget listView = ListView.builder(
       controller: widget.scrollController,
       reverse: false,
-      physics: const ClampingScrollPhysics(),
+      physics: _ChatLatestEdgeScrollPhysics(
+        shouldStickToLatest: () =>
+            _autoStickToLatest && !_isAutoStickTemporarilySuppressed,
+      ),
       clipBehavior: Clip.hardEdge,
       padding: const EdgeInsets.fromLTRB(16, 0, 16, 0),
       itemCount: timelineEntries.length,

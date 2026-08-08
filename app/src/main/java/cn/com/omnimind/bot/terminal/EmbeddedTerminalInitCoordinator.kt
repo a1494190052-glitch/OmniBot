@@ -100,7 +100,10 @@ object EmbeddedTerminalInitCoordinator {
         return true
     }
 
-    suspend fun prepare(context: Context): TermuxLiveEnvironmentResult {
+    suspend fun prepare(
+        context: Context,
+        selectedPackageIds: List<String>? = null
+    ): TermuxLiveEnvironmentResult {
         val appContext = context.applicationContext
         val deferred: CompletableDeferred<TermuxLiveEnvironmentResult>
         val shouldStartNow: Boolean
@@ -117,26 +120,51 @@ object EmbeddedTerminalInitCoordinator {
             }
         }
         if (shouldStartNow) {
-            runPreparation(appContext, deferred)
+            runPreparation(appContext, deferred, selectedPackageIds)
         }
-        return deferred.await()
+        val status = deferred.await()
+        return if (!shouldStartNow && selectedPackageIds != null && status.success) {
+            prepare(appContext, selectedPackageIds)
+        } else {
+            status
+        }
     }
 
     private suspend fun runPreparation(
         context: Context,
-        deferred: CompletableDeferred<TermuxLiveEnvironmentResult>
+        deferred: CompletableDeferred<TermuxLiveEnvironmentResult>,
+        selectedPackageIds: List<String>? = null
     ) {
         try {
             emitEmbeddedTerminalInitProgress(
                 kind = "status",
                 message = "开始准备内嵌终端环境"
             )
-            val status = TermuxCommandRunner.prepareLiveEnvironment(context) { progress ->
+            val runtimeStatus = TermuxCommandRunner.prepareLiveEnvironment(
+                context = context,
+                installBasePackages = selectedPackageIds == null
+            ) { progress ->
                 emitEmbeddedTerminalInitProgress(
                     kind = progress.kind.name.lowercase(),
                     message = progress.message
                 )
             }
+            val status =
+                if (runtimeStatus.success && selectedPackageIds != null) {
+                    val setupResult = EmbeddedTerminalSetupManager(context).installPackages(
+                        selectedPackageIds = selectedPackageIds
+                    ) { kind, message ->
+                        emitEmbeddedTerminalInitProgress(kind = kind, message = message)
+                    }
+                    TermuxLiveEnvironmentResult(
+                        success = setupResult.success,
+                        wrapperReady = runtimeStatus.wrapperReady,
+                        sharedStorageReady = runtimeStatus.sharedStorageReady,
+                        message = setupResult.message
+                    )
+                } else {
+                    runtimeStatus
+                }
             emitEmbeddedTerminalInitProgress(
                 kind = if (status.success) "status" else "error",
                 message = status.message
@@ -368,6 +396,11 @@ object EmbeddedTerminalInitCoordinator {
                 normalizedMessage.contains("基础 Agent CLI 包已就绪") -> 0.96
                 normalizedMessage.contains("正在安装基础 Agent CLI 包") -> 0.72
                 normalizedMessage.contains("基础 Agent CLI 包安装完成") -> 0.98
+                normalizedMessage.contains("正在检查所选开发工具") -> 0.64
+                normalizedMessage.contains("正在安装所选开发工具") -> 0.72
+                normalizedMessage.contains("正在验证所选开发工具") -> 0.96
+                normalizedMessage.contains("开发环境配置完成") -> 0.99
+                normalizedMessage.contains("所选开发工具已就绪") -> 0.99
                 normalizedMessage.contains("均已就绪") -> 1.0
                 else -> null
             }
@@ -379,6 +412,10 @@ object EmbeddedTerminalInitCoordinator {
             val packageRatio = seenBasePackages.size.toDouble() / BASE_PACKAGE_NAMES.size.toDouble()
             val outputProgress = 0.72 + packageRatio * 0.22
             return maxOf(currentProgress, outputProgress)
+        }
+
+        if (kind == "output" && currentProgress >= 0.72) {
+            return (currentProgress + 0.004).coerceAtMost(0.94)
         }
 
         return currentProgress
