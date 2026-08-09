@@ -86,23 +86,26 @@ class RuntimeSkillBundleManager(
         val workspace = AgentWorkspaceManager(appContext)
         val skills = SkillIndexService(appContext, workspace)
         var candidates = installedCandidates(skills)
-        val embeddedRuntime = !spec.prebuiltRuntimeArchive.isNullOrBlank()
-        if (!embeddedRuntime && shouldSyncOfficialSkillsRepository(refresh)) {
+        if (shouldSyncOfficialSkillsRepository(refresh)) {
             runCatching { skills.syncOfficialSkillsRepository() }
             candidates = installedCandidates(skills)
         }
 
         val packagedMarker = packagedMarker()
-        if (removeOutdatedPackagedCandidates(skills, candidates, refresh, packagedMarker)) {
+        val hasMarketCandidate = candidates.any { it.source == OFFICIAL_SOURCE }
+        val marketCandidate = candidates.firstOrNull(::isCompleteMarketCandidate)
+        if (!hasMarketCandidate &&
+            removeOutdatedPackagedCandidates(skills, candidates, refresh, packagedMarker)
+        ) {
             candidates = installedCandidates(skills)
         }
 
-        val selected = if (embeddedRuntime) {
-            packagedCandidate(candidates) ?: installPackaged(skills, packagedMarker)
-        } else {
-            val official = candidates.firstOrNull { it.source == OFFICIAL_SOURCE }
-            official ?: preferredCandidate(candidates) ?: installPackaged(skills, packagedMarker)
-        }
+        val selected = marketCandidate
+            ?: packagedCandidate(candidates)
+            ?: candidates
+                .filterNot { it.source == OFFICIAL_SOURCE }
+                .let(::preferredCandidate)
+            ?: installPackaged(skills, packagedMarker)
         if (!selected.enabled) {
             skills.setSkillEnabled(selected.id, true)
         }
@@ -226,6 +229,13 @@ class RuntimeSkillBundleManager(
 
     private fun packagedCandidate(candidates: List<SkillIndexEntry>): SkillIndexEntry? =
         candidates.firstOrNull { candidate -> isPackaged(candidate.rootPath) }
+
+    private fun isCompleteMarketCandidate(candidate: SkillIndexEntry): Boolean {
+        if (candidate.source != OFFICIAL_SOURCE) return false
+        val root = File(candidate.rootPath)
+        return File(root, "scripts/runtime/python/omniflow/bridge.py").isFile &&
+            File(root, spec.runtimeDataPath).resolve("installed.json").isFile
+    }
 
     private fun installPackaged(
         skills: SkillIndexService,

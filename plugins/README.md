@@ -12,8 +12,10 @@ the adapter selected by `adapter`.
 3. Register one `RuntimeBundleAdapter` for the manifest's `adapter` id.
 4. Declare localized descriptions, capabilities, usage guidance, and optional
    navigation actions in `presentation`.
-5. Publish a Skill with the same `runtimeSkill.id` in the official Skills
-   repository when the runtime should support independent updates.
+5. Publish a complete Skill with the same `runtimeSkill.id` in the official
+   Skills repository when the runtime should support independent updates. A
+   market runtime must contain `scripts/runtime/python/omniflow/bridge.py` and
+   `scripts/runtime/.runtime/installed.json`; incomplete entries are ignored.
 
 Plugins may expose a direct management surface through
 `presentation.dashboard`. The market uses this action for its quick-entry
@@ -21,10 +23,12 @@ button and the detail page prefers it over the legacy `installedAction`.
 
 Install atomically prepares the plugin's complete backend runtime, verifies it,
 registers the contribution, and enables it. The platform does not persist the
-installed state until all of those steps succeed. Update refreshes the official
-Skills repository first and keeps the packaged Skill as a fallback. Uninstall
-disables official Skills and reclaims their downloaded runtime data; packaged
-fallback Skills are removed entirely.
+installed state until all of those steps succeed. Update from the plugin market
+refreshes the official Skills repository without reinstalling the APK, switches
+only to a complete verified market runtime, and keeps the packaged Skill as a
+fallback when the network or package validation fails. Uninstall disables
+official Skills and reclaims their downloaded runtime data; packaged fallback
+Skills are removed entirely.
 
 ## OmniFlow automation bundle
 
