@@ -99,6 +99,7 @@ PYTHONPATH=. python3 -m unittest \
   plugins/omni-vlm-lite/tests/test_component_bundle.py
 if ((build_apk)); then
   ./gradlew --no-daemon assembleDevelopStandardDebug \
+    -POMNIBOT_PROFILE=investor \
     -Ptarget=lib/main_standard.dart
   [[ -f "$apk_source" ]] || {
     printf 'APK was not produced: %s\n' "$apk_source" >&2

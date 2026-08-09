@@ -12,6 +12,9 @@ the adapter selected by `adapter`.
 3. Register one `RuntimeBundleAdapter` for the manifest's `adapter` id.
 4. Declare localized descriptions, capabilities, usage guidance, and optional
    navigation actions in `presentation`.
+   Use `profiles` only when a packaged plugin is intentionally limited to a
+   build profile; entries without it are available in both `main` and
+   `investor` builds.
 5. Publish a complete Skill with the same `runtimeSkill.id` in the official
    Skills repository when the runtime should support independent updates. A
    market runtime must contain `scripts/runtime/python/omniflow/bridge.py` and
@@ -78,3 +81,18 @@ toolkit, optional frontend/schema, manifest, and Bridge files live under
 Updating or uninstalling plugin code preserves the database; publishing the
 same plugin id reconnects it to that existing data. Legacy databases stored
 inside `.omni/data` migrate automatically on first access.
+
+## Build profiles
+
+The repository maintains one host implementation and two packaging profiles:
+
+- `bash scripts/build-main-apk.sh` builds the normal `main` profile. It exposes
+  only the GUI plugin, defaults OmniFlow on, and excludes packaged investor
+  demo plugins.
+- `bash scripts/build-foolproof-apk.sh` builds the `investor` profile. It keeps
+  the complete packaged plugin catalog and enables all official demo plugins
+  on first launch.
+
+Both profiles use the same Kotlin, Flutter, plugin contracts, and catalog. The
+profile controls only packaged assets, catalog visibility, and first-launch
+defaults, so fixes stay on one branch and are tested against the same host.

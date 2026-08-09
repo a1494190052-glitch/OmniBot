@@ -52,7 +52,7 @@ class OmniPluginHost private constructor(context: Context) {
 
         private fun defaultBuiltInPluginIds(context: Context): Set<String> = when {
             BuildConfig.DEFAULT_INSTALL_ALL_PLUGINS ->
-                RuntimeBundleCatalog.load(context.assets).bundles
+                RuntimeBundleCatalog.load(context.assets, BuildConfig.OMNIBOT_PROFILE).bundles
                     .mapTo(linkedSetOf()) { it.descriptor.id }
             BuildConfig.DEFAULT_INSTALL_GUI_PLUGIN -> setOf(OmniVlmLiteProvider.ID)
             else -> emptySet()

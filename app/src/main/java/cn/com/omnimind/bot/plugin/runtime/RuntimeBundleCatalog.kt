@@ -25,17 +25,20 @@ class RuntimeBundleCatalog private constructor(
         private const val ASSET_PATH = "catalog.v1.json"
         private val json = Json { ignoreUnknownKeys = true }
 
-        fun load(assets: AssetManager): RuntimeBundleCatalog {
+        fun load(assets: AssetManager, profile: String): RuntimeBundleCatalog {
             val source = assets.open(ASSET_PATH).bufferedReader().use { it.readText() }
-            return parse(source)
+            return parse(source, profile)
         }
 
-        internal fun parse(source: String): RuntimeBundleCatalog {
+        internal fun parse(source: String, profile: String? = null): RuntimeBundleCatalog {
             val catalog = json.decodeFromString<RuntimeBundleCatalogWire>(source)
             require(catalog.schemaVersion == 1) {
                 "Unsupported runtime bundle catalog schema: ${catalog.schemaVersion}"
             }
-            val bundles = catalog.plugins.map(RuntimeBundlePluginWire::toDefinition)
+            catalog.plugins.forEach(RuntimeBundlePluginWire::validateProfiles)
+            val bundles = catalog.plugins
+                .filter { plugin -> profile == null || profile in plugin.profiles }
+                .map(RuntimeBundlePluginWire::toDefinition)
             val duplicateId = bundles.groupBy { it.descriptor.id }
                 .entries.firstOrNull { it.value.size > 1 }
                 ?.key
@@ -66,7 +69,14 @@ private data class RuntimeBundlePluginWire(
     val presentation: JsonObject = JsonObject(emptyMap()),
     val adapter: String = "",
     val runtimeSkill: RuntimeSkillWire = RuntimeSkillWire(),
+    val profiles: List<String> = listOf("main", "investor"),
 ) {
+    fun validateProfiles() {
+        require(profiles.isNotEmpty() && profiles.all(PROFILE::matches)) {
+            "Runtime bundle $id declares invalid profiles"
+        }
+    }
+
     fun toDefinition(): RuntimeBundleDefinition {
         require(PLUGIN_ID.matches(id)) { "Invalid runtime bundle id: $id" }
         require(name.isNotBlank()) { "Runtime bundle $id has no name" }
@@ -98,6 +108,7 @@ private data class RuntimeBundlePluginWire(
 
     private companion object {
         val PLUGIN_ID = Regex("^[a-z][a-z0-9]*(\\.[a-z][a-z0-9-]*)+$")
+        val PROFILE = Regex("^[a-z][a-z0-9-]*$")
     }
 }
 

@@ -85,17 +85,6 @@ void main() {
       expect(find.text('直接告诉小万要做什么'), findsOneWidget);
       expect(find.text('从 Dashboard 或桌面进入'), findsOneWidget);
 
-      final vibeBuilder = find.byKey(
-        const ValueKey('plugin-guide-vibe-builder'),
-      );
-      await tester.ensureVisible(vibeBuilder);
-      await tester.pumpAndSettle();
-      await tester.tap(vibeBuilder);
-      expect(
-        openedRoute,
-        '/home/plugin_market/com.omnimind.vibe-project-builder',
-      );
-
       final omniflow = find.byKey(const ValueKey('plugin-guide-omniflow'));
       await tester.ensureVisible(omniflow);
       await tester.pumpAndSettle();

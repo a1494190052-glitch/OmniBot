@@ -7,7 +7,7 @@ import org.junit.Test
 
 class VlmPluginBoundaryTest {
     @Test
-    fun `investor build defaults GUI plugin through plugin host`() {
+    fun `build profiles keep GUI plugin defaults in plugin host`() {
         val provider = projectSource(
             "app/src/main/java/cn/com/omnimind/bot/plugin/official/OmniVlmLiteProvider.kt",
         )
@@ -19,6 +19,8 @@ class VlmPluginBoundaryTest {
             "app/src/main/java/cn/com/omnimind/bot/plugin/OmniPluginHost.kt",
         )
         val appBuild = projectSource("app/build.gradle.kts")
+        val mainBuild = projectSource("scripts/build-main-apk.sh")
+        val investorBuild = projectSource("scripts/build-foolproof-apk.sh")
 
         assertTrue(provider.contains("RuntimeBundleAdapter"))
         assertTrue(provider.contains("runtimeProvider.install(appContext, platform)"))
@@ -31,29 +33,20 @@ class VlmPluginBoundaryTest {
         assertFalse(vlmHandler.contains("OmniFlowRuntimeProvider"))
         assertTrue(catalog.contains("\"name\": \"OmniFlow\""))
         assertFalse(catalog.contains("\"name\": \"Android GUI\""))
-        assertTrue(catalog.contains("Debug APK 已预置全部官方插件"))
         assertTrue(host.contains("BuildConfig.DEFAULT_INSTALL_GUI_PLUGIN"))
         assertTrue(host.contains("BuildConfig.DEFAULT_INSTALL_ALL_PLUGINS"))
-        assertTrue(host.contains("RuntimeBundleCatalog.load(context.assets)"))
-        assertTrue(
-            appBuild.contains(
-                "buildConfigField(\"boolean\", \"DEFAULT_INSTALL_GUI_PLUGIN\", \"false\")"
-            )
-        )
-        assertTrue(
-            appBuild.contains(
-                "buildConfigField(\"boolean\", \"DEFAULT_INSTALL_GUI_PLUGIN\", \"true\")"
-            )
-        )
-        assertTrue(
-            appBuild.contains(
-                "buildConfigField(\"boolean\", \"DEFAULT_INSTALL_ALL_PLUGINS\", \"true\")"
-            )
-        )
+        assertTrue(host.contains("BuildConfig.OMNIBOT_PROFILE"))
+        assertTrue(appBuild.contains("prop(\"OMNIBOT_PROFILE\").ifBlank { \"main\" }"))
+        assertTrue(appBuild.contains("omnibotProfile == \"investor\""))
+        assertTrue(appBuild.contains("exclude(\"vibe-project/**\", \"omnilink-agent/**\")"))
+        assertTrue(appBuild.contains("omnibotProfile in profiles"))
+        assertTrue(catalog.contains("\"profiles\": [\"investor\"]"))
+        assertTrue(mainBuild.contains("-POMNIBOT_PROFILE=main"))
+        assertTrue(investorBuild.contains("-POMNIBOT_PROFILE=investor"))
     }
 
     private fun projectSource(path: String): String {
-        var current = File(System.getProperty("user.dir")).absoluteFile
+        var current = File(requireNotNull(System.getProperty("user.dir"))).absoluteFile
         while (!current.resolve("settings.gradle.kts").isFile) {
             current = current.parentFile ?: error("Could not locate project root")
         }

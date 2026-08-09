@@ -57,6 +57,20 @@ class RuntimeBundleCatalogTest {
         assertTrue(error.message.orEmpty().contains("cannot escape"))
     }
 
+    @Test
+    fun `catalog filters packaged plugins by build profile`() {
+        val investorOnly = catalogJson().replace(
+            "\"adapter\": \"omniflow_android_gui\",",
+            "\"adapter\": \"omniflow_android_gui\",\n              \"profiles\": [\"investor\"],",
+        )
+
+        assertTrue(RuntimeBundleCatalog.parse(investorOnly, "main").bundles.isEmpty())
+        assertEquals(
+            1,
+            RuntimeBundleCatalog.parse(investorOnly, "investor").bundles.size,
+        )
+    }
+
     private fun catalogJson(): String =
         """
         {

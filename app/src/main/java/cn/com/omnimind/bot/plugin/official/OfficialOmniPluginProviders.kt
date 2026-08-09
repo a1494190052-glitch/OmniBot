@@ -1,5 +1,6 @@
 package cn.com.omnimind.bot.plugin.official
 
+import cn.com.omnimind.bot.BuildConfig
 import cn.com.omnimind.bot.plugin.OmniPluginProviderRegistry
 import cn.com.omnimind.bot.plugin.runtime.RuntimeBundleAdapterRegistry
 import cn.com.omnimind.bot.plugin.runtime.RuntimeBundleCatalog
@@ -24,7 +25,7 @@ object OfficialOmniPluginProviders {
         OmniPluginProviderRegistry.registerSource(RUNTIME_BUNDLE_SOURCE) { context ->
             RuntimeBundleAdapterRegistry.createProviders(
                 context = context,
-                catalog = RuntimeBundleCatalog.load(context.assets),
+                catalog = RuntimeBundleCatalog.load(context.assets, BuildConfig.OMNIBOT_PROFILE),
             )
         }
         OmniPluginProviderRegistry.registerSource(SANDBOX_USER_POOL_SOURCE) { context ->

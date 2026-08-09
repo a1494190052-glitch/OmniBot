@@ -1,3 +1,5 @@
+import groovy.json.JsonOutput
+import groovy.json.JsonSlurper
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
 plugins {
@@ -29,11 +31,19 @@ val llmThuApiBase = prop("LLMTHU_API_BASE")
 val llmThuApiKey = prop("LLMTHU_API_KEY")
 val llmThuModel = prop("LLMTHU_MODEL")
     .ifBlank { "GLM-5.1" }
+val omnibotProfile = prop("OMNIBOT_PROFILE").ifBlank { "main" }
+require(omnibotProfile in setOf("main", "investor")) {
+    "OMNIBOT_PROFILE must be main or investor: $omnibotProfile"
+}
+val isInvestorProfile = omnibotProfile == "investor"
 
 val webChatSourceDir = rootProject.file("webchat")
 val webChatDistDir = File(webChatSourceDir, "dist")
 val webChatAssetsRootDir = layout.buildDirectory.dir("generated/omnibot_assets").get().asFile
 val webChatAssetsDir = File(webChatAssetsRootDir, "webchat")
+val pluginSourceDir = rootProject.file("plugins")
+val pluginAssetsRootDir = layout.buildDirectory.dir("generated/plugin_assets/$omnibotProfile")
+    .get().asFile
 val webChatPackageJson = File(webChatSourceDir, "package.json")
 val webChatLockFile = File(webChatSourceDir, "pnpm-lock.yaml")
 val webChatInstallMarker = File(webChatSourceDir, "node_modules/.modules.yaml")
@@ -86,6 +96,37 @@ val syncWebChatBundle by tasks.registering(Copy::class) {
     }
 }
 
+val syncPluginAssets by tasks.registering(Sync::class) {
+    group = "plugin packaging"
+    description = "Generate the packaged plugin catalog for the selected build profile."
+    inputs.file(File(pluginSourceDir, "catalog.v1.json"))
+    from(pluginSourceDir)
+    into(pluginAssetsRootDir)
+    exclude("catalog.v1.json")
+    if (!isInvestorProfile) {
+        exclude("vibe-project/**", "omnilink-agent/**")
+    }
+    doLast {
+        @Suppress("UNCHECKED_CAST")
+        val source = JsonSlurper().parse(File(pluginSourceDir, "catalog.v1.json"))
+            as Map<String, Any?>
+        @Suppress("UNCHECKED_CAST")
+        val plugins = source.getValue("plugins") as List<Map<String, Any?>>
+        val filteredPlugins = plugins.filter { plugin ->
+            @Suppress("UNCHECKED_CAST")
+            val profiles = plugin["profiles"] as? List<String>
+                ?: listOf("main", "investor")
+            omnibotProfile in profiles
+        }
+        val profileCatalog = LinkedHashMap(source).apply {
+            this["plugins"] = filteredPlugins
+        }
+        File(pluginAssetsRootDir, "catalog.v1.json").writeText(
+            JsonOutput.prettyPrint(JsonOutput.toJson(profileCatalog)) + "\n"
+        )
+    }
+}
+
 android {
     namespace = "cn.com.omnimind.bot"
     compileSdk = 36
@@ -105,8 +146,9 @@ android {
         buildConfigField("String", "DEBUG_LLMTHU_API_BASE", buildConfigString(""))
         buildConfigField("String", "DEBUG_LLMTHU_API_KEY", buildConfigString(""))
         buildConfigField("String", "DEBUG_LLMTHU_MODEL", buildConfigString(""))
-        buildConfigField("boolean", "DEFAULT_INSTALL_GUI_PLUGIN", "false")
-        buildConfigField("boolean", "DEFAULT_INSTALL_ALL_PLUGINS", "false")
+        buildConfigField("String", "OMNIBOT_PROFILE", buildConfigString(omnibotProfile))
+        buildConfigField("boolean", "DEFAULT_INSTALL_GUI_PLUGIN", (!isInvestorProfile).toString())
+        buildConfigField("boolean", "DEFAULT_INSTALL_ALL_PLUGINS", isInvestorProfile.toString())
         ndk {
             abiFilters.addAll(listOf("arm64-v8a"))
         }
@@ -161,8 +203,6 @@ android {
             signingConfig = signingConfigs.getByName("debug")
             applicationIdSuffix = ".debug"
             isMinifyEnabled = false
-            buildConfigField("boolean", "DEFAULT_INSTALL_GUI_PLUGIN", "true")
-            buildConfigField("boolean", "DEFAULT_INSTALL_ALL_PLUGINS", "true")
             buildConfigField(
                 "String",
                 "DEBUG_LLMTHU_API_BASE",
@@ -224,7 +264,7 @@ android {
             assets.srcDirs(
                 "src/main/assets",
                 "../skills",
-                "../plugins",
+                pluginAssetsRootDir,
                 webChatAssetsRootDir
             )
         }
@@ -245,7 +285,7 @@ kotlin {
 }
 
 tasks.named("preBuild").configure {
-    dependsOn(syncWebChatBundle)
+    dependsOn(syncWebChatBundle, syncPluginAssets)
 }
 dependencies {
     implementation(libs.agent.client.protocol)

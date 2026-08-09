@@ -152,6 +152,7 @@
       ],
       "settingsSchema": {},
       "adapter": "sandbox_bundle",
+      "profiles": ["investor"],
       "runtimeSkill": {
         "id": "vibe-project-builder",
         "packagedAssetPath": "vibe-project/runtime-skill/vibe-project-builder",
@@ -189,6 +190,7 @@
       ],
       "settingsSchema": {},
       "adapter": "omnilink_agent",
+      "profiles": ["investor"],
       "runtimeSkill": {
         "id": "omnilink-agent",
         "packagedAssetPath": "omnilink-agent/runtime-skill/omnilink-agent",

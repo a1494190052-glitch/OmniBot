@@ -85,8 +85,8 @@ class PluginMarketGuidePage extends StatelessWidget {
                   ),
                   description: onbTr(
                     context,
-                    '能力插件会给 Agent 增加对应工具。例如启用 Vibe Builder 后，可以一句话生成独立小 App。',
-                    'Capability plugins add Agent tools. With Vibe Builder enabled, one sentence can create a standalone mini App.',
+                    '能力插件会给 Agent 增加对应工具。启用后，直接在聊天中描述你的任务即可。',
+                    'Capability plugins add Agent tools. Once enabled, describe the task directly in chat.',
                   ),
                 ),
                 const UserGuideRowDivider(),
@@ -106,21 +106,6 @@ class PluginMarketGuidePage extends StatelessWidget {
                 const SizedBox(height: 28),
                 _SectionTitle(label: onbTr(context, '推荐先体验', 'Start here')),
                 const SizedBox(height: 8),
-                UserGuideLinkRow(
-                  tapKey: const ValueKey('plugin-guide-vibe-builder'),
-                  icon: LucideIcons.packagePlus,
-                  title: 'Vibe Builder',
-                  description: onbTr(
-                    context,
-                    '一句话生成带前端、数据和小万能力的小 App。',
-                    'Create a mini App with UI, data, and Omnibot capabilities from one sentence.',
-                  ),
-                  onTap: () => _open(
-                    context,
-                    '/home/plugin_market/com.omnimind.vibe-project-builder',
-                  ),
-                ),
-                const UserGuideRowDivider(),
                 UserGuideLinkRow(
                   tapKey: const ValueKey('plugin-guide-omniflow'),
                   icon: LucideIcons.smartphone,
