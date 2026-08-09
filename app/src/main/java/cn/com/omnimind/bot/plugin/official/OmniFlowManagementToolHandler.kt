@@ -10,8 +10,11 @@ import cn.com.omnimind.bot.agent.HttpAgentLlmClient
 import cn.com.omnimind.bot.agent.ToolExecutionResult
 import cn.com.omnimind.bot.agent.tool.handlers.SharedHelper
 import cn.com.omnimind.bot.agent.tool.handlers.ToolHandler
+import cn.com.omnimind.baselib.runlog.CanonicalRunLogRecord
+import cn.com.omnimind.baselib.runlog.InternalRunLogStore
 import cn.com.omnimind.bot.omniflow.OmniFlow
 import cn.com.omnimind.bot.omniflow.OmniFlowPluginRuntime
+import cn.com.omnimind.bot.omniflow.OmniFlowPythonRuntime
 import cn.com.omnimind.bot.omniflow.asOmniFlowModelClient
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -54,6 +57,22 @@ class OmniFlowManagementToolHandler(context: Context) : ToolHandler {
             helper.ensureRunActive()
             toolHandle.throwIfStopRequested()
             val normalizedArguments = normalizeOmniFlowManagementArguments(toolName, args)
+            if (toolName in DEVELOPER_OVERRIDE_TOOLS) {
+                return developerOverrideResult(toolName, normalizedArguments)
+            }
+            if (
+                toolName == OmniFlowManagementTools.CONVERT_RUN_LOG &&
+                normalizedArguments["register"] == true
+            ) {
+                val runId = normalizedArguments["run_id"]?.toString().orEmpty().trim()
+                val record = InternalRunLogStore.getRun(helper.context, runId)
+                if (!isRegisterableRunLog(record)) {
+                    return ToolExecutionResult.Error(
+                        toolName,
+                        "RUN_LOG_NOT_SUCCESSFUL: only a succeeded RunLog can become a Function",
+                    )
+                }
+            }
             val payload = OmniFlow.callTool(
                 context = helper.context,
                 toolCall = OmniFlow.ToolCall(
@@ -102,7 +121,71 @@ class OmniFlowManagementToolHandler(context: Context) : ToolHandler {
         OmniFlowManagementTools.CONVERT_RUN_LOG -> "RunLog 已转换为复用指令"
         else -> "OmniFlow 操作已完成"
     }
+
+    private suspend fun developerOverrideResult(
+        toolName: String,
+        arguments: Map<String, Any?>,
+    ): ToolExecutionResult {
+        val payload = when (toolName) {
+            OmniFlowManagementTools.GET_PYTHON_OVERRIDE -> {
+                val path = arguments["path"]?.toString()?.trim().orEmpty()
+                if (path.isEmpty()) {
+                    val status = OmniFlowPythonRuntime.developerOverrideStatus(helper.context)
+                    mapOf(
+                        "success" to true,
+                        "override_enabled" to status.enabled,
+                        "android_install_directory" to status.androidRoot,
+                        "shell_install_directory" to status.shellRoot,
+                        "runtime_version" to status.runtimeVersion,
+                        "modified_files" to status.modifiedFiles,
+                        "editable_glob" to "omniflow/**/*.py",
+                    )
+                } else {
+                    OmniFlowPythonRuntime.readDeveloperOverride(helper.context, path) +
+                        ("success" to true)
+                }
+            }
+            OmniFlowManagementTools.APPLY_PYTHON_OVERRIDE ->
+                OmniFlowPythonRuntime.applyDeveloperOverride(
+                    helper.context,
+                    arguments["path"]?.toString().orEmpty(),
+                    arguments["content"]?.toString().orEmpty(),
+                )
+            OmniFlowManagementTools.CLEAR_PYTHON_OVERRIDE -> {
+                require(arguments["confirm"] == true) { "confirm_must_be_true" }
+                OmniFlowPythonRuntime.clearDeveloperOverride(helper.context)
+            }
+            OmniFlowManagementTools.RELOAD_PYTHON_OVERRIDE ->
+                OmniFlowPythonRuntime.reloadDeveloperOverride(helper.context)
+            else -> error("unsupported_developer_override_tool:$toolName")
+        }
+        val encoded = helper.mapToJsonElement(payload).toString()
+        return ToolExecutionResult.ContextResult(
+            toolName = toolName,
+            summaryText = when (toolName) {
+                OmniFlowManagementTools.GET_PYTHON_OVERRIDE -> "已读取 OmniFlow Python 开发覆盖层"
+                OmniFlowManagementTools.APPLY_PYTHON_OVERRIDE -> "Python 修改已校验并热重载"
+                OmniFlowManagementTools.CLEAR_PYTHON_OVERRIDE -> "已恢复固定版本 OmniFlow runtime"
+                else -> "OmniFlow Python worker 已重载"
+            },
+            previewJson = encoded,
+            rawResultJson = encoded,
+            success = true,
+        )
+    }
+
+    companion object {
+        private val DEVELOPER_OVERRIDE_TOOLS = setOf(
+            OmniFlowManagementTools.GET_PYTHON_OVERRIDE,
+            OmniFlowManagementTools.APPLY_PYTHON_OVERRIDE,
+            OmniFlowManagementTools.CLEAR_PYTHON_OVERRIDE,
+            OmniFlowManagementTools.RELOAD_PYTHON_OVERRIDE,
+        )
+    }
 }
+
+internal fun isRegisterableRunLog(record: CanonicalRunLogRecord?): Boolean =
+    record?.success == true && record.status == "succeeded" && record.doneReason != "error"
 
 /**
  * A registered RunLog Function must be visible to the recall router unless the caller

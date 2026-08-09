@@ -37,6 +37,7 @@ kotlin {
 }
 
 dependencies {
+    implementation(project(":accessibility"))
     implementation(project(":baselib"))
     implementation(libs.androidx.core.ktx)
     implementation(libs.kotlinx.coroutines.android)

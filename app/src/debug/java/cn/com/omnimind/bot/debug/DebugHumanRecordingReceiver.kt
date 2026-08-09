@@ -9,6 +9,7 @@ import cn.com.omnimind.assists.ManualOverlayTouchGesture
 import cn.com.omnimind.baselib.runlog.OobActionSchema
 import cn.com.omnimind.baselib.util.OmniLog
 import cn.com.omnimind.uikit.loader.ManualRecordingControlOverlay
+import cn.com.omnimind.uikit.loader.ManualTouchRecordLoader
 import com.google.gson.GsonBuilder
 import java.io.File
 import kotlin.math.pow
@@ -50,7 +51,23 @@ class DebugHumanRecordingReceiver : BroadcastReceiver() {
                     enableRawTouch = false,
                     enableDebugScreenshots = false,
                 )
-                statusPayload(HumanTrajectoryLearningSession.isActive())
+                val runId = HumanTrajectoryLearningSession.activeRunId()
+                val overlayShown = runId != null && withContext(Dispatchers.Main.immediate) {
+                    ManualRecordingControlOverlay.show(
+                        context = context,
+                        runId = runId,
+                        state = ManualRecordingControlOverlay.State.RECORDING,
+                    ).also { shown ->
+                        if (shown) ManualRecordingControlOverlay.markRecording()
+                    }
+                }
+                if (!overlayShown && runId != null) {
+                    HumanTrajectoryLearningSession.cancelActive(
+                        expectedRunId = runId,
+                        message = "Debug manual touch overlay unavailable",
+                    )
+                }
+                statusPayload(overlayShown)
             }
             "status" -> statusPayload(success = true)
             "resume" -> statusPayload(HumanTrajectoryLearningSession.resumeActive())
@@ -92,11 +109,16 @@ class DebugHumanRecordingReceiver : BroadcastReceiver() {
             )
             "finish" -> {
                 val runId = HumanTrajectoryLearningSession.activeRunId()
-                val completed = runId != null && HumanTrajectoryLearningSession.completeActive(runId)
+                ManualTouchRecordLoader.beginFinishing()
+                val drained = ManualTouchRecordLoader.awaitIdle()
+                val completed = runId != null &&
+                    HumanTrajectoryLearningSession.completeActive(runId)
                 withContext(Dispatchers.Main.immediate) {
                     ManualRecordingControlOverlay.dismiss()
                 }
-                statusPayload(completed, runId)
+                statusPayload(completed && drained, runId) + mapOf(
+                    "touch_queue_drained" to drained,
+                )
             }
             else -> linkedMapOf(
                 "success" to false,

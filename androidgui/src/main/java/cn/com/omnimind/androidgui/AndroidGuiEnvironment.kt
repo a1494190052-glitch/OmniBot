@@ -55,7 +55,7 @@ class AndroidGuiEnvironment internal constructor(
 
     fun isReady(): Boolean = accessibilityStatus() == AndroidGuiAccessibilityStatus.READY
 
-    suspend fun awaitReady(timeoutMs: Long = 5_000L): Boolean {
+    suspend fun awaitReady(timeoutMs: Long = ACCESSIBILITY_READY_TIMEOUT_MS): Boolean {
         if (!isAccessibilityEnabled()) return false
         return withTimeoutOrNull(timeoutMs) {
             while (!platform.isReady()) delay(50L)
@@ -125,9 +125,35 @@ class AndroidGuiEnvironment internal constructor(
         return try {
             val result = platform.dispatch(canonicalForDisplay(action))
             if (!result.success) return result
+            if (action.tool == OobActionSchema.TOOL_WAIT) {
+                return result.withStabilization("completed_by_action")
+            }
+            val stable = withTimeoutOrNull(stateStabilizationTimeoutMs(action.tool)) {
+                var previous: String? = null
+                while (true) {
+                    delay(STATE_STABILIZATION_POLL_MS)
+                    val observed = platform.observe(captureScreenshot = false)
+                    val fingerprint = buildString {
+                        append(observed.packageName)
+                        append('\u0000')
+                        append(observed.activityName)
+                        append('\u0000')
+                        append(observed.xml)
+                    }
+                    if (fingerprint == previous) return@withTimeoutOrNull true
+                    previous = fingerprint
+                }
+                @Suppress("UNREACHABLE_CODE")
+                false
+            } == true
             result.copy(
                 diagnostics = result.diagnostics + mapOf(
-                    "state_stabilization" to "runtime_delegated",
+                    "state_stabilization" to if (stable) {
+                        "host_completed"
+                    } else {
+                        "runtime_delegated"
+                    },
+                    "state_stabilization_result" to if (stable) "stable" else "timeout",
                 ),
             )
         } catch (error: CancellationException) {
@@ -139,6 +165,13 @@ class AndroidGuiEnvironment internal constructor(
             )
         }
     }
+
+    private fun AndroidGuiActionResult.withStabilization(result: String) = copy(
+        diagnostics = diagnostics + mapOf(
+            "state_stabilization" to "host_completed",
+            "state_stabilization_result" to result,
+        ),
+    )
 
     suspend fun inputTarget(x: Float? = null, y: Float? = null): AndroidGuiInputTarget? =
         if (awaitReady()) platform.inputTarget(x, y) else null
@@ -163,3 +196,14 @@ class AndroidGuiEnvironment internal constructor(
 
 private const val ACTION_ACCESSIBILITY_DETAILS_SETTINGS =
     "android.settings.ACCESSIBILITY_DETAILS_SETTINGS"
+internal const val ACCESSIBILITY_READY_TIMEOUT_MS = 15_000L
+private const val STATE_STABILIZATION_POLL_MS = 100L
+private const val STATE_STABILIZATION_TIMEOUT_MS = 1_500L
+private const val OPEN_APP_STABILIZATION_TIMEOUT_MS = 5_000L
+
+internal fun stateStabilizationTimeoutMs(tool: String): Long =
+    if (tool == OobActionSchema.TOOL_OPEN_APP) {
+        OPEN_APP_STABILIZATION_TIMEOUT_MS
+    } else {
+        STATE_STABILIZATION_TIMEOUT_MS
+    }

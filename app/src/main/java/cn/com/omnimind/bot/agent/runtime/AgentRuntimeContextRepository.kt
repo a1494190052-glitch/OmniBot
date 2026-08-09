@@ -3,8 +3,6 @@ package cn.com.omnimind.bot.agent
 import android.content.Context
 import cn.com.omnimind.baselib.util.OmniLog
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 
 class AgentRuntimeContextRepository(
@@ -16,20 +14,7 @@ class AgentRuntimeContextRepository(
     )
 
     private val tag = "AgentRuntimeContextRepo"
-    private val appsLoadMutex = Mutex()
-
-    @Volatile
-    private var appNameToPackageCache: Map<String, String>? = null
-
-    suspend fun getAppNameToPackageMap(): Map<String, String> {
-        appNameToPackageCache?.let { return it }
-        return appsLoadMutex.withLock {
-            appNameToPackageCache?.let { return@withLock it }
-            val loaded = loadInstalledApps()
-            appNameToPackageCache = loaded
-            loaded
-        }
-    }
+    suspend fun getAppNameToPackageMap(): Map<String, String> = loadInstalledApps()
 
     suspend fun queryInstalledApps(
         query: String?,
@@ -71,31 +56,59 @@ internal object AgentRuntimeContextQuery {
         limit: Int
     ): List<AgentRuntimeContextRepository.AppQueryItem> {
         val safeLimit = limit.coerceIn(1, 100)
-        val normalizedQuery = normalize(query)
         val base = apps.entries.map { (appName, packageName) ->
             AgentRuntimeContextRepository.AppQueryItem(
                 appName = appName,
                 packageName = packageName
             )
         }
-        if (normalizedQuery.isBlank()) {
+        val normalizedFullQuery = normalize(query)
+        val queryTerms = when {
+            normalizedFullQuery.isBlank() -> emptyList()
+            base.any { matchScore(it, normalizedFullQuery) != null } ->
+                listOf(normalizedFullQuery)
+            else -> splitQueryTerms(query)
+        }
+        if (queryTerms.isEmpty()) {
             return base.sortedBy { it.appName.lowercase() }.take(safeLimit)
         }
-        return base.mapNotNull { item ->
-            val appNameNorm = normalize(item.appName)
-            val packageNorm = normalize(item.packageName)
-            val score = when {
-                appNameNorm == normalizedQuery || packageNorm == normalizedQuery -> 0
-                appNameNorm.contains(normalizedQuery) -> 1
-                packageNorm.contains(normalizedQuery) -> 2
-                else -> return@mapNotNull null
+
+        val seenPackages = mutableSetOf<String>()
+        return queryTerms.asSequence().flatMap { term ->
+            base.asSequence().mapNotNull { item ->
+                val score = matchScore(item, term) ?: return@mapNotNull null
+                item to score
             }
-            item to score
-        }.sortedWith(
-            compareBy<Pair<AgentRuntimeContextRepository.AppQueryItem, Int>> { it.second }
-                .thenBy { it.first.appName.lowercase() }
-        ).map { it.first }
+                .sortedWith(
+                    compareBy<Pair<AgentRuntimeContextRepository.AppQueryItem, Int>> { it.second }
+                        .thenBy { it.first.appName.lowercase() }
+                )
+                .map { it.first }
+        }.filter { seenPackages.add(it.packageName) }
             .take(safeLimit)
+            .toList()
+    }
+
+    private fun matchScore(
+        item: AgentRuntimeContextRepository.AppQueryItem,
+        term: String
+    ): Int? {
+        val appNameNorm = normalize(item.appName)
+        val packageNorm = normalize(item.packageName)
+        return when {
+            appNameNorm == term || packageNorm == term -> 0
+            appNameNorm.contains(term) -> 1
+            packageNorm.contains(term) -> 2
+            else -> null
+        }
+    }
+
+    private fun splitQueryTerms(query: String?): List<String> {
+        return query.orEmpty()
+            .split(QUERY_TERM_SEPARATOR)
+            .map(::normalize)
+            .filter { it.isNotBlank() }
+            .distinct()
     }
 
     private fun normalize(value: String?): String {
@@ -115,4 +128,6 @@ internal object AgentRuntimeContextQuery {
             .replace("？", "")
             .replace("?", "")
     }
+
+    private val QUERY_TERM_SEPARATOR = Regex("[\\s,，、;；|]+")
 }

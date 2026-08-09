@@ -19,6 +19,8 @@ class OmniFlowAppPlatformTest {
         assertTrue(command.contains("apk add --no-cache python3 py3-pip py3-numpy libstdc++"))
         assertTrue(command.contains("OMNIFLOW_PYTHON_STAGE=repair_start package=py3-numpy"))
         assertTrue(command.contains("/etc/omnibot-python-environment"))
+        assertTrue(command.contains("printf '%s\\n' 'alpine-3.21-python3.12-numpy2.1.3-v3'"))
+        assertFalse(command.contains("printf '%s\\\\n'"))
         assertTrue(command.trimEnd().endsWith("OMNIFLOW_PYTHON_STAGE=ready'"))
         assertFalse(command.contains("nodejs"))
     }

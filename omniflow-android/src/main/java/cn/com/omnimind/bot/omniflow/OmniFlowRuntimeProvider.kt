@@ -10,6 +10,7 @@ import kotlinx.coroutines.withContext
 
 data class PreparedOmniFlowRuntime(
     val manifest: OmniFlowRuntimeManifest,
+    val androidPythonSourceRoot: File,
     val shellPythonSourcePath: String,
     val shellSitePackagesPath: String,
     val shellOmniTransferRoot: String,
@@ -86,6 +87,10 @@ class OmniFlowRuntimeProvider {
             alignPythonStoreWithRuntime(appContext, manifest)
             PreparedOmniFlowRuntime(
                 manifest = manifest,
+                androidPythonSourceRoot = File(
+                    location.androidRoot,
+                    "scripts/runtime/python",
+                ),
                 shellPythonSourcePath = "${location.shellRoot}/scripts/runtime/python",
                 shellSitePackagesPath =
                     "${location.shellRoot}/scripts/runtime/.runtime/site-packages",

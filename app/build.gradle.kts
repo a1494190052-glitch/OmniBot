@@ -23,11 +23,12 @@ val omnibotImageBaseUrl = prop("OMNIBOT_IMAGE_BASE_URL")
 val omnibotImageModel = prop("OMNIBOT_IMAGE_MODEL")
     .ifBlank { "gpt-image-2" }
 val omnibotImageApiKey = prop("OMNIBOT_IMAGE_API_KEY")
-val bundledVlmApiBase = prop("OMNIMIND_API_BASE")
-    .ifBlank { "http://cloud.omnimind.com.cn/v1" }
-val bundledVlmApiKey = prop("OMNIMIND_API_KEY")
-val bundledVlmModel = prop("OMNIMIND_MODEL")
-    .ifBlank { "gpt-5.6-sol" }
+val appUpdateWorkerUrl = prop("OMNIBOT_UPDATE_WORKER_URL")
+val llmThuApiBase = prop("LLMTHU_API_BASE")
+    .ifBlank { "https://llmapi.paratera.com" }
+val llmThuApiKey = prop("LLMTHU_API_KEY")
+val llmThuModel = prop("LLMTHU_MODEL")
+    .ifBlank { "GLM-5.1" }
 
 val webChatSourceDir = rootProject.file("webchat")
 val webChatDistDir = File(webChatSourceDir, "dist")
@@ -98,9 +99,14 @@ android {
         buildConfigField("String", "IMAGE_BASE_URL", buildConfigString(omnibotImageBaseUrl))
         buildConfigField("String", "IMAGE_MODEL", buildConfigString(omnibotImageModel))
         buildConfigField("String", "IMAGE_API_KEY", buildConfigString(omnibotImageApiKey))
-        buildConfigField("String", "BUNDLED_VLM_API_BASE", buildConfigString(bundledVlmApiBase))
-        buildConfigField("String", "BUNDLED_VLM_API_KEY", buildConfigString(bundledVlmApiKey))
-        buildConfigField("String", "BUNDLED_VLM_MODEL", buildConfigString(bundledVlmModel))
+        buildConfigField("String", "DEBUG_OMNIMIND_API_BASE", buildConfigString(""))
+        buildConfigField("String", "DEBUG_OMNIMIND_API_KEY", buildConfigString(""))
+        buildConfigField("String", "DEBUG_OMNIMIND_MODEL", buildConfigString(""))
+        buildConfigField("String", "DEBUG_LLMTHU_API_BASE", buildConfigString(""))
+        buildConfigField("String", "DEBUG_LLMTHU_API_KEY", buildConfigString(""))
+        buildConfigField("String", "DEBUG_LLMTHU_MODEL", buildConfigString(""))
+        buildConfigField("boolean", "DEFAULT_INSTALL_GUI_PLUGIN", "false")
+        buildConfigField("boolean", "DEFAULT_INSTALL_ALL_PLUGINS", "false")
         ndk {
             abiFilters.addAll(listOf("arm64-v8a"))
         }
@@ -113,13 +119,13 @@ android {
         create("develop") {
             dimension = "version"
             buildConfigField("String", "BASE_URL", "\"${prop("OMNIBOT_BASE_URL")}\"")
-            buildConfigField("String", "APP_UPDATE_WORKER_URL", "\"${prop("OMNIBOT_UPDATE_WORKER_URL")}\"")
+            buildConfigField("String", "APP_UPDATE_WORKER_URL", buildConfigString(appUpdateWorkerUrl))
         }
 
         create("production") {
             dimension = "version"
             buildConfigField("String", "BASE_URL", "\"${prop("OMNIBOT_BASE_URL")}\"")
-            buildConfigField("String", "APP_UPDATE_WORKER_URL", "\"${prop("OMNIBOT_UPDATE_WORKER_URL")}\"")
+            buildConfigField("String", "APP_UPDATE_WORKER_URL", buildConfigString(appUpdateWorkerUrl))
         }
 
         create("standard") {
@@ -155,6 +161,23 @@ android {
             signingConfig = signingConfigs.getByName("debug")
             applicationIdSuffix = ".debug"
             isMinifyEnabled = false
+            buildConfigField("boolean", "DEFAULT_INSTALL_GUI_PLUGIN", "true")
+            buildConfigField("boolean", "DEFAULT_INSTALL_ALL_PLUGINS", "true")
+            buildConfigField(
+                "String",
+                "DEBUG_LLMTHU_API_BASE",
+                buildConfigString(llmThuApiBase)
+            )
+            buildConfigField(
+                "String",
+                "DEBUG_LLMTHU_API_KEY",
+                buildConfigString(llmThuApiKey)
+            )
+            buildConfigField(
+                "String",
+                "DEBUG_LLMTHU_MODEL",
+                buildConfigString(llmThuModel)
+            )
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
@@ -239,6 +262,7 @@ dependencies {
 //    implementation(project(":lib"))
 
     implementation(libs.androidx.core.ktx)
+    implementation(libs.androidsvg)
     implementation(libs.androidx.documentfile)
     implementation(libs.androidx.lifecycle.runtime.ktx)
     implementation(libs.androidx.lifecycle.livedata.ktx)

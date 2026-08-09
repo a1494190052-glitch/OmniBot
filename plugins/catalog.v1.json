@@ -29,38 +29,38 @@
         "bootstrapScript": "scripts/bootstrap_runtime.py",
         "runtimeDataPath": "scripts/runtime/.runtime",
         "prebuiltRuntimeArchive": "scripts/runtime.prebuilt.zip",
-        "prebuiltRuntimeSha256": "36b3c6a724d5009d61a9c839ff57f222ec7df6c11cee8dc0b093503e4a2feae4",
+        "prebuiltRuntimeSha256": "783262d8c9adfaf0de3ccdab0a07e494ac8e3710fca66982bf5cf8481d348c4f",
         "bootstrapTimeoutSeconds": 900
       },
       "presentation": {
         "description": {
-          "zh": "Debug APK 已内置并启用完整 GUI/VLM 插件；安装 APK 后即可操作手机、录制流程并在相似任务中复用。",
-          "en": "Debug APKs include and enable the complete GUI/VLM plugin. Install the APK to operate the phone, record flows, and reuse similar tasks."
+          "zh": "OmniFlow 是可独立安装、更新和启停的 GUI/VLM runtime 插件；启用后可录制流程并在相似任务中复用。",
+          "en": "OmniFlow is an independently installable, updateable, and toggleable GUI/VLM runtime plugin for recording and reusing similar flows."
         },
         "readiness": "vlm_provider",
         "usage": [
           {
             "icon": "power",
-            "title": {"zh": "安装即准备完整后端", "en": "Complete backend on install"},
+            "title": {"zh": "按需准备 runtime", "en": "Prepare the runtime on demand"},
             "description": {
-              "zh": "Debug APK 直接内置并校验 OmniFlow、OmniTransfer、模型 checkpoint 和 Python 依赖；Python 解释器由内嵌终端环境提供。",
-              "en": "Debug APKs bundle and verify OmniFlow, OmniTransfer, the model checkpoint, and Python dependencies; the embedded terminal environment provides the Python interpreter."
+              "zh": "插件包统一管理 OmniFlow、OmniTransfer、模型 checkpoint 和 Python 依赖，并在安装或更新阶段校验版本与契约。",
+              "en": "The plugin package manages OmniFlow, OmniTransfer, the model checkpoint, and Python dependencies, verifying versions and contracts during install or update."
             }
           },
           {
             "icon": "touch",
-            "title": {"zh": "投资人版本开箱即用", "en": "Ready in investor builds"},
+            "title": {"zh": "独立启停", "en": "Independent lifecycle"},
             "description": {
-              "zh": "Debug APK 已预置全部官方插件；只需打开无障碍权限即可开始操作手机。",
-              "en": "Debug APKs ship with all official plugins enabled; only Android accessibility permission is needed to control the phone."
+              "zh": "插件可以独立安装、更新、启用、停用和卸载，不改变 OpenOmniBot 主应用的基础生命周期。",
+              "en": "The plugin can be installed, updated, enabled, disabled, and uninstalled without changing the host app lifecycle."
             }
           },
           {
             "icon": "layers",
             "title": {"zh": "不增加基础安装包体积", "en": "Keeps the base app small"},
             "description": {
-              "zh": "Debug APK 已包含录制、保存、自动复用和跨设备执行所需组件；生产版仍可按需下载以控制包体积。",
-              "en": "Debug APKs include recording, saving, automatic reuse, and cross-device execution components; production builds may download them on demand to keep the base APK small."
+              "zh": "录制、RunLog、Function、checker、重放和热更新都由插件包提供；主应用只提供稳定的 Android host 与插件契约。",
+              "en": "Recording, RunLog, Function, checker, replay, and hot update capabilities come from the plugin package; the host provides only the stable Android host and plugin contract."
             }
           }
         ],

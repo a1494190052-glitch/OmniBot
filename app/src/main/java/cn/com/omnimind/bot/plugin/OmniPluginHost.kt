@@ -4,6 +4,7 @@ import android.content.Context
 import cn.com.omnimind.bot.BuildConfig
 import cn.com.omnimind.bot.agent.AgentToolDefinitions
 import cn.com.omnimind.bot.plugin.official.OmniVlmLiteProvider
+import cn.com.omnimind.bot.plugin.runtime.RuntimeBundleCatalog
 
 class OmniPluginHost private constructor(context: Context) {
     private val applicationContext = context.applicationContext
@@ -14,11 +15,7 @@ class OmniPluginHost private constructor(context: Context) {
         stateStore = SharedPreferencesOmniPluginStateStore(applicationContext),
         reservedToolNames =
             AgentToolDefinitions.reservedToolNames() + PluginDiscoveryToolHandler.TOOL_NAMES,
-        defaultEnabledPluginIds = if (BuildConfig.DEFAULT_INSTALL_GUI_PLUGIN) {
-            setOf(OmniVlmLiteProvider.ID)
-        } else {
-            emptySet()
-        },
+        defaultEnabledPluginIds = defaultBuiltInPluginIds(applicationContext),
     )
 
     suspend fun list(): List<OmniPluginState> = platform.list()
@@ -51,6 +48,14 @@ class OmniPluginHost private constructor(context: Context) {
             return instance ?: synchronized(this) {
                 instance ?: OmniPluginHost(context).also { instance = it }
             }
+        }
+
+        private fun defaultBuiltInPluginIds(context: Context): Set<String> = when {
+            BuildConfig.DEFAULT_INSTALL_ALL_PLUGINS ->
+                RuntimeBundleCatalog.load(context.assets).bundles
+                    .mapTo(linkedSetOf()) { it.descriptor.id }
+            BuildConfig.DEFAULT_INSTALL_GUI_PLUGIN -> setOf(OmniVlmLiteProvider.ID)
+            else -> emptySet()
         }
     }
 }

@@ -329,6 +329,7 @@ class OmniFlowPythonClient(
             shellSitePackagesPath: String,
             shellOmniTransferRoot: String,
             shellOmniTransferCheckpointPath: String,
+            shellDeveloperOverridePath: String? = null,
         ): String {
             listOf(
                 shellPythonSourcePath,
@@ -340,8 +341,19 @@ class OmniFlowPythonClient(
                     "omniflow_runtime_path_invalid"
                 }
             }
+            shellDeveloperOverridePath?.let { path ->
+                require(path.matches(Regex("/[A-Za-z0-9_./-]+"))) {
+                    "omniflow_override_path_invalid"
+                }
+            }
+            val pythonPath = listOfNotNull(
+                shellDeveloperOverridePath,
+                shellPythonSourcePath,
+                shellSitePackagesPath,
+                "$shellOmniTransferRoot/src",
+            ).joinToString(":")
             return """
-            export PYTHONPATH='$shellPythonSourcePath:$shellSitePackagesPath:$shellOmniTransferRoot/src'
+            export PYTHONPATH='$pythonPath'
             export OMNITRANSFER_ROOT='$shellOmniTransferRoot'
             export OMNITRANSFER_MATCHER_CHECKPOINT='$shellOmniTransferCheckpointPath'
             python_bin="${'$'}(command -v python3 || true)"

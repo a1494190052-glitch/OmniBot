@@ -109,6 +109,8 @@ private data class RuntimeSkillWire(
     val markerFile: String = "PACKAGED_RUNTIME_SKILL",
     val bootstrapScript: String = "scripts/bootstrap_runtime.py",
     val runtimeDataPath: String = "scripts/runtime/.runtime",
+    val prebuiltRuntimeArchive: String? = null,
+    val prebuiltRuntimeSha256: String? = null,
     val bootstrapTimeoutSeconds: Int = 15 * 60,
 ) {
     fun toSpec(): RuntimeSkillSpec = RuntimeSkillSpec(
@@ -118,6 +120,8 @@ private data class RuntimeSkillWire(
         markerFile = markerFile,
         bootstrapScript = bootstrapScript,
         runtimeDataPath = runtimeDataPath,
+        prebuiltRuntimeArchive = prebuiltRuntimeArchive,
+        prebuiltRuntimeSha256 = prebuiltRuntimeSha256,
         bootstrapTimeoutSeconds = bootstrapTimeoutSeconds,
     ).validated()
 }

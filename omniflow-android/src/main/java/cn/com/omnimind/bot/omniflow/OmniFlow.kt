@@ -349,12 +349,12 @@ private class AndroidHost(
                     }
                 },
             )
-            call("tools/call", payload).also { result ->
-                require(firstText(result["run_id"]) == activeRun.id) {
-                    "android_gui_run_id_mismatch"
-                }
-                finishRun(result)
+            val result = call("tools/call", payload)
+            require(firstText(result["run_id"]) == activeRun.id) {
+                "android_gui_run_id_mismatch"
             }
+            finishRun(result)
+            applyPostRunActions(result)
         } catch (error: ManualCompletionRequested) {
             throw error
         } catch (error: CancellationException) {
@@ -574,6 +574,56 @@ private class AndroidHost(
                 ?: System.currentTimeMillis(),
             finalStateId = resultFinalStateId.ifEmpty { currentStateId },
         )
+    }
+
+    private suspend fun applyPostRunActions(
+        result: Map<String, Any?>,
+    ): Map<String, Any?> {
+        val actions = (result["post_run_actions"] as? List<*>).orEmpty()
+            .mapNotNull { it as? Map<*, *> }
+        if (actions.isEmpty()) return result
+        var merged = result - "post_run_actions"
+        actions.forEach { rawAction ->
+            val action = rawAction.entries.associate { (key, value) -> key.toString() to value }
+            val name = firstText(action["name"])
+            if (name != "convert_run_log") return@forEach
+            val arguments = mapValue(action["arguments"])
+            val registration = runCatching {
+                call(
+                    "tools/call",
+                    mapOf(
+                        "name" to name,
+                        "arguments" to arguments,
+                    ),
+                )
+            }.fold(
+                onSuccess = { conversion ->
+                    linkedMapOf<String, Any?>(
+                        "auto_registered" to (
+                            conversion["success"] == true &&
+                                conversion["registered"] == true
+                            ),
+                        "registered_function_id" to conversion["function_id"],
+                        "registration_status" to conversion["status"],
+                        "registration_error" to firstText(
+                            conversion["error_message"],
+                            conversion["error_code"],
+                            conversion["error"],
+                        ).takeIf(String::isNotEmpty),
+                    ).filterValues { it != null }
+                },
+                onFailure = { error ->
+                    mapOf(
+                        "auto_registered" to false,
+                        "registration_error" to error.message.orEmpty().ifBlank {
+                            error.javaClass.simpleName
+                        },
+                    )
+                },
+            )
+            merged += registration
+        }
+        return merged
     }
 
     private fun failure(activeRun: ExecutionRequest, error: Exception): Map<String, Any?> {

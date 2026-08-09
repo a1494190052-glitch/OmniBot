@@ -87,7 +87,8 @@
       ],
       "response": {
         "semantics": "The selected Function tool returns its canonical payload without Kotlin reshaping.",
-        "function_identifier": "function_id"
+        "function_identifier": "function_id",
+        "post_run_actions": "Harness-owned requests executed by Android only after RunLog sealing and host allowlist validation."
       }
     },
     "tools/list": {
@@ -117,8 +118,8 @@
     "installed_apps_payload": {"required": []},
     "installed_apps_response": {"required": ["apps"]},
     "model_turn_payload": {
-      "required": ["goal", "model", "state", "max_steps", "request"],
-      "optional": ["target_package_name", "step_skill_guidance"]
+      "required": ["goal", "model", "request"],
+      "optional": ["state", "max_steps", "target_package_name", "step_skill_guidance"]
     },
     "model_turn_response": {
       "required": ["requested_model", "tool_calls"],

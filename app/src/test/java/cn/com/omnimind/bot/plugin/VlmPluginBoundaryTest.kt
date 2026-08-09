@@ -31,9 +31,10 @@ class VlmPluginBoundaryTest {
         assertFalse(vlmHandler.contains("OmniFlowRuntimeProvider"))
         assertTrue(catalog.contains("\"name\": \"OmniFlow\""))
         assertFalse(catalog.contains("\"name\": \"Android GUI\""))
-        assertTrue(catalog.contains("投资人 Debug 包已默认安装并启用"))
+        assertTrue(catalog.contains("Debug APK 已预置全部官方插件"))
         assertTrue(host.contains("BuildConfig.DEFAULT_INSTALL_GUI_PLUGIN"))
-        assertTrue(host.contains("setOf(OmniVlmLiteProvider.ID)"))
+        assertTrue(host.contains("BuildConfig.DEFAULT_INSTALL_ALL_PLUGINS"))
+        assertTrue(host.contains("RuntimeBundleCatalog.load(context.assets)"))
         assertTrue(
             appBuild.contains(
                 "buildConfigField(\"boolean\", \"DEFAULT_INSTALL_GUI_PLUGIN\", \"false\")"
@@ -42,6 +43,11 @@ class VlmPluginBoundaryTest {
         assertTrue(
             appBuild.contains(
                 "buildConfigField(\"boolean\", \"DEFAULT_INSTALL_GUI_PLUGIN\", \"true\")"
+            )
+        )
+        assertTrue(
+            appBuild.contains(
+                "buildConfigField(\"boolean\", \"DEFAULT_INSTALL_ALL_PLUGINS\", \"true\")"
             )
         )
     }

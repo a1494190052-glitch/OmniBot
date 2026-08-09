@@ -56,14 +56,6 @@ class VlmToolHandler(context: Context) : ToolHandler {
                 helper.localized("缺少 goal"),
             )
         val runId = "gui-${UUID.randomUUID()}"
-        InternalRunLogStore.beginRun(
-            context = helper.context,
-            runId = runId,
-            goal = goal,
-            source = "vlm",
-            toolName = OmniVlmPlugin.RUN_LOG_TOOL,
-            operationDescription = goal,
-        )
         toolHandle.bindStopAction {
             OmniVlmPlugin.stop(runId)
             Unit
@@ -184,6 +176,7 @@ class VlmToolHandler(context: Context) : ToolHandler {
                 )
             }
             val completed = content.ifBlank { "视觉任务已完成" }
+            val stepCount = runStepCount(resultRunId)
             val payload = buildVlmTaskContextPayload(
                 requestedRunId = runId,
                 goal = goal,
@@ -193,9 +186,19 @@ class VlmToolHandler(context: Context) : ToolHandler {
                 content = completed,
                 finalStateId = finalStateId,
                 finalState = finalStatePayload(finalStateId),
-                stepCount = runStepCount(resultRunId),
+                stepCount = stepCount,
                 extras = result.filterKeys {
-                    it in setOf("source", "function_id", "recall_hit", "recalled_function_id", "resolved_model")
+                    it in setOf(
+                        "source",
+                        "function_id",
+                        "recall_hit",
+                        "recalled_function_id",
+                        "resolved_model",
+                        "auto_registered",
+                        "registered_function_id",
+                        "registration_status",
+                        "registration_error",
+                    )
                 },
             )
             val encoded = helper.encodeLocalizedPayload(payload)

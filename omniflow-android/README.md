@@ -27,9 +27,15 @@ The Android bridge owns:
 - canonical RunLog persistence with the five required truth fields.
 
 The OmniFlow-exp `run_gui` harness exclusively owns durable decision policy:
-prompting, UI projection, model-visible tools, validation, grounding, popup
-handling, retries, completion, and per-turn output budget. Kotlin callers may
-pass task-specific guidance, but must not define another permanent policy.
+default and task-specific prompting, Function recall routing, replay fallback,
+UI projection, model-visible tools, validation, grounding, popup handling,
+retries, completion, auto-registration intent, and per-turn output budget.
+Kotlin callers may pass temporary guidance, but must not define another
+permanent policy.
+
+After the harness returns, Android first seals the canonical RunLog and then
+executes only allowlisted `post_run_actions`. This keeps policy hot-updatable
+without letting Python bypass host persistence or safety controls.
 
 `androidgui` remains the only device I/O layer. It captures the current state
 and executes canonical Actions. The Online VLM runtime does not add a second

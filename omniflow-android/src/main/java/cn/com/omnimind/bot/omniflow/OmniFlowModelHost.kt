@@ -17,7 +17,9 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.decodeFromJsonElement
+import kotlinx.serialization.json.doubleOrNull
 import kotlinx.serialization.json.jsonPrimitive
+import kotlin.math.abs
 
 interface OmniFlowModelClient {
     suspend fun streamTurn(
@@ -44,16 +46,40 @@ class OmniFlowModelHost(
             jsonValue(mapValue(payload["request"])),
         )
         require(request.model == requestedModel) { "model_turn_request_model_mismatch" }
-        val turn = modelClient.streamTurn(
-            request = request.copy(
-                messages = request.messages.map { message ->
-                    message.copy(content = compressImages(message.content))
-                },
-            ),
-            onReasoningUpdate = { thinking ->
-                thinking.trim().takeIf(String::isNotEmpty)?.let { onReasoningUpdate(it) }
+        val rejectedAction = stalledPreviousAction(payload)
+        var activeRequest = request.copy(
+            messages = request.messages.map { message ->
+                message.copy(content = compressImages(message.content))
             },
         )
+        val turns = mutableListOf<ChatCompletionTurn>()
+        var rejectedAttempts = 0
+        lateinit var turn: ChatCompletionTurn
+        while (true) {
+            val candidate = modelClient.streamTurn(
+                request = activeRequest,
+                onReasoningUpdate = { thinking ->
+                    thinking.trim().takeIf(String::isNotEmpty)?.let {
+                        onReasoningUpdate(it)
+                    }
+                },
+            )
+            turns += candidate
+            if (rejectedAction == null || !repeatsRejectedAction(candidate, rejectedAction)) {
+                turn = candidate
+                break
+            }
+            rejectedAttempts += 1
+            check(rejectedAttempts <= MAX_REJECTED_ACTION_RETRIES) {
+                "model_repeated_explicitly_rejected_action:${rejectedAction.tool}"
+            }
+            activeRequest = activeRequest.copy(
+                messages = activeRequest.messages + ChatCompletionMessage(
+                    role = "user",
+                    content = JsonPrimitive(rejectedAction.reflectionPrompt()),
+                ),
+            )
+        }
         val resolvedModel = turn.resolvedModel?.trim().orEmpty().ifBlank { requestedModel }
         return linkedMapOf<String, Any?>(
             "requested_model" to requestedModel,
@@ -70,7 +96,8 @@ class OmniFlowModelHost(
             },
             "reasoning" to turn.reasoning.trim().takeIf(String::isNotEmpty),
             "finish_reason" to turn.finishReason,
-            "usage" to usage(turn),
+            "usage" to aggregateUsage(turns),
+            "rejected_stalled_actions" to rejectedAttempts.takeIf { it > 0 },
         ).filterValues { it != null }
     }
 
@@ -106,6 +133,94 @@ class OmniFlowModelHost(
         ).filterValues { it != null }.takeIf(Map<String, Any?>::isNotEmpty)
     }
 
+    private fun aggregateUsage(turns: List<ChatCompletionTurn>): Map<String, Any?>? {
+        if (turns.isEmpty()) return null
+        val perTurn = turns.mapNotNull(::usage)
+        return linkedMapOf<String, Any?>(
+            "model_calls" to turns.size,
+            "responses_with_usage" to perTurn.size,
+            "responses_without_usage" to (turns.size - perTurn.size),
+            "prompt_tokens" to sumUsage(perTurn, "prompt_tokens"),
+            "completion_tokens" to sumUsage(perTurn, "completion_tokens"),
+            "total_tokens" to sumUsage(perTurn, "total_tokens"),
+            "reasoning_tokens" to sumUsage(perTurn, "reasoning_tokens"),
+            "text_tokens" to sumUsage(perTurn, "text_tokens"),
+            "image_tokens" to sumUsage(perTurn, "image_tokens"),
+            "cached_tokens" to sumUsage(perTurn, "cached_tokens"),
+        ).filterValues { value -> value !is Number || value.toLong() != 0L }
+            .takeIf(Map<String, Any?>::isNotEmpty)
+    }
+
+    private fun sumUsage(values: List<Map<String, Any?>>, key: String): Int =
+        values.sumOf { (it[key] as? Number)?.toLong() ?: 0L }
+            .coerceAtMost(Int.MAX_VALUE.toLong())
+            .toInt()
+
+    private fun stalledPreviousAction(payload: Map<String, Any?>): RejectedAction? {
+        val state = mapValue(payload["state"])
+        val extra = mapValue(state["extra"])
+        val error = firstText(extra["previous_action_error"])
+        if (error !in STALLED_ACTION_ERRORS) return null
+        val previous = mapValue(extra["previous_action"])
+        val tool = firstText(previous["tool"])
+        if (tool.isEmpty()) return null
+        val display = mapValue(state["display"])
+        val width = (display["width"] as? Number)?.toDouble() ?: 0.0
+        val height = (display["height"] as? Number)?.toDouble() ?: 0.0
+        val rawArgs = mapValue(previous["args"]).mapValues { (key, value) ->
+            when (key) {
+                "x", "x1", "x2" -> canonicalCoordinateToPixels(value, width)
+                "y", "y1", "y2" -> canonicalCoordinateToPixels(value, height)
+                else -> value
+            }
+        }
+        return RejectedAction(tool = tool, arguments = rawArgs, error = error)
+    }
+
+    private fun canonicalCoordinateToPixels(value: Any?, extent: Double): Any? =
+        if (value is Number && extent > 0.0) value.toDouble() / 1000.0 * extent else value
+
+    private fun repeatsRejectedAction(
+        turn: ChatCompletionTurn,
+        rejected: RejectedAction,
+    ): Boolean {
+        val call = turn.message.toolCalls.orEmpty().singleOrNull() ?: return false
+        if (call.function.name.trim() != rejected.tool) return false
+        val arguments = runCatching {
+            json.parseToJsonElement(call.function.arguments) as? JsonObject
+        }.getOrNull() ?: return false
+        return rejected.arguments.all { (key, expected) ->
+            equivalentArgument(expected, arguments[key])
+        }
+    }
+
+    private fun equivalentArgument(expected: Any?, actual: JsonElement?): Boolean {
+        val primitive = actual as? JsonPrimitive ?: return false
+        return when (expected) {
+            is Number -> primitive.doubleOrNull?.let {
+                abs(it - expected.toDouble()) <= COORDINATE_MATCH_TOLERANCE_PX
+            } == true
+            is Boolean -> primitive.contentOrNull?.toBooleanStrictOrNull() == expected
+            null -> primitive.contentOrNull == null
+            else -> primitive.contentOrNull == expected.toString()
+        }
+    }
+
+    private data class RejectedAction(
+        val tool: String,
+        val arguments: Map<String, Any?>,
+        val error: String,
+    ) {
+        fun reflectionPrompt(): String =
+            "REFLECTION REQUIRED. Your proposed native tool_call was explicitly " +
+                "rejected because it repeats the previous action after `$error`: " +
+                "$tool $arguments. Do not return this same control or coordinate " +
+                "again. Explain the failure to yourself, inspect the current screenshot " +
+                "and execution history, then return exactly one DIFFERENT native " +
+                "tool_call that makes progress. If a primary button is gray or disabled, " +
+                "select the required visible option, radio item, or choice card first."
+    }
+
     private fun JsonObject?.intValue(key: String): Int? =
         this?.get(key)?.jsonPrimitive?.contentOrNull?.toIntOrNull()
 
@@ -132,6 +247,14 @@ class OmniFlowModelHost(
     }
 
     companion object {
+        private const val MAX_REJECTED_ACTION_RETRIES = 3
+        private const val COORDINATE_MATCH_TOLERANCE_PX = 2.0
+        private val STALLED_ACTION_ERRORS = setOf(
+            "action_completed_without_state_change",
+            "action_already_succeeded_on_current_state",
+            "repeated_action_without_progress",
+        )
+
         private fun compressVlmImage(value: String): String {
             val compressed = ImageCompressor.compressBase64Image(
                 base64String = value,

@@ -66,7 +66,8 @@ interface OmniPluginProvider {
 
 data class OmniPluginStoredState(
     val pluginId: String,
-    val enabled: Boolean
+    val enabled: Boolean,
+    val installPending: Boolean = false,
 )
 
 interface OmniPluginStateStore {

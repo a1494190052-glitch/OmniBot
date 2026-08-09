@@ -135,45 +135,68 @@ private class OmniLinkAgentToolHandler(context: Context) : ToolHandler {
                     toolName = "omnilink_devices",
                     arguments = emptyMap(),
                 )
-                OmniLinkAgentTools.SEND_MESSAGE -> {
-                    val messageId = args.optionalString("message_id")
-                        .ifBlank { "omnibot-${UUID.randomUUID()}" }
+                OmniLinkAgentTools.CONTROL -> {
+                    val action = args.requiredString("action")
+                    val input = args.optionalObject("input").toMutableMap()
+                    if (action == "send_message") {
+                        val messageId = input["messageId"]?.toString()
+                            ?.trim()
+                            ?.ifBlank { null }
+                            ?: "omnibot-${UUID.randomUUID()}"
+                        input["conversationId"] = input["conversationId"]?.toString()
+                            ?.ifBlank { null }
+                            ?: "omnibot-collaboration"
+                        input["recipientAgentId"] = input["recipientAgentId"]?.toString()
+                            ?.ifBlank { null }
+                            ?: "omnibot-omnilink-agent"
+                        input["messageId"] = messageId
+                        input["message"] = input["message"]?.toString()
+                            ?.takeIf { it.isNotBlank() }
+                            ?: throw IllegalArgumentException("input.message is required")
+                    }
                     gateway.call(
-                        toolName = "omnilink_peer",
-                        arguments = mapOf(
-                            "deviceId" to args.requiredString("device_id"),
-                            "action" to "send_message",
-                            "conversationId" to args.optionalString("conversation_id")
-                                .ifBlank { "omnibot-collaboration" },
-                            "recipientAgentId" to args.optionalString("recipient_agent_id")
-                                .ifBlank { "omnibot-omnilink-agent" },
-                            "messageId" to messageId,
-                            "message" to args.requiredString("message"),
-                        ),
-                        idempotencyKey = messageId,
+                        toolName = OmniLinkAgentTools.CONTROL,
+                        arguments = buildMap {
+                            put("deviceId", args.requiredString("device_id"))
+                            put("action", action)
+                            if (input.isNotEmpty()) put("input", input)
+                        },
+                        idempotencyKey = input["messageId"]?.toString()
+                            ?.takeIf { action == "send_message" }
+                            ?: "omnibot-control-${UUID.randomUUID()}",
                     )
                 }
-                OmniLinkAgentTools.READ_EVENTS -> {
+                OmniLinkAgentTools.EVENTS -> {
                     val deviceId = args.requiredString("device_id")
-                    val cursor = args.optionalString("cursor")
                     val eventTypes = args.optionalStringList("event_types")
                         .ifEmpty { listOf("AGENT_MESSAGE_RECEIVED") }
-                    gateway.call(
-                        toolName = "omnilink_events",
-                        arguments = buildMap {
-                            put("deviceIds", listOf(deviceId))
-                            put("eventTypes", eventTypes)
-                            put("limitPerDevice", 32)
-                            put("waitMs", args.optionalInt("wait_ms").coerceIn(0, 30_000))
-                            if (cursor.isNotBlank()) put("after", mapOf(deviceId to cursor))
-                        },
-                    )
+                    when (args.optionalString("mode").ifBlank { "read" }) {
+                        "subscribe" -> subscribeEvents(
+                            deviceId = deviceId,
+                            eventTypes = eventTypes,
+                            mode = "subscribe",
+                        )
+                        "stop" -> subscribeEvents(
+                            deviceId = deviceId,
+                            eventTypes = eventTypes,
+                            mode = "stop",
+                        )
+                        "read" -> {
+                            val cursor = args.optionalString("cursor")
+                            gateway.call(
+                                toolName = OmniLinkAgentTools.EVENTS,
+                                arguments = buildMap {
+                                    put("deviceIds", listOf(deviceId))
+                                    put("eventTypes", eventTypes)
+                                    put("limitPerDevice", 32)
+                                    put("waitMs", args.optionalInt("wait_ms").coerceIn(0, 30_000))
+                                    if (cursor.isNotBlank()) put("after", mapOf(deviceId to cursor))
+                                },
+                            )
+                        }
+                        else -> throw IllegalArgumentException("mode must be read, subscribe, or stop")
+                    }
                 }
-                OmniLinkAgentTools.SUBSCRIBE_EVENTS -> subscribeEvents(
-                    deviceId = args.requiredString("device_id"),
-                    eventTypes = args.optionalStringList("event_types"),
-                    mode = args.requiredString("mode"),
-                )
                 else -> return ToolExecutionResult.Error(toolName, "Unsupported OmniLink tool")
             }
             val payload = result.payload()
@@ -181,15 +204,17 @@ private class OmniLinkAgentToolHandler(context: Context) : ToolHandler {
             ToolExecutionResult.ContextResult(
                 toolName = toolName,
                 summaryText = when (toolName) {
-                    OmniLinkAgentTools.SEND_MESSAGE -> if (result.success) {
+                    OmniLinkAgentTools.CONTROL -> if (
+                        args.optionalString("action") == "send_message" && result.success
+                    ) {
                         "已通过 OmniLink 发出协作消息"
                     } else {
                         result.summaryText
                     }
-                    OmniLinkAgentTools.READ_EVENTS -> "已读取协作事件"
-                    OmniLinkAgentTools.SUBSCRIBE_EVENTS -> when {
+                    OmniLinkAgentTools.EVENTS -> when {
                         !result.success || hasPartitionFailures -> "协作事件订阅未就绪"
                         args.optionalString("mode") == "stop" -> "已停止协作事件回流"
+                        args.optionalString("mode").ifBlank { "read" } == "read" -> "已读取协作事件"
                         else -> "已开始回流协作事件，后续事件会自动回流当前聊天"
                     }
                     else -> "已读取协作设备"
@@ -212,6 +237,16 @@ private class OmniLinkAgentToolHandler(context: Context) : ToolHandler {
     private fun JsonObject.optionalString(key: String): String =
         get(key)?.jsonPrimitive?.contentOrNull?.trim().orEmpty()
 
+    private fun JsonObject.optionalObject(key: String): Map<String, Any?> {
+        val element = get(key) ?: return emptyMap()
+        return runCatching {
+            Gson().fromJson<Map<String, Any?>>(
+                element.toString(),
+                object : TypeToken<Map<String, Any?>>() {}.type,
+            )
+        }.getOrElse { throw IllegalArgumentException("$key must be an object") }
+    }
+
     private fun JsonObject.optionalInt(key: String): Int =
         get(key)?.jsonPrimitive?.intOrNull ?: 0
 
@@ -225,7 +260,7 @@ private class OmniLinkAgentToolHandler(context: Context) : ToolHandler {
         eventTypes: List<String>,
         mode: String,
     ): RemoteMcpCallResult {
-        require(mode in EVENT_SUBSCRIPTION_MODES) { "mode must be start or stop" }
+        require(mode in EVENT_SUBSCRIPTION_MODES) { "mode must be subscribe or stop" }
         if (mode == "stop") {
             eventSubscriptionStore.remove(deviceId)
             return localResult(
@@ -259,7 +294,7 @@ private class OmniLinkAgentToolHandler(context: Context) : ToolHandler {
     }
 
     private companion object {
-        val EVENT_SUBSCRIPTION_MODES = setOf("start", "stop")
+        val EVENT_SUBSCRIPTION_MODES = setOf("subscribe", "stop")
         const val EVENT_LIMIT = 32
     }
 }

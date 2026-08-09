@@ -51,6 +51,25 @@ class OmniFlowPythonClientTest {
     }
 
     @Test
+    fun `developer override is first on Python path`() {
+        val command = OmniFlowPythonClient.bridgeCommand(
+            "/workspace/runtime/python",
+            "/workspace/runtime/site-packages",
+            "/workspace/runtime/omnitransfer",
+            "/workspace/runtime/omnitransfer/checkpoint.npz",
+            "/workspace/.omnibot/omniflow-developer/python",
+        )
+
+        assertTrue(
+            command.contains(
+                "export PYTHONPATH='/workspace/.omnibot/omniflow-developer/python:" +
+                    "/workspace/runtime/python:/workspace/runtime/site-packages:" +
+                    "/workspace/runtime/omnitransfer/src'",
+            ),
+        )
+    }
+
+    @Test
     fun `initialize uses MCP handshake and keeps one process`() = runBlocking {
         val process = FakeProcess(
             stdout = """{"jsonrpc":"2.0","id":"request-1","result":{"protocolVersion":"2025-11-25"}}""" + "\n",

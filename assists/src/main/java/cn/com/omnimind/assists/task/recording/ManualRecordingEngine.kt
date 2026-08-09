@@ -14,6 +14,7 @@ internal data class ManualRecordingCommand(
     val summary: String,
     val source: String,
     val startedAtMs: Long,
+    val persistOnFailure: Boolean = false,
 )
 
 internal data class ManualRecordingObservation(
@@ -61,6 +62,7 @@ internal class ManualRecordingEngine(
             received
         }
         var recorded = false
+        var executed = false
         try {
             val before = safeObserve("${sequence}_before", command)
             val operationResult = try {
@@ -80,13 +82,14 @@ internal class ManualRecordingEngine(
             } catch (_: Exception) {
                 Unit
             }
+            executed = operationResult.success
             val after = safeObserve(
                 stage = "${sequence}_after",
                 command = command,
                 staleXml = before.state?.xml,
                 retryUnchanged = operationResult.success && command.action.tool in STATE_CHANGING_TOOLS,
             )
-            if (operationResult.success) {
+            if (operationResult.success || command.persistOnFailure) {
                 val sourceStateRequired = command.action.tool in SOURCE_STATE_REQUIRED_TOOLS
                 val evidenceComplete = !sourceStateRequired || !before.state?.xml.isNullOrBlank()
                 val action = ManualRecordedAction(
@@ -101,7 +104,10 @@ internal class ManualRecordingEngine(
                         "schema_version" to "oob.manual_recording.event.v2",
                         "sequence" to sequence,
                         "source" to command.source,
-                        "dispatch_status" to "completed",
+                        "dispatch_status" to if (operationResult.success) "completed" else "failed",
+                        "dispatch_error" to operationResult.message.takeUnless {
+                            operationResult.success
+                        },
                         "evidence_complete" to evidenceComplete,
                         "evidence_error" to before.captureError.takeUnless { evidenceComplete },
                     ).filterValues { it != null } + operationResult.diagnostics,
@@ -110,6 +116,8 @@ internal class ManualRecordingEngine(
                     displayHeight = after.state?.displayHeight ?: before.state?.displayHeight ?: 0,
                     evidenceComplete = evidenceComplete,
                     evidenceError = before.captureError.takeUnless { evidenceComplete },
+                    operationSuccess = operationResult.success,
+                    operationError = operationResult.message.takeUnless { operationResult.success },
                 )
                 val index = journal.size()
                 onActionRecorded(index, action)
@@ -124,7 +132,7 @@ internal class ManualRecordingEngine(
         } finally {
             synchronized(stateLock) {
                 pending = (pending - 1).coerceAtLeast(0)
-                if (recorded) committed += 1 else failed += 1
+                if (recorded && executed) committed += 1 else failed += 1
                 pendingSummary = null
             }
         }

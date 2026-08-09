@@ -179,6 +179,7 @@ object AgentSystemPrompt {
                 - 当你希望用户直接在消息里查看产物时，把每个 `omnibot://` Markdown 单独放在一行，避免和长段落混写。
 
                 工具使用规则：
+                - 只要用户要求操作手机或 Android App（例如下单咖啡、购物、联系人、设置、导航或打开应用），必须立即调用 `vlm_task`，并把用户完整目标放入 `goal`；不要用 terminal/browser 代替，也不要只用文字声称完成。
                 - 需要应用包名或确认安装状态时，优先调用 `context_apps_query`。
                 - 需要当前日期、时间、星期或时区信息时，使用本轮自动注入的 `[time_context]`，不要再寻找当前时间查询工具。
                 - 调用任意工具时都必须提供 4-12 个字、与用户相同的语言的 `tool_title`，。
@@ -246,6 +247,7 @@ object AgentSystemPrompt {
                 - When you want the user to view artifacts directly in chat, place each `omnibot://` Markdown reference on its own line rather than mixing it into long paragraphs.
 
                 Tool usage rules:
+                - Whenever the user asks you to operate a phone or Android app (for example ordering coffee, shopping, contacts, settings, navigation, or opening an app), call `vlm_task` immediately with the complete user goal; do not substitute terminal/browser or claim completion in plain text.
                 - When you need an app package name or need to confirm installation status, prefer `context_apps_query`.
                 - When you need the current date, time, weekday, or timezone, use this turn's injected `[time_context]`; do not look for a current-time query tool.
                 - Every tool call must include a 4-12 word `tool_title` in the same language as the user.

@@ -10,17 +10,18 @@ class OmniLinkAgentToolsTest {
         val definitions = OmniLinkAgentTools.definitions()
 
         assertEquals(OmniLinkAgentTools.TOOL_NAMES, definitions.mapTo(linkedSetOf()) { it.name })
-        assertEquals(4, definitions.size)
+        assertEquals(3, definitions.size)
         assertTrue(
             definitions.first { it.name == OmniLinkAgentTools.DEVICES }
                 .description.contains("电量"),
         )
-        val notificationTool = definitions.first {
-            it.name == OmniLinkAgentTools.SUBSCRIBE_EVENTS
+        val controlTool = definitions.first {
+            it.name == OmniLinkAgentTools.CONTROL
         }
-        assertTrue(notificationTool.parameters["required"].toString().contains("device_id"))
-        assertTrue(notificationTool.parameters["required"].toString().contains("mode"))
-        assertTrue(notificationTool.parameters.toString().contains("start"))
-        assertTrue(notificationTool.parameters.toString().contains("stop"))
+        assertTrue(controlTool.parameters["required"].toString().contains("action"))
+        assertTrue(controlTool.parameters.toString().contains("input"))
+        val eventTool = definitions.first { it.name == OmniLinkAgentTools.EVENTS }
+        assertTrue(eventTool.parameters.toString().contains("subscribe"))
+        assertTrue(eventTool.parameters.toString().contains("stop"))
     }
 }

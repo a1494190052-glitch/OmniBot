@@ -79,7 +79,6 @@ class App : BaseApplication() {
         MMKV.initialize(this)
         DebugOmniMindProviderBootstrap.install()
         OfficialOmniPluginProviders.register()
-        initializeOfficialPlugins()
         AgentPromptSettingsStore.initializeAndCleanupLegacyFiles(this)
         LegacyLocalModelDataCleanup.start(this)
         setupUncaughtExceptionHandler()
@@ -104,6 +103,10 @@ class App : BaseApplication() {
             workspaceManager.ensureRuntimeDirectories()
             SkillIndexService(this, workspaceManager).seedBuiltinSkillsIfNeeded()
         }
+        // Seed built-in skills before restoring enabled runtime-bundle plugins.
+        // Both paths materialize files under the same skills directory; starting
+        // plugin recovery first can race the seeder and leave the plugin disabled.
+        initializeOfficialPlugins()
         runCatching {
             WorkspaceMemoryRollupScheduler(this).ensureScheduledIfEnabled()
         }

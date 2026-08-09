@@ -27,6 +27,11 @@ TRANSFER_FILES = (
     "ui_graph.py",
 )
 PINNED_OMNITRANSFER_COMMIT = "da49fd13698ab14fc7e8aa7b56e0199f4709ab27"
+PINNED_OMNITRANSFER_ARCHIVE_SHA256 = (
+    "0311141f8e47d0c17ef97ba3f6b7a679f13f11d2d77e8de16fb0f87836a2b805"
+)
+OMNITRANSFER_GITHUB_ROOT = "https://github.com/wuzw21/OmniTransfer"
+OMNITRANSFER_RAW_ROOT = "https://raw.githubusercontent.com/wuzw21/OmniTransfer"
 PYTHON_ENVIRONMENT_PROFILE = "alpine-3.21-system-numpy-v1"
 
 def write_builtin_assets(flow_target: Path) -> None:
@@ -397,7 +402,15 @@ def main() -> int:
             "omniflow.catalog.manifest.sha256": sha256_file(catalog_manifest),
             "omnitransfer.commit": transfer_commit,
             "omnitransfer.source.sha256": transfer_sha,
+            "omnitransfer.archive.url": (
+                f"{OMNITRANSFER_GITHUB_ROOT}/archive/{transfer_commit}.tar.gz"
+            ),
+            "omnitransfer.archive.sha256": PINNED_OMNITRANSFER_ARCHIVE_SHA256,
             "omnitransfer.checkpoint": checkpoint,
+            "omnitransfer.checkpoint.url": (
+                f"{OMNITRANSFER_RAW_ROOT}/{transfer_commit}/"
+                f"src/omnitransfer/{checkpoint}"
+            ),
             "omnitransfer.checkpoint.sha256": sha256_file(checkpoint_target),
         }
         updates.update(

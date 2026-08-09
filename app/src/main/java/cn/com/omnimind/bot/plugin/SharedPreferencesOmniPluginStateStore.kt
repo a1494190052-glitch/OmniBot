@@ -41,19 +41,32 @@ internal class SharedPreferencesOmniPluginStateStore(context: Context) : OmniPlu
     }
 
     private fun encode(state: OmniPluginStoredState): String {
-        return "${state.pluginId}$SEPARATOR${if (state.enabled) ENABLED else DISABLED}"
+        return listOf(
+            state.pluginId,
+            if (state.enabled) ENABLED else DISABLED,
+            if (state.installPending) PENDING else READY,
+        ).joinToString(SEPARATOR)
     }
 
     private fun decode(value: String): OmniPluginStoredState? {
-        val separatorIndex = value.lastIndexOf(SEPARATOR)
-        if (separatorIndex <= 0) return null
-        val pluginId = value.substring(0, separatorIndex)
-        val enabled = when (value.substring(separatorIndex + SEPARATOR.length)) {
+        val parts = value.split(SEPARATOR)
+        if (parts.size !in 2..3) return null
+        val pluginId = parts[0].takeIf(String::isNotBlank) ?: return null
+        val enabled = when (parts[1]) {
             ENABLED -> true
             DISABLED -> false
             else -> return null
         }
-        return OmniPluginStoredState(pluginId = pluginId, enabled = enabled)
+        val installPending = when (parts.getOrNull(2)) {
+            null, READY -> false
+            PENDING -> true
+            else -> return null
+        }
+        return OmniPluginStoredState(
+            pluginId = pluginId,
+            enabled = enabled,
+            installPending = installPending,
+        )
     }
 
     private companion object {
@@ -63,5 +76,7 @@ internal class SharedPreferencesOmniPluginStateStore(context: Context) : OmniPlu
         const val SEPARATOR = "|"
         const val ENABLED = "1"
         const val DISABLED = "0"
+        const val PENDING = "pending"
+        const val READY = "ready"
     }
 }

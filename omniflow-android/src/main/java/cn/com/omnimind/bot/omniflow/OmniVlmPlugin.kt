@@ -2,7 +2,6 @@ package cn.com.omnimind.bot.omniflow
 
 import android.content.Context
 import java.util.UUID
-import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.withContext
 
@@ -12,7 +11,7 @@ class OmniVlmPlugin internal constructor(
     data class Request(
         val goal: String,
         val runId: String = "gui-${UUID.randomUUID()}",
-        val stepSkillGuidance: String = DEFAULT_STEP_SKILL_GUIDANCE,
+        val stepSkillGuidance: String = "",
         val deferUserInput: Boolean = true,
         val maxSteps: Int = DEFAULT_MAX_STEPS,
     )
@@ -64,11 +63,6 @@ class OmniVlmPlugin internal constructor(
         const val RUN_GUI_TOOL = "run_gui"
         const val RUN_LOG_TOOL = "vlm_task"
         const val DEFAULT_MAX_STEPS = 30
-        internal const val DEFAULT_STEP_SKILL_GUIDANCE =
-            "Prefer stable, reusable navigation: use search and type the requested text " +
-                "directly before browsing long menus or swiping. Do not select history " +
-                "suggestions when the requested text can be entered. Swipe only when no " +
-                "usable search or direct target exists."
         private val shared = OmniVlmPlugin(DefaultOmniVlmBackend)
 
         suspend fun execute(
@@ -101,85 +95,58 @@ private object DefaultOmniVlmBackend : OmniVlmBackend {
         hooks: OmniVlmPlugin.Hooks,
     ): OmniVlmPlugin.Result {
         check(OmniFlowPluginRuntime.isEnabled()) { "omniflow_plugin_not_enabled" }
-        return executeRecallThenOnline(
-            hooks = hooks,
-            recall = {
-                OmniFlowFunctionRecallRuntime.tryExecute(
-                    context = context,
-                    request = request,
-                    modelClient = modelClient,
-                    hooks = hooks,
-                )
-            },
-            online = {
-                val execution = OmniFlow.callTool(
-                    context = context,
-                    toolName = OmniVlmPlugin.RUN_GUI_TOOL,
-                    arguments = request.runGuiArguments(),
-                    goal = request.goal,
-                    runId = request.runId,
-                    source = "vlm",
-                    runLogToolName = OmniVlmPlugin.RUN_LOG_TOOL,
-                    modelClient = modelClient,
-                    hooks = OmniFlow.Hooks(
-                        beforeOperation = hooks.beforeOperation,
-                        stopRequested = hooks.stopRequested,
-                        onProgress = hooks.onProgress,
-                    ),
-                )
-                OmniVlmPlugin.Result(execution.payload, execution.finalStateId)
-            },
+        val execution = OmniFlow.callTool(
+            context = context,
+            toolName = OmniVlmPlugin.RUN_GUI_TOOL,
+            arguments = request.runGuiArguments(),
+            goal = request.goal,
+            runId = request.runId,
+            source = "vlm",
+            runLogToolName = OmniVlmPlugin.RUN_LOG_TOOL,
+            modelClient = modelClient,
+            hooks = OmniFlow.Hooks(
+                beforeOperation = hooks.beforeOperation,
+                stopRequested = hooks.stopRequested,
+                onProgress = hooks.onProgress,
+            ),
+        )
+        return OmniVlmPlugin.Result(
+            payload = safePaymentResult(execution.payload),
+            finalStateId = execution.finalStateId,
         )
     }
 
     override fun stop(runId: String): Boolean = OmniFlow.stop(runId)
 }
 
-internal suspend fun executeRecallThenOnline(
-    hooks: OmniVlmPlugin.Hooks,
-    recall: suspend () -> OmniVlmPlugin.Result?,
-    online: suspend () -> OmniVlmPlugin.Result,
-): OmniVlmPlugin.Result {
-    val recalled = try {
-        recall()
-    } catch (error: CancellationException) {
-        throw error
-    } catch (error: Exception) {
-        hooks.onProgress(
-            "复用指令不可用，切换在线视觉执行",
-            mapOf(
-                "recall_hit" to false,
-                "recall_error" to error.message.orEmpty().ifBlank {
-                    error.javaClass.simpleName
-                },
-                "fallback" to "online_vlm",
-            ),
-        )
-        null
+private fun safePaymentResult(payload: Map<String, Any?>): Map<String, Any?> {
+    val failure = listOf(
+        payload["error_message"],
+        payload["error_code"],
+        payload["done_reason"],
+    ).joinToString(" ") { it?.toString().orEmpty() }
+    if (
+        payload["payment_confirmation_blocked"] != true &&
+        !failure.contains("payment_confirmation_blocked", ignoreCase = true)
+    ) {
+        return payload
     }
-    if (recalled == null) return online()
-    if (recalled.payload["success"] == true) return recalled
-    val doneReason = recalled.payload["done_reason"]?.toString().orEmpty()
-    if (doneReason == "cancelled" || doneReason.endsWith("_stopped")) return recalled
-    hooks.onProgress(
-        "复用指令执行失败，继续在线视觉执行",
-        mapOf(
-            "recall_hit" to true,
-            "recalled_function_id" to recalled.payload["recalled_function_id"],
-            "replay_error" to listOf(
-                recalled.payload["error_message"],
-                recalled.payload["error_code"],
-            ).firstOrNull { !it?.toString().isNullOrBlank() },
-            "fallback" to "online_vlm",
-        ).filterValues { it != null },
+    return payload + mapOf(
+        "success" to true,
+        "status" to "succeeded",
+        "done_reason" to "pending_unpaid_order",
+        "payment_confirmation_blocked" to true,
+        "error_code" to null,
+        "error_message" to null,
     )
-    return online()
 }
 
-internal fun OmniVlmPlugin.Request.runGuiArguments(): Map<String, Any?> = mapOf(
-    "goal" to goal,
-    "model" to OmniVlmPlugin.MODEL_SCENE,
-    "step_skill_guidance" to stepSkillGuidance.trim(),
-    "defer_user_input" to deferUserInput,
-    "max_steps" to maxSteps,
-)
+internal fun OmniVlmPlugin.Request.runGuiArguments(): Map<String, Any?> = buildMap {
+    put("goal", goal)
+    put("model", OmniVlmPlugin.MODEL_SCENE)
+    stepSkillGuidance.trim().takeIf(String::isNotEmpty)?.let {
+        put("step_skill_guidance", it)
+    }
+    put("defer_user_input", deferUserInput)
+    put("max_steps", maxSteps)
+}

@@ -10,6 +10,8 @@ import cn.com.omnimind.bot.termux.TermuxCommandBuilder
 import com.ai.assistance.operit.terminal.TerminalManager
 import cn.com.omnimind.baselib.util.OmniLog
 import java.io.File
+import java.security.MessageDigest
+import java.util.zip.ZipInputStream
 import java.util.UUID
 
 data class RuntimeSkillSpec(
@@ -19,6 +21,8 @@ data class RuntimeSkillSpec(
     val markerFile: String = "PACKAGED_RUNTIME_SKILL",
     val bootstrapScript: String = "scripts/bootstrap_runtime.py",
     val runtimeDataPath: String = "scripts/runtime/.runtime",
+    val prebuiltRuntimeArchive: String? = null,
+    val prebuiltRuntimeSha256: String? = null,
     val bootstrapTimeoutSeconds: Int = 15 * 60,
 ) {
     internal fun validated(): RuntimeSkillSpec {
@@ -30,6 +34,15 @@ data class RuntimeSkillSpec(
         requireSafeRelativePath(markerFile, "markerFile")
         requireSafeRelativePath(bootstrapScript, "bootstrapScript")
         requireSafeRelativePath(runtimeDataPath, "runtimeDataPath")
+        prebuiltRuntimeArchive?.let { requireSafeRelativePath(it, "prebuiltRuntimeArchive") }
+        require(prebuiltRuntimeArchive.isNullOrBlank() == prebuiltRuntimeSha256.isNullOrBlank()) {
+            "Runtime skill prebuilt archive and SHA-256 must be configured together"
+        }
+        prebuiltRuntimeSha256?.let { digest ->
+            require(digest.matches(Regex("^[a-f0-9]{64}$"))) {
+                "Runtime skill prebuilt archive SHA-256 is invalid"
+            }
+        }
         require(bootstrapTimeoutSeconds in 1..3600) {
             "Invalid runtime bootstrap timeout: $bootstrapTimeoutSeconds"
         }
@@ -73,7 +86,8 @@ class RuntimeSkillBundleManager(
         val workspace = AgentWorkspaceManager(appContext)
         val skills = SkillIndexService(appContext, workspace)
         var candidates = installedCandidates(skills)
-        if (shouldSyncOfficialSkillsRepository(refresh)) {
+        val embeddedRuntime = !spec.prebuiltRuntimeArchive.isNullOrBlank()
+        if (!embeddedRuntime && shouldSyncOfficialSkillsRepository(refresh)) {
             runCatching { skills.syncOfficialSkillsRepository() }
             candidates = installedCandidates(skills)
         }
@@ -83,10 +97,12 @@ class RuntimeSkillBundleManager(
             candidates = installedCandidates(skills)
         }
 
-        val official = candidates.firstOrNull { it.source == OFFICIAL_SOURCE }
-        val selected = official
-            ?: preferredCandidate(candidates)
-            ?: installPackaged(skills, packagedMarker)
+        val selected = if (embeddedRuntime) {
+            packagedCandidate(candidates) ?: installPackaged(skills, packagedMarker)
+        } else {
+            val official = candidates.firstOrNull { it.source == OFFICIAL_SOURCE }
+            official ?: preferredCandidate(candidates) ?: installPackaged(skills, packagedMarker)
+        }
         if (!selected.enabled) {
             skills.setSkillEnabled(selected.id, true)
         }
@@ -113,7 +129,7 @@ class RuntimeSkillBundleManager(
             refresh = refresh,
             packagedMarker = packagedMarker,
         )
-        val selected = preferredCandidate(installedCandidates(skills)) ?: installPackaged(
+        val selected = packagedCandidate(installedCandidates(skills)) ?: installPackaged(
             skills = skills,
             packagedMarker = packagedMarker,
         )
@@ -208,6 +224,9 @@ class RuntimeSkillBundleManager(
             }
         }
 
+    private fun packagedCandidate(candidates: List<SkillIndexEntry>): SkillIndexEntry? =
+        candidates.firstOrNull { candidate -> isPackaged(candidate.rootPath) }
+
     private fun installPackaged(
         skills: SkillIndexService,
         packagedMarker: String = packagedMarker(),
@@ -216,6 +235,14 @@ class RuntimeSkillBundleManager(
             val skillSource = File(temporary, spec.id)
             try {
                 copyAssetTree(appContext.assets, spec.packagedAssetPath, skillSource)
+                spec.prebuiltRuntimeArchive?.let { archivePath ->
+                    unpackVerifiedPrebuiltRuntime(
+                        archive = File(skillSource, archivePath),
+                        target = File(skillSource, "scripts/runtime"),
+                        expectedSha256 = requireNotNull(spec.prebuiltRuntimeSha256),
+                        runtimeId = spec.id,
+                    )
+                }
                 File(skillSource, spec.markerFile).writeText(packagedMarker)
                 spec.schemaAssetPath?.let { assetPath ->
                     copyAssetTree(appContext.assets, assetPath, File(skillSource, "schemas"))
@@ -285,4 +312,58 @@ class RuntimeSkillBundleManager(
     private companion object {
         const val OFFICIAL_SOURCE = "official"
     }
+}
+
+internal fun unpackVerifiedPrebuiltRuntime(
+    archive: File,
+    target: File,
+    expectedSha256: String,
+    runtimeId: String,
+) {
+    require(archive.isFile) { "prebuilt_runtime_archive_missing:$runtimeId" }
+    require(sha256Hex(archive) == expectedSha256) {
+        "prebuilt_runtime_archive_checksum_mismatch:$runtimeId"
+    }
+    val canonicalTarget = target.canonicalFile
+    ZipInputStream(archive.inputStream().buffered()).use { input ->
+        while (true) {
+            val entry = input.nextEntry ?: break
+            val output = File(canonicalTarget, entry.name).canonicalFile
+            require(
+                output == canonicalTarget ||
+                    output.path.startsWith(canonicalTarget.path + File.separator)
+            ) {
+                "prebuilt_runtime_archive_unsafe_entry:${entry.name}"
+            }
+            if (entry.isDirectory) {
+                output.mkdirs()
+            } else {
+                output.parentFile?.mkdirs()
+                output.outputStream().buffered().use(input::copyTo)
+            }
+            input.closeEntry()
+        }
+    }
+    require(File(canonicalTarget, "python/omniflow/bridge.py").isFile) {
+        "prebuilt_runtime_archive_incomplete:$runtimeId"
+    }
+    require(File(canonicalTarget, ".runtime/installed.json").isFile) {
+        "prebuilt_runtime_archive_manifest_missing:$runtimeId"
+    }
+    check(archive.delete() || !archive.exists()) {
+        "prebuilt_runtime_archive_cleanup_failed:$runtimeId"
+    }
+}
+
+private fun sha256Hex(file: File): String {
+    val digest = MessageDigest.getInstance("SHA-256")
+    file.inputStream().buffered().use { input ->
+        val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+        while (true) {
+            val count = input.read(buffer)
+            if (count < 0) break
+            digest.update(buffer, 0, count)
+        }
+    }
+    return digest.digest().joinToString("") { byte -> "%02x".format(byte) }
 }

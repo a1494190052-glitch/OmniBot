@@ -1,5 +1,6 @@
 package cn.com.omnimind.androidgui
 
+import android.content.Intent
 import cn.com.omnimind.baselib.runlog.Action
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -9,6 +10,23 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class AndroidGuiEnvironmentTest {
+    @Test
+    fun `accessibility reconnect window tolerates slow OEM rebinding`() {
+        assertEquals(15_000L, ACCESSIBILITY_READY_TIMEOUT_MS)
+    }
+
+    @Test
+    fun `open app clears stale activity stack and gets an extended stabilization window`() {
+        assertEquals(
+            Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK,
+            OPEN_APP_INTENT_FLAGS,
+        )
+        assertTrue(
+            stateStabilizationTimeoutMs("open_app") >
+                stateStabilizationTimeoutMs("click"),
+        )
+    }
+
     @Test
     fun `screen capture waits for transient accessibility reconnect`() = runBlocking {
         val platform = ReconnectingPlatform()
@@ -38,7 +56,25 @@ class AndroidGuiEnvironmentTest {
         assertTrue(result.success)
         assertEquals(1, platform.dispatchCalls)
         assertEquals(0, platform.observeCalls)
-        assertEquals("runtime_delegated", result.diagnostics["state_stabilization"])
+        assertEquals("host_completed", result.diagnostics["state_stabilization"])
+    }
+
+    @Test
+    fun `action reports host stabilization after two matching accessibility states`() = runBlocking {
+        val platform = ReconnectingPlatform().apply {
+            ready = true
+            observedStates += state(xml = "<hierarchy value=\"loading\" />")
+            observedStates += state(xml = "<hierarchy value=\"ready\" />")
+            observedStates += state(xml = "<hierarchy value=\"ready\" />")
+        }
+        val environment = AndroidGuiEnvironment(appContext = null, platform = platform)
+
+        val result = environment.act(Action(tool = "click", args = mapOf("x" to 10, "y" to 20)))
+
+        assertTrue(result.success)
+        assertEquals(3, platform.observeCalls)
+        assertEquals("host_completed", result.diagnostics["state_stabilization"])
+        assertEquals("stable", result.diagnostics["state_stabilization_result"])
     }
 
     private class ReconnectingPlatform : AndroidGuiPlatform {
@@ -46,6 +82,7 @@ class AndroidGuiEnvironmentTest {
         var ready: Boolean = false
         var observeCalls: Int = 0
         var dispatchCalls: Int = 0
+        val observedStates = ArrayDeque<AndroidGuiPlatformState>()
 
         override fun isAccessibilityEnabled(): Boolean = true
 
@@ -58,13 +95,7 @@ class AndroidGuiEnvironmentTest {
         override suspend fun observe(captureScreenshot: Boolean): AndroidGuiPlatformState {
             check(ready) { "android_gui_accessibility_not_ready" }
             observeCalls += 1
-            return AndroidGuiPlatformState(
-                packageName = "com.android.settings",
-                activityName = "Settings",
-                displayWidth = 1080,
-                displayHeight = 2400,
-                xml = "<hierarchy />",
-            )
+            return observedStates.removeFirstOrNull() ?: state()
         }
 
         override suspend fun dispatch(action: Action): AndroidGuiActionResult {
@@ -81,5 +112,15 @@ class AndroidGuiEnvironmentTest {
         override suspend fun installedApplications(): Map<String, String> = emptyMap()
 
         override fun inputMethodTop(): Int? = null
+    }
+
+    private companion object {
+        fun state(xml: String = "<hierarchy />") = AndroidGuiPlatformState(
+            packageName = "com.android.settings",
+            activityName = "Settings",
+            displayWidth = 1080,
+            displayHeight = 2400,
+            xml = xml,
+        )
     }
 }

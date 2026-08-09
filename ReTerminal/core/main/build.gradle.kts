@@ -61,7 +61,7 @@ val embeddedPythonPackages = listOf(
     AlpinePackage("main", "xz-libs-5.8.3-r0.apk", "992ee804cb54b0f7067f50ccfab641b253cab8659792be24ca6dd31795d87466"),
     AlpinePackage("main", "zlib-1.3.2-r0.apk", "89c230ee1c74c389c1607413c223ed7d27ce1b2e964038facbfc54245157101c"),
 )
-val embeddedPythonEnvironmentVersion = "alpine-3.21-python3.12-numpy2.1.3-v1"
+val embeddedPythonEnvironmentVersion = "alpine-3.21-python3.12-numpy2.1.3-v3"
 val ubuntuBaseRootfsUrl =
     "https://cdimage.ubuntu.com/ubuntu-base/releases/24.04.4/release/ubuntu-base-24.04.4-base-arm64.tar.gz"
 val ubuntuBaseRootfsChecksum = "04207713ece899c3740823d33690441ad3a7f0ded1101aca744e2b0f37ac7ff2"
@@ -245,6 +245,8 @@ val prepareEmbeddedTerminalRuntime by tasks.registering {
     inputs.property("libtallocDebChecksum", libtallocDebChecksum)
     inputs.property("alpineMiniRootfsUrl", alpineMiniRootfsUrl)
     inputs.property("alpineMiniRootfsChecksum", alpineMiniRootfsChecksum)
+    inputs.property("embeddedPythonEnvironmentVersion", embeddedPythonEnvironmentVersion)
+    inputs.property("embeddedPythonPackages", embeddedPythonPackages.joinToString { "${it.repository}/${it.fileName}:${it.checksum}" })
     inputs.property("ubuntuBaseRootfsUrl", ubuntuBaseRootfsUrl)
     inputs.property("ubuntuBaseRootfsChecksum", ubuntuBaseRootfsChecksum)
     outputs.dir(outputDir)

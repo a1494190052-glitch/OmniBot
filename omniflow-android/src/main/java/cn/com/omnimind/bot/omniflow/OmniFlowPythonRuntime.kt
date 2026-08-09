@@ -14,6 +14,8 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
+import java.io.File
 
 object OmniFlowPythonRuntime {
     private const val TAG = "[OmniFlowPythonRuntime]"
@@ -58,6 +60,116 @@ object OmniFlowPythonRuntime {
         ready = false
         activeClient?.close()
     }
+
+    suspend fun developerOverrideStatus(context: Context): OmniFlowDeveloperOverrideStatus {
+        val prepared = prepareRuntime(context.applicationContext)
+        val store = overrideStore(context)
+        store.rebaseIfPresent(prepared.androidPythonSourceRoot, prepared.manifest.version)
+        return store.status(prepared.manifest.version)
+    }
+
+    suspend fun readDeveloperOverride(context: Context, path: String): Map<String, Any?> {
+        val prepared = prepareRuntime(context.applicationContext)
+        val normalized = normalizedPythonPath(path)
+        val store = overrideStore(context)
+        store.rebaseIfPresent(prepared.androidPythonSourceRoot, prepared.manifest.version)
+        val content = if (store.status(prepared.manifest.version).enabled) {
+            runCatching { store.read(normalized) }.getOrElse {
+                File(prepared.androidPythonSourceRoot, normalized).readText()
+            }
+        } else {
+            File(prepared.androidPythonSourceRoot, normalized).readText()
+        }
+        return mapOf(
+            "path" to normalized,
+            "content" to content,
+            "sha256" to sha256Text(content),
+            "override_enabled" to store.status(prepared.manifest.version).enabled,
+        )
+    }
+
+    suspend fun applyDeveloperOverride(
+        context: Context,
+        path: String,
+        content: String,
+    ): Map<String, Any?> = prepareMutex.withLock {
+        val appContext = context.applicationContext
+        closeClientLocked()
+        val host = requireNotNull(platform) { "omniflow_platform_not_configured" }
+        val prepared = runtimeProvider.prepare(appContext, host)
+        val store = overrideStore(appContext)
+        val normalized = normalizedPythonPath(path)
+        val wasModified = normalized in store.status(prepared.manifest.version).modifiedFiles
+        val previous = runCatching {
+            if (wasModified) {
+                store.read(normalized)
+            } else {
+                File(prepared.androidPythonSourceRoot, normalized).readText()
+            }
+        }.getOrNull()
+        store.apply(
+            basePythonRoot = prepared.androidPythonSourceRoot,
+            runtimeVersion = prepared.manifest.version,
+            relativePath = normalized,
+            content = content,
+        )
+        try {
+            validateOverrideFile(appContext, normalized)
+            ensureReadyLocked(appContext, prepared, developerOverride = true)
+        } catch (error: Throwable) {
+            store.restore(normalized, previous, keepModified = wasModified)
+            closeClientLocked()
+            runCatching {
+                ensureReadyLocked(
+                    appContext,
+                    prepared,
+                    developerOverride = store.status(prepared.manifest.version).enabled,
+                )
+            }
+            throw error
+        }
+        mapOf(
+            "success" to true,
+            "path" to normalized,
+            "sha256" to sha256Text(content),
+            "runtime_version" to prepared.manifest.version,
+            "reloaded" to true,
+        )
+    }
+
+    suspend fun clearDeveloperOverride(context: Context): Map<String, Any?> =
+        prepareMutex.withLock {
+            val appContext = context.applicationContext
+            closeClientLocked()
+            val cleared = overrideStore(appContext).clear()
+            val host = requireNotNull(platform) { "omniflow_platform_not_configured" }
+            val prepared = runtimeProvider.prepare(appContext, host)
+            ensureReadyLocked(appContext, prepared, developerOverride = false)
+            mapOf(
+                "success" to true,
+                "cleared" to cleared,
+                "runtime_version" to prepared.manifest.version,
+                "reloaded" to true,
+            )
+        }
+
+    suspend fun reloadDeveloperOverride(context: Context): Map<String, Any?> =
+        prepareMutex.withLock {
+            val appContext = context.applicationContext
+            closeClientLocked()
+            val host = requireNotNull(platform) { "omniflow_platform_not_configured" }
+            val prepared = runtimeProvider.prepare(appContext, host)
+            val store = overrideStore(appContext)
+            store.rebaseIfPresent(prepared.androidPythonSourceRoot, prepared.manifest.version)
+            val enabled = store.status(prepared.manifest.version).enabled
+            ensureReadyLocked(appContext, prepared, developerOverride = enabled)
+            mapOf(
+                "success" to true,
+                "runtime_version" to prepared.manifest.version,
+                "override_enabled" to enabled,
+                "reloaded" to true,
+            )
+        }
 
     fun start(context: Context) {
         if (ready) return
@@ -118,6 +230,7 @@ object OmniFlowPythonRuntime {
                 preparedRuntime.shellSitePackagesPath,
                 preparedRuntime.shellOmniTransferRoot,
                 preparedRuntime.shellOmniTransferCheckpointPath,
+                developerOverrideShellPath(context, preparedRuntime),
             ),
         )
         return try {
@@ -137,18 +250,33 @@ object OmniFlowPythonRuntime {
             }
             val host = requireNotNull(platform) { "omniflow_platform_not_configured" }
             val preparedRuntime = runtimeProvider.prepare(context, host)
-            val candidate = OmniFlowPythonClient(
-                processStarter = { command, environment ->
-                    host.startProcess(context, command, environment)
-                },
-                bridgeCommand = OmniFlowPythonClient.bridgeCommand(
-                    preparedRuntime.shellPythonSourcePath,
-                    preparedRuntime.shellSitePackagesPath,
-                    preparedRuntime.shellOmniTransferRoot,
-                    preparedRuntime.shellOmniTransferCheckpointPath,
-                ),
+            ensureReadyLocked(
+                context,
+                preparedRuntime,
+                developerOverride = developerOverrideShellPath(context, preparedRuntime) != null,
             )
-            try {
+        }
+    }
+
+    private suspend fun ensureReadyLocked(
+        context: Context,
+        preparedRuntime: PreparedOmniFlowRuntime,
+        developerOverride: Boolean,
+    ): OmniFlowRuntimeManifest {
+        val host = requireNotNull(platform) { "omniflow_platform_not_configured" }
+        val candidate = OmniFlowPythonClient(
+            processStarter = { command, environment ->
+                host.startProcess(context, command, environment)
+            },
+            bridgeCommand = OmniFlowPythonClient.bridgeCommand(
+                preparedRuntime.shellPythonSourcePath,
+                preparedRuntime.shellSitePackagesPath,
+                preparedRuntime.shellOmniTransferRoot,
+                preparedRuntime.shellOmniTransferCheckpointPath,
+                if (developerOverride) OmniFlowDeveloperOverrideStore.SHELL_ROOT else null,
+            ),
+        )
+        try {
                 val initialization = candidate.initialize()
                 require(initialization["protocolVersion"] == preparedRuntime.manifest.protocol) {
                     "unsupported_omniflow_protocol:${initialization["protocolVersion"]}"
@@ -166,11 +294,13 @@ object OmniFlowPythonRuntime {
                 require(runtime["omniflow_commit"] == preparedRuntime.manifest.omniFlowCommit) {
                     "omniflow_commit_mismatch:${runtime["omniflow_commit"]}"
                 }
-                require(
-                    runtime["omniflow_source_sha256"] ==
-                        preparedRuntime.manifest.omniFlowSourceSha256,
-                ) {
-                    "omniflow_source_mismatch:${runtime["omniflow_source_sha256"]}"
+                if (!developerOverride) {
+                    require(
+                        runtime["omniflow_source_sha256"] ==
+                            preparedRuntime.manifest.omniFlowSourceSha256,
+                    ) {
+                        "omniflow_source_mismatch:${runtime["omniflow_source_sha256"]}"
+                    }
                 }
                 require(
                     runtime["omnitransfer_commit"] == preparedRuntime.manifest.omniTransferCommit,
@@ -183,8 +313,15 @@ object OmniFlowPythonRuntime {
                 ) {
                     "omnitransfer_source_mismatch:${runtime["omnitransfer_source_sha256"]}"
                 }
-                require(runtime["omnitransfer_ready"] == true) {
-                    "omnitransfer_runtime_unavailable:${runtime["omnitransfer_backend"]}"
+                val omniTransferReady = declaredOmniTransferRuntimeStatus(
+                    runtime["omnitransfer_ready"],
+                )
+                if (!omniTransferReady) {
+                    OmniLog.w(
+                        TAG,
+                        "omnitransfer_degraded backend=${runtime["omnitransfer_backend"]}; " +
+                            "failed mappings will fall back to the online VLM",
+                    )
                 }
                 val capabilities = (runtime["capabilities"] as? List<*>)
                     .orEmpty()
@@ -194,17 +331,16 @@ object OmniFlowPythonRuntime {
                         "expected=${preparedRuntime.manifest.capabilities.sorted().joinToString(",")}:" +
                         "actual=${capabilities.sorted().joinToString(",")}"
                 }
-                client = candidate
-                activeManifest = preparedRuntime.manifest
-                ready = true
-                preparedRuntime.manifest
-            } catch (error: Throwable) {
-                runCatching { candidate.close() }
-                client = null
-                activeManifest = null
-                ready = false
-                throw error
-            }
+            client = candidate
+            activeManifest = preparedRuntime.manifest
+            ready = true
+            return preparedRuntime.manifest
+        } catch (error: Throwable) {
+            runCatching { candidate.close() }
+            client = null
+            activeManifest = null
+            ready = false
+            throw error
         }
     }
 
@@ -251,4 +387,55 @@ object OmniFlowPythonRuntime {
         if (ready && client != null) return
         warmupJob(context).await()
     }
+
+    private suspend fun prepareRuntime(context: Context): PreparedOmniFlowRuntime {
+        val host = requireNotNull(platform) { "omniflow_platform_not_configured" }
+        return runtimeProvider.prepare(context.applicationContext, host)
+    }
+
+    private fun overrideStore(context: Context): OmniFlowDeveloperOverrideStore =
+        OmniFlowDeveloperOverrideStore(developerOverrideRoot(context.applicationContext))
+
+    private fun developerOverrideShellPath(
+        context: Context,
+        prepared: PreparedOmniFlowRuntime,
+    ): String? {
+        val store = overrideStore(context)
+        store.rebaseIfPresent(prepared.androidPythonSourceRoot, prepared.manifest.version)
+        return OmniFlowDeveloperOverrideStore.SHELL_ROOT.takeIf {
+            store.status(prepared.manifest.version).enabled
+        }
+    }
+
+    private suspend fun validateOverrideFile(context: Context, relativePath: String) {
+        val host = requireNotNull(platform) { "omniflow_platform_not_configured" }
+        val shellPath = "${OmniFlowDeveloperOverrideStore.SHELL_ROOT}/$relativePath"
+        val process = host.startProcess(
+            context,
+            "python3 -m py_compile '$shellPath'",
+            emptyMap(),
+        )
+        val exitCode = withContext(Dispatchers.IO) { process.waitFor() }
+        val error = withContext(Dispatchers.IO) { process.errorStream.bufferedReader().readText() }
+        require(exitCode == 0) {
+            error.trim().ifBlank { "omniflow_override_syntax_invalid" }
+        }
+    }
+
+    private suspend fun closeClientLocked() {
+        synchronized(warmupLock) {
+            warmupDeferred?.cancel()
+            warmupDeferred = null
+        }
+        val activeClient = client
+        client = null
+        activeManifest = null
+        ready = false
+        activeClient?.close()
+    }
+}
+
+internal fun declaredOmniTransferRuntimeStatus(value: Any?): Boolean {
+    require(value is Boolean) { "omnitransfer_runtime_status_missing" }
+    return value
 }

@@ -25,13 +25,18 @@ open class AssistsService : AccessibilityService() {
 
     override fun onServiceConnected() {
         super.onServiceConnected()
-        connected = true
-        instance = this
-        listeners.forEach { listener -> runCatching { listener.onServiceConnected(this) } }
+        markConnected()
+    }
+
+    override fun onRebind(intent: Intent?) {
+        super.onRebind(intent)
+        markConnected()
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent) {
-        instance = this
+        if (!connected || instance !== this) {
+            markConnected()
+        }
         event.packageName?.toString()?.trim()?.takeIf(String::isNotEmpty)?.let {
             lastPackageName = it
         }
@@ -51,7 +56,8 @@ open class AssistsService : AccessibilityService() {
         connected = false
         if (instance === this) instance = null
         listeners.forEach { listener -> runCatching { listener.onUnbind() } }
-        return super.onUnbind(intent)
+        super.onUnbind(intent)
+        return true
     }
 
     override fun onDestroy() {
@@ -66,6 +72,12 @@ open class AssistsService : AccessibilityService() {
 
     fun restoreKeyboard() {
         softKeyboardController.showMode = SHOW_MODE_AUTO
+    }
+
+    private fun markConnected() {
+        connected = true
+        instance = this
+        listeners.forEach { listener -> runCatching { listener.onServiceConnected(this) } }
     }
 
     companion object {

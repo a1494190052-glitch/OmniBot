@@ -87,6 +87,7 @@ fi
 runtime_archive="$repo_root/plugins/omni-vlm-lite/runtime-skill/omniflow-gui-runtime/scripts/runtime.prebuilt.zip"
 runtime_properties="$repo_root/plugins/omni-vlm-lite/runtime-skill/omniflow-gui-runtime/scripts/runtime/runtime.properties"
 runtime_release_manifest="$repo_root/plugins/omni-vlm-lite/runtime-skill/omniflow-gui-runtime/scripts/runtime.prebuilt.manifest.json"
+component_manifest="$repo_root/plugins/omni-vlm-lite/component.json"
 apk_source="$repo_root/app/build/outputs/apk/developStandard/debug/app-develop-standard-debug.apk"
 
 cd "$repo_root"
@@ -94,7 +95,8 @@ python3 scripts/build-prebuilt-omniflow-runtime.py \
   --omniflow-root "$omniflow_root" \
   --omnitransfer-root "$canonical_transfer_root"
 PYTHONPATH=. python3 -m unittest \
-  plugins/omni-vlm-lite/tests/test_runtime_bundle.py
+  plugins/omni-vlm-lite/tests/test_runtime_bundle.py \
+  plugins/omni-vlm-lite/tests/test_component_bundle.py
 if ((build_apk)); then
   ./gradlew --no-daemon assembleDevelopStandardDebug \
     -Ptarget=lib/main_standard.dart
@@ -105,6 +107,10 @@ if ((build_apk)); then
 fi
 [[ -f "$runtime_archive" && -f "$runtime_properties" ]] || {
   printf 'Runtime bundle was not produced.\n' >&2
+  exit 1
+}
+[[ -f "$component_manifest" ]] || {
+  printf 'OmniFlow component manifest was not produced.\n' >&2
   exit 1
 }
 
@@ -128,11 +134,13 @@ short_commit="${omniflow_commit:0:8}"
 apk_output="$output_dir/OpenOmniBot-foolproof-${safe_runtime_version}-${short_commit}-debug.apk"
 runtime_output="$output_dir/omniflow-runtime-${safe_runtime_version}-${short_commit}.zip"
 runtime_manifest_output="$output_dir/omniflow-runtime-${safe_runtime_version}-${short_commit}.manifest.json"
+component_output="$output_dir/omniflow-component-${safe_runtime_version}-${short_commit}.zip"
 if ((build_apk)); then
   cp "$apk_source" "$apk_output"
 fi
 cp "$runtime_archive" "$runtime_output"
 cp "$runtime_release_manifest" "$runtime_manifest_output"
+python3 scripts/build-omniflow-component.py --output "$component_output"
 
 if ((install_apk)); then
   command -v adb >/dev/null || {
@@ -145,7 +153,6 @@ if ((install_apk)); then
   }
   adb -s "$device_serial" install -r "$apk_output"
   package_name='cn.com.omnimind.bot.debug'
-  adb -s "$device_serial" shell am force-stop "$package_name"
   adb -s "$device_serial" shell monkey \
     -p "$package_name" -c android.intent.category.LAUNCHER 1 >/dev/null
   sleep 20
@@ -183,12 +190,13 @@ else
 fi
 printf 'runtime=%s\n' "$runtime_output"
 printf 'runtime_manifest=%s\n' "$runtime_manifest_output"
+printf 'component=%s\n' "$component_output"
 printf 'runtime_version=%s\n' "$runtime_version"
 printf 'catalog_release=%s\n' "$catalog_release"
 printf 'omniflow_commit=%s\n' "$omniflow_commit"
 printf 'omnitransfer_checkpoint=%s\n' "$omnitransfer_checkpoint"
 if ((build_apk)); then
-  shasum -a 256 "$apk_output" "$runtime_output"
+  shasum -a 256 "$apk_output" "$runtime_output" "$component_output"
 else
-  shasum -a 256 "$runtime_output"
+  shasum -a 256 "$runtime_output" "$component_output"
 fi

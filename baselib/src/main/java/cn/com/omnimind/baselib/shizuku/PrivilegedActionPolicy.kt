@@ -76,6 +76,13 @@ object PrivilegedActionPolicy {
             "Direct power-management commands are blocked."
         ),
         CommandBlockRule(
+            Regex(
+                """(^|[;&|()\s])am\s+force-stop\s+cn\.com\.omnimind\.bot(?:\.[A-Za-z0-9._-]+)?(?=($|[;&|()\s]))""",
+                RegexOption.IGNORE_CASE
+            ),
+            "Force-stopping the host app would disable its accessibility service."
+        ),
+        CommandBlockRule(
             Regex("""(^|[;&|()\s])recovery\s+--wipe_[A-Za-z0-9_-]+""", RegexOption.IGNORE_CASE),
             "Recovery wipe commands are blocked."
         ),
@@ -193,5 +200,11 @@ object PrivilegedActionPolicy {
         return commandBlockRules.firstOrNull { rule ->
             rule.regex.containsMatchIn(normalized)
         }?.reason
+    }
+
+    fun isHostPackage(packageName: String?): Boolean {
+        val normalized = packageName?.trim().orEmpty()
+        return normalized == "cn.com.omnimind.bot" ||
+            normalized.startsWith("cn.com.omnimind.bot.")
     }
 }

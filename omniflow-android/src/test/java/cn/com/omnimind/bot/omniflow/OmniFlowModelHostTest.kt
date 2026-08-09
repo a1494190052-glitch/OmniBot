@@ -352,6 +352,84 @@ class OmniFlowModelHostTest {
     }
 
     @Test
+    fun `model turn explicitly rejects a repeated stalled action and requests reflection`() =
+        runBlocking {
+            val requests = mutableListOf<ChatCompletionRequest>()
+            var callIndex = 0
+            val client = object : OmniFlowModelClient {
+                override suspend fun streamTurn(
+                    request: ChatCompletionRequest,
+                    onReasoningUpdate: (suspend (String) -> Unit)?,
+                ): ChatCompletionTurn {
+                    requests += request
+                    callIndex += 1
+                    val arguments = if (callIndex == 1) {
+                        """{"summary":"再次点保存","x":540,"y":2070}"""
+                    } else {
+                        """{"summary":"先选无需餐具","x":720,"y":1570}"""
+                    }
+                    return ChatCompletionTurn(
+                        message = ChatCompletionMessage(
+                            role = "assistant",
+                            toolCalls = listOf(
+                                AssistantToolCall(
+                                    id = "call-$callIndex",
+                                    function = AssistantToolCallFunction(
+                                        name = "click",
+                                        arguments = arguments,
+                                    ),
+                                ),
+                            ),
+                        ),
+                        finishReason = "tool_calls",
+                    )
+                }
+            }
+            val host = OmniFlowModelHost(modelClient = client)
+
+            val result = host.modelTurn(
+                mapOf(
+                    "model" to OmniVlmPlugin.MODEL_SCENE,
+                    "state" to mapOf(
+                        "display" to mapOf("width" to 1080, "height" to 2376),
+                        "extra" to mapOf(
+                            "previous_action_error" to
+                                "action_completed_without_state_change",
+                            "previous_action" to mapOf(
+                                "tool" to "click",
+                                "args" to mapOf(
+                                    "x" to 500.0,
+                                    "y" to 871.6329966329967,
+                                ),
+                            ),
+                        ),
+                    ),
+                    "request" to mapOf(
+                        "model" to OmniVlmPlugin.MODEL_SCENE,
+                        "messages" to listOf(
+                            mapOf("role" to "user", "content" to "inspect dialog"),
+                        ),
+                        "tools" to emptyList<Map<String, Any?>>(),
+                        "tool_choice" to "required",
+                        "parallel_tool_calls" to false,
+                        "stream" to true,
+                    ),
+                ),
+            )
+
+            assertEquals(2, requests.size)
+            val reflection = requests[1].messages.last().content?.jsonPrimitive?.content.orEmpty()
+            assertEquals(true, reflection.contains("REFLECTION REQUIRED"))
+            assertEquals(true, reflection.contains("explicitly rejected"))
+            assertEquals(true, reflection.contains("Do not return this same control"))
+            assertEquals(1, result["rejected_stalled_actions"])
+            val toolCall = (result["tool_calls"] as List<*>).single() as Map<*, *>
+            val function = toolCall["function"] as Map<*, *>
+            assertEquals("""{"summary":"先选无需餐具","x":720,"y":1570}""", function["arguments"])
+            assertEquals(2, (result["usage"] as Map<*, *>)["model_calls"])
+        }
+
+    @Test
     fun `json completion crosses only the configured platform boundary`() = runBlocking {
         var receivedRequest: ChatCompletionRequest? = null
         OmniFlow.configure(

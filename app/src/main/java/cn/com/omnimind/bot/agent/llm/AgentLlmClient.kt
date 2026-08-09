@@ -102,6 +102,8 @@ class HttpAgentLlmClient(
         )
     },
     private val streamIdleWatchdogMs: Long = 0L,
+    private val maxTransientStreamRetries: Int = 2,
+    private val transientStreamRetryDelayMs: Long = 750L,
     private val json: Json = Json {
         ignoreUnknownKeys = true
         isLenient = true
@@ -116,6 +118,18 @@ class HttpAgentLlmClient(
             ReasoningStreamUpdatePolicy.DEFAULT_INTERVAL_MS
         const val DEFAULT_CLOSED_STREAM_ERROR =
             "chat completion stream closed before completion signal"
+        val TRANSIENT_STREAM_FAILURE_MARKERS = listOf(
+            "software caused connection abort",
+            "unable to resolve host",
+            "connection reset",
+            "connection refused",
+            "failed to connect",
+            "network is unreachable",
+            "unexpected end of stream",
+            "socket closed",
+            "timeout",
+            "timed out",
+        )
     }
 
     internal data class StreamRequestVariant(
@@ -207,21 +221,58 @@ class HttpAgentLlmClient(
         onReasoningUpdate: (suspend (String) -> Unit)?,
         onContentUpdate: (suspend (String) -> Unit)?
     ): ChatCompletionTurn {
-        return try {
-            doStreamTurnOnce(model, requestJson, onReasoningUpdate, onContentUpdate, forceHttp1 = false)
-        } catch (e: AgentStreamRequestException) {
-            if (isHttp2ProtocolError(e)) {
-                OmniLog.w(tag, "HTTP/2 stream PROTOCOL_ERROR, retrying with HTTP/1.1")
-                doStreamTurnOnce(model, requestJson, onReasoningUpdate, onContentUpdate, forceHttp1 = true)
-            } else {
-                throw e
+        val retryCount = maxTransientStreamRetries.coerceAtLeast(0)
+        repeat(retryCount + 1) { attempt ->
+            try {
+                return try {
+                    doStreamTurnOnce(
+                        model,
+                        requestJson,
+                        onReasoningUpdate,
+                        onContentUpdate,
+                        forceHttp1 = false,
+                    )
+                } catch (error: AgentStreamRequestException) {
+                    if (isHttp2ProtocolError(error)) {
+                        OmniLog.w(tag, "HTTP/2 stream PROTOCOL_ERROR, retrying with HTTP/1.1")
+                        doStreamTurnOnce(
+                            model,
+                            requestJson,
+                            onReasoningUpdate,
+                            onContentUpdate,
+                            forceHttp1 = true,
+                        )
+                    } else {
+                        throw error
+                    }
+                }
+            } catch (error: AgentStreamRequestException) {
+                if (attempt >= retryCount || !isTransientStreamFailure(error)) throw error
+                val delayMs = transientStreamRetryDelayMs.coerceAtLeast(0L) * (attempt + 1L)
+                OmniLog.w(
+                    tag,
+                    "transient stream failure, retrying attempt=${attempt + 1}/$retryCount " +
+                        "delayMs=$delayMs reason=${error.reason}",
+                )
+                if (delayMs > 0L) delay(delayMs)
             }
         }
+        error("unreachable transient stream retry state")
     }
 
     private fun isHttp2ProtocolError(error: AgentStreamRequestException): Boolean {
         return error.reason.contains("PROTOCOL_ERROR", ignoreCase = true)
                 || error.reason.contains("stream was reset", ignoreCase = true)
+    }
+
+    private fun isTransientStreamFailure(error: AgentStreamRequestException): Boolean {
+        val status = error.statusCode
+        if (status == 408 || status == 425 || status == 429 || status != null && status >= 500) {
+            return true
+        }
+        if (status != null) return false
+        val reason = error.reason.lowercase()
+        return TRANSIENT_STREAM_FAILURE_MARKERS.any(reason::contains)
     }
 
     private fun shouldBufferLeadingInlineThinkTag(

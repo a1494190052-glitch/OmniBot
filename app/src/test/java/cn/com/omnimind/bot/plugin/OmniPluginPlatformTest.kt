@@ -208,6 +208,37 @@ class OmniPluginPlatformTest {
         assertEquals(0, provider.enableCount)
     }
 
+    @Test
+    fun `failed default backend install retries after the next app startup`() = runBlocking {
+        val provider = RecordingProvider(
+            pluginId = "com.omnimind.default-retry",
+            toolName = "default_retry_action",
+            installFailure = IllegalStateException("network unavailable"),
+        )
+        val store = OneShotDefaultStore()
+        val defaultIds = setOf(provider.descriptor.id)
+
+        val firstPlatform = platform(
+            provider,
+            store = store,
+            defaultEnabledPluginIds = defaultIds,
+        )
+        assertFalse(firstPlatform.list().single().installed)
+        assertEquals(1, provider.installCount)
+
+        provider.recoverInstall()
+        val restartedPlatform = platform(
+            provider,
+            store = store,
+            defaultEnabledPluginIds = defaultIds,
+        )
+
+        assertTrue(restartedPlatform.list().single().installed)
+        assertTrue(restartedPlatform.list().single().enabled)
+        assertEquals(2, provider.installCount)
+        assertEquals(1, provider.enableCount)
+    }
+
     private fun platform(
         vararg providers: OmniPluginProvider,
         store: OmniPluginStateStore = RecordingStore(),
@@ -283,7 +314,7 @@ class OmniPluginPlatformTest {
         pluginId: String,
         private val toolName: String,
         interfaceVersion: Int = OmniPluginContract.CURRENT_INTERFACE_VERSION,
-        private val installFailure: Throwable? = null,
+        private var installFailure: Throwable? = null,
     ) : OmniPluginProvider {
         var installCount = 0
         var updateCount = 0
@@ -292,6 +323,10 @@ class OmniPluginPlatformTest {
         var disableCount = 0
         var handlerDisposeCount = 0
         val lifecycleEvents = mutableListOf<String>()
+
+        fun recoverInstall() {
+            installFailure = null
+        }
 
         override val descriptor = OmniPluginDescriptor(
             id = pluginId,

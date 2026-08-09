@@ -17,6 +17,10 @@ object OmniFlowManagementTools {
     const val GET_RUN_LOG = "get_run_log"
     const val GET_RUN_LOG_STATE = "get_run_log_state"
     const val CONVERT_RUN_LOG = "convert_run_log"
+    const val GET_PYTHON_OVERRIDE = "get_omniflow_python_override"
+    const val APPLY_PYTHON_OVERRIDE = "apply_omniflow_python_override"
+    const val CLEAR_PYTHON_OVERRIDE = "clear_omniflow_python_override"
+    const val RELOAD_PYTHON_OVERRIDE = "reload_omniflow_python_override"
 
     val TOOL_NAMES = linkedSetOf(
         LIST_FUNCTIONS,
@@ -29,6 +33,10 @@ object OmniFlowManagementTools {
         GET_RUN_LOG,
         GET_RUN_LOG_STATE,
         CONVERT_RUN_LOG,
+        GET_PYTHON_OVERRIDE,
+        APPLY_PYTHON_OVERRIDE,
+        CLEAR_PYTHON_OVERRIDE,
+        RELOAD_PYTHON_OVERRIDE,
     )
 
     fun definitions(): List<OmniPluginToolDefinition> = listOf(
@@ -146,6 +154,44 @@ object OmniFlowManagementTools {
                 "name" to stringProperty("Optional Function name override."),
                 "description" to stringProperty("Optional Function description override."),
             ),
+        ),
+        definition(
+            GET_PYTHON_OVERRIDE,
+            "Get OmniFlow Python Override",
+            "Developer tool. With no path, inspect the editable OmniFlow Python override and " +
+                "installation directories. With a path, read one omniflow/**/*.py file from " +
+                "the active override or pinned runtime.",
+            properties = mapOf(
+                "path" to stringProperty("Optional Python path below omniflow/.")
+            ),
+        ),
+        definition(
+            APPLY_PYTHON_OVERRIDE,
+            "Apply OmniFlow Python Override",
+            "Developer tool. Replace one omniflow/**/*.py file, validate its Python syntax, " +
+                "restart the OmniFlow worker, and automatically roll back if initialization fails.",
+            required = listOf("path", "content"),
+            properties = mapOf(
+                "path" to stringProperty("Python path below omniflow/."),
+                "content" to stringProperty("Complete UTF-8 Python source for the file."),
+            ),
+        ),
+        definition(
+            CLEAR_PYTHON_OVERRIDE,
+            "Clear OmniFlow Python Override",
+            "Developer recovery tool. Delete all editable Python overrides and restart the " +
+                "worker from the pinned, validated runtime.",
+            required = listOf("confirm"),
+            properties = mapOf(
+                "confirm" to booleanProperty("Must be true to restore the pinned runtime."),
+            ),
+        ),
+        definition(
+            RELOAD_PYTHON_OVERRIDE,
+            "Reload OmniFlow Python Override",
+            "Developer tool. Restart and initialize the worker from the current validated " +
+                "override, or from the pinned runtime when no override is active.",
+            properties = emptyMap(),
         ),
     )
 

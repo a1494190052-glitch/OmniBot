@@ -3,6 +3,7 @@ from __future__ import annotations
 import importlib.util
 import ast
 import hashlib
+from io import BytesIO
 import json
 import os
 from pathlib import Path
@@ -22,6 +23,7 @@ PREBUILT_RUNTIME_MANIFEST_PATH = (
 )
 CATALOG_PATH = BUNDLE_ROOT.parents[2] / "catalog.v1.json"
 REPOSITORY_ROOT = BUNDLE_ROOT.parents[3]
+FOOLPROOF_BUILD_PATH = REPOSITORY_ROOT / "scripts/build-foolproof-apk.sh"
 OMNIFLOW_ROOT = REPOSITORY_ROOT.parent / "OmniFlow-exp"
 OMNITRANSFER_ROOT = REPOSITORY_ROOT.parent / "OmniTransfer"
 
@@ -43,6 +45,12 @@ def committed_file(repository: Path, relative: str, *, revision: str = "HEAD") -
 
 
 class RuntimeBundleTest(unittest.TestCase):
+    def test_foolproof_install_preserves_accessibility_authorization(self) -> None:
+        build_script = FOOLPROOF_BUILD_PATH.read_text(encoding="utf-8")
+
+        self.assertNotIn("am force-stop", build_script)
+        self.assertIn("android.intent.category.LAUNCHER", build_script)
+
     def test_runtime_release_manifest_supports_verified_hot_update(self) -> None:
         release = json.loads(PREBUILT_RUNTIME_MANIFEST_PATH.read_text(encoding="utf-8"))
         values = load_bootstrap().read_properties(
@@ -151,6 +159,42 @@ class RuntimeBundleTest(unittest.TestCase):
         self.assertFalse(
             any(name.startswith(".runtime/site-packages/numpy") for name in names),
             "NumPy belongs to the managed Python environment, not each runtime zip",
+        )
+
+    def test_prebuilt_v9_uses_visual_weights_and_matching_fallback_metadata(self) -> None:
+        values = load_bootstrap().read_properties(
+            BUNDLE_ROOT / "scripts/runtime/runtime.properties"
+        )
+        checkpoint_name = (
+            ".runtime/omnitransfer/src/omnitransfer/"
+            + values["omnitransfer.checkpoint"]
+        )
+        with ZipFile(PREBUILT_RUNTIME_PATH) as archive:
+            matcher = archive.read(
+                ".runtime/omnitransfer/src/omnitransfer/numpy_v9_matcher.py"
+            ).decode("utf-8")
+            execution = archive.read("python/omniflow/runtime/execution.py").decode(
+                "utf-8"
+            )
+            checkpoint = archive.read(checkpoint_name)
+        with ZipFile(BytesIO(checkpoint)) as weights:
+            weight_names = set(weights.namelist())
+
+        self.assertIn("_visual_inputs", matcher)
+        self.assertIn("visual_encoder", matcher)
+        self.assertIn("visual_encoder.0.weight.npy", weight_names)
+        self.assertIn("missing_visual.npy", weight_names)
+        self.assertIn('"source_screenshot_path"', execution)
+        self.assertIn('"target_screenshot_path"', execution)
+        commit = values["omnitransfer.commit"]
+        self.assertEqual(
+            values["omnitransfer.archive.url"],
+            f"https://github.com/wuzw21/OmniTransfer/archive/{commit}.tar.gz",
+        )
+        self.assertEqual(
+            values["omnitransfer.checkpoint.url"],
+            "https://raw.githubusercontent.com/wuzw21/OmniTransfer/"
+            f"{commit}/src/omnitransfer/{values['omnitransfer.checkpoint']}",
         )
 
     def test_runtime_manifest_schema_digests_match_packaged_schemas(self) -> None:

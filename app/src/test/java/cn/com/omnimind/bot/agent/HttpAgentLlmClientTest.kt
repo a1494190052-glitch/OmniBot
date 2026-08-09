@@ -38,6 +38,87 @@ class HttpAgentLlmClientTest {
     }
 
     @Test
+    fun `transient stream failure retries the same model turn`() = runBlocking {
+        val scope = CoroutineScope(Job() + Dispatchers.Default)
+        var attempts = 0
+        try {
+            val client = HttpAgentLlmClient(
+                scope = scope,
+                modelOverride = testOverride(),
+                streamRequestOp = { _, _, listener, _, _, _, _, _, _, _ ->
+                    attempts += 1
+                    val source = dummyEventSource()
+                    if (attempts == 1) {
+                        listener.onFailure(
+                            source,
+                            IllegalStateException("Software caused connection abort"),
+                            null,
+                        )
+                    } else {
+                        listener.onOpen(source, okResponse())
+                        listener.onEvent(
+                            source,
+                            null,
+                            "message",
+                            """{"choices":[{"delta":{"content":"完成"},"finish_reason":"stop"}]}""",
+                        )
+                        listener.onEvent(source, null, "message", "[DONE]")
+                    }
+                    source
+                },
+                maxTransientStreamRetries = 2,
+                transientStreamRetryDelayMs = 0L,
+                json = json,
+            )
+
+            val turn = client.streamTurn(request = simpleRequest())
+
+            assertEquals(2, attempts)
+            assertEquals("完成", turn.message.contentText())
+        } finally {
+            scope.cancel()
+        }
+    }
+
+    @Test
+    fun `non transient client error is not retried`() = runBlocking {
+        val scope = CoroutineScope(Job() + Dispatchers.Default)
+        var attempts = 0
+        try {
+            val client = HttpAgentLlmClient(
+                scope = scope,
+                modelOverride = testOverride(),
+                streamRequestOp = { _, _, listener, _, _, _, _, _, _, _ ->
+                    attempts += 1
+                    val source = dummyEventSource()
+                    listener.onFailure(
+                        source,
+                        IllegalStateException("unauthorized"),
+                        Response.Builder()
+                            .request(Request.Builder().url("https://example.com").build())
+                            .protocol(Protocol.HTTP_1_1)
+                            .code(401)
+                            .message("Unauthorized")
+                            .body("unauthorized".toResponseBody())
+                            .build(),
+                    )
+                    source
+                },
+                maxTransientStreamRetries = 2,
+                transientStreamRetryDelayMs = 0L,
+                json = json,
+            )
+
+            val error = runCatching { client.streamTurn(simpleRequest()) }.exceptionOrNull()
+
+            assertEquals(1, attempts)
+            assertEquals(401, (error as AgentStreamRequestException).statusCode)
+        } finally {
+            scope.cancel()
+        }
+    }
+
+    @Test
     fun `official GLM VLM route normalizes mixed multimodal content and keeps native tools`() {
         val scope = CoroutineScope(Job() + Dispatchers.Default)
         try {

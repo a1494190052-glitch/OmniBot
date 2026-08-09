@@ -31,7 +31,10 @@ class OmniPluginPlatform(
         ensureInitialized()
         val provider = requireProvider(pluginId)
         requireCompatible(provider.descriptor)
-        storedStates[pluginId]?.let { return@withLock stateFor(provider) }
+        val existing = storedStates[pluginId]
+        if (existing != null && !existing.installPending) {
+            return@withLock stateFor(provider)
+        }
 
         try {
             provider.install()
@@ -45,9 +48,15 @@ class OmniPluginPlatform(
             runCatching { provider.uninstall() }
             throw error
         }
-        val nextState = OmniPluginStoredState(pluginId = pluginId, enabled = true)
+        val nextState = OmniPluginStoredState(
+            pluginId = pluginId,
+            enabled = true,
+            installPending = false,
+        )
         try {
-            persist(storedStates.values + nextState)
+            persist(
+                storedStates.values.filterNot { it.pluginId == pluginId } + nextState,
+            )
         } catch (error: Throwable) {
             runCatching { active.plugin.onDisable() }
             runCatching { provider.uninstall() }
@@ -65,11 +74,22 @@ class OmniPluginPlatform(
         requireCompatible(provider.descriptor)
         val current = storedStates[pluginId]
             ?: throw IllegalArgumentException("Plugin $pluginId is not installed")
-        if (current.enabled == enabled) return@withLock stateFor(provider)
+        if (current.enabled == enabled && !(enabled && current.installPending)) {
+            return@withLock stateFor(provider)
+        }
 
         if (enabled) {
+            if (current.installPending) {
+                try {
+                    provider.install()
+                } catch (error: Throwable) {
+                    runCatching { provider.uninstall() }
+                    errors[pluginId] = error.message ?: error.javaClass.simpleName
+                    throw error
+                }
+            }
             val active = activate(provider)
-            val nextState = current.copy(enabled = true)
+            val nextState = current.copy(enabled = true, installPending = false)
             try {
                 persist(storedStates.values.map { if (it.pluginId == pluginId) nextState else it })
             } catch (error: Throwable) {
@@ -195,7 +215,11 @@ class OmniPluginPlatform(
     private suspend fun ensureInitialized() {
         if (initialized) return
         val defaults = defaultEnabledPluginIds.map { pluginId ->
-            OmniPluginStoredState(pluginId = pluginId, enabled = true)
+            OmniPluginStoredState(
+                pluginId = pluginId,
+                enabled = true,
+                installPending = true,
+            )
         }
         val storedBeforeDefaults = runCatching { stateStore.read() }
             .getOrDefault(emptyList())
@@ -218,10 +242,15 @@ class OmniPluginPlatform(
             }
             runCatching {
                 requireCompatible(provider.descriptor)
-                if (state.pluginId in newlySeededDefaultIds) {
+                val requiresInstall = state.installPending ||
+                    state.pluginId in newlySeededDefaultIds
+                if (requiresInstall) {
                     provider.install()
                 }
                 activePlugins[state.pluginId] = activate(provider)
+                if (requiresInstall) {
+                    storedStates[state.pluginId] = state.copy(installPending = false)
+                }
             }.onFailure { error ->
                 OmniLog.e(
                     "[OmniPluginPlatform]",
@@ -229,12 +258,17 @@ class OmniPluginPlatform(
                         "error=${error.message ?: error.javaClass.simpleName}",
                     error,
                 )
-                if (state.pluginId in newlySeededDefaultIds) {
+                val requiresInstall = state.installPending ||
+                    state.pluginId in newlySeededDefaultIds
+                if (requiresInstall) {
                     runCatching { provider.uninstall() }
                 }
                 errors[state.pluginId] = error.message ?: error.javaClass.simpleName
-                if (state.pluginId in newlySeededDefaultIds) {
-                    storedStates.remove(state.pluginId)
+                if (requiresInstall) {
+                    storedStates[state.pluginId] = state.copy(
+                        enabled = true,
+                        installPending = true,
+                    )
                 } else {
                     storedStates[state.pluginId] = state.copy(enabled = false)
                 }
@@ -310,7 +344,7 @@ class OmniPluginPlatform(
         val compatible = descriptor.interfaceVersion == OmniPluginContract.CURRENT_INTERFACE_VERSION
         return OmniPluginState(
             descriptor = descriptor,
-            installed = stored != null,
+            installed = stored != null && !stored.installPending,
             enabled = stored?.enabled == true && activePlugins.containsKey(descriptor.id),
             compatible = compatible,
             errorMessage = errors[descriptor.id] ?: if (!compatible) {

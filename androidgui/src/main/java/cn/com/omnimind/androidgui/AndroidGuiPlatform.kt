@@ -466,7 +466,7 @@ internal class AccessibilityAndroidGuiPlatform(
 
     private companion object {
         const val MAX_WAIT_MS = 60_000L
-        const val ACCESSIBILITY_RECONNECT_TIMEOUT_MS = 5_000L
+        const val ACCESSIBILITY_RECONNECT_TIMEOUT_MS = ACCESSIBILITY_READY_TIMEOUT_MS
         const val MAX_NODE_DEPTH = 50
         const val INPUT_TEXT_ATTEMPTS = 6
         const val INPUT_TEXT_RETRY_DELAY_MS = 120L

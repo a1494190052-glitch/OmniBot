@@ -1,0 +1,25 @@
+{
+  "schemaVersion": 1,
+  "id": "com.omnimind.omni-vlm-lite",
+  "name": "OmniFlow",
+  "kind": "runtime_component",
+  "interfaceVersion": 1,
+  "androidAdapter": "omniflow_android_gui",
+  "documentation": "README.md",
+  "installLayout": "INSTALL_DIR.json",
+  "agentSkill": {
+    "id": "omniflow-runtime-modifier",
+    "path": "agent-skill/omniflow-runtime-modifier"
+  },
+  "runtimeSkill": {
+    "id": "omniflow-gui-runtime",
+    "path": "runtime-skill/omniflow-gui-runtime",
+    "bootstrap": "scripts/bootstrap_runtime.py",
+    "runtimeArchive": "scripts/runtime.prebuilt.zip",
+    "releaseManifest": "scripts/runtime.prebuilt.manifest.json",
+    "properties": "scripts/runtime/runtime.properties"
+  },
+  "schemas": {
+    "path": "schemas/oob"
+  }
+}

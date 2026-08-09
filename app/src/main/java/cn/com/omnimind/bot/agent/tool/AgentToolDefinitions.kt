@@ -237,8 +237,8 @@ object AgentToolDefinitions {
         "分派子任务" to "Dispatch Subtasks",
         "查询设备已安装应用列表。需要应用包名或确认应用是否已安装时优先调用。" to
             "Query the list of apps installed on the device. Prefer this when you need an app package name or need to confirm whether an app is installed.",
-        "通过 Android GUI 插件的 VLM 流程操作当前界面。投资人 Debug 包会默认安装并启用插件；其他版本需要先在插件市场安装。" to
-            "Operate the current Android UI through the Android GUI plugin's VLM flow. Investor debug builds install and enable the plugin by default; other builds require installation from the plugin market first.",
+        "通过 Android GUI 插件的 VLM 流程操作当前界面。只要用户要求操作手机或 App（例如下单咖啡、购物、联系人、设置、导航、打开应用），必须立即调用此工具，并把完整用户目标原样放入 goal；不要用 terminal/browser 代替，也不要直接回复已完成。Debug APK 已内置插件。" to
+            "Use this immediately whenever the user asks you to operate a phone or Android app (for example ordering coffee, shopping, contacts, settings, navigation, or opening an app). Pass the complete user goal in goal; do not use terminal/browser instead and do not claim completion in plain text. Debug APKs include the plugin.",
         "要在 Android GUI 中完成的具体目标。" to
             "The concrete goal to complete in the Android GUI.",
         "可选关键词，可匹配应用名或包名。" to
@@ -537,7 +537,7 @@ object AgentToolDefinitions {
                 putJsonObject("properties") {
                     putJsonObject("query") {
                         put("type", "string")
-                        put("description", "可选关键词，可匹配应用名或包名。")
+                        put("description", "可选关键词，可匹配应用名或包名；查询多个应用时用空格或逗号分隔，结果按关键词输入顺序返回。")
                     }
                     putJsonObject("limit") {
                         put("type", "integer")
@@ -556,7 +556,7 @@ object AgentToolDefinitions {
             put("toolType", "builtin")
             put(
                 "description",
-                "通过 Android GUI 插件的 VLM 流程操作当前界面。投资人 Debug 包会默认安装并启用插件；其他版本需要先在插件市场安装。"
+                "手机或 Android App 操作必须使用此工具：例如下单咖啡、购物、联系人、设置、导航、打开应用等。把用户完整目标放入 goal，立即调用并等待结果；不要用 terminal/browser 代替，也不要直接回复已完成。Debug APK 已内置并启用 GUI/VLM 插件。"
             )
             putJsonObject("parameters") {
                 put("type", "object")

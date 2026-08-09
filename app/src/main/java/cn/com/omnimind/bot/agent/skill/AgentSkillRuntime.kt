@@ -22,6 +22,7 @@ private const val OFFICIAL_SKILLS_GITHUB_REPOSITORY_URL = "https://github.com/om
 private const val OFFICIAL_SKILLS_CNB_REPOSITORY_URL = "https://cnb.cool/o.a/OmniBotSkills"
 private const val OFFICIAL_SKILLS_DIRECTORY_NAME = "OmniBotSkills"
 private val RETIRED_BUILTIN_SKILL_IDS = setOf("hatch-pet")
+private val SKILL_INDEX_LOCK = Any()
 
 private data class BuiltinSkillManifest(
     val skills: List<BuiltinSkillAsset> = emptyList()
@@ -250,38 +251,42 @@ class SkillIndexService(
     }
 
     fun seedBuiltinSkillsIfNeeded() {
-        val registryStore = registryStore()
-        val builtinStore = builtinStore()
-        builtinStore.pruneRetiredBuiltins(registryStore)
-        builtinStore.seedMissingBuiltins(registryStore)
+        synchronized(SKILL_INDEX_LOCK) {
+            val registryStore = registryStore()
+            val builtinStore = builtinStore()
+            builtinStore.pruneRetiredBuiltins(registryStore)
+            builtinStore.seedMissingBuiltins(registryStore)
+        }
     }
 
     fun listSkillsForManagement(): List<SkillIndexEntry> {
-        seedBuiltinSkillsIfNeeded()
-        val registryStore = registryStore()
-        val registry = registryStore.read()
-        val builtinAssets = builtinStore().listBuiltins().associateBy { it.id }
-        val installedEntries = scanInstalledEntries(registry, builtinAssets)
-        val installedIds = installedEntries.mapTo(mutableSetOf()) { it.id }
-        val removedBuiltinEntries = builtinAssets.values
-            .asSequence()
-            .filter { builtin ->
-                builtin.id !in installedIds &&
-                    registry[builtin.id]?.installState == INSTALL_STATE_REMOVED_BUILTIN
-            }
-            .map { builtin ->
-                buildBuiltinPlaceholderEntry(
-                    builtin = builtin,
-                    registryState = registry[builtin.id]
-                )
-            }
-            .toList()
+        synchronized(SKILL_INDEX_LOCK) {
+            seedBuiltinSkillsIfNeeded()
+            val registryStore = registryStore()
+            val registry = registryStore.read()
+            val builtinAssets = builtinStore().listBuiltins().associateBy { it.id }
+            val installedEntries = scanInstalledEntries(registry, builtinAssets)
+            val installedIds = installedEntries.mapTo(mutableSetOf()) { it.id }
+            val removedBuiltinEntries = builtinAssets.values
+                .asSequence()
+                .filter { builtin ->
+                    builtin.id !in installedIds &&
+                        registry[builtin.id]?.installState == INSTALL_STATE_REMOVED_BUILTIN
+                }
+                .map { builtin ->
+                    buildBuiltinPlaceholderEntry(
+                        builtin = builtin,
+                        registryState = registry[builtin.id]
+                    )
+                }
+                .toList()
 
-        return (installedEntries + removedBuiltinEntries).sortedWith(
-            compareByDescending<SkillIndexEntry> { it.installed }
-                .thenBy { sourceRank(it.source) }
-                .thenBy { it.name.lowercase() }
-        )
+            return (installedEntries + removedBuiltinEntries).sortedWith(
+                compareByDescending<SkillIndexEntry> { it.installed }
+                    .thenBy { sourceRank(it.source) }
+                    .thenBy { it.name.lowercase() }
+            )
+        }
     }
 
     fun listInstalledSkills(): List<SkillIndexEntry> {
@@ -318,29 +323,31 @@ class SkillIndexService(
         sourcePath: String,
         targetDirectoryName: String,
     ): SkillIndexEntry {
-        val sourceDir = File(sourcePath).canonicalFile
-        require(sourceDir.isDirectory) { "skill source 必须是目录" }
-        val skillFile = File(sourceDir, "SKILL.md")
-        require(skillFile.exists()) { "skill source 缺少 SKILL.md" }
-        require(SKILL_TARGET_DIRECTORY.matches(targetDirectoryName)) {
-            "skill target directory 非法：$targetDirectoryName"
-        }
-        val targetDir = File(workspaceManager.skillsRoot(), targetDirectoryName)
-        copyRecursively(sourceDir, targetDir)
-        val entry = buildInstalledEntry(
-            skillDir = targetDir,
-            registry = registryStore().read(),
-            builtinAssets = builtinStore().listBuiltins().associateBy { it.id }
-        ) ?: throw IllegalStateException("安装 skill 后索引失败")
-        registryStore().set(
-            entry.id,
-            SkillRegistryEntry(
-                enabled = true,
-                source = USER_SOURCE,
-                installState = INSTALL_STATE_INSTALLED
+        synchronized(SKILL_INDEX_LOCK) {
+            val sourceDir = File(sourcePath).canonicalFile
+            require(sourceDir.isDirectory) { "skill source 必须是目录" }
+            val skillFile = File(sourceDir, "SKILL.md")
+            require(skillFile.exists()) { "skill source 缺少 SKILL.md" }
+            require(SKILL_TARGET_DIRECTORY.matches(targetDirectoryName)) {
+                "skill target directory 非法：$targetDirectoryName"
+            }
+            val targetDir = File(workspaceManager.skillsRoot(), targetDirectoryName)
+            copyRecursively(sourceDir, targetDir)
+            val entry = buildInstalledEntry(
+                skillDir = targetDir,
+                registry = registryStore().read(),
+                builtinAssets = builtinStore().listBuiltins().associateBy { it.id }
+            ) ?: throw IllegalStateException("安装 skill 后索引失败")
+            registryStore().set(
+                entry.id,
+                SkillRegistryEntry(
+                    enabled = true,
+                    source = USER_SOURCE,
+                    installState = INSTALL_STATE_INSTALLED
+                )
             )
-        )
-        return entry.copy(enabled = true, source = USER_SOURCE, installed = true)
+            return entry.copy(enabled = true, source = USER_SOURCE, installed = true)
+        }
     }
 
     fun setSkillEnabled(skillId: String, enabled: Boolean): SkillIndexEntry {

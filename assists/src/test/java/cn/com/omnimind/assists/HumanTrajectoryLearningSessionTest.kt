@@ -12,6 +12,39 @@ import org.junit.Test
 
 class HumanTrajectoryLearningSessionTest {
     @Test
+    fun failedManualInputIsRetainedAsCanonicalFailedStep() = runBlocking {
+        val action = ManualRecordedAction(
+            action = actionOf("input_text", mapOf("text" to "拿铁咖啡", "x" to 500, "y" to 300)),
+            title = "输入文字",
+            beforeState = state("input-before", "demo.app", "<hierarchy/>"),
+            afterState = state("input-after", "demo.app", "<hierarchy/>"),
+            startedAtMs = 100L,
+            finishedAtMs = 200L,
+            summary = "输入文字：拿铁咖啡",
+            operationSuccess = false,
+            operationError = "input_target_not_found",
+        )
+
+        val fact = HumanTrajectoryLearningSession.buildRunLogFact("manual-run", 0, action)
+        val result = fact.getValue("result") as Map<*, *>
+        val metadata = fact.getValue("metadata") as Map<*, *>
+
+        assertEquals(false, result["success"])
+        assertEquals("input_target_not_found", result["error"])
+        assertEquals("failed", metadata["status"])
+        assertEquals("拿铁咖啡", (fact.getValue("action") as Map<*, *>).let {
+            (it["args"] as Map<*, *>)["text"]
+        })
+        assertFalse(manualOperationFailuresResolved(listOf(action)))
+        assertEquals(
+            true,
+            manualOperationFailuresResolved(
+                listOf(action, action.copy(operationSuccess = true, operationError = null)),
+            ),
+        )
+    }
+
+    @Test
     fun newManualRunLogUsesCanonicalExecutionFacts() = runBlocking {
         val action = ManualRecordedAction(
             action = actionOf(
