@@ -1118,6 +1118,240 @@ abstract class AppLocalizations {
   /// **'快去探索，添加喜欢的内容吧'**
   String get memoryNoMemoriesDesc;
 
+  /// No description provided for @pluginMarketTitle.
+  ///
+  /// In zh, this message translates to:
+  /// **'插件市场'**
+  String get pluginMarketTitle;
+
+  /// No description provided for @pluginMarketEmpty.
+  ///
+  /// In zh, this message translates to:
+  /// **'暂无可用插件'**
+  String get pluginMarketEmpty;
+
+  /// No description provided for @pluginMarketEmptyDesc.
+  ///
+  /// In zh, this message translates to:
+  /// **'官方插件接入后会显示在这里'**
+  String get pluginMarketEmptyDesc;
+
+  /// No description provided for @pluginInstall.
+  ///
+  /// In zh, this message translates to:
+  /// **'安装'**
+  String get pluginInstall;
+
+  /// No description provided for @pluginUninstall.
+  ///
+  /// In zh, this message translates to:
+  /// **'卸载'**
+  String get pluginUninstall;
+
+  /// No description provided for @pluginCancel.
+  ///
+  /// In zh, this message translates to:
+  /// **'取消'**
+  String get pluginCancel;
+
+  /// No description provided for @pluginNoDescription.
+  ///
+  /// In zh, this message translates to:
+  /// **'暂无描述'**
+  String get pluginNoDescription;
+
+  /// No description provided for @pluginIncompatible.
+  ///
+  /// In zh, this message translates to:
+  /// **'此插件与当前版本不兼容'**
+  String get pluginIncompatible;
+
+  /// No description provided for @pluginLoadFailed.
+  ///
+  /// In zh, this message translates to:
+  /// **'加载插件市场失败'**
+  String get pluginLoadFailed;
+
+  /// No description provided for @pluginInstallFailed.
+  ///
+  /// In zh, this message translates to:
+  /// **'插件安装失败'**
+  String get pluginInstallFailed;
+
+  /// No description provided for @pluginToggleFailed.
+  ///
+  /// In zh, this message translates to:
+  /// **'插件启停失败'**
+  String get pluginToggleFailed;
+
+  /// No description provided for @pluginUninstallFailed.
+  ///
+  /// In zh, this message translates to:
+  /// **'插件卸载失败'**
+  String get pluginUninstallFailed;
+
+  /// No description provided for @pluginUninstallTitle.
+  ///
+  /// In zh, this message translates to:
+  /// **'卸载插件'**
+  String get pluginUninstallTitle;
+
+  /// No description provided for @pluginUninstallConfirmMsg.
+  ///
+  /// In zh, this message translates to:
+  /// **'确认卸载\"{name}\"？'**
+  String pluginUninstallConfirmMsg(Object name);
+
+  /// No description provided for @pluginInstalledMsg.
+  ///
+  /// In zh, this message translates to:
+  /// **'已安装 {name}'**
+  String pluginInstalledMsg(Object name);
+
+  /// No description provided for @pluginEnabledMsg.
+  ///
+  /// In zh, this message translates to:
+  /// **'已启用 {name}'**
+  String pluginEnabledMsg(Object name);
+
+  /// No description provided for @pluginDisabledMsg.
+  ///
+  /// In zh, this message translates to:
+  /// **'已停用 {name}'**
+  String pluginDisabledMsg(Object name);
+
+  /// No description provided for @pluginUninstalledMsg.
+  ///
+  /// In zh, this message translates to:
+  /// **'已卸载 {name}'**
+  String pluginUninstalledMsg(Object name);
+
+  /// No description provided for @pluginKindBundledModule.
+  ///
+  /// In zh, this message translates to:
+  /// **'内置模块'**
+  String get pluginKindBundledModule;
+
+  /// No description provided for @pluginKindRuntimeBundle.
+  ///
+  /// In zh, this message translates to:
+  /// **'运行时包'**
+  String get pluginKindRuntimeBundle;
+
+  /// No description provided for @pluginKindCompanionApp.
+  ///
+  /// In zh, this message translates to:
+  /// **'伴生应用'**
+  String get pluginKindCompanionApp;
+
+  /// No description provided for @pluginDetailTitle.
+  ///
+  /// In zh, this message translates to:
+  /// **'插件详情'**
+  String get pluginDetailTitle;
+
+  /// No description provided for @pluginSearchHint.
+  ///
+  /// In zh, this message translates to:
+  /// **'搜索插件名称、描述或能力'**
+  String get pluginSearchHint;
+
+  /// No description provided for @pluginSearchEmpty.
+  ///
+  /// In zh, this message translates to:
+  /// **'未找到匹配的插件'**
+  String get pluginSearchEmpty;
+
+  /// No description provided for @pluginAboutTitle.
+  ///
+  /// In zh, this message translates to:
+  /// **'关于'**
+  String get pluginAboutTitle;
+
+  /// No description provided for @pluginCapabilitiesTitle.
+  ///
+  /// In zh, this message translates to:
+  /// **'能力'**
+  String get pluginCapabilitiesTitle;
+
+  /// No description provided for @pluginNoCapabilities.
+  ///
+  /// In zh, this message translates to:
+  /// **'此插件未声明额外能力'**
+  String get pluginNoCapabilities;
+
+  /// No description provided for @pluginInformationTitle.
+  ///
+  /// In zh, this message translates to:
+  /// **'信息'**
+  String get pluginInformationTitle;
+
+  /// No description provided for @pluginPublisherLabel.
+  ///
+  /// In zh, this message translates to:
+  /// **'开发者'**
+  String get pluginPublisherLabel;
+
+  /// No description provided for @pluginVersionLabel.
+  ///
+  /// In zh, this message translates to:
+  /// **'版本'**
+  String get pluginVersionLabel;
+
+  /// No description provided for @pluginTypeLabel.
+  ///
+  /// In zh, this message translates to:
+  /// **'类型'**
+  String get pluginTypeLabel;
+
+  /// No description provided for @pluginDownloadSizeLabel.
+  ///
+  /// In zh, this message translates to:
+  /// **'下载大小'**
+  String get pluginDownloadSizeLabel;
+
+  /// No description provided for @pluginInterfaceVersionLabel.
+  ///
+  /// In zh, this message translates to:
+  /// **'接口版本'**
+  String get pluginInterfaceVersionLabel;
+
+  /// No description provided for @pluginStatusInstalled.
+  ///
+  /// In zh, this message translates to:
+  /// **'已安装'**
+  String get pluginStatusInstalled;
+
+  /// No description provided for @pluginStatusEnabled.
+  ///
+  /// In zh, this message translates to:
+  /// **'已启用'**
+  String get pluginStatusEnabled;
+
+  /// No description provided for @pluginStatusNotInstalled.
+  ///
+  /// In zh, this message translates to:
+  /// **'未安装'**
+  String get pluginStatusNotInstalled;
+
+  /// No description provided for @pluginEnableTitle.
+  ///
+  /// In zh, this message translates to:
+  /// **'启用插件'**
+  String get pluginEnableTitle;
+
+  /// No description provided for @pluginEnableDescription.
+  ///
+  /// In zh, this message translates to:
+  /// **'允许 Agent 使用此插件提供的能力'**
+  String get pluginEnableDescription;
+
+  /// No description provided for @pluginRetry.
+  ///
+  /// In zh, this message translates to:
+  /// **'重试'**
+  String get pluginRetry;
+
   /// No description provided for @skillStoreTitle.
   ///
   /// In zh, this message translates to:

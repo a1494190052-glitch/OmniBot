@@ -8,6 +8,17 @@
       "en-US": "Default model for three-stage executable-task routing (decision / app-scope / task-match) on the Flutter side"
     }
   },
+  "scene.vlm.operation.primary": {
+    "model": "qwen3-vl-plus",
+    "transport": "openai_compatible",
+    "response_parser": "text_content",
+    "prompt": null,
+    "description": "Android GUI 自动化模型；执行策略由 AndroidGuiPolicy 提供",
+    "description_i18n": {
+      "zh-CN": "Android GUI 自动化模型；执行策略由 AndroidGuiPolicy 提供",
+      "en-US": "Android GUI automation model; execution policy is provided by AndroidGuiPolicy"
+    }
+  },
   "scene.voice": {
     "model": "",
     "transport": "openai_compatible",

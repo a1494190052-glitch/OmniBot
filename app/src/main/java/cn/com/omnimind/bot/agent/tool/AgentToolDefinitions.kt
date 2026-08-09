@@ -2196,4 +2196,24 @@ object AgentToolDefinitions {
         terminalDistribution: TerminalDistribution.Spec = TerminalDistribution.alpine
     ): List<JsonObject> =
         builtinTools(locale, terminalDistribution) + scheduleTools(locale) + alarmTools(locale) + calendarTools(locale) + musicTools(locale)
+
+    fun reservedToolNames(): Set<String> {
+        val locale = PromptLocale.EN_US
+        val definitions = buildList {
+            addAll(staticTools(locale))
+            addAll(memoryTools(locale))
+            addAll(subagentTools(locale))
+            add(androidPrivilegedActionTool(emptyList(), ShizukuBackend.NONE, locale))
+            add(androidPrivilegedSessionStartTool(ShizukuBackend.NONE, locale))
+            add(androidPrivilegedSessionExecTool(ShizukuBackend.NONE, locale))
+            add(androidPrivilegedSessionReadTool(ShizukuBackend.NONE, locale))
+            add(androidPrivilegedSessionStopTool(ShizukuBackend.NONE, locale))
+        }
+        return definitions.mapNotNullTo(linkedSetOf()) { definition ->
+            (definition["function"] as? JsonObject)
+                ?.get("name")
+                ?.jsonPrimitive
+                ?.contentOrNull
+        }
+    }
 }

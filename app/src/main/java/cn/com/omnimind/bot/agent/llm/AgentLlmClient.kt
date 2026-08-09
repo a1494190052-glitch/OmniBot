@@ -404,7 +404,9 @@ class HttpAgentLlmClient(
             if (!completed.compareAndSet(false, true)) return
             cancelWatchdog()
             runCatching {
-                val turn = accumulator.buildTurn()
+                val turn = accumulator.buildTurn().copy(
+                    resolvedModel = routeInfo.resolvedModel,
+                )
                 enforceReasoningEchoIfRequired(turn, routeInfo)
                 emitReasoning(force = true)
                 emitContent()

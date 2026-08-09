@@ -29,6 +29,9 @@ import 'pages/webview/webview_page.dart';
 import 'pages/settings/settings_page.dart';
 import 'pages/mcp/remote_mcp_servers_page.dart';
 import 'pages/skill_store/skill_store_page.dart';
+import 'pages/plugin_market/plugin_market_page.dart';
+import 'pages/plugin_market/plugin_detail_page.dart';
+import 'package:ui/models/omni_plugin_item.dart';
 import 'pages/termux_setting/termux_setting_page.dart';
 import 'pages/scene_model_setting/scene_model_setting_page.dart';
 import 'pages/model_provider_setting/model_provider_setting_page.dart';
@@ -339,6 +342,31 @@ List<GoRoute> homeRoutes = [
       key: state.pageKey,
       name: 'home/skill_store',
       child: const SkillStorePage(),
+    ),
+  ),
+
+  GoRoute(
+    path: '/home/plugin_market',
+    name: 'home/plugin_market',
+    pageBuilder: (context, state) => GoRouterManager.buildActivitySlidePage(
+      key: state.pageKey,
+      name: 'home/plugin_market',
+      child: const PluginMarketPage(),
+    ),
+  ),
+
+  GoRoute(
+    path: '/home/plugin_market/:pluginId',
+    name: 'home/plugin_detail',
+    pageBuilder: (context, state) => GoRouterManager.buildActivitySlidePage(
+      key: state.pageKey,
+      name: 'home/plugin_detail',
+      child: PluginDetailPage(
+        pluginId: state.pathParameters['pluginId']?.trim() ?? '',
+        initialPlugin: state.extra is OmniPluginItem
+            ? state.extra! as OmniPluginItem
+            : null,
+      ),
     ),
   ),
 

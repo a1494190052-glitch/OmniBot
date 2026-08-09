@@ -128,6 +128,47 @@ class HttpAgentLlmClientTest {
     }
 
     @Test
+    fun `scene request returns the resolved route model`() = runBlocking {
+        val scope = CoroutineScope(Job() + Dispatchers.Default)
+        try {
+            val client = HttpAgentLlmClient(
+                scope = scope,
+                modelOverride = testOverride(),
+                resolveRouteInfoOp = { model, _, _, _, _, protocolType, _ ->
+                    routeInfo(
+                        requestedModel = model,
+                        resolvedModel = "qwen3-vl-plus",
+                        protocolType = protocolType ?: "openai_compatible",
+                        requiresReasoningEcho = false,
+                    )
+                },
+                streamRequestOp = { _, _, listener, _, _, _, _, _, _, _ ->
+                    val source = dummyEventSource()
+                    listener.onOpen(source, okResponse())
+                    listener.onEvent(
+                        source,
+                        null,
+                        "message",
+                        """{"choices":[{"delta":{"content":"完成"},"finish_reason":"stop"}]}""",
+                    )
+                    listener.onEvent(source, null, "message", "[DONE]")
+                    source
+                },
+                streamIdleWatchdogMs = 5_000L,
+                json = json,
+            )
+
+            val turn = client.streamTurn(
+                request = simpleRequest().copy(model = "scene.vlm.operation.primary"),
+            )
+
+            assertEquals("qwen3-vl-plus", turn.resolvedModel)
+        } finally {
+            scope.cancel()
+        }
+    }
+
+    @Test
     fun `resolved route requiring reasoning echo preserves reasoning content even when override is not deepseek`() = runBlocking {
         val scope = CoroutineScope(Job() + Dispatchers.Default)
         try {

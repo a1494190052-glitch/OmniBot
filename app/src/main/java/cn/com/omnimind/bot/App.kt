@@ -12,6 +12,7 @@ import cn.com.omnimind.bot.agent.WorkspaceScheduledTaskScheduler
 import cn.com.omnimind.bot.activity.StartupThemeResolver
 import cn.com.omnimind.bot.cleanup.LegacyLocalModelDataCleanup
 import cn.com.omnimind.bot.mcp.McpServerManager
+import cn.com.omnimind.bot.plugin.official.OfficialOmniPluginProviders
 import cn.com.omnimind.bot.quicklog.QuickLogWidgetUpdater
 import cn.com.omnimind.bot.terminal.EmbeddedTerminalRuntime
 import cn.com.omnimind.bot.update.AppUpdateManager
@@ -74,6 +75,7 @@ class App : BaseApplication() {
         Res.application = this
 
         MMKV.initialize(this)
+        OfficialOmniPluginProviders.register()
         AgentPromptSettingsStore.initializeAndCleanupLegacyFiles(this)
         LegacyLocalModelDataCleanup.start(this)
         setupUncaughtExceptionHandler()
