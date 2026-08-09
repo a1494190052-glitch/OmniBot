@@ -38,6 +38,7 @@ import com.rk.terminal.ui.routes.MainActivityRoutes
 import com.rk.terminal.ui.screens.terminal.TerminalScreen
 import com.rk.terminal.ui.screens.terminal.terminalView
 import com.rk.terminal.ui.theme.KarbonTheme
+import com.rk.terminal.util.PredictiveBackGate
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import java.io.File
@@ -138,6 +139,7 @@ class MainActivity : ComponentActivity() {
     var isKeyboardVisible = false
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        PredictiveBackGate.install(this)
         enableEdgeToEdge()
         requestPermission()
 
