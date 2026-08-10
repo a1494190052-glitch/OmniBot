@@ -335,8 +335,8 @@ class _ExperienceMiscSettingPageState
           ),
           _SettingItem(
             icon: Icons.school_outlined,
-            title: context.trLegacy('初次使用教程'),
-            subtitle: context.trLegacy('重新查看应用首次启动时的引导页面'),
+            title: context.trLegacy('快速开始'),
+            subtitle: context.trLegacy('重新查看基础配置与可选插件说明'),
             onTap: () {
               GoRouterManager.push('/home/first_use_tutorial');
             },

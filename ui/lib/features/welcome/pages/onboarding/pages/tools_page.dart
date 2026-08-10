@@ -30,15 +30,48 @@ class OnboardingToolsPage extends StatelessWidget {
       ),
       scrollController: scrollController,
       children: [
+        const _OptionalCapabilitySummary(),
+        const SizedBox(height: 24),
         Wrap(
           spacing: 10,
           runSpacing: 10,
           children: optionalTools
-              .map((tool) => _OptionalToolChip(tool: tool, controller: controller))
+              .map(
+                (tool) => _OptionalToolChip(tool: tool, controller: controller),
+              )
               .toList(growable: false),
         ),
         const SizedBox(height: 26),
         _SetupSummary(controller: controller),
+      ],
+    );
+  }
+}
+
+class _OptionalCapabilitySummary extends StatelessWidget {
+  const _OptionalCapabilitySummary();
+
+  @override
+  Widget build(BuildContext context) {
+    final palette = context.omniPalette;
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Icon(LucideIcons.blocks, size: 18, color: palette.accentPrimary),
+        const SizedBox(width: 10),
+        Expanded(
+          child: Text(
+            onbTr(
+              context,
+              '基础配置完成后，可从插件市场按需安装 GUI 操作和 Vibe Builder。插件会在安装时说明权限与配置，不影响先开始聊天。',
+              'After setup, install GUI automation and Vibe Builder from the plugin market when needed. Each plugin explains its permissions and setup during installation, so you can start chatting first.',
+            ),
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+              color: palette.textSecondary,
+              height: 1.55,
+            ),
+          ),
+        ),
       ],
     );
   }
@@ -57,7 +90,8 @@ class _OptionalToolChip extends StatelessWidget {
     return Semantics(
       button: true,
       selected: selected,
-      label: '${tool.label}, ${onbTr(context, tool.descriptionZh, tool.descriptionEn)}',
+      label:
+          '${tool.label}, ${onbTr(context, tool.descriptionZh, tool.descriptionEn)}',
       child: FilterChip(
         key: ValueKey<String>('tutorial-tool-${tool.id}'),
         selected: selected,
@@ -137,7 +171,11 @@ class _SetupSummary extends StatelessWidget {
       children: [
         Row(
           children: [
-            Icon(LucideIcons.listChecks, size: 17, color: palette.accentPrimary),
+            Icon(
+              LucideIcons.listChecks,
+              size: 17,
+              color: palette.accentPrimary,
+            ),
             const SizedBox(width: 8),
             Text(
               onbTr(context, '将要配置', 'Setup summary'),
