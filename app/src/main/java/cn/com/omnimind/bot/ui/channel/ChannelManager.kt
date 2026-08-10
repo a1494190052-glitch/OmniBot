@@ -28,6 +28,7 @@ class ChannelManager {
     private var browserSessionChannel: BrowserSessionChannel = BrowserSessionChannel()
     private var storageUsageChannel: StorageUsageChannel = StorageUsageChannel()
     private var agentRuntimeChannel: AgentRuntimeChannel = AgentRuntimeChannel()
+    private var accountChannel: AccountChannel = AccountChannel()
     fun getUIRouterChannel(): UIRouterChannel {
         return uiRouterChannel
     }
@@ -55,6 +56,7 @@ class ChannelManager {
         browserSessionChannel.setChannel(flutterEngine)
         storageUsageChannel.setChannel(flutterEngine)
         agentRuntimeChannel.setChannel(flutterEngine)
+        accountChannel.setChannel(flutterEngine)
     }
 
     fun onCreate(context: Context) {
@@ -93,6 +95,7 @@ class ChannelManager {
         browserSessionChannel.clear()
         storageUsageChannel.clear()
         agentRuntimeChannel.clear()
+        accountChannel.clear()
     }
 
 

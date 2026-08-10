@@ -92,6 +92,8 @@ void main() {
     );
     await tester.pumpAndSettle();
 
+    expect(find.text('账号与 AI 服务'), findsOneWidget);
+
     for (final title in <String>['模型与记忆', '服务与环境', '体验与外观', '权限与信息']) {
       final titleFinder = find.text(title);
       await tester.scrollUntilVisible(

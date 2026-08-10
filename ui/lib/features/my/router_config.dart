@@ -5,6 +5,7 @@ import 'package:ui/features/my/pages/theme_color/theme_color_page.dart';
 import 'package:ui/features/my/pages/about/about_page.dart';
 import 'package:ui/features/my/pages/about/ai_request_logs_page.dart';
 import 'package:ui/features/my/pages/about/runtime_logs_page.dart';
+import 'package:ui/features/my/pages/account/account_page.dart';
 
 /// My模块路由配置
 List<GoRoute> myRoutes = [
@@ -20,6 +21,16 @@ List<GoRoute> myRoutes = [
     path: '/my/theme',
     name: 'my/theme',
     builder: (context, state) => const ThemeColorPage(),
+  ),
+
+  GoRoute(
+    path: '/my/account',
+    name: 'my/account',
+    pageBuilder: (context, state) => GoRouterManager.buildActivitySlidePage(
+      key: state.pageKey,
+      name: 'my/account',
+      child: const AccountPage(),
+    ),
   ),
 
   // 关于我们页面

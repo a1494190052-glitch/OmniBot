@@ -1,5 +1,6 @@
 package cn.com.omnimind.baselib.llm
 
+import android.content.Context
 import cn.com.omnimind.baselib.util.OmniLog
 import cn.com.omnimind.baselib.util.OssIdentity
 import com.google.gson.Gson
@@ -45,6 +46,23 @@ object ModelProviderConfigStore {
 
     private val gson = Gson()
 
+    @Volatile
+    private var secretStore: ModelProviderSecretStore? = null
+
+    /**
+     * Must run after MMKV initialization and before provider configuration is used.
+     * Existing plaintext credentials are moved into Keystore-backed storage once.
+     */
+    @Synchronized
+    fun initialize(context: Context) {
+        if (secretStore != null) {
+            return
+        }
+        secretStore = EncryptedModelProviderSecretStore(context)
+        ModelProviderMigration.ensureMigrated()
+        migratePlaintextSecrets(MMKV.defaultMMKV())
+    }
+
     private data class StoredModelProviderProfile(
         @field:SerializedName(value = "id", alternate = ["a"])
         val id: String? = null,
@@ -75,7 +93,7 @@ object ModelProviderConfigStore {
         val mmkv = MMKV.defaultMMKV()
         val deletedOfficialProfileIds = readDeletedOfficialProfileIds(mmkv)
         val storedProfilesRaw = mmkv.decodeString(KEY_PROVIDER_PROFILES)
-        val decodedProfiles = decodeProfilesJson(storedProfilesRaw)
+        val decodedProfiles = hydrateProfileSecrets(decodeProfilesJson(storedProfilesRaw))
         if (shouldPreserveStoredProfiles(storedProfilesRaw, decodedProfiles)) {
             OmniLog.w(TAG, "provider profiles payload is not empty but could not be decoded")
             return defaultProfiles(deletedOfficialProfileIds)
@@ -389,7 +407,7 @@ object ModelProviderConfigStore {
             ?.trim()
             ?.let(::normalizeBaseUrl)
             .orEmpty()
-        val apiKey = mmkv.decodeString(KEY_PROVIDER_API_KEY)?.trim().orEmpty()
+        val apiKey = readLegacyApiKey(mmkv, KEY_PROVIDER_API_KEY)
         return ModelProviderConfig(
             baseUrl = baseUrl,
             apiKey = apiKey,
@@ -402,7 +420,7 @@ object ModelProviderConfigStore {
         val baseUrl = readScopedString(mmkv, KEY_PROVIDER_BASE_URL, userId)
             ?.let(::normalizeBaseUrl)
             .orEmpty()
-        val apiKey = readScopedString(mmkv, KEY_PROVIDER_API_KEY, userId).orEmpty()
+        val apiKey = readLegacyApiKey(mmkv, scopedKey(KEY_PROVIDER_API_KEY, userId))
         return ModelProviderConfig(
             baseUrl = baseUrl,
             apiKey = apiKey,
@@ -419,6 +437,13 @@ object ModelProviderConfigStore {
         return mmkv.decodeString(scopedKey(key, userId))
             ?.trim()
             ?.takeIf { it.isNotEmpty() }
+    }
+
+    private fun readLegacyApiKey(mmkv: MMKV, storageKey: String): String {
+        return mmkv.decodeString(storageKey)
+            ?.trim()
+            ?.takeIf { it.isNotEmpty() }
+            ?: secretStore?.readLegacy(storageKey).orEmpty()
     }
 
     private fun ensureEditingProfile(
@@ -670,6 +695,102 @@ object ModelProviderConfigStore {
         return gson.toJson(normalized)
     }
 
+    /** Encodes only non-secret provider metadata for storage in MMKV. */
+    internal fun encodeProfilesMetadataJson(profiles: List<ModelProviderProfile>): String {
+        return encodeProfilesJson(
+            profiles.map { profile ->
+                profile.copy(apiKey = "", customHeaders = emptyMap())
+            }
+        )
+    }
+
+    internal fun mergeProfileSecrets(
+        profile: ModelProviderProfile,
+        secrets: ModelProviderSecrets?
+    ): ModelProviderProfile {
+        if (secrets == null) {
+            return profile
+        }
+        return profile.copy(
+            apiKey = secrets.apiKey,
+            customHeaders = ProviderCustomHeaderUtils.sanitizeCustomHeaders(
+                secrets.customHeaders
+            )
+        )
+    }
+
+    private fun hydrateProfileSecrets(
+        profiles: List<ModelProviderProfile>
+    ): List<ModelProviderProfile> {
+        val store = requireSecretStore()
+        return profiles.map { profile ->
+            mergeProfileSecrets(profile, store.readProfile(profile.id))
+        }
+    }
+
+    private fun requireSecretStore(): ModelProviderSecretStore {
+        return checkNotNull(secretStore) {
+            "ModelProviderConfigStore.initialize(context) must run before provider access"
+        }
+    }
+
+    private fun migratePlaintextSecrets(mmkv: MMKV) {
+        val store = requireSecretStore()
+        val rawProfiles = mmkv.decodeString(KEY_PROVIDER_PROFILES)
+        val decodedProfiles = decodeProfilesJson(rawProfiles)
+        if (!shouldPreserveStoredProfiles(rawProfiles, decodedProfiles)) {
+            decodedProfiles.forEach { profile ->
+                val legacySecrets = ModelProviderSecrets(
+                    apiKey = profile.apiKey,
+                    customHeaders = profile.customHeaders
+                )
+                val existingSecrets = store.readProfile(profile.id)
+                val mergedSecrets = ModelProviderSecrets(
+                    apiKey = existingSecrets?.apiKey
+                        ?.takeIf { it.isNotBlank() }
+                        ?: legacySecrets.apiKey,
+                    customHeaders = existingSecrets?.customHeaders
+                        ?.takeIf { it.isNotEmpty() }
+                        ?: legacySecrets.customHeaders
+                )
+                store.writeProfile(profile.id, mergedSecrets)
+            }
+            if (rawProfilesHasSecretFields(rawProfiles)) {
+                check(mmkv.encode(KEY_PROVIDER_PROFILES, encodeProfilesMetadataJson(decodedProfiles))) {
+                    "failed to remove plaintext model-provider credentials"
+                }
+            }
+        }
+
+        val legacyApiKeyStorageKeys = mmkv.allKeys()
+            ?.filter { key ->
+                key == KEY_PROVIDER_API_KEY || key.endsWith("_$KEY_PROVIDER_API_KEY")
+            }
+            .orEmpty()
+        legacyApiKeyStorageKeys.forEach { storageKey ->
+            val plaintext = mmkv.decodeString(storageKey)?.trim().orEmpty()
+            if (plaintext.isNotEmpty()) {
+                store.writeLegacy(storageKey, plaintext)
+                check(store.readLegacy(storageKey) == plaintext) {
+                    "failed to verify encrypted legacy model-provider credential"
+                }
+            }
+            mmkv.removeValueForKey(storageKey)
+        }
+    }
+
+    private fun rawProfilesHasSecretFields(raw: String?): Boolean {
+        val normalized = raw?.trim()?.takeIf { it.isNotEmpty() } ?: return false
+        return runCatching {
+            val root = JsonParser.parseString(normalized)
+            root.isJsonArray && root.asJsonArray.any { element ->
+                element.isJsonObject && listOf("apiKey", "d", "customHeaders", "e").any {
+                    fieldName -> element.asJsonObject.has(fieldName)
+                }
+            }
+        }.getOrDefault(false)
+    }
+
     internal fun shouldPreserveStoredProfiles(
         raw: String?,
         decodedProfiles: List<ModelProviderProfile>
@@ -704,7 +825,7 @@ object ModelProviderConfigStore {
 
     private fun readProfilesForUpdate(mmkv: MMKV): List<ModelProviderProfile> {
         val raw = mmkv.decodeString(KEY_PROVIDER_PROFILES)
-        val profiles = decodeProfilesJson(raw)
+        val profiles = hydrateProfileSecrets(decodeProfilesJson(raw))
         check(!shouldPreserveStoredProfiles(raw, profiles)) {
             "provider profiles payload cannot be updated safely"
         }
@@ -724,7 +845,20 @@ object ModelProviderConfigStore {
     }
 
     private fun writeProfiles(mmkv: MMKV, profiles: List<ModelProviderProfile>) {
-        mmkv.encode(KEY_PROVIDER_PROFILES, encodeProfilesJson(profiles))
+        val store = requireSecretStore()
+        profiles.forEach { profile ->
+            store.writeProfile(
+                profile.id,
+                ModelProviderSecrets(
+                    apiKey = profile.apiKey,
+                    customHeaders = profile.customHeaders
+                )
+            )
+        }
+        check(mmkv.encode(KEY_PROVIDER_PROFILES, encodeProfilesMetadataJson(profiles))) {
+            "failed to store model-provider metadata"
+        }
+        store.deleteProfilesExcept(profiles.mapTo(HashSet()) { it.id })
     }
 
     internal fun decodeDeletedOfficialProfileIds(raw: String?): Set<String> {
@@ -782,7 +916,14 @@ object ModelProviderConfigStore {
 
     private fun syncLegacyFlatConfig(mmkv: MMKV, profile: ModelProviderProfile) {
         mmkv.encode(KEY_PROVIDER_BASE_URL, profile.baseUrl)
-        mmkv.encode(KEY_PROVIDER_API_KEY, profile.apiKey)
+        requireSecretStore().writeProfile(
+            profile.id,
+            ModelProviderSecrets(
+                apiKey = profile.apiKey,
+                customHeaders = profile.customHeaders
+            )
+        )
+        mmkv.removeValueForKey(KEY_PROVIDER_API_KEY)
     }
 
     internal object ModelProviderMigration {
@@ -796,7 +937,7 @@ object ModelProviderConfigStore {
 
             try {
                 val storedProfilesRaw = mmkv.decodeString(KEY_PROVIDER_PROFILES)
-                val existingProfiles = decodeProfilesJson(storedProfilesRaw)
+                val existingProfiles = hydrateProfileSecrets(decodeProfilesJson(storedProfilesRaw))
                 if (shouldPreserveStoredProfiles(storedProfilesRaw, existingProfiles)) {
                     OmniLog.w(TAG, "skip provider migration to preserve undecodable profiles")
                     return

@@ -23,6 +23,7 @@ val omnibotImageBaseUrl = prop("OMNIBOT_IMAGE_BASE_URL")
 val omnibotImageModel = prop("OMNIBOT_IMAGE_MODEL")
     .ifBlank { "gpt-image-2" }
 val omnibotImageApiKey = prop("OMNIBOT_IMAGE_API_KEY")
+val omnibotAiGatewayUrl = prop("OMNIBOT_AI_GATEWAY_URL")
 
 val webChatSourceDir = rootProject.file("webchat")
 val webChatDistDir = File(webChatSourceDir, "dist")
@@ -93,6 +94,7 @@ android {
         buildConfigField("String", "IMAGE_BASE_URL", buildConfigString(omnibotImageBaseUrl))
         buildConfigField("String", "IMAGE_MODEL", buildConfigString(omnibotImageModel))
         buildConfigField("String", "IMAGE_API_KEY", buildConfigString(omnibotImageApiKey))
+        buildConfigField("String", "AI_GATEWAY_URL", buildConfigString(omnibotAiGatewayUrl))
 
 
         ndk {

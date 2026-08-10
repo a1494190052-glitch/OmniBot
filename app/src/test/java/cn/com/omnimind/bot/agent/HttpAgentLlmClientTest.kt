@@ -28,6 +28,50 @@ class HttpAgentLlmClientTest {
     }
 
     @Test
+    fun `platform 401 refreshes account session and retries exactly once`() = runBlocking {
+        val scope = CoroutineScope(Job() + Dispatchers.Default)
+        var requestCount = 0
+        var refreshCount = 0
+        try {
+            val client = HttpAgentLlmClient(
+                scope = scope,
+                modelOverride = testOverride(),
+                streamRequestOp = { _, _, listener, _, _, _, _, _, _, _ ->
+                    requestCount += 1
+                    val source = dummyEventSource()
+                    if (requestCount == 1) {
+                        listener.onFailure(source, null, unauthorizedResponse())
+                    } else {
+                        listener.onOpen(source, okResponse())
+                        listener.onEvent(
+                            source,
+                            null,
+                            "message",
+                            """{"choices":[{"delta":{"content":"ok"},"finish_reason":"stop"}]}"""
+                        )
+                        listener.onEvent(source, null, "message", "[DONE]")
+                    }
+                    source
+                },
+                refreshPlatformSessionOp = {
+                    refreshCount += 1
+                    true
+                },
+                streamIdleWatchdogMs = 5_000L,
+                json = json,
+            )
+
+            val turn = client.streamTurn(request = simpleRequest())
+
+            assertEquals("ok", turn.message.contentText())
+            assertEquals(2, requestCount)
+            assertEquals(1, refreshCount)
+        } finally {
+            scope.cancel()
+        }
+    }
+
+    @Test
     fun `closed stream without completion signal fails instead of silently succeeding`() = runBlocking {
         val scope = CoroutineScope(Job() + Dispatchers.Default)
         try {
@@ -305,6 +349,15 @@ class HttpAgentLlmClientTest {
             .protocol(Protocol.HTTP_1_1)
             .code(200)
             .message("OK")
+            .build()
+    }
+
+    private fun unauthorizedResponse(): Response {
+        return Response.Builder()
+            .request(Request.Builder().url("https://example.com").build())
+            .protocol(Protocol.HTTP_1_1)
+            .code(401)
+            .message("Unauthorized")
             .build()
     }
 

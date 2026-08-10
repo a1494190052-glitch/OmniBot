@@ -5,10 +5,15 @@
 -->
 <data-extraction-rules>
     <cloud-backup>
+        <exclude domain="sharedpref" path="omni_account_tokens.xml" />
+        <exclude domain="sharedpref" path="omni_model_provider_secrets.xml" />
         <!-- TODO: Use <include> and <exclude> to control what is backed up.
         <include .../>
         <exclude .../>
         -->
     </cloud-backup>
-    <device-transfer/>
+    <device-transfer>
+        <exclude domain="sharedpref" path="omni_account_tokens.xml" />
+        <exclude domain="sharedpref" path="omni_model_provider_secrets.xml" />
+    </device-transfer>
 </data-extraction-rules>
