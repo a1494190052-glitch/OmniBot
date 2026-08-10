@@ -27,6 +27,10 @@ class OmniPluginService {
     return _invokeState('install', <String, Object?>{'pluginId': pluginId});
   }
 
+  static Future<OmniPluginItem> update(String pluginId) async {
+    return _invokeState('update', <String, Object?>{'pluginId': pluginId});
+  }
+
   static Future<OmniPluginItem> setEnabled(
     String pluginId,
     bool enabled,
@@ -43,6 +47,41 @@ class OmniPluginService {
     });
   }
 
+  static Future<SandboxPluginDashboard> getDashboard(String pluginId) async {
+    final raw = await _channel.invokeMapMethod<dynamic, dynamic>(
+      'getDashboard',
+      <String, Object?>{'pluginId': pluginId},
+    );
+    if (raw == null) {
+      throw StateError('Plugin platform returned no dashboard for $pluginId');
+    }
+    return SandboxPluginDashboard.fromMap(raw);
+  }
+
+  static Future<Map<String, dynamic>> invokeSandbox(
+    String pluginId,
+    String method,
+    Map<String, dynamic> params,
+  ) async {
+    final raw = await _channel.invokeMapMethod<dynamic, dynamic>(
+      'sandboxInvoke',
+      <String, Object?>{
+        'pluginId': pluginId,
+        'method': method,
+        'params': params,
+      },
+    );
+    return Map<String, dynamic>.from(raw ?? const <String, dynamic>{});
+  }
+
+  static Future<Map<String, dynamic>> pinToHome(String pluginId) async {
+    final raw = await _channel.invokeMapMethod<dynamic, dynamic>(
+      'pinToHome',
+      <String, Object?>{'pluginId': pluginId},
+    );
+    return Map<String, dynamic>.from(raw ?? const <String, dynamic>{});
+  }
+
   static Future<OmniPluginItem> _invokeState(
     String method,
     Map<String, Object?> arguments,
@@ -55,5 +94,38 @@ class OmniPluginService {
       throw StateError('Plugin platform returned no state for $method');
     }
     return OmniPluginItem.fromMap(raw);
+  }
+}
+
+class SandboxPluginDashboard {
+  const SandboxPluginDashboard({
+    required this.pluginId,
+    required this.title,
+    required this.entryPath,
+    required this.rootPath,
+    required this.permissions,
+  });
+
+  final String pluginId;
+  final String title;
+  final String entryPath;
+  final String rootPath;
+  final Set<String> permissions;
+
+  bool get canUseXiaowan =>
+      permissions.contains('xiaowan') || permissions.contains('ai');
+
+  factory SandboxPluginDashboard.fromMap(Map<dynamic, dynamic> raw) {
+    return SandboxPluginDashboard(
+      pluginId: (raw['pluginId'] ?? '').toString(),
+      title: (raw['title'] ?? '').toString(),
+      entryPath: (raw['entryPath'] ?? '').toString(),
+      rootPath: (raw['rootPath'] ?? '').toString(),
+      permissions:
+          (raw['permissions'] as List?)
+              ?.map((value) => value.toString())
+              .toSet() ??
+          const <String>{},
+    );
   }
 }

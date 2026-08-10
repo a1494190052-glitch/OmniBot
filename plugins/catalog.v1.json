@@ -1,0 +1,37 @@
+{
+  "schemaVersion": 1,
+  "plugins": [
+    {
+      "id": "com.omnimind.vibe-project-builder",
+      "name": "Vibe Builder",
+      "version": "0.2.1",
+      "interfaceVersion": 1,
+      "description": "Build standalone phone-first Apps linked to Xiaowan, isolated data, and reusable backend connectors.",
+      "publisher": "OmniMind",
+      "kind": "runtime_bundle",
+      "downloadSizeBytes": 0,
+      "capabilities": [
+        "Standalone HTML Apps",
+        "SVG launcher icons",
+        "Installable Xiaowan Skills",
+        "Agent-callable business tools",
+        "Reusable backend connectors",
+        "Isolated optional SQLite storage"
+      ],
+      "settingsSchema": {},
+      "adapter": "sandbox_bundle",
+      "profiles": ["main"],
+      "runtimeSkill": {
+        "id": "vibe-project-builder",
+        "packagedAssetPath": "vibe-project/runtime-skill/vibe-project-builder",
+        "markerFile": "PACKAGED_RUNTIME_SKILL"
+      },
+      "presentation": {
+        "description": {
+          "zh": "启用后，Agent 可以生成带独立 HTML 界面和 SVG 桌面图标的小 App，并连接小万、工具与隔离数据。",
+          "en": "Enable the Agent to generate standalone HTML Apps with Xiaowan tools and isolated data."
+        }
+      }
+    }
+  ]
+}

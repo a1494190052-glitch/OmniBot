@@ -190,7 +190,7 @@ android {
 
     sourceSets {
         getByName("main") {
-            assets.srcDirs("src/main/assets", "../skills", webChatAssetsRootDir)
+            assets.srcDirs("src/main/assets", "../skills", "../plugins", webChatAssetsRootDir)
         }
     }
 
@@ -226,6 +226,7 @@ dependencies {
 //    implementation(project(":lib"))
 
     implementation(libs.androidx.core.ktx)
+    implementation(libs.androidsvg)
     implementation(libs.androidx.documentfile)
     implementation(libs.androidx.lifecycle.runtime.ktx)
     implementation(libs.androidx.lifecycle.livedata.ktx)

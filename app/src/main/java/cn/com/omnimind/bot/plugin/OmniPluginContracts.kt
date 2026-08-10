@@ -23,7 +23,8 @@ data class OmniPluginDescriptor(
     val kind: OmniPluginKind = OmniPluginKind.RUNTIME_BUNDLE,
     val downloadSizeBytes: Long = 0,
     val capabilities: List<String> = emptyList(),
-    val settingsSchema: JsonObject = JsonObject(emptyMap())
+    val settingsSchema: JsonObject = JsonObject(emptyMap()),
+    val presentation: JsonObject = JsonObject(emptyMap())
 )
 
 data class OmniPluginToolDefinition(
@@ -55,6 +56,8 @@ interface OmniPluginProvider {
     val descriptor: OmniPluginDescriptor
 
     suspend fun install() = Unit
+
+    suspend fun update() = install()
 
     suspend fun uninstall() = Unit
 

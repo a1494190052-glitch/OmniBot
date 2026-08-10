@@ -49,8 +49,10 @@ navigationFragment = "2.8.9"
 navigationUi = "2.8.9"
 palette = "1.0.0"
 shizuku = "13.1.5"
+androidSvg = "1.4"
 [libraries]
 agent-client-protocol = { module = "com.agentclientprotocol:acp", version.ref = "agentClientProtocol" }
+androidsvg = { module = "com.caverock:androidsvg-aar", version.ref = "androidSvg" }
 accompanist-systemuicontroller = { module = "com.google.accompanist:accompanist-systemuicontroller", version.ref = "accompanistSystemuicontroller" }
 anrwatchdog = { module = "com.github.anrwatchdog:anrwatchdog", version.ref = "anrwatchdog" }
 appcompat = { group = "androidx.appcompat", name = "appcompat", version.ref = "appcompat" }

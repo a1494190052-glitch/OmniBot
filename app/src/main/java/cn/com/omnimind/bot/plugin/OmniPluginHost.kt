@@ -5,11 +5,8 @@ import cn.com.omnimind.bot.agent.AgentToolDefinitions
 
 class OmniPluginHost private constructor(context: Context) {
     private val applicationContext = context.applicationContext
-    private val providers by lazy {
-        OmniPluginProviderRegistry.createProviders(applicationContext)
-    }
     private val platform = OmniPluginPlatform(
-        providerSource = { providers },
+        providerSource = { OmniPluginProviderRegistry.createProviders(applicationContext) },
         stateStore = SharedPreferencesOmniPluginStateStore(applicationContext),
         reservedToolNames =
             AgentToolDefinitions.reservedToolNames() + PluginDiscoveryToolHandler.TOOL_NAMES
@@ -18,6 +15,8 @@ class OmniPluginHost private constructor(context: Context) {
     suspend fun list(): List<OmniPluginState> = platform.list()
 
     suspend fun install(pluginId: String): OmniPluginState = platform.install(pluginId)
+
+    suspend fun update(pluginId: String): OmniPluginState = platform.update(pluginId)
 
     suspend fun setEnabled(pluginId: String, enabled: Boolean): OmniPluginState {
         return platform.setEnabled(pluginId, enabled)

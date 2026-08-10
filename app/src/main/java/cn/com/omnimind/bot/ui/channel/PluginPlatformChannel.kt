@@ -3,6 +3,9 @@ package cn.com.omnimind.bot.ui.channel
 import android.content.Context
 import cn.com.omnimind.bot.plugin.OmniPluginHost
 import cn.com.omnimind.bot.plugin.OmniPluginState
+import cn.com.omnimind.bot.plugin.sandbox.SandboxPluginBridgeRuntime
+import cn.com.omnimind.bot.plugin.sandbox.SandboxPluginPool
+import cn.com.omnimind.bot.plugin.sandbox.SandboxPluginShortcutManager
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
@@ -50,6 +53,7 @@ class PluginPlatformChannel {
                 when (call.method) {
                     "list" -> host.list().map(::stateToMap)
                     "install" -> stateToMap(host.install(call.requirePluginId()))
+                    "update" -> stateToMap(host.update(call.requirePluginId()))
                     "setEnabled" -> stateToMap(
                         host.setEnabled(
                             pluginId = call.requirePluginId(),
@@ -57,8 +61,31 @@ class PluginPlatformChannel {
                                 ?: throw IllegalArgumentException("enabled is required")
                         )
                     )
+                    "getDashboard" -> {
+                        val pluginId = call.requirePluginId()
+                        requireEnabled(host, pluginId)
+                        SandboxPluginPool(safeContext).dashboard(pluginId)
+                    }
+                    "sandboxInvoke" -> {
+                        val pluginId = call.requirePluginId()
+                        requireEnabled(host, pluginId)
+                        SandboxPluginBridgeRuntime(safeContext).invoke(
+                            pluginId = pluginId,
+                            method = call.argument<String>("method")?.trim().orEmpty(),
+                            params = call.argument<Map<*, *>>("params") ?: emptyMap<Any?, Any?>(),
+                        )
+                    }
+                    "pinToHome" -> {
+                        val pluginId = call.requirePluginId()
+                        requireEnabled(host, pluginId)
+                        SandboxPluginShortcutManager(safeContext)
+                            .pinOrUpdate(pluginId)
+                            .toMap()
+                    }
                     "uninstall" -> {
-                        host.uninstall(call.requirePluginId())
+                        val pluginId = call.requirePluginId()
+                        SandboxPluginShortcutManager(safeContext).disable(pluginId)
+                        host.uninstall(pluginId)
                         true
                     }
                     else -> throw NotImplementedError(call.method)
@@ -82,6 +109,14 @@ class PluginPlatformChannel {
             ?: throw IllegalArgumentException("pluginId is required")
     }
 
+    private suspend fun requireEnabled(host: OmniPluginHost, pluginId: String) {
+        val state = host.list().firstOrNull { it.descriptor.id == pluginId }
+            ?: throw IllegalArgumentException("Unknown plugin: $pluginId")
+        require(state.installed && state.enabled) {
+            "Plugin must be installed and enabled: $pluginId"
+        }
+    }
+
     private fun stateToMap(state: OmniPluginState): Map<String, Any?> {
         val descriptor = state.descriptor
         return mapOf(
@@ -95,6 +130,7 @@ class PluginPlatformChannel {
             "downloadSizeBytes" to descriptor.downloadSizeBytes,
             "capabilities" to descriptor.capabilities,
             "settingsSchema" to descriptor.settingsSchema.toPlatformValue(),
+            "presentation" to descriptor.presentation.toPlatformValue(),
             "installed" to state.installed,
             "enabled" to state.enabled,
             "compatible" to state.compatible,

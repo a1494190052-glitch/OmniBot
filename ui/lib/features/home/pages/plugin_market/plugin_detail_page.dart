@@ -77,6 +77,14 @@ class _PluginDetailPageState extends State<PluginDetailPage> {
     );
   }
 
+  Future<void> _openDashboard() async {
+    final plugin = _plugin;
+    if (plugin == null) return;
+    await context.push<void>(
+      '/home/plugin_dashboard?pluginId=${Uri.encodeQueryComponent(plugin.id)}',
+    );
+  }
+
   Future<void> _runStateAction(
     Future<OmniPluginItem> Function() action, {
     required String successMessage,
@@ -365,6 +373,7 @@ class _PluginDetailPageState extends State<PluginDetailPage> {
 
   Widget _buildBottomActions(OmniPluginItem plugin) {
     final palette = context.omniPalette;
+    final hasDashboard = plugin.presentation['dashboard'] is Map;
     return Material(
       color: context.isDarkTheme ? palette.surfacePrimary : Colors.white,
       child: SafeArea(
@@ -372,44 +381,64 @@ class _PluginDetailPageState extends State<PluginDetailPage> {
         child: Padding(
           padding: const EdgeInsets.fromLTRB(20, 12, 20, 14),
           child: plugin.installed
-              ? Row(
+              ? Column(
+                  mainAxisSize: MainAxisSize.min,
                   children: [
-                    Expanded(
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            context.l10n.pluginEnableTitle,
-                            style: TextStyle(
-                              color: palette.textPrimary,
-                              fontSize: 14,
-                              fontWeight: FontWeight.w500,
-                            ),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                context.l10n.pluginEnableTitle,
+                                style: TextStyle(
+                                  color: palette.textPrimary,
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.w500,
+                                ),
+                              ),
+                              const SizedBox(height: 2),
+                              Text(
+                                context.l10n.pluginEnableDescription,
+                                style: TextStyle(
+                                  color: palette.textTertiary,
+                                  fontSize: 11,
+                                ),
+                              ),
+                            ],
                           ),
-                          const SizedBox(height: 2),
-                          Text(
-                            context.l10n.pluginEnableDescription,
-                            style: TextStyle(
-                              color: palette.textTertiary,
-                              fontSize: 11,
-                            ),
+                        ),
+                        TextButton(
+                          onPressed: _busy ? null : _uninstall,
+                          style: TextButton.styleFrom(
+                            foregroundColor: AppColors.alertRed,
                           ),
-                        ],
+                          child: Text(context.l10n.pluginUninstall),
+                        ),
+                        const SizedBox(width: 4),
+                        Switch.adaptive(
+                          value: plugin.enabled,
+                          onChanged: _busy || !plugin.compatible
+                              ? null
+                              : _toggle,
+                        ),
+                      ],
+                    ),
+                    if (hasDashboard) ...[
+                      const SizedBox(height: 8),
+                      SizedBox(
+                        width: double.infinity,
+                        child: FilledButton.tonalIcon(
+                          onPressed: _busy || !plugin.enabled
+                              ? null
+                              : _openDashboard,
+                          icon: const Icon(Icons.dashboard_outlined),
+                          label: const Text('Open Dashboard'),
+                        ),
                       ),
-                    ),
-                    TextButton(
-                      onPressed: _busy ? null : _uninstall,
-                      style: TextButton.styleFrom(
-                        foregroundColor: AppColors.alertRed,
-                      ),
-                      child: Text(context.l10n.pluginUninstall),
-                    ),
-                    const SizedBox(width: 4),
-                    Switch.adaptive(
-                      value: plugin.enabled,
-                      onChanged: _busy || !plugin.compatible ? null : _toggle,
-                    ),
+                    ],
                   ],
                 )
               : SizedBox(

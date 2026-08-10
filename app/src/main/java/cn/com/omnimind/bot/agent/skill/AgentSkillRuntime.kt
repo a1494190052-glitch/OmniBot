@@ -311,10 +311,21 @@ class SkillIndexService(
 
     fun installSkillFromDirectory(sourcePath: String): SkillIndexEntry {
         val sourceDir = File(sourcePath).canonicalFile
+        return installSkillFromDirectory(sourcePath, sourceDir.name)
+    }
+
+    internal fun installSkillFromDirectory(
+        sourcePath: String,
+        targetDirectoryName: String,
+    ): SkillIndexEntry {
+        require(SKILL_TARGET_DIRECTORY.matches(targetDirectoryName)) {
+            "skill target directory 非法：$targetDirectoryName"
+        }
+        val sourceDir = File(sourcePath).canonicalFile
         require(sourceDir.isDirectory) { "skill source 必须是目录" }
         val skillFile = File(sourceDir, "SKILL.md")
         require(skillFile.exists()) { "skill source 缺少 SKILL.md" }
-        val targetDir = File(workspaceManager.skillsRoot(), sourceDir.name)
+        val targetDir = File(workspaceManager.skillsRoot(), targetDirectoryName)
         copyRecursively(sourceDir, targetDir)
         val entry = buildInstalledEntry(
             skillDir = targetDir,
@@ -611,6 +622,10 @@ class SkillIndexService(
             OFFICIAL_SOURCE -> 1
             else -> 2
         }
+    }
+
+    private companion object {
+        val SKILL_TARGET_DIRECTORY = Regex("^[a-z0-9][a-z0-9-]{0,79}$")
     }
 }
 

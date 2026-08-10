@@ -44,6 +44,28 @@ class OmniPluginPlatform(
         stateFor(provider)
     }
 
+    suspend fun update(pluginId: String): OmniPluginState = mutex.withLock {
+        ensureInitialized()
+        val provider = requireProvider(pluginId)
+        requireCompatible(provider.descriptor)
+        val current = storedStates[pluginId]
+            ?: throw IllegalArgumentException("Plugin $pluginId is not installed")
+        val active = activePlugins.remove(pluginId)
+        if (current.enabled) active?.plugin?.onDisable()
+        try {
+            provider.update()
+            if (current.enabled) activePlugins[pluginId] = activate(provider)
+            errors.remove(pluginId)
+        } catch (error: Throwable) {
+            if (current.enabled) {
+                runCatching { active?.plugin?.onEnable() }
+                if (active != null) activePlugins[pluginId] = active
+            }
+            throw error
+        }
+        stateFor(provider)
+    }
+
     suspend fun setEnabled(pluginId: String, enabled: Boolean): OmniPluginState = mutex.withLock {
         ensureInitialized()
         val provider = requireProvider(pluginId)
