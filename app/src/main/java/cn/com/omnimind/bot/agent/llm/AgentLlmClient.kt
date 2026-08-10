@@ -473,6 +473,14 @@ class HttpAgentLlmClient(
                 if (!completed.compareAndSet(false, true)) return
                 cancelWatchdog()
                 val responseBody = extractResponseBody(response)
+                parseSuccessfulNonStreamingChatCompletionTurn(
+                    statusCode = response?.code,
+                    responseBody = responseBody,
+                    routeInfo = routeInfo,
+                )?.let { turn ->
+                    streamDone.complete(turn)
+                    return
+                }
                 val reason = extractErrorReason(responseBody)
                     ?: sanitizeReason(t?.message)
                     ?: "unknown stream failure"
@@ -508,6 +516,28 @@ class HttpAgentLlmClient(
             emissionQueue.close()
             runCatching { emissionJob.join() }
         }
+    }
+
+    private fun parseSuccessfulNonStreamingChatCompletionTurn(
+        statusCode: Int?,
+        responseBody: String?,
+        routeInfo: HttpController.ChatCompletionRouteInfo,
+    ): ChatCompletionTurn? {
+        if (statusCode == null || statusCode !in 200..299 || responseBody.isNullOrBlank()) {
+            return null
+        }
+        return runCatching {
+            val accumulator = AgentLlmStreamAccumulator(
+                json = json,
+                includeReasoningInAssistantMessage = routeInfo.requiresReasoningEcho,
+                bufferLeadingTextUntilInlineThinkTag = shouldBufferLeadingInlineThinkTag(routeInfo),
+                guardLeadingReasoningLeak = shouldGuardNvidiaKimiReasoningLeak(routeInfo),
+            )
+            accumulator.consume(responseBody)
+            accumulator.buildTurn().copy(resolvedModel = routeInfo.resolvedModel).also { turn ->
+                enforceReasoningEchoIfRequired(turn, routeInfo)
+            }
+        }.getOrNull()
     }
 
     private fun enforceReasoningEchoIfRequired(

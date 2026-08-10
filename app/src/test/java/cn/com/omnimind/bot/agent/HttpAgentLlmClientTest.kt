@@ -12,6 +12,7 @@ import kotlinx.serialization.json.Json
 import okhttp3.Protocol
 import okhttp3.Request
 import okhttp3.Response
+import okhttp3.ResponseBody.Companion.toResponseBody
 import okhttp3.sse.EventSource
 import okhttp3.sse.EventSourceListener
 import org.junit.Assert.assertEquals
@@ -25,6 +26,45 @@ class HttpAgentLlmClientTest {
         isLenient = true
         encodeDefaults = true
         explicitNulls = false
+    }
+
+    @Test
+    fun `successful non streaming chat completion body returns tool call`() = runBlocking {
+        val scope = CoroutineScope(Job() + Dispatchers.Default)
+        try {
+            val client = HttpAgentLlmClient(
+                scope = scope,
+                modelOverride = testOverride(),
+                resolveRouteInfoOp = { model, _, _, _, _, protocolType, _ ->
+                    routeInfo(
+                        requestedModel = model,
+                        resolvedModel = "GLM-5.1",
+                        protocolType = protocolType ?: "openai_compatible",
+                        requiresReasoningEcho = false,
+                    )
+                },
+                streamRequestOp = { _, _, listener, _, _, _, _, _, _, _ ->
+                    val source = dummyEventSource()
+                    listener.onFailure(
+                        source,
+                        IllegalStateException("Expected text/event-stream"),
+                        okResponse(
+                            """{"id":"chatcmpl-1","model":"GLM-5.1","choices":[{"finish_reason":"tool_calls","index":0,"message":{"content":"","role":"assistant","tool_calls":[{"index":0,"id":"call-1","type":"function","function":{"name":"open_app","arguments":"{\"package_name\":\"com.android.settings\"}"}}]}}],"usage":{"prompt_tokens":120,"completion_tokens":15,"total_tokens":135}}""",
+                        ),
+                    )
+                    source
+                },
+                json = json,
+            )
+
+            val turn = client.streamTurn(request = simpleRequest())
+
+            assertEquals("GLM-5.1", turn.resolvedModel)
+            assertEquals("tool_calls", turn.finishReason)
+            assertEquals("open_app", turn.message.toolCalls?.single()?.function?.name)
+        } finally {
+            scope.cancel()
+        }
     }
 
     @Test
@@ -360,12 +400,17 @@ class HttpAgentLlmClientTest {
         }
     }
 
-    private fun okResponse(): Response {
+    private fun okResponse(body: String? = null): Response {
         return Response.Builder()
             .request(Request.Builder().url("https://example.com").build())
             .protocol(Protocol.HTTP_1_1)
             .code(200)
             .message("OK")
+            .apply {
+                if (body != null) {
+                    body(body.toResponseBody())
+                }
+            }
             .build()
     }
 
