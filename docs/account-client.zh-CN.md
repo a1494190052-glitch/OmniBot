@@ -24,15 +24,13 @@ AccountApiClient ──HTTPS──> omni-account
 
 ## 服务地址
 
-App 使用构建属性 `OMNIBOT_BASE_URL`：
+`develop` 调试版本和 `production` 正式版本均默认使用账号品牌域名：
 
 ```properties
-OMNIBOT_BASE_URL=https://你们对外的品牌域名
+OMNIBOT_BASE_URL=https://account.omnimind.com.cn
 ```
 
-正式版应填写 HTTPS 品牌域名，由反向代理把 `/v1/auth/*` 和 `/v1/me/*` 转发到内部账号服务。不要在客户端配置 New API 的真实内部地址。
-
-开发环境如果暂时未配置该属性，账号功能保持禁用，App 其他现有功能仍可运行。
+打包时仍可通过同名构建属性覆盖该默认值，以便切换部署环境。反向代理负责把 `/v1/auth/*` 和 `/v1/me/*` 转发到内部账号服务。不要在客户端配置 New API 的真实内部地址。
 
 ## 已接入的接口
 

@@ -86,10 +86,12 @@ inside `.omni/data` migrate automatically on first access.
 
 The repository maintains one host implementation and two packaging profiles:
 
-- `bash scripts/build-main-apk.sh` builds the normal `main` profile. It exposes
+- `./gradlew assembleDevelopStandardDebug -POMNIBOT_PROFILE=main
+  -Ptarget=lib/main_standard.dart` builds the normal `main` profile. It exposes
   the OmniFlow catalog entry but installs it only on demand from the plugin
   market; no OmniFlow or investor runtime payload is embedded in the APK.
-- `bash scripts/build-foolproof-apk.sh` builds the `investor` profile. It keeps
+- `./gradlew assembleDevelopStandardDebug -POMNIBOT_PROFILE=investor
+  -Ptarget=lib/main_standard.dart` builds the `investor` profile. It keeps
   the complete packaged plugin catalog and enables all official demo plugins
   on first launch.
 

@@ -25,6 +25,7 @@ val omnibotImageBaseUrl = prop("OMNIBOT_IMAGE_BASE_URL")
 val omnibotImageModel = prop("OMNIBOT_IMAGE_MODEL")
     .ifBlank { "gpt-image-2" }
 val omnibotImageApiKey = prop("OMNIBOT_IMAGE_API_KEY")
+val omnibotBaseUrl = prop("OMNIBOT_BASE_URL")
 val appUpdateWorkerUrl = prop("OMNIBOT_UPDATE_WORKER_URL")
 val llmThuApiBase = prop("LLMTHU_API_BASE")
     .ifBlank { "https://llmapi.paratera.com" }
@@ -37,6 +38,10 @@ require(omnibotProfile in setOf("main", "investor")) {
 }
 val isInvestorProfile = omnibotProfile == "investor"
 val omnibotAiGatewayUrl = prop("OMNIBOT_AI_GATEWAY_URL")
+val resolvedOmnibotBaseUrl = omnibotBaseUrl
+    .ifBlank { "https://account.omnimind.com.cn" }
+val resolvedOmnibotAiGatewayUrl = omnibotAiGatewayUrl
+    .ifBlank { "https://model-api.omnimind.com.cn" }
 
 val webChatSourceDir = rootProject.file("webchat")
 val webChatDistDir = File(webChatSourceDir, "dist")
@@ -155,7 +160,6 @@ android {
         buildConfigField("boolean", "DEFAULT_INSTALL_GUI_PLUGIN", "false")
         buildConfigField("boolean", "DEFAULT_INSTALL_ALL_PLUGINS", isInvestorProfile.toString())
         buildConfigField("boolean", "ALLOW_PACKAGED_PLUGIN_FALLBACK", isInvestorProfile.toString())
-        buildConfigField("String", "AI_GATEWAY_URL", buildConfigString(omnibotAiGatewayUrl))
         ndk {
             abiFilters.addAll(listOf("arm64-v8a"))
         }
@@ -167,13 +171,15 @@ android {
     productFlavors {
         create("develop") {
             dimension = "version"
-            buildConfigField("String", "BASE_URL", "\"${prop("OMNIBOT_BASE_URL")}\"")
+            buildConfigField("String", "BASE_URL", buildConfigString(resolvedOmnibotBaseUrl))
+            buildConfigField("String", "AI_GATEWAY_URL", buildConfigString(resolvedOmnibotAiGatewayUrl))
             buildConfigField("String", "APP_UPDATE_WORKER_URL", buildConfigString(appUpdateWorkerUrl))
         }
 
         create("production") {
             dimension = "version"
-            buildConfigField("String", "BASE_URL", "\"${prop("OMNIBOT_BASE_URL")}\"")
+            buildConfigField("String", "BASE_URL", buildConfigString(resolvedOmnibotBaseUrl))
+            buildConfigField("String", "AI_GATEWAY_URL", buildConfigString(resolvedOmnibotAiGatewayUrl))
             buildConfigField("String", "APP_UPDATE_WORKER_URL", buildConfigString(appUpdateWorkerUrl))
         }
 

@@ -23,19 +23,21 @@ flowchart LR
 
 ## 构建配置
 
-正式构建需要配置两个公开的 HTTPS 地址：
+`develop` 调试版本和 `production` 正式版本均默认使用两个公开的 HTTPS 地址：
 
 ```properties
-OMNIBOT_BASE_URL=https://api.example.com
-OMNIBOT_AI_GATEWAY_URL=https://api.example.com/ai
+OMNIBOT_BASE_URL=https://account.omnimind.com.cn
+OMNIBOT_AI_GATEWAY_URL=https://model-api.omnimind.com.cn
 ```
+
+打包时仍可通过同名构建属性覆盖默认值，以便连接其他部署环境。
 
 - `OMNIBOT_BASE_URL` 用于注册、登录和账号设置。
 - `OMNIBOT_AI_GATEWAY_URL` 是客户端可见的品牌网关前缀。主聊天会在其后请求 `/v1/chat/completions`。
 - 不要把 New API 的内网 IP、管理后台地址、普通 Token 或上游模型 Key 写入 App 构建配置。
 
 服务器反向代理应只把品牌路径转发到内网 New API，例如外部的
-`/ai/v1/chat/completions` 转发成 New API 的 `/v1/chat/completions`。
+`https://model-api.omnimind.com.cn/v1/chat/completions` 转发成 New API 的 `/v1/chat/completions`。
 
 任何手机需要访问的公网网址都可以被手机所有者观察到，因此品牌网关域名本身无法保密；真正需要隐藏、并且当前设计隐藏的是 New API 的内网地址、管理界面和全部上游密钥。
 

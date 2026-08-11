@@ -44,3 +44,6 @@ reports/
 /.codex-proot-test/
 /.pnpm-store/
 /omnibot-installed.png
+
+# Optional local on-device model checkout is not part of the host app.
+/third_party/omniinfer/

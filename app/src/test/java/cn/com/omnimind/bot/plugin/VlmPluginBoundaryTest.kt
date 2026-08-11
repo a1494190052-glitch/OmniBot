@@ -20,8 +20,6 @@ class VlmPluginBoundaryTest {
         )
         val appBuild = projectSource("app/build.gradle.kts")
         val terminalBuild = projectSource("ReTerminal/core/main/build.gradle.kts")
-        val mainBuild = projectSource("scripts/build-main-apk.sh")
-        val investorBuild = projectSource("scripts/build-foolproof-apk.sh")
 
         assertTrue(provider.contains("RuntimeBundleAdapter"))
         assertTrue(provider.contains("runtimeProvider.install(appContext, platform)"))
@@ -51,8 +49,6 @@ class VlmPluginBoundaryTest {
         assertTrue(terminalBuild.contains("it == \"investor\""))
         assertTrue(terminalBuild.contains("root.deleteRecursively()"))
         assertTrue(catalog.contains("\"profiles\": [\"investor\"]"))
-        assertTrue(mainBuild.contains("-POMNIBOT_PROFILE=main"))
-        assertTrue(investorBuild.contains("-POMNIBOT_PROFILE=investor"))
     }
 
     private fun projectSource(path: String): String {

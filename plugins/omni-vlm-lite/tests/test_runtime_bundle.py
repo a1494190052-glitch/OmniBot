@@ -23,7 +23,6 @@ PREBUILT_RUNTIME_MANIFEST_PATH = (
 )
 CATALOG_PATH = BUNDLE_ROOT.parents[2] / "catalog.v1.json"
 REPOSITORY_ROOT = BUNDLE_ROOT.parents[3]
-FOOLPROOF_BUILD_PATH = REPOSITORY_ROOT / "scripts/build-foolproof-apk.sh"
 OMNIFLOW_ROOT = REPOSITORY_ROOT.parent / "OmniFlow-exp"
 OMNITRANSFER_ROOT = REPOSITORY_ROOT.parent / "OmniTransfer"
 
@@ -45,12 +44,6 @@ def committed_file(repository: Path, relative: str, *, revision: str = "HEAD") -
 
 
 class RuntimeBundleTest(unittest.TestCase):
-    def test_foolproof_install_preserves_accessibility_authorization(self) -> None:
-        build_script = FOOLPROOF_BUILD_PATH.read_text(encoding="utf-8")
-
-        self.assertNotIn("am force-stop", build_script)
-        self.assertIn("android.intent.category.LAUNCHER", build_script)
-
     def test_runtime_release_manifest_supports_verified_hot_update(self) -> None:
         release = json.loads(PREBUILT_RUNTIME_MANIFEST_PATH.read_text(encoding="utf-8"))
         values = load_bootstrap().read_properties(

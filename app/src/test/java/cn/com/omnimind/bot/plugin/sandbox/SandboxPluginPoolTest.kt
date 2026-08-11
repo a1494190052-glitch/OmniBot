@@ -3,7 +3,6 @@ package cn.com.omnimind.bot.plugin.sandbox
 import java.io.File
 import java.nio.file.Files
 import kotlinx.coroutines.runBlocking
-import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import org.junit.Assert.assertEquals
@@ -482,27 +481,6 @@ class SandboxPluginPoolTest {
         assertTrue(result.errorMessage.orEmpty().contains("unsupported active"))
     }
 
-    @Test
-    fun `packaged dashboard demos use the shared tool link`() {
-        val root = Files.createTempDirectory("sandbox-packaged-demos").toFile()
-        val projectRoot = repositoryRoot()
-        val json = Json { ignoreUnknownKeys = true }
-        val pool = SandboxPluginPool(
-            rootDirectory = root,
-            databaseFactory = SchemaOnlyDatabaseFactory(),
-        )
-
-        listOf("fitness-checkin", "birth-profile", "basketball-career").forEach { name ->
-            val source = projectRoot.resolve("scripts/sandbox-demos/$name")
-            val manifest = json.decodeFromString<SandboxProjectManifest>(
-                source.resolve("manifest.json").readText(),
-            )
-            val result = pool.execute(SandboxPluginCommand.CheckProject(source, manifest))
-
-            assertTrue("$name: ${result.errorMessage}", result.success)
-        }
-    }
-
     private fun projectSource(): File =
         Files.createTempDirectory("vibe-project-source").toFile().apply {
             resolve("skill").mkdirs()
@@ -598,14 +576,6 @@ class SandboxPluginPoolTest {
         permissions = listOf(SandboxProjectPermission.DATABASE),
     )
 
-    private fun repositoryRoot(): File {
-        var current = File(requireNotNull(System.getProperty("user.dir"))).absoluteFile
-        while (!current.resolve("settings.gradle.kts").isFile) {
-            current = current.parentFile ?: error("Could not locate project root")
-        }
-        return current
-    }
-
     private class InMemoryDatabaseFactory : SandboxPluginDatabaseFactory {
         private val databases = linkedMapOf<String, InMemoryDatabase>()
 
@@ -613,27 +583,6 @@ class SandboxPluginPoolTest {
             databaseFile.parentFile?.mkdirs()
             databaseFile.createNewFile()
             return databases.getOrPut(databaseFile.canonicalPath) { InMemoryDatabase() }
-        }
-    }
-
-    private class SchemaOnlyDatabaseFactory : SandboxPluginDatabaseFactory {
-        override fun open(databaseFile: File): SandboxPluginDatabase = object : SandboxPluginDatabase {
-            override fun initialize(schemaSql: String) = Unit
-
-            override fun insert(table: String, values: Map<String, Any?>): Long = 1L
-
-            override fun query(
-                table: String,
-                where: Map<String, Any?>,
-                orderBy: String?,
-                limit: Int,
-            ): List<Map<String, Any?>> = emptyList()
-
-            override fun update(table: String, id: Any, values: Map<String, Any?>): Int = 0
-
-            override fun delete(table: String, id: Any): Int = 0
-
-            override fun close() = Unit
         }
     }
 

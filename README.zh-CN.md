@@ -199,16 +199,7 @@ Release APK 默认使用 `OMNIBOT_UPDATE_WORKER_URL` 作为 GUI VLM 代理地址
 并从更新 Worker 获取 Gelab 线路；Gelab 的上游 Key 只保存在 Worker。
 Debug APK 统一使用 `LLMTHU_API_BASE`、`LLMTHU_API_KEY` 和
 `LLMTHU_MODEL` 配置的 OpenAI-compatible LLM API，覆盖普通 LLM、上下文压缩
-和 `scene.vlm.operation.primary`。`scripts/install-dev.sh` 会在构建前验证
-这一套 Provider/模型，并在 APK 原地覆盖更新后重新绑定。
-
-仅修改 Vibe 项目的 HTML/CSS/JavaScript、Skill、工具、Schema 或 SVG 时，
-不要重装 APK，直接热发布即可保留应用数据和 Android/ColorOS 权限：
-
-```bash
-bash scripts/install-dev.sh --device <serial> \
-  --hot-project scripts/sandbox-demos/basketball-career
-```
+和 `scene.vlm.operation.primary`。
 
 ```bash
 cd ..
