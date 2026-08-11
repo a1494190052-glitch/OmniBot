@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:ui/features/my/pages/account/account_page.dart';
 
 void main() {
@@ -30,6 +31,7 @@ void main() {
 
     expect(find.text('账号服务尚未配置'), findsOneWidget);
     expect(find.textContaining('OMNIBOT_BASE_URL'), findsOneWidget);
+    expect(find.byIcon(LucideIcons.cloudOff), findsOneWidget);
   });
 
   testWidgets('shows login form for a configured signed-out user', (
@@ -50,11 +52,18 @@ void main() {
     expect(find.text('邮箱'), findsOneWidget);
     expect(find.text('密码'), findsOneWidget);
     expect(find.text('登录'), findsWidgets);
+    expect(find.byIcon(LucideIcons.mail), findsOneWidget);
+    expect(find.byIcon(LucideIcons.lockKeyhole), findsOneWidget);
   });
 
   testWidgets('shows email quota and platform mode after login', (
     tester,
   ) async {
+    tester.view.physicalSize = const Size(375, 812);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(channel, (call) async {
           if (call.method == 'getSessionState') {
@@ -89,7 +98,10 @@ void main() {
     expect(find.text('learner@example.com'), findsOneWidget);
     expect(find.text('1000'), findsOneWidget);
     expect(find.text('使用平台额度'), findsOneWidget);
-    expect(find.byIcon(Icons.radio_button_checked), findsOneWidget);
+    expect(find.byIcon(LucideIcons.userRound), findsOneWidget);
+    expect(find.byIcon(LucideIcons.coins), findsOneWidget);
+    expect(find.byIcon(LucideIcons.circleCheck), findsOneWidget);
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('disables platform mode while platform AI is unavailable', (
