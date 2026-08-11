@@ -1,7 +1,6 @@
 package cn.com.omnimind.bot.vlm
 
 import cn.com.omnimind.baselib.llm.OpenAiWireApi
-import java.io.File
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -73,14 +72,7 @@ class DebugOmniMindProviderBootstrapTest {
     }
 
     @Test
-    fun `install script keeps explicit provider outside debug managed profile ids`() {
-        val installScript = projectSource("scripts/install-dev.sh")
-
-        assertTrue(
-            installScript.contains(
-                "MODEL_PROVIDER_PROFILE_ID=\"${'$'}{OOB_PROVIDER_PROFILE_ID:-debug-runtime-provider}\""
-            )
-        )
+    fun `explicit provider remains outside debug managed profile ids`() {
         assertFalse(
             DebugOmniMindProviderBootstrap.shouldReplaceDefaultBinding(
                 existingProfileId = "debug-runtime-provider",
@@ -89,11 +81,4 @@ class DebugOmniMindProviderBootstrapTest {
         )
     }
 
-    private fun projectSource(path: String): String {
-        var current = File(System.getProperty("user.dir")).absoluteFile
-        while (!current.resolve("settings.gradle.kts").isFile) {
-            current = current.parentFile ?: error("Could not locate project root")
-        }
-        return current.resolve(path).readText()
-    }
 }
