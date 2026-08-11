@@ -23,14 +23,14 @@ flowchart LR
 
 ## 构建配置
 
-`production` 正式版本默认使用两个公开的 HTTPS 地址：
+`develop` 调试版本和 `production` 正式版本均默认使用两个公开的 HTTPS 地址：
 
 ```properties
 OMNIBOT_BASE_URL=https://account.omnimind.com.cn
 OMNIBOT_AI_GATEWAY_URL=https://model-api.omnimind.com.cn
 ```
 
-打包时仍可通过同名构建属性覆盖默认值；`develop` 开发版本没有默认值，需显式配置测试地址。
+打包时仍可通过同名构建属性覆盖默认值，以便连接其他部署环境。
 
 - `OMNIBOT_BASE_URL` 用于注册、登录和账号设置。
 - `OMNIBOT_AI_GATEWAY_URL` 是客户端可见的品牌网关前缀。主聊天会在其后请求 `/v1/chat/completions`。

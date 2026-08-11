@@ -25,9 +25,9 @@ val omnibotImageModel = prop("OMNIBOT_IMAGE_MODEL")
 val omnibotImageApiKey = prop("OMNIBOT_IMAGE_API_KEY")
 val omnibotBaseUrl = prop("OMNIBOT_BASE_URL")
 val omnibotAiGatewayUrl = prop("OMNIBOT_AI_GATEWAY_URL")
-val productionOmnibotBaseUrl = omnibotBaseUrl
+val resolvedOmnibotBaseUrl = omnibotBaseUrl
     .ifBlank { "https://account.omnimind.com.cn" }
-val productionOmnibotAiGatewayUrl = omnibotAiGatewayUrl
+val resolvedOmnibotAiGatewayUrl = omnibotAiGatewayUrl
     .ifBlank { "https://model-api.omnimind.com.cn" }
 
 val webChatSourceDir = rootProject.file("webchat")
@@ -112,15 +112,15 @@ android {
     productFlavors {
         create("develop") {
             dimension = "version"
-            buildConfigField("String", "BASE_URL", buildConfigString(omnibotBaseUrl))
-            buildConfigField("String", "AI_GATEWAY_URL", buildConfigString(omnibotAiGatewayUrl))
+            buildConfigField("String", "BASE_URL", buildConfigString(resolvedOmnibotBaseUrl))
+            buildConfigField("String", "AI_GATEWAY_URL", buildConfigString(resolvedOmnibotAiGatewayUrl))
             buildConfigField("String", "APP_UPDATE_WORKER_URL", "\"${prop("OMNIBOT_UPDATE_WORKER_URL")}\"")
         }
 
         create("production") {
             dimension = "version"
-            buildConfigField("String", "BASE_URL", buildConfigString(productionOmnibotBaseUrl))
-            buildConfigField("String", "AI_GATEWAY_URL", buildConfigString(productionOmnibotAiGatewayUrl))
+            buildConfigField("String", "BASE_URL", buildConfigString(resolvedOmnibotBaseUrl))
+            buildConfigField("String", "AI_GATEWAY_URL", buildConfigString(resolvedOmnibotAiGatewayUrl))
             buildConfigField("String", "APP_UPDATE_WORKER_URL", "\"${prop("OMNIBOT_UPDATE_WORKER_URL")}\"")
         }
 
