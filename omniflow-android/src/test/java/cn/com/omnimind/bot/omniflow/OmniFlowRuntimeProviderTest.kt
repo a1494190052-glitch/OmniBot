@@ -46,6 +46,20 @@ class OmniFlowRuntimeProviderTest {
         storeDirectory.deleteRecursively()
     }
 
+    @Test
+    fun `bridge contract mismatch triggers packaged runtime recovery`() {
+        assertTrue(
+            isOmniFlowRuntimeCompatibilityFailure(
+                IllegalStateException("omniflow_bridge_contract_mismatch:old")
+            )
+        )
+        assertFalse(
+            isOmniFlowRuntimeCompatibilityFailure(
+                IllegalStateException("omniflow_tool_call_failed")
+            )
+        )
+    }
+
     private class RefreshRecordingPlatform : OmniFlowPlatform {
         val refreshRequests = mutableListOf<Boolean>()
 

@@ -316,7 +316,7 @@ void main() {
   });
 
   testWidgets(
-    'GUI Agent defaults to bundled ChatGPT and can select custom provider',
+    'GUI Agent can switch from explicit official model to custom provider',
     (tester) async {
       tester.view.physicalSize = const Size(1080, 2000);
       tester.view.devicePixelRatio = 1.0;

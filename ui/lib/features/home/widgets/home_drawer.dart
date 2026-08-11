@@ -230,8 +230,6 @@ class HomeDrawerState extends ConsumerState<HomeDrawer> {
           children: [
             const SizedBox(height: 16),
             Expanded(child: _buildConversationSection()),
-            _buildGuideShortcut(),
-            const SizedBox(height: 4),
             _buildFooterShortcutBar(),
             // Aligns this row's bottom edge with the chat composer's bottom
             // edge (both sit this far above the shared SafeArea bottom).

@@ -215,6 +215,10 @@ def schema_digest_updates(
                 f"schema_manifest_file_missing_or_ambiguous:{filename}"
             )
         updates[key] = sha256_file(matches[0])
+    bridge_contract = schema_root / "oob/omniflow_android_bridge.v2.json"
+    if not bridge_contract.is_file():
+        raise RuntimeError("bridge_contract_schema_missing")
+    updates["bridge.contract.sha256"] = sha256_file(bridge_contract)
     return updates
 
 

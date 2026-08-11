@@ -48,6 +48,19 @@ class OmniFlowRuntimeProvider {
         }
     }
 
+    suspend fun preparePackaged(
+        context: Context,
+        platform: OmniFlowPlatform,
+    ): PreparedOmniFlowRuntime = prepareMutex.withLock {
+        prepared = null
+        prepareFresh(
+            appContext = context.applicationContext,
+            platform = platform,
+            refresh = false,
+            packagedOnly = true,
+        )
+    }
+
     suspend fun reclaim(
         context: Context,
         platform: OmniFlowPlatform,
@@ -60,10 +73,15 @@ class OmniFlowRuntimeProvider {
         appContext: Context,
         platform: OmniFlowPlatform,
         refresh: Boolean,
+        packagedOnly: Boolean = false,
     ): PreparedOmniFlowRuntime {
         val startedAt = System.currentTimeMillis()
         log("prepare_start refresh=$refresh")
-        val location = platform.resolveRuntimeSkill(appContext, refresh = refresh)
+        val location = if (packagedOnly) {
+            platform.resolvePackagedRuntimeSkill(appContext)
+        } else {
+            platform.resolveRuntimeSkill(appContext, refresh = refresh)
+        }
         log(
             "prepare_skill_resolved durationMs=${System.currentTimeMillis() - startedAt} " +
                 "source=${location.source}",

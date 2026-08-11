@@ -40,7 +40,6 @@ class ChatEmptyGreeting extends StatelessWidget {
   final ValueChanged<HomeQuickPrompt>? onQuickPromptSelected;
   final String? agentWorkspaceName;
   final VoidCallback? onAgentWorkspaceTap;
-  final VoidCallback? onGuideTap;
 
   const ChatEmptyGreeting({
     super.key,
@@ -53,7 +52,6 @@ class ChatEmptyGreeting extends StatelessWidget {
     this.onQuickPromptSelected,
     this.agentWorkspaceName,
     this.onAgentWorkspaceTap,
-    this.onGuideTap,
   });
 
   @override
@@ -194,49 +192,9 @@ class ChatEmptyGreeting extends StatelessWidget {
                 ),
               ),
             ),
-            if (onGuideTap != null) ...[
-              const SizedBox(height: 12),
-              _ChatGuideButton(
-                label: context.l10n.omnibotGuide,
-                color: secondaryColor,
-                accentColor: keywordColor,
-                onTap: onGuideTap!,
-              ),
-            ],
           ],
         ),
       ),
-    );
-  }
-}
-
-class _ChatGuideButton extends StatelessWidget {
-  const _ChatGuideButton({
-    required this.label,
-    required this.color,
-    required this.accentColor,
-    required this.onTap,
-  });
-
-  final String label;
-  final Color color;
-  final Color accentColor;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    return TextButton.icon(
-      key: const ValueKey('chat-empty-omnibot-guide'),
-      onPressed: onTap,
-      style: TextButton.styleFrom(
-        foregroundColor: color,
-        minimumSize: const Size(0, 32),
-        padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 4),
-        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-        textStyle: const TextStyle(fontSize: 13, fontWeight: FontWeight.w500),
-      ),
-      icon: Icon(Icons.menu_book_outlined, size: 15, color: accentColor),
-      label: Text(label),
     );
   }
 }

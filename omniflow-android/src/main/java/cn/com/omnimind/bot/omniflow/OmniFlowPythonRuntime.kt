@@ -250,11 +250,22 @@ object OmniFlowPythonRuntime {
             }
             val host = requireNotNull(platform) { "omniflow_platform_not_configured" }
             val preparedRuntime = runtimeProvider.prepare(context, host)
-            ensureReadyLocked(
-                context,
-                preparedRuntime,
-                developerOverride = developerOverrideShellPath(context, preparedRuntime) != null,
-            )
+            try {
+                ensureReadyLocked(
+                    context,
+                    preparedRuntime,
+                    developerOverride = developerOverrideShellPath(context, preparedRuntime) != null,
+                )
+            } catch (error: Throwable) {
+                if (!isOmniFlowRuntimeCompatibilityFailure(error)) throw error
+                OmniLog.w(TAG, "runtime_incompatible; retrying packaged runtime: ${error.message}")
+                val packagedRuntime = runtimeProvider.preparePackaged(context, host)
+                ensureReadyLocked(
+                    context,
+                    packagedRuntime,
+                    developerOverride = false,
+                )
+            }
         }
     }
 
@@ -433,6 +444,18 @@ object OmniFlowPythonRuntime {
         ready = false
         activeClient?.close()
     }
+}
+
+internal fun isOmniFlowRuntimeCompatibilityFailure(error: Throwable): Boolean {
+    val message = error.message.orEmpty()
+    return message.startsWith("unsupported_omniflow_protocol:") ||
+        message.startsWith("omniflow_bridge_contract_mismatch:") ||
+        message.startsWith("omniflow_runtime_version_mismatch:") ||
+        message.startsWith("omniflow_commit_mismatch:") ||
+        message.startsWith("omniflow_source_mismatch:") ||
+        message.startsWith("omnitransfer_commit_mismatch:") ||
+        message.startsWith("omnitransfer_source_mismatch:") ||
+        message.startsWith("omniflow_capabilities_mismatch:")
 }
 
 internal fun declaredOmniTransferRuntimeStatus(value: Any?): Boolean {

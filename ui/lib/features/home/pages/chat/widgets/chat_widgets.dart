@@ -1689,7 +1689,6 @@ class ChatMessageList extends StatefulWidget {
   final ValueChanged<HomeQuickPrompt>? onQuickPromptSelected;
   final String? emptyGreetingAgentWorkspaceName;
   final VoidCallback? onEmptyGreetingAgentWorkspaceTap;
-  final VoidCallback? onEmptyGreetingGuideTap;
   final ValueChanged<bool>? onInternalInputFocusChanged;
 
   const ChatMessageList({
@@ -1721,7 +1720,6 @@ class ChatMessageList extends StatefulWidget {
     this.onQuickPromptSelected,
     this.emptyGreetingAgentWorkspaceName,
     this.onEmptyGreetingAgentWorkspaceTap,
-    this.onEmptyGreetingGuideTap,
     this.onInternalInputFocusChanged,
   });
 
@@ -2445,7 +2443,6 @@ class _ChatMessageListState extends State<ChatMessageList> {
                   onQuickPromptSelected: widget.onQuickPromptSelected,
                   agentWorkspaceName: widget.emptyGreetingAgentWorkspaceName,
                   onAgentWorkspaceTap: widget.onEmptyGreetingAgentWorkspaceTap,
-                  onGuideTap: widget.onEmptyGreetingGuideTap,
                 ),
               ),
             )

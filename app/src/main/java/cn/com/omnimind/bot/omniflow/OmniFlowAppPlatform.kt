@@ -90,6 +90,15 @@ internal class OmniFlowAppPlatform(
         )
     }
 
+    override suspend fun resolvePackagedRuntimeSkill(context: Context): OmniFlowSkillLocation {
+        val location = runtimeSkills.resolvePackaged(refresh = true)
+        return OmniFlowSkillLocation(
+            androidRoot = location.androidRoot,
+            shellRoot = location.shellRoot,
+            source = location.source,
+        )
+    }
+
     override suspend fun bootstrapRuntimeSkill(
         context: Context,
         location: OmniFlowSkillLocation,

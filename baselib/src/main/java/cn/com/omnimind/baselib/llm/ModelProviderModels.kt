@@ -103,7 +103,7 @@ data class SceneVoiceConfig(
 )
 
 data class SceneOperationConfig(
-    val useOfficialService: Boolean = true
+    val useOfficialService: Boolean = false
 )
 
 data class OfficialVlmOperationConfig(

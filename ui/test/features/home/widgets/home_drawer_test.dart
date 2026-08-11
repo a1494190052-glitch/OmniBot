@@ -103,9 +103,9 @@ void main() {
     expect(find.text('暂无聊天记录'), findsOneWidget);
     expect(
       find.byKey(const ValueKey('home-drawer-omnibot-guide')),
-      findsOneWidget,
+      findsNothing,
     );
-    expect(find.text('小万指南'), findsOneWidget);
+    expect(find.text('小万指南'), findsNothing);
 
     await tester.tap(find.text('开始对话'));
     await tester.pumpAndSettle();
@@ -518,7 +518,7 @@ void main() {
     expect(find.text('Scheduled tasks'), findsOneWidget);
     expect(find.text('Pinned conversations'), findsOneWidget);
     expect(find.text('OmniAi'), findsOneWidget);
-    expect(find.text('Omnibot Guide'), findsOneWidget);
+    expect(find.text('Omnibot Guide'), findsNothing);
   });
 
   testWidgets('scrolls promoted sections together with history', (

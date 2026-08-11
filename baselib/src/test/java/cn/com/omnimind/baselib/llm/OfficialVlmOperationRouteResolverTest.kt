@@ -13,17 +13,30 @@ class OfficialVlmOperationRouteResolverTest {
     )
 
     @Test
-    fun `bundled ChatGPT route is the fresh default`() {
+    fun `bundled ChatGPT route requires explicit opt in`() {
         val route = OfficialVlmOperationRouteResolver.resolve(
             sceneId = SceneOperationConfigStore.SCENE_ID,
             hasExplicitRoute = false,
             hasEffectiveSceneBinding = false,
-            sceneConfig = SceneOperationConfig(),
+            sceneConfig = SceneOperationConfig(useOfficialService = true),
             officialConfig = configured
         )
 
         assertEquals(configured, route)
         assertEquals(OpenAiWireApi.RESPONSES, route?.wireApi)
+    }
+
+    @Test
+    fun `official model is disabled by default`() {
+        assertNull(
+            OfficialVlmOperationRouteResolver.resolve(
+                sceneId = SceneOperationConfigStore.SCENE_ID,
+                hasExplicitRoute = false,
+                hasEffectiveSceneBinding = false,
+                sceneConfig = SceneOperationConfig(),
+                officialConfig = configured
+            )
+        )
     }
 
     @Test
@@ -33,7 +46,7 @@ class OfficialVlmOperationRouteResolverTest {
                 sceneId = SceneOperationConfigStore.SCENE_ID,
                 hasExplicitRoute = false,
                 hasEffectiveSceneBinding = true,
-                sceneConfig = SceneOperationConfig(),
+                sceneConfig = SceneOperationConfig(useOfficialService = true),
                 officialConfig = configured
             )
         )
@@ -47,7 +60,7 @@ class OfficialVlmOperationRouteResolverTest {
                 sceneId = SceneOperationConfigStore.SCENE_ID,
                 hasExplicitRoute = false,
                 hasEffectiveSceneBinding = false,
-                sceneConfig = SceneOperationConfig(),
+                sceneConfig = SceneOperationConfig(useOfficialService = true),
                 officialConfig = configured
             )
         )
@@ -60,7 +73,7 @@ class OfficialVlmOperationRouteResolverTest {
                 sceneId = SceneOperationConfigStore.SCENE_ID,
                 hasExplicitRoute = false,
                 hasEffectiveSceneBinding = false,
-                sceneConfig = SceneOperationConfig(),
+                sceneConfig = SceneOperationConfig(useOfficialService = true),
                 officialConfig = configured.copy(apiBase = "")
             )
         )

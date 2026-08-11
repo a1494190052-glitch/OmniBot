@@ -171,11 +171,11 @@ class SceneVoiceConfig {
 class SceneOperationConfig {
   final bool useOfficialService;
 
-  const SceneOperationConfig({this.useOfficialService = true});
+  const SceneOperationConfig({this.useOfficialService = false});
 
   factory SceneOperationConfig.fromMap(Map<dynamic, dynamic>? map) {
     return SceneOperationConfig(
-      useOfficialService: map?['useOfficialService'] != false,
+      useOfficialService: map?['useOfficialService'] == true,
     );
   }
 

@@ -16,9 +16,10 @@ void main() {
     expect(routeNames, contains('welcome/choice'));
     expect(routeNames, contains('task/omniflow'));
     expect(routeNames, contains('task/run_logs'));
-    expect(routeNames, contains('home/first_use_tutorial'));
     expect(routeNames, contains('home/first_use_tutorial/setup'));
-    expect(routeNames, contains('home/first_use_tutorial/features'));
+    expect(routeNames, isNot(contains('home/first_use_tutorial')));
+    expect(routeNames, isNot(contains('home/first_use_tutorial/features')));
+    expect(routeNames, isNot(contains('home/first_use_tutorial/plugins')));
   });
 
   testWidgets('fresh launch starts in chat without forcing the tutorial', (

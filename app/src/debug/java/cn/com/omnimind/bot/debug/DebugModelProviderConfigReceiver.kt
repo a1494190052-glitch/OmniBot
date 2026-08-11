@@ -8,6 +8,8 @@ import cn.com.omnimind.baselib.llm.ModelProviderProfile
 import cn.com.omnimind.baselib.llm.OpenAiWireApi
 import cn.com.omnimind.baselib.llm.SceneModelBindingEntry
 import cn.com.omnimind.baselib.llm.SceneModelBindingStore
+import cn.com.omnimind.baselib.llm.SceneOperationConfig
+import cn.com.omnimind.baselib.llm.SceneOperationConfigStore
 import cn.com.omnimind.baselib.util.OmniLog
 import com.google.gson.GsonBuilder
 import kotlinx.coroutines.CoroutineScope
@@ -88,6 +90,11 @@ class DebugModelProviderConfigReceiver : BroadcastReceiver() {
                 sceneId = sceneId,
                 providerProfileId = profile.id,
                 modelId = modelId,
+            )
+        }
+        if (SceneOperationConfigStore.SCENE_ID in sceneIds) {
+            SceneOperationConfigStore.saveConfig(
+                SceneOperationConfig(useOfficialService = false)
             )
         }
         seedFlutterManualModelId(context, profile.id, modelId)

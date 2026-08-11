@@ -98,6 +98,12 @@ class RuntimeBundleTest(unittest.TestCase):
             with ZipFile(PREBUILT_RUNTIME_PATH) as archive:
                 archive.extractall(runtime_root)
 
+            bridge_contract = runtime_root / "python/schemas/oob/omniflow_android_bridge.v2.json"
+            self.assertEqual(
+                values["bridge.contract.sha256"],
+                hashlib.sha256(bridge_contract.read_bytes()).hexdigest(),
+            )
+
             fingerprint = bootstrap.sha256_file(runtime_root / "runtime.properties")
             self.assertTrue(bootstrap.runtime_ready(skill_root, values, fingerprint))
 

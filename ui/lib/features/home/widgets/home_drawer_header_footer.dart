@@ -22,51 +22,6 @@ extension _HomeDrawerHeaderFooter on HomeDrawerState {
     return context.omniPalette.textSecondary;
   }
 
-  Widget _buildGuideShortcut() {
-    final palette = context.omniPalette;
-    final foregroundColor = context.isDarkTheme
-        ? palette.textSecondary
-        : AppColors.text.withValues(alpha: 0.68);
-
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 20),
-      child: Material(
-        color: Colors.transparent,
-        child: InkWell(
-          key: const ValueKey('home-drawer-omnibot-guide'),
-          onTap: () => _navigateTo('/home/first_use_tutorial'),
-          borderRadius: BorderRadius.circular(8),
-          child: SizedBox(
-            height: 28,
-            child: Row(
-              children: [
-                Icon(
-                  Icons.menu_book_outlined,
-                  size: 17,
-                  color: foregroundColor,
-                ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: Text(
-                    context.l10n.omnibotGuide,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      color: foregroundColor,
-                      fontSize: 13,
-                      fontWeight: FontWeight.w500,
-                    ),
-                  ),
-                ),
-                Icon(Icons.chevron_right, size: 17, color: foregroundColor),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
   Widget _buildFooterShortcutBar() {
     final items = <_DrawerShortcutAction>[
       _DrawerShortcutAction(

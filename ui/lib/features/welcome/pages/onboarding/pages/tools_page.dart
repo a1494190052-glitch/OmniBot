@@ -22,7 +22,11 @@ class OnboardingToolsPage extends StatelessWidget {
   Widget build(BuildContext context) {
     return OnboardingPageScaffold(
       icon: LucideIcons.packagePlus,
-      title: onbTr(context, '配置 Agent 与连接工具', 'Configure agents and connections'),
+      title: onbTr(
+        context,
+        '配置 Agent 与连接工具',
+        'Configure agents and connections',
+      ),
       description: onbTr(
         context,
         '可选安装 Codex、Claude Code、OpenCode 或 SSH；账号登录可在安装完成后进行。',
@@ -30,15 +34,48 @@ class OnboardingToolsPage extends StatelessWidget {
       ),
       scrollController: scrollController,
       children: [
+        _OptionalCapabilitySummary(),
+        const SizedBox(height: 24),
         Wrap(
           spacing: 10,
           runSpacing: 10,
           children: optionalTools
-              .map((tool) => _OptionalToolChip(tool: tool, controller: controller))
+              .map(
+                (tool) => _OptionalToolChip(tool: tool, controller: controller),
+              )
               .toList(growable: false),
         ),
         const SizedBox(height: 26),
         _SetupSummary(controller: controller),
+      ],
+    );
+  }
+}
+
+class _OptionalCapabilitySummary extends StatelessWidget {
+  const _OptionalCapabilitySummary();
+
+  @override
+  Widget build(BuildContext context) {
+    final palette = context.omniPalette;
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Icon(LucideIcons.blocks, size: 18, color: palette.accentPrimary),
+        const SizedBox(width: 10),
+        Expanded(
+          child: Text(
+            onbTr(
+              context,
+              '基础配置完成后，可从插件市场按需安装 GUI 操作和 Vibe Builder；RunLog、复用指令、Memory 与 Skills 都可稍后使用，不影响先开始聊天。',
+              'After setup, install GUI automation and Vibe Builder from the plugin market when needed. RunLog, reusable functions, Memory, and Skills remain available later and never block starting chat.',
+            ),
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+              color: palette.textSecondary,
+              height: 1.55,
+            ),
+          ),
+        ),
       ],
     );
   }
@@ -57,7 +94,8 @@ class _OptionalToolChip extends StatelessWidget {
     return Semantics(
       button: true,
       selected: selected,
-      label: '${tool.label}, ${onbTr(context, tool.descriptionZh, tool.descriptionEn)}',
+      label:
+          '${tool.label}, ${onbTr(context, tool.descriptionZh, tool.descriptionEn)}',
       child: FilterChip(
         key: ValueKey<String>('tutorial-tool-${tool.id}'),
         selected: selected,
@@ -137,7 +175,11 @@ class _SetupSummary extends StatelessWidget {
       children: [
         Row(
           children: [
-            Icon(LucideIcons.listChecks, size: 17, color: palette.accentPrimary),
+            Icon(
+              LucideIcons.listChecks,
+              size: 17,
+              color: palette.accentPrimary,
+            ),
             const SizedBox(width: 8),
             Text(
               onbTr(context, '将要配置', 'Setup summary'),

@@ -37,9 +37,6 @@ import 'pages/termux_setting/termux_setting_page.dart';
 import 'pages/scene_model_setting/scene_model_setting_page.dart';
 import 'pages/model_provider_setting/model_provider_setting_page.dart';
 import 'package:ui/features/welcome/pages/onboarding/onboarding_choice_page.dart';
-import 'package:ui/features/welcome/pages/onboarding/pages/other_features_guide_page.dart';
-import 'package:ui/features/welcome/pages/onboarding/pages/plugin_market_guide_page.dart';
-import 'package:ui/features/welcome/pages/onboarding/pages/user_guide_page.dart';
 
 /// Home模块路由配置
 const String kNativeRouteFlag = '__from_native__';
@@ -417,42 +414,12 @@ List<GoRoute> homeRoutes = [
   ),
 
   GoRoute(
-    path: '/home/first_use_tutorial',
-    name: 'home/first_use_tutorial',
-    pageBuilder: (context, state) => GoRouterManager.buildActivitySlidePage(
-      key: state.pageKey,
-      name: 'home/first_use_tutorial',
-      child: const UserGuidePage(),
-    ),
-  ),
-
-  GoRoute(
     path: '/home/first_use_tutorial/setup',
     name: 'home/first_use_tutorial/setup',
     pageBuilder: (context, state) => GoRouterManager.buildActivitySlidePage(
       key: state.pageKey,
       name: 'home/first_use_tutorial/setup',
       child: const OnboardingChoicePage(allowExit: true),
-    ),
-  ),
-
-  GoRoute(
-    path: '/home/first_use_tutorial/features',
-    name: 'home/first_use_tutorial/features',
-    pageBuilder: (context, state) => GoRouterManager.buildActivitySlidePage(
-      key: state.pageKey,
-      name: 'home/first_use_tutorial/features',
-      child: const OtherFeaturesGuidePage(),
-    ),
-  ),
-
-  GoRoute(
-    path: '/home/first_use_tutorial/plugins',
-    name: 'home/first_use_tutorial/plugins',
-    pageBuilder: (context, state) => GoRouterManager.buildActivitySlidePage(
-      key: state.pageKey,
-      name: 'home/first_use_tutorial/plugins',
-      child: const PluginMarketGuidePage(),
     ),
   ),
 
