@@ -107,7 +107,7 @@ class _AccountPageState extends State<AccountPage> {
         _codeRequestEmail = email;
         _error = null;
       });
-      _showMessage(
+      _showSuccessToast(
         _text(
           '验证码已发送，${request.expiresInSeconds ~/ 60} 分钟内有效',
           'Code sent and valid for ${request.expiresInSeconds ~/ 60} minutes',
@@ -156,7 +156,7 @@ class _AccountPageState extends State<AccountPage> {
       _registerMode = false;
       await _loadAccount();
       if (mounted) {
-        _showMessage(
+        _showSuccessToast(
           creatingAccount
               ? _text('注册并登录成功', 'Account created and signed in')
               : _text('登录成功', 'Signed in'),
@@ -174,7 +174,7 @@ class _AccountPageState extends State<AccountPage> {
       setState(() {
         _overview = AccountOverview(user: overview.user, settings: settings);
       });
-      _showMessage(_text('AI 来源已更新', 'AI source updated'));
+      _showSuccessToast(_text('AI 来源已更新', 'AI source updated'));
     });
   }
 
@@ -261,10 +261,8 @@ class _AccountPageState extends State<AccountPage> {
     return at > 0 && value.indexOf('.', at) > at + 1;
   }
 
-  void _showMessage(String message) {
-    ScaffoldMessenger.of(context)
-      ..hideCurrentSnackBar()
-      ..showSnackBar(SnackBar(content: Text(message)));
+  void _showSuccessToast(String message) {
+    showToast(message, type: ToastType.success);
   }
 
   @override

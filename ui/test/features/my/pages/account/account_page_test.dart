@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
+import 'package:ui/core/router/go_router_manager.dart';
 import 'package:ui/features/my/pages/account/account_page.dart';
 
 void main() {
@@ -89,6 +90,18 @@ void main() {
               },
             };
           }
+          if (call.method == 'updateAiMode') {
+            return <String, Object?>{
+              'mode': 'byok',
+              'keyStorage': 'device',
+              'platformAvailable': true,
+              'platform': <String, Object?>{
+                'platformEnabled': true,
+                'balanceQuota': 1000,
+                'unit': 'new_api_quota',
+              },
+            };
+          }
           return null;
         });
 
@@ -102,6 +115,15 @@ void main() {
     expect(find.byIcon(LucideIcons.coins), findsOneWidget);
     expect(find.byIcon(LucideIcons.circleCheck), findsOneWidget);
     expect(tester.takeException(), isNull);
+
+    await tester.tap(find.text('使用自己的 API Key'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 250));
+
+    expect(find.text('AI 来源已更新'), findsOneWidget);
+    expect(find.byType(SnackBar), findsNothing);
+
+    await tester.pump(const Duration(seconds: 3));
   });
 
   testWidgets('disables platform mode while platform AI is unavailable', (
@@ -146,9 +168,10 @@ void main() {
 }
 
 Widget _testApp() {
-  return const MaterialApp(
-    locale: Locale('zh'),
-    supportedLocales: <Locale>[Locale('zh')],
+  return MaterialApp(
+    navigatorKey: GoRouterManager.rootNavigatorKey,
+    locale: const Locale('zh'),
+    supportedLocales: const <Locale>[Locale('zh')],
     localizationsDelegates: <LocalizationsDelegate<dynamic>>[
       GlobalMaterialLocalizations.delegate,
       GlobalWidgetsLocalizations.delegate,
