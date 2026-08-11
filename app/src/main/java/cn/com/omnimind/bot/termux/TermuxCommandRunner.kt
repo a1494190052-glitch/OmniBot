@@ -129,9 +129,21 @@ object TermuxCommandRunner {
         context: Context,
         onProgress: suspend (EmbeddedTerminalRuntime.EnvironmentProgress) -> Unit
     ): TermuxLiveEnvironmentResult {
-        val status = EmbeddedTerminalRuntime.prepareEnvironment(
+        return prepareLiveEnvironment(
             context = context,
             installBasePackages = true,
+            onProgress = onProgress
+        )
+    }
+
+    suspend fun prepareLiveEnvironment(
+        context: Context,
+        installBasePackages: Boolean,
+        onProgress: suspend (EmbeddedTerminalRuntime.EnvironmentProgress) -> Unit
+    ): TermuxLiveEnvironmentResult {
+        val status = EmbeddedTerminalRuntime.prepareEnvironment(
+            context = context,
+            installBasePackages = installBasePackages,
             onProgress = onProgress
         )
         return TermuxLiveEnvironmentResult(

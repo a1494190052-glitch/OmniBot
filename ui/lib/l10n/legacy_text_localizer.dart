@@ -474,6 +474,9 @@ class LegacyTextLocalizer {
     '推荐': 'Recommended',
     '选择方式': 'Choose Method',
     '特性': 'Features',
+    '初次使用教程': 'First-use Tutorial',
+    '重新查看应用首次启动时的引导页面':
+        'Replay the first-launch onboarding page',
   };
 
   static final List<(RegExp, _TextRewriter)>

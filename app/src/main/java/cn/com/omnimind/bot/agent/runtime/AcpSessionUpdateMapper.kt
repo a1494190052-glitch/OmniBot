@@ -35,14 +35,18 @@ internal data class AcpUiEvent(
  * Maps one ACP session update to the UI event it produces, or `null` when the
  * update carries nothing the timeline renders.
  *
- * [threadId] only supplies fallback ids for chunks that arrive without a
- * message id; the caller owns turn resolution and emission.
+ * [threadId] scopes session-level updates. [turnId] supplies a local UI
+ * identity for chunks whose optional ACP message id is absent, so separate
+ * prompt turns can never overwrite one another.
  */
-internal fun SessionUpdate.toAcpUiEvent(threadId: String): AcpUiEvent? = when (this) {
+internal fun SessionUpdate.toAcpUiEvent(
+    threadId: String,
+    turnId: String? = null
+): AcpUiEvent? = when (this) {
     is SessionUpdate.AgentMessageChunk -> AcpUiEvent(
         method = "item/agentMessage/delta",
         params = mapOf(
-            "itemId" to (messageId?.value ?: "$threadId-agent"),
+            "itemId" to (messageId?.value ?: "${turnId ?: threadId}-agent"),
             "delta" to content.textPayload()
         )
     )
@@ -50,7 +54,7 @@ internal fun SessionUpdate.toAcpUiEvent(threadId: String): AcpUiEvent? = when (t
     is SessionUpdate.AgentThoughtChunk -> AcpUiEvent(
         method = "item/reasoning/delta",
         params = mapOf(
-            "itemId" to (messageId?.value ?: "$threadId-reasoning"),
+            "itemId" to (messageId?.value ?: "${turnId ?: threadId}-reasoning"),
             "delta" to content.textPayload()
         )
     )

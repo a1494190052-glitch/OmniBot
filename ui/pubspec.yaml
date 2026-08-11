@@ -108,6 +108,8 @@ flutter:
     - assets/welcome/auto_start_guide_1.png
     - assets/welcome/auto_start_guide_2.png
     - assets/welcome/auto_start_guide_3.png
+    - assets/welcome/distro_alpine.svg
+    - assets/welcome/distro_ubuntu.svg
     - assets/welcome/next_page.svg
     - assets/welcome/permission_authorized.svg
     - assets/welcome/permission_autostart.svg

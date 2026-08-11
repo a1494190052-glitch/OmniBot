@@ -300,14 +300,13 @@ class HttpAgentLlmClient(
         var eventSource: EventSource? = null
         var streamIdleWatchdog: Job? = null
         val emissionQueue = Channel<suspend () -> Unit>(Channel.UNLIMITED)
+        val emissionLock = Any()
         val emissionJob = scope.launch {
             for (block in emissionQueue) {
                 runCatching { block.invoke() }
                     .onFailure { OmniLog.w(tag, "stream emission failed: ${it.message}") }
             }
         }
-        var hasPublishedReasoningForTurn = false
-
         fun enqueueEmission(block: suspend () -> Unit) {
             if (emissionQueue.isClosedForSend) {
                 return
@@ -340,7 +339,6 @@ class HttpAgentLlmClient(
 
         fun dispatchReasoningSnapshot(reasoning: String) {
             lastReasoning = reasoning
-            hasPublishedReasoningForTurn = true
             if (onReasoningUpdate != null) {
                 enqueueEmission {
                     onReasoningUpdate.invoke(reasoning)
@@ -362,9 +360,42 @@ class HttpAgentLlmClient(
         fun scheduleReasoningSnapshotLocked(delayMs: Long) {
             reasoningEmitJob = scope.launch {
                 delay(delayMs)
-                val snapshot = synchronized(reasoningLock) {
-                    reasoningEmitJob = null
-                    collectReasoningSnapshotLocked()
+                synchronized(emissionLock) {
+                    val snapshot = synchronized(reasoningLock) {
+                        reasoningEmitJob = null
+                        collectReasoningSnapshotLocked()
+                    }
+                    if (snapshot != null) {
+                        dispatchReasoningSnapshot(snapshot)
+                    }
+                }
+            }
+        }
+
+        fun emitReasoning(force: Boolean = false) {
+            var snapshot: String? = null
+            synchronized(emissionLock) {
+                synchronized(reasoningLock) {
+                    val length = accumulator.currentReasoningLength()
+                    if (length <= 0 || length == lastReasoningEmitLength) return
+                    if (force) {
+                        reasoningEmitJob?.cancel()
+                        reasoningEmitJob = null
+                        snapshot = collectReasoningSnapshotLocked()
+                        return@synchronized
+                    }
+                    if (reasoningEmitJob?.isActive == true) return
+                    val delayMs = ReasoningStreamUpdatePolicy.nextDelayMs(
+                        hasEmittedBefore = lastReasoningEmitLength > 0,
+                        lastEmitAtMs = lastReasoningEmitAt,
+                        nowMs = System.currentTimeMillis(),
+                        intervalMs = REASONING_UPDATE_INTERVAL_MS
+                    )
+                    if (delayMs <= 0L) {
+                        snapshot = collectReasoningSnapshotLocked()
+                    } else {
+                        scheduleReasoningSnapshotLocked(delayMs)
+                    }
                 }
                 if (snapshot != null) {
                     dispatchReasoningSnapshot(snapshot)
@@ -372,45 +403,26 @@ class HttpAgentLlmClient(
             }
         }
 
-        fun emitReasoning(force: Boolean = false) {
-            var snapshot: String? = null
-            synchronized(reasoningLock) {
-                val length = accumulator.currentReasoningLength()
-                if (length <= 0 || length == lastReasoningEmitLength) return
-                if (force) {
-                    reasoningEmitJob?.cancel()
-                    reasoningEmitJob = null
-                    snapshot = collectReasoningSnapshotLocked()
-                    return@synchronized
-                }
-                if (reasoningEmitJob?.isActive == true) return
-                val delayMs = ReasoningStreamUpdatePolicy.nextDelayMs(
-                    hasEmittedBefore = lastReasoningEmitLength > 0,
-                    lastEmitAtMs = lastReasoningEmitAt,
-                    nowMs = System.currentTimeMillis(),
-                    intervalMs = REASONING_UPDATE_INTERVAL_MS
-                )
-                if (delayMs <= 0L) {
-                    snapshot = collectReasoningSnapshotLocked()
-                } else {
-                    scheduleReasoningSnapshotLocked(delayMs)
-                }
-            }
-            if (snapshot != null) {
-                dispatchReasoningSnapshot(snapshot)
-            }
-        }
-
         fun emitContent() {
             val content = accumulator.currentContent()
             if (content.isEmpty() || content == lastContent) return
-            if (!hasPublishedReasoningForTurn && accumulator.currentReasoningLength() > 0) {
-                emitReasoning(force = true)
-            }
-            lastContent = content
-            if (onContentUpdate != null) {
-                enqueueEmission {
-                    onContentUpdate.invoke(content)
+            synchronized(emissionLock) {
+                var reasoningSnapshot: String? = null
+                synchronized(reasoningLock) {
+                    if (accumulator.currentReasoningLength() > 0) {
+                        reasoningEmitJob?.cancel()
+                        reasoningEmitJob = null
+                        reasoningSnapshot = collectReasoningSnapshotLocked()
+                    }
+                }
+                if (reasoningSnapshot != null) {
+                    dispatchReasoningSnapshot(reasoningSnapshot)
+                }
+                lastContent = content
+                if (onContentUpdate != null) {
+                    enqueueEmission {
+                        onContentUpdate.invoke(content)
+                    }
                 }
             }
         }

@@ -4,6 +4,7 @@ import 'package:flutter_svg/flutter_svg.dart';
 import 'package:flutter_switch/flutter_switch.dart';
 import 'package:ui/core/router/go_router_manager.dart';
 import 'package:ui/features/home/state/habitual_hand_controller.dart';
+import 'package:ui/features/home/state/predictive_back_controller.dart';
 import 'package:ui/l10n/l10n.dart';
 import 'package:ui/models/chat_startup_behavior.dart';
 import 'package:ui/models/habitual_hand.dart';
@@ -221,10 +222,20 @@ class _ExperienceMiscSettingPageState
     }
   }
 
+  Future<void> _onPredictiveBackChanged(bool value) async {
+    final saved = await ref
+        .read(predictiveBackEnabledProvider.notifier)
+        .setEnabled(value);
+    if (!saved && mounted) {
+      showToast(context.l10n.settingsSaveFailed, type: ToastType.error);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final palette = context.omniPalette;
     final habitualHand = ref.watch(habitualHandProvider);
+    final predictiveBackEnabled = ref.watch(predictiveBackEnabledProvider);
     final sections = [
       _SettingSection(
         label: context.trLegacy('杂项'),
@@ -280,6 +291,16 @@ class _ExperienceMiscSettingPageState
               onToggle: _onIndependentChatSendButtonChanged,
             ),
           ),
+          // 所有系统版本可见:低版本系统无预测返回事件,开关关闭时行为与旧版一致
+          _SettingItem(
+            icon: Icons.swipe_left_rounded,
+            title: context.l10n.settingsPredictiveBackTitle,
+            subtitle: context.l10n.settingsPredictiveBackSubtitle,
+            trailing: _buildSwitchTrailing(
+              value: predictiveBackEnabled,
+              onToggle: _onPredictiveBackChanged,
+            ),
+          ),
           _SettingItem(
             icon: Icons.screen_lock_portrait_outlined,
             title: context.trLegacy('防止任务运行时屏幕休眠'),
@@ -311,6 +332,14 @@ class _ExperienceMiscSettingPageState
             title: context.l10n.settingsHabitualHandTitle,
             subtitle: context.l10n.settingsHabitualHandSubtitle,
             trailing: _buildHabitualHandDropdown(habitualHand),
+          ),
+          _SettingItem(
+            icon: Icons.school_outlined,
+            title: context.trLegacy('初次使用教程'),
+            subtitle: context.trLegacy('重新查看应用首次启动时的引导页面'),
+            onTap: () {
+              GoRouterManager.push('/home/first_use_tutorial');
+            },
           ),
         ],
       ),

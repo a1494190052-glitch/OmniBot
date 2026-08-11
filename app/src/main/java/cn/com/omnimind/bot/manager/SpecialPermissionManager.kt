@@ -757,10 +757,23 @@ class SpecialPermissionManager(private val context: Context) {
         }
     }
 
-    fun prepareTermuxLiveWrapper(result: MethodChannel.Result) {
+    fun prepareTermuxLiveWrapper(call: MethodCall, result: MethodChannel.Result) {
         CoroutineScope(Dispatchers.IO).launch {
             try {
-                val status = EmbeddedTerminalInitCoordinator.prepare(context)
+                val selectedPackageIds =
+                    if (call.hasArgument("packageIds")) {
+                        call.argument<List<String>>("packageIds")
+                            .orEmpty()
+                            .map { it.trim() }
+                            .filter { it.isNotEmpty() }
+                            .distinct()
+                    } else {
+                        null
+                    }
+                val status = EmbeddedTerminalInitCoordinator.prepare(
+                    context = context,
+                    selectedPackageIds = selectedPackageIds
+                )
                 withContext(Dispatchers.Main) {
                     result.success(
                         mapOf(

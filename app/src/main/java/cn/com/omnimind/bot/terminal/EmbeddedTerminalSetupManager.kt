@@ -114,7 +114,10 @@ class EmbeddedTerminalSetupManager(
         }
     }
 
-    suspend fun installPackages(selectedPackageIds: List<String>): InstallResult = withContext(Dispatchers.IO) {
+    suspend fun installPackages(
+        selectedPackageIds: List<String>,
+        onProgress: suspend (kind: String, message: String) -> Unit = { _, _ -> }
+    ): InstallResult = withContext(Dispatchers.IO) {
         val requestedIds = selectedPackageIds
             .map { it.trim() }
             .filter { it.isNotEmpty() }
@@ -127,9 +130,11 @@ class EmbeddedTerminalSetupManager(
         }
 
         try {
+            onProgress("status", "正在检查所选开发工具")
             val currentStatus = getPackageInstallStatus()
             val installIds = requestedIds.filter { currentStatus[it] != true }
             if (installIds.isEmpty()) {
+                onProgress("status", "所选开发工具已就绪")
                 return@withContext InstallResult(
                     success = true,
                     message = "所选组件均已安装。"
@@ -144,6 +149,7 @@ class EmbeddedTerminalSetupManager(
                 )
             }
 
+            onProgress("status", "正在安装所选开发工具：${installIds.joinToString(", ")}")
             val commandSequence = commands + EnvironmentSetupLogic.buildValidationCommands(installIds)
             val output = StringBuilder()
             val hiddenResult = withLocalTerminalManager { manager ->
@@ -158,6 +164,7 @@ class EmbeddedTerminalSetupManager(
                             if (!normalized.endsWith("\n")) {
                                 output.append('\n')
                             }
+                            onProgress("output", normalized)
                         }
                     }
                 )
@@ -178,6 +185,7 @@ class EmbeddedTerminalSetupManager(
                 )
             }
 
+            onProgress("status", "正在验证所选开发工具")
             val refreshedStatus = getPackageInstallStatus()
             val remaining = installIds.filter { refreshedStatus[it] != true }
             if (remaining.isNotEmpty()) {
@@ -192,12 +200,14 @@ class EmbeddedTerminalSetupManager(
                 )
             }
 
+            onProgress("status", "开发环境配置完成")
             InstallResult(
                 success = true,
                 message = "环境配置完成：${installIds.joinToString(", ")}",
                 output = output.toString().trim()
             )
         } catch (error: Exception) {
+            onProgress("error", error.message ?: "环境配置失败，请稍后重试。")
             InstallResult(
                 success = false,
                 message = error.message ?: "环境配置失败，请稍后重试。"

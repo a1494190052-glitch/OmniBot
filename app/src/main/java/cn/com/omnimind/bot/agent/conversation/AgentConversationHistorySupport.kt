@@ -204,6 +204,52 @@ internal object AgentConversationHistorySupport {
         ).filterValues { it != null }
     }
 
+    fun preserveDeepThinkingContent(
+        existingPayload: Map<String, Any?>,
+        incomingPayload: Map<String, Any?>
+    ): Map<String, Any?> {
+        val existingContent = toStringAnyMap(existingPayload["content"])
+        val existingCardData = toStringAnyMap(existingContent["cardData"])
+        val incomingContent = toStringAnyMap(incomingPayload["content"])
+        val incomingCardData = toStringAnyMap(incomingContent["cardData"])
+        if (
+            existingCardData["type"]?.toString() != "deep_thinking" ||
+            incomingCardData["type"]?.toString() != "deep_thinking"
+        ) {
+            return incomingPayload
+        }
+
+        val existingThinking = AgentTextSanitizer.sanitizeUtf16(
+            existingCardData["thinkingContent"]?.toString().orEmpty()
+        )
+        val incomingThinking = AgentTextSanitizer.sanitizeUtf16(
+            incomingCardData["thinkingContent"]?.toString().orEmpty()
+        )
+        if (existingThinking.isBlank() || incomingThinking.isNotBlank()) {
+            return incomingPayload
+        }
+
+        val mergedCardData = linkedMapOf<String, Any?>().apply {
+            putAll(incomingCardData)
+            put("thinkingContent", existingThinking)
+            listOf(
+                "thinkingContentTruncated",
+                "thinkingOriginalLength",
+                "thinkingTruncateMode"
+            ).forEach { key ->
+                existingCardData[key]?.let { put(key, it) }
+            }
+        }
+        val mergedContent = linkedMapOf<String, Any?>().apply {
+            putAll(incomingContent)
+            put("cardData", mergedCardData)
+        }
+        return linkedMapOf<String, Any?>().apply {
+            putAll(incomingPayload)
+            put("content", mergedContent)
+        }
+    }
+
     private fun readReasoningContent(payload: Map<String, Any?>): String? {
         return AgentTextSanitizer.sanitizeUtf16(
             payload["reasoning_content"]?.toString()

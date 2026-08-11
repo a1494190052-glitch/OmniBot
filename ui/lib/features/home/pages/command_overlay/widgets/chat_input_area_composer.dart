@@ -773,9 +773,10 @@ mixin _ChatInputAreaComposerMixin on _ChatInputAreaStateBase {
     final selectedColor = palette.accentPrimary;
     final enabled = settings.hasSelectableModels;
     final vendor = modelId.isEmpty ? null : ModelVendorCatalog.resolve(modelId);
+    final buttonKey = settings.anchorKey ?? _modelPickerButtonKey;
 
     Future<void> openPicker() async {
-      final anchorContext = _modelPickerButtonKey.currentContext;
+      final anchorContext = buttonKey.currentContext;
       if (anchorContext == null || !enabled) {
         return;
       }
@@ -785,7 +786,7 @@ mixin _ChatInputAreaComposerMixin on _ChatInputAreaStateBase {
 
     return TextFieldTapRegion(
       child: SizedBox(
-        key: _modelPickerButtonKey,
+        key: buttonKey,
         width: compact ? 24 : 28,
         height: compact ? 24 : 28,
         child: Listener(

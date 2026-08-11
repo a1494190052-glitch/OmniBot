@@ -1391,7 +1391,7 @@ internal class LocalAcpRuntime(
         // The translation itself lives in AcpSessionUpdateMapper so the remote
         // PC Bridge can reuse it once it forwards ACP rather than the legacy
         // codex app-server protocol.
-        val event = update.toAcpUiEvent(threadId) ?: return
+        val event = update.toAcpUiEvent(threadId, resolvedTurnId) ?: return
         emit(
             method = event.method,
             threadId = threadId,

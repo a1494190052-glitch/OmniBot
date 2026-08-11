@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 import 'package:ui/l10n/app_locale_controller.dart';
 import 'package:ui/l10n/generated/app_localizations.dart';
 import 'package:ui/l10n/legacy_text_localizer.dart';
+import 'package:ui/features/home/state/predictive_back_controller.dart';
 import 'package:ui/services/omnibot_resource_service.dart';
 import 'package:ui/services/app_background_service.dart';
 import 'package:ui/services/scheduled_task_scheduler_service.dart';
@@ -116,12 +117,32 @@ class _MyAppState extends ConsumerState<MyApp> {
     final widgetBuildStart = DateTime.now();
     final themeMode = ref.watch(appThemeModeProvider).materialThemeMode;
     final resolvedLocale = ref.watch(appResolvedLocaleProvider);
+    final predictiveBackEnabled = ref.watch(predictiveBackEnabledProvider);
+    // 预测性返回开关作用于主题转场(仅影响少数 MaterialPageRoute 页面;
+    // GoRouter 自定义转场路由由 PredictiveBackGestureWrapper 处理):
+    // 开启时用官方 PredictiveBackPageTransitionsBuilder(手势预览+FadeForwards
+    // 普通转场);关闭时用 FadeForwardsPageTransitionsBuilder —— 无手势预览,
+    // 普通转场与本特性接入前(Flutter 3.38 默认回退)完全一致(旧版行为)。
+    // 只覆盖 Android,其他平台(iOS/macOS 的 Cupertino 等)不受影响。
+    final pageTransitionsTheme = PageTransitionsTheme(
+      builders: {
+        TargetPlatform.android: predictiveBackEnabled
+            ? const PredictiveBackPageTransitionsBuilder()
+            : const FadeForwardsPageTransitionsBuilder(),
+      },
+    );
+    final lightTheme = AppTheme.lightTheme.copyWith(
+      pageTransitionsTheme: pageTransitionsTheme,
+    );
+    final darkTheme = AppTheme.darkTheme.copyWith(
+      pageTransitionsTheme: pageTransitionsTheme,
+    );
     LegacyTextLocalizer.setResolvedLocale(resolvedLocale.locale);
     final widget = MaterialApp.router(
       onGenerateTitle: (context) =>
           AppLocalizations.of(context)?.appName ?? 'Omnibot',
-      theme: AppTheme.lightTheme,
-      darkTheme: AppTheme.darkTheme,
+      theme: lightTheme,
+      darkTheme: darkTheme,
       themeMode: themeMode,
       themeAnimationCurve: Curves.easeInOutCubic,
       themeAnimationDuration: const Duration(milliseconds: 220),

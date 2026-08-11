@@ -14,24 +14,27 @@ class PersistedJsonCompatibilityTest {
     private val gson = Gson()
 
     @Test
-    fun providerProfiles_preserveNonEmptyPayloadWhenDecodingProducesNoProfiles() {
-        val raw = """[{"unexpected":"value"}]"""
+    fun providerProfiles_ignoreUnknownEntriesAndKeepRecognizedProfiles() {
+        val raw =
+            """
+                [
+                  {"unexpected":"value"},
+                  {
+                    "a":"custom-provider",
+                    "b":"Custom Provider",
+                    "c":"https://api.example.com/v1",
+                    "d":"sk-test"
+                  }
+                ]
+            """.trimIndent()
+
         val decoded = ModelProviderConfigStore.decodeProfilesJson(raw)
 
-        assertTrue(decoded.isEmpty())
-        assertTrue(ModelProviderConfigStore.shouldPreserveStoredProfiles(raw, decoded))
-        assertFalse(ModelProviderConfigStore.shouldPreserveStoredProfiles(null, emptyList()))
-        assertFalse(ModelProviderConfigStore.shouldPreserveStoredProfiles("   ", emptyList()))
-        assertFalse(ModelProviderConfigStore.shouldPreserveStoredProfiles("[]", emptyList()))
-        assertFalse(ModelProviderConfigStore.shouldPreserveStoredProfiles("[ ]", emptyList()))
-        assertFalse(ModelProviderConfigStore.shouldPreserveStoredProfiles("null", emptyList()))
-        assertTrue(ModelProviderConfigStore.shouldPreserveStoredProfiles("{", emptyList()))
-        assertTrue(
-            ModelProviderConfigStore.shouldPreserveStoredProfiles(
-                """{"id":"custom-provider"}""",
-                emptyList()
-            )
-        )
+        assertEquals(1, decoded.size)
+        assertEquals("custom-provider", decoded.single().id)
+        assertEquals("Custom Provider", decoded.single().name)
+        assertEquals("https://api.example.com/v1", decoded.single().baseUrl)
+        assertEquals("sk-test", decoded.single().apiKey)
     }
 
     @Test
@@ -77,19 +80,6 @@ class PersistedJsonCompatibilityTest {
         assertNull(profile.statusText)
         assertEquals("openai_compatible", profile.protocolType)
         assertEquals("responses", profile.wireApi)
-        assertFalse(ModelProviderConfigStore.shouldPreserveStoredProfiles(releaseRaw, profiles))
-        assertTrue(
-            ModelProviderConfigStore.shouldPreserveStoredProfiles(
-                """
-                    [
-                      {"a":"custom-provider"},
-                      {"futureId":"future-provider"}
-                    ]
-                """.trimIndent(),
-                profiles
-            )
-        )
-
         val encoded = ModelProviderConfigStore.encodeProfilesJson(profiles)
         val encodedProfile = JsonParser.parseString(encoded)
             .asJsonArray
