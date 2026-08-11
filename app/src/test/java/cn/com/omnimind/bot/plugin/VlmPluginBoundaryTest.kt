@@ -19,6 +19,7 @@ class VlmPluginBoundaryTest {
             "app/src/main/java/cn/com/omnimind/bot/plugin/OmniPluginHost.kt",
         )
         val appBuild = projectSource("app/build.gradle.kts")
+        val terminalBuild = projectSource("ReTerminal/core/main/build.gradle.kts")
         val mainBuild = projectSource("scripts/build-main-apk.sh")
         val investorBuild = projectSource("scripts/build-foolproof-apk.sh")
 
@@ -46,6 +47,9 @@ class VlmPluginBoundaryTest {
         assertTrue(appBuild.contains("DEFAULT_INSTALL_GUI_PLUGIN\", \"false\""))
         assertTrue(appBuild.contains("ALLOW_PACKAGED_PLUGIN_FALLBACK"))
         assertTrue(appBuild.contains("omnibotProfile in profiles"))
+        assertTrue(terminalBuild.contains("includeEmbeddedPythonEnvironment"))
+        assertTrue(terminalBuild.contains("it == \"investor\""))
+        assertTrue(terminalBuild.contains("root.deleteRecursively()"))
         assertTrue(catalog.contains("\"profiles\": [\"investor\"]"))
         assertTrue(mainBuild.contains("-POMNIBOT_PROFILE=main"))
         assertTrue(investorBuild.contains("-POMNIBOT_PROFILE=investor"))

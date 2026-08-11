@@ -29,6 +29,8 @@ val libtallocDebChecksum = "ac81ad623d74c209718b9f3acb2dd702cc8a88c431e820d21222
 val alpineMiniRootfsUrl =
     "https://dl-cdn.alpinelinux.org/alpine/v3.21/releases/aarch64/alpine-minirootfs-3.21.0-aarch64.tar.gz"
 val alpineMiniRootfsChecksum = "f31202c4070c4ef7de9e157e1bd01cb4da3a2150035d74ea5372c5e86f1efac1"
+val omnibotProfile = providers.gradleProperty("OMNIBOT_PROFILE").orElse("main")
+val includeEmbeddedPythonEnvironment = omnibotProfile.map { it == "investor" }
 val alpineRepositoryBaseUrls = mapOf(
     "main" to "https://dl-cdn.alpinelinux.org/alpine/v3.21/main/aarch64",
     "community" to "https://dl-cdn.alpinelinux.org/alpine/v3.21/community/aarch64",
@@ -245,6 +247,7 @@ val prepareEmbeddedTerminalRuntime by tasks.registering {
     inputs.property("libtallocDebChecksum", libtallocDebChecksum)
     inputs.property("alpineMiniRootfsUrl", alpineMiniRootfsUrl)
     inputs.property("alpineMiniRootfsChecksum", alpineMiniRootfsChecksum)
+    inputs.property("includeEmbeddedPythonEnvironment", includeEmbeddedPythonEnvironment)
     inputs.property("embeddedPythonEnvironmentVersion", embeddedPythonEnvironmentVersion)
     inputs.property("embeddedPythonPackages", embeddedPythonPackages.joinToString { "${it.repository}/${it.fileName}:${it.checksum}" })
     inputs.property("ubuntuBaseRootfsUrl", ubuntuBaseRootfsUrl)
@@ -254,6 +257,8 @@ val prepareEmbeddedTerminalRuntime by tasks.registering {
     doLast {
         val root = outputDir.get().asFile
         val jniRoot = jniOutputDir.get().asFile
+        root.deleteRecursively()
+        jniRoot.deleteRecursively()
         root.mkdirs()
         jniRoot.mkdirs()
         val workDir = temporaryDir.apply {
@@ -300,45 +305,64 @@ val prepareEmbeddedTerminalRuntime by tasks.registering {
             executable = false
         )
 
-        downloadRuntimeFile(
-            localPath = workDir.resolve("alpine-base.tar.gz").absolutePath,
-            remoteUrl = alpineMiniRootfsUrl,
-            expectedChecksum = alpineMiniRootfsChecksum
-        )
-        val alpineRoot = workDir.resolve("alpine-root").apply { mkdirs() }
-        exec { commandLine("tar", "-xzf", workDir.resolve("alpine-base.tar.gz").absolutePath, "-C", alpineRoot.absolutePath) }
-        embeddedPythonPackages.forEach { packageSpec ->
-            val packageFile = workDir.resolve(packageSpec.fileName)
+        if (includeEmbeddedPythonEnvironment.get()) {
+            val alpineBaseArchive = workDir.resolve("alpine-base.tar.gz")
             downloadRuntimeFile(
-                localPath = packageFile.absolutePath,
-                remoteUrl = "${alpineRepositoryBaseUrls.getValue(packageSpec.repository)}/${packageSpec.fileName}",
-                expectedChecksum = packageSpec.checksum,
+                localPath = alpineBaseArchive.absolutePath,
+                remoteUrl = alpineMiniRootfsUrl,
+                expectedChecksum = alpineMiniRootfsChecksum
             )
-            exec { commandLine("bsdtar", "-xf", packageFile.absolutePath, "-C", alpineRoot.absolutePath) }
+            val alpineRoot = workDir.resolve("alpine-root").apply { mkdirs() }
+            exec { commandLine("tar", "-xzf", alpineBaseArchive.absolutePath, "-C", alpineRoot.absolutePath) }
+            embeddedPythonPackages.forEach { packageSpec ->
+                val packageFile = workDir.resolve(packageSpec.fileName)
+                downloadRuntimeFile(
+                    localPath = packageFile.absolutePath,
+                    remoteUrl = "${alpineRepositoryBaseUrls.getValue(packageSpec.repository)}/${packageSpec.fileName}",
+                    expectedChecksum = packageSpec.checksum,
+                )
+                exec {
+                    commandLine(
+                        "tar",
+                        "-xzf",
+                        packageFile.absolutePath,
+                        "--ignore-zeros",
+                        "-C",
+                        alpineRoot.absolutePath
+                    )
+                }
+            }
+            alpineRoot.resolve("etc/omnibot-python-environment").apply {
+                parentFile.mkdirs()
+                writeText("$embeddedPythonEnvironmentVersion\n")
+            }
+            exec {
+                commandLine("find", alpineRoot.absolutePath, "-type", "f", "(", "-name", ".PKGINFO", "-o", "-name", ".SIGN.RSA.*", "-o", "-name", ".INSTALL", ")", "-delete")
+            }
+            val embeddedAlpineArchive = root.resolve("alpine.tar.gz")
+            exec { commandLine("tar", "-czf", embeddedAlpineArchive.absolutePath, "-C", alpineRoot.absolutePath, ".") }
+        } else {
+            downloadRuntimeFile(
+                localPath = root.resolve("alpine.tar.gz").absolutePath,
+                remoteUrl = alpineMiniRootfsUrl,
+                expectedChecksum = alpineMiniRootfsChecksum
+            )
         }
-        alpineRoot.resolve("etc/omnibot-python-environment").apply {
-            parentFile.mkdirs()
-            writeText("$embeddedPythonEnvironmentVersion\n")
-        }
-        exec {
-            commandLine("find", alpineRoot.absolutePath, "-type", "f", "(", "-name", ".PKGINFO", "-o", "-name", ".SIGN.RSA.*", "-o", "-name", ".INSTALL", ")", "-delete")
-        }
-        val embeddedAlpineArchive = root.resolve("alpine.tar.gz")
-        embeddedAlpineArchive.delete()
-        exec { commandLine("tar", "-czf", embeddedAlpineArchive.absolutePath, "-C", alpineRoot.absolutePath, ".") }
         downloadRuntimeFile(
             localPath = root.resolve("ubuntu.tar.gz").absolutePath,
             remoteUrl = ubuntuBaseRootfsUrl,
             expectedChecksum = ubuntuBaseRootfsChecksum
         )
-        root.resolve("runtime-manifest").writeText(
-            buildString {
-                appendLine("version=$embeddedPythonEnvironmentVersion")
-                listOf("proot", "libtalloc.so.2", "alpine.tar.gz", "ubuntu.tar.gz").forEach { name ->
-                    appendLine("$name=${root.resolve(name).length()}")
+        if (includeEmbeddedPythonEnvironment.get()) {
+            root.resolve("runtime-manifest").writeText(
+                buildString {
+                    appendLine("version=$embeddedPythonEnvironmentVersion")
+                    listOf("proot", "libtalloc.so.2", "alpine.tar.gz", "ubuntu.tar.gz").forEach { name ->
+                        appendLine("$name=${root.resolve(name).length()}")
+                    }
                 }
-            }
-        )
+            )
+        }
     }
 }
 
