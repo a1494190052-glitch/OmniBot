@@ -1,6 +1,7 @@
 package cn.com.omnimind.bot.agent
 
 import cn.com.omnimind.assists.controller.http.HttpController
+import cn.com.omnimind.baselib.account.OmniAccount
 import cn.com.omnimind.baselib.llm.ChatCompletionRequest
 import cn.com.omnimind.baselib.llm.ChatCompletionMessage
 import cn.com.omnimind.baselib.llm.ChatCompletionThinking
@@ -96,6 +97,15 @@ class HttpAgentLlmClient(
             explicitWireApi = explicitWireApi
         )
     },
+    private val refreshPlatformSessionOp: suspend () -> Boolean = {
+        val access = OmniAccount.currentAiRequestAccess()
+        if (access.usesPlatform) {
+            OmniAccount.repository().refreshSession()
+            true
+        } else {
+            false
+        }
+    },
     private val streamIdleWatchdogMs: Long = 0L,
     private val json: Json = Json {
         ignoreUnknownKeys = true
@@ -151,7 +161,7 @@ class HttpAgentLlmClient(
                     // Encode lazily, one variant at a time, so we never hold multiple
                     // copies of a potentially huge request payload in memory at once.
                     val requestJson = json.encodeToString(variant.request)
-                    return streamTurnOnce(
+                    return streamTurnWithPlatformAuthRetry(
                         model = candidateModel,
                         requestJson = requestJson,
                         onReasoningUpdate = onReasoningUpdate,
@@ -194,6 +204,23 @@ class HttpAgentLlmClient(
         }
 
         throw lastFailure ?: IllegalStateException("chat completion stream failed with unknown reason")
+    }
+
+    private suspend fun streamTurnWithPlatformAuthRetry(
+        model: String,
+        requestJson: String,
+        onReasoningUpdate: (suspend (String) -> Unit)?,
+        onContentUpdate: (suspend (String) -> Unit)?,
+    ): ChatCompletionTurn {
+        return try {
+            streamTurnOnce(model, requestJson, onReasoningUpdate, onContentUpdate)
+        } catch (error: AgentStreamRequestException) {
+            if (error.statusCode != 401 || !refreshPlatformSessionOp()) {
+                throw error
+            }
+            OmniLog.i(tag, "platform access token refreshed after 401; retrying once")
+            streamTurnOnce(model, requestJson, onReasoningUpdate, onContentUpdate)
+        }
     }
 
     private suspend fun streamTurnOnce(

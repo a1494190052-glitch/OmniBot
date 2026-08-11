@@ -38,3 +38,9 @@ output/
 /desktop/
 reports/
 /.zcode/
+
+# Local Codex build and device-test artifacts; never include these in PRs.
+/.codex-build-*.stderr.log
+/.codex-proot-test/
+/.pnpm-store/
+/omnibot-installed.png
