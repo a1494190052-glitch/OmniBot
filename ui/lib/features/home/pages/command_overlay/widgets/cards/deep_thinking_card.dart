@@ -288,6 +288,7 @@ class _DeepThinkingCardState extends State<DeepThinkingCard>
 
   void _toggleCollapsed() {
     if (!widget.isCollapsible || widget.stage != 4) return;
+    widget.onParentScrollHandoff?.call();
     _setCollapsed(
       !_isCollapsed,
       markCompletionHandled: _shouldAutoCollapse(widget),
@@ -454,6 +455,11 @@ class _DeepThinkingCardState extends State<DeepThinkingCard>
 
   @override
   Widget build(BuildContext context) {
+    final hasContent = widget.thinkingText.trim().isNotEmpty;
+    if (!hasContent && !_isActivelyThinking(widget)) {
+      return const SizedBox.shrink();
+    }
+
     final palette = context.omniPalette;
     final parentScrollPosition = _resolveParentScrollPosition(context);
     final resolvedTextColor = context.isDarkTheme
@@ -462,7 +468,6 @@ class _DeepThinkingCardState extends State<DeepThinkingCard>
     final secondaryTextColor = context.isDarkTheme
         ? palette.textSecondary
         : resolvedTextColor.withValues(alpha: 0.68);
-    final bool hasContent = widget.thinkingText.isNotEmpty;
     final bool canCollapse = widget.isCollapsible && widget.stage == 4;
 
     // 根据阶段显示不同的文案
@@ -787,8 +792,8 @@ class _DeepThinkingCardState extends State<DeepThinkingCard>
       return false;
     }
 
-    parentPosition.jumpTo(next);
     widget.onParentScrollHandoff?.call();
+    parentPosition.jumpTo(next);
     return true;
   }
 

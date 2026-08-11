@@ -33,12 +33,22 @@ class AcpSessionUpdateMapperTest {
     }
 
     @Test
-    fun agentMessageChunkWithoutMessageIdFallsBackToTheThread() {
+    fun agentMessageChunkWithoutMessageIdFallsBackToTheTurn() {
         val event = SessionUpdate.AgentMessageChunk(
             content = ContentBlock.Text("hello")
-        ).toAcpUiEvent("thread-1")
+        ).toAcpUiEvent("thread-1", "turn-1")
 
-        assertEquals("thread-1-agent", event?.params?.get("itemId"))
+        assertEquals("turn-1-agent", event?.params?.get("itemId"))
+    }
+
+    @Test
+    fun agentMessageChunksWithoutIdsDoNotCollideAcrossTurns() {
+        fun itemId(turnId: String): Any? = SessionUpdate.AgentMessageChunk(
+            content = ContentBlock.Text("hello")
+        ).toAcpUiEvent("thread-1", turnId)?.params?.get("itemId")
+
+        assertEquals("turn-1-agent", itemId("turn-1"))
+        assertEquals("turn-2-agent", itemId("turn-2"))
     }
 
     @Test

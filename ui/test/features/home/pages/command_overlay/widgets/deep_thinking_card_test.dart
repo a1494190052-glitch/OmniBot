@@ -36,6 +36,29 @@ void main() {
     },
   );
 
+  testWidgets('completed empty thinking card does not imply content exists', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      const MaterialApp(
+        home: Scaffold(
+          body: DeepThinkingCard(
+            thinkingText: '',
+            stage: 4,
+            isLoading: false,
+            isCollapsible: true,
+            startTime: 1000,
+            endTime: 13000,
+          ),
+        ),
+      ),
+    );
+
+    expect(find.byType(DeepThinkingCard), findsOneWidget);
+    expect(find.text('思考完成'), findsNothing);
+    expect(find.byIcon(Icons.keyboard_arrow_down_rounded), findsNothing);
+  });
+
   testWidgets('thinking expansion stays anchored to the top edge', (
     tester,
   ) async {

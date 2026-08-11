@@ -1,18 +1,19 @@
 package cn.com.omnimind.bot.activity
 
-import android.app.Activity
 import android.content.Intent
 import android.content.pm.ActivityInfo
 import android.os.Bundle
+import androidx.activity.ComponentActivity
 import cn.com.omnimind.baselib.util.OmniLog
 import cn.com.omnimind.bot.quicklog.QuickLogWidgetActionRouter
+import cn.com.omnimind.bot.util.PredictiveBackGate
 
 /**
  * 启动页 Activity
  *
  * OSS 版本：直接进入 MainActivity，不再依赖账号与在线协议流程。
  */
-class LauncherActivity : Activity() {
+class LauncherActivity : ComponentActivity() {
 
     companion object {
         private const val TAG = "LauncherActivity"
@@ -22,6 +23,7 @@ class LauncherActivity : Activity() {
         setTheme(StartupThemeResolver.resolveSplashTheme(this))
         applyResponsiveOrientation()
         super.onCreate(savedInstanceState)
+        PredictiveBackGate.install(this)
         OmniLog.d(TAG, "LauncherActivity onCreate")
         if (QuickLogWidgetActionRouter.consumeInto(this, intent)) {
             finish()

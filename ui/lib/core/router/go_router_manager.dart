@@ -7,6 +7,9 @@ import 'go_router_config.dart';
 import 'package:flutter/foundation.dart';
 import 'logging_observer.dart';
 import 'package:ui/services/method_channel_service.dart';
+import 'package:ui/constants/storage_keys.dart';
+import 'package:ui/services/storage_service.dart';
+import 'package:ui/widgets/predictive_back_gesture_wrapper.dart';
 
 class RouteOptions {
   final bool noAnim;
@@ -102,7 +105,15 @@ class GoRouterManager {
         transitionDuration: const Duration(milliseconds: 250),
         reverseTransitionDuration: const Duration(milliseconds: 250),
         transitionsBuilder: (context, animation, secondaryAnimation, child) {
-          return FadeTransition(opacity: animation, child: child);
+          // 开关开启时统一为滑动手势转场(对齐 Miuix 的预测性返回风格),
+          // 关闭时回退为应用原有 Fade 转场。
+          return PredictiveBackGestureWrapper(
+            animation: animation,
+            secondaryAnimation: secondaryAnimation,
+            transitionBuilder: (context, animation, secondaryAnimation, child) =>
+                FadeTransition(opacity: animation, child: child),
+            child: child,
+          );
         },
       );
     }
@@ -126,10 +137,16 @@ class GoRouterManager {
       transitionDuration: duration,
       reverseTransitionDuration: duration,
       transitionsBuilder: (context, animation, secondaryAnimation, child) {
-        return CupertinoPageTransition(
-          primaryRouteAnimation: animation,
-          secondaryRouteAnimation: secondaryAnimation,
-          linearTransition: false,
+        return PredictiveBackGestureWrapper(
+          animation: animation,
+          secondaryAnimation: secondaryAnimation,
+          transitionBuilder: (context, animation, secondaryAnimation, child) =>
+              CupertinoPageTransition(
+                primaryRouteAnimation: animation,
+                secondaryRouteAnimation: secondaryAnimation,
+                linearTransition: false,
+                child: child,
+              ),
           child: child,
         );
       },

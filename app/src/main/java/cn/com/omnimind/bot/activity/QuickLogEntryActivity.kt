@@ -5,6 +5,7 @@ import android.os.Bundle
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import cn.com.omnimind.baselib.i18n.AppLocaleManager
+import cn.com.omnimind.bot.util.PredictiveBackGate
 
 class QuickLogEntryActivity : ComponentActivity() {
     companion object {
@@ -20,6 +21,7 @@ class QuickLogEntryActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        PredictiveBackGate.install(this)
         window.clearFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND)
         QuickLogEditorScreen.bind(this, intent)
     }
