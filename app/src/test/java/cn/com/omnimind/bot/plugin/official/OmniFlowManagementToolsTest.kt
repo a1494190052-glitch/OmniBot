@@ -10,7 +10,7 @@ class OmniFlowManagementToolsTest {
         val definitions = OmniFlowManagementTools.definitions()
 
         assertEquals(OmniFlowManagementTools.TOOL_NAMES, definitions.mapTo(linkedSetOf()) { it.name })
-        assertEquals(10, definitions.size)
+        assertEquals(OmniFlowManagementTools.TOOL_NAMES.size, definitions.size)
         definitions.forEach { definition ->
             assertFalse(definition.description.isBlank())
             assertEquals("object", definition.parameters["type"]?.toString()?.trim('"'))
