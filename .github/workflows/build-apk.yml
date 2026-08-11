@@ -76,10 +76,28 @@ jobs:
         working-directory: ui
         run: flutter pub get --enforce-lockfile
 
-      - name: Build develop standard debug APK
+      - name: Generate release keystore
+        run: |
+          keytool -genkeypair -v \
+            -keystore app/omnibot-release.keystore \
+            -alias omnibot \
+            -keyalg RSA -keysize 2048 -validity 10000 \
+            -storepass omnibot123 -keypass omnibot123 \
+            -dname "CN=OmniBot Build, OU=Dev, O=OmniBot, L=Beijing, ST=Beijing, C=CN"
+
+      - name: Inject release signing properties
+        run: |
+          cat >> gradle.properties <<'EOF'
+          OMNI_RELEASE_STORE_FILE=app/omnibot-release.keystore
+          OMNI_RELEASE_STORE_PWD=omnibot123
+          OMNI_RELEASE_KEY_ALIAS=omnibot
+          OMNI_RELEASE_KEY_PWD=omnibot123
+          EOF
+
+      - name: Build develop standard release APK
         run: |
           ./gradlew --no-daemon --parallel --build-cache \
-            :app:assembleDevelopStandardDebug \
+            :app:assembleDevelopStandardRelease \
             -Ptarget=lib/main_standard.dart
 
       - name: Upload APK artifacts
