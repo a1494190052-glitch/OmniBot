@@ -1,14 +1,14 @@
 {
   "archive": "runtime.prebuilt.zip",
-  "archive_bytes": 1018406,
-  "archive_sha256": "4e7a7ab3185ef051cf7c9c8e66992809d05e2814053efa7237b52dc80717ec33",
+  "archive_bytes": 1018475,
+  "archive_sha256": "da400a742ddb56f464505b41485c95678655f82ab7e5767d30446909ae508582",
   "omniflow_commit": "ff4291e8bceeef37a389465014162d31713eebae",
-  "omniflow_source_sha256": "ef585fe04f6e6de475b104fe5d25b9a6c0a09cf86a1e6e9b11e4a793a7803229",
+  "omniflow_source_sha256": "4c6ae254cbc09b0c66dfbe0a841794c1404c8c043edae9beb59540a057a4b4c3",
   "omnitransfer_checkpoint": "checkpoints/omnitransfer_direct_text_alignment_v9_20260805/v9_direct_text_alignment_seed29.npz",
   "omnitransfer_checkpoint_sha256": "b8a6735bd97a7163ad186ec4c869eebbb05634522472035bd9c3b9bc323c5e9e",
   "omnitransfer_commit": "da49fd13698ab14fc7e8aa7b56e0199f4709ab27",
   "omnitransfer_source_sha256": "118fbd5b81f24b6e2a6dd7c7cc71be857d834ac4dfa4cc3b43dcbd7af5b40d67",
   "python_environment_profile": "alpine-3.21-system-numpy-v1",
-  "runtime_version": "2026.08.07.local.ef585fe0.118fbd5b.4b3a55e2.ff4291e8",
+  "runtime_version": "2026.08.07.local.4c6ae254.118fbd5b.4b3a55e2.ff4291e8",
   "schema_version": "omniflow.runtime-release.v1"
 }

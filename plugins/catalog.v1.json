@@ -29,7 +29,7 @@
         "bootstrapScript": "scripts/bootstrap_runtime.py",
         "runtimeDataPath": "scripts/runtime/.runtime",
         "prebuiltRuntimeArchive": "scripts/runtime.prebuilt.zip",
-        "prebuiltRuntimeSha256": "4e7a7ab3185ef051cf7c9c8e66992809d05e2814053efa7237b52dc80717ec33",
+        "prebuiltRuntimeSha256": "da400a742ddb56f464505b41485c95678655f82ab7e5767d30446909ae508582",
         "bootstrapTimeoutSeconds": 900
       },
       "presentation": {
