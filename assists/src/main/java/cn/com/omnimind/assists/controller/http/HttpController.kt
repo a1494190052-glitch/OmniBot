@@ -2,6 +2,9 @@ package cn.com.omnimind.assists.controller.http
 
 import cn.com.omnimind.assists.api.bean.TaskParams
 import cn.com.omnimind.assists.api.bean.ResultBean
+import cn.com.omnimind.baselib.account.AiRequestTransportPolicy
+import cn.com.omnimind.baselib.account.AiTransportRoute
+import cn.com.omnimind.baselib.account.OmniAccount
 import cn.com.omnimind.baselib.llm.AssistantToolCall
 import cn.com.omnimind.baselib.llm.AssistantToolCallFunction
 import cn.com.omnimind.baselib.llm.AiRequestLogEntry
@@ -793,6 +796,20 @@ object HttpController {
             else -> null
         }
 
+        val aiAccess = OmniAccount.currentAiRequestAccess()
+        aiAccess.unavailableReason?.let { throw IllegalStateException(it) }
+        val transportRoute = AiRequestTransportPolicy.apply(
+            access = aiAccess,
+            byokRoute = AiTransportRoute(
+                apiBase = providerBase,
+                apiKey = providerKey,
+                customHeaders = providerHeaders,
+                protocolType = protocolType,
+                wireApi = wireApi,
+                routeTag = routeTag,
+            ),
+        )
+
         return ResolvedSceneRequest(
             requestedModel = requestedModel,
             resolvedModel = when {
@@ -804,9 +821,9 @@ object HttpController {
             sceneProfile = sceneProfile,
             effectiveTransport = effectiveTransport,
             responseParser = responseParser,
-            apiBase = providerBase,
-            apiKey = providerKey,
-            customHeaders = providerHeaders,
+            apiBase = transportRoute.apiBase,
+            apiKey = transportRoute.apiKey,
+            customHeaders = transportRoute.customHeaders,
             providerProfileId = when {
                 bindingApplied -> boundProfile?.id
                 officialVlmApplied -> OfficialVlmOperationRouteResolver.PROFILE_ID
@@ -817,14 +834,14 @@ object HttpController {
                 officialVlmApplied -> OfficialVlmOperationRouteResolver.PROFILE_NAME
                 else -> null
             },
-            routeTag = routeTag,
-            customApiBaseApplied = !providerBase.isNullOrBlank(),
+            routeTag = transportRoute.routeTag,
+            customApiBaseApplied = !transportRoute.apiBase.isNullOrBlank(),
             bindingApplied = bindingApplied,
             bindingProfileMissing = bindingProfileMissing,
             overrideApplied = overrideApplied,
             overrideModel = overrideModel,
-            protocolType = protocolType,
-            wireApi = wireApi
+            protocolType = transportRoute.protocolType,
+            wireApi = transportRoute.wireApi
         )
     }
 

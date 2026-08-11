@@ -57,6 +57,52 @@ class ModelProviderCustomHeadersTest {
     }
 
     @Test
+    fun encodeProfilesMetadataJson_excludesApiKeyAndCustomHeaders() {
+        val encoded = ModelProviderConfigStore.encodeProfilesMetadataJson(
+            listOf(
+                ModelProviderProfile(
+                    id = "profile-1",
+                    name = "Provider 1",
+                    baseUrl = "https://example.com/v1",
+                    apiKey = "sk-plaintext-must-not-remain",
+                    customHeaders = linkedMapOf(
+                        "Authorization" to "Bearer custom-secret",
+                        "X-Trace-Id" to "trace-1"
+                    )
+                )
+            )
+        )
+
+        assertFalse(encoded.contains("sk-plaintext-must-not-remain"))
+        assertFalse(encoded.contains("custom-secret"))
+        assertFalse(encoded.contains("trace-1"))
+        val decoded = ModelProviderConfigStore.decodeProfilesJson(encoded).single()
+        assertTrue(decoded.apiKey.isEmpty())
+        assertTrue(decoded.customHeaders.isEmpty())
+        assertEquals("https://example.com/v1", decoded.baseUrl)
+    }
+
+    @Test
+    fun mergeProfileSecrets_restoresEncryptedValuesInMemory() {
+        val profile = ModelProviderProfile(
+            id = "profile-1",
+            name = "Provider 1",
+            baseUrl = "https://example.com/v1"
+        )
+
+        val hydrated = ModelProviderConfigStore.mergeProfileSecrets(
+            profile,
+            ModelProviderSecrets(
+                apiKey = "sk-encrypted",
+                customHeaders = linkedMapOf("Authorization" to "Bearer encrypted")
+            )
+        )
+
+        assertEquals("sk-encrypted", hydrated.apiKey)
+        assertEquals("Bearer encrypted", hydrated.customHeaders["Authorization"])
+    }
+
+    @Test
     fun mergeHeaders_customHeadersOverrideBuiltInIgnoringCase() {
         val merged = ProviderCustomHeaderUtils.mergeHeaders(
             builtIn = linkedMapOf(

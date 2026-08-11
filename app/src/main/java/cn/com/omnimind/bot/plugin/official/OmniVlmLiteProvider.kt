@@ -1,6 +1,7 @@
 package cn.com.omnimind.bot.plugin.official
 
 import android.content.Context
+import cn.com.omnimind.bot.BuildConfig
 import cn.com.omnimind.bot.omniflow.OmniFlowAppPlatform
 import cn.com.omnimind.bot.omniflow.OmniFlowPluginRuntime
 import cn.com.omnimind.bot.omniflow.OmniFlowRuntimeProvider
@@ -19,7 +20,11 @@ class OmniVlmLiteProvider(
     private val appContext = context.applicationContext
     private val runtimeProvider = OmniFlowRuntimeProvider()
     private val platform = OmniFlowAppPlatform(
-        RuntimeSkillBundleManager(appContext, definition.runtimeSkill)
+        RuntimeSkillBundleManager(
+            context = appContext,
+            spec = definition.runtimeSkill,
+            allowPackagedFallback = BuildConfig.ALLOW_PACKAGED_PLUGIN_FALLBACK,
+        )
     )
 
     override suspend fun prepare(mode: RuntimeBundlePrepareMode) {

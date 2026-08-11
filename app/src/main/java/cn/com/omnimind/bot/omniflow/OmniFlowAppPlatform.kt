@@ -99,6 +99,9 @@ internal class OmniFlowAppPlatform(
         )
     }
 
+    override fun allowsPackagedRuntimeFallback(): Boolean =
+        runtimeSkills.allowsPackagedFallback()
+
     override suspend fun bootstrapRuntimeSkill(
         context: Context,
         location: OmniFlowSkillLocation,

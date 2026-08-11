@@ -1,7 +1,8 @@
 # OmniFlow Runtime Component
 
-This ZIP is a self-contained, versioned OmniFlow component for OpenOmniBot. The APK embeds the
-same pinned runtime, so ordinary users do not need to install Python packages or configure paths.
+This ZIP is a self-contained, versioned OmniFlow component for OpenOmniBot. The normal APK exposes
+it in the plugin market and downloads the pinned package on demand, so users do not need to install
+Python packages or configure paths manually.
 
 ## Contents
 
@@ -15,9 +16,9 @@ same pinned runtime, so ordinary users do not need to install Python packages or
 
 ## Installation
 
-The foolproof APK installs and verifies the runtime skill automatically. For a component update,
-install this complete ZIP through the OpenOmniBot component updater; do not download its Python
-dependencies individually. See `INSTALL_DIR.json` for the resolved directory contract.
+Install or update this complete ZIP through the OpenOmniBot plugin market; do not download its
+Python dependencies individually. The investor profile may package the same ZIP as an offline
+fallback. See `INSTALL_DIR.json` for the resolved directory contract.
 
 ## Developer Override
 

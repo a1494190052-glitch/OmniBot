@@ -287,7 +287,23 @@ class _SettingsPageState extends State<SettingsPage> {
   }
 
   List<_SettingSection> _buildSections(String workspaceMemorySubtitle) {
+    final isEnglish = Localizations.localeOf(context).languageCode == 'en';
     return [
+      _SettingSection(
+        label: isEnglish ? 'Account' : '账号',
+        items: [
+          _SettingItem(
+            icon: Icons.manage_accounts_outlined,
+            title: isEnglish ? 'Account & AI service' : '账号与 AI 服务',
+            subtitle: isEnglish
+                ? 'Sign in, view platform quota, or use your own API key'
+                : '注册登录、查看平台额度或使用自己的 API Key',
+            onTap: () {
+              GoRouterManager.push('/my/account');
+            },
+          ),
+        ],
+      ),
       _SettingSection(
         label: context.l10n.settingsSectionModelMemory,
         items: [

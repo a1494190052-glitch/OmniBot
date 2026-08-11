@@ -24,14 +24,14 @@ Plugins may expose a direct management surface through
 `presentation.dashboard`. The market uses this action for its quick-entry
 button and the detail page prefers it over the legacy `installedAction`.
 
-Install atomically prepares the plugin's complete backend runtime, verifies it,
-registers the contribution, and enables it. The platform does not persist the
-installed state until all of those steps succeed. Update from the plugin market
-refreshes the official Skills repository without reinstalling the APK, switches
-only to a complete verified market runtime, and keeps the packaged Skill as a
-fallback when the network or package validation fails. Uninstall disables
-official Skills and reclaims their downloaded runtime data; packaged fallback
-Skills are removed entirely.
+Install atomically downloads the catalog's versioned component ZIP, verifies its
+pinned SHA-256, registers the contribution, and enables it. The platform does
+not persist the installed state until all of those steps succeed. Update fetches
+the newly catalogued component without reinstalling the APK and switches only
+to a complete verified market runtime. The normal `main`
+profile contains no packaged runtime and never falls back to APK assets. The
+`investor` profile may retain a packaged offline fallback. Uninstall disables
+official Skills and reclaims their downloaded runtime data.
 
 ## OmniFlow automation bundle
 
@@ -87,8 +87,8 @@ inside `.omni/data` migrate automatically on first access.
 The repository maintains one host implementation and two packaging profiles:
 
 - `bash scripts/build-main-apk.sh` builds the normal `main` profile. It exposes
-  only the GUI plugin, defaults OmniFlow on, and excludes packaged investor
-  demo plugins.
+  the OmniFlow catalog entry but installs it only on demand from the plugin
+  market; no OmniFlow or investor runtime payload is embedded in the APK.
 - `bash scripts/build-foolproof-apk.sh` builds the `investor` profile. It keeps
   the complete packaged plugin catalog and enables all official demo plugins
   on first launch.

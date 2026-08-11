@@ -1,8 +1,10 @@
 package cn.com.omnimind.bot
 
 import BaseApplication
+import cn.com.omnimind.baselib.account.OmniAccount
 import cn.com.omnimind.baselib.database.DatabaseHelper
 import cn.com.omnimind.baselib.i18n.AppLocaleManager
+import cn.com.omnimind.baselib.llm.ModelProviderConfigStore
 import cn.com.omnimind.baselib.util.OmniLog
 import cn.com.omnimind.bot.agent.AgentPromptSettingsStore
 import cn.com.omnimind.bot.agent.AgentWorkspaceManager
@@ -77,8 +79,19 @@ class App : BaseApplication() {
         Res.application = this
 
         MMKV.initialize(this)
+        ModelProviderConfigStore.initialize(this)
         DebugOmniMindProviderBootstrap.install()
         OfficialOmniPluginProviders.register()
+        OmniAccount.initialize(
+            context = this,
+            baseUrl = BuildConfig.BASE_URL,
+            platformGatewayUrl = BuildConfig.AI_GATEWAY_URL,
+        )
+        if (OmniAccount.isConfigured() && OmniAccount.repository().isSignedIn()) {
+            CoroutineScope(Dispatchers.IO).launch {
+                runCatching { OmniAccount.repository().getAiSettings() }
+            }
+        }
         AgentPromptSettingsStore.initializeAndCleanupLegacyFiles(this)
         LegacyLocalModelDataCleanup.start(this)
         setupUncaughtExceptionHandler()

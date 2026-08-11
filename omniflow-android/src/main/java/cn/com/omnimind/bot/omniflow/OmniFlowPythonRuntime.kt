@@ -257,7 +257,11 @@ object OmniFlowPythonRuntime {
                     developerOverride = developerOverrideShellPath(context, preparedRuntime) != null,
                 )
             } catch (error: Throwable) {
-                if (!isOmniFlowRuntimeCompatibilityFailure(error)) throw error
+                if (!isOmniFlowRuntimeCompatibilityFailure(error) ||
+                    !host.allowsPackagedRuntimeFallback()
+                ) {
+                    throw error
+                }
                 OmniLog.w(TAG, "runtime_incompatible; retrying packaged runtime: ${error.message}")
                 val packagedRuntime = runtimeProvider.preparePackaged(context, host)
                 ensureReadyLocked(

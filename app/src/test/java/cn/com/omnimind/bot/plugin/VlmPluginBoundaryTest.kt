@@ -38,7 +38,13 @@ class VlmPluginBoundaryTest {
         assertTrue(host.contains("BuildConfig.OMNIBOT_PROFILE"))
         assertTrue(appBuild.contains("prop(\"OMNIBOT_PROFILE\").ifBlank { \"main\" }"))
         assertTrue(appBuild.contains("omnibotProfile == \"investor\""))
-        assertTrue(appBuild.contains("exclude(\"vibe-project/**\", \"omnilink-agent/**\")"))
+        assertTrue(
+            appBuild.contains(
+                "exclude(\"omni-vlm-lite/**\", \"vibe-project/**\", \"omnilink-agent/**\")",
+            ),
+        )
+        assertTrue(appBuild.contains("DEFAULT_INSTALL_GUI_PLUGIN\", \"false\""))
+        assertTrue(appBuild.contains("ALLOW_PACKAGED_PLUGIN_FALLBACK"))
         assertTrue(appBuild.contains("omnibotProfile in profiles"))
         assertTrue(catalog.contains("\"profiles\": [\"investor\"]"))
         assertTrue(mainBuild.contains("-POMNIBOT_PROFILE=main"))

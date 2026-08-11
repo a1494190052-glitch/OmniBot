@@ -124,6 +124,10 @@ class MyPageState extends State<MyPage> {
                         SettingSection(
                           children: [
                             SettingTile(
+                              title: '账号与 AI 服务',
+                              onTap: () => GoRouterManager.push('/my/account'),
+                            ),
+                            SettingTile(
                               title: '震动反馈',
                               trailing: FlutterSwitch(
                                 width: 44.8,

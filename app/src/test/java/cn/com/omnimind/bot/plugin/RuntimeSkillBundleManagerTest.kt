@@ -4,6 +4,8 @@ import java.io.File
 import java.security.MessageDigest
 import java.util.zip.ZipEntry
 import java.util.zip.ZipOutputStream
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 import kotlin.io.path.createTempDirectory
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -127,6 +129,74 @@ class RuntimeSkillBundleManagerTest {
             root.deleteRecursively()
         }
     }
+
+    @Test
+    fun `verified component archive extracts the declared runtime skill`() {
+        val root = createTempDirectory("omniflow-component-").toFile()
+        try {
+            val archive = File(root, "component.zip")
+            writeArchive(
+                archive,
+                mapOf(
+                    "component.json" to componentJson(),
+                    "runtime-skill/omniflow-gui-runtime/SKILL.md" to
+                        "---\nname: omniflow-gui-runtime\n---\n",
+                ),
+            )
+            val target = File(root, "unpacked")
+
+            unpackVerifiedComponentArchive(
+                archive = archive,
+                target = target,
+                expectedSha256 = sha256(archive),
+                componentId = "com.omnimind.omni-vlm-lite",
+                runtimeSkillId = "omniflow-gui-runtime",
+            )
+
+            assertTrue(
+                File(target, "runtime-skill/omniflow-gui-runtime/SKILL.md").isFile,
+            )
+        } finally {
+            root.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `component archive rejects entries escaping install directory`() {
+        val root = createTempDirectory("omniflow-component-").toFile()
+        try {
+            val archive = File(root, "component.zip")
+            writeArchive(
+                archive,
+                mapOf(
+                    "../escaped" to "bad",
+                    "component.json" to componentJson(),
+                    "runtime-skill/omniflow-gui-runtime/SKILL.md" to
+                        "---\nname: omniflow-gui-runtime\n---\n",
+                ),
+            )
+
+            val error = expectFailure {
+                unpackVerifiedComponentArchive(
+                    archive = archive,
+                    target = File(root, "unpacked"),
+                    expectedSha256 = sha256(archive),
+                    componentId = "com.omnimind.omni-vlm-lite",
+                    runtimeSkillId = "omniflow-gui-runtime",
+                )
+            }
+
+            assertTrue(error.message.orEmpty().contains("unsafe_entry"))
+            assertFalse(File(root, "escaped").exists())
+        } finally {
+            root.deleteRecursively()
+        }
+    }
+
+    private fun componentJson(): String = buildJsonObject {
+        put("id", "com.omnimind.omni-vlm-lite")
+        put("runtimeSkill", buildJsonObject { put("id", "omniflow-gui-runtime") })
+    }.toString()
 
     private fun writeArchive(archive: File, entries: Map<String, String>) {
         ZipOutputStream(archive.outputStream().buffered()).use { output ->

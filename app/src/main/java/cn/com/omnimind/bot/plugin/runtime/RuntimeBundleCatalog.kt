@@ -122,6 +122,8 @@ private data class RuntimeSkillWire(
     val runtimeDataPath: String = "scripts/runtime/.runtime",
     val prebuiltRuntimeArchive: String? = null,
     val prebuiltRuntimeSha256: String? = null,
+    val componentArchiveUrl: String? = null,
+    val componentArchiveSha256: String? = null,
     val bootstrapTimeoutSeconds: Int = 15 * 60,
 ) {
     fun toSpec(): RuntimeSkillSpec = RuntimeSkillSpec(
@@ -133,6 +135,8 @@ private data class RuntimeSkillWire(
         runtimeDataPath = runtimeDataPath,
         prebuiltRuntimeArchive = prebuiltRuntimeArchive,
         prebuiltRuntimeSha256 = prebuiltRuntimeSha256,
+        componentArchiveUrl = componentArchiveUrl,
+        componentArchiveSha256 = componentArchiveSha256,
         bootstrapTimeoutSeconds = bootstrapTimeoutSeconds,
     ).validated()
 }

@@ -27,6 +27,8 @@ interface OmniFlowPlatform {
     suspend fun resolvePackagedRuntimeSkill(context: Context): OmniFlowSkillLocation =
         resolveRuntimeSkill(context, refresh = false)
 
+    fun allowsPackagedRuntimeFallback(): Boolean = true
+
     suspend fun bootstrapRuntimeSkill(
         context: Context,
         location: OmniFlowSkillLocation,

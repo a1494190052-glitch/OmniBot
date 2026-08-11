@@ -36,6 +36,7 @@ require(omnibotProfile in setOf("main", "investor")) {
     "OMNIBOT_PROFILE must be main or investor: $omnibotProfile"
 }
 val isInvestorProfile = omnibotProfile == "investor"
+val omnibotAiGatewayUrl = prop("OMNIBOT_AI_GATEWAY_URL")
 
 val webChatSourceDir = rootProject.file("webchat")
 val webChatDistDir = File(webChatSourceDir, "dist")
@@ -100,11 +101,15 @@ val syncPluginAssets by tasks.registering(Sync::class) {
     group = "plugin packaging"
     description = "Generate the packaged plugin catalog for the selected build profile."
     inputs.file(File(pluginSourceDir, "catalog.v1.json"))
+    inputs.property("omnibotProfile", omnibotProfile)
     from(pluginSourceDir)
     into(pluginAssetsRootDir)
     exclude("catalog.v1.json")
     if (!isInvestorProfile) {
-        exclude("vibe-project/**", "omnilink-agent/**")
+        exclude("omni-vlm-lite/**", "vibe-project/**", "omnilink-agent/**")
+    }
+    doFirst {
+        delete(pluginAssetsRootDir)
     }
     doLast {
         @Suppress("UNCHECKED_CAST")
@@ -147,8 +152,10 @@ android {
         buildConfigField("String", "DEBUG_LLMTHU_API_KEY", buildConfigString(""))
         buildConfigField("String", "DEBUG_LLMTHU_MODEL", buildConfigString(""))
         buildConfigField("String", "OMNIBOT_PROFILE", buildConfigString(omnibotProfile))
-        buildConfigField("boolean", "DEFAULT_INSTALL_GUI_PLUGIN", (!isInvestorProfile).toString())
+        buildConfigField("boolean", "DEFAULT_INSTALL_GUI_PLUGIN", "false")
         buildConfigField("boolean", "DEFAULT_INSTALL_ALL_PLUGINS", isInvestorProfile.toString())
+        buildConfigField("boolean", "ALLOW_PACKAGED_PLUGIN_FALLBACK", isInvestorProfile.toString())
+        buildConfigField("String", "AI_GATEWAY_URL", buildConfigString(omnibotAiGatewayUrl))
         ndk {
             abiFilters.addAll(listOf("arm64-v8a"))
         }
