@@ -80,7 +80,9 @@ void main() {
       Alignment.centerLeft,
     );
 
-    await tester.tap(find.byKey(const Key('account-auth-mode-register')));
+    final pageView = find.byKey(const Key('account-auth-page-view'));
+
+    await tester.fling(pageView, const Offset(-600, 0), 1200);
     await tester.pumpAndSettle();
 
     expect(find.text('创建小万账号'), findsOneWidget);
@@ -92,6 +94,52 @@ void main() {
           .alignment,
       Alignment.centerRight,
     );
+
+    final registerPassword = find.byKey(const Key('account-register-password'));
+    final registerPasswordDecorator = tester.widget<InputDecorator>(
+      find.descendant(
+        of: registerPassword,
+        matching: find.byType(InputDecorator),
+      ),
+    );
+    expect(registerPasswordDecorator.decoration.helperText, isNull);
+    expect(registerPasswordDecorator.decoration.hintText, isNull);
+    expect(find.text('至少 15 个字符'), findsNothing);
+
+    await tester.tap(registerPassword);
+    await tester.pump();
+
+    expect(
+      tester
+          .widget<InputDecorator>(
+            find.descendant(
+              of: registerPassword,
+              matching: find.byType(InputDecorator),
+            ),
+          )
+          .decoration
+          .hintText,
+      '至少 15 个字符',
+    );
+    expect(find.text('至少 15 个字符'), findsOneWidget);
+
+    await tester.fling(pageView, const Offset(600, 0), 1200);
+    await tester.pumpAndSettle();
+
+    expect(find.text('登录小万账号'), findsOneWidget);
+    expect(
+      tester
+          .widget<AnimatedAlign>(
+            find.byKey(const Key('account-auth-mode-thumb-align')),
+          )
+          .alignment,
+      Alignment.centerLeft,
+    );
+
+    await tester.tap(find.byKey(const Key('account-auth-mode-register')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('创建小万账号'), findsOneWidget);
   });
 
   testWidgets('shows email quota and platform mode after login', (

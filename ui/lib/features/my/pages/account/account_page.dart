@@ -17,8 +17,13 @@ class AccountPage extends StatefulWidget {
 
 class _AccountPageState extends State<AccountPage> {
   final _formKey = GlobalKey<FormState>();
+  final _registerFormKey = GlobalKey<FormState>();
+  final _authPageController = PageController();
+  final _registerPasswordFocusNode = FocusNode();
   final _emailController = TextEditingController();
+  final _registerEmailController = TextEditingController();
   final _passwordController = TextEditingController();
+  final _registerPasswordController = TextEditingController();
   final _confirmPasswordController = TextEditingController();
   final _verificationCodeController = TextEditingController();
 
@@ -26,6 +31,8 @@ class _AccountPageState extends State<AccountPage> {
   bool _busy = false;
   bool _registerMode = false;
   bool _showPassword = false;
+  int? _authSwipePointer;
+  Offset _authSwipeDelta = Offset.zero;
   AccountSessionState? _session;
   AccountOverview? _overview;
   RegistrationCodeRequest? _codeRequest;
@@ -39,13 +46,19 @@ class _AccountPageState extends State<AccountPage> {
   @override
   void initState() {
     super.initState();
+    _registerPasswordFocusNode.addListener(_onRegisterPasswordFocusChanged);
     _loadAccount();
   }
 
   @override
   void dispose() {
+    _authPageController.dispose();
+    _registerPasswordFocusNode.removeListener(_onRegisterPasswordFocusChanged);
+    _registerPasswordFocusNode.dispose();
     _emailController.dispose();
+    _registerEmailController.dispose();
     _passwordController.dispose();
+    _registerPasswordController.dispose();
     _confirmPasswordController.dispose();
     _verificationCodeController.dispose();
     super.dispose();
@@ -94,7 +107,7 @@ class _AccountPageState extends State<AccountPage> {
   }
 
   Future<void> _sendVerificationCode() async {
-    final email = _emailController.text.trim();
+    final email = _registerEmailController.text.trim();
     if (!_looksLikeEmail(email)) {
       setState(() => _error = _text('请先填写正确的邮箱', 'Enter a valid email first'));
       return;
@@ -117,10 +130,15 @@ class _AccountPageState extends State<AccountPage> {
   }
 
   Future<void> _submitAuth() async {
-    if (!(_formKey.currentState?.validate() ?? false)) return;
-    final email = _emailController.text.trim();
-    final password = _passwordController.text;
     final creatingAccount = _registerMode;
+    final formKey = creatingAccount ? _registerFormKey : _formKey;
+    if (!(formKey.currentState?.validate() ?? false)) return;
+    final email = creatingAccount
+        ? _registerEmailController.text.trim()
+        : _emailController.text.trim();
+    final password = creatingAccount
+        ? _registerPasswordController.text
+        : _passwordController.text;
     await _withBusy(() async {
       if (creatingAccount) {
         final request = _codeRequest;
@@ -144,16 +162,17 @@ class _AccountPageState extends State<AccountPage> {
         await AccountService.login(email: email, password: password);
       } catch (_) {
         if (creatingAccount && mounted) {
-          setState(() => _registerMode = false);
+          _selectAuthMode(false);
         }
         rethrow;
       }
       _passwordController.clear();
+      _registerPasswordController.clear();
       _confirmPasswordController.clear();
       _verificationCodeController.clear();
       _codeRequest = null;
       _codeRequestEmail = null;
-      _registerMode = false;
+      if (mounted) _selectAuthMode(false);
       await _loadAccount();
       if (mounted) {
         _showSuccessToast(
@@ -363,138 +382,255 @@ class _AccountPageState extends State<AccountPage> {
     return SafeArea(
       top: false,
       bottom: false,
-      child: ListView(
-        padding: edgeToEdgeScrollPadding(
-          context,
-          const EdgeInsets.fromLTRB(18, 10, 18, 28),
-        ),
+      child: Column(
         children: [
-          Form(
-            key: _formKey,
+          Padding(
+            padding: const EdgeInsets.fromLTRB(18, 10, 18, 0),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                SettingsSectionTitle(
-                  label: _registerMode
-                      ? _text('创建小万账号', 'Create your account')
-                      : _text('登录小万账号', 'Sign in to OmniBot'),
-                  subtitle: _text(
-                    '账号用于同步登录状态、平台额度和 AI 来源选择。',
-                    'Your account syncs sessions, platform quota, and AI source choice.',
+                AnimatedSwitcher(
+                  duration: const Duration(milliseconds: 180),
+                  child: SettingsSectionTitle(
+                    key: ValueKey(_registerMode),
+                    label: _registerMode
+                        ? _text('创建小万账号', 'Create your account')
+                        : _text('登录小万账号', 'Sign in to OmniBot'),
+                    subtitle: _text(
+                      '账号用于同步登录状态、平台额度和 AI 来源选择。',
+                      'Your account syncs sessions, platform quota, and AI source choice.',
+                    ),
+                    bottomPadding: 16,
                   ),
-                  bottomPadding: 16,
                 ),
                 _authModeSelector(),
-                const SizedBox(height: 20),
-                TextFormField(
-                  controller: _emailController,
-                  keyboardType: TextInputType.emailAddress,
-                  autofillHints: const [AutofillHints.email],
-                  decoration: InputDecoration(
-                    labelText: _text('邮箱', 'Email'),
-                    prefixIcon: const Icon(LucideIcons.mail, size: 20),
-                  ),
-                  validator: (value) => _looksLikeEmail(value?.trim() ?? '')
-                      ? null
-                      : _text('请输入正确的邮箱', 'Enter a valid email'),
-                ),
-                const SizedBox(height: 14),
-                TextFormField(
-                  controller: _passwordController,
-                  obscureText: !_showPassword,
-                  autofillHints: _registerMode
-                      ? const [AutofillHints.newPassword]
-                      : const [AutofillHints.password],
-                  decoration: InputDecoration(
-                    labelText: _text('密码', 'Password'),
-                    helperText: _registerMode
-                        ? _text('至少 15 个字符', 'At least 15 characters')
-                        : null,
-                    prefixIcon: const Icon(LucideIcons.lockKeyhole, size: 20),
-                    suffixIcon: IconButton(
-                      onPressed: () =>
-                          setState(() => _showPassword = !_showPassword),
-                      icon: Icon(
-                        _showPassword ? LucideIcons.eyeOff : LucideIcons.eye,
-                        size: 20,
-                      ),
-                    ),
-                  ),
-                  validator: (value) {
-                    if ((value ?? '').isEmpty) {
-                      return _text('请输入密码', 'Enter your password');
-                    }
-                    if (_registerMode && value!.characters.length < 15) {
-                      return _text(
-                        '密码至少需要 15 个字符',
-                        'Use at least 15 characters',
-                      );
-                    }
-                    return null;
-                  },
-                ),
-                if (_registerMode) ...[
-                  const SizedBox(height: 14),
-                  TextFormField(
-                    controller: _confirmPasswordController,
-                    obscureText: !_showPassword,
-                    autofillHints: const [AutofillHints.newPassword],
-                    decoration: InputDecoration(
-                      labelText: _text('确认密码', 'Confirm password'),
-                      prefixIcon: const Icon(
-                        LucideIcons.rotateCcwKey,
-                        size: 20,
-                      ),
-                    ),
-                    validator: (value) => value == _passwordController.text
-                        ? null
-                        : _text('两次密码不一致', 'Passwords do not match'),
-                  ),
-                  const SizedBox(height: 14),
-                  TextFormField(
-                    controller: _verificationCodeController,
-                    keyboardType: TextInputType.number,
-                    maxLength: 6,
-                    decoration: InputDecoration(
-                      labelText: _text('邮箱验证码', 'Email verification code'),
-                      counterText: '',
-                      prefixIcon: const Icon(LucideIcons.mailCheck, size: 20),
-                      suffixIcon: TextButton(
-                        onPressed: _busy ? null : _sendVerificationCode,
-                        child: Text(
-                          _codeRequest == null
-                              ? _text('发送', 'Send')
-                              : _text('重新发送', 'Resend'),
-                        ),
-                      ),
-                    ),
-                    validator: (value) => (value ?? '').trim().length == 6
-                        ? null
-                        : _text('请输入 6 位验证码', 'Enter the 6-digit code'),
-                  ),
-                ],
-                if (_error != null) ...[
-                  const SizedBox(height: 14),
-                  _errorBanner(_error!),
-                ],
-                const SizedBox(height: 22),
-                FilledButton(
-                  onPressed: _busy ? null : _submitAuth,
-                  style: FilledButton.styleFrom(
-                    minimumSize: const Size.fromHeight(48),
-                  ),
-                  child: Text(
-                    _registerMode
-                        ? _text('注册并登录', 'Create account & sign in')
-                        : _text('登录', 'Sign in'),
-                  ),
-                ),
               ],
+            ),
+          ),
+          const SizedBox(height: 20),
+          Expanded(
+            child: Listener(
+              onPointerDown: _onAuthPointerDown,
+              onPointerMove: _onAuthPointerMove,
+              onPointerUp: _onAuthPointerUp,
+              onPointerCancel: _onAuthPointerCancel,
+              child: PageView(
+                key: const Key('account-auth-page-view'),
+                controller: _authPageController,
+                onPageChanged: _onAuthPageChanged,
+                children: [
+                  _buildAuthPage(register: false),
+                  _buildAuthPage(register: true),
+                ],
+              ),
             ),
           ),
         ],
       ),
     );
+  }
+
+  Widget _buildAuthPage({required bool register}) {
+    final emailController = register
+        ? _registerEmailController
+        : _emailController;
+    final passwordController = register
+        ? _registerPasswordController
+        : _passwordController;
+
+    return Form(
+      key: register ? _registerFormKey : _formKey,
+      child: ListView(
+        key: PageStorageKey(
+          register ? 'account-register-page' : 'account-login-page',
+        ),
+        padding: edgeToEdgeScrollPadding(
+          context,
+          const EdgeInsets.fromLTRB(18, 0, 18, 28),
+        ),
+        children: [
+          TextFormField(
+            key: ValueKey(
+              register ? 'account-register-email' : 'account-login-email',
+            ),
+            controller: emailController,
+            keyboardType: TextInputType.emailAddress,
+            autofillHints: const [AutofillHints.email],
+            decoration: InputDecoration(
+              labelText: _text('邮箱', 'Email'),
+              prefixIcon: const Icon(LucideIcons.mail, size: 20),
+            ),
+            validator: (value) => _looksLikeEmail(value?.trim() ?? '')
+                ? null
+                : _text('请输入正确的邮箱', 'Enter a valid email'),
+          ),
+          const SizedBox(height: 14),
+          TextFormField(
+            key: ValueKey(
+              register ? 'account-register-password' : 'account-login-password',
+            ),
+            controller: passwordController,
+            focusNode: register ? _registerPasswordFocusNode : null,
+            obscureText: !_showPassword,
+            autofillHints: register
+                ? const [AutofillHints.newPassword]
+                : const [AutofillHints.password],
+            decoration: InputDecoration(
+              labelText: _text('密码', 'Password'),
+              hintText: register && _registerPasswordFocusNode.hasFocus
+                  ? _text('至少 15 个字符', 'At least 15 characters')
+                  : null,
+              prefixIcon: const Icon(LucideIcons.lockKeyhole, size: 20),
+              suffixIcon: IconButton(
+                onPressed: () => setState(() => _showPassword = !_showPassword),
+                icon: Icon(
+                  _showPassword ? LucideIcons.eyeOff : LucideIcons.eye,
+                  size: 20,
+                ),
+              ),
+            ),
+            validator: (value) {
+              if ((value ?? '').isEmpty) {
+                return _text('请输入密码', 'Enter your password');
+              }
+              if (register && value!.characters.length < 15) {
+                return _text('密码至少需要 15 个字符', 'Use at least 15 characters');
+              }
+              return null;
+            },
+          ),
+          if (register) ...[
+            const SizedBox(height: 14),
+            TextFormField(
+              controller: _confirmPasswordController,
+              obscureText: !_showPassword,
+              autofillHints: const [AutofillHints.newPassword],
+              decoration: InputDecoration(
+                labelText: _text('确认密码', 'Confirm password'),
+                prefixIcon: const Icon(LucideIcons.rotateCcwKey, size: 20),
+              ),
+              validator: (value) => value == _registerPasswordController.text
+                  ? null
+                  : _text('两次密码不一致', 'Passwords do not match'),
+            ),
+            const SizedBox(height: 14),
+            TextFormField(
+              controller: _verificationCodeController,
+              keyboardType: TextInputType.number,
+              maxLength: 6,
+              decoration: InputDecoration(
+                labelText: _text('邮箱验证码', 'Email verification code'),
+                counterText: '',
+                prefixIcon: const Icon(LucideIcons.mailCheck, size: 20),
+                suffixIcon: TextButton(
+                  onPressed: _busy ? null : _sendVerificationCode,
+                  child: Text(
+                    _codeRequest == null
+                        ? _text('发送', 'Send')
+                        : _text('重新发送', 'Resend'),
+                  ),
+                ),
+              ),
+              validator: (value) => (value ?? '').trim().length == 6
+                  ? null
+                  : _text('请输入 6 位验证码', 'Enter the 6-digit code'),
+            ),
+          ],
+          if (_error != null) ...[
+            const SizedBox(height: 14),
+            _errorBanner(_error!),
+          ],
+          const SizedBox(height: 22),
+          FilledButton(
+            onPressed: _busy ? null : _submitAuth,
+            style: FilledButton.styleFrom(
+              minimumSize: const Size.fromHeight(48),
+            ),
+            child: Text(
+              register
+                  ? _text('注册并登录', 'Create account & sign in')
+                  : _text('登录', 'Sign in'),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _onRegisterPasswordFocusChanged() {
+    if (mounted) setState(() {});
+  }
+
+  void _selectAuthMode(bool register) {
+    if (!mounted) return;
+    FocusScope.of(context).unfocus();
+    final destinationEmail = register
+        ? _registerEmailController
+        : _emailController;
+    final sourceEmail = register ? _emailController : _registerEmailController;
+    if (destinationEmail.text.isEmpty && sourceEmail.text.isNotEmpty) {
+      destinationEmail.text = sourceEmail.text;
+    }
+    if (_registerMode != register || _error != null) {
+      setState(() {
+        _registerMode = register;
+        _error = null;
+      });
+    }
+    if (_authPageController.hasClients) {
+      _authPageController.animateToPage(
+        register ? 1 : 0,
+        duration: const Duration(milliseconds: 280),
+        curve: Curves.easeOutCubic,
+      );
+    }
+  }
+
+  void _onAuthPageChanged(int page) {
+    final register = page == 1;
+    if (_registerMode == register) return;
+    FocusScope.of(context).unfocus();
+    final destinationEmail = register
+        ? _registerEmailController
+        : _emailController;
+    final sourceEmail = register ? _emailController : _registerEmailController;
+    if (destinationEmail.text.isEmpty && sourceEmail.text.isNotEmpty) {
+      destinationEmail.text = sourceEmail.text;
+    }
+    setState(() {
+      _registerMode = register;
+      _error = null;
+    });
+  }
+
+  void _onAuthPointerDown(PointerDownEvent event) {
+    if (_authSwipePointer != null) return;
+    _authSwipePointer = event.pointer;
+    _authSwipeDelta = Offset.zero;
+  }
+
+  void _onAuthPointerMove(PointerMoveEvent event) {
+    if (_authSwipePointer != event.pointer) return;
+    _authSwipeDelta += event.delta;
+  }
+
+  void _onAuthPointerUp(PointerUpEvent event) {
+    if (_authSwipePointer != event.pointer) return;
+    final delta = _authSwipeDelta;
+    _resetAuthSwipeTracking();
+    if (delta.dx.abs() < 64 || delta.dx.abs() <= delta.dy.abs() * 1.2) {
+      return;
+    }
+    _selectAuthMode(delta.dx < 0);
+  }
+
+  void _onAuthPointerCancel(PointerCancelEvent event) {
+    if (_authSwipePointer == event.pointer) _resetAuthSwipeTracking();
+  }
+
+  void _resetAuthSwipeTracking() {
+    _authSwipePointer = null;
+    _authSwipeDelta = Offset.zero;
   }
 
   Widget _authModeSelector() {
@@ -586,10 +722,7 @@ class _AccountPageState extends State<AccountPage> {
             register ? 'account-auth-mode-register' : 'account-auth-mode-login',
           ),
           behavior: HitTestBehavior.opaque,
-          onTap: () => setState(() {
-            _registerMode = register;
-            _error = null;
-          }),
+          onTap: () => _selectAuthMode(register),
           child: Center(
             child: AnimatedScale(
               duration: const Duration(milliseconds: 220),

@@ -297,7 +297,7 @@ class _SettingsPageState extends State<SettingsPage> {
             title: isEnglish ? 'Account & AI service' : '账号与 AI 服务',
             subtitle: isEnglish
                 ? 'Sign in, view platform quota, or use your own API key'
-                : '注册登录、查看平台额度或使用自己的 API Key',
+                : '注册登录、查看平台额度',
             onTap: () {
               GoRouterManager.push('/my/account');
             },
