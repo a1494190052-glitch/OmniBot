@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:ui/features/home/pages/agent/agent_mode_setting_page.dart';
 import 'package:ui/l10n/generated/app_localizations.dart';
@@ -78,7 +79,7 @@ void main() {
     expect(find.textContaining('统一 API'), findsNothing);
     expect(find.byType(PopupMenuButton<String>), findsNothing);
     // 3 Agent 卡片 + 1 远程 PC Bridge 入口卡片。
-    expect(find.byIcon(Icons.chevron_right_rounded), findsNWidgets(4));
+    expect(find.byIcon(LucideIcons.chevronRight), findsNWidgets(4));
     expect(find.text('远程 PC Bridge'), findsOneWidget);
     expect(find.text('远程运行'), findsOneWidget);
     expect(find.text('使用'), findsNothing);

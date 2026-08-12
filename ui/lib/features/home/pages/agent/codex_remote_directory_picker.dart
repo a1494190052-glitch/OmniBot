@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:ui/l10n/legacy_text_localizer.dart';
 import 'package:ui/services/agent_runtime_service.dart';
 import 'package:ui/theme/theme_context.dart';
@@ -144,7 +145,7 @@ class _CodexRemoteDirectoryPickerSheetState
                     tooltip: _isEnglish ? 'Close' : '关闭',
                     onPressed: () => Navigator.of(context).pop(),
                     icon: Icon(
-                      Icons.close_rounded,
+                      LucideIcons.x,
                       size: 20,
                       color: palette.textSecondary,
                     ),
@@ -176,21 +177,21 @@ class _CodexRemoteDirectoryPickerSheetState
                     onPressed: (_listing?.home ?? '').isEmpty || _isLoading
                         ? null
                         : () => unawaited(_loadDirectory(_listing!.home!)),
-                    icon: const Icon(Icons.home_outlined, size: 19),
+                    icon: const Icon(LucideIcons.house, size: 19),
                   ),
                   IconButton(
                     tooltip: _isEnglish ? 'Parent' : '上级目录',
                     onPressed: (_listing?.parent ?? '').isEmpty || _isLoading
                         ? null
                         : () => unawaited(_loadDirectory(_listing!.parent!)),
-                    icon: const Icon(Icons.arrow_upward_rounded, size: 19),
+                    icon: const Icon(LucideIcons.arrowUp, size: 19),
                   ),
                   IconButton(
                     tooltip: _isEnglish ? 'Reload' : '刷新',
                     onPressed: _isLoading
                         ? null
                         : () => unawaited(_loadDirectory(_currentPath)),
-                    icon: const Icon(Icons.refresh_rounded, size: 19),
+                    icon: const Icon(LucideIcons.refreshCw, size: 19),
                   ),
                 ],
               ),
@@ -219,7 +220,7 @@ class _CodexRemoteDirectoryPickerSheetState
                         return ListTile(
                           dense: true,
                           leading: Icon(
-                            Icons.folder_outlined,
+                            LucideIcons.folder,
                             size: 20,
                             color: palette.accentPrimary,
                           ),
@@ -242,7 +243,7 @@ class _CodexRemoteDirectoryPickerSheetState
                             ),
                           ),
                           trailing: Icon(
-                            Icons.chevron_right_rounded,
+                            LucideIcons.chevronRight,
                             color: palette.textTertiary,
                           ),
                           onTap: () => unawaited(_loadDirectory(entry.path)),
@@ -262,7 +263,7 @@ class _CodexRemoteDirectoryPickerSheetState
                           _currentPath.trim().isEmpty
                       ? null
                       : _selectCurrentDirectory,
-                  icon: const Icon(Icons.check_rounded, size: 18),
+                  icon: const Icon(LucideIcons.check, size: 18),
                   label: Text(
                     LegacyTextLocalizer.localize('选择此目录'),
                     maxLines: 1,
@@ -294,7 +295,7 @@ class _DirectoryError extends StatelessWidget {
           mainAxisSize: MainAxisSize.min,
           children: [
             Icon(
-              Icons.error_outline_rounded,
+              LucideIcons.circleAlert,
               color: Theme.of(context).colorScheme.error,
               size: 28,
             ),
@@ -307,7 +308,7 @@ class _DirectoryError extends StatelessWidget {
             const SizedBox(height: 12),
             TextButton.icon(
               onPressed: onRetry,
-              icon: const Icon(Icons.refresh_rounded, size: 17),
+              icon: const Icon(LucideIcons.refreshCw, size: 17),
               label: Text(LegacyTextLocalizer.localize('重试')),
             ),
           ],

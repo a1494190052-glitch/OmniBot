@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:ui/models/remote_mcp_server.dart';
 import 'package:ui/services/remote_mcp_config_service.dart';
 import 'package:ui/theme/app_colors.dart';
@@ -231,7 +232,7 @@ class _RemoteMcpServersPageState extends State<RemoteMcpServersPage> {
       ),
       floatingActionButton: FloatingActionButton(
         onPressed: () => _showServerEditor(),
-        child: const Icon(Icons.add),
+        child: const Icon(LucideIcons.plus),
       ),
       body: _loading
           ? const Center(child: CircularProgressIndicator())
@@ -267,7 +268,7 @@ class _RemoteMcpServersPageState extends State<RemoteMcpServersPage> {
       children: [
         const SizedBox(height: 120),
         Icon(
-          Icons.extension,
+          LucideIcons.puzzle,
           size: 48,
           color: context.isDarkTheme ? palette.textTertiary : AppColors.text50,
         ),

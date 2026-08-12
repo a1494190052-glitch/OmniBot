@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_switch/flutter_switch.dart';
+import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:ui/core/router/go_router_manager.dart';
 import 'package:ui/l10n/l10n.dart';
 import 'package:ui/services/app_update_service.dart';
@@ -266,7 +267,7 @@ class _AboutPageState extends State<AboutPage> {
             fit: BoxFit.contain,
             errorBuilder: (context, error, stackTrace) {
               return const Icon(
-                Icons.image_rounded,
+                LucideIcons.image,
                 size: 72,
                 color: AppColors.primaryBlue,
               );
@@ -371,7 +372,7 @@ class _AboutPageState extends State<AboutPage> {
         ),
         const SizedBox(height: 12),
         _buildAboutActionButton(
-          icon: Icons.receipt_long_outlined,
+          icon: LucideIcons.receiptText,
           label: context.trLegacy('请求日志'),
           compact: compact,
           onPressed: () {
@@ -380,7 +381,7 @@ class _AboutPageState extends State<AboutPage> {
         ),
         SizedBox(height: compact ? 6 : 8),
         _buildAboutActionButton(
-          icon: Icons.bug_report_outlined,
+          icon: LucideIcons.bug,
           label: context.trLegacy('运行日志'),
           compact: compact,
           onPressed: () {
@@ -389,7 +390,7 @@ class _AboutPageState extends State<AboutPage> {
         ),
         SizedBox(height: compact ? 6 : 8),
         _buildAboutActionButton(
-          icon: Icons.menu_book_outlined,
+          icon: LucideIcons.bookOpen,
           label: context.trLegacy('使用手册'),
           compact: compact,
           onPressed: _openUserGuide,
@@ -546,7 +547,7 @@ class _AboutPageState extends State<AboutPage> {
             : Colors.white,
         borderRadius: BorderRadius.circular(16),
         icon: Icon(
-          Icons.keyboard_arrow_down_rounded,
+          LucideIcons.chevronDown,
           size: 18,
           color: context.isDarkTheme ? palette.textTertiary : AppColors.text50,
         ),

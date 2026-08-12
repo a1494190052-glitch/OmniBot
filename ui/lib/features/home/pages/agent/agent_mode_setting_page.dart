@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:ui/core/router/go_router_manager.dart';
 import 'package:ui/services/agent_runtime_service.dart';
 import 'package:ui/services/storage_service.dart';
@@ -242,12 +243,12 @@ class _AgentModeSettingPageState extends State<AgentModeSettingPage> {
                     height: 18,
                     child: CircularProgressIndicator(strokeWidth: 2),
                   )
-                : const Icon(Icons.refresh_rounded),
+                : const Icon(LucideIcons.refreshCw),
           ),
           IconButton(
             tooltip: _text('添加自定义 ACP Agent', 'Add custom ACP Agent'),
             onPressed: _busyAgentId == null ? _addCustomAgent : null,
-            icon: const Icon(Icons.add_rounded),
+            icon: const Icon(LucideIcons.plus),
           ),
         ],
       ),
@@ -288,7 +289,7 @@ class _AgentModeSettingPageState extends State<AgentModeSettingPage> {
                   ),
                   TextField(
                     decoration: InputDecoration(
-                      prefixIcon: const Icon(Icons.search_rounded),
+                      prefixIcon: const Icon(LucideIcons.search),
                       hintText: _text('搜索 Agent', 'Search Agents'),
                       filled: true,
                       fillColor: card,
@@ -596,7 +597,7 @@ class _AgentCard extends StatelessWidget {
                   key: Key('agent-config-${agent.id}'),
                   tooltip: english ? 'Agent configuration' : 'Agent 配置',
                   onPressed: onConfigure,
-                  icon: const Icon(Icons.chevron_right_rounded),
+                  icon: const Icon(LucideIcons.chevronRight),
                 ),
             ],
           ),
@@ -736,7 +737,7 @@ class _RemoteBridgeCard extends StatelessWidget {
                   borderRadius: BorderRadius.circular(10),
                 ),
                 child: Icon(
-                  Icons.terminal_rounded,
+                  LucideIcons.squareTerminal,
                   size: 20,
                   color: palette.accentPrimary,
                 ),
@@ -771,7 +772,7 @@ class _RemoteBridgeCard extends StatelessWidget {
                   ],
                 ),
               ),
-              Icon(Icons.chevron_right_rounded, color: palette.textTertiary),
+              Icon(LucideIcons.chevronRight, color: palette.textTertiary),
             ],
           ),
         ),

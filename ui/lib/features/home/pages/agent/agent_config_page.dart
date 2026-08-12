@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
+import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:ui/services/agent_runtime_service.dart';
 import 'package:ui/theme/app_colors.dart';
 import 'package:ui/theme/theme_context.dart';
@@ -304,7 +305,7 @@ class _AgentConfigPageState extends State<AgentConfigPage> {
               IconButton(
                 tooltip: _text('删除 Agent', 'Delete Agent'),
                 onPressed: _saving ? null : _deleteCustomAgent,
-                icon: const Icon(Icons.delete_outline_rounded),
+                icon: const Icon(LucideIcons.trash2),
               ),
           ],
         ),
@@ -357,7 +358,7 @@ class _AgentConfigPageState extends State<AgentConfigPage> {
                                   strokeWidth: 2,
                                 ),
                               )
-                            : const Icon(Icons.save_outlined),
+                            : const Icon(LucideIcons.save),
                         label: Text(_text('保存配置', 'Save configuration')),
                       ),
                     ],
@@ -444,11 +445,7 @@ class _AgentConfigPageState extends State<AgentConfigPage> {
                   ? _text('显示 API Key', 'Show API Key')
                   : _text('隐藏 API Key', 'Hide API Key'),
               onPressed: () => setState(() => _obscureApiKey = !_obscureApiKey),
-              icon: Icon(
-                _obscureApiKey
-                    ? Icons.visibility_outlined
-                    : Icons.visibility_off_outlined,
-              ),
+              icon: Icon(_obscureApiKey ? LucideIcons.eye : LucideIcons.eyeOff),
             ),
           ),
         ),

@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_switch/flutter_switch.dart';
+import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:ui/services/model_provider_config_service.dart';
 import 'package:ui/services/scene_model_config_service.dart';
 import 'package:ui/services/voice_playback_coordinator.dart';
@@ -698,7 +699,7 @@ class _SceneModelSettingPageState extends State<SceneModelSettingPage> {
             const AgentAvatarButton(size: 30, showEditBadge: true),
             const SizedBox(width: 6),
           ],
-          Icon(Icons.info_outline, size: 15, color: _tertiaryTextColor),
+          Icon(LucideIcons.info, size: 15, color: _tertiaryTextColor),
         ],
       ),
     );
@@ -737,7 +738,7 @@ class _SceneModelSettingPageState extends State<SceneModelSettingPage> {
                 ),
                 const SizedBox(width: 8),
                 Icon(
-                  Icons.keyboard_arrow_down_rounded,
+                  LucideIcons.chevronDown,
                   size: 18,
                   color: _tertiaryTextColor,
                 ),
@@ -1136,9 +1137,7 @@ class _SceneModelSettingPageState extends State<SceneModelSettingPage> {
         child: Row(
           children: [
             Icon(
-              selected
-                  ? Icons.radio_button_checked_rounded
-                  : Icons.radio_button_off_rounded,
+              selected ? LucideIcons.circleCheck : LucideIcons.circle,
               size: 18,
               color: selected
                   ? Theme.of(context).colorScheme.primary
@@ -1219,8 +1218,8 @@ class _SceneModelSettingPageState extends State<SceneModelSettingPage> {
                       onPressed: () => _toggleSceneExpanded(scene.sceneId),
                       icon: Icon(
                         isExpanded
-                            ? Icons.expand_less_rounded
-                            : Icons.tune_rounded,
+                            ? LucideIcons.chevronUp
+                            : LucideIcons.slidersHorizontal,
                         size: 18,
                         color: _tertiaryTextColor,
                       ),
@@ -1384,7 +1383,7 @@ class _SceneModelSettingPageState extends State<SceneModelSettingPage> {
                                         strokeWidth: 2,
                                       ),
                                     )
-                                  : const Icon(Icons.refresh, size: 16),
+                                  : const Icon(LucideIcons.refreshCw, size: 16),
                               label: Text(context.l10n.sceneModelRefreshList),
                             ),
                           ),
@@ -1554,7 +1553,7 @@ class _SceneSelectionPopupEntryState extends State<_SceneSelectionPopupEntry> {
       padding: const EdgeInsets.fromLTRB(12, 10, 12, 8),
       child: Row(
         children: [
-          Icon(Icons.search, size: 18, color: _tertiaryTextColor),
+          Icon(LucideIcons.search, size: 18, color: _tertiaryTextColor),
           const SizedBox(width: 8),
           Expanded(
             child: TextField(
@@ -1625,7 +1624,7 @@ class _SceneSelectionPopupEntryState extends State<_SceneSelectionPopupEntry> {
               ),
               if (selected)
                 Icon(
-                  Icons.check_rounded,
+                  LucideIcons.check,
                   size: 15,
                   color: _isDarkTheme
                       ? context.omniPalette.accentPrimary
@@ -1692,7 +1691,7 @@ class _SceneSelectionPopupEntryState extends State<_SceneSelectionPopupEntry> {
               if (isCurrent) ...[
                 const SizedBox(width: 6),
                 Icon(
-                  Icons.check_circle_rounded,
+                  LucideIcons.circleCheck,
                   size: 13,
                   color: _isDarkTheme
                       ? context.omniPalette.accentPrimary
@@ -1702,10 +1701,10 @@ class _SceneSelectionPopupEntryState extends State<_SceneSelectionPopupEntry> {
               const SizedBox(width: 6),
               Icon(
                 _hasSearchQuery
-                    ? Icons.unfold_more_rounded
+                    ? LucideIcons.chevronsUpDown
                     : expanded
-                    ? Icons.expand_less_rounded
-                    : Icons.expand_more_rounded,
+                    ? LucideIcons.chevronUp
+                    : LucideIcons.chevronDown,
                 size: 16,
                 color: _tertiaryTextColor,
               ),
@@ -1760,7 +1759,7 @@ class _SceneSelectionPopupEntryState extends State<_SceneSelectionPopupEntry> {
                 ),
                 if (selected)
                   Icon(
-                    Icons.check_rounded,
+                    LucideIcons.check,
                     size: 15,
                     color: _isDarkTheme
                         ? context.omniPalette.accentPrimary

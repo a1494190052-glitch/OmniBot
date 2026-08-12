@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_switch/flutter_switch.dart';
+import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:ui/features/home/widgets/home_quick_prompt_icon.dart';
 import 'package:ui/l10n/l10n.dart';
 import 'package:ui/services/home_greeting_settings_service.dart';
@@ -228,11 +229,7 @@ class _HomeSettingPageState extends State<HomeSettingPage> {
       padding: const EdgeInsets.fromLTRB(4, 14, 2, 14),
       child: Row(
         children: [
-          Icon(
-            Icons.waving_hand_outlined,
-            size: 18,
-            color: palette.textPrimary,
-          ),
+          Icon(LucideIcons.hand, size: 18, color: palette.textPrimary),
           const SizedBox(width: 10),
           Expanded(
             child: Column(
@@ -351,7 +348,7 @@ class _HomeSettingPageState extends State<HomeSettingPage> {
             tooltip: context.trLegacy(isPinned ? '取消固定' : '固定到首页'),
             onPressed: () => _togglePinnedPrompt(prompt, settings),
             icon: Icon(
-              isPinned ? Icons.push_pin_rounded : Icons.push_pin_outlined,
+              isPinned ? LucideIcons.pinOff : LucideIcons.pin,
               size: 18,
               color: isPinned ? palette.accentPrimary : palette.textTertiary,
             ),
@@ -361,7 +358,7 @@ class _HomeSettingPageState extends State<HomeSettingPage> {
               tooltip: context.trLegacy('编辑'),
               onPressed: () => _showPromptEditor(prompt: prompt),
               icon: Icon(
-                Icons.edit_outlined,
+                LucideIcons.pencil,
                 size: 18,
                 color: palette.textTertiary,
               ),
@@ -370,7 +367,7 @@ class _HomeSettingPageState extends State<HomeSettingPage> {
             tooltip: context.trLegacy('删除'),
             onPressed: () => _deletePrompt(prompt),
             icon: Icon(
-              Icons.delete_outline_rounded,
+              LucideIcons.trash2,
               size: 18,
               color: palette.textTertiary,
             ),
@@ -399,7 +396,7 @@ class _HomeSettingPageState extends State<HomeSettingPage> {
       height: 42,
       child: OutlinedButton.icon(
         onPressed: () => _showPromptEditor(),
-        icon: const Icon(Icons.add_rounded, size: 18),
+        icon: const Icon(LucideIcons.plus, size: 18),
         label: Text(context.trLegacy('新增快捷指令')),
         style: OutlinedButton.styleFrom(
           foregroundColor: palette.accentPrimary,

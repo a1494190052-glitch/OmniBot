@@ -4,7 +4,6 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:ui/l10n/l10n.dart';
 import 'package:flutter_slidable/flutter_slidable.dart';
-import 'package:flutter_svg/flutter_svg.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:ui/services/builtin_official_provider_catalog.dart';
 import 'package:ui/services/model_provider_config_service.dart';
@@ -17,47 +16,6 @@ import 'package:ui/widgets/common_app_bar.dart';
 import 'package:ui/widgets/provider_vendor_icon.dart';
 import 'package:ui/widgets/settings_section_title.dart';
 
-const String _kArrowBigDownSvg = '''
-<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-  <path d="M15 11a1 1 0 0 0 1 1h2.939a1 1 0 0 1 .75 1.811l-6.835 6.836a1.207 1.207 0 0 1-1.707 0L4.31 13.81a1 1 0 0 1 .75-1.811H8a1 1 0 0 0 1-1V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1z"/>
-</svg>
-''';
-
-const String _kPlusSvg = '''
-<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-  <path d="M5 12h14"/>
-  <path d="M12 5v14"/>
-</svg>
-''';
-
-const String _kPackageSvg = '''
-<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-  <path d="M11 21.73a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73z"/>
-  <path d="M12 22V12"/>
-  <polyline points="3.29 7 12 12 20.71 7"/>
-  <path d="m7.5 4.27 9 5.15"/>
-</svg>
-''';
-
-const String _kInputImageSvg = '''
-<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-image-icon lucide-image"><rect width="18" height="18" x="3" y="3" rx="2" ry="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/></svg>
-''';
-
-const String _kInputTextSvg = '''
-<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-file-text-icon lucide-file-text"><path d="M6 22a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.704.706l3.588 3.588A2.4 2.4 0 0 1 20 8v12a2 2 0 0 1-2 2z"/><path d="M14 2v5a1 1 0 0 0 1 1h5"/><path d="M10 9H8"/><path d="M16 13H8"/><path d="M16 17H8"/></svg>
-''';
-
-const String _kInputPdfSvg = '''
-<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-file-icon lucide-file"><path d="M6 22a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.704.706l3.588 3.588A2.4 2.4 0 0 1 20 8v12a2 2 0 0 1-2 2z"/><path d="M14 2v5a1 1 0 0 0 1 1h5"/></svg>
-''';
-
-const String _kReasoningSvg = '''
-<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5a3 3 0 1 0-5.997.125 4 4 0 0 0-2.524 5.77 4 4 0 0 0 1.07 6.046A3.5 3.5 0 0 0 12 18.5"/><path d="M12 5a3 3 0 1 1 5.997.125 4 4 0 0 1 2.524 5.77 4 4 0 0 1-1.07 6.046A3.5 3.5 0 0 1 12 18.5"/><path d="M12 5v13.5"/><path d="M8 14h.01"/><path d="M16 14h.01"/><path d="M9 9h.01"/><path d="M15 9h.01"/></svg>
-''';
-
-const String _kGroupToggleClosedIconAsset =
-    'assets/home/chat/mode_menu_closed.svg';
-const String _kGroupToggleOpenIconAsset = 'assets/home/chat/mode_menu_open.svg';
 const double _kProviderSwitchPopupMaxHeight = 320;
 const double _kProviderTypePopupMinWidth = 200;
 const double _kProviderTypePopupHorizontalMargin = 16;
@@ -1781,7 +1739,7 @@ class _ModelProviderSettingPageState extends State<ModelProviderSettingPage> {
                     duration: const Duration(milliseconds: 180),
                     curve: Curves.easeOutCubic,
                     child: Icon(
-                      Icons.expand_more_rounded,
+                      LucideIcons.chevronDown,
                       size: 20,
                       color: _tertiaryTextColor,
                     ),
@@ -1832,7 +1790,7 @@ class _ModelProviderSettingPageState extends State<ModelProviderSettingPage> {
                   alignment: Alignment.centerRight,
                   child: TextButton.icon(
                     onPressed: _addCustomHeaderEntry,
-                    icon: const Icon(Icons.add, size: 16),
+                    icon: const Icon(LucideIcons.plus, size: 16),
                     label: Text(_headerText('新增', 'Add')),
                   ),
                 ),
@@ -1951,7 +1909,7 @@ class _ModelProviderSettingPageState extends State<ModelProviderSettingPage> {
                 ? null
                 : () => _removeCustomHeaderEntry(entry.id),
             icon: Icon(
-              Icons.delete_outline,
+              LucideIcons.trash2,
               size: 18,
               color: readOnly ? _tertiaryTextColor : AppColors.alertRed,
             ),
@@ -1962,7 +1920,7 @@ class _ModelProviderSettingPageState extends State<ModelProviderSettingPage> {
   }
 
   Widget _buildModelActionButton({
-    required String svg,
+    required IconData icon,
     required VoidCallback? onPressed,
     bool highlighted = false,
     bool loading = false,
@@ -1999,12 +1957,7 @@ class _ModelProviderSettingPageState extends State<ModelProviderSettingPage> {
                       valueColor: AlwaysStoppedAnimation<Color>(iconColor),
                     ),
                   )
-                : SvgPicture.string(
-                    svg,
-                    width: 20,
-                    height: 20,
-                    colorFilter: ColorFilter.mode(iconColor, BlendMode.srcIn),
-                  ),
+                : Icon(icon, size: 20, color: iconColor),
           ),
         ),
       ),
@@ -2075,7 +2028,7 @@ class _ModelProviderSettingPageState extends State<ModelProviderSettingPage> {
 
   Widget _buildCompactIconChip({
     required String key,
-    required String svg,
+    required IconData icon,
     required String tooltip,
     String? label,
   }) {
@@ -2101,15 +2054,7 @@ class _ModelProviderSettingPageState extends State<ModelProviderSettingPage> {
           mainAxisSize: MainAxisSize.min,
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            SvgPicture.string(
-              svg,
-              width: 14,
-              height: 14,
-              colorFilter: ColorFilter.mode(
-                _secondaryTextColor,
-                BlendMode.srcIn,
-              ),
-            ),
+            Icon(icon, size: 14, color: _secondaryTextColor),
             if (label != null) ...[
               const SizedBox(width: 4),
               Text(
@@ -2131,10 +2076,10 @@ class _ModelProviderSettingPageState extends State<ModelProviderSettingPage> {
     );
   }
 
-  Widget _buildModalityIcon({required String svg, required String tooltip}) {
+  Widget _buildModalityIcon({required IconData icon, required String tooltip}) {
     return _buildCompactIconChip(
       key: 'provider-model-modality-${tooltip.toLowerCase().split(' ').first}',
-      svg: svg,
+      icon: icon,
       tooltip: tooltip,
     );
   }
@@ -2206,7 +2151,7 @@ class _ModelProviderSettingPageState extends State<ModelProviderSettingPage> {
       widgets.add(
         _buildCompactIconChip(
           key: 'provider-model-reasoning-${model.id}',
-          svg: _kReasoningSvg,
+          icon: LucideIcons.brain,
           tooltip: 'Reasoning',
         ),
       );
@@ -2226,16 +2171,18 @@ class _ModelProviderSettingPageState extends State<ModelProviderSettingPage> {
     final widgets = <Widget>[];
     if (modalities.contains('text')) {
       widgets.add(
-        _buildModalityIcon(svg: _kInputTextSvg, tooltip: 'Text input'),
+        _buildModalityIcon(icon: LucideIcons.fileText, tooltip: 'Text input'),
       );
     }
     if (modalities.contains('image')) {
       widgets.add(
-        _buildModalityIcon(svg: _kInputImageSvg, tooltip: 'Image input'),
+        _buildModalityIcon(icon: LucideIcons.image, tooltip: 'Image input'),
       );
     }
     if (modalities.contains('pdf')) {
-      widgets.add(_buildModalityIcon(svg: _kInputPdfSvg, tooltip: 'PDF input'));
+      widgets.add(
+        _buildModalityIcon(icon: LucideIcons.file, tooltip: 'PDF input'),
+      );
     }
     for (final modality in modalities) {
       if (modality == 'text' || modality == 'image' || modality == 'pdf') {
@@ -2420,7 +2367,7 @@ class _ModelProviderSettingPageState extends State<ModelProviderSettingPage> {
                           duration: _modelGroupToggleDuration,
                           curve: Curves.easeInOutCubicEmphasized,
                           child: Icon(
-                            Icons.keyboard_arrow_down_rounded,
+                            LucideIcons.chevronDown,
                             size: 18,
                             color: _tertiaryTextColor,
                           ),
@@ -2476,13 +2423,12 @@ class _ModelProviderSettingPageState extends State<ModelProviderSettingPage> {
             width: 48,
             height: 44,
             child: Center(
-              child: SvgPicture.asset(
+              child: Icon(
                 isOpen
-                    ? _kGroupToggleOpenIconAsset
-                    : _kGroupToggleClosedIconAsset,
-                width: 20,
-                height: 20,
-                colorFilter: ColorFilter.mode(iconColor, BlendMode.srcIn),
+                    ? LucideIcons.listCollapse
+                    : LucideIcons.listChevronsUpDown,
+                size: 20,
+                color: iconColor,
               ),
             ),
           ),
@@ -2534,14 +2480,10 @@ class _ModelProviderSettingPageState extends State<ModelProviderSettingPage> {
                     alignment: Alignment.centerRight,
                     child: Padding(
                       padding: EdgeInsets.only(right: deleteIconRightPadding),
-                      child: SvgPicture.asset(
-                        'assets/memory/memory_delete.svg',
-                        width: _modelDeleteIconSize,
-                        height: _modelDeleteIconSize,
-                        colorFilter: const ColorFilter.mode(
-                          Colors.white,
-                          BlendMode.srcIn,
-                        ),
+                      child: Icon(
+                        LucideIcons.trash2,
+                        size: _modelDeleteIconSize,
+                        color: Colors.white,
                       ),
                     ),
                   ),
@@ -2798,14 +2740,14 @@ class _ModelProviderSettingPageState extends State<ModelProviderSettingPage> {
                   Padding(
                     padding: const EdgeInsets.only(left: 6),
                     child: Icon(
-                      Icons.lock_outline,
+                      LucideIcons.lockKeyhole,
                       size: 14,
                       color: _tertiaryTextColor,
                     ),
                   ),
                 const SizedBox(width: 2),
                 Icon(
-                  Icons.keyboard_arrow_down_rounded,
+                  LucideIcons.chevronDown,
                   size: 18,
                   color: _secondaryTextColor,
                 ),
@@ -2862,7 +2804,7 @@ class _ModelProviderSettingPageState extends State<ModelProviderSettingPage> {
                     ),
                     const SizedBox(width: 2),
                     Icon(
-                      Icons.keyboard_arrow_down_rounded,
+                      LucideIcons.chevronDown,
                       size: 18,
                       color: _secondaryTextColor,
                     ),
@@ -2912,7 +2854,7 @@ class _ModelProviderSettingPageState extends State<ModelProviderSettingPage> {
                     ),
                     const SizedBox(width: 8),
                     Icon(
-                      Icons.keyboard_arrow_down_rounded,
+                      LucideIcons.chevronDown,
                       size: 20,
                       color: _secondaryTextColor,
                     ),
@@ -3005,15 +2947,7 @@ class _ModelProviderSettingPageState extends State<ModelProviderSettingPage> {
                             ),
                             const SizedBox(width: 8),
                             _buildModelActionButton(
-                              svg: '''
-<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-  <path d="M3 6h18"/>
-  <path d="M8 6V4h8v2"/>
-  <path d="M19 6l-1 14H6L5 6"/>
-  <path d="M10 11v6"/>
-  <path d="M14 11v6"/>
-</svg>
-''',
+                              icon: LucideIcons.trash2,
                               onPressed:
                                   _profiles.length <= 1 ||
                                       _currentProfile?.readOnly == true
@@ -3022,7 +2956,7 @@ class _ModelProviderSettingPageState extends State<ModelProviderSettingPage> {
                             ),
                             const SizedBox(width: 8),
                             _buildModelActionButton(
-                              svg: _kPlusSvg,
+                              icon: LucideIcons.plus,
                               onPressed: _promptAddProfile,
                             ),
                           ],
@@ -3090,8 +3024,8 @@ class _ModelProviderSettingPageState extends State<ModelProviderSettingPage> {
                               },
                               icon: Icon(
                                 _obscureApiKey
-                                    ? Icons.visibility_off
-                                    : Icons.visibility,
+                                    ? LucideIcons.eyeOff
+                                    : LucideIcons.eye,
                                 color: _tertiaryTextColor,
                                 size: 18,
                               ),
@@ -3135,14 +3069,14 @@ class _ModelProviderSettingPageState extends State<ModelProviderSettingPage> {
                               ),
                             ),
                             _buildModelActionButton(
-                              svg: _kPlusSvg,
+                              icon: LucideIcons.plus,
                               onPressed: _currentProfile?.readOnly == true
                                   ? null
                                   : _promptAddModel,
                             ),
                             const SizedBox(width: 8),
                             _buildModelActionButton(
-                              svg: _kArrowBigDownSvg,
+                              icon: LucideIcons.arrowBigDown,
                               onPressed: _isFetchingModels
                                   ? null
                                   : _fetchModelsLocalized,
@@ -3191,14 +3125,10 @@ class _ModelProviderSettingPageState extends State<ModelProviderSettingPage> {
                                     child: Column(
                                       mainAxisSize: MainAxisSize.min,
                                       children: [
-                                        SvgPicture.string(
-                                          _kPackageSvg,
-                                          width: 64,
-                                          height: 64,
-                                          colorFilter: ColorFilter.mode(
-                                            _tertiaryTextColor,
-                                            BlendMode.srcIn,
-                                          ),
+                                        Icon(
+                                          LucideIcons.package,
+                                          size: 64,
+                                          color: _tertiaryTextColor,
                                         ),
                                         const SizedBox(height: 10),
                                         Text(
@@ -3305,7 +3235,7 @@ class _ProviderSwitchPopupEntryState extends State<_ProviderSwitchPopupEntry> {
               ),
               if (selected)
                 Icon(
-                  Icons.check_rounded,
+                  LucideIcons.check,
                   size: 16,
                   color: _isDarkTheme(context)
                       ? palette.accentPrimary
@@ -3793,7 +3723,7 @@ class _SelectionPopupEntryState extends State<_SelectionPopupEntry> {
               ),
               if (selected)
                 Icon(
-                  Icons.check_rounded,
+                  LucideIcons.check,
                   size: 16,
                   color: isDark
                       ? palette.accentPrimary
@@ -3867,7 +3797,7 @@ class _ProviderTypePopupEntryState extends State<_ProviderTypePopupEntry> {
               ),
               if (selected)
                 Icon(
-                  Icons.check_rounded,
+                  LucideIcons.check,
                   size: 16,
                   color: isDark
                       ? palette.accentPrimary

@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
+import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:ui/l10n/legacy_text_localizer.dart';
 import 'package:ui/theme/theme_context.dart';
@@ -244,12 +245,12 @@ class _CodexBridgeQrScannerPageState extends State<CodexBridgeQrScannerPage> {
           IconButton(
             tooltip: _isEnglish ? 'Torch' : '手电筒',
             onPressed: () => unawaited(_controller.toggleTorch()),
-            icon: const Icon(Icons.flash_on_rounded),
+            icon: const Icon(LucideIcons.zap),
           ),
           IconButton(
             tooltip: _isEnglish ? 'Switch camera' : '切换摄像头',
             onPressed: () => unawaited(_controller.switchCamera()),
-            icon: const Icon(Icons.cameraswitch_rounded),
+            icon: const Icon(LucideIcons.switchCamera),
           ),
         ],
       ),
@@ -299,7 +300,7 @@ class _CodexBridgeQrScannerPageState extends State<CodexBridgeQrScannerPage> {
               child: Row(
                 children: [
                   Icon(
-                    Icons.qr_code_scanner_rounded,
+                    LucideIcons.scanQrCode,
                     color: palette.accentPrimary,
                     size: 18,
                   ),

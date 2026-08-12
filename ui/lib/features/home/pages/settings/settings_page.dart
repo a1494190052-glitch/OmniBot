@@ -2,8 +2,8 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:flutter_svg/svg.dart';
 import 'package:flutter_switch/flutter_switch.dart';
+import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:ui/core/router/go_router_manager.dart';
 import 'package:ui/l10n/l10n.dart';
 import 'package:ui/services/mcp_server_service.dart';
@@ -293,7 +293,7 @@ class _SettingsPageState extends State<SettingsPage> {
         label: isEnglish ? 'Account' : '账号',
         items: [
           _SettingItem(
-            icon: Icons.manage_accounts_outlined,
+            icon: LucideIcons.userRoundCog,
             title: isEnglish ? 'Account & AI service' : '账号与 AI 服务',
             subtitle: isEnglish
                 ? 'Sign in, view platform quota, or use your own API key'
@@ -308,8 +308,7 @@ class _SettingsPageState extends State<SettingsPage> {
         label: context.l10n.settingsSectionModelMemory,
         items: [
           _SettingItem(
-            icon: Icons.smart_toy_outlined,
-            iconSvg: 'assets/home/model_provider_setting_icon.svg',
+            icon: LucideIcons.box,
             title: context.l10n.settingsModelProviderTitle,
             subtitle: context.l10n.settingsModelProviderSubtitle,
             onTap: () {
@@ -317,8 +316,7 @@ class _SettingsPageState extends State<SettingsPage> {
             },
           ),
           _SettingItem(
-            icon: Icons.tune_outlined,
-            iconSvg: 'assets/home/scene_model_setting_icon.svg',
+            icon: LucideIcons.fileBox,
             title: context.l10n.settingsSceneModelTitle,
             subtitle: context.l10n.settingsSceneModelSubtitle,
             onTap: () {
@@ -326,8 +324,7 @@ class _SettingsPageState extends State<SettingsPage> {
             },
           ),
           _SettingItem(
-            icon: Icons.cloud_sync_outlined,
-            iconSvg: 'assets/home/mem0_cloud_setting_icon.svg',
+            icon: LucideIcons.database,
             title: context.l10n.settingsWorkspaceMemoryTitle,
             subtitle: workspaceMemorySubtitle,
             onTap: () async {
@@ -343,7 +340,7 @@ class _SettingsPageState extends State<SettingsPage> {
         label: context.l10n.settingsSectionServiceEnvironment,
         items: [
           _SettingItem(
-            icon: Icons.hub_outlined,
+            icon: LucideIcons.bot,
             title: context.trLegacy('Agent 模式'),
             subtitle: context.trLegacy('管理 ACP Agent、可用状态与统一模型绑定'),
             onTap: () {
@@ -351,8 +348,7 @@ class _SettingsPageState extends State<SettingsPage> {
             },
           ),
           _SettingItem(
-            icon: Icons.code,
-            iconSvg: 'assets/home/termux.svg',
+            icon: LucideIcons.squareTerminal,
             iconColor: AppColors.buttonPrimary,
             title: context.l10n.settingsAlpineTitle,
             subtitle: context.l10n.settingsAlpineSubtitle,
@@ -361,8 +357,7 @@ class _SettingsPageState extends State<SettingsPage> {
             },
           ),
           _SettingItem(
-            icon: Icons.cloud_outlined,
-            iconSvg: 'assets/home/local_mcp_service_setting_icon.svg',
+            icon: LucideIcons.monitorSmartphone,
             title: context.l10n.settingsLocalServiceTitle,
             subtitle: context.l10n.settingsLocalServiceSubtitle,
             trailing: _buildSwitchTrailing(
@@ -375,8 +370,7 @@ class _SettingsPageState extends State<SettingsPage> {
             onTap: _mcpEnabled && !_mcpBusy ? _showMcpInfo : null,
           ),
           _SettingItem(
-            icon: Icons.extension_outlined,
-            iconSvg: 'assets/home/mcp_tools_setting_icon.svg',
+            icon: LucideIcons.hammer,
             title: context.l10n.settingsMcpToolsTitle,
             subtitle: context.l10n.settingsMcpToolsSubtitle,
             onTap: () {
@@ -389,7 +383,7 @@ class _SettingsPageState extends State<SettingsPage> {
         label: context.l10n.settingsSectionExperienceAppearance,
         items: [
           _SettingItem(
-            icon: Icons.wallpaper_outlined,
+            icon: LucideIcons.palette,
             title: context.l10n.settingsAppearanceTitle,
             subtitle: context.l10n.settingsAppearanceSubtitle,
             onTap: () {
@@ -397,8 +391,7 @@ class _SettingsPageState extends State<SettingsPage> {
             },
           ),
           _SettingItem(
-            icon: Icons.more_horiz_rounded,
-            iconSvg: 'assets/home/misc_blocks_setting_icon.svg',
+            icon: LucideIcons.settings2,
             title: context.trLegacy('杂项'),
             subtitle: context.trLegacy('首页、后台隐藏、闹钟、振动与打开方式'),
             onTap: () {
@@ -411,8 +404,7 @@ class _SettingsPageState extends State<SettingsPage> {
         label: context.l10n.settingsSectionPermissionInfo,
         items: [
           _SettingItem(
-            icon: Icons.admin_panel_settings_outlined,
-            iconSvg: 'assets/home/app_permission_authorize_icon.svg',
+            icon: LucideIcons.shieldCheck,
             title: context.l10n.authorizePageTitle,
             subtitle: context.trLegacy('查看并配置悬浮窗、后台运行、Shizuku 等权限'),
             onTap: () {
@@ -420,7 +412,7 @@ class _SettingsPageState extends State<SettingsPage> {
             },
           ),
           _SettingItem(
-            icon: Icons.storage_outlined,
+            icon: LucideIcons.hardDrive,
             title: context.l10n.storageUsageTitle,
             subtitle: context.l10n.storageUsageSubtitle,
             onTap: () {
@@ -428,8 +420,7 @@ class _SettingsPageState extends State<SettingsPage> {
             },
           ),
           _SettingItem(
-            icon: Icons.info_outline,
-            iconSvg: 'assets/home/about_icon.svg',
+            icon: LucideIcons.info,
             title: context.l10n.settingsAboutTitle,
             onTap: () {
               GoRouterManager.push('/my/about');
@@ -535,7 +526,7 @@ class _SettingsPageState extends State<SettingsPage> {
                 Padding(
                   padding: const EdgeInsets.only(left: 12),
                   child: Icon(
-                    Icons.chevron_right_rounded,
+                    LucideIcons.chevronRight,
                     size: 18,
                     color: palette.textTertiary,
                   ),
@@ -553,14 +544,7 @@ class _SettingsPageState extends State<SettingsPage> {
     return SizedBox(
       width: 18,
       height: 18,
-      child: item.iconSvg != null
-          ? SvgPicture.asset(
-              item.iconSvg!,
-              width: 18,
-              height: 18,
-              colorFilter: ColorFilter.mode(iconColor, BlendMode.srcIn),
-            )
-          : item.icon != null
+      child: item.icon != null
           ? Icon(item.icon, size: 18, color: iconColor)
           : const SizedBox.shrink(),
     );
@@ -607,7 +591,6 @@ class _SettingSection {
 
 class _SettingItem {
   final IconData? icon;
-  final String? iconSvg;
   final Color? iconColor;
   final String title;
   final String? subtitle;
@@ -616,7 +599,6 @@ class _SettingItem {
 
   const _SettingItem({
     this.icon,
-    this.iconSvg,
     this.iconColor,
     required this.title,
     this.subtitle,

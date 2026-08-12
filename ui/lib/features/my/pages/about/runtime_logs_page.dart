@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:flutter_svg/flutter_svg.dart';
+import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:ui/core/router/go_router_manager.dart';
 import 'package:ui/l10n/legacy_text_localizer.dart';
 import 'package:ui/services/runtime_log_service.dart';
@@ -461,7 +461,7 @@ class _RuntimeLogsPageState extends State<RuntimeLogsPage> {
                           duration: const Duration(milliseconds: 180),
                           curve: Curves.easeOutCubic,
                           child: Icon(
-                            Icons.expand_more_rounded,
+                            LucideIcons.chevronDown,
                             size: 18,
                             color: palette.textTertiary,
                           ),
@@ -626,14 +626,10 @@ class _RuntimeLogsPageState extends State<RuntimeLogsPage> {
               child: SizedBox(
                 width: 24,
                 height: 24,
-                child: SvgPicture.asset(
-                  'assets/common/chevron_left.svg',
-                  width: 24,
-                  height: 24,
-                  colorFilter: ColorFilter.mode(
-                    palette.textPrimary,
-                    BlendMode.srcIn,
-                  ),
+                child: Icon(
+                  LucideIcons.chevronLeft,
+                  size: 24,
+                  color: palette.textPrimary,
                 ),
               ),
             ),
@@ -641,7 +637,7 @@ class _RuntimeLogsPageState extends State<RuntimeLogsPage> {
         ),
         IconButton(
           onPressed: _exportLogs,
-          icon: const Icon(Icons.content_copy_rounded),
+          icon: const Icon(LucideIcons.copy),
           tooltip: LegacyTextLocalizer.localize('导出运行日志'),
           color: palette.textPrimary,
           iconSize: 18,
@@ -666,13 +662,13 @@ class _RuntimeLogsPageState extends State<RuntimeLogsPage> {
         actions: [
           IconButton(
             onPressed: _loadLogs,
-            icon: const Icon(Icons.refresh),
+            icon: const Icon(LucideIcons.refreshCw),
             tooltip: LegacyTextLocalizer.localize('刷新'),
           ),
           if (_logs.isNotEmpty)
             IconButton(
               onPressed: _clearLogs,
-              icon: const Icon(Icons.delete_outline),
+              icon: const Icon(LucideIcons.trash2),
               tooltip: LegacyTextLocalizer.localize('清除'),
             ),
         ],

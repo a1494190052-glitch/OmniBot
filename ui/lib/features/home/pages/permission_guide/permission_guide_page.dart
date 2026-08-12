@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
+import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:ui/core/router/go_router_manager.dart';
 import 'package:ui/features/home/pages/permission_guide/permission_guide_data.dart';
 import 'package:ui/features/home/pages/permission_guide/permission_guide_routes.dart';
@@ -251,7 +252,7 @@ class _PermissionGuidePageState extends State<PermissionGuidePage> {
               ),
               const SizedBox(width: 8),
               const Icon(
-                Icons.arrow_forward_ios_rounded,
+                LucideIcons.chevronRight,
                 size: 16,
                 color: AppColors.text70,
               ),

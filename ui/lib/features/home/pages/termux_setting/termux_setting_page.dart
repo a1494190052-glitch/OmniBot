@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:ui/l10n/l10n.dart';
 import 'package:ui/services/omnibot_resource_service.dart';
 import 'package:ui/services/special_permission.dart';
@@ -841,7 +842,7 @@ class _TermuxSettingPageState extends State<TermuxSettingPage>
                             color: Colors.white,
                           ),
                         )
-                      : const Icon(Icons.terminal_rounded),
+                      : const Icon(LucideIcons.squareTerminal),
                   label: Text(
                     _isDetecting
                         ? context.l10n.alpineDetecting
@@ -963,7 +964,7 @@ class _TermuxSettingPageState extends State<TermuxSettingPage>
                       height: 18,
                       child: CircularProgressIndicator(strokeWidth: 2.2),
                     )
-                  : const Icon(Icons.create_new_folder_outlined),
+                  : const Icon(LucideIcons.folderPlus),
               label: Text(_workspaceMountAddLabel),
             ),
           ),
@@ -1104,7 +1105,7 @@ class _TermuxSettingPageState extends State<TermuxSettingPage>
                   onPressed: _isMountsBusy
                       ? null
                       : () => _unmountWorkspaceDirectory(entry),
-                  icon: const Icon(Icons.link_off_rounded, size: 18),
+                  icon: const Icon(LucideIcons.unlink, size: 18),
                   label: Text(_isEnglish ? 'Unmount' : '卸载'),
                 ),
               ],
@@ -1138,7 +1139,7 @@ class _TermuxSettingPageState extends State<TermuxSettingPage>
                   onPressed: _isAutoStartBusy
                       ? null
                       : () => _openAutoStartTaskDialog(),
-                  icon: const Icon(Icons.add_rounded),
+                  icon: const Icon(LucideIcons.plus),
                   label: Text(context.l10n.alpineAddTask),
                 ),
               ),
@@ -1148,7 +1149,7 @@ class _TermuxSettingPageState extends State<TermuxSettingPage>
                   onPressed: _isAutoStartBusy
                       ? null
                       : () => openNativeTerminal(),
-                  icon: const Icon(Icons.terminal_rounded),
+                  icon: const Icon(LucideIcons.squareTerminal),
                   label: Text(context.l10n.alpineOpenTerminal),
                 ),
               ),
@@ -1333,7 +1334,7 @@ class _TermuxSettingPageState extends State<TermuxSettingPage>
               onPressed: _isAutoStartBusy
                   ? null
                   : () => _runAutoStartTask(task),
-              icon: const Icon(Icons.play_arrow_rounded, size: 18),
+              icon: const Icon(LucideIcons.play, size: 18),
               label: Text(
                 task.running
                     ? context.l10n.alpineRunning
@@ -1344,14 +1345,14 @@ class _TermuxSettingPageState extends State<TermuxSettingPage>
               onPressed: _isAutoStartBusy
                   ? null
                   : () => _openAutoStartTaskDialog(task: task),
-              icon: const Icon(Icons.edit_outlined, size: 18),
+              icon: const Icon(LucideIcons.pencil, size: 18),
               label: Text(context.l10n.alpineEdit),
             ),
             TextButton.icon(
               onPressed: _isAutoStartBusy
                   ? null
                   : () => _deleteAutoStartTask(task),
-              icon: const Icon(Icons.delete_outline_rounded, size: 18),
+              icon: const Icon(LucideIcons.trash2, size: 18),
               label: Text(context.trLegacy('删除')),
             ),
           ],
@@ -1375,7 +1376,7 @@ class _TermuxSettingPageState extends State<TermuxSettingPage>
           padding: const EdgeInsets.only(top: 2),
           child: item.ready
               ? const Icon(
-                  Icons.check_box_rounded,
+                  LucideIcons.squareCheckBig,
                   color: Color(0xFF16A34A),
                   size: 22,
                 )

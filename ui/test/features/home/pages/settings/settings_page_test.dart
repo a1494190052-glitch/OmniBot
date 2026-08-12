@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:ui/features/home/pages/settings/settings_page.dart';
 import 'package:ui/l10n/generated/app_localizations.dart';
@@ -92,7 +93,32 @@ void main() {
     );
     await tester.pumpAndSettle();
 
+    Future<void> expectEntryIcon(String title, IconData icon) async {
+      final titleFinder = find.text(title);
+      await tester.scrollUntilVisible(
+        titleFinder,
+        400,
+        scrollable: find.byType(Scrollable).first,
+      );
+      final tileFinder = find.ancestor(
+        of: titleFinder,
+        matching: find.byType(InkWell),
+      );
+      expect(
+        find.descendant(of: tileFinder, matching: find.byIcon(icon)),
+        findsOneWidget,
+      );
+    }
+
     expect(find.text('账号与 AI 服务'), findsOneWidget);
+
+    await expectEntryIcon('模型提供商', LucideIcons.box);
+    await expectEntryIcon('场景模型配置', LucideIcons.fileBox);
+    await expectEntryIcon('Workspace 记忆配置', LucideIcons.database);
+    await expectEntryIcon('Agent 模式', LucideIcons.bot);
+    await expectEntryIcon('本机服务', LucideIcons.monitorSmartphone);
+    await expectEntryIcon('MCP 工具', LucideIcons.hammer);
+    await expectEntryIcon('外观设置', LucideIcons.palette);
 
     for (final title in <String>['模型与记忆', '服务与环境', '体验与外观', '权限与信息']) {
       final titleFinder = find.text(title);

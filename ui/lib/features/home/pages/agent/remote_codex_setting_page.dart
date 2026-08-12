@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:ui/features/home/pages/agent/codex_bridge_qr_scanner_page.dart';
 import 'package:ui/features/home/pages/agent/codex_remote_directory_picker.dart';
 import 'package:ui/services/agent_runtime_service.dart';
@@ -408,10 +409,7 @@ class _RemoteCodexSettingPageState extends State<RemoteCodexSettingPage> {
                           suffix: IconButton(
                             tooltip: _text('选择目录', 'Choose directory'),
                             onPressed: _chooseDirectory,
-                            icon: const Icon(
-                              Icons.folder_open_rounded,
-                              size: 18,
-                            ),
+                            icon: const Icon(LucideIcons.folderOpen, size: 18),
                           ),
                         ),
                         const SizedBox(height: 12),
@@ -432,8 +430,8 @@ class _RemoteCodexSettingPageState extends State<RemoteCodexSettingPage> {
                                 setState(() => _obscureToken = !_obscureToken),
                             icon: Icon(
                               _obscureToken
-                                  ? Icons.visibility_outlined
-                                  : Icons.visibility_off_outlined,
+                                  ? LucideIcons.eye
+                                  : LucideIcons.eyeOff,
                               size: 18,
                             ),
                           ),
@@ -449,7 +447,7 @@ class _RemoteCodexSettingPageState extends State<RemoteCodexSettingPage> {
                               ),
                               onPressed: _saving ? null : _scanQr,
                               icon: const Icon(
-                                Icons.qr_code_scanner_rounded,
+                                LucideIcons.scanQrCode,
                                 size: 17,
                               ),
                               label: Text(_text('扫码连接', 'Scan QR')),
@@ -465,7 +463,7 @@ class _RemoteCodexSettingPageState extends State<RemoteCodexSettingPage> {
                                       ),
                                     )
                                   : const Icon(
-                                      Icons.wifi_tethering_rounded,
+                                      LucideIcons.radioTower,
                                       size: 17,
                                     ),
                               label: Text(
