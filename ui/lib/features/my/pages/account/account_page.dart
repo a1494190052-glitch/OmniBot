@@ -614,7 +614,6 @@ class _AccountPageState extends State<AccountPage> {
                       'Platform AI is not available yet and can be enabled later by the server.',
                     ),
             ),
-            _sectionDivider(),
             _modeOption(
               mode: AiAccessMode.byok,
               selected: settings.mode == AiAccessMode.byok,
@@ -625,10 +624,7 @@ class _AccountPageState extends State<AccountPage> {
                 'Your key stays on this device and is never uploaded to the account server.',
               ),
             ),
-            if (settings.mode == AiAccessMode.byok) ...[
-              _sectionDivider(left: 34),
-              _apiKeyAction(),
-            ],
+            if (settings.mode == AiAccessMode.byok) ...[_apiKeyAction()],
             if (_error != null) ...[
               const SizedBox(height: 14),
               _errorBanner(_error!),
@@ -768,6 +764,7 @@ class _AccountPageState extends State<AccountPage> {
           splashColor: palette.accentPrimary.withValues(alpha: 0.08),
           highlightColor: Colors.transparent,
           child: AnimatedContainer(
+            key: ValueKey('account-ai-mode-${mode.name}'),
             duration: const Duration(milliseconds: 180),
             padding: const EdgeInsets.fromLTRB(4, 14, 2, 14),
             decoration: BoxDecoration(
@@ -777,7 +774,7 @@ class _AccountPageState extends State<AccountPage> {
               borderRadius: BorderRadius.circular(14),
             ),
             child: Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
+              crossAxisAlignment: CrossAxisAlignment.center,
               children: [
                 Icon(
                   icon,

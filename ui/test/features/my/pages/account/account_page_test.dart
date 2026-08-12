@@ -114,6 +114,19 @@ void main() {
     expect(find.byIcon(LucideIcons.userRound), findsOneWidget);
     expect(find.byIcon(LucideIcons.coins), findsOneWidget);
     expect(find.byIcon(LucideIcons.circleCheck), findsOneWidget);
+    expect(find.byType(Divider), findsOneWidget);
+    _expectModeIconsVerticallyCentered(
+      tester,
+      optionKey: 'account-ai-mode-platform',
+      leadingIcon: LucideIcons.cloud,
+      trailingIcon: LucideIcons.circleCheck,
+    );
+    _expectModeIconsVerticallyCentered(
+      tester,
+      optionKey: 'account-ai-mode-byok',
+      leadingIcon: LucideIcons.keyRound,
+      trailingIcon: LucideIcons.circle,
+    );
     expect(tester.takeException(), isNull);
 
     await tester.tap(find.text('使用自己的 API Key'));
@@ -122,6 +135,8 @@ void main() {
 
     expect(find.text('AI 来源已更新'), findsOneWidget);
     expect(find.byType(SnackBar), findsNothing);
+    expect(find.text('配置我的 API Key'), findsOneWidget);
+    expect(find.byType(Divider), findsOneWidget);
 
     await tester.pump(const Duration(seconds: 3));
   });
@@ -165,6 +180,23 @@ void main() {
     expect(find.text('1000'), findsNothing);
     expect(find.text('配置我的 API Key'), findsOneWidget);
   });
+}
+
+void _expectModeIconsVerticallyCentered(
+  WidgetTester tester, {
+  required String optionKey,
+  required IconData leadingIcon,
+  required IconData trailingIcon,
+}) {
+  final optionCenterY = tester.getCenter(find.byKey(ValueKey(optionKey))).dy;
+  expect(
+    tester.getCenter(find.byIcon(leadingIcon)).dy,
+    closeTo(optionCenterY, 0.01),
+  );
+  expect(
+    tester.getCenter(find.byIcon(trailingIcon)).dy,
+    closeTo(optionCenterY, 0.01),
+  );
 }
 
 Widget _testApp() {
