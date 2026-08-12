@@ -1294,12 +1294,6 @@ mixin _ChatPageUiMixin on _ChatPageStateBase {
                   _activeMode == ChatPageMode.agent,
               isPureChatSelected: _isPureChatSelected,
               isPureChatToggleLocked: _isPureChatToggleLocked,
-              showDebugConversationIdCopy: !kReleaseMode,
-              onDebugConversationIdCopyTap: !kReleaseMode
-                  ? () {
-                      unawaited(_copyCurrentConversationIdForDebug());
-                    }
-                  : null,
               showWorkspacePaneButton: showWorkspacePaneButton,
               onWorkspacePaneTap: onWorkspacePaneTap,
               tutorialMenuAnchorKey: _firstUseTourMenuAnchorKey,
@@ -2422,33 +2416,6 @@ mixin _ChatPageUiMixin on _ChatPageStateBase {
     showToast(
       success
           ? (LegacyTextLocalizer.isEnglish ? 'Message copied' : '已复制消息内容')
-          : (LegacyTextLocalizer.isEnglish ? 'Copy failed' : '复制失败'),
-      type: success ? ToastType.success : ToastType.error,
-    );
-  }
-
-  Future<void> _copyCurrentConversationIdForDebug() async {
-    final conversationId = _currentConversationId;
-    if (conversationId == null ||
-        isEphemeralConversation(conversationId, activeConversationModeValue)) {
-      showToast(
-        LegacyTextLocalizer.isEnglish
-            ? 'No adb-ready conversation ID yet'
-            : '当前会话还没有可用于 adb 的 ID',
-        type: ToastType.warning,
-      );
-      return;
-    }
-
-    final success = await AssistsMessageService.copyToClipboard(
-      conversationId.toString(),
-    );
-    if (!mounted) return;
-    showToast(
-      success
-          ? (LegacyTextLocalizer.isEnglish
-                ? 'Conversation ID copied: $conversationId'
-                : '已复制会话 ID：$conversationId')
           : (LegacyTextLocalizer.isEnglish ? 'Copy failed' : '复制失败'),
       type: success ? ToastType.success : ToastType.error,
     );
