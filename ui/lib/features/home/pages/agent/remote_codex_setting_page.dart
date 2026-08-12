@@ -5,7 +5,6 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:ui/features/home/pages/agent/codex_bridge_qr_scanner_page.dart';
 import 'package:ui/features/home/pages/agent/codex_remote_directory_picker.dart';
 import 'package:ui/services/agent_runtime_service.dart';
-import 'package:ui/theme/app_colors.dart';
 import 'package:ui/theme/theme_context.dart';
 import 'package:ui/utils/ui.dart';
 import 'package:ui/widgets/common_app_bar.dart';
@@ -317,11 +316,10 @@ class _RemoteCodexSettingPageState extends State<RemoteCodexSettingPage> {
   Widget build(BuildContext context) {
     final palette = context.omniPalette;
     final dark = context.isDarkTheme;
-    final background = dark ? palette.pageBackground : AppColors.background;
     final card = dark ? palette.surfacePrimary : Colors.white;
     final border = dark ? palette.borderSubtle : const Color(0x1A000000);
     return Scaffold(
-      backgroundColor: background,
+      backgroundColor: palette.pageBackground,
       appBar: CommonAppBar(
         title: _text('远程 PC Bridge', 'Remote PC Bridge'),
         primary: true,

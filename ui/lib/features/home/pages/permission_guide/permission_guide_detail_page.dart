@@ -3,6 +3,7 @@ import 'package:flutter_svg/flutter_svg.dart';
 import 'package:ui/features/home/pages/permission_guide/permission_guide_data.dart';
 import 'package:ui/services/special_permission.dart';
 import 'package:ui/theme/app_colors.dart';
+import 'package:ui/theme/theme_context.dart';
 import 'package:ui/utils/ui.dart';
 import 'package:ui/widgets/common_app_bar.dart';
 
@@ -41,7 +42,7 @@ class _PermissionGuideDetailPageState extends State<PermissionGuideDetailPage> {
   Widget build(BuildContext context) {
     if (_topic == null) {
       return Scaffold(
-        backgroundColor: AppColors.background,
+        backgroundColor: context.omniPalette.pageBackground,
         appBar: const CommonAppBar(title: '权限指南', primary: true),
         body: const SafeArea(
           top: false,
@@ -67,7 +68,7 @@ class _PermissionGuideDetailPageState extends State<PermissionGuideDetailPage> {
         .toList(growable: false);
 
     return Scaffold(
-      backgroundColor: AppColors.background,
+      backgroundColor: context.omniPalette.pageBackground,
       appBar: CommonAppBar(title: topic.title, primary: true),
       body: SafeArea(
         top: false,

@@ -5,7 +5,6 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:ui/core/router/go_router_manager.dart';
 import 'package:ui/services/agent_runtime_service.dart';
 import 'package:ui/services/storage_service.dart';
-import 'package:ui/theme/app_colors.dart';
 import 'package:ui/theme/theme_context.dart';
 import 'package:ui/utils/ui.dart';
 import 'package:ui/widgets/agent_brand_icon.dart';
@@ -223,13 +222,12 @@ class _AgentModeSettingPageState extends State<AgentModeSettingPage> {
   Widget build(BuildContext context) {
     final palette = context.omniPalette;
     final dark = context.isDarkTheme;
-    final background = dark ? palette.pageBackground : AppColors.background;
     final card = dark ? palette.surfacePrimary : Colors.white;
     final agents = _visibleAgents;
     final managed = agents.where((agent) => agent.builtIn).toList();
     final custom = agents.where((agent) => !agent.builtIn).toList();
     return Scaffold(
-      backgroundColor: background,
+      backgroundColor: palette.pageBackground,
       appBar: CommonAppBar(
         title: _text('Agent 模式', 'Agent mode'),
         primary: true,

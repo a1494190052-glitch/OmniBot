@@ -134,8 +134,7 @@ class _SceneModelSettingPageState extends State<SceneModelSettingPage> {
   }
 
   bool get _isDarkTheme => context.isDarkTheme;
-  Color get _pageBackground =>
-      _isDarkTheme ? context.omniPalette.pageBackground : AppColors.background;
+  Color get _pageBackground => context.omniPalette.pageBackground;
   Color get _cardColor =>
       _isDarkTheme ? context.omniPalette.surfacePrimary : Colors.white;
   Color get _primaryTextColor =>

@@ -305,9 +305,7 @@ class _ChatHistoryPageState extends State<ChatHistoryPage> {
   Widget build(BuildContext context) {
     final palette = context.omniPalette;
     return Scaffold(
-      backgroundColor: context.isDarkTheme
-          ? palette.pageBackground
-          : AppColors.background,
+      backgroundColor: palette.pageBackground,
       appBar: CommonAppBar(
         title: _pageTitle,
         primary: true,

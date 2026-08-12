@@ -4,7 +4,6 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:ui/services/agent_runtime_service.dart';
-import 'package:ui/theme/app_colors.dart';
 import 'package:ui/theme/theme_context.dart';
 import 'package:ui/utils/ui.dart';
 import 'package:ui/widgets/common_app_bar.dart';
@@ -285,9 +284,6 @@ class _AgentConfigPageState extends State<AgentConfigPage> {
   @override
   Widget build(BuildContext context) {
     final palette = context.omniPalette;
-    final background = context.isDarkTheme
-        ? palette.pageBackground
-        : AppColors.background;
     final card = context.isDarkTheme ? palette.surfacePrimary : Colors.white;
     return PopScope(
       canPop: false,
@@ -295,7 +291,7 @@ class _AgentConfigPageState extends State<AgentConfigPage> {
         if (!didPop) _close();
       },
       child: Scaffold(
-        backgroundColor: background,
+        backgroundColor: palette.pageBackground,
         appBar: CommonAppBar(
           title: _agent?.name ?? _text('Agent 配置', 'Agent configuration'),
           primary: true,
