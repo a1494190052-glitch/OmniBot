@@ -26,6 +26,7 @@ sealed class TaskParams {
         val provider: String? = null,
         val openClawConfig: OpenClawConfig? = null,
         val modelOverride: ChatModelOverride? = null,
-        val reasoningEffort: String? = null
+        val reasoningEffort: String? = null,
+        val promptCacheKey: String? = null
     ) : TaskParams()
 }

@@ -37,7 +37,8 @@ class TaskManager(
             params.provider,
             params.openClawConfig,
             params.modelOverride,
-            params.reasoningEffort
+            params.reasoningEffort,
+            params.promptCacheKey
         )
     }
 

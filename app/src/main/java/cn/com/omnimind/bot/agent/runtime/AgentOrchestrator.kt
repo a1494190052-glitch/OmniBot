@@ -62,6 +62,7 @@ class AgentOrchestrator(
         val initialMessages: List<ChatCompletionMessage>,
         val executionEnv: AgentExecutionEnvironment,
         val conversationId: Long? = null,
+        val promptCacheKey: String? = null,
         val contextCompactor: AgentConversationContextCompactor? = null,
         val maxModelRounds: Int? = null,
         val maxCompletionTokens: Int = 16384
@@ -171,6 +172,7 @@ class AgentOrchestrator(
                             streamOptions = ChatCompletionStreamOptions(includeUsage = true),
                             enableThinking = if (disableThinking) false else null,
                             reasoningEffort = if (disableThinking) null else input.executionEnv.reasoningEffort,
+                            promptCacheKey = input.promptCacheKey,
                             tools = toolRegistry.toolsForModel,
                             toolChoice = toolChoiceForRound,
                             parallelToolCalls = true

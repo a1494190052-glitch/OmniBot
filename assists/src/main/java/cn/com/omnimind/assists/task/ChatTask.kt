@@ -86,7 +86,8 @@ class ChatTask(override val taskChangeListener: TaskChangeListener,
         provider: String? = null,
         openClawConfig: TaskParams.OpenClawConfig? = null,
         modelOverride: TaskParams.ChatModelOverride? = null,
-        reasoningEffort: String? = null
+        reasoningEffort: String? = null,
+        promptCacheKey: String? = null
     ) {
         super.start{
             try {
@@ -174,7 +175,8 @@ class ChatTask(override val taskChangeListener: TaskChangeListener,
                         explicitModel = modelOverride?.modelId,
                         explicitProtocolType = modelOverride?.protocolType,
                         explicitWireApi = modelOverride?.wireApi,
-                        reasoningEffort = this@ChatTask.reasoningEffort
+                        reasoningEffort = this@ChatTask.reasoningEffort,
+                        promptCacheKey = promptCacheKey
                     )
                 }
             } catch (e: Http429Exception){

@@ -171,6 +171,10 @@ class OmniAgentExecutor(
         var toolRouter: AgentToolRouter? = null
         return try {
             val agentRunId = UUID.randomUUID().toString()
+            val promptCacheKey = cn.com.omnimind.baselib.llm.PromptCacheKeyStore.forConversation(
+                context,
+                conversationId
+            )
             val terminalDistribution = TerminalDistribution.selected()
             val workspaceManager = AgentWorkspaceManager(context)
             val memoryService = WorkspaceMemoryService(context, workspaceManager)
@@ -271,6 +275,7 @@ class OmniAgentExecutor(
                 modelScene = agentModelScene,
                 modelOverride = modelOverride,
                 reasoningEffort = reasoningEffort,
+                promptCacheKey = promptCacheKey,
                 json = json
             )
             val eventAdapter = AgentEventAdapter(json)
@@ -314,6 +319,7 @@ class OmniAgentExecutor(
                     callback = callback,
                     initialMessages = initialMessages,
                     conversationId = conversationId,
+                    promptCacheKey = promptCacheKey,
                     contextCompactor = contextCompactor,
                     executionEnv = DefaultAgentExecutionEnvironment(
                         agentRunId = agentRunId,

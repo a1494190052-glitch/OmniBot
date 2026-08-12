@@ -109,6 +109,72 @@ object HttpController {
         val requestJson: String
     )
 
+    /**
+     * Anthropic reports uncached input, cache writes, and cache reads as separate
+     * counters. Keep the latest value of every counter because streaming
+     * message_delta events commonly contain only the cumulative output count.
+     */
+    private class AnthropicUsageAccumulator {
+        private var sawUsage = false
+        private var inputTokens = 0
+        private var cacheCreationInputTokens = 0
+        private var cacheReadInputTokens = 0
+        private var outputTokens = 0
+
+        fun merge(usage: KxJsonObject?) {
+            if (usage == null) return
+            updateIfPresent(usage, "input_tokens") { inputTokens = it }
+            updateIfPresent(usage, "cache_creation_input_tokens") {
+                cacheCreationInputTokens = it
+            }
+            updateIfPresent(usage, "cache_read_input_tokens") {
+                cacheReadInputTokens = it
+            }
+            updateIfPresent(usage, "output_tokens") { outputTokens = it }
+        }
+
+        fun toOpenAIUsage(): KxJsonObject? {
+            if (!sawUsage) return null
+
+            // Internally prompt_tokens means tokens processed without a cache
+            // read. Cache writes still require processing, while cache reads are
+            // exposed separately as cached_tokens.
+            val promptTokens = safeTokenSum(inputTokens, cacheCreationInputTokens)
+            val totalTokens = safeTokenSum(promptTokens, cacheReadInputTokens, outputTokens)
+            return buildJsonObject {
+                put("prompt_tokens", JsonPrimitive(promptTokens))
+                put("completion_tokens", JsonPrimitive(outputTokens))
+                put("total_tokens", JsonPrimitive(totalTokens))
+                put(
+                    "prompt_tokens_details",
+                    buildJsonObject {
+                        put("cached_tokens", JsonPrimitive(cacheReadInputTokens))
+                        put("cache_creation_tokens", JsonPrimitive(cacheCreationInputTokens))
+                    }
+                )
+            }
+        }
+
+        private fun updateIfPresent(
+            usage: KxJsonObject,
+            key: String,
+            update: (Int) -> Unit
+        ) {
+            val value = (usage[key] as? JsonPrimitive)
+                ?.contentOrNull
+                ?.toIntOrNull()
+                ?: return
+            update(value.coerceAtLeast(0))
+            sawUsage = true
+        }
+
+        private fun safeTokenSum(vararg values: Int): Int {
+            return values.fold(0L) { total, value -> total + value }
+                .coerceAtMost(Int.MAX_VALUE.toLong())
+                .toInt()
+        }
+    }
+
             private data class ResponseToolCallState(
                 var index: Int = -1,
                 var id: String = "",
@@ -371,15 +437,19 @@ object HttpController {
         OmniLog.d(TAG, "[TokenUsage] parsing response for model=${seed.model}, stream=${seed.stream}, responseLen=${normalized.length}")
 
         // Find the usage object — streaming responses are a JSONArray, non-streaming is a JSONObject
-        val usageObj: JSONObject? = when {
+        val usageObj: JSONObject? = if (seed.protocolType.equals("anthropic", ignoreCase = true)) {
+            extractAnthropicUsageObject(normalized)
+        } else {
+            null
+        } ?: when {
             normalized.startsWith("[") -> {
                 // Streaming: scan chunks from end to find the one with usage
                 val arr = JSONArray(normalized)
                 var found: JSONObject? = null
                 for (i in arr.length() - 1 downTo 0) {
                     val chunk = arr.optJSONObject(i) ?: continue
-                    val u = chunk.optJSONObject("usage")
-                    if (u != null && (u.optInt("completion_tokens", -1) >= 0
+                    val u = extractUsageObject(chunk)
+                    if (u != null && (readUsageInt(u, "completion_tokens", "output_tokens") >= 0
                                 || u.optInt("total_tokens", -1) >= 0)) {
                         found = u
                         break
@@ -388,7 +458,7 @@ object HttpController {
                 found
             }
             normalized.startsWith("{") -> {
-                JSONObject(normalized).optJSONObject("usage")
+                extractUsageObject(JSONObject(normalized))
             }
             else -> null
         }
@@ -398,10 +468,17 @@ object HttpController {
             return
         }
 
-        val promptTokens = usageObj.optInt("prompt_tokens", 0)
-        val completionTokens = usageObj.optInt("completion_tokens", 0)
-        if (promptTokens == 0 && completionTokens == 0) {
-            OmniLog.d(TAG, "[TokenUsage] usage is empty (prompt=0, completion=0) for model=${seed.model}")
+        val promptTokens = readUsageInt(usageObj, "prompt_tokens", "input_tokens").coerceAtLeast(0)
+        val completionTokens = readUsageInt(usageObj, "completion_tokens", "output_tokens").coerceAtLeast(0)
+        val promptDetails = usageObj.optJSONObject("prompt_tokens_details")
+            ?: usageObj.optJSONObject("input_tokens_details")
+        val cachedTokens = promptDetails?.optInt("cached_tokens", 0) ?: 0
+        val cacheCreationTokens = promptDetails?.optInt("cache_creation_tokens", 0) ?: 0
+        if (promptTokens == 0 && completionTokens == 0 && cachedTokens == 0) {
+            OmniLog.d(
+                TAG,
+                "[TokenUsage] usage is empty (prompt=0, completion=0, cached=0) for model=${seed.model}"
+            )
             return
         }
 
@@ -410,14 +487,12 @@ object HttpController {
         val reasoningTokens = details?.optInt("reasoning_tokens", 0) ?: 0
         val textTokens = details?.optInt("text_tokens", 0) ?: 0
 
-        val promptDetails = usageObj.optJSONObject("prompt_tokens_details")
-        val cachedTokens = promptDetails?.optInt("cached_tokens", 0) ?: 0
-
         OmniLog.i(
             TAG,
             "[TokenUsage] recording: model=${seed.model}, " +
                 "prompt=$promptTokens, completion=$completionTokens, " +
                 "reasoning=$reasoningTokens, text=$textTokens, cached=$cachedTokens, " +
+                "cacheCreation=$cacheCreationTokens, " +
                 "stream=${seed.stream}, url=${seed.url}"
         )
 
@@ -438,6 +513,50 @@ object HttpController {
             }.onFailure {
                 OmniLog.w(TAG, "Failed to insert token usage record: ${it.message}")
             }
+        }
+    }
+
+    private fun extractUsageObject(payload: JSONObject): JSONObject? {
+        return payload.optJSONObject("usage")
+            ?: payload.optJSONObject("response")?.optJSONObject("usage")
+    }
+
+    private fun extractAnthropicUsageObject(responseJson: String): JSONObject? {
+        return normalizeAnthropicUsageResponse(responseJson)?.let(::JSONObject)
+    }
+
+    private fun normalizeAnthropicUsageResponse(responseJson: String): String? {
+        val accumulator = AnthropicUsageAccumulator()
+
+        fun mergePayload(payload: KxJsonObject) {
+            accumulator.merge(payload["usage"] as? KxJsonObject)
+            accumulator.merge(
+                (payload["message"] as? KxJsonObject)?.get("usage") as? KxJsonObject
+            )
+            accumulator.merge(
+                (payload["response"] as? KxJsonObject)?.get("usage") as? KxJsonObject
+            )
+        }
+
+        when (val payload = runCatching {
+            completionJson.parseToJsonElement(responseJson)
+        }.getOrNull()) {
+            is KxJsonArray -> {
+                payload.forEach { event ->
+                    (event as? KxJsonObject)?.let(::mergePayload)
+                }
+            }
+            is KxJsonObject -> mergePayload(payload)
+            else -> Unit
+        }
+        return accumulator.toOpenAIUsage()?.toString()
+    }
+
+    private fun readUsageInt(usage: JSONObject, primaryKey: String, fallbackKey: String): Int {
+        return when {
+            usage.has(primaryKey) -> usage.optInt(primaryKey, -1)
+            usage.has(fallbackKey) -> usage.optInt(fallbackKey, -1)
+            else -> -1
         }
     }
 
@@ -1449,13 +1568,13 @@ object HttpController {
                     }
                     "response.completed" -> {
                         val responseObj = json.obj("response") ?: json
-                        val usage = responseObj.obj("usage")
+                        val usage = responseObj.obj("usage")?.let(::normalizeResponsesUsage)
                         outer.onEvent(
                             eventSource,
                             id,
                             type,
                             buildOpenAIChunk(
-                            deltaJson = "{}",
+                                deltaJson = "{}",
                                 finishReason = if (sawToolCall) "tool_calls" else "stop",
                                 usage = usage
                             )
@@ -1535,6 +1654,15 @@ object HttpController {
 
             private fun KxJsonObject.array(name: String): KxJsonArray? {
                 return this[name] as? KxJsonArray
+            }
+
+            private fun normalizeResponsesUsage(usage: KxJsonObject): KxJsonObject {
+                val normalized = usage.toMutableMap()
+                usage["input_tokens"]?.let { normalized["prompt_tokens"] = it }
+                usage["output_tokens"]?.let { normalized["completion_tokens"] = it }
+                usage["input_tokens_details"]?.let { normalized["prompt_tokens_details"] = it }
+                usage["output_tokens_details"]?.let { normalized["completion_tokens_details"] = it }
+                return KxJsonObject(normalized)
             }
 
             private fun buildOpenAIToolCallChunk(
@@ -1656,8 +1784,9 @@ object HttpController {
     fun wrapAnthropicListener(outer: EventSourceListener): EventSourceListener {
         return object : EventSourceListener() {
             // per-stream state
-            private val toolUseBlocks = mutableMapOf<Int, JSONObject>() // index → {id, name}
+            private val toolUseBlocks = mutableMapOf<Int, KxJsonObject>() // index → {id, name}
             private val toolArgBuffers = mutableMapOf<Int, StringBuilder>() // index → partial json
+            private val usage = AnthropicUsageAccumulator()
 
             override fun onOpen(eventSource: EventSource, response: okhttp3.Response) {
                 outer.onOpen(eventSource, response)
@@ -1673,24 +1802,28 @@ object HttpController {
                     outer.onEvent(eventSource, id, type, "[DONE]")
                     return
                 }
-                val json = runCatching { JSONObject(data) }.getOrNull() ?: return
+                val json = runCatching {
+                    completionJson.parseToJsonElement(data) as? KxJsonObject
+                }.getOrNull() ?: return
                 val eventType = type?.trim()?.takeIf { it.isNotEmpty() }
-                    ?: json.optString("type").trim().takeIf { it.isNotEmpty() }
+                    ?: stringField(json, "type").takeIf { it.isNotEmpty() }
                 if (eventType == null) {
                     when {
-                        json.has("choices") -> {
+                        json.containsKey("choices") -> {
                             // Some providers may return OpenAI-style chunks on Anthropic-compatible route.
                             outer.onEvent(eventSource, id, type, data)
                         }
-                        json.has("text") -> {
-                            val text = json.optString("text", "")
+                        json.containsKey("text") -> {
+                            val text = stringField(json, "text")
                             if (text.isNotEmpty()) {
                                 outer.onEvent(
                                     eventSource,
                                     id,
                                     type,
                                     buildOpenAIChunk(
-                                        deltaJson = JSONObject().put("content", text),
+                                        deltaJson = buildJsonObject {
+                                            put("content", JsonPrimitive(text))
+                                        },
                                         finishReason = null
                                     )
                                 )
@@ -1700,36 +1833,69 @@ object HttpController {
                     return
                 }
                 when (eventType) {
+                    "message_start" -> {
+                        usage.merge(
+                            objectField(json, "message")?.let { objectField(it, "usage") }
+                        )
+                        usage.toOpenAIUsage()?.let { normalizedUsage ->
+                            outer.onEvent(
+                                eventSource,
+                                id,
+                                type,
+                                buildOpenAIChunk(
+                                    deltaJson = KxJsonObject(emptyMap()),
+                                    finishReason = null,
+                                    usageJson = normalizedUsage
+                                )
+                            )
+                        }
+                    }
                     "content_block_start" -> {
-                        val index = json.optInt("index", 0)
-                        val block = json.optJSONObject("content_block") ?: return
-                        when (block.optString("type")) {
+                        val index = intField(json, "index") ?: 0
+                        val block = objectField(json, "content_block") ?: return
+                        when (stringField(block, "type")) {
                             "tool_use" -> {
-                                toolUseBlocks[index] = JSONObject()
-                                    .put("id", block.optString("id", "tool_$index"))
-                                    .put("name", block.optString("name", ""))
+                                val toolId = stringField(block, "id").ifEmpty { "tool_$index" }
+                                val toolName = stringField(block, "name")
+                                toolUseBlocks[index] = buildJsonObject {
+                                    put("id", JsonPrimitive(toolId))
+                                    put("name", JsonPrimitive(toolName))
+                                }
                                 toolArgBuffers[index] = StringBuilder()
                                 // emit tool_call header chunk
                                 val chunk = buildOpenAIChunk(
-                                    deltaJson = JSONObject()
-                                        .put("tool_calls", JSONArray().put(
-                                            JSONObject()
-                                                .put("index", index)
-                                                .put("id", block.optString("id", "tool_$index"))
-                                                .put("type", "function")
-                                                .put("function", JSONObject()
-                                                    .put("name", block.optString("name", ""))
-                                                    .put("arguments", ""))
-                                        )),
+                                    deltaJson = buildJsonObject {
+                                        put(
+                                            "tool_calls",
+                                            buildJsonArray {
+                                                add(
+                                                    buildJsonObject {
+                                                        put("index", JsonPrimitive(index))
+                                                        put("id", JsonPrimitive(toolId))
+                                                        put("type", JsonPrimitive("function"))
+                                                        put(
+                                                            "function",
+                                                            buildJsonObject {
+                                                                put("name", JsonPrimitive(toolName))
+                                                                put("arguments", JsonPrimitive(""))
+                                                            }
+                                                        )
+                                                    }
+                                                )
+                                            }
+                                        )
+                                    },
                                     finishReason = null
                                 )
                                 outer.onEvent(eventSource, id, type, chunk)
                             }
                             "text" -> {
-                                val text = block.optString("text", "")
+                                val text = stringField(block, "text")
                                 if (text.isNotEmpty()) {
                                     val chunk = buildOpenAIChunk(
-                                        deltaJson = JSONObject().put("content", text),
+                                        deltaJson = buildJsonObject {
+                                            put("content", JsonPrimitive(text))
+                                        },
                                         finishReason = null
                                     )
                                     outer.onEvent(eventSource, id, type, chunk)
@@ -1738,36 +1904,52 @@ object HttpController {
                         }
                     }
                     "content_block_delta" -> {
-                        val index = json.optInt("index", 0)
-                        val delta = json.optJSONObject("delta") ?: return
-                        when (delta.optString("type")) {
+                        val index = intField(json, "index") ?: 0
+                        val delta = objectField(json, "delta") ?: return
+                        when (stringField(delta, "type")) {
                             "text_delta" -> {
-                                val text = delta.optString("text", "")
+                                val text = stringField(delta, "text")
                                 val chunk = buildOpenAIChunk(
-                                    deltaJson = JSONObject().put("content", text),
+                                    deltaJson = buildJsonObject {
+                                        put("content", JsonPrimitive(text))
+                                    },
                                     finishReason = null
                                 )
                                 outer.onEvent(eventSource, id, type, chunk)
                             }
                             "input_json_delta" -> {
-                                val partialJson = delta.optString("partial_json", "")
+                                val partialJson = stringField(delta, "partial_json")
                                 toolArgBuffers[index]?.append(partialJson)
                                 val chunk = buildOpenAIChunk(
-                                    deltaJson = JSONObject()
-                                        .put("tool_calls", JSONArray().put(
-                                            JSONObject()
-                                                .put("index", index)
-                                                .put("function", JSONObject().put("arguments", partialJson))
-                                        )),
+                                    deltaJson = buildJsonObject {
+                                        put(
+                                            "tool_calls",
+                                            buildJsonArray {
+                                                add(
+                                                    buildJsonObject {
+                                                        put("index", JsonPrimitive(index))
+                                                        put(
+                                                            "function",
+                                                            buildJsonObject {
+                                                                put("arguments", JsonPrimitive(partialJson))
+                                                            }
+                                                        )
+                                                    }
+                                                )
+                                            }
+                                        )
+                                    },
                                     finishReason = null
                                 )
                                 outer.onEvent(eventSource, id, type, chunk)
                             }
                             "thinking_delta" -> {
-                                val thinking = delta.optString("thinking", "")
+                                val thinking = stringField(delta, "thinking")
                                 if (thinking.isNotEmpty()) {
                                     val chunk = buildOpenAIChunk(
-                                        deltaJson = JSONObject().put("reasoning_content", thinking),
+                                        deltaJson = buildJsonObject {
+                                            put("reasoning_content", JsonPrimitive(thinking))
+                                        },
                                         finishReason = null
                                     )
                                     outer.onEvent(eventSource, id, type, chunk)
@@ -1776,13 +1958,17 @@ object HttpController {
                         }
                     }
                     "message_delta" -> {
-                        val delta = json.optJSONObject("delta") ?: return
-                        val stopReason = delta.optString("stop_reason", "").takeIf { it.isNotEmpty() }
-                        if (stopReason != null) {
+                        usage.merge(objectField(json, "usage"))
+                        val delta = objectField(json, "delta")
+                        val stopReason = delta?.let { stringField(it, "stop_reason") }
+                            ?.takeIf { it.isNotEmpty() }
+                        val normalizedUsage = usage.toOpenAIUsage()
+                        if (stopReason != null || normalizedUsage != null) {
                             val finishReason = if (stopReason == "tool_use") "tool_calls" else stopReason
                             val chunk = buildOpenAIChunk(
-                                deltaJson = JSONObject(),
-                                finishReason = finishReason
+                                deltaJson = KxJsonObject(emptyMap()),
+                                finishReason = finishReason,
+                                usageJson = normalizedUsage
                             )
                             outer.onEvent(eventSource, id, type, chunk)
                         }
@@ -1791,14 +1977,19 @@ object HttpController {
                         outer.onEvent(eventSource, id, type, "[DONE]")
                     }
                     "error" -> {
-                        val errMsg = json.optJSONObject("error")?.optString("message", "stream error") ?: "stream error"
+                        val errMsg = objectField(json, "error")
+                            ?.let { stringField(it, "message") }
+                            ?.takeIf { it.isNotEmpty() }
+                            ?: "stream error"
                         outer.onFailure(eventSource, RuntimeException("Anthropic stream error: $errMsg"), null)
                     }
                     "completion" -> {
-                        val completion = json.optString("completion", "")
+                        val completion = stringField(json, "completion")
                         if (completion.isNotEmpty()) {
                             val chunk = buildOpenAIChunk(
-                                deltaJson = JSONObject().put("content", completion),
+                                deltaJson = buildJsonObject {
+                                    put("content", JsonPrimitive(completion))
+                                },
                                 finishReason = null
                             )
                             outer.onEvent(eventSource, id, type, chunk)
@@ -1819,14 +2010,41 @@ object HttpController {
                 outer.onFailure(eventSource, t, response)
             }
 
-            private fun buildOpenAIChunk(deltaJson: JSONObject, finishReason: String?): String {
-                return JSONObject()
-                    .put("choices", JSONArray().put(
-                        JSONObject()
-                            .put("delta", deltaJson)
-                            .put("finish_reason", finishReason)
-                    ))
-                    .toString()
+            private fun buildOpenAIChunk(
+                deltaJson: KxJsonObject,
+                finishReason: String?,
+                usageJson: KxJsonObject? = null
+            ): String {
+                return buildJsonObject {
+                    put(
+                        "choices",
+                        buildJsonArray {
+                            add(
+                                buildJsonObject {
+                                    put("delta", deltaJson)
+                                    finishReason?.let {
+                                        put("finish_reason", JsonPrimitive(it))
+                                    }
+                                }
+                            )
+                        }
+                    )
+                    usageJson?.let { put("usage", it) }
+                }.toString()
+            }
+
+            private fun objectField(source: KxJsonObject, name: String): KxJsonObject? {
+                return source[name] as? KxJsonObject
+            }
+
+            private fun stringField(source: KxJsonObject, name: String): String {
+                return (source[name] as? JsonPrimitive)?.contentOrNull.orEmpty()
+            }
+
+            private fun intField(source: KxJsonObject, name: String): Int? {
+                return (source[name] as? JsonPrimitive)
+                    ?.contentOrNull
+                    ?.toIntOrNull()
             }
         }
     }
@@ -1906,7 +2124,8 @@ object HttpController {
         resolved: ResolvedSceneRequest,
         messages: List<Map<String, Any>>,
         enableThinking: Boolean? = null,
-        reasoningEffort: String? = null
+        reasoningEffort: String? = null,
+        promptCacheKey: String? = null
     ): ChatCompletionRequest {
         val disableThinking = reasoningEffort == "no"
         val chatMessages = messages.map { message ->
@@ -1926,6 +2145,7 @@ object HttpController {
             messages = chatMessages,
             enableThinking = if (disableThinking) false else enableThinking,
             reasoningEffort = if (disableThinking) null else reasoningEffort,
+            promptCacheKey = promptCacheKey?.trim()?.takeIf { it.isNotEmpty() },
             streamOptions = ChatCompletionStreamOptions(includeUsage = true),
         )
     }
@@ -2206,7 +2426,8 @@ object HttpController {
             stream = parsedRequest.stream,
             tools = buildResponsesTools(parsedRequest),
             toolChoice = buildResponsesToolChoice(parsedRequest.toolChoice),
-            reasoning = buildResponsesReasoning(parsedRequest)
+            reasoning = buildResponsesReasoning(parsedRequest),
+            promptCacheKey = parsedRequest.promptCacheKey
         )
         return stripAnthropicOnlyFieldsForOpenAiCompatible(
             completionJson.encodeToString(payload)
@@ -2369,6 +2590,9 @@ object HttpController {
         } else {
             updated.remove("reasoning_effort")
         }
+        // prompt_cache_key is an OpenAI extension and DeepSeek's official API
+        // rejects unsupported top-level request fields.
+        updated.remove("prompt_cache_key")
         return KxJsonObject(updated).toString()
     }
 
@@ -2634,7 +2858,8 @@ object HttpController {
         explicitModel: String? = null,
         explicitProtocolType: String? = null,
         explicitWireApi: String? = null,
-        reasoningEffort: String? = null
+        reasoningEffort: String? = null,
+        promptCacheKey: String? = null
     ): EventSource {
         val resolved = resolveSceneRequest(
             modelOrScene = model,
@@ -2651,7 +2876,8 @@ object HttpController {
                 resolved = resolved,
                 messages = messages,
                 enableThinking = enableThinking,
-                reasoningEffort = reasoningEffort
+                reasoningEffort = reasoningEffort,
+                promptCacheKey = promptCacheKey
             ),
             apiBase = resolved.apiBase,
             apiKey = resolved.apiKey,

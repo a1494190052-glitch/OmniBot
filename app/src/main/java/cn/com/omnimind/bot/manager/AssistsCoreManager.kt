@@ -1872,7 +1872,11 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
                     provider,
                     openClawConfig,
                     modelOverride,
-                    reasoningEffort
+                    reasoningEffort,
+                    cn.com.omnimind.baselib.llm.PromptCacheKeyStore.forConversation(
+                        context,
+                        normalizedConversationId
+                    )
                 )
                 withContext(Dispatchers.Main) {
                     result.success("SUCCESS")

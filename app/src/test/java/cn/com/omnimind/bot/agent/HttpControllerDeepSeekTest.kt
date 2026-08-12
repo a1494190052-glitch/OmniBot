@@ -22,6 +22,7 @@ class HttpControllerDeepSeekTest {
                   "messages": [{"role": "user", "content": "hello"}],
                   "stream": true,
                   "max_completion_tokens": 1024,
+                  "prompt_cache_key": "unsupported-by-official-deepseek",
                   "reasoning_effort": "low",
                   "temperature": 0.7,
                   "top_p": 0.8
@@ -35,6 +36,7 @@ class HttpControllerDeepSeekTest {
         assertEquals("1024", root["max_tokens"]?.jsonPrimitive?.content)
         assertFalse(root.containsKey("max_completion_tokens"))
         assertFalse(root.containsKey("enable_thinking"))
+        assertFalse(root.containsKey("prompt_cache_key"))
         assertFalse(root.containsKey("temperature"))
         assertFalse(root.containsKey("top_p"))
     }

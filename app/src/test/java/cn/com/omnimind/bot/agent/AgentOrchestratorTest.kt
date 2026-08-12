@@ -120,6 +120,42 @@ class AgentOrchestratorTest {
     }
 
     @Test
+    fun promptCacheKeyIsStableAcrossAgentModelRounds() = runBlocking {
+        val llmClient = FakeLlmClient(
+            turns = listOf(
+                assistantTurn(toolCalls = listOf(toolCall("file_read"))),
+                assistantTurn(content = "完成")
+            )
+        )
+        val toolExecutor = FakeToolExecutor(
+            results = mapOf(
+                "file_read" to listOf(
+                    ToolExecutionResult.ContextResult(
+                        toolName = "file_read",
+                        summaryText = "read",
+                        previewJson = "{}",
+                        rawResultJson = "{}",
+                        success = true
+                    )
+                )
+            )
+        )
+        val cacheKey = "omnibot:v1:0123456789abcdef0123:conversation:42"
+
+        createOrchestrator(llmClient, toolExecutor).run(
+            AgentOrchestrator.Input(
+                callback = RecordingCallback(),
+                initialMessages = initialMessages("读取文件"),
+                executionEnv = FakeExecutionEnvironment("读取文件"),
+                promptCacheKey = cacheKey
+            )
+        )
+
+        assertEquals(2, llmClient.requests.size)
+        assertTrue(llmClient.requests.all { it.promptCacheKey == cacheKey })
+    }
+
+    @Test
     fun failedToolResultCanNaturallyBecomeTextReply() = runBlocking {
         val llmClient = FakeLlmClient(
             turns = listOf(

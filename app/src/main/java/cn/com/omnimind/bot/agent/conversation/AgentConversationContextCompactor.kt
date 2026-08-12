@@ -24,6 +24,7 @@ open class AgentConversationContextCompactor(
     private val modelScene: String = DEFAULT_AGENT_MODEL_SCENE,
     private val modelOverride: AgentModelOverride? = null,
     private val reasoningEffort: String? = null,
+    private val promptCacheKey: String? = null,
     private val json: Json = Json {
         ignoreUnknownKeys = true
         isLenient = true
@@ -377,7 +378,8 @@ Do NOT translate or alter code snippets, file paths, identifiers, or error messa
                 explicitModel = modelOverride?.modelId,
                 explicitProtocolType = modelOverride?.protocolType,
                 explicitWireApi = modelOverride?.wireApi,
-                reasoningEffort = reasoningEffort
+                reasoningEffort = reasoningEffort,
+                promptCacheKey = promptCacheKey
             )
             result.await()
         } finally {

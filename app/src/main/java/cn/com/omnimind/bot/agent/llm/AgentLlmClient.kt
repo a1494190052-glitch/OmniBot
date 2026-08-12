@@ -597,6 +597,18 @@ class HttpAgentLlmClient(
             )
         )
 
+        request.promptCacheKey?.let {
+            add(
+                "no_prompt_cache_key",
+                request.copy(
+                    streamOptions = null,
+                    parallelToolCalls = null,
+                    toolChoice = null,
+                    promptCacheKey = null
+                )
+            )
+        }
+
         val legacyFunctions = request.tools.map { it.function }
         if (legacyFunctions.isNotEmpty() && !routeInfo.wireApi.equals("responses", ignoreCase = true)) {
             add(

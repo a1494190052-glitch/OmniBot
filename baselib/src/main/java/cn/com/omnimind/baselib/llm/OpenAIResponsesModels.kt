@@ -15,5 +15,7 @@ data class OpenAIResponsesRequest(
     val tools: List<JsonElement> = emptyList(),
     @SerialName("tool_choice")
     val toolChoice: JsonElement? = null,
-    val reasoning: JsonElement? = null
+    val reasoning: JsonElement? = null,
+    @SerialName("prompt_cache_key")
+    val promptCacheKey: String? = null
 )
