@@ -317,7 +317,6 @@ class _RemoteCodexSettingPageState extends State<RemoteCodexSettingPage> {
     final palette = context.omniPalette;
     final dark = context.isDarkTheme;
     final card = dark ? palette.surfacePrimary : Colors.white;
-    final border = dark ? palette.borderSubtle : const Color(0x1A000000);
     return Scaffold(
       backgroundColor: palette.pageBackground,
       appBar: CommonAppBar(
@@ -343,11 +342,11 @@ class _RemoteCodexSettingPageState extends State<RemoteCodexSettingPage> {
                     ),
                   ),
                   Container(
+                    key: const Key('remote-pc-bridge-settings-card'),
                     padding: const EdgeInsets.all(14),
                     decoration: BoxDecoration(
                       color: card,
                       borderRadius: BorderRadius.circular(12),
-                      border: Border.all(color: border),
                     ),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,

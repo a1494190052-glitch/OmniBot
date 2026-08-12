@@ -302,6 +302,10 @@ void main() {
     expect(find.text('远程 PC Bridge'), findsWidgets);
     expect(find.textContaining('本地终端环境 Codex'), findsNothing);
     expect(find.textContaining('自定义 API'), findsNothing);
+    final settingsCard = tester.widget<Container>(
+      find.byKey(const Key('remote-pc-bridge-settings-card')),
+    );
+    expect((settingsCard.decoration! as BoxDecoration).border, isNull);
 
     final urlField = find.byKey(
       const Key('codex-config-remote-bridge-url-field'),
