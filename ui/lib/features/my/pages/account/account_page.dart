@@ -542,10 +542,10 @@ class _AccountPageState extends State<AccountPage> {
           ],
           const SizedBox(height: 22),
           FilledButton(
-            onPressed: _busy ? null : _submitAuth,
-            style: FilledButton.styleFrom(
-              minimumSize: const Size.fromHeight(48),
+            key: ValueKey(
+              register ? 'account-register-submit' : 'account-login-submit',
             ),
+            onPressed: _busy ? null : _submitAuth,
             child: Text(
               register
                   ? _text('注册并登录', 'Create account & sign in')

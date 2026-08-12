@@ -56,6 +56,12 @@ void main() {
     expect(find.text('登录'), findsWidgets);
     expect(find.byIcon(LucideIcons.mail), findsOneWidget);
     expect(find.byIcon(LucideIcons.lockKeyhole), findsOneWidget);
+    expect(
+      tester
+          .widget<FilledButton>(find.byKey(const Key('account-login-submit')))
+          .style,
+      isNull,
+    );
 
     expect(
       tester
@@ -117,6 +123,14 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('创建小万账号'), findsOneWidget);
+    expect(
+      tester
+          .widget<FilledButton>(
+            find.byKey(const Key('account-register-submit')),
+          )
+          .style,
+      isNull,
+    );
     expect(
       tester
           .widget<AnimatedAlign>(
