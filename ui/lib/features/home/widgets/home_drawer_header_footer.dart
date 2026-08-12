@@ -40,6 +40,11 @@ extension _HomeDrawerHeaderFooter on HomeDrawerState {
         onTap: () => _navigateTo('/home/skill_store'),
       ),
       _DrawerShortcutAction(
+        label: context.trLegacy('轨迹'),
+        svgString: _kDrawerUsageStatisticsIconSvg,
+        onTap: () => _navigateTo('/task/execution_history'),
+      ),
+      _DrawerShortcutAction(
         label: context.l10n.homeDrawerScheduled,
         assetPath: 'assets/common/schedule_icon.svg',
         onTap: () => _navigateTo('/task/scheduled_tasks'),
