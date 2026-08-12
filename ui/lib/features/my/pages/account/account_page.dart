@@ -499,47 +499,116 @@ class _AccountPageState extends State<AccountPage> {
 
   Widget _authModeSelector() {
     final palette = context.omniPalette;
+    final isDark = context.isDarkTheme;
     return Container(
-      padding: const EdgeInsets.all(4),
+      key: const Key('account-auth-mode-selector'),
+      height: 40,
+      padding: const EdgeInsets.all(3),
       decoration: BoxDecoration(
-        color: palette.segmentTrack,
-        borderRadius: BorderRadius.circular(12),
+        color: isDark ? palette.segmentTrack : palette.surfacePrimary,
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: palette.borderSubtle),
       ),
-      child: Row(
+      child: Stack(
         children: [
-          _authModeButton(_text('登录', 'Sign in'), false),
-          _authModeButton(_text('注册', 'Register'), true),
+          AnimatedAlign(
+            key: const Key('account-auth-mode-thumb-align'),
+            duration: const Duration(milliseconds: 280),
+            curve: Curves.easeOutCubic,
+            alignment: _registerMode
+                ? Alignment.centerRight
+                : Alignment.centerLeft,
+            child: FractionallySizedBox(
+              widthFactor: 0.5,
+              child: Container(
+                key: const Key('account-auth-mode-thumb'),
+                margin: const EdgeInsets.symmetric(horizontal: 1),
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(999),
+                  gradient: isDark
+                      ? LinearGradient(
+                          begin: Alignment.topLeft,
+                          end: Alignment.bottomRight,
+                          colors: [
+                            Color.lerp(
+                              palette.surfaceElevated,
+                              palette.accentPrimary,
+                              0.18,
+                            )!,
+                            Color.lerp(
+                              palette.surfaceSecondary,
+                              palette.accentPrimary,
+                              0.30,
+                            )!,
+                          ],
+                        )
+                      : const LinearGradient(
+                          begin: Alignment.topLeft,
+                          end: Alignment.bottomRight,
+                          colors: [Color(0xFF2DA5F0), Color(0xFF1930D9)],
+                        ),
+                  boxShadow: isDark
+                      ? null
+                      : const [
+                          BoxShadow(
+                            color: Color(0x1F1930D9),
+                            blurRadius: 10,
+                            offset: Offset(0, 4),
+                          ),
+                        ],
+                  border: isDark
+                      ? Border.all(color: palette.borderSubtle)
+                      : null,
+                ),
+              ),
+            ),
+          ),
+          Row(
+            children: [
+              _authModeButton(_text('登录', 'Sign in'), false),
+              _authModeButton(_text('注册', 'Register'), true),
+            ],
+          ),
         ],
       ),
     );
   }
 
   Widget _authModeButton(String label, bool register) {
+    final palette = context.omniPalette;
     final selected = _registerMode == register;
     return Expanded(
-      child: InkWell(
-        onTap: () => setState(() {
-          _registerMode = register;
-          _error = null;
-        }),
-        borderRadius: BorderRadius.circular(9),
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 180),
-          padding: const EdgeInsets.symmetric(vertical: 10),
-          decoration: BoxDecoration(
-            color: selected
-                ? context.omniPalette.segmentThumb
-                : Colors.transparent,
-            borderRadius: BorderRadius.circular(9),
+      child: Semantics(
+        button: true,
+        selected: selected,
+        child: GestureDetector(
+          key: ValueKey(
+            register ? 'account-auth-mode-register' : 'account-auth-mode-login',
           ),
-          child: Text(
-            label,
-            textAlign: TextAlign.center,
-            style: TextStyle(
-              color: selected
-                  ? context.omniPalette.textPrimary
-                  : context.omniPalette.textSecondary,
-              fontWeight: selected ? FontWeight.w600 : FontWeight.w400,
+          behavior: HitTestBehavior.opaque,
+          onTap: () => setState(() {
+            _registerMode = register;
+            _error = null;
+          }),
+          child: Center(
+            child: AnimatedScale(
+              duration: const Duration(milliseconds: 220),
+              curve: Curves.easeOutCubic,
+              scale: selected ? 1 : 0.97,
+              child: AnimatedDefaultTextStyle(
+                duration: const Duration(milliseconds: 220),
+                curve: Curves.easeOutCubic,
+                style: TextStyle(
+                  color: selected
+                      ? (context.isDarkTheme
+                            ? palette.textPrimary
+                            : Colors.white)
+                      : palette.textSecondary,
+                  fontSize: 13,
+                  fontWeight: selected ? FontWeight.w600 : FontWeight.w500,
+                ),
+                child: Text(label),
+              ),
             ),
           ),
         ),

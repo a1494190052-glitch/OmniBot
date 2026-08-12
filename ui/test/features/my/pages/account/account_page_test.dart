@@ -55,6 +55,43 @@ void main() {
     expect(find.text('登录'), findsWidgets);
     expect(find.byIcon(LucideIcons.mail), findsOneWidget);
     expect(find.byIcon(LucideIcons.lockKeyhole), findsOneWidget);
+
+    expect(
+      tester
+          .getSize(find.byKey(const Key('account-auth-mode-selector')))
+          .height,
+      40,
+    );
+    final thumb = tester.widget<Container>(
+      find.byKey(const Key('account-auth-mode-thumb')),
+    );
+    final thumbDecoration = thumb.decoration! as BoxDecoration;
+    expect(thumbDecoration.borderRadius, BorderRadius.circular(999));
+    expect((thumbDecoration.gradient! as LinearGradient).colors, const <Color>[
+      Color(0xFF2DA5F0),
+      Color(0xFF1930D9),
+    ]);
+    expect(
+      tester
+          .widget<AnimatedAlign>(
+            find.byKey(const Key('account-auth-mode-thumb-align')),
+          )
+          .alignment,
+      Alignment.centerLeft,
+    );
+
+    await tester.tap(find.byKey(const Key('account-auth-mode-register')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('创建小万账号'), findsOneWidget);
+    expect(
+      tester
+          .widget<AnimatedAlign>(
+            find.byKey(const Key('account-auth-mode-thumb-align')),
+          )
+          .alignment,
+      Alignment.centerRight,
+    );
   });
 
   testWidgets('shows email quota and platform mode after login', (
