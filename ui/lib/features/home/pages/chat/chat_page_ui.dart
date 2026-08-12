@@ -2369,20 +2369,31 @@ mixin _ChatPageUiMixin on _ChatPageStateBase {
     await _retryUserMessageText(editedText, attachments: attachments);
   }
 
-  int _retryMessageRoundLength(ChatMessageModel message) {
+  int _retryMessageRoundLength(
+    ChatMessageModel message, {
+    bool preserveUserMessage = false,
+  }) {
     if (!_canRetryUserMessage(message)) return 0;
-    final targetIndex = _messages.indexWhere((item) => item.id == message.id);
-    if (targetIndex == -1) return 0;
-    return targetIndex + 1;
+    return retriedMessageRoundRemovalCount(
+      _messages,
+      userMessageId: message.id,
+      preserveUserMessage: preserveUserMessage,
+    );
   }
 
-  Future<void> _clearRetriedMessageRound(ChatMessageModel message) async {
+  Future<void> _clearRetriedMessageRound(
+    ChatMessageModel message, {
+    bool preserveUserMessage = false,
+  }) async {
     if (_isAiResponding) {
       _onCancelTask();
       if (!mounted) return;
     }
 
-    final removeCount = _retryMessageRoundLength(message);
+    final removeCount = _retryMessageRoundLength(
+      message,
+      preserveUserMessage: preserveUserMessage,
+    );
     if (removeCount <= 0) return;
 
     final shouldClearEditState = _editingUserMessageId == message.id;
@@ -2456,10 +2467,14 @@ mixin _ChatPageUiMixin on _ChatPageStateBase {
       if (!mounted) return;
     }
 
-    await _clearRetriedMessageRound(message);
+    await _clearRetriedMessageRound(message, preserveUserMessage: true);
     if (!mounted) return;
 
-    await _retryUserMessageText(text, attachments: attachments);
+    await _retryUserMessageText(
+      text,
+      attachments: attachments,
+      retainedUserMessageId: message.id,
+    );
     if (!mounted) return;
   }
 

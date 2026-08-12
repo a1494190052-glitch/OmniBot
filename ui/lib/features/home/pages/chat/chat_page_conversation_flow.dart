@@ -478,6 +478,7 @@ mixin _ChatPageConversationFlowMixin on _ChatPageStateBase {
   Future<void> _retryUserMessageText(
     String text, {
     List<Map<String, dynamic>> attachments = const [],
+    String? retainedUserMessageId,
   }) async {
     final messageText = text.trim();
     if (messageText.isEmpty && attachments.isEmpty) return;
@@ -491,6 +492,7 @@ mixin _ChatPageConversationFlowMixin on _ChatPageStateBase {
       attachments: attachments,
       runSlashCommand: false,
       restoreInputValue: _messageController.value,
+      retainedUserMessageId: retainedUserMessageId,
     );
   }
 
@@ -499,6 +501,7 @@ mixin _ChatPageConversationFlowMixin on _ChatPageStateBase {
     required List<Map<String, dynamic>> attachments,
     required bool runSlashCommand,
     TextEditingValue? restoreInputValue,
+    String? retainedUserMessageId,
   }) async {
     if ((messageText.isEmpty && attachments.isEmpty) || _isAiResponding) {
       return;
@@ -520,8 +523,30 @@ mixin _ChatPageConversationFlowMixin on _ChatPageStateBase {
     if (!await _ensureNormalChatModelConfigurationForSend()) return;
 
     _inputFocusNode.unfocus();
-    final messageIds = addUserMessage(messageText, attachments: attachments);
-    _syncUserMessageLinkPreviews(messageIds.userMessageId);
+    final retainedUserMessageIndex = retainedUserMessageId == null
+        ? -1
+        : _messages.indexWhere(
+            (message) =>
+                message.id == retainedUserMessageId && message.user == 1,
+          );
+    final ({String userMessageId, String aiMessageId, int userCreatedAtMillis})
+    messageIds;
+    if (retainedUserMessageIndex >= 0) {
+      final retainedUserMessage = _messages[retainedUserMessageIndex];
+      final dispatchTimestamp = DateTime.now().millisecondsSinceEpoch;
+      setState(() {
+        _isAiResponding = true;
+      });
+      messageIds = (
+        userMessageId: retainedUserMessage.id,
+        aiMessageId: '$dispatchTimestamp-ai',
+        userCreatedAtMillis:
+            retainedUserMessage.createAt.millisecondsSinceEpoch,
+      );
+    } else {
+      messageIds = addUserMessage(messageText, attachments: attachments);
+      _syncUserMessageLinkPreviews(messageIds.userMessageId);
+    }
     if (restoreInputValue != null && mounted) {
       _messageController.value = restoreInputValue;
     }

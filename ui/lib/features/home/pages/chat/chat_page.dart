@@ -2050,6 +2050,7 @@ abstract class _ChatPageStateBase extends State<ChatPage>
   Future<void> _retryUserMessageText(
     String text, {
     List<Map<String, dynamic>> attachments,
+    String? retainedUserMessageId,
   });
 
   Future<void> _sendChatMessage(String aiMessageId);

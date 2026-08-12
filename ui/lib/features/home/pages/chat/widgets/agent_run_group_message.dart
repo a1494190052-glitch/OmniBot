@@ -151,8 +151,10 @@ class _AgentRunGroupMessageState extends State<AgentRunGroupMessage>
   @override
   Widget build(BuildContext context) {
     final hasProcess = widget.group.hasProcessMessages;
-    // Resolved across the whole turn, not per fold, so only the very first
-    // thinking card of the run drops its duplicate avatar.
+    // Resolved across the whole turn, not per fold. The first thinking card
+    // only drops its avatar while a separate run header is actually visible.
+    // Xiaowan has no running header, so its thinking card owns the avatar
+    // until the finished summary replaces it.
     final firstThinkingMessageId = _firstThinkingMessageId(
       widget.group.processMessagesOldestFirst,
     );
@@ -328,7 +330,9 @@ class _AgentRunGroupMessageState extends State<AgentRunGroupMessage>
     String? firstThinkingMessageId,
   }) {
     final hideAvatar =
-        firstThinkingMessageId != null && message.id == firstThinkingMessageId;
+        firstThinkingMessageId != null &&
+        message.id == firstThinkingMessageId &&
+        (widget.useAcpPresentation || !widget.group.isRunning);
     return MessageBubble(
       key: ValueKey('agent-run-${widget.group.taskId}-${message.id}'),
       message: message,

@@ -143,6 +143,39 @@ void main() {
     });
   });
 
+  group('retriedMessageRoundRemovalCount', () {
+    final messages = <ChatMessageModel>[
+      ChatMessageModel.assistantMessage('旧回复', id: 'assistant'),
+      ChatMessageModel.cardMessage(const <String, dynamic>{
+        'type': 'deep_thinking',
+      }, id: 'thinking'),
+      ChatMessageModel.userMessage('保留显示的用户消息', id: 'user'),
+      ChatMessageModel.assistantMessage('更早回复', id: 'older-assistant'),
+    ];
+
+    test('plain retry clears old response but preserves the user entry', () {
+      final removeCount = retriedMessageRoundRemovalCount(
+        messages,
+        userMessageId: 'user',
+        preserveUserMessage: true,
+      );
+
+      expect(removeCount, 2);
+      expect(messages.skip(removeCount).first.id, 'user');
+    });
+
+    test('edited resend also removes the original user entry', () {
+      expect(
+        retriedMessageRoundRemovalCount(
+          messages,
+          userMessageId: 'user',
+          preserveUserMessage: false,
+        ),
+        3,
+      );
+    });
+  });
+
   group('ObservableChatMessageList', () {
     late ObservableChatMessageList list;
     late int notifyCount;

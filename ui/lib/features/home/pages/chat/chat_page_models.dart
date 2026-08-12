@@ -42,6 +42,23 @@ bool shouldReloadConversationMessagesChanged({
   return !isRuntimeStreamSnapshot || !hasInFlightTask;
 }
 
+/// Number of newest-first entries to remove before retrying a user turn.
+///
+/// A plain retry keeps the original user entry visible and only clears the
+/// assistant/process entries that followed it. An edited resend replaces the
+/// user entry as well because its content may have changed.
+int retriedMessageRoundRemovalCount(
+  List<ChatMessageModel> messages, {
+  required String userMessageId,
+  required bool preserveUserMessage,
+}) {
+  final targetIndex = messages.indexWhere(
+    (message) => message.id == userMessageId && message.user == 1,
+  );
+  if (targetIndex < 0) return 0;
+  return targetIndex + (preserveUserMessage ? 0 : 1);
+}
+
 class ChatMessageListItemNotifier extends ValueNotifier<ChatMessageModel> {
   ChatMessageListItemNotifier(super.value);
 

@@ -1370,6 +1370,13 @@ void main() {
         find.byKey(const ValueKey('agent-run-summary-task-1')),
         findsNothing,
       );
+      expect(
+        find.descendant(
+          of: find.byType(DeepThinkingCard),
+          matching: find.byType(AgentAvatarButton),
+        ),
+        findsOneWidget,
+      );
       expect(find.text('详细思考过程'), findsOneWidget);
       expect(find.text('运行 git status'), findsOneWidget);
       expect(find.text('最终回答'), findsOneWidget);
