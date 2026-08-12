@@ -5,6 +5,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:ui/core/router/go_router_manager.dart';
 import 'package:ui/features/my/pages/account/account_page.dart';
+import 'package:ui/theme/app_theme.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -81,6 +82,36 @@ void main() {
     );
 
     final pageView = find.byKey(const Key('account-auth-page-view'));
+    expect(
+      tester.getSize(find.byKey(const Key('account-auth-content-gap'))).height,
+      12,
+    );
+    expect(
+      tester.getTopLeft(find.byKey(const Key('account-login-email'))).dy -
+          tester
+              .getBottomLeft(
+                find.byKey(const Key('account-auth-mode-selector')),
+              )
+              .dy,
+      20,
+    );
+
+    Future<void> expectFocusedEmailLabelFullyVisible(Key fieldKey) async {
+      final emailField = find.byKey(fieldKey);
+      await tester.tap(emailField);
+      await tester.pumpAndSettle();
+
+      final emailLabel = find.descendant(
+        of: emailField,
+        matching: find.text('邮箱'),
+      );
+      final pageViewport = tester.getRect(pageView);
+      final labelRect = tester.getRect(emailLabel);
+      expect(labelRect.top, greaterThan(pageViewport.top));
+      expect(labelRect.bottom, lessThan(pageViewport.bottom));
+    }
+
+    await expectFocusedEmailLabelFullyVisible(const Key('account-login-email'));
 
     await tester.fling(pageView, const Offset(-600, 0), 1200);
     await tester.pumpAndSettle();
@@ -93,6 +124,10 @@ void main() {
           )
           .alignment,
       Alignment.centerRight,
+    );
+
+    await expectFocusedEmailLabelFullyVisible(
+      const Key('account-register-email'),
     );
 
     final registerPassword = find.byKey(const Key('account-register-password'));
@@ -287,6 +322,7 @@ void _expectModeIconsVerticallyCentered(
 Widget _testApp() {
   return MaterialApp(
     navigatorKey: GoRouterManager.rootNavigatorKey,
+    theme: AppTheme.lightTheme,
     locale: const Locale('zh'),
     supportedLocales: const <Locale>[Locale('zh')],
     localizationsDelegates: <LocalizationsDelegate<dynamic>>[

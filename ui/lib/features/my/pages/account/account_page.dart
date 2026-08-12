@@ -407,7 +407,7 @@ class _AccountPageState extends State<AccountPage> {
               ],
             ),
           ),
-          const SizedBox(height: 20),
+          const SizedBox(key: Key('account-auth-content-gap'), height: 12),
           Expanded(
             child: Listener(
               onPointerDown: _onAuthPointerDown,
@@ -446,7 +446,7 @@ class _AccountPageState extends State<AccountPage> {
         ),
         padding: edgeToEdgeScrollPadding(
           context,
-          const EdgeInsets.fromLTRB(18, 0, 18, 28),
+          const EdgeInsets.fromLTRB(18, 8, 18, 28),
         ),
         children: [
           TextFormField(
