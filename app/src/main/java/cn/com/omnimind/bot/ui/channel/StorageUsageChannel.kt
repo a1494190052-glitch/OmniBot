@@ -153,6 +153,7 @@ class StorageUsageChannel {
         val terminalLibFile: File,
         val terminalAlpineArchive: File,
         val terminalUbuntuArchive: File,
+        val terminalUbuntuPartialArchive: File,
         val appBinaryFiles: List<File>,
         val databaseFiles: List<File>,
     )
@@ -263,6 +264,7 @@ class StorageUsageChannel {
                 paths.terminalLibFile,
                 paths.terminalAlpineArchive,
                 paths.terminalUbuntuArchive,
+                paths.terminalUbuntuPartialArchive,
             )
         )
 
@@ -746,6 +748,7 @@ class StorageUsageChannel {
                 clearDirectoryContents(File(context.filesDir, "libtalloc.so.2")),
                 clearDirectoryContents(File(context.filesDir, "alpine.tar.gz")),
                 clearDirectoryContents(File(context.filesDir, "ubuntu.tar.gz")),
+                clearDirectoryContents(File(context.filesDir, "ubuntu.tar.gz.part")),
             )
             "terminal_runtime" -> mergeOutcomes(
                 clearCategoryInternal(context, "terminal_runtime_local", olderThanDays),
@@ -1135,6 +1138,7 @@ class StorageUsageChannel {
             terminalLibFile = File(context.filesDir, "libtalloc.so.2"),
             terminalAlpineArchive = File(context.filesDir, "alpine.tar.gz"),
             terminalUbuntuArchive = File(context.filesDir, "ubuntu.tar.gz"),
+            terminalUbuntuPartialArchive = File(context.filesDir, "ubuntu.tar.gz.part"),
             appBinaryFiles = appBinaryFiles,
             databaseFiles = databaseFiles,
         )

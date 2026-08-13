@@ -19,6 +19,7 @@ import com.rk.libcommons.localLibDir
 import com.rk.settings.Settings
 import com.rk.terminal.App
 import com.rk.terminal.runtime.EmbeddedRuntimeInstaller
+import com.rk.terminal.runtime.EmbeddedRuntimeInstaller.RuntimeInstallProgress
 import com.rk.terminal.runtime.AlpineRepositoryManager
 import com.rk.terminal.runtime.TerminalDistribution
 import com.rk.terminal.runtime.UbuntuRepositoryManager
@@ -100,7 +101,7 @@ class TerminalManager private constructor(
     }
 
     suspend fun initializeEnvironment(
-        onProgress: suspend (String) -> Unit = {}
+        onProgress: suspend (RuntimeInstallProgress) -> Unit = {}
     ): Boolean {
         val status = EmbeddedRuntimeInstaller.ensureRuntimeInstalled(context, onProgress)
         if (!status.success) {

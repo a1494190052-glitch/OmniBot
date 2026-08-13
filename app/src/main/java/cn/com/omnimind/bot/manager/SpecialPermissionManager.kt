@@ -810,6 +810,10 @@ class SpecialPermissionManager(private val context: Context) {
         }
     }
 
+    fun cancelEmbeddedTerminalInit(result: MethodChannel.Result) {
+        result.success(EmbeddedTerminalInitCoordinator.cancelCurrent())
+    }
+
     fun isUnknownAppInstallAllowed(result: MethodChannel.Result) {
         try {
             result.success(ExternalApkInstaller.canInstallPackages(context))

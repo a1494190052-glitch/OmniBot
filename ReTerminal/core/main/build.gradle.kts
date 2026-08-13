@@ -29,9 +29,12 @@ val libtallocDebChecksum = "ac81ad623d74c209718b9f3acb2dd702cc8a88c431e820d21222
 val alpineMiniRootfsUrl =
     "https://dl-cdn.alpinelinux.org/alpine/v3.21/releases/aarch64/alpine-minirootfs-3.21.0-aarch64.tar.gz"
 val alpineMiniRootfsChecksum = "f31202c4070c4ef7de9e157e1bd01cb4da3a2150035d74ea5372c5e86f1efac1"
-val ubuntuBaseRootfsUrl =
-    "https://cdimage.ubuntu.com/ubuntu-base/releases/24.04.4/release/ubuntu-base-24.04.4-base-arm64.tar.gz"
-val ubuntuBaseRootfsChecksum = "04207713ece899c3740823d33690441ad3a7f0ded1101aca744e2b0f37ac7ff2"
+val terminalRuntimeManifestUrl = providers.gradleProperty("OMNIBOT_TERMINAL_RUNTIME_MANIFEST_URL")
+    .orElse(providers.environmentVariable("OMNIBOT_TERMINAL_RUNTIME_MANIFEST_URL"))
+    .getOrElse("")
+    .trim()
+
+fun buildConfigString(value: String): String = "\"${value.replace("\\", "\\\\").replace("\"", "\\\"")}\""
 
 android {
     namespace = "com.rk.terminal"
@@ -42,6 +45,11 @@ android {
         minSdk = 24
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         consumerProguardFiles("consumer-rules.pro")
+        buildConfigField(
+            "String",
+            "TERMINAL_RUNTIME_MANIFEST_URL",
+            buildConfigString(terminalRuntimeManifestUrl)
+        )
     }
 
     sourceSets {
@@ -212,13 +220,13 @@ val prepareEmbeddedTerminalRuntime by tasks.registering {
     inputs.property("libtallocDebChecksum", libtallocDebChecksum)
     inputs.property("alpineMiniRootfsUrl", alpineMiniRootfsUrl)
     inputs.property("alpineMiniRootfsChecksum", alpineMiniRootfsChecksum)
-    inputs.property("ubuntuBaseRootfsUrl", ubuntuBaseRootfsUrl)
-    inputs.property("ubuntuBaseRootfsChecksum", ubuntuBaseRootfsChecksum)
     outputs.dir(outputDir)
     outputs.dir(jniOutputDir)
     doLast {
         val root = outputDir.get().asFile
         val jniRoot = jniOutputDir.get().asFile
+        root.deleteRecursively()
+        jniRoot.deleteRecursively()
         root.mkdirs()
         jniRoot.mkdirs()
         val workDir = temporaryDir.apply {
@@ -270,11 +278,6 @@ val prepareEmbeddedTerminalRuntime by tasks.registering {
             remoteUrl = alpineMiniRootfsUrl,
             expectedChecksum = alpineMiniRootfsChecksum
         )
-        downloadRuntimeFile(
-            localPath = root.resolve("ubuntu.tar.gz").absolutePath,
-            remoteUrl = ubuntuBaseRootfsUrl,
-            expectedChecksum = ubuntuBaseRootfsChecksum
-        )
     }
 }
 
@@ -309,6 +312,8 @@ dependencies {
     api(libs.androidx.material.icons.core)
     api(libs.androidx.palette)
     api(libs.accompanist.systemuicontroller)
+    testImplementation(libs.junit)
+    testImplementation("org.json:json:20250517")
 //    api(libs.termux.shared)
 
     api(project(":core:resources"))
