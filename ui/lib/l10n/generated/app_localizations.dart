@@ -2522,6 +2522,12 @@ abstract class AppLocalizations {
   /// **'OpenCode CLI（内置 ACP 支持）'**
   String get alpineOpenCode;
 
+  /// No description provided for @alpineDeepSeekHarness.
+  ///
+  /// In zh, this message translates to:
+  /// **'DeepSeek Harness（dsh）ACP 运行组件，安装时跟随 npm next 最新发布线'**
+  String get alpineDeepSeekHarness;
+
   /// No description provided for @alpineSshClient.
   ///
   /// In zh, this message translates to:

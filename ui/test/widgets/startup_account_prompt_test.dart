@@ -17,6 +17,7 @@ void main() {
   setUp(() async {
     SharedPreferences.setMockInitialValues(<String, Object>{});
     await StorageService.init();
+    await StorageService.setBool(StorageKeys.welcomeCompleted, true);
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(accountChannel, (call) async {
           if (call.method == 'getSessionState') {
@@ -247,16 +248,19 @@ void main() {
     expect(find.byKey(const ValueKey('startup-account-card')), findsNothing);
   });
 
-  testWidgets('also prompts during unfinished onboarding', (tester) async {
+  testWidgets('does not prompt during unfinished onboarding', (tester) async {
     await StorageService.setBool(StorageKeys.welcomeCompleted, false);
     final navigatorKey = GlobalKey<NavigatorState>();
+    var versionChecks = 0;
     var accountChecks = 0;
     await tester.pumpWidget(
       MaterialApp(
         navigatorKey: navigatorKey,
         home: StartupAccountPrompt(
           navigatorKey: navigatorKey,
-          refreshVersionPolicy: () async {},
+          refreshVersionPolicy: () async {
+            versionChecks += 1;
+          },
           loadSession: () async {
             accountChecks += 1;
             return const AccountSessionState(configured: true, signedIn: false);
@@ -267,8 +271,10 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(accountChecks, 1);
-    expect(find.byKey(const ValueKey('startup-account-card')), findsOneWidget);
+    expect(versionChecks, 0);
+    expect(accountChecks, 0);
+    expect(find.byKey(const ValueKey('startup-account-card')), findsNothing);
+    expect(find.text('onboarding'), findsOneWidget);
   });
 
   testWidgets('does not prompt again after dismissal is stored', (

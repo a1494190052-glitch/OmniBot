@@ -57,6 +57,7 @@ double _chatAppBarModeMenuAgentIconSize(String agentId) {
     'codex-acp' || 'codex-remote' => 19,
     'claude-code-acp' => 21,
     'opencode-acp' => 22,
+    'deepseek-harness-acp' => 20,
     _ => 20,
   };
 }

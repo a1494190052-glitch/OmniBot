@@ -128,6 +128,68 @@ void main() {
     expect(saved?['content'], updated);
     expect(find.textContaining('claude-opus'), findsOneWidget);
   });
+
+  testWidgets('DeepSeek Harness config saves provider and runtime policy', (
+    tester,
+  ) async {
+    Map<String, dynamic>? saved;
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(agentRuntimeChannel, (call) async {
+          if (call.method == 'agent/list') {
+            return _catalog(_agent('deepseek-harness-acp', 'DeepSeek Harness'));
+          }
+          if (call.method == 'agent/config/read') {
+            return <String, dynamic>{
+              'agentId': 'deepseek-harness-acp',
+              'kind': 'deepseek-harness',
+              'configPath': '~/.dsh/omnibot-acp/config.json',
+              'baseUrl': 'https://api.deepseek.com',
+              'model': 'deepseek-v4-pro',
+              'apiKey': 'sk-old',
+              'reasoningEffort': 'high',
+              'permissionMode': 'read-only',
+            };
+          }
+          if (call.method == 'agent/config/write') {
+            saved = Map<String, dynamic>.from(call.arguments as Map);
+            return <String, dynamic>{
+              'agentId': 'deepseek-harness-acp',
+              'kind': 'deepseek-harness',
+              'configPath': '~/.dsh/omnibot-acp/config.json',
+              ...saved!,
+            };
+          }
+          return null;
+        });
+
+    await _pumpPage(tester, 'deepseek-harness-acp');
+
+    expect(
+      find.textContaining('~/.dsh/omnibot-acp/config.json'),
+      findsOneWidget,
+    );
+    await tester.enterText(
+      find.byKey(const Key('deepseek-harness-base-url')),
+      'https://gateway.example/v1',
+    );
+    await tester.enterText(
+      find.byKey(const Key('deepseek-harness-model')),
+      'deepseek-custom',
+    );
+    await tester.enterText(
+      find.byKey(const Key('deepseek-harness-api-key')),
+      'sk-new',
+    );
+    await tester.tap(find.byKey(const Key('agent-config-save')));
+    await tester.pumpAndSettle();
+
+    expect(saved?['agentId'], 'deepseek-harness-acp');
+    expect(saved?['baseUrl'], 'https://gateway.example/v1');
+    expect(saved?['model'], 'deepseek-custom');
+    expect(saved?['apiKey'], 'sk-new');
+    expect(saved?['reasoningEffort'], 'high');
+    expect(saved?['permissionMode'], 'read-only');
+  });
 }
 
 Future<void> _pumpPage(WidgetTester tester, String agentId) async {
@@ -156,11 +218,16 @@ Map<String, dynamic> _catalog(Map<String, dynamic> agent) {
 }
 
 Map<String, dynamic> _agent(String id, String name) {
+  final command = switch (id) {
+    'codex-acp' => 'codex-acp',
+    'deepseek-harness-acp' => 'dsh-acp-demo',
+    _ => 'claude-agent-acp',
+  };
   return <String, dynamic>{
     'id': id,
     'name': name,
     'description': '$name ACP Agent',
-    'command': id == 'codex-acp' ? 'codex-acp' : 'claude-agent-acp',
+    'command': command,
     'enabled': true,
     'builtIn': true,
     'source': 'official',

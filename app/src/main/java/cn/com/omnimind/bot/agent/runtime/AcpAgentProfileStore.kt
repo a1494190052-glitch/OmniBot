@@ -61,8 +61,67 @@ internal data class AcpAgentHealth(
 
 internal data class AcpOfficialRuntime(
     val discoveryCommand: String,
-    val managedAdapterPackage: String? = null
+    val managedAdapterPackage: String? = null,
+    val managedAdapterPackages: List<String> = managedAdapterPackage
+        ?.let { listOf(it) }
+        .orEmpty(),
+    val requiresNativeBuildTools: Boolean = false,
+    val managedAdapterHealthCommand: String? = null
 )
+
+internal const val DEEPSEEK_HARNESS_NPM_CHANNEL = "next"
+internal val DEEPSEEK_HARNESS_NPM_PACKAGE_NAMES = listOf(
+    "@deepseek-ai/dsh-acp-demo",
+    "@deepseek-ai/dsh-llm-deepseek",
+    "@deepseek-ai/dsh-sandbox-local",
+    "@deepseek-ai/dsh-sandbox-policy",
+    "@deepseek-ai/dsh-subprocess-local",
+    "@deepseek-ai/dsh-bash-sandbox",
+    "@deepseek-ai/dsh-user-approval"
+)
+internal val DEEPSEEK_HARNESS_NPM_PACKAGE_SPECS =
+    DEEPSEEK_HARNESS_NPM_PACKAGE_NAMES.map { packageName ->
+        "$packageName@$DEEPSEEK_HARNESS_NPM_CHANNEL"
+    }
+internal const val DEEPSEEK_HARNESS_NATIVE_HEALTH_COMMAND =
+    "node -e 'const { createRequire } = require(\"node:module\"); " +
+        "createRequire(\"/root/.npm-global/lib/node_modules/" +
+        "@deepseek-ai/dsh-subprocess-local/package.json\")(\"node-pty\");'"
+internal val DEEPSEEK_HARNESS_NPM_INSTALL_COMMAND = """
+    repair_deepseek_harness_node_pty() {
+      node_pty_dir='/root/.npm-global/lib/node_modules/@deepseek-ai/dsh-subprocess-local/node_modules/node-pty'
+      if [ -f "${'$'}node_pty_dir/package.json" ] &&
+         ! $DEEPSEEK_HARNESS_NATIVE_HEALTH_COMMAND >/dev/null 2>&1; then
+        (
+          cd "${'$'}node_pty_dir"
+          node-gyp configure
+          sed -i 's|^cmd_copy = .*|cmd_copy = rm -rf "${'$'}@" \&\& cp -af "${'$'}<" "${'$'}@"|' build/Makefile
+          node-gyp build
+        )
+      fi
+    }
+    install_deepseek_harness_packages() {
+      hardlink_helper='/tmp/omnibot-node-gyp-copy'
+      rm -rf "${'$'}hardlink_helper"
+      mkdir -p "${'$'}hardlink_helper"
+      printf '%s\n' \
+        '#!/bin/sh' \
+        'if [ "${'$'}1" = "-f" ]; then exit 1; fi' \
+        'exec /bin/ln "${'$'}@"' > "${'$'}hardlink_helper/ln"
+      chmod 755 "${'$'}hardlink_helper/ln"
+      if PATH="${'$'}hardlink_helper:${'$'}PATH" npm install -g --prefix /root/.npm-global \
+          --no-audit --no-fund ${DEEPSEEK_HARNESS_NPM_PACKAGE_SPECS.joinToString(" ")}; then
+        install_status=0
+      else
+        install_status=${'$'}?
+      fi
+      rm -rf "${'$'}hardlink_helper"
+      return "${'$'}install_status"
+    }
+    repair_deepseek_harness_node_pty
+    install_deepseek_harness_packages
+    $DEEPSEEK_HARNESS_NATIVE_HEALTH_COMMAND
+""".trimIndent()
 
 /**
  * ACP Agent registry inspired by AionUi's managed-agent catalog:
@@ -311,6 +370,7 @@ internal class AcpAgentProfileStore(context: Context) {
 
     companion object {
         const val DEFAULT_CODEX_AGENT_ID = "codex-acp"
+        const val DEEPSEEK_HARNESS_AGENT_ID = "deepseek-harness-acp"
 
         val OFFICIAL_AGENTS = listOf(
             AcpAgentProfile(
@@ -334,6 +394,14 @@ internal class AcpAgentProfileStore(context: Context) {
                 command = "opencode",
                 arguments = listOf("acp"),
                 builtIn = true
+            ),
+            AcpAgentProfile(
+                id = DEEPSEEK_HARNESS_AGENT_ID,
+                name = "DeepSeek Harness",
+                description = "DeepSeek Harness coding agent through its official ACP server",
+                command = "dsh-acp-demo",
+                arguments = listOf("--config", DEEPSEEK_HARNESS_CORDIS_PATH),
+                builtIn = true
             )
         )
         val DEFAULT_CODEX_AGENT = OFFICIAL_AGENTS.first()
@@ -348,7 +416,14 @@ internal class AcpAgentProfileStore(context: Context) {
                 discoveryCommand = "claude",
                 managedAdapterPackage = "@agentclientprotocol/claude-agent-acp@0.61.0"
             ),
-            "opencode-acp" to AcpOfficialRuntime(discoveryCommand = "opencode")
+            "opencode-acp" to AcpOfficialRuntime(discoveryCommand = "opencode"),
+            DEEPSEEK_HARNESS_AGENT_ID to AcpOfficialRuntime(
+                discoveryCommand = "node",
+                managedAdapterPackage = DEEPSEEK_HARNESS_NPM_PACKAGE_SPECS.first(),
+                managedAdapterPackages = DEEPSEEK_HARNESS_NPM_PACKAGE_SPECS,
+                requiresNativeBuildTools = true,
+                managedAdapterHealthCommand = DEEPSEEK_HARNESS_NATIVE_HEALTH_COMMAND
+            )
         )
 
         fun officialRuntime(profile: AcpAgentProfile): AcpOfficialRuntime? {
@@ -369,6 +444,8 @@ internal class AcpAgentProfileStore(context: Context) {
         private const val KEY_SESSION_BINDINGS = "session_bindings"
         private const val KEY_CONVERSATION_BINDINGS = "conversation_bindings"
         private const val KEY_HEALTH = "health"
+        private const val DEEPSEEK_HARNESS_CORDIS_PATH =
+            "/root/.dsh/omnibot-acp/cordis.yml"
         private val ENVIRONMENT_NAME = Regex("[A-Za-z_][A-Za-z0-9_]*")
     }
 }

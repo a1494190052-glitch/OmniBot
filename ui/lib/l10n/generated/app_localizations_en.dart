@@ -1403,6 +1403,10 @@ class AppLocalizationsEn extends AppLocalizations {
   String get alpineOpenCode => 'OpenCode CLI with built-in ACP support';
 
   @override
+  String get alpineDeepSeekHarness =>
+      'DeepSeek Harness (dsh) ACP runtime, installed from the latest npm next channel';
+
+  @override
   String get alpineSshClient => 'SSH Client';
 
   @override
