@@ -296,7 +296,7 @@ class _SettingsPageState extends State<SettingsPage> {
             icon: LucideIcons.userRoundCog,
             title: isEnglish ? 'Account & AI service' : '账号与 AI 服务',
             subtitle: isEnglish
-                ? 'Sign in, view platform quota, or use your own API key'
+                ? 'Sign in, view platform quota'
                 : '注册登录、查看平台额度',
             onTap: () {
               GoRouterManager.push('/my/account');
