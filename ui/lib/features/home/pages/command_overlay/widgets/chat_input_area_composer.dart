@@ -852,12 +852,9 @@ mixin _ChatInputAreaComposerMixin on _ChatInputAreaStateBase {
       final opened = widget.onAgentRunSettingsOpened;
       if (opened != null) {
         unawaited(
-          Future<void>.sync(opened).catchError((
-            Object error,
-            StackTrace stackTrace,
-          ) {
-            debugPrint('Refresh Agent run settings failed: $error');
-          }),
+          Future<void>.sync(
+            opened,
+          ).catchError((Object error, StackTrace stackTrace) {}),
         );
       }
       _isOpeningAgentRunSettingsMenu = false;

@@ -2,14 +2,18 @@ package cn.com.omnimind.bot.agent
 
 import cn.com.omnimind.assists.controller.http.HttpController
 import cn.com.omnimind.baselib.account.OmniAccount
+import cn.com.omnimind.baselib.account.PlatformModelsUnavailableException
 import cn.com.omnimind.baselib.llm.ChatCompletionRequest
 import cn.com.omnimind.baselib.llm.ChatCompletionMessage
 import cn.com.omnimind.baselib.llm.ChatCompletionThinking
 import cn.com.omnimind.baselib.llm.ChatCompletionTurn
 import cn.com.omnimind.baselib.llm.DeepSeekProvider
 import cn.com.omnimind.baselib.llm.ModelProviderConfigStore
+import cn.com.omnimind.baselib.llm.OmniOfficialProvider
+import cn.com.omnimind.baselib.llm.PlatformAiProvisioner
 import cn.com.omnimind.baselib.llm.ReasoningStreamUpdatePolicy
 import cn.com.omnimind.baselib.util.OmniLog
+import cn.com.omnimind.bot.media.PlatformMediaProtocol
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
@@ -18,6 +22,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.channels.Channel
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -106,6 +111,17 @@ class HttpAgentLlmClient(
             false
         }
     },
+    private val resolvePlatformVisionModelOp: suspend () -> String? = {
+        val access = OmniAccount.currentAiRequestAccess()
+        if (!access.usesPlatform) {
+            null
+        } else {
+            PlatformAiProvisioner.ensureReadyStatus().defaultVisionModelId
+                ?: throw PlatformModelsUnavailableException(
+                    "官方服务当前没有可用的图片理解模型"
+                )
+        }
+    },
     private val streamIdleWatchdogMs: Long = 0L,
     private val json: Json = Json {
         ignoreUnknownKeys = true
@@ -121,6 +137,12 @@ class HttpAgentLlmClient(
             ReasoningStreamUpdatePolicy.DEFAULT_INTERVAL_MS
         const val DEFAULT_CLOSED_STREAM_ERROR =
             "chat completion stream closed before completion signal"
+        // The platform gateway reserves quota from the whole prompt plus the
+        // requested output ceiling. Reusing full agent history, every tool schema,
+        // and the 16K ceiling can reserve several times a user's weekly allowance
+        // before the vision model is called. A vision turn only needs the current
+        // image question; subsequent text turns still use the normal agent context.
+        const val PLATFORM_VISION_MAX_COMPLETION_TOKENS = 1_024
     }
 
     private data class StreamRequestVariant(
@@ -133,8 +155,17 @@ class HttpAgentLlmClient(
         onReasoningUpdate: (suspend (String) -> Unit)?,
         onContentUpdate: (suspend (String) -> Unit)?
     ): ChatCompletionTurn {
-        val modelCandidates = buildModelCandidates(request.model)
-        val sanitizedRequest = sanitizeRequestForTarget(request)
+        val platformVisionModel = if (request.hasImageInput()) {
+            resolvePlatformVisionModelOp()?.trim()?.takeIf { it.isNotEmpty() }
+        } else {
+            null
+        }
+        val effectiveExplicitModel = platformVisionModel ?: modelOverride?.modelId
+        val routedRequest = platformVisionModel?.let { model ->
+            request.forPlatformVision(model)
+        } ?: request
+        val modelCandidates = buildModelCandidates(routedRequest.model)
+        val sanitizedRequest = sanitizeRequestForTarget(routedRequest)
         var lastFailure: AgentStreamRequestException? = null
 
         for (modelIndex in modelCandidates.indices) {
@@ -144,7 +175,7 @@ class HttpAgentLlmClient(
                 modelOverride?.apiBase,
                 modelOverride?.apiKey,
                 modelOverride?.customHeaders,
-                modelOverride?.modelId,
+                effectiveExplicitModel,
                 modelOverride?.protocolType,
                 modelOverride?.wireApi
             )
@@ -161,9 +192,13 @@ class HttpAgentLlmClient(
                     // Encode lazily, one variant at a time, so we never hold multiple
                     // copies of a potentially huge request payload in memory at once.
                     val requestJson = json.encodeToString(variant.request)
+                    if (routeInfo.providerProfileId == OmniOfficialProvider.PROFILE_ID) {
+                        PlatformMediaProtocol.requirePlatformJsonRequestWithinLimit(requestJson)
+                    }
                     return streamTurnWithPlatformAuthRetry(
                         model = candidateModel,
                         requestJson = requestJson,
+                        explicitModel = effectiveExplicitModel,
                         onReasoningUpdate = onReasoningUpdate,
                         onContentUpdate = onContentUpdate
                     )
@@ -209,32 +244,48 @@ class HttpAgentLlmClient(
     private suspend fun streamTurnWithPlatformAuthRetry(
         model: String,
         requestJson: String,
+        explicitModel: String?,
         onReasoningUpdate: (suspend (String) -> Unit)?,
         onContentUpdate: (suspend (String) -> Unit)?,
     ): ChatCompletionTurn {
         return try {
-            streamTurnOnce(model, requestJson, onReasoningUpdate, onContentUpdate)
+            streamTurnOnce(model, requestJson, explicitModel, onReasoningUpdate, onContentUpdate)
         } catch (error: AgentStreamRequestException) {
             if (error.statusCode != 401 || !refreshPlatformSessionOp()) {
                 throw error
             }
             OmniLog.i(tag, "platform access token refreshed after 401; retrying once")
-            streamTurnOnce(model, requestJson, onReasoningUpdate, onContentUpdate)
+            streamTurnOnce(model, requestJson, explicitModel, onReasoningUpdate, onContentUpdate)
         }
     }
 
     private suspend fun streamTurnOnce(
         model: String,
         requestJson: String,
+        explicitModel: String?,
         onReasoningUpdate: (suspend (String) -> Unit)?,
         onContentUpdate: (suspend (String) -> Unit)?
     ): ChatCompletionTurn {
         return try {
-            doStreamTurnOnce(model, requestJson, onReasoningUpdate, onContentUpdate, forceHttp1 = false)
+            doStreamTurnOnce(
+                model,
+                requestJson,
+                explicitModel,
+                onReasoningUpdate,
+                onContentUpdate,
+                forceHttp1 = false
+            )
         } catch (e: AgentStreamRequestException) {
             if (isHttp2ProtocolError(e)) {
                 OmniLog.w(tag, "HTTP/2 stream PROTOCOL_ERROR, retrying with HTTP/1.1")
-                doStreamTurnOnce(model, requestJson, onReasoningUpdate, onContentUpdate, forceHttp1 = true)
+                doStreamTurnOnce(
+                    model,
+                    requestJson,
+                    explicitModel,
+                    onReasoningUpdate,
+                    onContentUpdate,
+                    forceHttp1 = true
+                )
             } else {
                 throw e
             }
@@ -270,6 +321,7 @@ class HttpAgentLlmClient(
     private suspend fun doStreamTurnOnce(
         model: String,
         requestJson: String,
+        explicitModel: String?,
         onReasoningUpdate: (suspend (String) -> Unit)?,
         onContentUpdate: (suspend (String) -> Unit)?,
         forceHttp1: Boolean
@@ -281,7 +333,7 @@ class HttpAgentLlmClient(
             modelOverride?.apiBase,
             modelOverride?.apiKey,
             modelOverride?.customHeaders,
-            modelOverride?.modelId,
+            explicitModel,
             modelOverride?.protocolType,
             modelOverride?.wireApi
         )
@@ -519,7 +571,7 @@ class HttpAgentLlmClient(
                 modelOverride?.apiBase,
                 modelOverride?.apiKey,
                 modelOverride?.customHeaders,
-                modelOverride?.modelId,
+                explicitModel,
                 modelOverride?.protocolType,
                 modelOverride?.wireApi,
                 forceHttp1
@@ -779,6 +831,9 @@ class HttpAgentLlmClient(
         val parsed = runCatching { json.parseToJsonElement(raw) }.getOrNull() as? JsonObject
             ?: return sanitizeReason(raw)
         val errorObj = parsed["error"] as? JsonObject
+        val formalErrorCode = extractJsonText(errorObj?.get("code"))
+            ?: extractJsonText(parsed["code"])
+        PlatformMediaProtocol.stableUserMessageForErrorCode(formalErrorCode)?.let { return it }
 
         val candidates = listOf(
             extractJsonText(errorObj?.get("message")),
@@ -818,6 +873,60 @@ class HttpAgentLlmClient(
             candidates.add("scene.dispatch.model")
         }
         return candidates.toList()
+    }
+
+    private fun ChatCompletionRequest.hasImageInput(): Boolean =
+        messages.any { message -> message.content.containsImageInput() }
+
+    private fun ChatCompletionRequest.forPlatformVision(model: String): ChatCompletionRequest {
+        val normalizedReasoning = reasoningEffort?.trim()?.lowercase()
+        val compatibleEnableThinking = when {
+            enableThinking != null -> enableThinking
+            normalizedReasoning == null -> null
+            normalizedReasoning in setOf("no", "none", "disabled") -> false
+            else -> true
+        }
+        val currentImageMessage = messages.lastOrNull { message ->
+            message.content.containsImageInput()
+        }
+        return copy(
+            messages = currentImageMessage?.let(::listOf) ?: messages,
+            model = model,
+            maxCompletionTokens = maxCompletionTokens?.coerceAtMost(
+                PLATFORM_VISION_MAX_COMPLETION_TOKENS
+            ),
+            maxTokens = maxTokens?.coerceAtMost(PLATFORM_VISION_MAX_COMPLETION_TOKENS),
+            tools = emptyList(),
+            toolChoice = null,
+            parallelToolCalls = null,
+            functions = null,
+            functionCall = null,
+            promptCacheKey = null,
+            reasoningEffort = null,
+            thinking = null,
+            enableThinking = compatibleEnableThinking,
+        )
+    }
+
+    private fun JsonElement?.containsImageInput(): Boolean {
+        return when (this) {
+            is JsonArray -> any { element -> element.containsImageInput() }
+            is JsonObject -> {
+                val type = (get("type") as? JsonPrimitive)
+                    ?.contentOrNull
+                    ?.trim()
+                    ?.lowercase()
+                type == "image_url" ||
+                    type == "input_image" ||
+                    type == "image" ||
+                    containsKey("image_url") ||
+                    containsKey("imageUrl") ||
+                    containsKey("input_image") ||
+                    containsKey("inputImage") ||
+                    values.any { element -> element.containsImageInput() }
+            }
+            else -> false
+        }
     }
 
     private fun isModelNotSupported(error: AgentStreamRequestException): Boolean {

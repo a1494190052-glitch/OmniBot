@@ -29,6 +29,8 @@ import cn.com.omnimind.baselib.llm.ModelProviderConfigStore
 import cn.com.omnimind.baselib.llm.ModelSceneRegistry
 import cn.com.omnimind.baselib.llm.ProviderModelOption
 import cn.com.omnimind.baselib.llm.ProviderCustomHeaderUtils
+import cn.com.omnimind.baselib.llm.OmniOfficialProvider
+import cn.com.omnimind.baselib.llm.PlatformAiProvisioner
 import cn.com.omnimind.baselib.llm.SceneModelCatalogResolver
 import cn.com.omnimind.baselib.llm.SceneCatalogItem
 import cn.com.omnimind.baselib.llm.SceneModelBindingEntry
@@ -973,36 +975,45 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
     }
 
     private fun ModelProviderConfig.toMap(): Map<String, Any?> {
+        val official = OmniOfficialProvider.isOfficialProfile(id)
         return mapOf(
             "id" to id,
             "name" to name,
-            "baseUrl" to baseUrl,
-            "apiKey" to apiKey,
-            "customHeaders" to customHeaders,
+            "baseUrl" to if (official) "" else baseUrl,
+            "apiKey" to "",
+            "customHeaders" to emptyMap<String, String>(),
+            "hasApiKey" to (!official && apiKey.isNotBlank()),
+            "hasCustomHeaders" to (!official && customHeaders.isNotEmpty()),
             "source" to source,
             "providerType" to providerType,
             "readOnly" to readOnly,
             "ready" to ready,
             "statusText" to statusText,
             "configured" to isConfigured(),
-            "wireApi" to wireApi
+            "wireApi" to wireApi,
+            "destinationConsentValid" to destinationConsentValid,
         )
     }
 
     private fun ModelProviderProfile.toMap(): Map<String, Any?> {
+        val official = OmniOfficialProvider.isOfficialProfile(id)
         return mapOf(
             "id" to id,
             "name" to name,
-            "baseUrl" to baseUrl,
-            "apiKey" to apiKey,
-            "customHeaders" to customHeaders,
+            "baseUrl" to if (official) "" else baseUrl,
+            "apiKey" to "",
+            "customHeaders" to emptyMap<String, String>(),
+            "hasApiKey" to (!official && apiKey.isNotBlank()),
+            "hasCustomHeaders" to (!official && customHeaders.isNotEmpty()),
             "sourceType" to sourceType,
             "readOnly" to readOnly,
             "ready" to ready,
             "statusText" to statusText,
             "configured" to isConfigured(),
             "protocolType" to protocolType,
-            "wireApi" to wireApi
+            "wireApi" to wireApi,
+            "revision" to revision,
+            "destinationConsentValid" to destinationConsentValid,
         )
     }
 
@@ -2522,7 +2533,19 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
     fun getModelProviderConfig(call: MethodCall, result: MethodChannel.Result) {
         workJob.launch {
             try {
-                val config = ModelProviderConfigStore.getConfig()
+                val config = PlatformAiProvisioner.officialProfileOrNull()?.let { profile ->
+                    ModelProviderConfig(
+                        id = profile.id,
+                        name = profile.name,
+                        baseUrl = profile.baseUrl,
+                        source = "platform",
+                        providerType = profile.sourceType,
+                        readOnly = profile.readOnly,
+                        ready = profile.ready,
+                        statusText = profile.statusText,
+                        wireApi = profile.wireApi,
+                    )
+                } ?: ModelProviderConfigStore.getConfig()
                 withContext(Dispatchers.Main) {
                     result.success(config.toMap())
                 }
@@ -2794,12 +2817,20 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
     fun listModelProviderProfiles(call: MethodCall, result: MethodChannel.Result) {
         workJob.launch {
             try {
-                val profiles = ModelProviderConfigStore.listProfiles()
+                val allProfiles = ModelProviderConfigStore.listProfiles()
+                val official = PlatformAiProvisioner.officialProfileOrNull()
+                val profiles = if (official != null) {
+                    listOf(official)
+                } else {
+                    allProfiles.filterNot { OmniOfficialProvider.isOfficialProfile(it.id) }
+                }
                 withContext(Dispatchers.Main) {
                     result.success(
                         mapOf(
                             "profiles" to profiles.map { it.toMap() },
-                            "editingProfileId" to ModelProviderConfigStore.getEditingProfileId()
+                            "editingProfileId" to (
+                                official?.id ?: ModelProviderConfigStore.getEditingProfileId()
+                                )
                         )
                     )
                 }
@@ -2866,16 +2897,34 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
         val profileId = call.argument<String>("id")?.trim()
         val name = call.argument<String>("name")?.trim().orEmpty()
         val baseUrl = call.argument<String>("baseUrl")?.trim().orEmpty()
-        val apiKey = call.argument<String>("apiKey")?.trim().orEmpty()
-        val customHeaders = ProviderCustomHeaderUtils.coerceStringMap(
+        val apiKeyReplacement = call.argument<String>("apiKey")?.trim().orEmpty()
+        val customHeadersReplacement = ProviderCustomHeaderUtils.coerceStringMap(
             call.argument<Map<*, *>>("customHeaders")
         )
+        val replaceApiKey = call.argument<Boolean>("replaceApiKey") == true
+        val clearApiKey = call.argument<Boolean>("clearApiKey") == true
+        val replaceCustomHeaders = call.argument<Boolean>("replaceCustomHeaders") == true
+        val clearCustomHeaders = call.argument<Boolean>("clearCustomHeaders") == true
         val sourceType = call.argument<String>("sourceType")?.trim()
         val protocolType = call.argument<String>("protocolType")?.trim() ?: "openai_compatible"
         val wireApi = call.argument<String>("wireApi")?.trim().orEmpty()
+        val destinationConfirmed = call.argument<Boolean>("destinationConfirmed") == true
 
         workJob.launch {
             try {
+                val existing = profileId?.let(ModelProviderConfigStore::getProfile)
+                val apiKey = when {
+                    clearApiKey -> ""
+                    replaceApiKey -> apiKeyReplacement
+                    existing != null -> existing.apiKey
+                    else -> ""
+                }
+                val customHeaders = when {
+                    clearCustomHeaders -> emptyMap()
+                    replaceCustomHeaders -> customHeadersReplacement
+                    existing != null -> existing.customHeaders
+                    else -> emptyMap()
+                }
                 val saved = ModelProviderConfigStore.saveProfile(
                     id = profileId,
                     name = name,
@@ -2884,7 +2933,8 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
                     customHeaders = customHeaders,
                     sourceType = sourceType,
                     protocolType = protocolType,
-                    wireApi = wireApi
+                    wireApi = wireApi,
+                    destinationConfirmed = destinationConfirmed,
                 )
                 withContext(Dispatchers.Main) {
                     result.success(saved.toMap())
@@ -2941,14 +2991,35 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
 
     fun saveModelProviderConfig(call: MethodCall, result: MethodChannel.Result) {
         val baseUrl = call.argument<String>("baseUrl")?.trim() ?: ""
-        val apiKey = call.argument<String>("apiKey")?.trim() ?: ""
-        val customHeaders = ProviderCustomHeaderUtils.coerceStringMap(
+        val apiKeyReplacement = call.argument<String>("apiKey")?.trim().orEmpty()
+        val customHeadersReplacement = ProviderCustomHeaderUtils.coerceStringMap(
             call.argument<Map<*, *>>("customHeaders")
         )
+        val replaceApiKey = call.argument<Boolean>("replaceApiKey") == true
+        val clearApiKey = call.argument<Boolean>("clearApiKey") == true
+        val replaceCustomHeaders = call.argument<Boolean>("replaceCustomHeaders") == true
+        val clearCustomHeaders = call.argument<Boolean>("clearCustomHeaders") == true
+        val destinationConfirmed = call.argument<Boolean>("destinationConfirmed") == true
 
         workJob.launch {
             try {
-                ModelProviderConfigStore.saveConfig(baseUrl, apiKey, customHeaders)
+                val current = ModelProviderConfigStore.getEditingProfile()
+                val apiKey = when {
+                    clearApiKey -> ""
+                    replaceApiKey -> apiKeyReplacement
+                    else -> current.apiKey
+                }
+                val customHeaders = when {
+                    clearCustomHeaders -> emptyMap()
+                    replaceCustomHeaders -> customHeadersReplacement
+                    else -> current.customHeaders
+                }
+                ModelProviderConfigStore.saveConfig(
+                    baseUrl,
+                    apiKey,
+                    customHeaders,
+                    destinationConfirmed = destinationConfirmed,
+                )
                 val saved = ModelProviderConfigStore.getConfig()
                 withContext(Dispatchers.Main) {
                     result.success(saved.toMap())
@@ -2984,20 +3055,49 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
         val customHeadersArg = ProviderCustomHeaderUtils.coerceStringMap(
             call.argument<Map<*, *>>("customHeaders")
         )
+        val useProvidedApiKey = call.argument<Boolean>("useProvidedApiKey") == true
+        val useProvidedCustomHeaders = call.argument<Boolean>("useProvidedCustomHeaders") == true
+        val destinationConfirmed = call.argument<Boolean>("destinationConfirmed") == true
         val profileId = call.argument<String>("profileId")?.trim()
+        val expectedProfileRevision = call.argument<Number>("expectedProfileRevision")?.toLong()
+        val expectedProfileBaseUrl = call.argument<String>("expectedProfileBaseUrl")?.trim().orEmpty()
 
         workJob.launch {
             try {
-                val currentConfig = ModelProviderConfigStore.getConfig()
-                val apiBase = if (baseUrlArg.isNotEmpty()) baseUrlArg else currentConfig.baseUrl
-                val apiKey = if (baseUrlArg.isNotEmpty()) apiKeyArg else currentConfig.apiKey
+                if (OmniOfficialProvider.isOfficialProfile(profileId)) {
+                    val models = PlatformAiProvisioner.ensureReadyAndGetModels()
+                    withContext(Dispatchers.Main) {
+                        result.success(models.map { it.toMap() })
+                    }
+                    return@launch
+                }
                 val profile = profileId?.let(ModelProviderConfigStore::getProfile)
                     ?: ModelProviderConfigStore.getEditingProfile()
-                val customHeaders = if (baseUrlArg.isNotEmpty()) {
-                    customHeadersArg
-                } else {
-                    profile.customHeaders
+                require(expectedProfileRevision != null && expectedProfileRevision >= 0L) {
+                    "provider profile revision is required"
                 }
+                require(expectedProfileBaseUrl.isNotEmpty()) {
+                    "provider profile endpoint is required"
+                }
+                require(
+                    profile.revision == expectedProfileRevision &&
+                        ModelProviderConfigStore.sameCanonicalEndpoint(
+                            profile.baseUrl,
+                            expectedProfileBaseUrl
+                        )
+                ) { "provider profile changed" }
+                val apiBase = if (baseUrlArg.isNotEmpty()) baseUrlArg else profile.baseUrl
+                if (!destinationConfirmed) {
+                    require(
+                        ModelProviderConfigStore.sameCanonicalEndpoint(profile.baseUrl, apiBase)
+                    ) { "provider profile changed" }
+                }
+                check(
+                    destinationConfirmed ||
+                        ModelProviderConfigStore.hasCurrentDestinationConsent(profile, apiBase)
+                ) { "Provider destination confirmation is required" }
+                val apiKey = if (useProvidedApiKey) apiKeyArg else profile.apiKey
+                val customHeaders = if (useProvidedCustomHeaders) customHeadersArg else profile.customHeaders
                 val models = HttpController.fetchProviderModels(
                     apiBase = apiBase,
                     apiKey = apiKey,
@@ -3005,13 +3105,28 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
                     protocolType = profile.protocolType,
                     wireApi = profile.wireApi
                 )
+                val currentProfile = profileId?.let(ModelProviderConfigStore::getProfile)
+                require(
+                    currentProfile != null &&
+                        currentProfile.revision == expectedProfileRevision &&
+                        ModelProviderConfigStore.sameCanonicalEndpoint(
+                            currentProfile.baseUrl,
+                            expectedProfileBaseUrl
+                        )
+                ) { "provider profile changed" }
                 withContext(Dispatchers.Main) {
                     result.success(models.map { it.toMap() })
                 }
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
-                OmniLog.e(TAG, "fetchProviderModels error: ${e.message}")
+                OmniLog.e(TAG, "fetchProviderModels failed")
                 withContext(Dispatchers.Main) {
-                    result.error("FETCH_PROVIDER_MODELS_ERROR", e.message, null)
+                    result.error(
+                        "FETCH_PROVIDER_MODELS_ERROR",
+                        "Provider model fetch failed.",
+                        null
+                    )
                 }
             }
         }
@@ -3024,16 +3139,36 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
         val customHeadersArg = ProviderCustomHeaderUtils.coerceStringMap(
             call.argument<Map<*, *>>("customHeaders")
         )
+        val useProvidedApiKey = call.argument<Boolean>("useProvidedApiKey") == true
+        val useProvidedCustomHeaders = call.argument<Boolean>("useProvidedCustomHeaders") == true
+        val destinationConfirmed = call.argument<Boolean>("destinationConfirmed") == true
         val profileId = call.argument<String>("profileId")?.trim()
 
         workJob.launch {
             try {
-                val currentConfig = ModelProviderConfigStore.getConfig()
-                val apiBase = if (baseUrlArg.isNotEmpty()) baseUrlArg else currentConfig.baseUrl
-                val apiKey = if (baseUrlArg.isNotEmpty()) apiKeyArg else currentConfig.apiKey
+                if (OmniOfficialProvider.isOfficialProfile(profileId)) {
+                    val available = PlatformAiProvisioner.ensureReadyAndGetModels()
+                        .any { it.id == model }
+                    withContext(Dispatchers.Main) {
+                        result.success(
+                            mapOf(
+                                "available" to available,
+                                "code" to if (available) 200 else 404,
+                                "message" to if (available) "OK" else "该模型不在当前官方模型列表中"
+                            )
+                        )
+                    }
+                    return@launch
+                }
                 val profile = profileId?.let(ModelProviderConfigStore::getProfile)
                     ?: ModelProviderConfigStore.getEditingProfile()
-                val customHeaders = if (baseUrlArg.isNotEmpty()) {
+                val apiBase = if (baseUrlArg.isNotEmpty()) baseUrlArg else profile.baseUrl
+                check(
+                    destinationConfirmed ||
+                        ModelProviderConfigStore.hasCurrentDestinationConsent(profile, apiBase)
+                ) { "Provider destination confirmation is required" }
+                val apiKey = if (useProvidedApiKey) apiKeyArg else profile.apiKey
+                val customHeaders = if (useProvidedCustomHeaders) {
                     customHeadersArg
                 } else {
                     profile.customHeaders
