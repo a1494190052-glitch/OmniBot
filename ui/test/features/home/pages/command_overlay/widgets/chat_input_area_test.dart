@@ -137,6 +137,10 @@ void main() {
     await tester.pump(const Duration(milliseconds: 500));
 
     expect(
+      find.byKey(const ValueKey('chat-input-agent-permission-option-readOnly')),
+      findsOneWidget,
+    );
+    expect(
       find.byKey(
         const ValueKey('chat-input-agent-permission-option-defaultMode'),
       ),
@@ -234,6 +238,7 @@ void main() {
         useLargeComposerStyle: true,
         agentPermissionMode: AgentPermissionMode.defaultMode,
         agentPermissionModes: const <AgentPermissionMode>[
+          AgentPermissionMode.readOnly,
           AgentPermissionMode.defaultMode,
           AgentPermissionMode.fullAccess,
         ],
@@ -247,6 +252,10 @@ void main() {
     );
     await tester.pump();
 
+    expect(
+      find.byKey(const ValueKey('chat-input-agent-permission-option-readOnly')),
+      findsOneWidget,
+    );
     expect(
       find.byKey(
         const ValueKey('chat-input-agent-permission-option-defaultMode'),

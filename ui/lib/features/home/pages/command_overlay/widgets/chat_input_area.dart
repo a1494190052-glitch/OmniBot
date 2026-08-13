@@ -34,12 +34,14 @@ const String _kLucideCommandSvg =
 
 const String _kAgentPermissionDefaultIconAsset =
     'assets/home/chat/permission_hand.svg';
+const String _kAgentPermissionReadOnlyIconAsset =
+    'assets/home/chat/permission_lock.svg';
 const String _kAgentPermissionAutoReviewIconAsset =
     'assets/home/chat/agent.svg';
 const String _kAgentPermissionFullAccessIconAsset =
     'assets/home/chat/permission_shield_alert.svg';
 
-enum AgentPermissionMode { defaultMode, autoReview, fullAccess }
+enum AgentPermissionMode { readOnly, defaultMode, autoReview, fullAccess }
 
 typedef AgentRunSettingsChanged =
     FutureOr<void> Function({String? modelId, String? reasoningEffort});

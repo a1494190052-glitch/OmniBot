@@ -1,5 +1,6 @@
 package cn.com.omnimind.bot.agent.runtime
 
+import java.io.File
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -83,15 +84,56 @@ class AgentRuntimeProtocolPayloadTest {
     }
 
     @Test
+    fun deepSeekHarnessProviderConfigEditPreservesComposerPermissionDefault() {
+        val restored = deepSeekHarnessConfigFromArgs(
+            args = mapOf(
+                "baseUrl" to "https://gateway.example/v1",
+                "model" to "deepseek-custom",
+                "apiKey" to "sk-updated",
+                "reasoningEffort" to "high"
+            ),
+            current = DeepSeekHarnessConfig(permissionMode = "read-only")
+        )
+
+        assertEquals("read-only", restored.permissionMode)
+    }
+
+    @Test
     fun deepSeekHarnessCordisCompositionOwnsTheMissingAcpCapabilities() {
         val config = buildDeepSeekHarnessCordisConfig()
 
         assertTrue(config.contains("name: '@deepseek-ai/dsh-llm-deepseek'"))
-        assertTrue(config.contains("name: '@deepseek-ai/dsh-acp-demo'"))
+        assertTrue(config.contains("name: '$DEEPSEEK_HARNESS_OMNIBOT_ACP_PLUGIN_PATH'"))
+        assertFalse(config.contains("name: '@deepseek-ai/dsh-acp-demo'"))
         assertTrue(config.contains("workspaceRoot: /workspace"))
         assertTrue(config.contains("persistenceCompression: none"))
         assertTrue(config.contains("process.env.DSH_MODEL"))
+        assertTrue(config.contains("process.env.DSH_REASONING_EFFORT"))
         assertTrue(config.contains("process.env.DSH_PERMISSION_MODE"))
+        assertTrue(config.contains("policy: ask"))
+    }
+
+    @Test
+    fun deepSeekHarnessInteractiveBridgePublishesUiAndConfigEvents() {
+        val workingDirectory = File(requireNotNull(System.getProperty("user.dir")))
+        val source = listOf(
+            workingDirectory.resolve(
+                "app/src/main/assets/deepseek_harness/omnibot-acp-demo.mjs"
+            ),
+            workingDirectory.resolve(
+                "src/main/assets/deepseek_harness/omnibot-acp-demo.mjs"
+            )
+        ).firstOrNull(File::isFile)?.readText()
+            ?: error("DeepSeek Harness interactive ACP asset is missing.")
+
+        assertTrue(source.contains("sessionUpdate: 'agent_thought_chunk'"))
+        assertTrue(source.contains("sessionUpdate: 'tool_call'"))
+        assertTrue(source.contains("sessionUpdate: 'tool_call_update'"))
+        assertTrue(source.contains("category: 'model'"))
+        assertTrue(source.contains("category: 'thought_level'"))
+        assertTrue(source.contains("category: 'mode'"))
+        assertTrue(source.contains("installModelSelection(agentCtx, selection)"))
+        assertTrue(source.contains("setSandboxMode(record.agent.session, mode)"))
     }
 
     @Test

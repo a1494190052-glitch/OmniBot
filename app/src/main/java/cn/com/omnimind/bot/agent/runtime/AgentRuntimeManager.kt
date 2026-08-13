@@ -647,7 +647,13 @@ class AgentRuntimeManager private constructor(
                 )
             }
             AcpAgentProfileStore.DEEPSEEK_HARNESS_AGENT_ID -> {
-                val config = deepSeekHarnessConfigFromArgs(args)
+                val current = parseDeepSeekHarnessConfig(
+                    readTerminalTextFile(
+                        path = DEEPSEEK_HARNESS_CONFIG_PATH,
+                        executorKey = "deepseek-harness-config-before-write"
+                    )
+                )
+                val config = deepSeekHarnessConfigFromArgs(args, current)
                 writeTerminalTextFile(
                     path = DEEPSEEK_HARNESS_CONFIG_PATH,
                     content = buildDeepSeekHarnessConfigJson(config),
@@ -955,6 +961,11 @@ class AgentRuntimeManager private constructor(
             AcpAgentProfileStore.DEEPSEEK_HARNESS_AGENT_ID -> {
                 if (AcpAgentProfileStore.officialRuntime(profile) != null) {
                     writeTerminalTextFile(
+                        path = DEEPSEEK_HARNESS_OMNIBOT_ACP_PLUGIN_PATH,
+                        content = readDeepSeekHarnessAcpPluginAsset(),
+                        executorKey = "deepseek-harness-acp-plugin-write"
+                    )
+                    writeTerminalTextFile(
                         path = DEEPSEEK_HARNESS_CORDIS_PATH,
                         content = buildDeepSeekHarnessCordisConfig(),
                         executorKey = "deepseek-harness-cordis-write"
@@ -964,6 +975,13 @@ class AgentRuntimeManager private constructor(
             }
             else -> emptyMap()
         }
+    }
+
+    private fun readDeepSeekHarnessAcpPluginAsset(): String {
+        return appContext.assets
+            .open(DEEPSEEK_HARNESS_OMNIBOT_ACP_PLUGIN_ASSET)
+            .bufferedReader()
+            .use { it.readText() }
     }
 
     private suspend fun ensureManagedAcpAdapter(profile: AcpAgentProfile) {
@@ -1626,6 +1644,10 @@ private const val DEEPSEEK_HARNESS_CONFIG_DISPLAY_PATH =
     "~/.dsh/omnibot-acp/config.json"
 private const val DEEPSEEK_HARNESS_CORDIS_PATH =
     "$DEEPSEEK_HARNESS_HOME/cordis.yml"
+private const val DEEPSEEK_HARNESS_OMNIBOT_ACP_PLUGIN_ASSET =
+    "deepseek_harness/omnibot-acp-demo.mjs"
+internal const val DEEPSEEK_HARNESS_OMNIBOT_ACP_PLUGIN_PATH =
+    "/root/.npm-global/lib/node_modules/@deepseek-ai/dsh-acp-demo/lib/omnibot-acp-demo.mjs"
 private const val DEEPSEEK_PUBLIC_BASE_URL = "https://api.deepseek.com"
 private const val DEEPSEEK_HARNESS_DEFAULT_MODEL = "deepseek-v4-pro"
 private const val DEEPSEEK_HARNESS_DEFAULT_REASONING_EFFORT = "max"
@@ -1944,8 +1966,9 @@ internal fun parseDeepSeekHarnessConfig(source: String): DeepSeekHarnessConfig {
     )
 }
 
-private fun deepSeekHarnessConfigFromArgs(
-    args: Map<String, Any?>
+internal fun deepSeekHarnessConfigFromArgs(
+    args: Map<String, Any?>,
+    current: DeepSeekHarnessConfig = DeepSeekHarnessConfig()
 ): DeepSeekHarnessConfig {
     val baseUrl = args.stringValue("baseUrl")
         ?: throw IllegalArgumentException("DeepSeek Base URL is required.")
@@ -1959,7 +1982,7 @@ private fun deepSeekHarnessConfigFromArgs(
         "DeepSeek Harness reasoning effort must be off, high, or max."
     }
     val permissionMode = args.stringValue("permissionMode")
-        ?: DEEPSEEK_HARNESS_DEFAULT_PERMISSION_MODE
+        ?: current.permissionMode
     require(permissionMode in DEEPSEEK_HARNESS_PERMISSION_MODES) {
         "DeepSeek Harness permission mode must be read-only, workspace-write, or danger-full-access."
     }
@@ -1989,11 +2012,7 @@ internal fun buildDeepSeekHarnessConfigJson(
         ) + "\n"
 }
 
-/**
- * Phone-safe composition for the fixed DeepSeek Harness ACP source audited at
- * 47f943859bef60e4160492346772ded9b24f765a. ACP owns only baseline stdio; the
- * provider, sandbox, approval policy, persistence, and coding tool live here.
- */
+/** Phone-safe DeepSeek Harness composition with Omnibot's interactive ACP bridge. */
 internal fun buildDeepSeekHarnessCordisConfig(): String = """
     - id: llm-deepseek
       name: '@deepseek-ai/dsh-llm-deepseek'
@@ -2021,13 +2040,15 @@ internal fun buildDeepSeekHarnessCordisConfig(): String = """
     - id: approval
       name: '@deepseek-ai/dsh-user-approval'
       config:
-        policy: !!js "process.env.DSH_PERMISSION_MODE === 'danger-full-access' ? 'never' : 'ask'"
+        policy: ask
 
     - id: acp-agent
-      name: '@deepseek-ai/dsh-acp-demo'
+      name: '$DEEPSEEK_HARNESS_OMNIBOT_ACP_PLUGIN_PATH'
       config:
         provider: deepseek-official
         model: !!js "process.env.DSH_MODEL ?? 'deepseek-v4-pro'"
+        reasoningEffort: !!js "process.env.DSH_REASONING_EFFORT ?? 'max'"
+        permissionMode: !!js "process.env.DSH_PERMISSION_MODE ?? 'workspace-write'"
         persistenceRoot: !!js "(process.env.DSH_ACP_HOME ?? '/root/.dsh/omnibot-acp') + '/sessions'"
         persistenceCompression: none
         workspaceContext:

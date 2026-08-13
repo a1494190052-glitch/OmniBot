@@ -37,7 +37,6 @@ class _AgentConfigPageState extends State<AgentConfigPage> {
   bool _enabled = true;
   bool _changed = false;
   String _reasoningEffort = 'max';
-  String _permissionMode = 'workspace-write';
   String? _error;
 
   bool get _english =>
@@ -130,11 +129,6 @@ class _AgentConfigPageState extends State<AgentConfigPage> {
       'high' => 'high',
       _ => 'max',
     };
-    _permissionMode = switch (payload['permissionMode']?.toString()) {
-      'read-only' => 'read-only',
-      'danger-full-access' => 'danger-full-access',
-      _ => 'workspace-write',
-    };
   }
 
   void _setText(TextEditingController controller, String value) {
@@ -214,7 +208,6 @@ class _AgentConfigPageState extends State<AgentConfigPage> {
             model: model,
             apiKey: apiKey,
             reasoningEffort: _reasoningEffort,
-            permissionMode: _permissionMode,
           );
           if (!mounted) return;
           _syncPayload(payload);
@@ -546,35 +539,6 @@ class _AgentConfigPageState extends State<AgentConfigPage> {
           ],
           onChanged: (value) {
             if (value != null) setState(() => _reasoningEffort = value);
-          },
-        ),
-        const SizedBox(height: 14),
-        DropdownButtonFormField<String>(
-          key: ValueKey('deepseek-harness-permission-$_permissionMode'),
-          initialValue: _permissionMode,
-          decoration: InputDecoration(
-            labelText: _text('文件权限', 'File permission'),
-            helperText: _text(
-              '工作区读写为默认安全模式；完全访问会关闭 dsh 的审批。',
-              'Workspace write is the safe default; full access disables dsh approval.',
-            ),
-          ),
-          items: [
-            DropdownMenuItem(
-              value: 'read-only',
-              child: Text(_text('只读', 'Read only')),
-            ),
-            DropdownMenuItem(
-              value: 'workspace-write',
-              child: Text(_text('工作区读写', 'Workspace write')),
-            ),
-            DropdownMenuItem(
-              value: 'danger-full-access',
-              child: Text(_text('完全访问', 'Full access')),
-            ),
-          ],
-          onChanged: (value) {
-            if (value != null) setState(() => _permissionMode = value);
           },
         ),
       ],

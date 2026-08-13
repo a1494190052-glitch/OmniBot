@@ -129,7 +129,7 @@ void main() {
     expect(find.textContaining('claude-opus'), findsOneWidget);
   });
 
-  testWidgets('DeepSeek Harness config saves provider and runtime policy', (
+  testWidgets('DeepSeek Harness config keeps file permission in composer', (
     tester,
   ) async {
     Map<String, dynamic>? saved;
@@ -164,6 +164,11 @@ void main() {
 
     await _pumpPage(tester, 'deepseek-harness-acp');
 
+    expect(find.text('文件权限'), findsNothing);
+    expect(
+      find.byKey(const ValueKey('deepseek-harness-permission-read-only')),
+      findsNothing,
+    );
     expect(
       find.textContaining('~/.dsh/omnibot-acp/config.json'),
       findsOneWidget,
@@ -188,7 +193,7 @@ void main() {
     expect(saved?['model'], 'deepseek-custom');
     expect(saved?['apiKey'], 'sk-new');
     expect(saved?['reasoningEffort'], 'high');
-    expect(saved?['permissionMode'], 'read-only');
+    expect(saved?.containsKey('permissionMode'), isFalse);
   });
 }
 
