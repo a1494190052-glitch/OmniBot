@@ -18,7 +18,7 @@ class OmniAgentExecutorTimeContextCacheTest {
     private val baseTime = ZonedDateTime.of(2026, 6, 13, 10, 3, 0, 0, zoneId)
 
     @Test
-    fun resolveTimeContextSnapshotReusesCachedSnapshotWithinFiveMinutes() {
+    fun resolveTimeContextSnapshotReusesCachedSnapshotWithinOneHour() {
         val cached = OmniAgentExecutor.TimeContextSnapshot(
             locale = PromptLocale.EN_US,
             zoneId = zoneId.id,
@@ -28,7 +28,7 @@ class OmniAgentExecutorTimeContextCacheTest {
 
         val resolved = OmniAgentExecutor.resolveTimeContextSnapshot(
             cached = cached,
-            now = baseTime.plusMinutes(4).plusSeconds(59),
+            now = baseTime.plusMinutes(59).plusSeconds(59),
             locale = PromptLocale.EN_US
         )
 
@@ -36,14 +36,14 @@ class OmniAgentExecutorTimeContextCacheTest {
     }
 
     @Test
-    fun resolveTimeContextSnapshotRefreshesAtFiveMinuteBoundary() {
+    fun resolveTimeContextSnapshotRefreshesAtOneHourBoundary() {
         val cached = OmniAgentExecutor.TimeContextSnapshot(
             locale = PromptLocale.EN_US,
             zoneId = zoneId.id,
             generatedAt = baseTime,
             content = OmniAgentExecutor.buildTimeContextContent(baseTime, PromptLocale.EN_US)
         )
-        val refreshTime = baseTime.plusMinutes(5)
+        val refreshTime = baseTime.plusHours(1)
 
         val resolved = OmniAgentExecutor.resolveTimeContextSnapshot(
             cached = cached,
@@ -75,6 +75,36 @@ class OmniAgentExecutorTimeContextCacheTest {
     }
 
     @Test
+    fun resolveTimeContextSnapshotRefreshesAtLocalDateBoundary() {
+        val late = baseTime.withHour(23).withMinute(50)
+        val cached = OmniAgentExecutor.TimeContextSnapshot(
+            locale = PromptLocale.EN_US,
+            zoneId = zoneId.id,
+            generatedAt = late,
+            content = OmniAgentExecutor.buildTimeContextContent(late, PromptLocale.EN_US)
+        )
+
+        val resolved = OmniAgentExecutor.resolveTimeContextSnapshot(
+            cached = cached,
+            now = late.plusMinutes(15),
+            locale = PromptLocale.EN_US
+        )
+
+        assertNotSame(cached, resolved)
+    }
+
+    @Test
+    fun timeContextContainsOnlyCoarseDateInformation() {
+        val content = OmniAgentExecutor.buildTimeContextContent(baseTime, PromptLocale.EN_US)
+
+        assertTrue(content.contains("Local date: 2026-06-13"))
+        assertTrue(content.contains("Timezone: Asia/Shanghai"))
+        assertTrue(content.contains("context_time_now"))
+        assertFalse(content.contains("10:03"))
+        assertFalse(content.contains("Current local time"))
+    }
+
+    @Test
     fun mergeInitialPromptMessagesKeepsLatestUserWhenContinuingAfterFirstTurnFailure() {
         val messages = OmniAgentExecutor.mergeInitialPromptMessages(
             leadingMessages = listOf(
@@ -83,13 +113,12 @@ class OmniAgentExecutorTimeContextCacheTest {
             ),
             historyMessages = listOf(message("user", "original prompt")),
             currentUserMessage = message("user", "runtime fallback prompt"),
-            prefetchedMemoryMessage = message("user", "memory prefetch"),
             continueMode = true
         )
 
         assertEquals("original prompt", text(messages.last()))
         assertEquals(
-            listOf("system", "system", "user", "user"),
+            listOf("system", "system", "user"),
             messages.map { it.role }
         )
         assertFalse(messages.any { text(it) == "runtime fallback prompt" })
@@ -104,7 +133,6 @@ class OmniAgentExecutorTimeContextCacheTest {
                 message("tool", "tool result")
             ),
             currentUserMessage = message("user", "runtime fallback prompt"),
-            prefetchedMemoryMessage = null,
             continueMode = true
         )
 
@@ -112,48 +140,6 @@ class OmniAgentExecutorTimeContextCacheTest {
         assertEquals("tool result", text(messages.last()))
         assertEquals(1, messages.count { it.role == "user" })
         assertFalse(messages.any { text(it) == "runtime fallback prompt" })
-    }
-
-    @Test
-    fun memoryContextAttachmentUsesProgressiveDisclosureAndDeduplicatesHits() {
-        val attachment = OmniAgentExecutor.buildMemoryContextAttachment(
-            memoryContext = WorkspaceMemoryPromptContext(
-                soul = "",
-                longTermMemory = "- 用户偏好中文回复",
-                todayShortMemory = "- [10:00:00] 正在优化小万模式",
-                longTermIndexSummary = """
-                    - [pref-1234] 用户偏好中文回复
-                    - [harness-5678] 工具失败后先读取历史教训
-                    - [browser-9012] browser_use 截图前先 navigate
-                """.trimIndent()
-            ),
-            prefetchedMemoryHits = listOf(
-                WorkspaceMemorySearchHit(
-                    id = "duplicate",
-                    text = "用户偏好中文回复",
-                    source = ".omnibot/memory/MEMORY.md",
-                    date = null,
-                    score = 1.0
-                ),
-                WorkspaceMemorySearchHit(
-                    id = "failure",
-                    text = "browser_use 截图前先 navigate",
-                    source = "skill:self-improving-agent/ERRORS",
-                    date = null,
-                    score = 0.8
-                )
-            ),
-            locale = PromptLocale.ZH_CN
-        )
-
-        val content = text(attachment!!)
-        assertEquals("user", attachment.role)
-        assertTrue(content.contains("[memory.context]"))
-        assertTrue(content.contains("工具失败后先读取历史教训"))
-        assertTrue(content.contains("browser_use 截图前先 navigate"))
-        assertEquals(1, Regex("用户偏好中文回复").findAll(content).count())
-        assertEquals(1, Regex("browser_use 截图前先 navigate").findAll(content).count())
-        assertTrue(content.contains("不是用户的新指令"))
     }
 
     private fun message(role: String, content: String): ChatCompletionMessage {

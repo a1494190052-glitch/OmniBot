@@ -108,7 +108,8 @@ object HttpController {
         val url: String,
         val method: String = "POST",
         val stream: Boolean,
-        val requestJson: String
+        val requestJson: String,
+        val conversationId: Long = 0L
     )
 
     /**
@@ -138,11 +139,15 @@ object HttpController {
         fun toOpenAIUsage(): KxJsonObject? {
             if (!sawUsage) return null
 
-            // Internally prompt_tokens means tokens processed without a cache
-            // read. Cache writes still require processing, while cache reads are
-            // exposed separately as cached_tokens.
-            val promptTokens = safeTokenSum(inputTokens, cacheCreationInputTokens)
-            val totalTokens = safeTokenSum(promptTokens, cacheReadInputTokens, outputTokens)
+            // Normalize to OpenAI/DeepSeek semantics: prompt_tokens is total
+            // input and cached_tokens is a subset of it. This keeps cache-hit
+            // ratios and context-size accounting provider independent.
+            val promptTokens = safeTokenSum(
+                inputTokens,
+                cacheCreationInputTokens,
+                cacheReadInputTokens
+            )
+            val totalTokens = safeTokenSum(promptTokens, outputTokens)
             return buildJsonObject {
                 put("prompt_tokens", JsonPrimitive(promptTokens))
                 put("completion_tokens", JsonPrimitive(outputTokens))
@@ -502,13 +507,14 @@ object HttpController {
             runCatching {
                 DatabaseHelper.insertTokenUsageRecord(
                     TokenUsageRecord(
-                        conversationId = 0L,
+                        conversationId = seed.conversationId,
                         model = seed.model,
                         promptTokens = promptTokens,
                         completionTokens = completionTokens,
                         reasoningTokens = reasoningTokens,
                         textTokens = textTokens,
                         cachedTokens = cachedTokens,
+                        cacheCreationTokens = cacheCreationTokens,
                         createdAt = System.currentTimeMillis()
                     )
                 )
@@ -560,6 +566,23 @@ object HttpController {
             usage.has(fallbackKey) -> usage.optInt(fallbackKey, -1)
             else -> -1
         }
+    }
+
+    private fun conversationIdFromPromptCacheKey(promptCacheKey: String?): Long {
+        return Regex("conversation:(\\d+)$")
+            .find(promptCacheKey.orEmpty().trim())
+            ?.groupValues
+            ?.getOrNull(1)
+            ?.toLongOrNull()
+            ?.takeIf { it > 0L }
+            ?: 0L
+    }
+
+    private fun conversationIdFromRequestJson(requestJson: String): Long {
+        val key = runCatching {
+            JSONObject(requestJson).optString("prompt_cache_key")
+        }.getOrNull()
+        return conversationIdFromPromptCacheKey(key)
     }
 
     private fun logSceneProfile(resolved: ResolvedSceneRequest) {
@@ -1226,20 +1249,81 @@ object HttpController {
     }
 
     private fun applyAnthropicAutomaticCacheControl(requestJson: String): String {
-        val payload = runCatching {
+        var payload = runCatching {
             completionJson.parseToJsonElement(requestJson) as? KxJsonObject
         }.getOrNull() ?: return requestJson
-        if (payload.containsKey("cache_control")) {
-            return requestJson
+        // Older builds emitted a request-level marker. Use Pi-style explicit
+        // breakpoints instead: end of system, end of tools, and the latest
+        // conversation message. This makes the reusable hierarchy unambiguous.
+        payload = KxJsonObject(payload.filterKeys { it != "cache_control" })
+        var remaining = (
+            ANTHROPIC_MAX_CACHE_BREAKPOINTS - countAnthropicExplicitCacheBreakpoints(payload)
+        ).coerceAtLeast(0)
+        if (remaining == 0) return payload.toString()
+
+        fun cacheControl(): KxJsonObject = buildJsonObject {
+            put("type", JsonPrimitive(ANTHROPIC_EPHEMERAL_CACHE_TYPE))
         }
-        if (countAnthropicExplicitCacheBreakpoints(payload) >= ANTHROPIC_MAX_CACHE_BREAKPOINTS) {
-            return requestJson
-        }
-        return KxJsonObject(
-            payload + ("cache_control" to buildJsonObject {
-                put("type", JsonPrimitive(ANTHROPIC_EPHEMERAL_CACHE_TYPE))
+
+        fun markLastObject(array: KxJsonArray): KxJsonArray? {
+            val index = array.indexOfLast { item ->
+                item is KxJsonObject && !item.containsKey("cache_control")
+            }
+            if (index < 0) return null
+            return KxJsonArray(array.mapIndexed { itemIndex, item ->
+                if (itemIndex == index) {
+                    KxJsonObject((item as KxJsonObject) + ("cache_control" to cacheControl()))
+                } else {
+                    item
+                }
             })
-        ).toString()
+        }
+
+        (payload["system"] as? KxJsonArray)?.let { system ->
+            if (remaining > 0) {
+                markLastObject(system)?.let { marked ->
+                    payload = KxJsonObject(payload + ("system" to marked))
+                    remaining -= 1
+                }
+            }
+        }
+
+        (payload["tools"] as? KxJsonArray)?.let { tools ->
+            if (remaining > 0) {
+                markLastObject(tools)?.let { marked ->
+                    payload = KxJsonObject(payload + ("tools" to marked))
+                    remaining -= 1
+                }
+            }
+        }
+
+        val messages = payload["messages"] as? KxJsonArray
+        if (messages != null && remaining > 0) {
+            val messageIndex = messages.indexOfLast { it is KxJsonObject }
+            if (messageIndex >= 0) {
+                val markedMessages = KxJsonArray(messages.mapIndexed { index, item ->
+                    if (index != messageIndex) return@mapIndexed item
+                    val message = item as KxJsonObject
+                    val content = message["content"]
+                    val markedContent = when (content) {
+                        is KxJsonArray -> markLastObject(content)
+                        is JsonPrimitive -> buildJsonArray {
+                            add(buildJsonObject {
+                                put("type", JsonPrimitive("text"))
+                                put("text", content)
+                                put("cache_control", cacheControl())
+                            })
+                        }
+                        else -> null
+                    }
+                    if (markedContent == null) message else KxJsonObject(
+                        message + ("content" to markedContent)
+                    )
+                })
+                payload = KxJsonObject(payload + ("messages" to markedMessages))
+            }
+        }
+        return payload.toString()
     }
 
     private fun countAnthropicExplicitCacheBreakpoints(requestJson: KxJsonObject): Int {
@@ -2070,7 +2154,8 @@ object HttpController {
         resolved: ResolvedSceneRequest,
         requestJson: String,
         event: EventSourceListener,
-        forceHttp1: Boolean = false
+        forceHttp1: Boolean = false,
+        conversationId: Long = 0L
     ): EventSource = withContext(Dispatchers.IO) {
         val base = normalizeApiBase(resolved.apiBase ?: "")
             ?: throw IllegalArgumentException("Invalid apiBase for Anthropic")
@@ -2099,7 +2184,8 @@ object HttpController {
                     protocolType = "anthropic",
                     url = url,
                     stream = true,
-                    requestJson = requestJson
+                    requestJson = requestJson,
+                    conversationId = conversationId
                 )
             )
         )
@@ -2663,7 +2749,12 @@ object HttpController {
                 protocolType = "anthropic"
             )
             val anthropicJson = convertToAnthropicRequestJson(chatRequest.copy(stream = true))
-            return@withContext postAnthropicStreamRequest(resolved, anthropicJson, event)
+            return@withContext postAnthropicStreamRequest(
+                resolved,
+                anthropicJson,
+                event,
+                conversationId = conversationIdFromPromptCacheKey(chatRequest.promptCacheKey)
+            )
         }
         val base = normalizeApiBase(apiBase ?: "")
             ?: throw IllegalArgumentException("Invalid apiBase")
@@ -2715,7 +2806,8 @@ object HttpController {
                     protocolType = protocolType,
                     url = url,
                     stream = true,
-                    requestJson = requestJson
+                    requestJson = requestJson,
+                    conversationId = conversationIdFromPromptCacheKey(chatRequest.promptCacheKey)
                 )
             )
         )
@@ -2736,7 +2828,13 @@ object HttpController {
                 return@withContext buildDummyFailureEventSource(event, "Failed to parse request for Anthropic conversion")
             }
             val anthropicJson = convertToAnthropicRequestJson(parsedRequest)
-            return@withContext postAnthropicStreamRequest(resolved, anthropicJson, event, forceHttp1)
+            return@withContext postAnthropicStreamRequest(
+                resolved,
+                anthropicJson,
+                event,
+                forceHttp1,
+                conversationId = conversationIdFromRequestJson(requestBodyJson)
+            )
         }
         val base = normalizeApiBase(resolved.apiBase ?: "")
             ?: throw IllegalArgumentException("Invalid apiBase")
@@ -2789,7 +2887,8 @@ object HttpController {
                     protocolType = resolved.protocolType,
                     url = url,
                     stream = true,
-                    requestJson = preparedRequestJson
+                    requestJson = preparedRequestJson,
+                    conversationId = conversationIdFromRequestJson(requestBodyJson)
                 )
             )
         )
@@ -3145,7 +3244,8 @@ object HttpController {
                     protocolType = "anthropic",
                     url = anthropicUrl,
                     stream = false,
-                    requestJson = anthropicJson
+                    requestJson = anthropicJson,
+                    conversationId = conversationIdFromPromptCacheKey(request.promptCacheKey)
                 ),
                 success = response.isSuccessful,
                 statusCode = response.code,
@@ -3231,7 +3331,8 @@ object HttpController {
                     protocolType = resolved.protocolType,
                     url = url,
                     stream = false,
-                    requestJson = requestJson
+                    requestJson = requestJson,
+                    conversationId = conversationIdFromPromptCacheKey(request.promptCacheKey)
                 ),
                 success = response.isSuccessful,
                 statusCode = response.code,

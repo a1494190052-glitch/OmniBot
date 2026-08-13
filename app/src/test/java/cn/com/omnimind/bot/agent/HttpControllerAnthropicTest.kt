@@ -49,9 +49,19 @@ class HttpControllerAnthropicTest {
         ) as String
 
         val root = json.parseToJsonElement(payload).jsonObject
+        assertFalse(root.containsKey("cache_control"))
+        val messageContent = root["messages"]
+            ?.let { it as kotlinx.serialization.json.JsonArray }
+            ?.single()
+            ?.jsonObject
+            ?.get("content") as kotlinx.serialization.json.JsonArray
         assertEquals(
             "ephemeral",
-            root["cache_control"]?.jsonObject?.get("type")?.jsonPrimitive?.content
+            messageContent.single().jsonObject["cache_control"]
+                ?.jsonObject
+                ?.get("type")
+                ?.jsonPrimitive
+                ?.content
         )
     }
 
@@ -87,6 +97,59 @@ class HttpControllerAnthropicTest {
 
         val root = json.parseToJsonElement(payload).jsonObject
         assertFalse(root.containsKey("cache_control"))
+    }
+
+    @Test
+    fun `automatic anthropic cache control uses stable system tools and transcript breakpoints`() {
+        val method = HttpController::class.java.getDeclaredMethod(
+            "applyAnthropicAutomaticCacheControl",
+            String::class.java
+        )
+        method.isAccessible = true
+        val payload = method.invoke(
+            HttpController,
+            """
+                {
+                  "model": "claude-sonnet",
+                  "system": [
+                    {"type": "text", "text": "stable", "cache_control": {"type": "ephemeral"}},
+                    {"type": "text", "text": "coarse-time"}
+                  ],
+                  "tools": [
+                    {"name": "a", "input_schema": {"type": "object"}},
+                    {"name": "z", "input_schema": {"type": "object"}}
+                  ],
+                  "messages": [
+                    {"role": "user", "content": [{"type": "text", "text": "hello"}]}
+                  ]
+                }
+            """.trimIndent()
+        ) as String
+
+        val root = json.parseToJsonElement(payload).jsonObject
+        val system = root["system"] as kotlinx.serialization.json.JsonArray
+        val tools = root["tools"] as kotlinx.serialization.json.JsonArray
+        val messages = root["messages"] as kotlinx.serialization.json.JsonArray
+
+        assertTrue(system.all { it.jsonObject.containsKey("cache_control") })
+        assertFalse(tools.first().jsonObject.containsKey("cache_control"))
+        assertEquals(
+            "ephemeral",
+            tools.last().jsonObject["cache_control"]?.jsonObject
+                ?.get("type")?.jsonPrimitive?.content
+        )
+        assertEquals(
+            "ephemeral",
+            messages.last().jsonObject["content"]
+                ?.let { it as kotlinx.serialization.json.JsonArray }
+                ?.last()
+                ?.jsonObject
+                ?.get("cache_control")
+                ?.jsonObject
+                ?.get("type")
+                ?.jsonPrimitive
+                ?.content
+        )
     }
 
     @Test
@@ -144,7 +207,7 @@ class HttpControllerAnthropicTest {
 
         assertEquals("Hello", turn.message.contentText())
         assertEquals("end_turn", turn.finishReason)
-        assertEquals(12, turn.usage?.promptTokens)
+        assertEquals(4108, turn.usage?.promptTokens)
         assertEquals(5, turn.usage?.completionTokens)
         assertEquals(4113, turn.usage?.totalTokens)
         assertEquals(
@@ -222,7 +285,7 @@ class HttpControllerAnthropicTest {
         ) as String
         val root = json.parseToJsonElement(usage).jsonObject
 
-        assertEquals("9", root["prompt_tokens"]?.jsonPrimitive?.content)
+        assertEquals("2057", root["prompt_tokens"]?.jsonPrimitive?.content)
         assertEquals("6", root["completion_tokens"]?.jsonPrimitive?.content)
         assertEquals("2063", root["total_tokens"]?.jsonPrimitive?.content)
         assertEquals(

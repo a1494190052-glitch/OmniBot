@@ -325,6 +325,14 @@ object DatabaseHelper {
         }
     }
 
+    private val MIGRATION_16_17 = object : Migration(16, 17) {
+        override fun migrate(database: SupportSQLiteDatabase) {
+            database.execSQL(
+                "ALTER TABLE token_usage_records ADD COLUMN cacheCreationTokens INTEGER NOT NULL DEFAULT 0"
+            )
+        }
+    }
+
     internal val ALL_MIGRATIONS = arrayOf(
         MIGRATION_1_2,
         MIGRATION_2_3,
@@ -340,7 +348,8 @@ object DatabaseHelper {
         MIGRATION_12_13,
         MIGRATION_13_14,
         MIGRATION_14_15,
-        MIGRATION_15_16
+        MIGRATION_15_16,
+        MIGRATION_16_17
     )
 
     fun init(context: Context) {

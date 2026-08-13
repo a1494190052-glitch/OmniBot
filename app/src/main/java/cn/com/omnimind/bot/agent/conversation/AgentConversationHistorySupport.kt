@@ -7,6 +7,7 @@ import cn.com.omnimind.baselib.llm.AssistantToolCallFunction
 import cn.com.omnimind.baselib.llm.ChatCompletionMessage
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
+import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
@@ -65,6 +66,10 @@ internal object AgentConversationHistorySupport {
         "<context-summary> The following is a summary of the earlier conversation that was compacted to save context space."
 
     private val gson = Gson()
+    private val canonicalMessageJson = kotlinx.serialization.json.Json {
+        ignoreUnknownKeys = true
+        isLenient = true
+    }
 
     fun buildTextMessagePayload(
         messageId: String,
@@ -365,6 +370,7 @@ internal object AgentConversationHistorySupport {
 
         val replayMessages = mutableListOf<ChatCompletionMessage>()
         val deferredAssistantEntries = mutableListOf<AgentConversationEntry>()
+        val consumedCanonicalToolEntryIds = mutableSetOf<Long>()
 
         fun flushDeferredAssistantEntries() {
             if (deferredAssistantEntries.isEmpty()) return
@@ -375,6 +381,9 @@ internal object AgentConversationHistorySupport {
         }
 
         relevantEntries.forEachIndexed { index, entry ->
+            if (entry.id in consumedCanonicalToolEntryIds) {
+                return@forEachIndexed
+            }
             when (entry.entryType) {
                 AgentConversationHistoryRepository.ENTRY_TYPE_USER_MESSAGE -> {
                     flushDeferredAssistantEntries()
@@ -394,7 +403,51 @@ internal object AgentConversationHistorySupport {
                 }
 
                 AgentConversationHistoryRepository.ENTRY_TYPE_TOOL_EVENT -> {
-                    replayMessages += buildToolReplayMessages(entry)
+                    val canonicalAssistantJson = readMap(entry.payloadJson)
+                        .get("modelAssistantMessageJson")
+                        ?.toString()
+                        ?.takeIf { it.isNotBlank() }
+                    if (canonicalAssistantJson == null) {
+                        replayMessages += buildToolReplayMessages(entry)
+                    } else {
+                        val canonicalAssistant = decodeCanonicalMessage(canonicalAssistantJson)
+                        if (canonicalAssistant == null) {
+                            replayMessages += buildToolReplayMessages(entry)
+                        } else {
+                            val group = relevantEntries
+                                .asSequence()
+                                .drop(index)
+                                .takeWhile {
+                                    it.entryType == AgentConversationHistoryRepository.ENTRY_TYPE_TOOL_EVENT
+                                }
+                                .map { candidate -> candidate to readMap(candidate.payloadJson) }
+                                .filter { (_, payload) ->
+                                    payload["modelAssistantMessageJson"]?.toString() == canonicalAssistantJson
+                                }
+                                .toList()
+                            val resultByCallId = group.mapNotNull { (candidate, payload) ->
+                                val callId = payload["modelToolCallId"]?.toString()?.trim()
+                                    ?.takeIf { it.isNotEmpty() }
+                                    ?: return@mapNotNull null
+                                val result = payload["modelToolResultMessageJson"]
+                                    ?.toString()
+                                    ?.let(::decodeCanonicalMessage)
+                                    ?: return@mapNotNull null
+                                consumedCanonicalToolEntryIds += candidate.id
+                                callId to result
+                            }.toMap()
+                            replayMessages += canonicalAssistant
+                            canonicalAssistant.toolCalls.orEmpty().forEach { toolCall ->
+                                resultByCallId[toolCall.id]?.let(replayMessages::add)
+                            }
+                            resultByCallId
+                                .filterKeys { callId ->
+                                    canonicalAssistant.toolCalls.orEmpty().none { it.id == callId }
+                                }
+                                .values
+                                .forEach(replayMessages::add)
+                        }
+                    }
                 }
 
                 else -> Unit
@@ -403,6 +456,12 @@ internal object AgentConversationHistorySupport {
 
         flushDeferredAssistantEntries()
         return replayMessages
+    }
+
+    private fun decodeCanonicalMessage(raw: String): ChatCompletionMessage? {
+        return runCatching {
+            canonicalMessageJson.decodeFromString<ChatCompletionMessage>(raw)
+        }.getOrNull()
     }
 
     private fun isInterruptedAssistantEntry(entry: AgentConversationEntry): Boolean {
@@ -666,6 +725,11 @@ internal object AgentConversationHistorySupport {
             "subagentEvents" to mergeMapList("subagentEvents"),
             "args" to chooseText("args"),
             "argsJson" to chooseText("argsJson"),
+            "modelToolCallId" to chooseText("modelToolCallId"),
+            "modelAssistantMessageJson" to rawText(incoming, "modelAssistantMessageJson")
+                .ifEmpty { rawText(existing, "modelAssistantMessageJson") },
+            "modelToolResultMessageJson" to rawText(incoming, "modelToolResultMessageJson")
+                .ifEmpty { rawText(existing, "modelToolResultMessageJson") },
             "resultPreviewJson" to chooseText("resultPreviewJson"),
             "rawResultJson" to chooseText("rawResultJson"),
             "terminalOutput" to terminalOutput,
@@ -1369,6 +1433,14 @@ internal object AgentConversationHistorySupport {
                 payload["argsJson"]?.toString().orEmpty(),
                 MAX_STORAGE_TOOL_JSON_CHARS
             ),
+            "modelToolCallId" to payload["modelToolCallId"]?.toString()?.trim()
+                ?.takeIf { it.isNotEmpty() },
+            "modelAssistantMessageJson" to payload["modelAssistantMessageJson"]
+                ?.toString()
+                ?.takeIf { it.isNotBlank() },
+            "modelToolResultMessageJson" to payload["modelToolResultMessageJson"]
+                ?.toString()
+                ?.takeIf { it.isNotBlank() },
             "resultPreviewJson" to compactJsonText(
                 payload["resultPreviewJson"]?.toString().orEmpty(),
                 MAX_STORAGE_TOOL_JSON_CHARS
@@ -1408,6 +1480,10 @@ internal object AgentConversationHistorySupport {
         ).filterValues { value -> value != null }
         val encoded = gson.toJson(safePayload)
         if (encoded.length > MAX_STORAGE_ENTRY_PAYLOAD_CHARS) {
+            buildStorageSafeCanonicalToolEntry(
+                entry = entry.copy(status = normalizedStatus, summary = normalizedSummary),
+                payload = payload
+            )?.let { return it }
             return buildStorageSafeGenericToolEntry(
                 entry = entry.copy(status = normalizedStatus, summary = normalizedSummary),
                 originalPayloadLength = entry.payloadJson.length
@@ -1418,6 +1494,41 @@ internal object AgentConversationHistorySupport {
             summary = normalizedSummary,
             payloadJson = encoded
         )
+    }
+
+    private fun buildStorageSafeCanonicalToolEntry(
+        entry: AgentConversationEntry,
+        payload: Map<String, Any?>
+    ): AgentConversationEntry? {
+        val assistantJson = payload["modelAssistantMessageJson"]?.toString()
+            ?.takeIf { it.isNotBlank() }
+            ?: return null
+        val resultJson = payload["modelToolResultMessageJson"]?.toString()
+            ?.takeIf { it.isNotBlank() }
+            ?: return null
+        val canonicalPayload = linkedMapOf<String, Any?>(
+            "taskId" to payload["taskId"],
+            "streamMeta" to compactDisplayStreamMeta(payload["streamMeta"]),
+            "cardId" to payload["cardId"]?.toString().orEmpty().ifEmpty { entry.entryId },
+            "toolName" to canonicalAgentToolName(payload["toolName"]?.toString().orEmpty()),
+            "displayName" to payload["displayName"]?.toString().orEmpty(),
+            "toolType" to payload["toolType"]?.toString().orEmpty().ifEmpty { "builtin" },
+            "status" to entry.status,
+            "summary" to entry.summary,
+            "success" to parseBoolean(
+                payload["success"],
+                default = entry.status == AgentConversationHistoryRepository.STATUS_SUCCESS
+            ),
+            "modelToolCallId" to payload["modelToolCallId"]?.toString().orEmpty(),
+            "modelAssistantMessageJson" to assistantJson,
+            "modelToolResultMessageJson" to resultJson,
+            "payloadCompacted" to true,
+            "canonicalReplayPreserved" to true
+        ).filterValues { it != null }
+        val encoded = gson.toJson(canonicalPayload)
+        return encoded.takeIf { it.length <= MAX_STORAGE_ENTRY_PAYLOAD_CHARS }?.let {
+            entry.copy(payloadJson = it)
+        }
     }
 
     private fun buildStorageSafeGenericToolEntry(

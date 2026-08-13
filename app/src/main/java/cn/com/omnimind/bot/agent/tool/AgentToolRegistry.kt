@@ -90,19 +90,31 @@ class AgentToolRegistry(
         }
         runtimeDefinitions.addAll(AgentToolDefinitions.memoryTools(locale))
         runtimeDefinitions.addAll(AgentToolDefinitions.subagentTools(locale))
-        discoveredServers.flatMap { it.tools }.forEach { tool ->
+        discoveredServers
+            .flatMap { it.tools }
+            .sortedBy { it.encodedToolName.lowercase() }
+            .forEach { tool ->
             runtimeDefinitions.add(toDynamicMcpToolDefinition(tool, locale))
         }
 
         val filteredDefinitions = AgentConversationModePolicy
             .filterToolDefinitionsForConversationMode(runtimeDefinitions, conversationMode)
+            .sortedBy { definition ->
+                ((definition["function"] as? JsonObject)
+                    ?.get("name") as? JsonPrimitive)
+                    ?.contentOrNull
+                    ?.lowercase()
+                    .orEmpty()
+            }
 
         toolsForModel = filteredDefinitions.mapNotNull { definition ->
             val function = definition["function"] as? JsonObject ?: return@mapNotNull null
             val name = function["name"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty()
             if (name.isBlank()) return@mapNotNull null
             val description = function["description"]?.jsonPrimitive?.contentOrNull.orEmpty()
-            val parameters = (function["parameters"] as? JsonObject) ?: JsonObject(emptyMap())
+            val parameters = canonicalizeJson(
+                (function["parameters"] as? JsonObject) ?: JsonObject(emptyMap())
+            ) as JsonObject
             val displayName = function["displayName"]?.jsonPrimitive?.contentOrNull?.trim()
                 .takeUnless { it.isNullOrBlank() } ?: name
             val toolType = function["toolType"]?.jsonPrimitive?.contentOrNull?.trim()
@@ -144,6 +156,16 @@ class AgentToolRegistry(
             displayName = toolName,
             toolType = "builtin"
         )
+    }
+
+    private fun canonicalizeJson(value: JsonElement): JsonElement {
+        return when (value) {
+            is JsonObject -> JsonObject(
+                value.toSortedMap().mapValues { (_, child) -> canonicalizeJson(child) }
+            )
+            is JsonArray -> JsonArray(value.map(::canonicalizeJson))
+            else -> value
+        }
     }
 
     override fun validateArguments(toolName: String, arguments: JsonObject) {

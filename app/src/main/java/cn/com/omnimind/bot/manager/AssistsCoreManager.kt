@@ -123,6 +123,7 @@ import java.util.ArrayDeque
 import kotlin.collections.mapOf
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
+import kotlinx.serialization.encodeToString
 
 internal const val CHAT_ONLY_MODE = "chat_only"
 private const val MAX_PERSISTED_THINKING_CHARS = 16 * 1024
@@ -317,6 +318,10 @@ internal data class AgentTurnUsageSnapshot(
     val inputTokens: Int,
     val outputTokens: Int,
     val cacheTokens: Int,
+    val totalInputTokens: Int,
+    val uncachedInputTokens: Int,
+    val cacheReadTokens: Int,
+    val cacheWriteTokens: Int,
     val promptTokens: Int,
     val completionTokens: Int,
     val totalTokens: Int,
@@ -328,6 +333,10 @@ internal data class AgentTurnUsageSnapshot(
             "in" to inputTokens,
             "out" to outputTokens,
             "cache" to cacheTokens,
+            "totalInputTokens" to totalInputTokens,
+            "uncachedInputTokens" to uncachedInputTokens,
+            "cacheReadTokens" to cacheReadTokens,
+            "cacheWriteTokens" to cacheWriteTokens,
             "promptTokens" to promptTokens,
             "completionTokens" to completionTokens,
             "totalTokens" to totalTokens,
@@ -343,14 +352,19 @@ internal fun buildTurnUsageSnapshot(
 ): AgentTurnUsageSnapshot? {
     val promptTokens = latestPromptTokens ?: result?.latestPromptTokens ?: return null
     val completionTokens = result?.completionTokens ?: 0
-    val cacheTokens = result?.cachedTokens ?: 0
+    val cacheTokens = (result?.cachedTokens ?: 0).coerceIn(0, promptTokens)
+    val cacheWriteTokens = (result?.cacheCreationTokens ?: 0).coerceAtLeast(0)
     val totalTokens = result?.totalTokens ?: (promptTokens + completionTokens)
-    val ctxTokens = (promptTokens + cacheTokens).coerceAtLeast(promptTokens)
+    val ctxTokens = promptTokens
     return AgentTurnUsageSnapshot(
         ctxTokens = ctxTokens,
         inputTokens = promptTokens,
         outputTokens = completionTokens,
         cacheTokens = cacheTokens,
+        totalInputTokens = promptTokens,
+        uncachedInputTokens = (promptTokens - cacheTokens).coerceAtLeast(0),
+        cacheReadTokens = cacheTokens,
+        cacheWriteTokens = cacheWriteTokens,
         promptTokens = promptTokens,
         completionTokens = completionTokens,
         totalTokens = totalTokens,
@@ -366,12 +380,17 @@ internal fun buildTurnUsageSnapshot(
 ): AgentTurnUsageSnapshot? {
     val promptTokens = latestPromptTokens ?: return null
     val totalTokens = promptTokens + completionTokens
-    val ctxTokens = (promptTokens + cachedTokens).coerceAtLeast(promptTokens)
+    val cacheTokens = cachedTokens.coerceIn(0, promptTokens)
+    val ctxTokens = promptTokens
     return AgentTurnUsageSnapshot(
         ctxTokens = ctxTokens,
         inputTokens = promptTokens,
         outputTokens = completionTokens,
-        cacheTokens = cachedTokens,
+        cacheTokens = cacheTokens,
+        totalInputTokens = promptTokens,
+        uncachedInputTokens = (promptTokens - cacheTokens).coerceAtLeast(0),
+        cacheReadTokens = cacheTokens,
+        cacheWriteTokens = 0,
         promptTokens = promptTokens,
         completionTokens = completionTokens,
         totalTokens = totalTokens,
@@ -4261,6 +4280,8 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
                 }
                 val activeToolArgs = mutableMapOf<String, ArrayDeque<String>>()
                 val activeToolEntryIds = mutableMapOf<String, ArrayDeque<String>>()
+                val toolEntryIdsByCallId = mutableMapOf<String, String>()
+                val toolArgsByCallId = mutableMapOf<String, String>()
                 val thinkingCardStartTimes = mutableMapOf<String, Long>()
                 val entryCreatedAtTimes = mutableMapOf<String, Long>()
                 val entryOrderSeqs = initialEntryOrderSeqs
@@ -4337,6 +4358,18 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
                         store.remove(toolName)
                     }
                     return value
+                }
+
+                fun removeToolValue(
+                    store: MutableMap<String, ArrayDeque<String>>,
+                    toolName: String,
+                    value: String
+                ) {
+                    val queue = store[toolName] ?: return
+                    queue.removeLastOccurrence(value)
+                    if (queue.isEmpty()) {
+                        store.remove(toolName)
+                    }
                 }
 
                 suspend fun publishConversationMessagesSync() {
@@ -4967,7 +5000,8 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
                         )
                     }
 
-                    override suspend fun onToolCallStart(
+                    private suspend fun handleToolCallStart(
+                        toolCallId: String?,
                         toolName: String,
                         arguments: JsonObject
                     ) {
@@ -4976,6 +5010,10 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
                         val entryId = "$taskId-tool$continueGenerationSuffix-${++toolSequence}"
                         val roundIndex = currentToolRoundIndex()
                         pushToolValue(activeToolEntryIds, toolName, entryId)
+                        toolCallId?.let { callId ->
+                            toolEntryIdsByCallId[callId] = entryId
+                            toolArgsByCallId[callId] = argsJson
+                        }
                         agentRunContext.bindActiveToolCardId(entryId)
                         activeThinkingEntryId?.let { thinkingEntryId ->
                             upsertThinkingCard(
@@ -5013,6 +5051,21 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
                         )
                     }
 
+                    override suspend fun onToolCallStart(
+                        toolName: String,
+                        arguments: JsonObject
+                    ) {
+                        handleToolCallStart(null, toolName, arguments)
+                    }
+
+                    override suspend fun onToolCallStart(
+                        toolCallId: String,
+                        toolName: String,
+                        arguments: JsonObject
+                    ) {
+                        handleToolCallStart(toolCallId, toolName, arguments)
+                    }
+
                     override suspend fun onToolCallProgress(
                         toolName: String,
                         progress: String,
@@ -5048,13 +5101,26 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
                         )
                     }
 
-                    override suspend fun onToolCallComplete(
+                    private suspend fun handleToolCallComplete(
+                        toolCallId: String?,
                         toolName: String,
                         result: ToolExecutionResult
                     ) {
-                        val argsJson = popToolValue(activeToolArgs, toolName)
-                        val entryId = popToolValue(activeToolEntryIds, toolName).ifBlank {
+                        val mappedArgs = toolCallId?.let { callId ->
+                            toolArgsByCallId.remove(callId)
+                        }
+                        val argsJson = mappedArgs ?: popToolValue(activeToolArgs, toolName)
+                        if (mappedArgs != null) {
+                            removeToolValue(activeToolArgs, toolName, mappedArgs)
+                        }
+                        val mappedEntryId = toolCallId?.let { callId ->
+                            toolEntryIdsByCallId[callId]
+                        }
+                        val entryId = mappedEntryId ?: popToolValue(activeToolEntryIds, toolName).ifBlank {
                             "$taskId-tool$continueGenerationSuffix-${++toolSequence}"
+                        }
+                        if (mappedEntryId != null) {
+                            removeToolValue(activeToolEntryIds, toolName, mappedEntryId)
                         }
                         val roundIndex = currentToolRoundIndex()
                         activeThinkingEntryId?.let { thinkingEntryId ->
@@ -5102,6 +5168,49 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
                                 mapOf("snapshot" to snapshot)
                             )
                             FlutterChatSyncBridge.dispatchBrowserSnapshotUpdated(snapshot)
+                        }
+                    }
+
+                    override suspend fun onToolCallComplete(
+                        toolName: String,
+                        result: ToolExecutionResult
+                    ) {
+                        handleToolCallComplete(null, toolName, result)
+                    }
+
+                    override suspend fun onToolCallComplete(
+                        toolCallId: String,
+                        toolName: String,
+                        result: ToolExecutionResult
+                    ) {
+                        handleToolCallComplete(toolCallId, toolName, result)
+                    }
+
+                    override suspend fun onToolReplayReady(
+                        toolCallId: String,
+                        assistantMessage: ChatCompletionMessage,
+                        toolResultMessage: ChatCompletionMessage
+                    ) {
+                        val normalizedConversationId = conversationId ?: return
+                        val entryId = toolEntryIdsByCallId.remove(toolCallId) ?: return
+                        val assistantJson = chatTaskPayloadJson.encodeToString(assistantMessage)
+                        val toolResultJson = chatTaskPayloadJson.encodeToString(toolResultMessage)
+                        persistConversationMutation(
+                            description = "persist canonical tool replay",
+                            publish = false
+                        ) {
+                            repository.upsertToolEvent(
+                                conversationId = normalizedConversationId,
+                                conversationMode = resolvedConversationMode,
+                                entryId = entryId,
+                                payload = mapOf(
+                                    "modelToolCallId" to toolCallId,
+                                    "modelAssistantMessageJson" to assistantJson,
+                                    "modelToolResultMessageJson" to toolResultJson
+                                ),
+                                fallbackStatus = AgentConversationHistoryRepository.STATUS_SUCCESS,
+                                fallbackSummary = ""
+                            )
                         }
                     }
 
@@ -6106,6 +6215,7 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
                         "reasoningTokens" to record.reasoningTokens,
                         "textTokens" to record.textTokens,
                         "cachedTokens" to record.cachedTokens,
+                        "cacheCreationTokens" to record.cacheCreationTokens,
                         "createdAt" to record.createdAt
                     )
                 }

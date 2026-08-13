@@ -12,11 +12,15 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonPrimitive
+import java.time.ZoneId
+import java.time.ZoneOffset
+import java.time.ZonedDateTime
+import java.time.format.DateTimeFormatter
 
 class ContextToolHandler(
     private val helper: SharedHelper
 ) : ToolHandler {
-    override val toolNames: Set<String> = setOf("context_apps_query")
+    override val toolNames: Set<String> = setOf("context_time_now", "context_apps_query")
 
     override suspend fun execute(
         toolCall: cn.com.omnimind.baselib.llm.AssistantToolCall,
@@ -27,9 +31,33 @@ class ContextToolHandler(
         toolHandle: AgentToolExecutionHandle
     ): ToolExecutionResult {
         return when (toolCall.function.name) {
+            "context_time_now" -> executeContextTimeNow()
             "context_apps_query" -> executeContextAppsQuery(args, env.runtimeContextRepository, callback)
             else -> ToolExecutionResult.Error(toolCall.function.name, "Unknown context tool")
         }
+    }
+
+    private fun executeContextTimeNow(): ToolExecutionResult {
+        val toolName = "context_time_now"
+        val now = ZonedDateTime.now(ZoneId.systemDefault())
+        val utcNow = now.withZoneSameInstant(ZoneOffset.UTC)
+        val payload = linkedMapOf<String, Any?>(
+            "localDateTime" to now.format(DateTimeFormatter.ISO_OFFSET_DATE_TIME),
+            "localDate" to now.toLocalDate().toString(),
+            "localTime" to now.toLocalTime().format(DateTimeFormatter.ISO_LOCAL_TIME),
+            "timezone" to now.zone.id,
+            "utcDateTime" to utcNow.format(DateTimeFormatter.ISO_OFFSET_DATE_TIME),
+            "dayOfWeek" to now.dayOfWeek.name,
+            "epochMillis" to now.toInstant().toEpochMilli()
+        )
+        val payloadJson = helper.encodeLocalizedPayload(payload)
+        return ToolExecutionResult.ContextResult(
+            toolName = toolName,
+            summaryText = helper.localized("已查询设备当前精确时间。"),
+            previewJson = payloadJson,
+            rawResultJson = payloadJson,
+            success = true
+        )
     }
 
     private suspend fun executeContextAppsQuery(
