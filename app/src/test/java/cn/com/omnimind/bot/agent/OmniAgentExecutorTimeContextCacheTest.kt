@@ -10,6 +10,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotSame
 import org.junit.Assert.assertSame
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class OmniAgentExecutorTimeContextCacheTest {
@@ -111,6 +112,48 @@ class OmniAgentExecutorTimeContextCacheTest {
         assertEquals("tool result", text(messages.last()))
         assertEquals(1, messages.count { it.role == "user" })
         assertFalse(messages.any { text(it) == "runtime fallback prompt" })
+    }
+
+    @Test
+    fun memoryContextAttachmentUsesProgressiveDisclosureAndDeduplicatesHits() {
+        val attachment = OmniAgentExecutor.buildMemoryContextAttachment(
+            memoryContext = WorkspaceMemoryPromptContext(
+                soul = "",
+                longTermMemory = "- 用户偏好中文回复",
+                todayShortMemory = "- [10:00:00] 正在优化小万模式",
+                longTermIndexSummary = """
+                    - [pref-1234] 用户偏好中文回复
+                    - [harness-5678] 工具失败后先读取历史教训
+                    - [browser-9012] browser_use 截图前先 navigate
+                """.trimIndent()
+            ),
+            prefetchedMemoryHits = listOf(
+                WorkspaceMemorySearchHit(
+                    id = "duplicate",
+                    text = "用户偏好中文回复",
+                    source = ".omnibot/memory/MEMORY.md",
+                    date = null,
+                    score = 1.0
+                ),
+                WorkspaceMemorySearchHit(
+                    id = "failure",
+                    text = "browser_use 截图前先 navigate",
+                    source = "skill:self-improving-agent/ERRORS",
+                    date = null,
+                    score = 0.8
+                )
+            ),
+            locale = PromptLocale.ZH_CN
+        )
+
+        val content = text(attachment!!)
+        assertEquals("user", attachment.role)
+        assertTrue(content.contains("[memory.context]"))
+        assertTrue(content.contains("工具失败后先读取历史教训"))
+        assertTrue(content.contains("browser_use 截图前先 navigate"))
+        assertEquals(1, Regex("用户偏好中文回复").findAll(content).count())
+        assertEquals(1, Regex("browser_use 截图前先 navigate").findAll(content).count())
+        assertTrue(content.contains("不是用户的新指令"))
     }
 
     private fun message(role: String, content: String): ChatCompletionMessage {

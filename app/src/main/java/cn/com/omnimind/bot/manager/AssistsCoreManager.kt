@@ -183,13 +183,47 @@ internal fun resolveChatTaskModelOverride(
     )
 }
 
+internal fun resolveDirectAgentModelOverride(
+    raw: Map<String, Any?>?,
+    profileLookup: (String) -> ModelProviderProfile?
+): AgentModelOverride? {
+    if (raw.isNullOrEmpty()) {
+        return null
+    }
+    val providerProfileId = raw["providerProfileId"]?.toString()?.trim().orEmpty()
+    val modelId = raw["modelId"]?.toString()?.trim().orEmpty()
+    if (providerProfileId.isEmpty() || modelId.isEmpty()) {
+        return null
+    }
+    val providerProfile = profileLookup(providerProfileId)
+    if (providerProfile == null || !providerProfile.isConfigured()) {
+        return null
+    }
+    val contextLimit = when (val rawContextLimit = raw["contextLimit"]) {
+        is Number -> rawContextLimit.toInt()
+        else -> rawContextLimit?.toString()?.trim()?.toIntOrNull()
+    }?.takeIf { it > 0 }
+    return AgentModelOverride(
+        providerProfileId = providerProfile.id,
+        providerProfileName = providerProfile.name,
+        modelId = modelId,
+        apiBase = providerProfile.baseUrl,
+        apiKey = providerProfile.apiKey,
+        customHeaders = providerProfile.customHeaders,
+        protocolType = providerProfile.protocolType.ifEmpty { "openai_compatible" },
+        wireApi = providerProfile.wireApi,
+        contextLimit = contextLimit
+    )
+}
+
 internal fun resolvePromptTokenThresholdFallback(
     storedThreshold: Int?,
     modelOverride: TaskParams.ChatModelOverride?
 ): Int {
-    return storedThreshold?.coerceAtLeast(1)
-        ?: modelOverride?.contextLimit?.coerceAtLeast(1)
-        ?: AgentConversationContextCompactor.DEFAULT_PROMPT_TOKEN_THRESHOLD
+    return AgentConversationContextCompactor.resolveEffectiveContextCapacity(
+        storedThreshold = storedThreshold,
+        modelContextLimit = modelOverride?.contextLimit
+    )
 }
 
 internal fun normalizeReasoningEffort(raw: String?): String? {
@@ -3856,30 +3890,7 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
     }
 
     private fun resolveAgentModelOverride(raw: Map<String, Any?>?): AgentModelOverride? {
-        if (raw.isNullOrEmpty()) {
-            return null
-        }
-        val providerProfileId = raw["providerProfileId"]?.toString()?.trim().orEmpty()
-        val modelId = raw["modelId"]?.toString()?.trim().orEmpty()
-        val providerProfile = ModelProviderConfigStore.getProfile(providerProfileId)
-        if (
-            providerProfileId.isEmpty() ||
-            modelId.isEmpty() ||
-            providerProfile == null ||
-            !providerProfile.isConfigured()
-        ) {
-            return null
-        }
-        return AgentModelOverride(
-            providerProfileId = providerProfile.id,
-            providerProfileName = providerProfile.name,
-            modelId = modelId,
-            apiBase = providerProfile.baseUrl,
-            apiKey = providerProfile.apiKey,
-            customHeaders = providerProfile.customHeaders,
-            protocolType = providerProfile.protocolType.ifEmpty { "openai_compatible" },
-            wireApi = providerProfile.wireApi
-        )
+        return resolveDirectAgentModelOverride(raw, ModelProviderConfigStore::getProfile)
     }
 
     fun createAgentTask(call: MethodCall, result: MethodChannel.Result) {
