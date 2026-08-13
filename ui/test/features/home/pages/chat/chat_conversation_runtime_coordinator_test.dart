@@ -766,6 +766,74 @@ void main() {
     expect(tool.agentName, 'Claude Code');
   });
 
+  test(
+    'keeps DSH reasoning steps separate and finalizes each at the next output boundary',
+    () {
+      const conversationId = 2003;
+      const turnId = 'dsh-turn-multi-thinking';
+
+      void apply(String method, Map<String, dynamic> params) {
+        coordinator.applyAgentEvent(
+          conversationId: conversationId,
+          event: <String, dynamic>{
+            'agentId': 'deepseek-harness',
+            'agentName': 'DeepSeek Harness',
+            'message': <String, dynamic>{
+              'method': method,
+              'params': <String, dynamic>{'turnId': turnId, ...params},
+            },
+          },
+        );
+      }
+
+      apply('item/reasoning/delta', <String, dynamic>{
+        'itemId': 'dsh-step-1-thought',
+        'delta': '第一阶段：先分析工作区。',
+      });
+      apply('item/started', <String, dynamic>{
+        'item': <String, dynamic>{
+          'id': 'dsh-tool-1',
+          'type': 'commandExecution',
+          'command': 'pwd',
+          'status': 'running',
+        },
+      });
+      apply('item/reasoning/delta', <String, dynamic>{
+        'itemId': 'dsh-step-2-thought',
+        'delta': '第二阶段：根据工具结果继续判断。',
+      });
+      apply('item/agentMessage/delta', <String, dynamic>{
+        'itemId': 'dsh-step-2-message',
+        'delta': '这是最终回答。',
+      });
+
+      final runtime = coordinator.runtimeFor(
+        conversationId: conversationId,
+        mode: kChatRuntimeModeAgent,
+      )!;
+      final thinkingCards = runtime.messages
+          .where((message) => message.cardData?['type'] == 'deep_thinking')
+          .toList(growable: false);
+
+      expect(thinkingCards, hasLength(2));
+      expect(
+        thinkingCards
+            .map((message) => message.cardData?['thinkingContent'])
+            .toSet(),
+        <String>{'第一阶段：先分析工作区。', '第二阶段：根据工具结果继续判断。'},
+      );
+      expect(
+        thinkingCards.every(
+          (message) =>
+              message.cardData?['isLoading'] == false &&
+              message.cardData?['stage'] == 4,
+        ),
+        isTrue,
+      );
+      expect(runtime.activeThinkingCardId, isNull);
+    },
+  );
+
   test('replaces divergent agent snapshots instead of concatenating', () async {
     const conversationId = 1003;
     const taskId = 'agent-task-divergent-snapshot';

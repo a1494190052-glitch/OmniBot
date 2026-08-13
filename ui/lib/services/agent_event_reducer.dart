@@ -185,6 +185,7 @@ class AgentEventReducer {
       } else if (itemType == 'agentMessage') {
         final text = _extractText(item['text']) ?? '';
         if (text.isNotEmpty) {
+          _finalizeActiveThinkingCardForTask(runtime, parentTaskId);
           _appendAssistantText(
             runtime,
             parentTaskId: parentTaskId,
@@ -194,6 +195,7 @@ class AgentEventReducer {
           );
         }
       } else if (isAgentToolItemType(itemType)) {
+        _finalizeActiveThinkingCardForTask(runtime, parentTaskId);
         final existingCardId = _findToolCardIdForCallId(runtime, startedItemId);
         final existingMessage = existingCardId == null
             ? null
@@ -292,6 +294,7 @@ class AgentEventReducer {
           _extractText(params['message']) ??
           '';
       if (delta.isNotEmpty) {
+        _finalizeActiveThinkingCardForTask(runtime, parentTaskId);
         final entryId = '${itemId ?? parentTaskId}-agent-message';
         _appendAssistantText(
           runtime,
@@ -1949,6 +1952,35 @@ class AgentEventReducer {
     for (final cardId in cardIds) {
       _finalizeThinkingCard(runtime, parentTaskId, cardId);
     }
+  }
+
+  void _finalizeActiveThinkingCardForTask(
+    ChatConversationRuntimeState runtime,
+    String parentTaskId,
+  ) {
+    final cardId = runtime.activeThinkingCardId;
+    if (cardId == null) {
+      return;
+    }
+    final index = runtime.messages.indexWhere(
+      (message) => message.id == cardId,
+    );
+    if (index == -1) {
+      runtime.activeThinkingCardId = null;
+      return;
+    }
+    final message = runtime.messages[index];
+    final cardTaskId =
+        _string(message.cardData?['taskID']) ??
+        _string(message.streamMeta?['parentTaskId']);
+    if (cardTaskId != parentTaskId) {
+      return;
+    }
+    _finalizeThinkingCard(runtime, parentTaskId, cardId);
+    runtime.activeThinkingCardId = null;
+    runtime.currentThinkingMessages.remove(parentTaskId);
+    runtime.deepThinkingContent = '';
+    runtime.isDeepThinking = false;
   }
 
   void _cancelThinkingCardsForTask(

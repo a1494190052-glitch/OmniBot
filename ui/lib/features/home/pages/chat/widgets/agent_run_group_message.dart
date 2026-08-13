@@ -54,7 +54,7 @@ class AgentRunGroupMessage extends StatefulWidget {
 
 class _AgentRunGroupMessageState extends State<AgentRunGroupMessage>
     with SingleTickerProviderStateMixin {
-  static const Duration _kToggleDuration = Duration(milliseconds: 260);
+  static const Duration _kToggleDuration = Duration(milliseconds: 320);
 
   late final AnimationController _expandController;
   late final Animation<double> _sizeFactor;
@@ -79,14 +79,14 @@ class _AgentRunGroupMessageState extends State<AgentRunGroupMessage>
     );
     _sizeFactor = CurvedAnimation(
       parent: _expandController,
-      curve: Curves.easeInOutCubicEmphasized,
+      curve: Curves.easeInOutCubic,
     );
     _opacity = CurvedAnimation(
       parent: _expandController,
-      curve: const Interval(0.12, 1.0, curve: Curves.easeOutCubic),
-      reverseCurve: const Interval(0.0, 0.72, curve: Curves.easeOutCubic),
+      curve: const Interval(0.1, 1.0, curve: Curves.easeOutCubic),
+      reverseCurve: const Interval(0.0, 0.92, curve: Curves.easeOutCubic),
     );
-    _lift = Tween<double>(begin: -6, end: 0).animate(
+    _lift = Tween<double>(begin: -4, end: 0).animate(
       CurvedAnimation(
         parent: _expandController,
         curve: Curves.easeOutCubic,
@@ -342,7 +342,12 @@ class _AgentRunGroupMessageState extends State<AgentRunGroupMessage>
       onContinueAgentMessage: () =>
           widget.onContinueAgentMessage?.call(message),
       enableThinkingCollapse: true,
-      thinkingAutoCollapseOnComplete: true,
+      // While the run itself is finishing, let the outer 320 ms fold own the
+      // transition. Running the thinking card's 170 ms height/opacity collapse
+      // at the same time multiplies both animations and looks like a flash.
+      // A manually re-opened finished run still initializes each completed
+      // thinking card in its normal collapsed state.
+      thinkingAutoCollapseOnComplete: widget.group.isRunning || widget.expanded,
       useAgentToolPresentation: widget.useAcpPresentation,
       showThinkingAvatarOverride: hideAvatar ? false : null,
       parentScrollController: widget.parentScrollController,

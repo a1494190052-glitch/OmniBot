@@ -153,39 +153,56 @@ class _AgentRunHeaderState extends State<AgentRunHeader> {
           constraints: BoxConstraints(
             maxWidth: MediaQuery.sizeOf(context).width * 0.6,
           ),
-          child: labelWidget,
-        ),
-        if (!running) ...[
-          const SizedBox(width: 2),
-          AnimatedRotation(
-            turns: widget.expanded ? 0 : -0.25,
-            duration: const Duration(milliseconds: 260),
-            curve: Curves.easeInOutCubicEmphasized,
-            child: Icon(
-              LucideIcons.chevronDown,
-              key: ValueKey('agent-run-summary-chevron-${widget.taskId}'),
-              size: 18,
-              color: labelColor,
-            ),
+          child: AnimatedSwitcher(
+            duration: const Duration(milliseconds: 180),
+            switchInCurve: Curves.easeOutCubic,
+            switchOutCurve: Curves.easeOutCubic,
+            transitionBuilder: (child, animation) =>
+                FadeTransition(opacity: animation, child: child),
+            child: labelWidget,
           ),
-        ],
+        ),
+        const SizedBox(width: 2),
+        SizedBox(
+          width: 18,
+          height: 18,
+          child: AnimatedSwitcher(
+            duration: const Duration(milliseconds: 180),
+            switchInCurve: Curves.easeOutCubic,
+            switchOutCurve: Curves.easeOutCubic,
+            child: running
+                ? const SizedBox(key: ValueKey('agent-run-chevron-running'))
+                : AnimatedRotation(
+                    key: const ValueKey('agent-run-chevron-finished'),
+                    turns: widget.expanded ? 0 : -0.25,
+                    duration: const Duration(milliseconds: 320),
+                    curve: Curves.easeInOutCubic,
+                    child: Icon(
+                      LucideIcons.chevronDown,
+                      key: ValueKey(
+                        'agent-run-summary-chevron-${widget.taskId}',
+                      ),
+                      size: 18,
+                      color: labelColor,
+                    ),
+                  ),
+          ),
+        ),
       ],
     );
 
     final content = Semantics(liveRegion: running, label: label, child: row);
 
-    if (running || widget.onToggleExpanded == null) {
-      return Padding(
-        padding: const EdgeInsets.fromLTRB(2, 12, 2, 8),
-        child: content,
-      );
-    }
+    // Keep the same element tree across running -> finished. Swapping the
+    // whole subtree from plain content to Material/InkWell recreates the
+    // AnimatedSwitchers on the completion frame, which makes the header flash
+    // instead of cross-fading while the process section folds.
     return Padding(
       padding: const EdgeInsets.only(top: 8, bottom: 4),
       child: Material(
         color: Colors.transparent,
         child: InkWell(
-          onTap: widget.onToggleExpanded,
+          onTap: running ? null : widget.onToggleExpanded,
           borderRadius: BorderRadius.circular(10),
           splashFactory: NoSplash.splashFactory,
           overlayColor: const WidgetStatePropertyAll(Colors.transparent),

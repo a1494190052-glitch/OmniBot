@@ -195,6 +195,10 @@ function turnEndToStopReason(reason) {
   }
 }
 
+function thoughtMessageId(sessionId, turn, step) {
+  return `${sessionId}-turn-${turn}-step-${step}-thought`
+}
+
 function acpPromptToText(prompt) {
   return prompt.flatMap(block => {
     if (block.type === 'text') return [block.text]
@@ -255,6 +259,14 @@ const interactiveAcp = {
               sessionId: record.agent.session.id,
               update: {
                 sessionUpdate: 'agent_thought_chunk',
+                // DSH starts a new model step after every tool round. Keep a
+                // separate ACP thought identity per step so the UI does not
+                // append every reasoning phase into the first thought card.
+                messageId: thoughtMessageId(
+                  record.agent.session.id,
+                  event.data.turn,
+                  event.data.step,
+                ),
                 content: { type: 'text', text },
               },
             })
