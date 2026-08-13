@@ -5,6 +5,9 @@ import cn.com.omnimind.baselib.account.OmniAccount
 import cn.com.omnimind.baselib.database.DatabaseHelper
 import cn.com.omnimind.baselib.i18n.AppLocaleManager
 import cn.com.omnimind.baselib.llm.ModelProviderConfigStore
+import cn.com.omnimind.baselib.llm.PlatformAiProvisioner
+import cn.com.omnimind.baselib.util.AppSecretStore
+import cn.com.omnimind.baselib.util.CredentialEndpointSecurity
 import cn.com.omnimind.baselib.util.OmniLog
 import cn.com.omnimind.bot.agent.AgentPromptSettingsStore
 import cn.com.omnimind.bot.agent.AgentWorkspaceManager
@@ -76,15 +79,21 @@ class App : BaseApplication() {
         Res.application = this
 
         MMKV.initialize(this)
+        CredentialEndpointSecurity.configureDebugLoopback(BuildConfig.DEBUG)
+        AppSecretStore.initialize(this)
         ModelProviderConfigStore.initialize(this)
         OmniAccount.initialize(
             context = this,
             baseUrl = BuildConfig.BASE_URL,
             platformGatewayUrl = BuildConfig.AI_GATEWAY_URL,
+            allowInsecureLoopback = BuildConfig.DEBUG,
         )
         if (OmniAccount.isConfigured() && OmniAccount.repository().isSignedIn()) {
             CoroutineScope(Dispatchers.IO).launch {
-                runCatching { OmniAccount.repository().getAiSettings() }
+                runCatching {
+                    val settings = OmniAccount.repository().getAiSettings()
+                    PlatformAiProvisioner.synchronize(settings)
+                }
             }
         }
         AgentPromptSettingsStore.initializeAndCleanupLegacyFiles(this)

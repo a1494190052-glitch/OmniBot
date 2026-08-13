@@ -6,6 +6,7 @@ import 'package:ui/l10n/l10n.dart';
 import 'package:flutter_slidable/flutter_slidable.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:ui/services/builtin_official_provider_catalog.dart';
+import 'package:ui/services/data_destination_confirmation.dart';
 import 'package:ui/services/model_provider_config_service.dart';
 import 'package:ui/services/model_vendor_catalog.dart';
 import 'package:ui/theme/app_colors.dart';
@@ -177,6 +178,8 @@ class _ModelProviderSettingPageState extends State<ModelProviderSettingPage> {
   bool _isSavingProfile = false;
   bool _saveQueued = false;
   bool _isSwitchingProfile = false;
+  bool _apiKeyDirty = false;
+  bool _customHeadersDirty = false;
   String _selectedSourceType = BuiltinOfficialProviderCatalog.customKey;
   String _selectedProtocolType = 'openai_compatible';
   String _selectedWireApi = 'chat_completions';
@@ -406,7 +409,7 @@ class _ModelProviderSettingPageState extends State<ModelProviderSettingPage> {
     _loadData();
     _nameController.addListener(_onProfileChanged);
     _baseUrlController.addListener(_onProfileChanged);
-    _apiKeyController.addListener(_onProfileChanged);
+    _apiKeyController.addListener(_onApiKeyChanged);
     _nameFocusNode.addListener(_onProfileFieldFocusChanged);
     _baseUrlFocusNode.addListener(_onProfileFieldFocusChanged);
     _apiKeyFocusNode.addListener(_onProfileFieldFocusChanged);
@@ -415,16 +418,14 @@ class _ModelProviderSettingPageState extends State<ModelProviderSettingPage> {
   @override
   void dispose() {
     _autoSaveTimer?.cancel();
-    if (_shouldAutoSaveDraft) {
-      unawaited(_persistProfileDraft());
-    }
+    // A destination confirmation cannot be shown safely during dispose.
     unawaited(_persistManualModelIds());
     _nameFocusNode.removeListener(_onProfileFieldFocusChanged);
     _baseUrlFocusNode.removeListener(_onProfileFieldFocusChanged);
     _apiKeyFocusNode.removeListener(_onProfileFieldFocusChanged);
     _nameController.removeListener(_onProfileChanged);
     _baseUrlController.removeListener(_onProfileChanged);
-    _apiKeyController.removeListener(_onProfileChanged);
+    _apiKeyController.removeListener(_onApiKeyChanged);
     _nameController.dispose();
     _baseUrlController.dispose();
     _apiKeyController.dispose();
@@ -448,6 +449,13 @@ class _ModelProviderSettingPageState extends State<ModelProviderSettingPage> {
     _scheduleAutoSave();
   }
 
+  void _onApiKeyChanged() {
+    if (!_isSyncingControllers) {
+      _apiKeyDirty = true;
+    }
+    _onProfileChanged();
+  }
+
   void _onProfileFieldFocusChanged() {
     if (_isSyncingControllers || _isLoading || _isSwitchingProfile) {
       return;
@@ -463,6 +471,7 @@ class _ModelProviderSettingPageState extends State<ModelProviderSettingPage> {
     if (_isSyncingControllers || _isLoading || _isSwitchingProfile) {
       return;
     }
+    _customHeadersDirty = true;
     _updateCustomHeadersError();
     if (_hasAnyProfileFieldFocus) {
       _autoSaveTimer?.cancel();
@@ -495,6 +504,7 @@ class _ModelProviderSettingPageState extends State<ModelProviderSettingPage> {
     final nextBaseUrl = normalizedBaseUrl ?? '';
     final nextCustomHeaders = _validatedCustomHeadersDraft();
     final hasCustomHeaderChanges =
+        _customHeadersDirty &&
         nextCustomHeaders != null &&
         !_stringMapsEqual(
           nextCustomHeaders,
@@ -504,8 +514,11 @@ class _ModelProviderSettingPageState extends State<ModelProviderSettingPage> {
         );
     return _nameController.text.trim() != current.name ||
         nextBaseUrl != currentBaseUrl ||
-        _apiKeyController.text.trim() != current.apiKey ||
-        hasCustomHeaderChanges;
+        _apiKeyDirty ||
+        hasCustomHeaderChanges ||
+        _selectedSourceType != current.sourceType ||
+        _selectedProtocolType != current.protocolType ||
+        _selectedWireApi != current.wireApi;
   }
 
   Future<void> _persistManualModelIds() async {
@@ -523,27 +536,34 @@ class _ModelProviderSettingPageState extends State<ModelProviderSettingPage> {
     }
   }
 
-  Future<void> _persistProfileDraft() async {
+  Future<bool> _persistProfileDraft() async {
     final current = _currentProfile;
     if (current == null || current.readOnly) {
-      return;
+      return true;
     }
     _autoSaveTimer?.cancel();
     _autoSaveTimer = null;
 
     if (_isSavingProfile) {
       _saveQueued = true;
-      return;
+      return false;
     }
 
     do {
       _saveQueued = false;
       final nextName = _nameController.text.trim();
+      final rawBaseUrl = _baseUrlController.text.trim();
       final nextBaseUrl =
-          ModelProviderConfigService.normalizeApiBase(
-            _baseUrlController.text,
-          ) ??
-          '';
+          ModelProviderConfigService.normalizeApiBase(rawBaseUrl) ?? '';
+      if (rawBaseUrl.isNotEmpty && nextBaseUrl.isEmpty) {
+        if (mounted) {
+          showToast(
+            context.l10n.modelProviderInvalidBaseUrl,
+            type: ToastType.error,
+          );
+        }
+        return false;
+      }
       final nextApiKey = _apiKeyController.text.trim();
       final nextCustomHeaders =
           _validatedCustomHeadersDraft() ??
@@ -555,41 +575,79 @@ class _ModelProviderSettingPageState extends State<ModelProviderSettingPage> {
 
       if (nextName == current.name &&
           nextBaseUrl == currentBaseUrl &&
-          nextApiKey == current.apiKey &&
-          _stringMapsEqual(
-            nextCustomHeaders,
-            ModelProviderConfigService.normalizeCustomHeaders(
-              current.customHeaders,
-            ),
-          )) {
-        return;
+          !_apiKeyDirty &&
+          !_customHeadersDirty &&
+          _selectedSourceType == current.sourceType &&
+          _selectedProtocolType == current.protocolType &&
+          _selectedWireApi == current.wireApi) {
+        return true;
       }
 
       _isSavingProfile = true;
       try {
-        final saved = await ModelProviderConfigService.saveProfile(
+        Future<ModelProviderProfileSummary> saveAction({
+          bool destinationConfirmed = false,
+        }) => ModelProviderConfigService.saveProfile(
           id: current.id,
           name: nextName.isEmpty ? current.name : nextName,
-          baseUrl: _baseUrlController.text.trim(),
-          apiKey: nextApiKey,
-          customHeaders: nextCustomHeaders,
+          baseUrl: rawBaseUrl,
+          apiKey: _apiKeyDirty ? nextApiKey : null,
+          customHeaders: _customHeadersDirty ? nextCustomHeaders : null,
           sourceType: _selectedSourceType,
           protocolType: _selectedProtocolType,
           wireApi: _selectedWireApi,
+          destinationConfirmed: destinationConfirmed,
         );
-        if (!mounted) return;
+        final ModelProviderProfileSummary saved;
+        if (nextBaseUrl.isEmpty || _selectedSourceType == 'omnibot_official') {
+          saved = await saveAction();
+        } else {
+          final outcome =
+              await confirmDataDestinationAndRun<ModelProviderProfileSummary>(
+                context: context,
+                rawEndpoint: rawBaseUrl,
+                capability: 'BYOK model provider',
+                operation: _headerText(
+                  '保存提供商配置',
+                  'Save provider configuration',
+                ),
+                dataTypes: [
+                  _headerText(
+                    '提供商名称、接口类型和接收地址',
+                    'Provider name, API type, and receiver address',
+                  ),
+                  if (_apiKeyDirty || current.hasApiKey)
+                    _headerText('API Key（仅写入）', 'API key (write-only)'),
+                  if (_customHeadersDirty || current.hasCustomHeaders)
+                    _headerText('自定义请求头（仅写入）', 'Custom headers (write-only)'),
+                ],
+                action: () => saveAction(destinationConfirmed: true),
+              );
+          if (!outcome.confirmed || outcome.value == null) return false;
+          saved = outcome.value!;
+        }
+        if (!mounted) return false;
         setState(() {
           _profiles = _profiles
               .map((profile) => profile.id == saved.id ? saved : profile)
               .toList();
           _editingProfileId = saved.id;
         });
+        _apiKeyDirty = false;
+        _customHeadersDirty = false;
       } catch (_) {
-        // Auto-save failures should not interrupt typing.
+        if (mounted) {
+          showToast(
+            _headerText('保存提供商失败', 'Failed to save provider'),
+            type: ToastType.error,
+          );
+        }
+        return false;
       } finally {
         _isSavingProfile = false;
       }
     } while (_saveQueued && mounted);
+    return true;
   }
 
   Future<void> _loadData() async {
@@ -661,8 +719,10 @@ class _ModelProviderSettingPageState extends State<ModelProviderSettingPage> {
     if (syncControllers) {
       _syncController(_nameController, current.name);
       _syncController(_baseUrlController, current.baseUrl);
-      _syncController(_apiKeyController, current.apiKey);
+      _syncController(_apiKeyController, '');
       _replaceCustomHeaderEntries(current.customHeaders);
+      _apiKeyDirty = false;
+      _customHeadersDirty = false;
     }
     setState(() {
       _profiles = profiles;
@@ -701,6 +761,16 @@ class _ModelProviderSettingPageState extends State<ModelProviderSettingPage> {
       profileId: profile.id,
       apiBase: profile.baseUrl,
     );
+    if (profile.sourceType == 'omnibot_official' && profile.ready) {
+      try {
+        return await ModelProviderConfigService.fetchModels(
+          profileId: profile.id,
+          providerName: profile.name,
+        );
+      } catch (_) {
+        return cached;
+      }
+    }
     if (!enrichMetadata) {
       return cached;
     }
@@ -946,7 +1016,7 @@ class _ModelProviderSettingPageState extends State<ModelProviderSettingPage> {
     _isSwitchingProfile = true;
     try {
       if (_shouldAutoSaveDraft) {
-        await _persistProfileDraft();
+        if (!await _persistProfileDraft()) return;
       }
       final selected = await ModelProviderConfigService.setEditingProfile(
         profileId,
@@ -1048,7 +1118,6 @@ class _ModelProviderSettingPageState extends State<ModelProviderSettingPage> {
     final current = _currentProfile;
     if (current == null || _isFetchingModels) return;
     final baseUrl = _baseUrlController.text.trim();
-    final apiKey = _apiKeyController.text.trim();
 
     if (baseUrl.isEmpty) {
       if (!silentError) {
@@ -1082,13 +1151,42 @@ class _ModelProviderSettingPageState extends State<ModelProviderSettingPage> {
 
     setState(() => _isFetchingModels = true);
     try {
-      final models = await ModelProviderConfigService.fetchModels(
+      Future<List<ProviderModelOption>> fetchAction({
+        bool destinationConfirmed = false,
+      }) => ModelProviderConfigService.fetchModels(
         apiBase: baseUrl,
-        apiKey: apiKey,
-        customHeaders: customHeaders,
+        apiKey: _apiKeyDirty ? _apiKeyController.text.trim() : null,
+        customHeaders: _customHeadersDirty ? customHeaders : null,
         profileId: current.id,
         providerName: current.name,
+        destinationConfirmed: destinationConfirmed,
       );
+      final List<ProviderModelOption> models;
+      if (current.sourceType == 'omnibot_official') {
+        models = await fetchAction();
+      } else {
+        final outcome =
+            await confirmDataDestinationAndRun<List<ProviderModelOption>>(
+              context: context,
+              rawEndpoint: baseUrl,
+              capability: 'BYOK model provider',
+              operation: _headerText('刷新模型列表', 'Refresh model list'),
+              dataTypes: [
+                _headerText(
+                  '模型列表请求和提供商配置',
+                  'Model list request and provider configuration',
+                ),
+                if (current.hasApiKey || _apiKeyDirty)
+                  _headerText(
+                    '已安全保存或新输入的 API Key',
+                    'Stored or newly entered API key',
+                  ),
+              ],
+              action: () => fetchAction(destinationConfirmed: true),
+            );
+        if (!outcome.confirmed || outcome.value == null) return;
+        models = outcome.value!;
+      }
       if (!mounted) return;
       setState(() {
         _remoteModels = models;
@@ -1102,10 +1200,13 @@ class _ModelProviderSettingPageState extends State<ModelProviderSettingPage> {
           type: models.isEmpty ? ToastType.warning : ToastType.success,
         );
       }
-    } catch (e) {
+    } catch (_) {
       if (!mounted || silentError) return;
       showToast(
-        context.l10n.modelProviderFetchFailed(e.toString()),
+        _headerText(
+          '模型列表刷新失败，请检查配置后重试',
+          'Failed to refresh models. Check the configuration and try again.',
+        ),
         type: ToastType.error,
       );
     } finally {
@@ -1414,22 +1515,61 @@ class _ModelProviderSettingPageState extends State<ModelProviderSettingPage> {
       _syncController(_baseUrlController, selected.baseUrl);
     }
     try {
-      final saved = await ModelProviderConfigService.saveProfile(
+      Future<ModelProviderProfileSummary> saveAction({
+        bool destinationConfirmed = false,
+      }) => ModelProviderConfigService.saveProfile(
         id: current.id,
         name: _nameController.text.trim().isEmpty
             ? current.name
             : _nameController.text.trim(),
         baseUrl: _baseUrlController.text.trim(),
-        apiKey: _apiKeyController.text.trim(),
-        customHeaders:
-            _validatedCustomHeadersDraft() ??
-            ModelProviderConfigService.normalizeCustomHeaders(
-              current.customHeaders,
-            ),
+        apiKey: _apiKeyDirty ? _apiKeyController.text.trim() : null,
+        customHeaders: _customHeadersDirty
+            ? (_validatedCustomHeadersDraft() ?? const <String, String>{})
+            : null,
         sourceType: selected.sourceType,
         protocolType: nextProtocolType,
         wireApi: nextWireApi,
+        destinationConfirmed: destinationConfirmed,
       );
+      final ModelProviderProfileSummary saved;
+      final rawBaseUrl = _baseUrlController.text.trim();
+      if (selected.sourceType == 'omnibot_official' || rawBaseUrl.isEmpty) {
+        saved = await saveAction();
+      } else {
+        final outcome =
+            await confirmDataDestinationAndRun<ModelProviderProfileSummary>(
+              context: context,
+              rawEndpoint: rawBaseUrl,
+              capability: 'BYOK model provider',
+              operation: _headerText('选择提供商', 'Select provider'),
+              dataTypes: [
+                _headerText(
+                  '提供商配置和接收地址',
+                  'Provider configuration and receiver address',
+                ),
+                if (current.hasApiKey || _apiKeyDirty)
+                  _headerText(
+                    '已安全保存或新输入的 API Key',
+                    'Stored or newly entered API key',
+                  ),
+              ],
+              action: () => saveAction(destinationConfirmed: true),
+            );
+        if (!outcome.confirmed || outcome.value == null) {
+          if (mounted) {
+            setState(() {
+              _selectedSourceType = previousSourceType;
+              _selectedProtocolType = previousValue;
+              _selectedWireApi = previousWireApi;
+            });
+            _syncController(_nameController, previousName);
+            _syncController(_baseUrlController, previousBaseUrl);
+          }
+          return;
+        }
+        saved = outcome.value!;
+      }
       if (!mounted) return;
       setState(() {
         _profiles = _profiles.map((p) => p.id == saved.id ? saved : p).toList();
@@ -1440,6 +1580,8 @@ class _ModelProviderSettingPageState extends State<ModelProviderSettingPage> {
           saved.wireApi,
         );
       });
+      _apiKeyDirty = false;
+      _customHeadersDirty = false;
     } catch (_) {
       if (!mounted) return;
       setState(() {
@@ -3033,7 +3175,13 @@ class _ModelProviderSettingPageState extends State<ModelProviderSettingPage> {
                         ),
                         const SizedBox(height: 8),
                         Text(
-                          context.l10n.modelProviderApiKeyHint,
+                          _currentProfile?.hasApiKey == true &&
+                                  _apiKeyController.text.isEmpty
+                              ? _headerText(
+                                  '已安全保存 API Key；输入新值才会替换。',
+                                  'An API key is stored securely. Enter a new value only to replace it.',
+                                )
+                              : context.l10n.modelProviderApiKeyHint,
                           style: TextStyle(
                             color: _tertiaryTextColor,
                             fontSize: 12,

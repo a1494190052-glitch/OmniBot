@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:ui/core/router/go_router_manager.dart';
+import 'package:ui/features/my/pages/account/account_lifecycle_sheets.dart';
 import 'package:ui/services/account_service.dart';
 import 'package:ui/theme/theme_context.dart';
 import 'package:ui/utils/ui.dart';
@@ -31,6 +32,7 @@ class _AccountPageState extends State<AccountPage> {
   bool _busy = false;
   bool _registerMode = false;
   bool _showPassword = false;
+  bool _passwordResetDialogOpen = false;
   int? _authSwipePointer;
   Offset _authSwipeDelta = Offset.zero;
   AccountSessionState? _session;
@@ -235,6 +237,567 @@ class _AccountPageState extends State<AccountPage> {
     });
   }
 
+  Future<void> _showPasswordResetDialog() async {
+    if (_passwordResetDialogOpen) return;
+    setState(() => _passwordResetDialogOpen = true);
+    final formKey = GlobalKey<FormState>();
+    var emailValue = _emailController.text;
+    var passwordValue = '';
+    var confirmValue = '';
+    var codeValue = '';
+    RegistrationCodeRequest? request;
+    String? requestEmail;
+    String? dialogError;
+    var submitting = false;
+    var sendingCode = false;
+    var showPassword = false;
+
+    try {
+      final reset = await showDialog<bool>(
+        context: context,
+        barrierDismissible: false,
+        builder: (dialogContext) => StatefulBuilder(
+          builder: (context, setDialogState) => PopScope(
+            canPop: !submitting && !sendingCode,
+            child: AlertDialog(
+              title: Text(_text('重置密码', 'Reset password')),
+              content: SingleChildScrollView(
+                child: Form(
+                  key: formKey,
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Text(
+                        _text(
+                          '验证码会发送到注册邮箱。重置成功后，其他设备需要重新登录。',
+                          'A code will be sent to your registered email. Other devices must sign in again after reset.',
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+                      TextFormField(
+                        key: const ValueKey('auth-email-field'),
+                        initialValue: emailValue,
+                        onChanged: (value) => emailValue = value,
+                        keyboardType: TextInputType.emailAddress,
+                        decoration: InputDecoration(
+                          labelText: _text('邮箱', 'Email'),
+                          suffixIcon: TextButton(
+                            onPressed: submitting || sendingCode
+                                ? null
+                                : () async {
+                                    final email = emailValue.trim();
+                                    if (!_looksLikeEmail(email)) {
+                                      setDialogState(() {
+                                        dialogError = _text(
+                                          '请输入正确的邮箱',
+                                          'Enter a valid email',
+                                        );
+                                      });
+                                      return;
+                                    }
+                                    setDialogState(() {
+                                      sendingCode = true;
+                                      dialogError = null;
+                                    });
+                                    try {
+                                      final result =
+                                          await AccountService.requestPasswordResetCode(
+                                            email,
+                                          );
+                                      if (!dialogContext.mounted) return;
+                                      setDialogState(() {
+                                        request = result;
+                                        requestEmail = email;
+                                        sendingCode = false;
+                                      });
+                                    } on PlatformException catch (error) {
+                                      if (!dialogContext.mounted) return;
+                                      setDialogState(() {
+                                        sendingCode = false;
+                                        dialogError = _messageFor(error);
+                                      });
+                                    } catch (_) {
+                                      if (!dialogContext.mounted) return;
+                                      setDialogState(() {
+                                        sendingCode = false;
+                                        dialogError = _text(
+                                          '验证码发送失败，请稍后重试',
+                                          'Could not send the code. Try again later.',
+                                        );
+                                      });
+                                    }
+                                  },
+                            child: sendingCode
+                                ? const SizedBox.square(
+                                    dimension: 16,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                    ),
+                                  )
+                                : Text(
+                                    request == null
+                                        ? _text('发送', 'Send')
+                                        : _text('重新发送', 'Resend'),
+                                  ),
+                          ),
+                        ),
+                        validator: (value) =>
+                            _looksLikeEmail(value?.trim() ?? '')
+                            ? null
+                            : _text('请输入正确的邮箱', 'Enter a valid email'),
+                      ),
+                      const SizedBox(height: 12),
+                      TextFormField(
+                        key: const ValueKey('auth-password-field'),
+                        onChanged: (value) => passwordValue = value,
+                        obscureText: !showPassword,
+                        autofillHints: const [AutofillHints.newPassword],
+                        decoration: InputDecoration(
+                          labelText: _text('新密码', 'New password'),
+                          helperText: _text('8 到 16 个字符', '8 to 16 characters'),
+                        ),
+                        validator: _passwordValidationMessage,
+                      ),
+                      const SizedBox(height: 12),
+                      TextFormField(
+                        key: const ValueKey('auth-confirm-password-field'),
+                        onChanged: (value) => confirmValue = value,
+                        obscureText: !showPassword,
+                        autofillHints: const [AutofillHints.newPassword],
+                        decoration: InputDecoration(
+                          labelText: _text('确认新密码', 'Confirm new password'),
+                        ),
+                        validator: (_) => confirmValue == passwordValue
+                            ? null
+                            : _text('两次密码不一致', 'Passwords do not match'),
+                      ),
+                      const SizedBox(height: 12),
+                      TextFormField(
+                        key: const ValueKey('auth-verification-code-field'),
+                        onChanged: (value) => codeValue = value,
+                        keyboardType: TextInputType.number,
+                        maxLength: 6,
+                        decoration: InputDecoration(
+                          labelText: _text('邮箱验证码', 'Email verification code'),
+                          counterText: '',
+                        ),
+                        validator: (value) => (value ?? '').trim().length == 6
+                            ? null
+                            : _text('请输入 6 位验证码', 'Enter the 6-digit code'),
+                      ),
+                      CheckboxListTile(
+                        value: showPassword,
+                        contentPadding: EdgeInsets.zero,
+                        controlAffinity: ListTileControlAffinity.leading,
+                        onChanged: submitting
+                            ? null
+                            : (value) => setDialogState(
+                                () => showPassword = value ?? false,
+                              ),
+                        title: Text(_text('显示密码', 'Show passwords')),
+                      ),
+                      if (dialogError != null) _errorBanner(dialogError!),
+                    ],
+                  ),
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: submitting || sendingCode
+                      ? null
+                      : () => Navigator.pop(dialogContext, false),
+                  child: Text(_text('取消', 'Cancel')),
+                ),
+                FilledButton(
+                  key: const ValueKey('submit-auth'),
+                  onPressed: submitting || sendingCode
+                      ? null
+                      : () async {
+                          if (!(formKey.currentState?.validate() ?? false)) {
+                            return;
+                          }
+                          final email = emailValue.trim();
+                          if (request == null || requestEmail != email) {
+                            setDialogState(() {
+                              dialogError = _text(
+                                '请先为当前邮箱发送验证码',
+                                'Send a code to this email first.',
+                              );
+                            });
+                            return;
+                          }
+                          setDialogState(() {
+                            submitting = true;
+                            dialogError = null;
+                          });
+                          try {
+                            await AccountService.resetPassword(
+                              email: email,
+                              newPassword: passwordValue,
+                              verificationRequestId: request!.requestId,
+                              verificationCode: codeValue.trim(),
+                            );
+                            if (dialogContext.mounted) {
+                              Navigator.pop(dialogContext, true);
+                            }
+                          } on PlatformException catch (error) {
+                            if (!dialogContext.mounted) return;
+                            setDialogState(() {
+                              submitting = false;
+                              dialogError = _messageFor(error);
+                            });
+                          } catch (_) {
+                            if (!dialogContext.mounted) return;
+                            setDialogState(() {
+                              submitting = false;
+                              dialogError = _text(
+                                '重置失败，请稍后重试',
+                                'Could not reset the password. Try again later.',
+                              );
+                            });
+                          }
+                        },
+                  child: submitting
+                      ? const SizedBox.square(
+                          dimension: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : Text(_text('确认重置', 'Confirm reset')),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+      if (reset == true && mounted) {
+        _passwordController.clear();
+        _showSuccessToast(
+          _text('密码已重置，请重新登录', 'Password reset. Sign in again.'),
+        );
+      }
+    } finally {
+      await Future<void>.delayed(const Duration(milliseconds: 250));
+      if (mounted) setState(() => _passwordResetDialogOpen = false);
+    }
+  }
+
+  Future<void> _showPlatformUsage() => showModalBottomSheet<void>(
+    context: context,
+    isScrollControlled: true,
+    showDragHandle: true,
+    builder: (context) =>
+        PlatformUsageSheet(english: _english, errorMessage: _messageFor),
+  );
+
+  Future<void> _showSessions() => showModalBottomSheet<void>(
+    context: context,
+    isScrollControlled: true,
+    showDragHandle: true,
+    builder: (context) =>
+        SessionsSheet(english: _english, errorMessage: _messageFor),
+  );
+
+  Future<void> _showChangePasswordDialog() async {
+    final formKey = GlobalKey<FormState>();
+    var currentPassword = '';
+    var newPassword = '';
+    var confirmedPassword = '';
+    var submitting = false;
+    var showPasswords = false;
+    String? dialogError;
+    final changed = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, setDialogState) => PopScope(
+          canPop: !submitting,
+          child: AlertDialog(
+            title: Text(_text('修改密码', 'Change password')),
+            content: SingleChildScrollView(
+              child: Form(
+                key: formKey,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Text(
+                      _text(
+                        '修改成功后，其他设备会退出登录，当前设备不受影响。',
+                        'Other devices will be signed out. This device stays signed in.',
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    TextFormField(
+                      key: const ValueKey('current-password-field'),
+                      obscureText: !showPasswords,
+                      onChanged: (value) => currentPassword = value,
+                      decoration: InputDecoration(
+                        labelText: _text('当前密码', 'Current password'),
+                      ),
+                      validator: (value) => (value ?? '').isEmpty
+                          ? _text('请输入当前密码', 'Enter your current password')
+                          : null,
+                    ),
+                    const SizedBox(height: 12),
+                    TextFormField(
+                      key: const ValueKey('new-password-field'),
+                      obscureText: !showPasswords,
+                      onChanged: (value) => newPassword = value,
+                      decoration: InputDecoration(
+                        labelText: _text('新密码', 'New password'),
+                        helperText: _text('8 到 16 个字符', '8 to 16 characters'),
+                      ),
+                      validator: _passwordValidationMessage,
+                    ),
+                    const SizedBox(height: 12),
+                    TextFormField(
+                      key: const ValueKey('confirm-new-password-field'),
+                      obscureText: !showPasswords,
+                      onChanged: (value) => confirmedPassword = value,
+                      decoration: InputDecoration(
+                        labelText: _text('确认新密码', 'Confirm new password'),
+                      ),
+                      validator: (_) => confirmedPassword == newPassword
+                          ? null
+                          : _text('两次密码不一致', 'Passwords do not match'),
+                    ),
+                    CheckboxListTile(
+                      value: showPasswords,
+                      contentPadding: EdgeInsets.zero,
+                      controlAffinity: ListTileControlAffinity.leading,
+                      onChanged: submitting
+                          ? null
+                          : (value) => setDialogState(
+                              () => showPasswords = value ?? false,
+                            ),
+                      title: Text(_text('显示密码', 'Show passwords')),
+                    ),
+                    if (dialogError != null) _errorBanner(dialogError!),
+                  ],
+                ),
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: submitting
+                    ? null
+                    : () => Navigator.pop(dialogContext, false),
+                child: Text(_text('取消', 'Cancel')),
+              ),
+              FilledButton(
+                key: const ValueKey('confirm-change-password'),
+                onPressed: submitting
+                    ? null
+                    : () async {
+                        if (!(formKey.currentState?.validate() ?? false)) {
+                          return;
+                        }
+                        setDialogState(() {
+                          submitting = true;
+                          dialogError = null;
+                        });
+                        try {
+                          await AccountService.changePassword(
+                            currentPassword: currentPassword,
+                            newPassword: newPassword,
+                          );
+                          if (dialogContext.mounted) {
+                            Navigator.pop(dialogContext, true);
+                          }
+                        } on PlatformException catch (error) {
+                          if (!dialogContext.mounted) return;
+                          setDialogState(() {
+                            submitting = false;
+                            dialogError = _messageFor(error);
+                          });
+                        } catch (_) {
+                          if (!dialogContext.mounted) return;
+                          setDialogState(() {
+                            submitting = false;
+                            dialogError = _text(
+                              '修改失败，请稍后重试',
+                              'Could not change the password. Try again later.',
+                            );
+                          });
+                        }
+                      },
+                child: submitting
+                    ? const SizedBox.square(
+                        dimension: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : Text(_text('确认修改', 'Change password')),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+    if (changed == true && mounted) {
+      _showSuccessToast(_text('密码已修改', 'Password changed'));
+    }
+  }
+
+  Future<void> _showDeleteAccountFlow() async {
+    final overview = _overview;
+    if (overview == null) return;
+    final proceed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        icon: Icon(
+          LucideIcons.triangleAlert,
+          color: Theme.of(dialogContext).colorScheme.error,
+        ),
+        title: Text(_text('永久删除账号？', 'Permanently delete account?')),
+        content: Text(
+          _text(
+            '服务器中的账号、登录会话和平台额度信息会永久删除，无法恢复。本机聊天和文件不会自动清理。',
+            'Your server-side account, sessions, and platform quota data will be permanently deleted. Local chats and files are not removed automatically.',
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: Text(_text('取消', 'Cancel')),
+          ),
+          FilledButton(
+            key: const ValueKey('continue-delete-account'),
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: Text(_text('继续验证', 'Continue')),
+          ),
+        ],
+      ),
+    );
+    if (proceed != true || !mounted) return;
+
+    final formKey = GlobalKey<FormState>();
+    var confirmationEmail = '';
+    var currentPassword = '';
+    var submitting = false;
+    String? dialogError;
+    final deleted = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, setDialogState) => PopScope(
+          canPop: !submitting,
+          child: AlertDialog(
+            title: Text(_text('最后确认', 'Final confirmation')),
+            content: SingleChildScrollView(
+              child: Form(
+                key: formKey,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    TextFormField(
+                      key: const ValueKey('delete-account-email-field'),
+                      keyboardType: TextInputType.emailAddress,
+                      onChanged: (value) => confirmationEmail = value,
+                      decoration: InputDecoration(
+                        labelText: _text('账号邮箱', 'Account email'),
+                        hintText: overview.user.email,
+                      ),
+                      validator: (_) =>
+                          confirmationEmail.trim().toLowerCase() ==
+                              overview.user.email.trim().toLowerCase()
+                          ? null
+                          : _text(
+                              '请输入当前账号的完整邮箱',
+                              'Enter the full email for this account.',
+                            ),
+                    ),
+                    const SizedBox(height: 12),
+                    TextFormField(
+                      key: const ValueKey('delete-account-password-field'),
+                      obscureText: true,
+                      onChanged: (value) => currentPassword = value,
+                      decoration: InputDecoration(
+                        labelText: _text('当前密码', 'Current password'),
+                      ),
+                      validator: (value) => (value ?? '').isEmpty
+                          ? _text('请输入当前密码', 'Enter your current password')
+                          : null,
+                    ),
+                    if (dialogError != null) ...[
+                      const SizedBox(height: 12),
+                      _errorBanner(dialogError!),
+                    ],
+                  ],
+                ),
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: submitting
+                    ? null
+                    : () => Navigator.pop(dialogContext, false),
+                child: Text(_text('取消', 'Cancel')),
+              ),
+              FilledButton(
+                key: const ValueKey('confirm-delete-account'),
+                onPressed: submitting
+                    ? null
+                    : () async {
+                        if (!(formKey.currentState?.validate() ?? false)) {
+                          return;
+                        }
+                        setDialogState(() {
+                          submitting = true;
+                          dialogError = null;
+                        });
+                        try {
+                          await AccountService.deleteAccount(currentPassword);
+                          if (dialogContext.mounted) {
+                            Navigator.pop(dialogContext, true);
+                          }
+                        } on PlatformException catch (error) {
+                          if (!dialogContext.mounted) return;
+                          setDialogState(() {
+                            submitting = false;
+                            dialogError = _messageFor(error);
+                          });
+                        } catch (_) {
+                          if (!dialogContext.mounted) return;
+                          setDialogState(() {
+                            submitting = false;
+                            dialogError = _text(
+                              '删除失败，请稍后重试',
+                              'Could not delete the account. Try again later.',
+                            );
+                          });
+                        }
+                      },
+                child: submitting
+                    ? const SizedBox.square(
+                        dimension: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : Text(_text('永久删除', 'Delete permanently')),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+    if (deleted == true && mounted) {
+      setState(() {
+        _session = const AccountSessionState(configured: true, signedIn: false);
+        _overview = null;
+        _error = null;
+      });
+      _showSuccessToast(_text('账号已删除', 'Account deleted'));
+    }
+  }
+
+  String? _passwordValidationMessage(String? value) {
+    final length = (value ?? '').characters.length;
+    if (length < 8 || length > 16) {
+      return _text('密码需为 8 到 16 个字符', 'Use 8 to 16 characters.');
+    }
+    return null;
+  }
+
   Future<void> _withBusy(Future<void> Function() operation) async {
     if (_busy) return;
     setState(() {
@@ -266,12 +829,23 @@ class _AccountPageState extends State<AccountPage> {
         return _text('验证码无效或已经过期', 'The code is invalid or expired');
       case 'rate_limited':
         return _text('操作太频繁，请稍后再试', 'Too many attempts. Try again later.');
+      case 'current_password_invalid':
+        return _text('当前密码不正确', 'The current password is incorrect');
+      case 'password_reuse':
+        return _text('新密码不能与当前密码相同', 'Choose a different password');
+      case 'session_not_found':
+        return _text('该登录设备已经退出', 'That device is already signed out');
+      case 'cannot_revoke_current_session':
+        return _text(
+          '不能在这里退出当前设备',
+          'The current device cannot be revoked here',
+        );
+      case 'invalid_verification_request':
+        return _text('请重新发送验证码', 'Request a new verification code');
       case 'ACCOUNT_NOT_CONFIGURED':
         return _text('账号服务尚未配置', 'Account service is not configured');
       default:
-        return error.message?.trim().isNotEmpty == true
-            ? error.message!.trim()
-            : _text('操作失败，请稍后重试', 'Operation failed. Try again later.');
+        return _text('操作失败，请稍后重试', 'Operation failed. Try again later.');
     }
   }
 
@@ -478,7 +1052,7 @@ class _AccountPageState extends State<AccountPage> {
             decoration: InputDecoration(
               labelText: _text('密码', 'Password'),
               hintText: register && _registerPasswordFocusNode.hasFocus
-                  ? _text('至少 15 个字符', 'At least 15 characters')
+                  ? _text('8 到 16 个字符', '8 to 16 characters')
                   : null,
               prefixIcon: const Icon(LucideIcons.lockKeyhole, size: 20),
               suffixIcon: IconButton(
@@ -493,15 +1067,27 @@ class _AccountPageState extends State<AccountPage> {
               if ((value ?? '').isEmpty) {
                 return _text('请输入密码', 'Enter your password');
               }
-              if (register && value!.characters.length < 15) {
-                return _text('密码至少需要 15 个字符', 'Use at least 15 characters');
+              if (register &&
+                  (value!.characters.length < 8 ||
+                      value.characters.length > 16)) {
+                return _text('密码需为 8 到 16 个字符', 'Use 8 to 16 characters');
               }
               return null;
             },
           ),
+          if (!register)
+            Align(
+              alignment: Alignment.centerRight,
+              child: TextButton(
+                key: const ValueKey('forgot-password'),
+                onPressed: _busy ? null : _showPasswordResetDialog,
+                child: Text(_text('忘记密码？', 'Forgot password?')),
+              ),
+            ),
           if (register) ...[
             const SizedBox(height: 14),
             TextFormField(
+              key: const ValueKey('auth-confirm-password-field'),
               controller: _confirmPasswordController,
               obscureText: !_showPassword,
               autofillHints: const [AutofillHints.newPassword],
@@ -543,13 +1129,20 @@ class _AccountPageState extends State<AccountPage> {
           const SizedBox(height: 22),
           FilledButton(
             key: ValueKey(
-              register ? 'account-register-submit' : 'account-login-submit',
+              register
+                  ? 'account-register-submit'
+                  : _passwordResetDialogOpen
+                  ? 'account-login-submit'
+                  : 'submit-auth',
             ),
             onPressed: _busy ? null : _submitAuth,
-            child: Text(
-              register
-                  ? _text('注册并登录', 'Create account & sign in')
-                  : _text('登录', 'Sign in'),
+            child: KeyedSubtree(
+              key: ValueKey(register ? 'submit-auth' : 'account-login-submit'),
+              child: Text(
+                register
+                    ? _text('注册并登录', 'Create account & sign in')
+                    : _text('登录', 'Sign in'),
+              ),
             ),
           ),
         ],
@@ -795,6 +1388,30 @@ class _AccountPageState extends State<AccountPage> {
                     )
                   : null,
             ),
+            if (settings.platformAvailable &&
+                settings.platform.weeklyLimit > 0) ...[
+              _sectionDivider(),
+              _summaryRow(
+                icon: LucideIcons.calendarDays,
+                title: _text('本周剩余额度', 'Remaining this week'),
+                subtitle: _text(
+                  '文字、识图、图片、语音共用，每周一自动恢复',
+                  'Shared by text, vision, images and voice; resets every Monday',
+                ),
+                secondarySubtitle: _text(
+                  '本周已用/预占 ${settings.platform.weeklyUsed} / ${settings.platform.weeklyLimit}',
+                  'Used/reserved ${settings.platform.weeklyUsed} / ${settings.platform.weeklyLimit}',
+                ),
+                trailing: Text(
+                  '${(settings.platform.weeklyLimit - settings.platform.weeklyUsed).clamp(0, settings.platform.weeklyLimit)}',
+                  style: TextStyle(
+                    color: context.omniPalette.accentPrimary,
+                    fontSize: 20,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+            ],
             const SizedBox(height: 24),
             SettingsSectionTitle(label: _text('AI 来源', 'AI source')),
             _modeOption(
@@ -805,28 +1422,44 @@ class _AccountPageState extends State<AccountPage> {
               enabled: settings.platformAvailable,
               icon: LucideIcons.cloud,
               title: _text('使用平台额度', 'Use platform quota'),
-              subtitle: settings.platformAvailable
-                  ? _text(
-                      '由小万平台统一提供模型服务，不显示内部 API 站。',
-                      'Use OmniBot-managed models without exposing the internal API service.',
-                    )
-                  : _text(
-                      settings.platformUnavailableReason ??
-                          '平台 AI 服务暂未开放，后续可由服务器开启。',
-                      'Platform AI is not available yet and can be enabled later by the server.',
-                    ),
             ),
             _modeOption(
               mode: AiAccessMode.byok,
               selected: settings.mode == AiAccessMode.byok,
               icon: LucideIcons.keyRound,
               title: _text('使用自己的 API Key', 'Use my own API key'),
-              subtitle: _text(
-                'Key 只保存在当前设备，不会上传账号服务器。',
-                'Your key stays on this device and is never uploaded to the account server.',
-              ),
             ),
             if (settings.mode == AiAccessMode.byok) ...[_apiKeyAction()],
+            const SizedBox(height: 24),
+            SettingsSectionTitle(label: _text('账号管理', 'Account management')),
+            _accountAction(
+              key: const ValueKey('account-usage-action'),
+              icon: LucideIcons.chartNoAxesColumnIncreasing,
+              title: _text('最近平台用量', 'Recent platform usage'),
+              onTap: _showPlatformUsage,
+            ),
+            _sectionDivider(),
+            _accountAction(
+              key: const ValueKey('account-sessions-action'),
+              icon: LucideIcons.smartphone,
+              title: _text('登录设备', 'Signed-in devices'),
+              onTap: _showSessions,
+            ),
+            _sectionDivider(),
+            _accountAction(
+              key: const ValueKey('change-password-action'),
+              icon: LucideIcons.shieldCheck,
+              title: _text('修改密码', 'Change password'),
+              onTap: _showChangePasswordDialog,
+            ),
+            _sectionDivider(),
+            _accountAction(
+              key: const ValueKey('delete-account-action'),
+              icon: LucideIcons.trash2,
+              title: _text('删除账号', 'Delete account'),
+              destructive: true,
+              onTap: _showDeleteAccountFlow,
+            ),
             if (_error != null) ...[
               const SizedBox(height: 14),
               _errorBanner(_error!),
@@ -851,6 +1484,7 @@ class _AccountPageState extends State<AccountPage> {
     required IconData icon,
     required String title,
     required String subtitle,
+    String? secondarySubtitle,
     Widget? trailing,
   }) {
     final palette = context.omniPalette;
@@ -886,6 +1520,19 @@ class _AccountPageState extends State<AccountPage> {
                     fontFamily: 'PingFang SC',
                   ),
                 ),
+                if (secondarySubtitle != null) ...[
+                  const SizedBox(height: 2),
+                  Text(
+                    secondarySubtitle,
+                    style: TextStyle(
+                      color: palette.textSecondary,
+                      fontSize: 11,
+                      fontWeight: FontWeight.w400,
+                      height: 1.55,
+                      fontFamily: 'PingFang SC',
+                    ),
+                  ),
+                ],
               ],
             ),
           ),
@@ -945,12 +1592,59 @@ class _AccountPageState extends State<AccountPage> {
     );
   }
 
+  Widget _accountAction({
+    required Key key,
+    required IconData icon,
+    required String title,
+    required VoidCallback onTap,
+    bool destructive = false,
+  }) {
+    final palette = context.omniPalette;
+    final color = destructive
+        ? Theme.of(context).colorScheme.error
+        : palette.textPrimary;
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        key: key,
+        onTap: _busy ? null : onTap,
+        borderRadius: BorderRadius.circular(14),
+        splashColor: palette.accentPrimary.withValues(alpha: 0.08),
+        highlightColor: Colors.transparent,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(4, 14, 2, 14),
+          child: Row(
+            children: [
+              Icon(icon, size: 20, color: color),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  title,
+                  style: TextStyle(
+                    color: color,
+                    fontSize: 14,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ),
+              Icon(
+                LucideIcons.chevronRight,
+                size: 18,
+                color: palette.textTertiary,
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   Widget _modeOption({
     required AiAccessMode mode,
     required bool selected,
     required IconData icon,
     required String title,
-    required String subtitle,
+    String? subtitle,
     bool enabled = true,
   }) {
     final palette = context.omniPalette;
@@ -1004,19 +1698,21 @@ class _AccountPageState extends State<AccountPage> {
                           fontFamily: 'PingFang SC',
                         ),
                       ),
-                      const SizedBox(height: 2),
-                      Text(
-                        subtitle,
-                        style: TextStyle(
-                          color: enabled
-                              ? palette.textSecondary
-                              : palette.textTertiary,
-                          fontSize: 11,
-                          fontWeight: FontWeight.w400,
-                          height: 1.55,
-                          fontFamily: 'PingFang SC',
+                      if (subtitle != null && subtitle.isNotEmpty) ...[
+                        const SizedBox(height: 2),
+                        Text(
+                          subtitle,
+                          style: TextStyle(
+                            color: enabled
+                                ? palette.textSecondary
+                                : palette.textTertiary,
+                            fontSize: 11,
+                            fontWeight: FontWeight.w400,
+                            height: 1.55,
+                            fontFamily: 'PingFang SC',
+                          ),
                         ),
-                      ),
+                      ],
                     ],
                   ),
                 ),
