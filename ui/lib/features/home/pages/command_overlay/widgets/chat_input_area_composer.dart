@@ -1190,8 +1190,8 @@ mixin _ChatInputAreaComposerMixin on _ChatInputAreaStateBase {
   String _agentPermissionLabel(AgentPermissionMode mode) {
     final english = Localizations.localeOf(context).languageCode == 'en';
     return switch (mode) {
-      AgentPermissionMode.defaultMode =>
-        english ? 'Default permissions' : '默认权限',
+      AgentPermissionMode.readOnly => english ? 'Read only' : '只读',
+      AgentPermissionMode.defaultMode => english ? 'Workspace write' : '工作区读写',
       AgentPermissionMode.autoReview => english ? 'Auto review' : '自动审查',
       AgentPermissionMode.fullAccess => english ? 'Full access' : '完全访问权限',
     };
@@ -1199,6 +1199,7 @@ mixin _ChatInputAreaComposerMixin on _ChatInputAreaStateBase {
 
   String _agentPermissionIconAsset(AgentPermissionMode mode) {
     return switch (mode) {
+      AgentPermissionMode.readOnly => _kAgentPermissionReadOnlyIconAsset,
       AgentPermissionMode.defaultMode => _kAgentPermissionDefaultIconAsset,
       AgentPermissionMode.autoReview => _kAgentPermissionAutoReviewIconAsset,
       AgentPermissionMode.fullAccess => _kAgentPermissionFullAccessIconAsset,

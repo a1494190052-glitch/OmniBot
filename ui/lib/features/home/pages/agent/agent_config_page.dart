@@ -36,6 +36,7 @@ class _AgentConfigPageState extends State<AgentConfigPage> {
   bool _obscureApiKey = true;
   bool _enabled = true;
   bool _changed = false;
+  String _reasoningEffort = 'max';
   String? _error;
 
   bool get _english =>
@@ -123,6 +124,11 @@ class _AgentConfigPageState extends State<AgentConfigPage> {
     _configPath =
         payload['configPath']?.toString() ?? payload['path']?.toString() ?? '';
     _authPath = payload['authPath']?.toString() ?? '';
+    _reasoningEffort = switch (payload['reasoningEffort']?.toString()) {
+      'off' => 'off',
+      'high' => 'high',
+      _ => 'max',
+    };
   }
 
   void _setText(TextEditingController controller, String value) {
@@ -180,6 +186,28 @@ class _AgentConfigPageState extends State<AgentConfigPage> {
           final payload = await AgentRuntimeService.writeAgentConfig(
             _agent!.id,
             content: _contentController.text,
+          );
+          if (!mounted) return;
+          _syncPayload(payload);
+          break;
+        case 'deepseek-harness':
+          final baseUrl = _baseUrlController.text.trim();
+          final model = _modelController.text.trim();
+          final apiKey = _apiKeyController.text.trim();
+          if (baseUrl.isEmpty || model.isEmpty || apiKey.isEmpty) {
+            throw ArgumentError(
+              _text(
+                'Base URL、模型 ID 和 API Key 均不能为空。',
+                'Base URL, model ID, and API Key are required.',
+              ),
+            );
+          }
+          final payload = await AgentRuntimeService.writeAgentConfig(
+            _agent!.id,
+            baseUrl: baseUrl,
+            model: model,
+            apiKey: apiKey,
+            reasoningEffort: _reasoningEffort,
           );
           if (!mounted) return;
           _syncPayload(payload);
@@ -370,6 +398,10 @@ class _AgentConfigPageState extends State<AgentConfigPage> {
       'codex' => _text('Codex API 配置', 'Codex API configuration'),
       'json' => _text('Claude Code 配置', 'Claude Code configuration'),
       'jsonc' => _text('OpenCode 配置', 'OpenCode configuration'),
+      'deepseek-harness' => _text(
+        'DeepSeek Harness 配置',
+        'DeepSeek Harness configuration',
+      ),
       'profile' => _text('ACP 启动配置', 'ACP launch configuration'),
       _ => _text('Agent 配置', 'Agent configuration'),
     };
@@ -389,6 +421,10 @@ class _AgentConfigPageState extends State<AgentConfigPage> {
         '直接编辑 $_configPath；OpenCode 支持 JSON 和 JSONC。',
         'Edit $_configPath directly. OpenCode supports JSON and JSONC.',
       ),
+      'deepseek-harness' => _text(
+        '配置保存到 $_configPath；首次检测会安装 npm next 通道的最新 dsh ACP 运行组件，也可在终端环境页统一安装。',
+        'Saved to $_configPath. The first check installs the latest dsh ACP runtime from npm next; it is also available in Terminal Environment.',
+      ),
       'profile' => _text(
         'API 和模型由该 Agent 自身配置；这里仅管理 ACP 启动命令、参数与环境。',
         'The Agent owns its API and model configuration. This page only manages ACP launch settings.',
@@ -401,6 +437,7 @@ class _AgentConfigPageState extends State<AgentConfigPage> {
     return switch (_kind) {
       'codex' => _buildCodexEditor(),
       'json' || 'jsonc' => _buildRawFileEditor(),
+      'deepseek-harness' => _buildDeepSeekHarnessEditor(),
       'profile' => _buildProfileEditor(),
       _ => Text(_text('没有可编辑的配置。', 'No editable configuration.')),
     };
@@ -444,6 +481,65 @@ class _AgentConfigPageState extends State<AgentConfigPage> {
               icon: Icon(_obscureApiKey ? LucideIcons.eye : LucideIcons.eyeOff),
             ),
           ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildDeepSeekHarnessEditor() {
+    return Column(
+      children: [
+        TextField(
+          key: const Key('deepseek-harness-base-url'),
+          controller: _baseUrlController,
+          keyboardType: TextInputType.url,
+          decoration: const InputDecoration(
+            labelText: 'Base URL',
+            hintText: 'https://api.deepseek.com',
+          ),
+        ),
+        const SizedBox(height: 14),
+        TextField(
+          key: const Key('deepseek-harness-model'),
+          controller: _modelController,
+          decoration: InputDecoration(
+            labelText: _text('模型 ID', 'Model ID'),
+            hintText: 'deepseek-v4-pro',
+          ),
+        ),
+        const SizedBox(height: 14),
+        TextField(
+          key: const Key('deepseek-harness-api-key'),
+          controller: _apiKeyController,
+          obscureText: _obscureApiKey,
+          enableSuggestions: false,
+          autocorrect: false,
+          decoration: InputDecoration(
+            labelText: 'DeepSeek API Key',
+            suffixIcon: IconButton(
+              tooltip: _obscureApiKey
+                  ? _text('显示 API Key', 'Show API Key')
+                  : _text('隐藏 API Key', 'Hide API Key'),
+              onPressed: () => setState(() => _obscureApiKey = !_obscureApiKey),
+              icon: Icon(_obscureApiKey ? LucideIcons.eye : LucideIcons.eyeOff),
+            ),
+          ),
+        ),
+        const SizedBox(height: 14),
+        DropdownButtonFormField<String>(
+          key: ValueKey('deepseek-harness-reasoning-$_reasoningEffort'),
+          initialValue: _reasoningEffort,
+          decoration: InputDecoration(
+            labelText: _text('推理强度', 'Reasoning effort'),
+          ),
+          items: const [
+            DropdownMenuItem(value: 'off', child: Text('Off')),
+            DropdownMenuItem(value: 'high', child: Text('High')),
+            DropdownMenuItem(value: 'max', child: Text('Max')),
+          ],
+          onChanged: (value) {
+            if (value != null) setState(() => _reasoningEffort = value);
+          },
         ),
       ],
     );

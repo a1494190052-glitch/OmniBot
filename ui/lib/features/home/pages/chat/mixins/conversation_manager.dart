@@ -349,8 +349,10 @@ mixin ConversationManager<T extends StatefulWidget> on State<T> {
         setState(() {
           hasMoreMessages = false;
           messageOffset = savedMessages.length;
-          messages.clear();
-          messages.addAll(savedMessages);
+          // getInMemoryMessagesForConversation copied these entries from the
+          // active runtime itself. Reinstalling them would dispose every row
+          // notifier and interrupt an AgentRunGroupMessage that is currently
+          // animating from running to completed.
         });
       } else {
         final pagedResult =

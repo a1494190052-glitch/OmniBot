@@ -572,6 +572,7 @@ abstract class _ChatPageStateBase extends State<ChatPage>
       'codex-acp' => 'Codex',
       'claude-code-acp' => 'Claude Code',
       'opencode-acp' => 'OpenCode',
+      'deepseek-harness-acp' => 'DeepSeek Harness',
       _ => 'Agent',
     };
   }

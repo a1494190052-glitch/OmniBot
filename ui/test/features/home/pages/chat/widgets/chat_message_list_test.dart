@@ -1414,6 +1414,114 @@ void main() {
     },
   );
 
+  testWidgets(
+    'DSH completion folds the tool between separate step messages instead of leaving it at the bottom',
+    (tester) async {
+      final controller = ScrollController();
+      var messages = _buildDshMultiStepAgentRunMessages(
+        finalThinkingComplete: false,
+      );
+      var activeTaskIds = <String>{'dsh-turn-1'};
+      late StateSetter setState;
+
+      await tester.pumpWidget(
+        _buildLocalizedApp(
+          child: StatefulBuilder(
+            builder: (context, stateSetter) {
+              setState = stateSetter;
+              return SizedBox(
+                width: 400,
+                height: 520,
+                child: ChatMessageList(
+                  messages: messages,
+                  activeAgentTaskIds: activeTaskIds,
+                  useAcpPresentation: true,
+                  activeAcpAgentId: 'deepseek-harness',
+                  scrollController: controller,
+                  onBeforeTaskExecute: () async {},
+                ),
+              );
+            },
+          ),
+        ),
+      );
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 32));
+
+      expect(find.byType(DeepThinkingCard), findsNWidgets(2));
+      expect(find.text('我先检查工作区。'), findsOneWidget);
+      expect(find.text('读取 README.md'), findsOneWidget);
+      expect(find.text('根据工具结果继续检查。'), findsOneWidget);
+      expect(find.text('检查完成，这是最终回答。'), findsOneWidget);
+      expect(
+        tester.getTopLeft(find.text('我先检查工作区。')).dy,
+        lessThan(tester.getTopLeft(find.text('读取 README.md')).dy),
+      );
+      expect(
+        tester.getTopLeft(find.text('读取 README.md')).dy,
+        lessThan(tester.getTopLeft(find.text('检查完成，这是最终回答。')).dy),
+      );
+
+      setState(() {
+        messages = _buildDshMultiStepAgentRunMessages();
+        activeTaskIds = <String>{};
+      });
+      await tester.pump();
+
+      final completingThinkingCards = tester
+          .widgetList<DeepThinkingCard>(find.byType(DeepThinkingCard))
+          .toList(growable: false);
+      expect(completingThinkingCards, hasLength(2));
+      expect(
+        completingThinkingCards.every((card) => !card.autoCollapseOnComplete),
+        isTrue,
+      );
+
+      await tester.pump(const Duration(milliseconds: 120));
+      final processOpacity = tester.widget<Opacity>(
+        find
+            .ancestor(
+              of: find.byKey(
+                const ValueKey(
+                  'agent-run-process-dsh-turn-1-dsh-thinking-step-1',
+                ),
+              ),
+              matching: find.byType(Opacity),
+            )
+            .first,
+      );
+      expect(processOpacity.opacity, greaterThan(0));
+      expect(processOpacity.opacity, lessThan(1));
+      expect(find.text('读取 README.md'), findsOneWidget);
+
+      await tester.pumpAndSettle();
+
+      expect(
+        find.byKey(const ValueKey('agent-run-summary-dsh-turn-1')),
+        findsOneWidget,
+      );
+      expect(find.text('读取 README.md'), findsNothing);
+      expect(find.text('我先检查工作区。'), findsOneWidget);
+      expect(find.text('检查完成，这是最终回答。'), findsOneWidget);
+
+      await tester.tap(
+        find.byKey(const ValueKey('agent-run-summary-dsh-turn-1')),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.byType(DeepThinkingCard), findsNWidgets(2));
+      expect(find.text('读取 README.md'), findsOneWidget);
+      expect(
+        tester.getTopLeft(find.text('我先检查工作区。')).dy,
+        lessThan(tester.getTopLeft(find.text('读取 README.md')).dy),
+      );
+      expect(
+        tester.getTopLeft(find.text('读取 README.md')).dy,
+        lessThan(tester.getTopLeft(find.text('检查完成，这是最终回答。')).dy),
+      );
+    },
+  );
+
   testWidgets('reaching top auto-loads older messages without jumping to top', (
     tester,
   ) async {
@@ -1659,6 +1767,111 @@ List<ChatMessageModel> _buildCompletedAgentRunMessages({bool isFinal = true}) {
       },
     ),
     ChatMessageModel.userMessage('用户问题', id: 'task-1-user'),
+  ];
+}
+
+List<ChatMessageModel> _buildDshMultiStepAgentRunMessages({
+  bool finalThinkingComplete = true,
+}) {
+  const taskId = 'dsh-turn-1';
+  return <ChatMessageModel>[
+    ChatMessageModel(
+      id: 'dsh-message-step-2',
+      type: 1,
+      user: 2,
+      content: const <String, dynamic>{
+        'text': '检查完成，这是最终回答。',
+        'id': 'dsh-message-step-2',
+        'agentId': 'deepseek-harness',
+        'agentName': 'DeepSeek Harness',
+      },
+      streamMeta: const <String, dynamic>{
+        'parentTaskId': taskId,
+        'kind': 'text_snapshot',
+        'seq': 5,
+        'entryId': 'dsh-message-step-2',
+        'isFinal': true,
+      },
+    ),
+    ChatMessageModel.cardMessage(
+      <String, dynamic>{
+        'type': 'deep_thinking',
+        'agentId': 'deepseek-harness',
+        'agentName': 'DeepSeek Harness',
+        'thinkingContent': '根据工具结果继续检查。',
+        'stage': finalThinkingComplete ? 4 : 1,
+        'isLoading': !finalThinkingComplete,
+        'taskID': taskId,
+        'cardId': 'dsh-thinking-step-2',
+      },
+      id: 'dsh-thinking-step-2',
+      streamMeta: const <String, dynamic>{
+        'parentTaskId': taskId,
+        'kind': 'thinking_snapshot',
+        'seq': 4,
+        'entryId': 'dsh-thinking-step-2',
+        'isFinal': true,
+      },
+    ),
+    ChatMessageModel.cardMessage(
+      <String, dynamic>{
+        'type': 'agent_tool_summary',
+        'uiStyle': 'agent_tool',
+        'agentId': 'deepseek-harness',
+        'agentName': 'DeepSeek Harness',
+        'status': 'success',
+        'toolType': 'workspace',
+        'toolTitle': '读取 README.md',
+        'summary': '读取完成',
+      },
+      id: 'dsh-tool-readme',
+      streamMeta: const <String, dynamic>{
+        'parentTaskId': taskId,
+        'kind': 'tool_completed',
+        'seq': 3,
+        'entryId': 'dsh-tool-readme',
+        'isFinal': true,
+      },
+    ),
+    ChatMessageModel(
+      id: 'dsh-message-step-1',
+      type: 1,
+      user: 2,
+      content: const <String, dynamic>{
+        'text': '我先检查工作区。',
+        'id': 'dsh-message-step-1',
+        'agentId': 'deepseek-harness',
+        'agentName': 'DeepSeek Harness',
+      },
+      streamMeta: const <String, dynamic>{
+        'parentTaskId': taskId,
+        'kind': 'text_snapshot',
+        'seq': 2,
+        'entryId': 'dsh-message-step-1',
+        'isFinal': true,
+      },
+    ),
+    ChatMessageModel.cardMessage(
+      <String, dynamic>{
+        'type': 'deep_thinking',
+        'agentId': 'deepseek-harness',
+        'agentName': 'DeepSeek Harness',
+        'thinkingContent': '先定位需要读取的文件。',
+        'stage': 4,
+        'isLoading': false,
+        'taskID': taskId,
+        'cardId': 'dsh-thinking-step-1',
+      },
+      id: 'dsh-thinking-step-1',
+      streamMeta: const <String, dynamic>{
+        'parentTaskId': taskId,
+        'kind': 'thinking_snapshot',
+        'seq': 1,
+        'entryId': 'dsh-thinking-step-1',
+        'isFinal': true,
+      },
+    ),
+    ChatMessageModel.userMessage('请检查项目', id: 'dsh-turn-1-user'),
   ];
 }
 

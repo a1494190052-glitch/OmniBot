@@ -122,8 +122,8 @@ class _AgentModeSettingPageState extends State<AgentModeSettingPage> {
     if (agent.managedAdapter && agent.status == 'unchecked') {
       showToast(
         _text(
-          '首次检测会自动准备 ACP 适配器，下载可能需要一些时间。',
-          'The first check prepares the ACP adapter and may take a moment.',
+          '首次检测会自动准备 ACP 适配器；也可在终端环境页统一安装，下载可能需要一些时间。',
+          'The first check prepares the ACP adapter. You can also install it from Terminal Environment; the download may take a moment.',
         ),
       );
     }
@@ -139,8 +139,8 @@ class _AgentModeSettingPageState extends State<AgentModeSettingPage> {
         builder: (dialogContext) => AlertDialog(
           title: Text(
             ok
-                ? _text('ACP 初始化成功', 'ACP initialized')
-                : _text('ACP 初始化失败', 'ACP initialization failed'),
+                ? _text('Agent 检测成功', 'Agent check succeeded')
+                : _text('Agent 检测失败', 'Agent check failed'),
           ),
           content: SingleChildScrollView(
             child: SelectableText(
@@ -470,12 +470,15 @@ class _AgentModeSettingPageState extends State<AgentModeSettingPage> {
         (agent.lastCheckError ?? '').isNotEmpty && agent.status != 'online';
     final canTest = agent.enabled && agent.status != 'missing';
     final busy = agent.id == _busyAgentId;
-    final testLabel =
+    final needsManagedPreparation =
         agent.managedAdapter &&
-            agent.status == 'unchecked' &&
-            agent.lastCheckError?.contains('will be prepared') == true
+        agent.status == 'unchecked' &&
+        agent.lastCheckError?.contains('will be prepared') == true;
+    final testLabel = needsManagedPreparation
         ? _text('准备并初始化', 'Prepare & initialize')
-        : _text('初始化检测', 'Initialize');
+        : agent.status == 'unchecked'
+        ? _text('检测', 'Check')
+        : _text('重新检测', 'Check again');
     return _FlatTile(
       tileKey: Key('agent-config-${agent.id}'),
       leading: AgentBrandIcon(
@@ -494,7 +497,10 @@ class _AgentModeSettingPageState extends State<AgentModeSettingPage> {
       subtitleMonospace: agent.description.isEmpty,
       errorText: hasError ? agent.lastCheckError : null,
       actionLabel: canTest ? testLabel : null,
+      actionKey: Key('agent-check-${agent.id}'),
       onAction: canTest ? () => _test(agent) : null,
+      navigationLabel: _text('配置', 'Configure'),
+      navigationKey: Key('agent-navigation-${agent.id}'),
       busy: busy,
       onTap: () => _openAgentConfig(agent),
     );
@@ -618,7 +624,10 @@ class _FlatTile extends StatelessWidget {
     this.subtitleMonospace = false,
     this.errorText,
     this.actionLabel,
+    this.actionKey,
     this.onAction,
+    this.navigationLabel,
+    this.navigationKey,
     this.busy = false,
   });
 
@@ -632,7 +641,10 @@ class _FlatTile extends StatelessWidget {
   final bool subtitleMonospace;
   final String? errorText;
   final String? actionLabel;
+  final Key? actionKey;
   final VoidCallback? onAction;
+  final String? navigationLabel;
+  final Key? navigationKey;
   final bool busy;
 
   @override
@@ -745,47 +757,88 @@ class _FlatTile extends StatelessWidget {
                   ],
                 ),
               ),
-              if (busy)
-                const Padding(
-                  padding: EdgeInsets.only(left: 12),
-                  child: SizedBox(
-                    width: 16,
-                    height: 16,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  ),
-                )
-              else if (actionLabel != null && onAction != null)
-                GestureDetector(
-                  behavior: HitTestBehavior.opaque,
-                  onTap: onAction,
-                  child: Padding(
-                    padding: const EdgeInsets.only(
-                      left: 12,
-                      top: 4,
-                      bottom: 4,
-                    ),
-                    child: ConstrainedBox(
-                      constraints: const BoxConstraints(maxWidth: 150),
-                      child: Text(
-                        actionLabel!,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                          fontSize: 12,
-                          fontWeight: FontWeight.w600,
-                          color: palette.accentPrimary,
-                          fontFamily: 'PingFang SC',
+              Padding(
+                padding: const EdgeInsets.only(left: 10),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    if (busy)
+                      const Padding(
+                        padding: EdgeInsets.symmetric(vertical: 3),
+                        child: SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        ),
+                      )
+                    else if (actionLabel != null && onAction != null)
+                      TextButton(
+                        key: actionKey,
+                        onPressed: onAction,
+                        style: TextButton.styleFrom(
+                          minimumSize: Size.zero,
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 4,
+                            vertical: 3,
+                          ),
+                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                          visualDensity: VisualDensity.compact,
+                        ),
+                        child: ConstrainedBox(
+                          constraints: const BoxConstraints(maxWidth: 150),
+                          child: Text(
+                            actionLabel!,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w600,
+                              color: palette.accentPrimary,
+                              fontFamily: 'PingFang SC',
+                            ),
+                          ),
                         ),
                       ),
-                    ),
-                  ),
-                ),
-              Padding(
-                padding: const EdgeInsets.only(left: 8),
-                child: Icon(
-                  LucideIcons.chevronRight,
-                  size: 18,
-                  color: palette.textTertiary,
+                    if ((busy || actionLabel != null) &&
+                        navigationLabel != null)
+                      const SizedBox(height: 3),
+                    if (navigationLabel != null)
+                      InkWell(
+                        key: navigationKey,
+                        onTap: onTap,
+                        borderRadius: BorderRadius.circular(8),
+                        child: Padding(
+                          padding: const EdgeInsets.fromLTRB(4, 3, 0, 3),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Text(
+                                navigationLabel!,
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w500,
+                                  color: palette.textSecondary,
+                                  fontFamily: 'PingFang SC',
+                                ),
+                              ),
+                              const SizedBox(width: 3),
+                              Icon(
+                                LucideIcons.chevronRight,
+                                size: 16,
+                                color: palette.textTertiary,
+                              ),
+                            ],
+                          ),
+                        ),
+                      )
+                    else
+                      Icon(
+                        LucideIcons.chevronRight,
+                        size: 18,
+                        color: palette.textTertiary,
+                      ),
+                  ],
                 ),
               ),
             ],

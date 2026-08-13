@@ -679,6 +679,8 @@ class AgentRuntimeService {
     String? baseUrl,
     String? model,
     String? apiKey,
+    String? reasoningEffort,
+    String? permissionMode,
     String? content,
   }) {
     return _invokeMap('agent/config/write', {
@@ -686,6 +688,8 @@ class AgentRuntimeService {
       if (baseUrl != null) 'baseUrl': baseUrl,
       if (model != null) 'model': model,
       if (apiKey != null) 'apiKey': apiKey,
+      if (reasoningEffort != null) 'reasoningEffort': reasoningEffort,
+      if (permissionMode != null) 'permissionMode': permissionMode,
       if (content != null) 'content': content,
     });
   }

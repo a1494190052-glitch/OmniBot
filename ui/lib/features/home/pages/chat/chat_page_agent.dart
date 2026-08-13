@@ -493,6 +493,9 @@ mixin _ChatPageAgentMixin on _ChatPageStateBase {
         _loadedAgentModelSourceKey = sourceKey;
         _agentModelOptions = modelOptions;
         _activeAgentModelId = effectiveModel;
+        if (configSettings.permissionMode != null) {
+          _agentPermissionMode = configSettings.permissionMode!;
+        }
         final selectedEffort = _normalizeAgentReasoningEffort(
           _activeAgentReasoningEffort,
         );
@@ -539,6 +542,7 @@ mixin _ChatPageAgentMixin on _ChatPageStateBase {
       return _AgentRunSettingsSnapshot(
         modelId: _extractAgentConfigModelId(response),
         reasoningEffort: _extractAgentConfigReasoningEffort(response),
+        permissionMode: _extractAgentConfigPermissionMode(response),
       );
     } catch (error) {
       debugPrint('Read Agent config run settings failed: $error');
@@ -5005,6 +5009,43 @@ String? _extractAgentConfigReasoningEffort(Map<String, dynamic> response) {
   return null;
 }
 
+AgentPermissionMode? _extractAgentConfigPermissionMode(
+  Map<String, dynamic> response,
+) {
+  final raw = response['mode'] ?? response['permissionMode'];
+  final normalized = _remoteCodexOptionId(raw)?.toLowerCase();
+  switch (normalized) {
+    case 'read-only':
+    case 'readonly':
+      return AgentPermissionMode.readOnly;
+    case 'agent':
+    case 'workspace-write':
+    case 'workspacewrite':
+      return AgentPermissionMode.defaultMode;
+    case 'agent-full-access':
+    case 'danger-full-access':
+    case 'dangerfullaccess':
+      return AgentPermissionMode.fullAccess;
+  }
+  for (final key in const <String>[
+    'config',
+    'effectiveConfig',
+    'effective',
+    'settings',
+    'data',
+    'result',
+  ]) {
+    final value = response[key];
+    if (value is Map) {
+      final nested = _extractAgentConfigPermissionMode(
+        value.map((key, nestedValue) => MapEntry(key.toString(), nestedValue)),
+      );
+      if (nested != null) return nested;
+    }
+  }
+  return null;
+}
+
 List<String> _mergeAgentReasoningEffortOptions({
   String? current,
   required List<String> options,
@@ -5099,16 +5140,22 @@ bool _isAgentPlanMode(String? mode) {
 }
 
 class _AgentRunSettingsSnapshot {
-  const _AgentRunSettingsSnapshot({this.modelId, this.reasoningEffort});
+  const _AgentRunSettingsSnapshot({
+    this.modelId,
+    this.reasoningEffort,
+    this.permissionMode,
+  });
 
   final String? modelId;
   final String? reasoningEffort;
+  final AgentPermissionMode? permissionMode;
 }
 
 extension _AgentPermissionModePayload on AgentPermissionMode {
   String get approvalPolicy {
     return switch (this) {
       AgentPermissionMode.fullAccess => 'never',
+      AgentPermissionMode.readOnly ||
       AgentPermissionMode.defaultMode ||
       AgentPermissionMode.autoReview => 'on-request',
     };
@@ -5117,6 +5164,7 @@ extension _AgentPermissionModePayload on AgentPermissionMode {
   String get approvalsReviewer {
     return switch (this) {
       AgentPermissionMode.autoReview => 'auto_review',
+      AgentPermissionMode.readOnly ||
       AgentPermissionMode.defaultMode ||
       AgentPermissionMode.fullAccess => 'user',
     };
@@ -5124,6 +5172,9 @@ extension _AgentPermissionModePayload on AgentPermissionMode {
 
   Map<String, dynamic>? get sandboxPolicy {
     return switch (this) {
+      AgentPermissionMode.readOnly => const <String, dynamic>{
+        'type': 'readOnly',
+      },
       AgentPermissionMode.fullAccess => const <String, dynamic>{
         'type': 'dangerFullAccess',
       },

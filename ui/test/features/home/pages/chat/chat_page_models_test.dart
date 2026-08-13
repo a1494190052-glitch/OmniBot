@@ -98,6 +98,33 @@ void main() {
       expect(runtime.currentAiMessages, isEmpty);
       expect(runtime.activeAgentTaskIds, isEmpty);
     });
+
+    test(
+      'keeps row notifiers when a refresh reuses runtime message objects',
+      () {
+        const conversationId = 0xD55;
+        const mode = kChatRuntimeModeAgent;
+        final runtime = coordinator.ensureRuntime(
+          conversationId: conversationId,
+          mode: mode,
+          initialMessages: <ChatMessageModel>[
+            ChatMessageModel.assistantMessage('final', id: 'turn-1-text'),
+          ],
+        );
+        final originalNotifier = runtime.messages.listenableAt(0);
+        var structuralNotifications = 0;
+        runtime.messages.addListener(() => structuralNotifications += 1);
+
+        coordinator.replaceConversationSnapshot(
+          conversationId: conversationId,
+          mode: mode,
+          messages: List<ChatMessageModel>.from(runtime.messages),
+        );
+
+        expect(runtime.messages.listenableAt(0), same(originalNotifier));
+        expect(structuralNotifications, 0);
+      },
+    );
   });
 
   group('shouldReloadConversationMessagesChanged', () {
@@ -139,6 +166,53 @@ void main() {
           hasInFlightTask: false,
         ),
         isTrue,
+      );
+    });
+
+    test('keeps the completed in-memory timeline during native echoes', () {
+      expect(
+        shouldReloadConversationMessagesChanged(
+          reason: 'agent_stream_snapshot',
+          hasInFlightTask: false,
+          hasRuntimeMessages: true,
+        ),
+        isFalse,
+      );
+      expect(
+        shouldReloadConversationMessagesChanged(
+          reason: 'messages_replaced',
+          hasInFlightTask: false,
+          hasRuntimeMessages: true,
+          suppressLocalSnapshotEcho: true,
+        ),
+        isFalse,
+      );
+      expect(
+        shouldReloadConversationMessagesChanged(
+          reason: 'messages_replaced',
+          hasInFlightTask: false,
+          hasRuntimeMessages: true,
+        ),
+        isTrue,
+      );
+    });
+  });
+
+  group('conversation list refresh source', () {
+    test('keeps a populated runtime even after its task completes', () {
+      expect(
+        shouldPreferInMemoryForConversationListChanged(
+          hasInFlightTask: false,
+          hasRuntimeMessages: true,
+        ),
+        isTrue,
+      );
+      expect(
+        shouldPreferInMemoryForConversationListChanged(
+          hasInFlightTask: false,
+          hasRuntimeMessages: false,
+        ),
+        isFalse,
       );
     });
   });

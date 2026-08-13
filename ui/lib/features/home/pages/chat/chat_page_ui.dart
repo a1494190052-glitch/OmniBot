@@ -1412,6 +1412,7 @@ mixin _ChatPageUiMixin on _ChatPageStateBase {
                               _agentRuntimeStatus.runtime != 'remote' &&
                               !_agentRuntimeStatus.remoteEnabled
                           ? const <AgentPermissionMode>[
+                              AgentPermissionMode.readOnly,
                               AgentPermissionMode.defaultMode,
                               AgentPermissionMode.fullAccess,
                             ]

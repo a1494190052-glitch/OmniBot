@@ -681,7 +681,13 @@ mixin _ChatPageLifecycleMixin on _ChatPageStateBase {
     final runtime = _runtimeForMode(_activeMode);
     await loadConversation(
       conversationId,
-      preferInMemory: runtime?.hasInFlightTask == true,
+      // A list-change event updates conversation metadata. If this page
+      // already owns a populated runtime, keep that same observable timeline
+      // instead of rebuilding all rows from the database on agent completion.
+      preferInMemory: shouldPreferInMemoryForConversationListChanged(
+        hasInFlightTask: runtime?.hasInFlightTask == true,
+        hasRuntimeMessages: runtime?.messages.isNotEmpty == true,
+      ),
       lifecycleToken: lifecycleToken,
     );
     if (!mounted ||
@@ -722,6 +728,9 @@ mixin _ChatPageLifecycleMixin on _ChatPageStateBase {
     if (!shouldReloadConversationMessagesChanged(
       reason: reason,
       hasInFlightTask: runtime?.hasInFlightTask == true,
+      hasRuntimeMessages: runtime?.messages.isNotEmpty == true,
+      suppressLocalSnapshotEcho:
+          runtime?.shouldSuppressLocalMessageSnapshotEcho == true,
     )) {
       return;
     }

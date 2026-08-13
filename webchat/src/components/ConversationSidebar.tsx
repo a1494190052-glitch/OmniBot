@@ -54,6 +54,7 @@ const STATUS_LABELS: Record<ConnectionStatus, string> = {
 const SECTION_ORDER = [
   "pinned",
   "codex",
+  "deepseek",
   "claude",
   "opencode",
   "acp",
@@ -66,6 +67,7 @@ type ConversationSection = typeof SECTION_ORDER[number];
 const SECTION_LABELS: Record<ConversationSection, string> = {
   pinned: "置顶会话",
   codex: "Codex",
+  deepseek: "DeepSeek Harness",
   claude: "Claude Code",
   opencode: "OpenCode",
   acp: "Agent",
@@ -75,6 +77,7 @@ const SECTION_LABELS: Record<ConversationSection, string> = {
 
 const SECTION_ICONS: Record<Exclude<ConversationSection, "pinned">, IconName> = {
   codex: "codex",
+  deepseek: "deepseek",
   claude: "claude",
   opencode: "opencode",
   acp: "agent",
@@ -86,12 +89,14 @@ const FALLBACK_AGENT_PROFILES: AgentProfile[] = [
   { id: "codex-acp", name: "Codex", enabled: true, builtIn: true },
   { id: "claude-code-acp", name: "Claude Code", enabled: true, builtIn: true },
   { id: "opencode-acp", name: "OpenCode", enabled: true, builtIn: true },
+  { id: "deepseek-harness-acp", name: "DeepSeek Harness", enabled: true, builtIn: true },
 ];
 
 function agentIcon(agentId?: string): IconName {
   if (agentId === "codex-acp") return "codex";
   if (agentId === "claude-code-acp") return "claude";
   if (agentId === "opencode-acp") return "opencode";
+  if (agentId === "deepseek-harness-acp") return "deepseek";
   return "agent";
 }
 
@@ -101,6 +106,7 @@ function conversationSection(conversation: Conversation): ConversationSection {
     if (!conversation.agentId || conversation.agentId === "codex-acp") return "codex";
     if (conversation.agentId === "claude-code-acp") return "claude";
     if (conversation.agentId === "opencode-acp") return "opencode";
+    if (conversation.agentId === "deepseek-harness-acp") return "deepseek";
     return "acp";
   }
   if (conversation.mode === "chat_only") return "chat";
