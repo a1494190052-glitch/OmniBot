@@ -17,10 +17,12 @@ class OnboardingProviderPage extends StatelessWidget {
     super.key,
     required this.controller,
     required this.scrollController,
+    required this.onOpenAccount,
   });
 
   final OnboardingProviderController controller;
   final ScrollController scrollController;
+  final VoidCallback onOpenAccount;
 
   @override
   Widget build(BuildContext context) {
@@ -34,9 +36,30 @@ class OnboardingProviderPage extends StatelessWidget {
       ),
       scrollController: scrollController,
       children: [
+        OnboardingOptionRow(
+          tapKey: const ValueKey('tutorial-provider-account-auth'),
+          leading: OnboardingOptionIcon(
+            icon: LucideIcons.logIn,
+            selected: false,
+          ),
+          title: onbTr(context, '登录与注册', 'Sign in or register'),
+          description: onbTr(
+            context,
+            '登录小万账号，使用平台 AI 服务与额度。',
+            'Sign in to use the platform AI service and quota.',
+          ),
+          selected: false,
+          showSelectionIndicator: false,
+          onTap: controller.busy ? null : onOpenAccount,
+        ),
+        const OnboardingRowDivider(),
         if (controller.loading)
           OnboardingLoadingRow(
-            label: onbTr(context, '正在读取已有模型配置…', 'Loading existing model settings…'),
+            label: onbTr(
+              context,
+              '正在读取已有模型配置…',
+              'Loading existing model settings…',
+            ),
           )
         else ...[
           for (var i = 0; i < providerOptions.length; i++) ...[

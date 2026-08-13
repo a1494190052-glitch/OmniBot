@@ -20,6 +20,7 @@ class OnboardingOptionRow extends StatelessWidget {
     this.badge,
     this.description,
     this.detail,
+    this.showSelectionIndicator = true,
   });
 
   /// Key applied to the tappable area (kept stable for tests).
@@ -31,6 +32,7 @@ class OnboardingOptionRow extends StatelessWidget {
   final String? detail;
   final bool selected;
   final VoidCallback? onTap;
+  final bool showSelectionIndicator;
 
   @override
   Widget build(BuildContext context) {
@@ -133,21 +135,33 @@ class OnboardingOptionRow extends StatelessWidget {
                 const SizedBox(width: 10),
                 Padding(
                   padding: const EdgeInsets.only(top: 8),
-                  child: AnimatedSwitcher(
-                    duration: const Duration(milliseconds: 180),
-                    transitionBuilder: (child, animation) => ScaleTransition(
-                      scale: animation,
-                      child: FadeTransition(opacity: animation, child: child),
-                    ),
-                    child: Icon(
-                      selected ? LucideIcons.circleCheck : LucideIcons.circle,
-                      key: ValueKey<bool>(selected),
-                      size: 20,
-                      color: selected
-                          ? palette.accentPrimary
-                          : palette.borderStrong,
-                    ),
-                  ),
+                  child: showSelectionIndicator
+                      ? AnimatedSwitcher(
+                          duration: const Duration(milliseconds: 180),
+                          transitionBuilder: (child, animation) =>
+                              ScaleTransition(
+                                scale: animation,
+                                child: FadeTransition(
+                                  opacity: animation,
+                                  child: child,
+                                ),
+                              ),
+                          child: Icon(
+                            selected
+                                ? LucideIcons.circleCheck
+                                : LucideIcons.circle,
+                            key: ValueKey<bool>(selected),
+                            size: 20,
+                            color: selected
+                                ? palette.accentPrimary
+                                : palette.borderStrong,
+                          ),
+                        )
+                      : Icon(
+                          LucideIcons.chevronRight,
+                          size: 20,
+                          color: palette.textTertiary,
+                        ),
                 ),
               ],
             ),

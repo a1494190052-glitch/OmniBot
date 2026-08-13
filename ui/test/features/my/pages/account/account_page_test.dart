@@ -12,6 +12,20 @@ void main() {
 
   const channel = MethodChannel('cn.com.omnimind.bot/account');
 
+  test('weekly quota countdown uses the next Monday at midnight', () {
+    expect(
+      formatWeeklyQuotaResetCountdown(
+        DateTime(2026, 8, 13, 12),
+        english: false,
+      ),
+      '3天 12小时',
+    );
+    expect(
+      formatWeeklyQuotaResetCountdown(DateTime(2026, 8, 17), english: true),
+      '7d 0h',
+    );
+  });
+
   tearDown(() {
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(channel, null);
@@ -150,13 +164,29 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.text('learner@example.com'), findsOneWidget);
-      expect(find.text('1000'), findsOneWidget);
       expect(find.text('AI 来源'), findsNothing);
       expect(find.text('使用平台额度'), findsNothing);
       expect(find.text('使用自己的 API Key'), findsNothing);
-      expect(find.text('本周剩余额度'), findsOneWidget);
-      expect(find.text('文字、识图、图片、语音共用，每周一自动恢复'), findsOneWidget);
-      expect(find.text('本周已用/预占 1200 / 5000'), findsOneWidget);
+      expect(find.text('本周剩余额度'), findsNothing);
+      expect(find.textContaining('距离重置'), findsOneWidget);
+      expect(find.textContaining('周一 00:00'), findsOneWidget);
+      expect(
+        find.byKey(const ValueKey('account-platform-quota-percent')),
+        findsOneWidget,
+      );
+      expect(find.text('20%'), findsOneWidget);
+      final quotaText = tester.widget<RichText>(
+        find.byKey(const ValueKey('account-platform-quota-ratio')),
+      );
+      final quotaSpan = quotaText.text as TextSpan;
+      final valueSpan = quotaSpan.children![0] as TextSpan;
+      final limitSpan = quotaSpan.children![2] as TextSpan;
+      expect(quotaSpan.toPlainText(), '1000/5000');
+      expect(
+        valueSpan.style!.fontSize,
+        greaterThan(limitSpan.style!.fontSize!),
+      );
+      expect(valueSpan.style!.color, isNot(limitSpan.style!.color));
       expect(find.text('Key 只保存在当前设备，不会上传账号服务器。'), findsNothing);
       expect(find.text('由小万平台统一提供模型服务，不显示内部 API 端。'), findsNothing);
       expect(find.byIcon(LucideIcons.userRound), findsOneWidget);
