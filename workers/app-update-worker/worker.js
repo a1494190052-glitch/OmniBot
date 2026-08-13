@@ -8,6 +8,8 @@ const DEFAULT_ANALYTICS_DATASET = "omnibot_app_updates";
 const DEFAULT_MODELS_DEV_R2_PREFIX = "metadata/models-dev";
 const MODELS_DEV_PUBLIC_PATH = "/catalog/models-dev/api.json";
 const ADMIN_MODELS_DEV_PATH = "/admin/models-dev";
+const ADMIN_CLOUD_SERVICE_POLICY_PATH = "/admin/cloud-service-policy";
+const CLOUD_SERVICE_POLICY_OBJECT_KEY = "metadata/config/cloud-service-policy.json";
 const DOWNLOAD_ROUTE_PREFIX = "/downloads/";
 const ADMIN_RELEASE_ROUTE_PREFIX = "/admin/releases/";
 const ADMIN_ANALYTICS_ROUTE_PREFIX = "/admin/analytics/";
@@ -51,6 +53,7 @@ const worker = {
             "/admin",
             "/admin/api/session",
             ADMIN_MODELS_DEV_PATH,
+            ADMIN_CLOUD_SERVICE_POLICY_PATH,
             "/admin/releases",
             "/admin/releases/:tag",
             "/admin/releases/:tag/assets/:asset",
@@ -82,6 +85,16 @@ const worker = {
       if (pathname === ADMIN_MODELS_DEV_PATH && request.method === "GET") {
         requireAdmin(request, env);
         return await handleModelsDevStatus(env);
+      }
+
+      if (
+        pathname === ADMIN_CLOUD_SERVICE_POLICY_PATH &&
+        (request.method === "GET" || request.method === "PUT")
+      ) {
+        requireAdmin(request, env);
+        return request.method === "GET"
+          ? await handleGetCloudServicePolicy(env)
+          : await handlePutCloudServicePolicy(request, env);
       }
 
       if (request.method === "GET" && pathname.startsWith(ADMIN_ANALYTICS_ROUTE_PREFIX)) {
@@ -296,9 +309,12 @@ async function handleUpdateCheck(request, url, env) {
   const edition = normalizeEdition(url.searchParams.get("edition"));
   const source = normalizeSource(url.searchParams.get("source") || env.DEFAULT_SOURCE || "worker");
   const checkedAt = Date.now();
-  const cloudServicePolicy = buildCloudServicePolicy(currentVersion, env);
-
-  const releases = await loadReleases(requireBucket(env), env);
+  const bucket = requireBucket(env);
+  const [releases, cloudServicePolicyConfig] = await Promise.all([
+    loadReleases(bucket, env),
+    readCloudServicePolicyConfig(bucket),
+  ]);
+  const cloudServicePolicy = buildCloudServicePolicy(currentVersion, cloudServicePolicyConfig);
   const selected = selectLatestRelease(releases, includeBeta);
   const asset = selected ? selectPreferredApkAsset(selected.assets, edition) : null;
   const latestVersion = selected ? selected.version : currentVersion;
@@ -350,8 +366,8 @@ async function handleUpdateCheck(request, url, env) {
   });
 }
 
-function buildCloudServicePolicy(currentVersion, env) {
-  const configuredMinimum = stringValue(env.MIN_CLOUD_SERVICE_VERSION);
+function buildCloudServicePolicy(currentVersion, config) {
+  const configuredMinimum = stringValue(config?.minimumVersion);
   if (!configuredMinimum) {
     return {
       schemaVersion: 1,
@@ -367,7 +383,7 @@ function buildCloudServicePolicy(currentVersion, env) {
   const validCurrent = numericParts(currentVersion) !== null;
   const accessAllowed = validMinimum && validCurrent &&
     compareVersions(currentVersion, minimumVersion) >= 0;
-  const customMessage = stringValue(env.CLOUD_SERVICE_UPDATE_MESSAGE);
+  const customMessage = stringValue(config?.message);
   const message = accessAllowed
     ? ""
     : customMessage || (
@@ -382,6 +398,97 @@ function buildCloudServicePolicy(currentVersion, env) {
     minimumVersion,
     accessAllowed,
     message,
+  };
+}
+
+async function handleGetCloudServicePolicy(env) {
+  const policy = await readCloudServicePolicyConfig(requireBucket(env));
+  return json({ ok: true, policy });
+}
+
+async function handlePutCloudServicePolicy(request, env) {
+  const body = await readJson(request);
+  if (!body || typeof body !== "object" || Array.isArray(body)) {
+    throw httpError(400, "JSON object body is required");
+  }
+  if (!Object.prototype.hasOwnProperty.call(body, "minimumVersion")) {
+    throw httpError(400, "minimumVersion is required; use an empty string to disable the gate");
+  }
+  if (typeof body.minimumVersion !== "string") {
+    throw httpError(400, "minimumVersion must be a string");
+  }
+  if (body.message !== undefined && typeof body.message !== "string") {
+    throw httpError(400, "message must be a string");
+  }
+
+  const minimumVersion = normalizeVersion(body.minimumVersion);
+  if (minimumVersion && numericParts(minimumVersion) === null) {
+    throw httpError(400, "minimumVersion must contain only dot-separated numeric segments");
+  }
+  const message = stringValue(body.message);
+  if (message.length > 500) {
+    throw httpError(400, "message must be 500 characters or fewer");
+  }
+
+  const policy = {
+    schemaVersion: 1,
+    enabled: Boolean(minimumVersion),
+    minimumVersion,
+    message,
+    updatedAt: Date.now(),
+  };
+  await requireBucket(env).put(
+    CLOUD_SERVICE_POLICY_OBJECT_KEY,
+    JSON.stringify(policy),
+    cloudServicePolicyStorageOptions(policy),
+  );
+  return json({ ok: true, policy });
+}
+
+async function readCloudServicePolicyConfig(bucket) {
+  const object = await bucket.get(CLOUD_SERVICE_POLICY_OBJECT_KEY);
+  if (!object) {
+    return defaultCloudServicePolicyConfig();
+  }
+
+  try {
+    const stored = JSON.parse(await object.text());
+    const minimumVersion = normalizeVersion(stored?.minimumVersion);
+    const message = stringValue(stored?.message);
+    if ((minimumVersion && numericParts(minimumVersion) === null) || message.length > 500) {
+      throw new Error("invalid fields");
+    }
+    return {
+      schemaVersion: 1,
+      enabled: Boolean(minimumVersion),
+      minimumVersion,
+      message,
+      updatedAt: normalizeTimestamp(stored?.updatedAt),
+    };
+  } catch {
+    throw httpError(500, "Stored cloud-service policy is invalid");
+  }
+}
+
+function defaultCloudServicePolicyConfig() {
+  return {
+    schemaVersion: 1,
+    enabled: false,
+    minimumVersion: "",
+    message: "",
+    updatedAt: 0,
+  };
+}
+
+function cloudServicePolicyStorageOptions(policy) {
+  return {
+    httpMetadata: {
+      contentType: "application/json; charset=utf-8",
+    },
+    customMetadata: omitEmpty({
+      minimumVersion: policy.minimumVersion,
+      updatedAt: String(policy.updatedAt),
+    }),
   };
 }
 

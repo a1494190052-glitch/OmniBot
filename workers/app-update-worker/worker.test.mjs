@@ -145,11 +145,16 @@ test("serves CI-published R2 catalog with SHA conditional GET", async () => {
   assert.equal(await notModified.text(), "");
 });
 
-test("update checks expose a disabled cloud-service policy by default", async () => {
+test("update checks default to a disabled policy and ignore legacy environment values", async () => {
   const bucket = new MemoryR2Bucket();
+  const env = {
+    ...testEnv(bucket),
+    MIN_CLOUD_SERVICE_VERSION: "99.0",
+    CLOUD_SERVICE_UPDATE_MESSAGE: "legacy environment value",
+  };
   const response = await worker.fetch(
     new Request("https://updates.example/updates?currentVersion=0.5.6.1"),
-    testEnv(bucket),
+    env,
   );
 
   assert.equal(response.status, 200);
@@ -163,13 +168,63 @@ test("update checks expose a disabled cloud-service policy by default", async ()
   });
 });
 
-test("update checks block versions below the configured cloud-service floor", async () => {
+test("admin console exposes cloud-service policy controls", async () => {
+  const response = await worker.fetch(
+    new Request("https://updates.example/admin"),
+    testEnv(new MemoryR2Bucket()),
+  );
+  const html = await response.text();
+
+  assert.equal(response.status, 200);
+  assert.match(html, /id="nav-cloud-policy"/);
+  assert.match(html, /id="cloud-minimum-version"/);
+  assert.match(html, /id="cloud-policy-message"/);
+  assert.match(html, /\/admin\/cloud-service-policy/);
+  const script = html.split("<script>")[1]?.split("</script>")[0] || "";
+  assert.doesNotThrow(() => new Function(script));
+});
+
+test("admin UI policy is authenticated, stored in R2, and applied to update checks", async () => {
   const bucket = new MemoryR2Bucket();
-  const env = {
-    ...testEnv(bucket),
-    MIN_CLOUD_SERVICE_VERSION: "0.5.7",
-    CLOUD_SERVICE_UPDATE_MESSAGE: "Upgrade before using cloud services",
-  };
+  const env = testEnv(bucket);
+
+  const unauthorized = await worker.fetch(
+    new Request("https://updates.example/admin/cloud-service-policy"),
+    env,
+  );
+  assert.equal(unauthorized.status, 401);
+
+  const savedResponse = await worker.fetch(
+    new Request("https://updates.example/admin/cloud-service-policy", {
+      method: "PUT",
+      headers: {
+        authorization: "Bearer test-token",
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        minimumVersion: "v0.5.7",
+        message: "Upgrade before using cloud services",
+      }),
+    }),
+    env,
+  );
+  assert.equal(savedResponse.status, 200);
+  const saved = await savedResponse.json();
+  assert.equal(saved.policy.enabled, true);
+  assert.equal(saved.policy.minimumVersion, "0.5.7");
+  assert.equal(saved.policy.message, "Upgrade before using cloud services");
+
+  const storedObject = await bucket.get("metadata/config/cloud-service-policy.json");
+  assert.ok(storedObject);
+
+  const readResponse = await worker.fetch(
+    new Request("https://updates.example/admin/cloud-service-policy", {
+      headers: { authorization: "Bearer test-token" },
+    }),
+    env,
+  );
+  const read = await readResponse.json();
+  assert.equal(read.policy.minimumVersion, "0.5.7");
 
   const blockedResponse = await worker.fetch(
     new Request("https://updates.example/updates?currentVersion=0.5.6.15"),
@@ -191,6 +246,53 @@ test("update checks block versions below the configured cloud-service floor", as
   const allowed = await allowedResponse.json();
   assert.equal(allowed.cloudServicePolicy.accessAllowed, true);
   assert.equal(allowed.cloudServicePolicy.message, "");
+});
+
+test("admin UI can disable the cloud-service floor and rejects invalid versions", async () => {
+  const bucket = new MemoryR2Bucket();
+  const env = testEnv(bucket);
+  const headers = {
+    authorization: "Bearer test-token",
+    "content-type": "application/json",
+  };
+
+  const invalidResponse = await worker.fetch(
+    new Request("https://updates.example/admin/cloud-service-policy", {
+      method: "PUT",
+      headers,
+      body: JSON.stringify({ minimumVersion: "0.5.beta", message: "" }),
+    }),
+    env,
+  );
+  assert.equal(invalidResponse.status, 400);
+
+  await worker.fetch(
+    new Request("https://updates.example/admin/cloud-service-policy", {
+      method: "PUT",
+      headers,
+      body: JSON.stringify({ minimumVersion: "0.5.7", message: "blocked" }),
+    }),
+    env,
+  );
+  const disabledResponse = await worker.fetch(
+    new Request("https://updates.example/admin/cloud-service-policy", {
+      method: "PUT",
+      headers,
+      body: JSON.stringify({ minimumVersion: "", message: "" }),
+    }),
+    env,
+  );
+  const disabled = await disabledResponse.json();
+  assert.equal(disabled.policy.enabled, false);
+  assert.equal(disabled.policy.minimumVersion, "");
+
+  const updateResponse = await worker.fetch(
+    new Request("https://updates.example/updates?currentVersion=0.5.6.15"),
+    env,
+  );
+  const update = await updateResponse.json();
+  assert.equal(update.cloudServicePolicy.enabled, false);
+  assert.equal(update.cloudServicePolicy.accessAllowed, true);
 });
 
 test("falls back to the R2 object ETag when custom metadata is unavailable", async () => {
