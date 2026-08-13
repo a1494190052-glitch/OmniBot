@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:ui/constants/storage_keys.dart';
 import 'package:ui/core/router/go_router_manager.dart';
 import 'package:ui/features/my/pages/account/account_page.dart';
@@ -75,13 +76,19 @@ class _StartupAccountPromptState extends State<StartupAccountPrompt> {
           GoRouterManager.rootNavigatorKey.currentState;
       final navigatorContext = navigator?.context;
       if (navigatorContext == null || !navigatorContext.mounted) return;
-      await showDialog<bool>(
+      final dialogResult = await showDialog<bool>(
         context: navigatorContext,
         barrierDismissible: true,
         builder: (dialogContext) => _StartupAccountCard(
           onAuthenticated: () => Navigator.of(dialogContext).pop(true),
         ),
       );
+      if (dialogResult != true) {
+        await StorageService.setBool(
+          StorageKeys.startupAccountPromptDismissed,
+          true,
+        );
+      }
     } catch (_) {
       // Startup must stay non-blocking when the account or update service is
       // temporarily unavailable.
@@ -119,6 +126,10 @@ class _StartupAccountCard extends StatelessWidget {
               132.0,
               190.0,
             );
+            final sloganFontSize = (constraints.maxWidth * 0.05).clamp(
+              18.0,
+              22.0,
+            );
             final cardHeight = (desiredHeaderHeight + 372).clamp(
               0.0,
               constraints.maxHeight,
@@ -146,37 +157,48 @@ class _StartupAccountCard extends StatelessWidget {
                               ? Alignment.centerRight
                               : Alignment.center,
                         ),
+                        DecoratedBox(
+                          decoration: BoxDecoration(
+                            gradient: LinearGradient(
+                              begin: Alignment.topCenter,
+                              end: Alignment.bottomCenter,
+                              colors: <Color>[
+                                Colors.transparent,
+                                (context.isDarkTheme
+                                        ? Colors.black
+                                        : Colors.white)
+                                    .withValues(alpha: 0.32),
+                              ],
+                              stops: const <double>[0.42, 1],
+                            ),
+                          ),
+                        ),
+                        Positioned(
+                          left: 20,
+                          right: 68,
+                          bottom: 18,
+                          child: _StartupAccountSlogan(
+                            fontSize: sloganFontSize,
+                          ),
+                        ),
                         Positioned(
                           top: 10,
                           right: 10,
-                          child: TextButton(
-                            key: const ValueKey('startup-account-never-remind'),
-                            onPressed: () async {
-                              await StorageService.setBool(
-                                StorageKeys.startupAccountPromptDismissed,
-                                true,
-                              );
-                              if (context.mounted) {
-                                Navigator.of(context).pop(false);
-                              }
-                            },
-                            style: TextButton.styleFrom(
+                          child: IconButton(
+                            key: const ValueKey('startup-account-close'),
+                            tooltip:
+                                Localizations.localeOf(context).languageCode ==
+                                    'zh'
+                                ? '关闭并不再提醒'
+                                : 'Close and don\'t remind me again',
+                            onPressed: () => Navigator.of(context).pop(false),
+                            style: IconButton.styleFrom(
                               backgroundColor: palette.surfacePrimary
                                   .withValues(alpha: 0.82),
                               foregroundColor: palette.textPrimary,
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 12,
-                                vertical: 8,
-                              ),
-                              minimumSize: const Size(0, 36),
-                              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                              minimumSize: const Size.square(44),
                             ),
-                            child: Text(
-                              Localizations.localeOf(context).languageCode ==
-                                      'zh'
-                                  ? '不再提醒'
-                                  : 'Don\'t remind me again',
-                            ),
+                            icon: const Icon(LucideIcons.x, size: 20),
                           ),
                         ),
                       ],
@@ -193,6 +215,61 @@ class _StartupAccountCard extends StatelessWidget {
               ),
             );
           },
+        ),
+      ),
+    );
+  }
+}
+
+class _StartupAccountSlogan extends StatelessWidget {
+  const _StartupAccountSlogan({required this.fontSize});
+
+  static const _duration = Duration(milliseconds: 420);
+
+  final double fontSize;
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = context.isDarkTheme;
+    final slogan = Semantics(
+      header: true,
+      child: Text(
+        '小万通灵，云启大千',
+        key: const ValueKey('startup-account-slogan'),
+        maxLines: 1,
+        overflow: TextOverflow.fade,
+        softWrap: false,
+        style: TextStyle(
+          color: isDark ? const Color(0xFFF7F5F0) : const Color(0xFF273247),
+          fontSize: fontSize,
+          fontWeight: FontWeight.w700,
+          letterSpacing: 1,
+          shadows: <Shadow>[
+            Shadow(
+              color: (isDark ? Colors.black : Colors.white).withValues(
+                alpha: 0.42,
+              ),
+              blurRadius: 8,
+              offset: const Offset(0, 1),
+            ),
+          ],
+        ),
+      ),
+    );
+    final reduceMotion =
+        MediaQuery.maybeOf(context)?.disableAnimations ?? false;
+    if (reduceMotion) return slogan;
+    return TweenAnimationBuilder<double>(
+      key: const ValueKey('startup-account-slogan-animation'),
+      tween: Tween<double>(begin: 0, end: 1),
+      duration: _duration,
+      curve: Curves.easeOutCubic,
+      child: slogan,
+      builder: (context, value, child) => Opacity(
+        opacity: value,
+        child: Transform.translate(
+          offset: Offset(0, 8 * (1 - value)),
+          child: child,
         ),
       ),
     );

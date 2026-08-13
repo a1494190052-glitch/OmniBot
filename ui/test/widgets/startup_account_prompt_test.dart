@@ -101,11 +101,20 @@ void main() {
             .height,
         lessThan(600),
       );
-
-      expect(find.text('不再提醒'), findsOneWidget);
-      await tester.tap(
-        find.byKey(const ValueKey('startup-account-never-remind')),
+      expect(find.text('小万通灵，云启大千'), findsOneWidget);
+      final sloganRect = tester.getRect(
+        find.byKey(const ValueKey('startup-account-slogan')),
       );
+      expect(headerRect.contains(sloganRect.bottomLeft), isTrue);
+      expect(headerRect.contains(sloganRect.bottomRight), isTrue);
+      final sloganAnimation = tester.widget<TweenAnimationBuilder<double>>(
+        find.byKey(const ValueKey('startup-account-slogan-animation')),
+      );
+      expect(sloganAnimation.duration, const Duration(milliseconds: 420));
+
+      expect(find.text('不再提醒'), findsNothing);
+      expect(find.byTooltip('关闭并不再提醒'), findsOneWidget);
+      await tester.tap(find.byKey(const ValueKey('startup-account-close')));
       await tester.pumpAndSettle();
       expect(find.byKey(const ValueKey('startup-account-card')), findsNothing);
       expect(
@@ -117,6 +126,43 @@ void main() {
       );
     },
   );
+
+  testWidgets('dismissing outside the card also disables future prompts', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(390, 844);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final navigatorKey = GlobalKey<NavigatorState>();
+
+    await tester.pumpWidget(
+      MaterialApp(
+        navigatorKey: navigatorKey,
+        home: StartupAccountPrompt(
+          navigatorKey: navigatorKey,
+          refreshVersionPolicy: () async {},
+          loadSession: () async =>
+              const AccountSessionState(configured: true, signedIn: false),
+          child: const Scaffold(body: Text('home')),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const ValueKey('startup-account-card')), findsOneWidget);
+    await tester.tapAt(const Offset(4, 4));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const ValueKey('startup-account-card')), findsNothing);
+    expect(
+      StorageService.getBool(
+        StorageKeys.startupAccountPromptDismissed,
+        defaultValue: false,
+      ),
+      isTrue,
+    );
+  });
 
   testWidgets('uses the dark satin header in dark mode', (tester) async {
     final navigatorKey = GlobalKey<NavigatorState>();
@@ -225,7 +271,7 @@ void main() {
     expect(find.byKey(const ValueKey('startup-account-card')), findsOneWidget);
   });
 
-  testWidgets('does not prompt again after never remind is stored', (
+  testWidgets('does not prompt again after dismissal is stored', (
     tester,
   ) async {
     await StorageService.setBool(
