@@ -1334,6 +1334,8 @@ mixin _ChatPageUiMixin on _ChatPageStateBase {
                       onTriggerSlashCommand: _triggerSlashCommandPanel,
                       attachments: _pendingAttachments,
                       hasExternalSendPayload: _editingUserMessageHasAttachments,
+                      isEditingUserMessage: _editingUserMessageId != null,
+                      onCancelUserMessageEditing: _stopUserMessageEditing,
                       onRemoveAttachment: _removePendingAttachment,
                       selectedModelOverrideId:
                           _activeMode == ChatPageMode.normal &&

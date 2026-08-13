@@ -871,6 +871,190 @@ void main() {
     expect(sendCount, 1);
   });
 
+  testWidgets(
+    'user message editing keeps only cancel and send composer actions',
+    (tester) async {
+      var isEditing = false;
+      StateSetter? setHostState;
+      final controller = TextEditingController(text: 'original');
+      final focusNode = FocusNode();
+      addTearDown(controller.dispose);
+      addTearDown(focusNode.dispose);
+
+      await tester.pumpWidget(
+        DefaultAssetBundle(
+          bundle: _TestAssetBundle(),
+          child: MaterialApp(
+            home: Scaffold(
+              body: StatefulBuilder(
+                builder: (context, setState) {
+                  setHostState = setState;
+                  return ChatInputArea(
+                    controller: controller,
+                    focusNode: focusNode,
+                    isProcessing: false,
+                    onSendMessage: () {},
+                    onCancelTask: () {},
+                    useLargeComposerStyle: true,
+                    isEditingUserMessage: isEditing,
+                    onCancelUserMessageEditing: () {
+                      setState(() => isEditing = false);
+                    },
+                    contextUsageRatio: 0.5,
+                    onTriggerSlashCommand: () {},
+                    modelPickerSettings: ChatModelPickerSettings(
+                      modelId: 'gpt-5.4-chat-preview',
+                      hasSelectableModels: true,
+                      onOpen: (_) {},
+                    ),
+                  );
+                },
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+
+      expect(
+        find.byKey(const ValueKey('chat-input-trigger-slash-button')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const ValueKey('chat-input-model-picker-button')),
+        findsOneWidget,
+      );
+
+      setHostState!(() => isEditing = true);
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 220));
+
+      final cancelButton = find.byKey(
+        const ValueKey('chat-input-add-or-cancel-edit-button'),
+      );
+      expect(cancelButton, findsOneWidget);
+      expect(
+        tester
+            .widget<AnimatedRotation>(
+              find.byKey(const ValueKey('chat-input-add-or-cancel-edit-icon')),
+            )
+            .turns,
+        0.125,
+      );
+      expect(
+        find.byKey(const ValueKey('chat-input-send-or-stop-button')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const ValueKey('chat-input-trigger-slash-button')),
+        findsNothing,
+      );
+      expect(
+        find.byKey(const ValueKey('chat-input-model-picker-button')),
+        findsNothing,
+      );
+      expect(find.byTooltip('Open terminal'), findsNothing);
+      expect(
+        find.byWidgetPredicate(
+          (widget) =>
+              widget is CustomPaint &&
+              widget.painter.runtimeType.toString() ==
+                  '_ContextUsageRingPainter',
+        ),
+        findsNothing,
+      );
+
+      await tester.tap(cancelButton);
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 220));
+
+      expect(isEditing, isFalse);
+      expect(
+        tester
+            .widget<AnimatedRotation>(
+              find.byKey(const ValueKey('chat-input-add-or-cancel-edit-icon')),
+            )
+            .turns,
+        0,
+      );
+      expect(
+        find.byKey(const ValueKey('chat-input-trigger-slash-button')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const ValueKey('chat-input-model-picker-button')),
+        findsOneWidget,
+      );
+    },
+  );
+
+  testWidgets('tapping outside a focused composer exits message editing', (
+    tester,
+  ) async {
+    var isEditing = true;
+    final controller = TextEditingController(text: 'original');
+    final focusNode = FocusNode();
+    addTearDown(controller.dispose);
+    addTearDown(focusNode.dispose);
+
+    await tester.pumpWidget(
+      DefaultAssetBundle(
+        bundle: _TestAssetBundle(),
+        child: MaterialApp(
+          home: Scaffold(
+            body: StatefulBuilder(
+              builder: (context, setState) {
+                return Column(
+                  children: [
+                    const Expanded(
+                      child: _OpaqueTestTapTarget(
+                        key: ValueKey('chat-input-test-outside-target'),
+                      ),
+                    ),
+                    ChatInputArea(
+                      controller: controller,
+                      focusNode: focusNode,
+                      isProcessing: false,
+                      onSendMessage: () {},
+                      onCancelTask: () {},
+                      useLargeComposerStyle: true,
+                      isEditingUserMessage: isEditing,
+                      onCancelUserMessageEditing: () {
+                        setState(() => isEditing = false);
+                        controller.clear();
+                      },
+                      onTriggerSlashCommand: () {},
+                    ),
+                  ],
+                );
+              },
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    focusNode.requestFocus();
+    await tester.pump();
+    expect(focusNode.hasFocus, isTrue);
+    expect(isEditing, isTrue);
+
+    await tester.tap(
+      find.byKey(const ValueKey('chat-input-test-outside-target')),
+    );
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 220));
+
+    expect(focusNode.hasFocus, isFalse);
+    expect(isEditing, isFalse);
+    expect(controller.text, isEmpty);
+    expect(
+      find.byKey(const ValueKey('chat-input-trigger-slash-button')),
+      findsOneWidget,
+    );
+  });
+
   testWidgets('compact composer keeps send action', (tester) async {
     await tester.pumpWidget(
       _buildTestApp(contextUsageRatio: null, useLargeComposerStyle: false),
@@ -943,5 +1127,18 @@ class _TestAssetBundle extends CachingAssetBundle {
   @override
   Future<String> loadString(String key, {bool cache = true}) async {
     return _svg;
+  }
+}
+
+class _OpaqueTestTapTarget extends StatelessWidget {
+  const _OpaqueTestTapTarget({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: () {},
+      child: const SizedBox.expand(),
+    );
   }
 }

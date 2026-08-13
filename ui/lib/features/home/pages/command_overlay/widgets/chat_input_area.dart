@@ -140,6 +140,8 @@ class ChatInputArea extends StatefulWidget {
   final Future<void> Function()? onPickAttachment;
   final List<ChatInputAttachment> attachments;
   final bool hasExternalSendPayload;
+  final bool isEditingUserMessage;
+  final VoidCallback? onCancelUserMessageEditing;
   final ValueChanged<String>? onRemoveAttachment;
   final VoidCallback? onTriggerSlashCommand;
   final String? selectedModelOverrideId;
@@ -176,6 +178,8 @@ class ChatInputArea extends StatefulWidget {
     this.onPickAttachment,
     this.attachments = const [],
     this.hasExternalSendPayload = false,
+    this.isEditingUserMessage = false,
+    this.onCancelUserMessageEditing,
     this.onRemoveAttachment,
     this.onTriggerSlashCommand,
     this.selectedModelOverrideId,

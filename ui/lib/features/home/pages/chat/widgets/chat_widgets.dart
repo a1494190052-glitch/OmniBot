@@ -2614,6 +2614,8 @@ class ChatInputWrapper extends StatelessWidget {
   final Future<void> Function()? onPickAttachment;
   final List<ChatInputAttachment> attachments;
   final bool hasExternalSendPayload;
+  final bool isEditingUserMessage;
+  final VoidCallback? onCancelUserMessageEditing;
   final ValueChanged<String>? onRemoveAttachment;
   final VoidCallback? onTriggerSlashCommand;
   final Widget? topBanner;
@@ -2652,6 +2654,8 @@ class ChatInputWrapper extends StatelessWidget {
     this.onPickAttachment,
     this.attachments = const [],
     this.hasExternalSendPayload = false,
+    this.isEditingUserMessage = false,
+    this.onCancelUserMessageEditing,
     this.onRemoveAttachment,
     this.onTriggerSlashCommand,
     this.topBanner,
@@ -2700,6 +2704,8 @@ class ChatInputWrapper extends StatelessWidget {
             onPickAttachment: onPickAttachment,
             attachments: attachments,
             hasExternalSendPayload: hasExternalSendPayload,
+            isEditingUserMessage: isEditingUserMessage,
+            onCancelUserMessageEditing: onCancelUserMessageEditing,
             onRemoveAttachment: onRemoveAttachment,
             onTriggerSlashCommand: onTriggerSlashCommand,
             selectedModelOverrideId: selectedModelOverrideId,
