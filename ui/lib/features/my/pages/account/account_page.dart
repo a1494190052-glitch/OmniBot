@@ -10,8 +10,24 @@ import 'package:ui/widgets/app_update_dialog.dart';
 import 'package:ui/widgets/common_app_bar.dart';
 import 'package:ui/widgets/settings_section_title.dart';
 
+String formatWeeklyQuotaResetCountdown(DateTime now, {required bool english}) {
+  final startOfToday = DateTime(now.year, now.month, now.day);
+  final nextMonday = startOfToday.add(Duration(days: 8 - now.weekday));
+  final remaining = nextMonday.difference(now);
+  final totalHours = (remaining.inMinutes / Duration.minutesPerHour).ceil();
+  final days = totalHours ~/ Duration.hoursPerDay;
+  final hours = totalHours % Duration.hoursPerDay;
+  return english ? '${days}d ${hours}h' : '$days天 $hours小时';
+}
+
 class AccountPage extends StatefulWidget {
-  const AccountPage({super.key});
+  const AccountPage({super.key}) : authOnly = false, onAuthenticated = null;
+
+  const AccountPage.authOnly({super.key, this.onAuthenticated})
+    : authOnly = true;
+
+  final bool authOnly;
+  final VoidCallback? onAuthenticated;
 
   @override
   State<AccountPage> createState() => _AccountPageState();
@@ -194,6 +210,7 @@ class _AccountPageState extends State<AccountPage> {
               ? _text('注册并登录成功', 'Account created and signed in')
               : _text('登录成功', 'Signed in'),
         );
+        widget.onAuthenticated?.call();
       }
     });
   }
@@ -870,24 +887,32 @@ class _AccountPageState extends State<AccountPage> {
   @override
   Widget build(BuildContext context) {
     final palette = context.omniPalette;
+    final content = Stack(
+      children: [
+        Positioned.fill(child: _buildBody()),
+        if (_busy)
+          Positioned.fill(
+            child: ColoredBox(
+              color: palette.overlayScrim,
+              child: const Center(child: CircularProgressIndicator()),
+            ),
+          ),
+      ],
+    );
+    if (widget.authOnly) {
+      return ColoredBox(
+        key: const ValueKey('account-auth-only-surface'),
+        color: Colors.transparent,
+        child: content,
+      );
+    }
     return Scaffold(
       backgroundColor: palette.pageBackground,
       appBar: CommonAppBar(
         title: _text('账号与 AI 服务', 'Account & AI service'),
         primary: true,
       ),
-      body: Stack(
-        children: [
-          Positioned.fill(child: _buildBody()),
-          if (_busy)
-            Positioned.fill(
-              child: ColoredBox(
-                color: palette.overlayScrim,
-                child: const Center(child: CircularProgressIndicator()),
-              ),
-            ),
-        ],
-      ),
+      body: content,
     );
   }
 
@@ -900,7 +925,47 @@ class _AccountPageState extends State<AccountPage> {
       return _buildCloudServiceBlocked(session);
     }
     if (!session.signedIn || _overview == null) return _buildAuthForm();
+    if (widget.authOnly) return _buildAuthenticatedAuthState(_overview!);
     return _buildSignedIn(_overview!);
+  }
+
+  Widget _buildAuthenticatedAuthState(AccountOverview overview) {
+    final palette = context.omniPalette;
+    return Center(
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              LucideIcons.circleCheckBig,
+              size: 42,
+              color: palette.accentPrimary,
+            ),
+            const SizedBox(height: 14),
+            Text(
+              _text('当前账号已登录', 'You are signed in'),
+              style: Theme.of(context).textTheme.titleLarge,
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 6),
+            Text(
+              overview.user.email,
+              style: TextStyle(color: palette.textSecondary),
+              textAlign: TextAlign.center,
+            ),
+            if (widget.onAuthenticated != null) ...[
+              const SizedBox(height: 22),
+              FilledButton(
+                key: const ValueKey('account-auth-finish'),
+                onPressed: widget.onAuthenticated,
+                child: Text(_text('完成', 'Done')),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
   }
 
   Widget _buildErrorState() {
@@ -1472,6 +1537,7 @@ class _AccountPageState extends State<AccountPage> {
 
   Widget _buildSignedIn(AccountOverview overview) {
     final settings = overview.settings;
+    final platformQuota = settings.platform;
     final quotaSubtitle = !settings.platformAvailable
         ? _text(
             settings.platformUnavailableReason ?? '平台 AI 服务暂未开放，额度将在开放后使用',
@@ -1505,41 +1571,17 @@ class _AccountPageState extends State<AccountPage> {
               icon: LucideIcons.coins,
               title: _text('平台额度', 'Platform quota'),
               subtitle: quotaSubtitle,
-              trailing: settings.platformAvailable
-                  ? Text(
-                      '${settings.platform.balance}',
-                      style: TextStyle(
-                        color: context.omniPalette.accentPrimary,
-                        fontSize: 20,
-                        fontWeight: FontWeight.w700,
-                      ),
+              secondarySubtitle:
+                  settings.platformAvailable && platformQuota.weeklyLimit > 0
+                  ? _text(
+                      '距离重置 ${formatWeeklyQuotaResetCountdown(DateTime.now(), english: false)} · 周一 00:00',
+                      'Resets in ${formatWeeklyQuotaResetCountdown(DateTime.now(), english: true)} · Monday 00:00',
                     )
                   : null,
+              trailing: settings.platformAvailable
+                  ? _platformQuotaValue(platformQuota)
+                  : null,
             ),
-            if (settings.platformAvailable &&
-                settings.platform.weeklyLimit > 0) ...[
-              _sectionDivider(),
-              _summaryRow(
-                icon: LucideIcons.calendarDays,
-                title: _text('本周剩余额度', 'Remaining this week'),
-                subtitle: _text(
-                  '文字、识图、图片、语音共用，每周一自动恢复',
-                  'Shared by text, vision, images and voice; resets every Monday',
-                ),
-                secondarySubtitle: _text(
-                  '本周已用/预占 ${settings.platform.weeklyUsed} / ${settings.platform.weeklyLimit}',
-                  'Used/reserved ${settings.platform.weeklyUsed} / ${settings.platform.weeklyLimit}',
-                ),
-                trailing: Text(
-                  '${(settings.platform.weeklyLimit - settings.platform.weeklyUsed).clamp(0, settings.platform.weeklyLimit)}',
-                  style: TextStyle(
-                    color: context.omniPalette.accentPrimary,
-                    fontSize: 20,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-              ),
-            ],
             const SizedBox(height: 24),
             SettingsSectionTitle(label: _text('账号管理', 'Account management')),
             _accountAction(
@@ -1587,6 +1629,71 @@ class _AccountPageState extends State<AccountPage> {
           ],
         ),
       ),
+    );
+  }
+
+  Widget _platformQuotaValue(PlatformQuota quota) {
+    final palette = context.omniPalette;
+    final limit = quota.weeklyLimit;
+    if (limit <= 0) {
+      return Text(
+        '${quota.balance}',
+        style: TextStyle(
+          color: palette.accentPrimary,
+          fontSize: 22,
+          fontWeight: FontWeight.w700,
+        ),
+      );
+    }
+    final balance = quota.balance;
+    final percentage = (balance / limit * 100).clamp(0, 100).round();
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.end,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        RichText(
+          key: const ValueKey('account-platform-quota-ratio'),
+          text: TextSpan(
+            children: [
+              TextSpan(
+                text: '$balance',
+                style: TextStyle(
+                  color: palette.accentPrimary,
+                  fontSize: 23,
+                  fontWeight: FontWeight.w800,
+                  height: 1.1,
+                ),
+              ),
+              TextSpan(
+                text: '/',
+                style: TextStyle(
+                  color: palette.textTertiary,
+                  fontSize: 13,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+              TextSpan(
+                text: '$limit',
+                style: TextStyle(
+                  color: palette.textSecondary,
+                  fontSize: 15,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 3),
+        Text(
+          '$percentage%',
+          key: const ValueKey('account-platform-quota-percent'),
+          style: TextStyle(
+            color: palette.textSecondary,
+            fontSize: 11,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+      ],
     );
   }
 
