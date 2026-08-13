@@ -69,6 +69,46 @@ void main() {
   });
 
   testWidgets(
+    'blocks account UI on old versions while preserving BYOK guidance',
+    (tester) async {
+      var overviewCalls = 0;
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(channel, (call) async {
+            if (call.method == 'getSessionState') {
+              return <String, Object?>{
+                'configured': true,
+                'signedIn': false,
+                'cloudServiceAccessAllowed': false,
+                'cloudServicePolicyKnown': true,
+                'currentVersion': '0.5.6.15',
+                'minimumVersion': '0.5.7',
+                'cloudServiceUnavailableReason': '请升级到最新版',
+              };
+            }
+            if (call.method == 'getOverview') overviewCalls += 1;
+            return null;
+          });
+
+      await tester.pumpWidget(_testApp());
+      await tester.pumpAndSettle();
+
+      expect(
+        find.byKey(const ValueKey('account-cloud-service-version-gate')),
+        findsOneWidget,
+      );
+      expect(find.text('请升级到最新版'), findsOneWidget);
+      expect(find.text('当前 v0.5.6.15 · 最低 v0.5.7'), findsOneWidget);
+      expect(find.textContaining('BYOK'), findsOneWidget);
+      expect(
+        find.byKey(const ValueKey('account-required-update-action')),
+        findsOneWidget,
+      );
+      expect(find.byKey(const Key('submit-auth')), findsNothing);
+      expect(overviewCalls, 0);
+    },
+  );
+
+  testWidgets(
     'shows email and quota without an AI source chooser after login',
     (tester) async {
       tester.view.physicalSize = const Size(375, 812);

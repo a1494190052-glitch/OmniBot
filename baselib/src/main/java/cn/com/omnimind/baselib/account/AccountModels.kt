@@ -110,6 +110,27 @@ data class AiSettings(
         get() = if (platformAvailable) mode else AiAccessMode.BYOK
 }
 
+/**
+ * Client-side result of the update Worker's cloud-service version policy.
+ *
+ * Account and official AI traffic fail closed while the policy is unknown or
+ * stale. Local BYOK providers do not use this state and remain available.
+ */
+data class CloudServiceAccessState(
+    val allowed: Boolean,
+    val policyKnown: Boolean,
+    val currentVersion: String = "",
+    val minimumVersion: String = "",
+    val message: String = "",
+) {
+    companion object {
+        fun allowedByDefault(): CloudServiceAccessState = CloudServiceAccessState(
+            allowed = true,
+            policyKnown = true,
+        )
+    }
+}
+
 open class AccountException(message: String, cause: Throwable? = null) :
     Exception(message, cause)
 
@@ -121,6 +142,15 @@ class AccountNotAuthenticatedException :
 
 class AccountCredentialStorageException :
     AccountException("Secure account credential storage is unavailable")
+
+class CloudServiceUpgradeRequiredException(
+    val currentVersion: String,
+    val minimumVersion: String,
+    message: String,
+) : AccountException(message)
+
+class CloudServicePolicyUnavailableException(message: String) :
+    AccountException(message)
 
 class PlatformGatewayNotConfiguredException :
     AccountException("Platform AI gateway is not configured")

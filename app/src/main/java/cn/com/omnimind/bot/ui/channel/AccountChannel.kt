@@ -10,6 +10,8 @@ import cn.com.omnimind.baselib.account.AccountProtocolException
 import cn.com.omnimind.baselib.account.AccountUser
 import cn.com.omnimind.baselib.account.AiAccessMode
 import cn.com.omnimind.baselib.account.AiSettings
+import cn.com.omnimind.baselib.account.CloudServicePolicyUnavailableException
+import cn.com.omnimind.baselib.account.CloudServiceUpgradeRequiredException
 import cn.com.omnimind.baselib.account.OmniAccount
 import cn.com.omnimind.baselib.account.PlatformUsageEntry
 import cn.com.omnimind.baselib.account.PlatformGatewayNotConfiguredException
@@ -50,9 +52,15 @@ class AccountChannel {
     private fun handleMethodCall(call: MethodCall, result: MethodChannel.Result) {
         when (call.method) {
             "getSessionState" -> launch(result) {
+                val cloudServiceAccess = OmniAccount.currentCloudServiceAccess()
                 mapOf(
                     "configured" to OmniAccount.isConfigured(),
                     "signedIn" to (OmniAccount.isConfigured() && OmniAccount.repository().isSignedIn()),
+                    "cloudServiceAccessAllowed" to cloudServiceAccess.allowed,
+                    "cloudServicePolicyKnown" to cloudServiceAccess.policyKnown,
+                    "currentVersion" to cloudServiceAccess.currentVersion,
+                    "minimumVersion" to cloudServiceAccess.minimumVersion,
+                    "cloudServiceUnavailableReason" to cloudServiceAccess.message,
                 )
             }
 
@@ -357,6 +365,8 @@ internal object NativeChannelErrorPrivacy {
         "ACCOUNT_NOT_CONFIGURED" to "The account service is not configured.",
         "ACCOUNT_PROTOCOL_ERROR" to "The account service returned an invalid response.",
         "ACCOUNT_UNEXPECTED_ERROR" to "The account service is temporarily unavailable.",
+        "CLOUD_SERVICE_POLICY_UNAVAILABLE" to "Connect to the internet and check for updates before using account services.",
+        "CLOUD_SERVICE_UPDATE_REQUIRED" to "Update the app before using account and official cloud services.",
         "INVALID_ARGUMENT" to "The account request is invalid.",
         "NOT_AUTHENTICATED" to "Sign in before using this account operation.",
         "PLATFORM_GATEWAY_NOT_CONFIGURED" to "The platform AI gateway is not configured.",
@@ -453,6 +463,18 @@ internal object NativeChannelErrorPrivacy {
             is AccountCredentialStorageException -> NativeChannelFailure(
                 "ACCOUNT_CREDENTIAL_STORAGE_UNAVAILABLE",
                 accountMessages.getValue("ACCOUNT_CREDENTIAL_STORAGE_UNAVAILABLE"),
+            )
+            is CloudServiceUpgradeRequiredException -> NativeChannelFailure(
+                "CLOUD_SERVICE_UPDATE_REQUIRED",
+                accountMessages.getValue("CLOUD_SERVICE_UPDATE_REQUIRED"),
+                mapOf(
+                    "currentVersion" to error.currentVersion,
+                    "minimumVersion" to error.minimumVersion,
+                ),
+            )
+            is CloudServicePolicyUnavailableException -> NativeChannelFailure(
+                "CLOUD_SERVICE_POLICY_UNAVAILABLE",
+                accountMessages.getValue("CLOUD_SERVICE_POLICY_UNAVAILABLE"),
             )
             is PlatformGatewayNotConfiguredException -> NativeChannelFailure(
                 "PLATFORM_GATEWAY_NOT_CONFIGURED",

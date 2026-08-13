@@ -3,8 +3,10 @@ import 'package:flutter/services.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:ui/features/my/pages/account/account_lifecycle_sheets.dart';
 import 'package:ui/services/account_service.dart';
+import 'package:ui/services/app_update_service.dart';
 import 'package:ui/theme/theme_context.dart';
 import 'package:ui/utils/ui.dart';
+import 'package:ui/widgets/app_update_dialog.dart';
 import 'package:ui/widgets/common_app_bar.dart';
 import 'package:ui/widgets/settings_section_title.dart';
 
@@ -73,9 +75,20 @@ class _AccountPageState extends State<AccountPage> {
       });
     }
     try {
-      final session = await AccountService.getSessionState();
+      var session = await AccountService.getSessionState();
+      if (session.configured && !session.cloudServicePolicyKnown) {
+        try {
+          await AppUpdateService.checkNow();
+          session = await AccountService.getSessionState();
+        } catch (_) {
+          // The native account guard remains fail-closed. Keep the policy
+          // unavailable state so the page can offer an explicit retry.
+        }
+      }
       AccountOverview? overview;
-      if (session.configured && session.signedIn) {
+      if (session.configured &&
+          session.signedIn &&
+          session.cloudServiceAccessAllowed) {
         overview = await AccountService.getOverview();
       }
       if (!mounted) return;
@@ -830,6 +843,16 @@ class _AccountPageState extends State<AccountPage> {
         return _text('请重新发送验证码', 'Request a new verification code');
       case 'ACCOUNT_NOT_CONFIGURED':
         return _text('账号服务尚未配置', 'Account service is not configured');
+      case 'CLOUD_SERVICE_UPDATE_REQUIRED':
+        return _text(
+          '当前版本过旧，请升级后使用账号与官方云服务',
+          'Update the app before using account and official cloud services',
+        );
+      case 'CLOUD_SERVICE_POLICY_UNAVAILABLE':
+        return _text(
+          '请联网检查更新后再使用账号服务',
+          'Connect to the internet and check for updates before using account services',
+        );
       default:
         return _text('操作失败，请稍后重试', 'Operation failed. Try again later.');
     }
@@ -873,6 +896,9 @@ class _AccountPageState extends State<AccountPage> {
     final session = _session;
     if (session == null) return _buildErrorState();
     if (!session.configured) return _buildNotConfigured();
+    if (!session.cloudServiceAccessAllowed) {
+      return _buildCloudServiceBlocked(session);
+    }
     if (!session.signedIn || _overview == null) return _buildAuthForm();
     return _buildSignedIn(_overview!);
   }
@@ -936,6 +962,122 @@ class _AccountPageState extends State<AccountPage> {
         ],
       ),
     );
+  }
+
+  Widget _buildCloudServiceBlocked(AccountSessionState session) {
+    final policyKnown = session.cloudServicePolicyKnown;
+    final minimumVersion = session.minimumVersion;
+    final currentVersion = session.currentVersion.isEmpty
+        ? '-'
+        : session.currentVersion;
+    final reason =
+        session.cloudServiceUnavailableReason ??
+        (policyKnown
+            ? _text(
+                '当前版本过旧，请升级后继续使用账号与官方云服务。',
+                'This version is too old for account and official cloud services.',
+              )
+            : _text(
+                '尚未取得有效的云服务版本策略，请联网检查更新。',
+                'A valid cloud-service version policy is not available. Check for updates while online.',
+              ));
+    return SafeArea(
+      top: false,
+      bottom: false,
+      child: ListView(
+        key: const ValueKey('account-cloud-service-version-gate'),
+        padding: edgeToEdgeScrollPadding(
+          context,
+          const EdgeInsets.fromLTRB(18, 10, 18, 28),
+        ),
+        children: [
+          SettingsSectionTitle(
+            label: policyKnown
+                ? _text('需要升级', 'Update required')
+                : _text('需要检查更新', 'Update check required'),
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(4, 4, 4, 12),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Icon(
+                  LucideIcons.cloudOff,
+                  size: 28,
+                  color: context.omniPalette.textSecondary,
+                ),
+                const SizedBox(height: 14),
+                Text(reason, style: Theme.of(context).textTheme.titleMedium),
+                if (minimumVersion.isNotEmpty) ...[
+                  const SizedBox(height: 10),
+                  Text(
+                    _text(
+                      '当前 v$currentVersion · 最低 v$minimumVersion',
+                      'Current v$currentVersion · Minimum v$minimumVersion',
+                    ),
+                    style: TextStyle(color: context.omniPalette.textSecondary),
+                  ),
+                ],
+                const SizedBox(height: 10),
+                Text(
+                  _text(
+                    '账号注册、登录与官方 AI 已停用；返回后仍可继续使用自己的 API Key（BYOK）。',
+                    'Account sign-up, sign-in, and official AI are disabled. You can go back and keep using your own API key (BYOK).',
+                  ),
+                  style: TextStyle(color: context.omniPalette.textSecondary),
+                ),
+                const SizedBox(height: 20),
+                FilledButton.icon(
+                  key: const ValueKey('account-required-update-action'),
+                  onPressed: _busy ? null : _checkRequiredUpdate,
+                  icon: Icon(
+                    policyKnown ? LucideIcons.download : LucideIcons.refreshCw,
+                    size: 18,
+                  ),
+                  label: Text(
+                    policyKnown
+                        ? _text('立即升级', 'Update now')
+                        : _text('检查更新', 'Check for updates'),
+                  ),
+                ),
+                if (session.signedIn) ...[
+                  const SizedBox(height: 8),
+                  TextButton(
+                    key: const ValueKey('account-gated-logout-action'),
+                    onPressed: _busy ? null : _logout,
+                    child: Text(_text('退出登录', 'Sign out')),
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _checkRequiredUpdate() async {
+    await _withBusy(() async {
+      final status = await AppUpdateService.checkNow();
+      final refreshedSession = await AccountService.getSessionState();
+      if (!mounted) return;
+      setState(() => _session = refreshedSession);
+      if (refreshedSession.cloudServiceAccessAllowed) {
+        await _loadAccount();
+        return;
+      }
+      if (status?.hasUpdate == true) {
+        await showAppUpdateDialog(context, status!);
+        return;
+      }
+      showToast(
+        _text(
+          '当前没有可安装的新版本，请稍后重试',
+          'No installable update is available. Try again later.',
+        ),
+        type: ToastType.warning,
+      );
+    });
   }
 
   Widget _buildAuthForm() {

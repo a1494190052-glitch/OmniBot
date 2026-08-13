@@ -57,6 +57,12 @@ class MemoryR2Bucket {
     this.objects.set(key, object);
     return object;
   }
+
+  async list({ prefix = "" } = {}) {
+    const objects = [...this.objects.values()]
+      .filter((object) => object.key.startsWith(prefix));
+    return { objects, truncated: false };
+  }
 }
 
 function testEnv(bucket) {
@@ -137,6 +143,54 @@ test("serves CI-published R2 catalog with SHA conditional GET", async () => {
   );
   assert.equal(notModified.status, 304);
   assert.equal(await notModified.text(), "");
+});
+
+test("update checks expose a disabled cloud-service policy by default", async () => {
+  const bucket = new MemoryR2Bucket();
+  const response = await worker.fetch(
+    new Request("https://updates.example/updates?currentVersion=0.5.6.1"),
+    testEnv(bucket),
+  );
+
+  assert.equal(response.status, 200);
+  const payload = await response.json();
+  assert.deepEqual(payload.cloudServicePolicy, {
+    schemaVersion: 1,
+    enabled: false,
+    minimumVersion: "",
+    accessAllowed: true,
+    message: "",
+  });
+});
+
+test("update checks block versions below the configured cloud-service floor", async () => {
+  const bucket = new MemoryR2Bucket();
+  const env = {
+    ...testEnv(bucket),
+    MIN_CLOUD_SERVICE_VERSION: "0.5.7",
+    CLOUD_SERVICE_UPDATE_MESSAGE: "Upgrade before using cloud services",
+  };
+
+  const blockedResponse = await worker.fetch(
+    new Request("https://updates.example/updates?currentVersion=0.5.6.15"),
+    env,
+  );
+  const blocked = await blockedResponse.json();
+  assert.equal(blocked.cloudServicePolicy.enabled, true);
+  assert.equal(blocked.cloudServicePolicy.minimumVersion, "0.5.7");
+  assert.equal(blocked.cloudServicePolicy.accessAllowed, false);
+  assert.equal(
+    blocked.cloudServicePolicy.message,
+    "Upgrade before using cloud services",
+  );
+
+  const allowedResponse = await worker.fetch(
+    new Request("https://updates.example/updates?currentVersion=0.5.7"),
+    env,
+  );
+  const allowed = await allowedResponse.json();
+  assert.equal(allowed.cloudServicePolicy.accessAllowed, true);
+  assert.equal(allowed.cloudServicePolicy.message, "");
 });
 
 test("falls back to the R2 object ETag when custom metadata is unavailable", async () => {

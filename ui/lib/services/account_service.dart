@@ -3,15 +3,41 @@ import 'package:flutter/services.dart';
 enum AiAccessMode { platform, byok }
 
 class AccountSessionState {
-  const AccountSessionState({required this.configured, required this.signedIn});
+  const AccountSessionState({
+    required this.configured,
+    required this.signedIn,
+    this.cloudServiceAccessAllowed = true,
+    this.cloudServicePolicyKnown = true,
+    this.currentVersion = '',
+    this.minimumVersion = '',
+    this.cloudServiceUnavailableReason,
+  });
 
   final bool configured;
   final bool signedIn;
+  final bool cloudServiceAccessAllowed;
+  final bool cloudServicePolicyKnown;
+  final String currentVersion;
+  final String minimumVersion;
+  final String? cloudServiceUnavailableReason;
 
   factory AccountSessionState.fromMap(Map<dynamic, dynamic> map) {
+    final hasCloudPolicy = map.containsKey('cloudServiceAccessAllowed');
+    final reason = map['cloudServiceUnavailableReason']?.toString().trim();
     return AccountSessionState(
       configured: map['configured'] == true,
       signedIn: map['signedIn'] == true,
+      cloudServiceAccessAllowed: hasCloudPolicy
+          ? map['cloudServiceAccessAllowed'] == true
+          : true,
+      cloudServicePolicyKnown: hasCloudPolicy
+          ? map['cloudServicePolicyKnown'] == true
+          : true,
+      currentVersion: (map['currentVersion'] ?? '').toString().trim(),
+      minimumVersion: (map['minimumVersion'] ?? '').toString().trim(),
+      cloudServiceUnavailableReason: reason == null || reason.isEmpty
+          ? null
+          : reason,
     );
   }
 }

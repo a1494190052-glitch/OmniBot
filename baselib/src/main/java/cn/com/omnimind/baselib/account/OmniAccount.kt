@@ -15,12 +15,19 @@ object OmniAccount {
     @Volatile
     private var configuredAllowInsecureLoopback: Boolean = false
 
+    @Volatile
+    private var configuredCloudServiceAccessProvider: () -> CloudServiceAccessState =
+        CloudServiceAccessState::allowedByDefault
+
     fun initialize(
         context: Context,
         baseUrl: String,
         platformGatewayUrl: String = "",
         allowInsecureLoopback: Boolean = false,
+        cloudServiceAccessProvider: () -> CloudServiceAccessState =
+            CloudServiceAccessState::allowedByDefault,
     ) {
+        configuredCloudServiceAccessProvider = cloudServiceAccessProvider
         val normalized = baseUrl.trim().takeIf(String::isNotEmpty)?.let {
             OfficialEndpointSecurity.normalizeBaseUrl(
                 raw = it,
@@ -68,6 +75,7 @@ object OmniAccount {
                             allowInsecureLoopback = allowInsecureLoopback,
                         )
                     },
+                cloudServiceAccessProvider = ::currentCloudServiceAccess,
             )
             configuredBaseUrl = normalized
             configuredPlatformGatewayUrl = normalizedGateway
@@ -80,8 +88,12 @@ object OmniAccount {
     fun repository(): AccountRepository =
         configuredRepository ?: throw AccountNotConfiguredException()
 
+    fun currentCloudServiceAccess(): CloudServiceAccessState =
+        configuredCloudServiceAccessProvider()
+
     fun currentAiRequestAccess(): AiRequestAccess {
         val repository = configuredRepository
+        val cloudServiceAccess = currentCloudServiceAccess()
         return AiRequestAccessResolver.resolve(
             accountConfigured = repository != null,
             signedIn = repository?.isSignedIn() == true,
@@ -89,6 +101,7 @@ object OmniAccount {
             platformGatewayUrl = configuredPlatformGatewayUrl,
             accessToken = runCatching { repository?.accessTokenForPlatformGateway() }.getOrNull(),
             allowInsecureLoopback = configuredAllowInsecureLoopback,
+            cloudServiceAccess = cloudServiceAccess,
         )
     }
 }

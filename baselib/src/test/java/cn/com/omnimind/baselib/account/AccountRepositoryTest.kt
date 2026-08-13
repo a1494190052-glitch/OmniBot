@@ -24,6 +24,49 @@ class AccountRepositoryTest {
     }
 
     @Test
+    fun loginIsBlockedBeforeAnyRemoteCallWhenUpgradeIsRequired() = runBlocking {
+        val repository = AccountRepository(
+            remote = FakeAccountRemote(),
+            tokenStore = FakeTokenStore(),
+            cloudServiceAccessProvider = {
+                CloudServiceAccessState(
+                    allowed = false,
+                    policyKnown = true,
+                    currentVersion = "0.5.6.15",
+                    minimumVersion = "0.5.7",
+                    message = "upgrade required",
+                )
+            },
+        )
+
+        val error = runCatching {
+            repository.login("learner@example.com", "password")
+        }.exceptionOrNull()
+
+        assertTrue(error is CloudServiceUpgradeRequiredException)
+    }
+
+    @Test
+    fun blockedCloudPolicyStillAllowsLocalLogoutWithoutRemoteTraffic() = runBlocking {
+        val store = FakeTokenStore(session("access", "refresh").tokens)
+        val repository = AccountRepository(
+            remote = FakeAccountRemote(),
+            tokenStore = store,
+            cloudServiceAccessProvider = {
+                CloudServiceAccessState(
+                    allowed = false,
+                    policyKnown = false,
+                    message = "policy unavailable",
+                )
+            },
+        )
+
+        repository.logout()
+
+        assertNull(store.tokens)
+    }
+
+    @Test
     fun loginFailsClosedWhenEncryptedTokenWriteCannotBeVerified() = runBlocking {
         val store = FakeTokenStore().apply { failWrites = true }
         val remote = FakeAccountRemote().apply {

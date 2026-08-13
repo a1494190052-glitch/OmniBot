@@ -88,9 +88,23 @@ object AiRequestAccessResolver {
         platformGatewayUrl: String?,
         accessToken: String?,
         allowInsecureLoopback: Boolean = false,
+        cloudServiceAccess: CloudServiceAccessState =
+            CloudServiceAccessState.allowedByDefault(),
     ): AiRequestAccess {
         if (!accountConfigured || !signedIn) {
             return AiRequestAccess(mode = AiAccessMode.BYOK)
+        }
+        if (!cloudServiceAccess.allowed) {
+            return AiRequestAccess(
+                mode = AiAccessMode.PLATFORM,
+                unavailableReason = cloudServiceAccess.message.ifBlank {
+                    if (cloudServiceAccess.policyKnown) {
+                        "请升级应用后再使用账号与官方云服务"
+                    } else {
+                        "无法验证云服务最低版本，请联网检查更新"
+                    }
+                },
+            )
         }
         val gateway = platformGatewayUrl?.trim()?.trimEnd('/').orEmpty()
         if (gateway.isEmpty()) {

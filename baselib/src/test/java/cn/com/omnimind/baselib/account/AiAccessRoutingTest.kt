@@ -20,6 +20,50 @@ class AiAccessRoutingTest {
     }
 
     @Test
+    fun signedOutByokRemainsAvailableWhenCloudPolicyBlocksOfficialServices() {
+        val access = AiRequestAccessResolver.resolve(
+            accountConfigured = true,
+            signedIn = false,
+            cachedMode = null,
+            platformGatewayUrl = "https://brand.example/ai",
+            accessToken = null,
+            cloudServiceAccess = CloudServiceAccessState(
+                allowed = false,
+                policyKnown = true,
+                minimumVersion = "0.5.7",
+                message = "upgrade required",
+            ),
+        )
+
+        assertEquals(AiAccessMode.BYOK, access.mode)
+        assertTrue(!access.usesPlatform)
+        assertEquals(null, access.unavailableReason)
+    }
+
+    @Test
+    fun signedInOfficialAccessIsBlockedByCloudVersionPolicy() {
+        val access = AiRequestAccessResolver.resolve(
+            accountConfigured = true,
+            signedIn = true,
+            cachedMode = null,
+            platformGatewayUrl = "https://brand.example/ai",
+            accessToken = "account-jwt",
+            cloudServiceAccess = CloudServiceAccessState(
+                allowed = false,
+                policyKnown = true,
+                currentVersion = "0.5.6.15",
+                minimumVersion = "0.5.7",
+                message = "upgrade required",
+            ),
+        )
+
+        assertEquals(AiAccessMode.PLATFORM, access.mode)
+        assertTrue(!access.usesPlatform)
+        assertEquals("upgrade required", access.unavailableReason)
+        assertEquals(null, access.bearerToken)
+    }
+
+    @Test
     fun signedInAccountExposesOfficialAccessWithoutLegacyModeChoice() {
         val access = AiRequestAccessResolver.resolve(
             accountConfigured = true,

@@ -22,6 +22,12 @@ R2_METADATA_PREFIX = "metadata/releases"
 # Fetching, validation, hashing, snapshot retention, and publishing run in
 # .github/workflows/sync-models-dev.yml.
 MODELS_DEV_R2_PREFIX = "metadata/models-dev"
+# Minimum app version allowed to use account registration/login and official
+# cloud AI. Leave empty to disable the gate. Publish an installable release at
+# or above this version before raising the floor.
+MIN_CLOUD_SERVICE_VERSION = ""
+# Optional user-facing text shown when the installed version is below the floor.
+CLOUD_SERVICE_UPDATE_MESSAGE = ""
 # Must match the dataset name above; used by the admin console queries.
 ANALYTICS_DATASET = "omnibot_app_updates"
 # Cloudflare account id, needed by the admin console to query Analytics Engine.

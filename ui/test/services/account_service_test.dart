@@ -25,6 +25,30 @@ void main() {
     expect(state.signedIn, isTrue);
   });
 
+  test('reads a blocking cloud-service version policy', () async {
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(channel, (call) async {
+          expect(call.method, 'getSessionState');
+          return <String, Object?>{
+            'configured': true,
+            'signedIn': false,
+            'cloudServiceAccessAllowed': false,
+            'cloudServicePolicyKnown': true,
+            'currentVersion': '0.5.6.15',
+            'minimumVersion': '0.5.7',
+            'cloudServiceUnavailableReason': 'update required',
+          };
+        });
+
+    final state = await AccountService.getSessionState();
+
+    expect(state.cloudServiceAccessAllowed, isFalse);
+    expect(state.cloudServicePolicyKnown, isTrue);
+    expect(state.currentVersion, '0.5.6.15');
+    expect(state.minimumVersion, '0.5.7');
+    expect(state.cloudServiceUnavailableReason, 'update required');
+  });
+
   test(
     'reads safe platform routing state without receiving credentials',
     () async {

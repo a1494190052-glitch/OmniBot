@@ -87,15 +87,10 @@ class App : BaseApplication() {
             baseUrl = BuildConfig.BASE_URL,
             platformGatewayUrl = BuildConfig.AI_GATEWAY_URL,
             allowInsecureLoopback = BuildConfig.DEBUG,
+            cloudServiceAccessProvider = {
+                AppUpdateManager.getCloudServiceAccessState(this)
+            },
         )
-        if (OmniAccount.isConfigured() && OmniAccount.repository().isSignedIn()) {
-            CoroutineScope(Dispatchers.IO).launch {
-                runCatching {
-                    val settings = OmniAccount.repository().getAiSettings()
-                    PlatformAiProvisioner.synchronize(settings)
-                }
-            }
-        }
         AgentPromptSettingsStore.initializeAndCleanupLegacyFiles(this)
         LegacyLocalModelDataCleanup.start(this)
         setupUncaughtExceptionHandler()
@@ -170,7 +165,24 @@ class App : BaseApplication() {
 
     fun initSDKsAfterPrivacyConsent() {
         OmniLog.d("AppStartup", "initSDKsAfterPrivacyConsent start")
-        AppUpdateManager.requestSilentCheckIfDue(this)
+        AppUpdateManager.schedulePeriodicChecks(this)
+        CoroutineScope(Dispatchers.IO).launch {
+            runCatching {
+                AppUpdateManager.checkNow(this@App, force = true)
+            }.onFailure {
+                OmniLog.w("AppStartup", "Cloud-service version policy check failed: ${it.message}")
+            }
+            if (
+                OmniAccount.isConfigured() &&
+                OmniAccount.repository().isSignedIn() &&
+                OmniAccount.currentCloudServiceAccess().allowed
+            ) {
+                runCatching {
+                    val settings = OmniAccount.repository().getAiSettings()
+                    PlatformAiProvisioner.synchronize(settings)
+                }
+            }
+        }
         OmniLog.d("AppStartup", "initSDKsAfterPrivacyConsent completed")
     }
 }

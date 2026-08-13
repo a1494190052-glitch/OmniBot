@@ -1,7 +1,9 @@
 package cn.com.omnimind.bot.update
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class AppUpdateManagerTest {
@@ -181,6 +183,56 @@ class AppUpdateManagerTest {
         assertEquals("35", url?.queryParameter("sdkInt"))
         assertEquals("11111111-2222-3333-4444-555555555555", url?.queryParameter("installId"))
         assertEquals(null, url?.queryParameter("blankValueIsSkipped"))
+    }
+
+    @Test
+    fun freshCloudServicePolicyBlocksVersionsBelowMinimum() {
+        val access = AppUpdateManager.resolveCloudServiceAccessState(
+            currentVersion = "0.5.6.15",
+            policyKnown = true,
+            policyEnabled = true,
+            minimumVersion = "0.5.7",
+            message = "请升级后使用云服务",
+            checkedAt = 1_000L,
+            now = 1_000L,
+        )
+
+        assertTrue(access.policyKnown)
+        assertFalse(access.allowed)
+        assertEquals("0.5.7", access.minimumVersion)
+        assertEquals("请升级后使用云服务", access.message)
+    }
+
+    @Test
+    fun disabledFreshCloudServicePolicyAllowsAccountAccess() {
+        val access = AppUpdateManager.resolveCloudServiceAccessState(
+            currentVersion = "0.5.6.15",
+            policyKnown = true,
+            policyEnabled = false,
+            minimumVersion = "",
+            message = "",
+            checkedAt = 1_000L,
+            now = 1_000L,
+        )
+
+        assertTrue(access.policyKnown)
+        assertTrue(access.allowed)
+    }
+
+    @Test
+    fun staleCloudServicePolicyFailsClosed() {
+        val access = AppUpdateManager.resolveCloudServiceAccessState(
+            currentVersion = "0.5.7",
+            policyKnown = true,
+            policyEnabled = true,
+            minimumVersion = "0.5.7",
+            message = "",
+            checkedAt = 1L,
+            now = 24 * 60 * 60 * 1_000L + 2L,
+        )
+
+        assertFalse(access.policyKnown)
+        assertFalse(access.allowed)
     }
 
 }

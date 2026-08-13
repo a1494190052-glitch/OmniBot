@@ -296,6 +296,7 @@ async function handleUpdateCheck(request, url, env) {
   const edition = normalizeEdition(url.searchParams.get("edition"));
   const source = normalizeSource(url.searchParams.get("source") || env.DEFAULT_SOURCE || "worker");
   const checkedAt = Date.now();
+  const cloudServicePolicy = buildCloudServicePolicy(currentVersion, env);
 
   const releases = await loadReleases(requireBucket(env), env);
   const selected = selectLatestRelease(releases, includeBeta);
@@ -320,7 +321,13 @@ async function handleUpdateCheck(request, url, env) {
   });
 
   if (!selected) {
-    return json(emptyUpdateResponse({ currentVersion, checkedAt, edition, source }));
+    return json(emptyUpdateResponse({
+      currentVersion,
+      checkedAt,
+      edition,
+      source,
+      cloudServicePolicy,
+    }));
   }
 
   return json({
@@ -338,8 +345,44 @@ async function handleUpdateCheck(request, url, env) {
     apkDownloadUrl: asset ? assetDownloadUrl(asset, source, url, selected.tag) : "",
     edition,
     source,
+    cloudServicePolicy,
     assets: (selected.assets || []).map((releaseAsset) => publicAsset(releaseAsset, url, selected.tag)),
   });
+}
+
+function buildCloudServicePolicy(currentVersion, env) {
+  const configuredMinimum = stringValue(env.MIN_CLOUD_SERVICE_VERSION);
+  if (!configuredMinimum) {
+    return {
+      schemaVersion: 1,
+      enabled: false,
+      minimumVersion: "",
+      accessAllowed: true,
+      message: "",
+    };
+  }
+
+  const minimumVersion = normalizeVersion(configuredMinimum);
+  const validMinimum = numericParts(minimumVersion) !== null;
+  const validCurrent = numericParts(currentVersion) !== null;
+  const accessAllowed = validMinimum && validCurrent &&
+    compareVersions(currentVersion, minimumVersion) >= 0;
+  const customMessage = stringValue(env.CLOUD_SERVICE_UPDATE_MESSAGE);
+  const message = accessAllowed
+    ? ""
+    : customMessage || (
+      validMinimum
+        ? `当前版本过旧，请升级至 v${minimumVersion} 或更高版本后使用账号与官方云服务`
+        : "云服务最低版本策略配置错误，请联系管理员"
+    );
+
+  return {
+    schemaVersion: 1,
+    enabled: true,
+    minimumVersion,
+    accessAllowed,
+    message,
+  };
 }
 
 async function handleListReleases(env) {
@@ -1263,7 +1306,7 @@ function normalizeTimestamp(raw) {
   return Number.isNaN(parsed) ? 0 : parsed;
 }
 
-function emptyUpdateResponse({ currentVersion, checkedAt, edition, source }) {
+function emptyUpdateResponse({ currentVersion, checkedAt, edition, source, cloudServicePolicy }) {
   return {
     ok: true,
     currentVersion,
@@ -1279,6 +1322,7 @@ function emptyUpdateResponse({ currentVersion, checkedAt, edition, source }) {
     apkDownloadUrl: "",
     edition,
     source,
+    cloudServicePolicy,
     assets: [],
   };
 }
