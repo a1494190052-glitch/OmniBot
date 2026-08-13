@@ -1,9 +1,22 @@
 package com.rk.terminal.runtime
 
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import okhttp3.mockwebserver.MockResponse
+import okhttp3.mockwebserver.MockWebServer
+import okhttp3.mockwebserver.SocketPolicy
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Assert.assertThrows
 import org.junit.Test
+import java.io.ByteArrayInputStream
 import java.io.IOException
+import java.util.concurrent.TimeUnit
 
 class EmbeddedRuntimeInstallerTest {
     @Test
@@ -86,6 +99,61 @@ class EmbeddedRuntimeInstallerTest {
         }
         assertThrows(IOException::class.java) {
             EmbeddedRuntimeInstaller.parseManifest(manifest(sha256 = "not-a-sha"), "ubuntu")
+        }
+    }
+
+    @Test
+    fun readsManifestWithinOneMiBLimit() = runBlocking {
+        val payload = "{\"schemaVersion\":1,\"runtimes\":[]}".toByteArray()
+
+        val actual = EmbeddedRuntimeInstaller.readBoundedManifest(
+            input = ByteArrayInputStream(payload),
+            declaredSize = -1L
+        )
+
+        assertTrue(payload.contentEquals(actual))
+    }
+
+    @Test
+    fun rejectsChunkedManifestAsSoonAsItExceedsOneMiB() {
+        val oversized = ByteArray(1024 * 1024 + 1)
+
+        assertThrows(IOException::class.java) {
+            runBlocking {
+                EmbeddedRuntimeInstaller.readBoundedManifest(
+                    input = ByteArrayInputStream(oversized),
+                    declaredSize = -1L
+                )
+            }
+        }
+    }
+
+    @Test
+    fun cancellationInterruptsStalledHttpCall() = runBlocking {
+        val server = MockWebServer()
+        server.enqueue(
+            MockResponse()
+                .setSocketPolicy(SocketPolicy.NO_RESPONSE)
+        )
+        server.start()
+        try {
+            val call = OkHttpClient.Builder()
+                .readTimeout(60, TimeUnit.SECONDS)
+                .build()
+                .newCall(Request.Builder().url(server.url("/ubuntu.tar.gz")).build())
+            val download = async(Dispatchers.IO) {
+                EmbeddedRuntimeInstaller.executeCancellableCall(call) { response ->
+                    response.body!!.byteStream().read()
+                }
+            }
+
+            assertTrue(server.takeRequest(2, TimeUnit.SECONDS) != null)
+            download.cancel()
+            withTimeout(2_000L) { download.cancelAndJoin() }
+
+            assertTrue(call.isCanceled())
+        } finally {
+            server.shutdown()
         }
     }
 }

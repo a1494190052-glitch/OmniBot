@@ -135,6 +135,8 @@ class SpecialPermissionChannel {
                         .getEmbeddedTerminalDistribution(result)
                     "setEmbeddedTerminalDistribution" -> specialPermissionManager!!
                         .setEmbeddedTerminalDistribution(call, result)
+                    "switchEmbeddedTerminalDistribution" -> specialPermissionManager!!
+                        .switchEmbeddedTerminalDistribution(call, result)
                     "getEmbeddedTerminalSetupSessionSnapshot" -> specialPermissionManager!!
                         .getEmbeddedTerminalSetupSessionSnapshot(result)
                     "installEmbeddedTerminalPackages" -> specialPermissionManager!!

@@ -2,6 +2,8 @@ package com.rk.terminal.runtime
 
 import android.content.Context
 import android.os.StatFs
+import android.system.ErrnoException
+import android.system.Os
 import androidx.annotation.VisibleForTesting
 import com.rk.libcommons.localBinDir
 import com.rk.libcommons.localDir
@@ -11,26 +13,29 @@ import com.rk.terminal.ui.screens.terminal.stat
 import com.rk.terminal.ui.screens.terminal.vmstat
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.awaitCancellation
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
-import kotlin.coroutines.coroutineContext
 import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
+import okhttp3.Call
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.Response
 import org.json.JSONObject
+import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.IOException
 import java.io.InputStream
 import java.math.BigInteger
 import java.security.MessageDigest
-import java.nio.file.AtomicMoveNotSupportedException
-import java.nio.file.Files
-import java.nio.file.StandardCopyOption
 import java.util.concurrent.TimeUnit
+import kotlin.coroutines.coroutineContext
 
 object EmbeddedRuntimeInstaller {
     data class RuntimeInstallProgress(
@@ -98,10 +103,10 @@ object EmbeddedRuntimeInstaller {
 
     suspend fun ensureRuntimeInstalled(
         context: Context,
+        distribution: TerminalDistribution.Spec = TerminalDistribution.selected(),
         onProgress: suspend (RuntimeInstallProgress) -> Unit = {}
     ): InstallStatus = withContext(Dispatchers.IO) {
         installMutex.withLock {
-            val distribution = TerminalDistribution.selected()
             try {
                 emit(onProgress, "checking", distribution, "正在校验终端环境运行资源")
                 val installedFiles = installCommonAssets(context)
@@ -226,22 +231,46 @@ object EmbeddedRuntimeInstaller {
             digest.equals(LEGACY_UBUNTU_SHA256, ignoreCase = true)
     }
 
-    private fun fetchManifestEntry(manifestUrl: HttpUrl, distributionId: String): RuntimeManifestEntry {
+    private suspend fun fetchManifestEntry(
+        manifestUrl: HttpUrl,
+        distributionId: String
+    ): RuntimeManifestEntry {
         val request = Request.Builder()
             .url(manifestUrl)
             .header("Accept", "application/json")
             .header("User-Agent", "OpenOmniBot-TerminalRuntime")
             .get()
             .build()
-        executeHttps(request).use { response ->
+        return executeHttps(request) { response ->
             if (!response.isSuccessful) throw IOException("获取终端运行时清单失败（HTTP ${response.code}）。")
             val body = response.body ?: throw IOException("终端运行时清单为空。")
-            val declaredSize = body.contentLength()
-            if (declaredSize > MAX_MANIFEST_BYTES) throw IOException("终端运行时清单过大。")
-            val bytes = body.bytes()
-            if (bytes.size > MAX_MANIFEST_BYTES) throw IOException("终端运行时清单过大。")
-            return parseManifest(String(bytes, Charsets.UTF_8), distributionId)
+            val bytes = readBoundedManifest(body.byteStream(), body.contentLength())
+            parseManifest(String(bytes, Charsets.UTF_8), distributionId)
         }
+    }
+
+    @VisibleForTesting
+    internal suspend fun readBoundedManifest(
+        input: InputStream,
+        declaredSize: Long = -1L
+    ): ByteArray {
+        if (declaredSize > MAX_MANIFEST_BYTES) throw IOException("终端运行时清单过大。")
+        val initialCapacity = declaredSize
+            .takeIf { it in 1..MAX_MANIFEST_BYTES }
+            ?.toInt()
+            ?: DEFAULT_BUFFER_SIZE
+        val output = ByteArrayOutputStream(initialCapacity)
+        val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+        var total = 0L
+        while (true) {
+            coroutineContext.ensureActive()
+            val read = input.read(buffer)
+            if (read < 0) break
+            total += read
+            if (total > MAX_MANIFEST_BYTES) throw IOException("终端运行时清单过大。")
+            output.write(buffer, 0, read)
+        }
+        return output.toByteArray()
     }
 
     @VisibleForTesting
@@ -319,10 +348,10 @@ object EmbeddedRuntimeInstaller {
             .header("User-Agent", "OpenOmniBot-TerminalRuntime")
             .get()
         if (existing > 0L) builder.header("Range", "bytes=$existing-")
-        executeHttps(builder.build()).use { response ->
+        executeHttps(builder.build()) { response ->
             if (response.code == 416 && existing > 0L) {
                 partial.delete()
-                return downloadAttempt(distribution, entry, partial, onProgress)
+                return@executeHttps downloadAttempt(distribution, entry, partial, onProgress)
             }
             if (!response.isSuccessful) throw IOException("下载 Ubuntu 运行资源失败（HTTP ${response.code}）。")
             val append = existing > 0L && response.code == 206 &&
@@ -365,20 +394,73 @@ object EmbeddedRuntimeInstaller {
         }
     }
 
-    private fun executeHttps(initialRequest: Request): Response {
+    private sealed interface HttpsCallResult<out T> {
+        data class Complete<T>(val value: T) : HttpsCallResult<T>
+        data class Redirect(val request: Request) : HttpsCallResult<Nothing>
+    }
+
+    private suspend fun <T> executeHttps(
+        initialRequest: Request,
+        consume: suspend (Response) -> T
+    ): T {
         var request = initialRequest
         repeat(MAX_REDIRECTS + 1) { redirectCount ->
             if (request.url.scheme != "https") throw IOException("终端运行时仅允许通过 HTTPS 下载。")
-            val response = client.newCall(request).execute()
-            if (response.code !in 300..399) return response
-            val location = response.header("Location")
-            response.close()
-            if (redirectCount >= MAX_REDIRECTS || location.isNullOrBlank()) throw IOException("终端运行时下载重定向无效。")
-            val next = request.url.resolve(location) ?: throw IOException("终端运行时下载重定向无效。")
-            if (next.scheme != "https") throw IOException("终端运行时下载拒绝非 HTTPS 重定向。")
-            request = request.newBuilder().url(next).build()
+            when (
+                val result = executeCancellableCall(client.newCall(request)) { response ->
+                    if (response.code !in 300..399) {
+                        HttpsCallResult.Complete(consume(response))
+                    } else {
+                        val location = response.header("Location")
+                        if (redirectCount >= MAX_REDIRECTS || location.isNullOrBlank()) {
+                            throw IOException("终端运行时下载重定向无效。")
+                        }
+                        val next = request.url.resolve(location)
+                            ?: throw IOException("终端运行时下载重定向无效。")
+                        if (next.scheme != "https") {
+                            throw IOException("终端运行时下载拒绝非 HTTPS 重定向。")
+                        }
+                        HttpsCallResult.Redirect(request.newBuilder().url(next).build())
+                    }
+                }
+            ) {
+                is HttpsCallResult.Complete -> return result.value
+                is HttpsCallResult.Redirect -> request = result.request
+            }
         }
         throw IOException("终端运行时下载重定向过多。")
+    }
+
+    @VisibleForTesting
+    internal suspend fun <T> executeCancellableCall(
+        call: Call,
+        consume: suspend (Response) -> T
+    ): T = coroutineScope {
+        val cancellationWatcher = launch(start = CoroutineStart.UNDISPATCHED) {
+            try {
+                awaitCancellation()
+            } finally {
+                call.cancel()
+            }
+        }
+        try {
+            val response = try {
+                call.execute()
+            } catch (error: IOException) {
+                coroutineContext.ensureActive()
+                throw error
+            }
+            try {
+                consume(response)
+            } catch (error: IOException) {
+                coroutineContext.ensureActive()
+                throw error
+            } finally {
+                response.close()
+            }
+        } finally {
+            cancellationWatcher.cancel()
+        }
     }
 
     private fun requireHttpsUrl(raw: String, label: String): HttpUrl {
@@ -435,14 +517,9 @@ object EmbeddedRuntimeInstaller {
 
     private fun replaceWithFile(target: File, source: File) {
         try {
-            Files.move(
-                source.toPath(),
-                target.toPath(),
-                StandardCopyOption.ATOMIC_MOVE,
-                StandardCopyOption.REPLACE_EXISTING
-            )
-        } catch (_: AtomicMoveNotSupportedException) {
-            Files.move(source.toPath(), target.toPath(), StandardCopyOption.REPLACE_EXISTING)
+            Os.rename(source.absolutePath, target.absolutePath)
+        } catch (error: ErrnoException) {
+            throw IOException("无法替换已校验的终端运行资源。", error)
         }
     }
 

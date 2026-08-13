@@ -453,6 +453,16 @@ Future<EmbeddedTerminalDistribution> setEmbeddedTerminalDistribution(
   return EmbeddedTerminalDistribution.fromId(result);
 }
 
+Future<EmbeddedTerminalDistribution> switchEmbeddedTerminalDistribution(
+  EmbeddedTerminalDistribution distribution,
+) async {
+  final result = await spePermission.invokeMethod<String>(
+    'switchEmbeddedTerminalDistribution',
+    <String, dynamic>{'distribution': distribution.id},
+  );
+  return EmbeddedTerminalDistribution.fromId(result);
+}
+
 Future<EmbeddedTerminalSetupSessionSnapshot>
 getEmbeddedTerminalSetupSessionSnapshot() async {
   final result = await spePermission.invokeMethod<Map<dynamic, dynamic>>(

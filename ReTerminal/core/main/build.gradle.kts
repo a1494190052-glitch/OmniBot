@@ -314,6 +314,7 @@ dependencies {
     api(libs.accompanist.systemuicontroller)
     testImplementation(libs.junit)
     testImplementation("org.json:json:20250517")
+    testImplementation("com.squareup.okhttp3:mockwebserver:4.9.0")
 //    api(libs.termux.shared)
 
     api(project(":core:resources"))
