@@ -266,6 +266,11 @@ const interactiveAcp = {
                 sessionId: record.agent.session.id,
                 update: {
                   sessionUpdate: 'agent_message_chunk',
+                  // A DSH turn can contain several assistant messages, one
+                  // per model step. Keep their stable DSH identities so the
+                  // client does not merge pre-tool narration and the final
+                  // answer into one card anchored before the tool call.
+                  messageId: event.data.message.id,
                   content: { type: 'text', text: block.text },
                 },
               })
@@ -274,6 +279,7 @@ const interactiveAcp = {
                 sessionId: record.agent.session.id,
                 update: {
                   sessionUpdate: 'agent_message_chunk',
+                  messageId: event.data.message.id,
                   content: {
                     type: 'text',
                     text: `[image attachment ${block.attachment.attachmentId}]`,

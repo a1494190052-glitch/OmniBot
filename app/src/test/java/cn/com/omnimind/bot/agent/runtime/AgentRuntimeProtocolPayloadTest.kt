@@ -129,6 +129,7 @@ class AgentRuntimeProtocolPayloadTest {
         assertTrue(source.contains("sessionUpdate: 'agent_thought_chunk'"))
         assertTrue(source.contains("sessionUpdate: 'tool_call'"))
         assertTrue(source.contains("sessionUpdate: 'tool_call_update'"))
+        assertTrue(source.contains("messageId: event.data.message.id"))
         assertTrue(source.contains("category: 'model'"))
         assertTrue(source.contains("category: 'thought_level'"))
         assertTrue(source.contains("category: 'mode'"))
