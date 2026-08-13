@@ -1,7 +1,6 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
-import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:ui/constants/storage_keys.dart';
 import 'package:ui/core/router/go_router_manager.dart';
 import 'package:ui/features/my/pages/account/account_page.dart';
@@ -14,7 +13,7 @@ typedef StartupAccountSessionLoader = Future<AccountSessionState> Function();
 typedef StartupVersionRefresh = Future<void> Function();
 
 /// Checks account state once per app launch and presents the shared account
-/// form as a dismissible card after the first-use tutorial has been completed.
+/// form until the user signs in or explicitly chooses not to be reminded.
 class StartupAccountPrompt extends StatefulWidget {
   const StartupAccountPrompt({
     super.key,
@@ -47,13 +46,13 @@ class _StartupAccountPromptState extends State<StartupAccountPrompt> {
   Future<void> _checkAccount() async {
     if (_checked || GoRouterManager.isSubEngine) return;
     _checked = true;
-    final onboardingCompleted =
+    final promptDismissed =
         StorageService.getBool(
-          StorageKeys.welcomeCompleted,
+          StorageKeys.startupAccountPromptDismissed,
           defaultValue: false,
         ) ??
         false;
-    if (!onboardingCompleted) return;
+    if (promptDismissed) return;
 
     try {
       final refreshVersionPolicy =
@@ -114,51 +113,86 @@ class _StartupAccountCard extends StatelessWidget {
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
       child: ConstrainedBox(
         constraints: BoxConstraints(maxWidth: 480, maxHeight: availableHeight),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            AspectRatio(
-              aspectRatio: 2.2,
-              child: Stack(
-                fit: StackFit.expand,
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            final desiredHeaderHeight = (constraints.maxWidth / 2.2).clamp(
+              132.0,
+              190.0,
+            );
+            final cardHeight = (desiredHeaderHeight + 372).clamp(
+              0.0,
+              constraints.maxHeight,
+            );
+            final headerHeight = desiredHeaderHeight.clamp(
+              0.0,
+              cardHeight * 0.36,
+            );
+            return SizedBox(
+              key: const ValueKey('startup-account-card-content'),
+              height: cardHeight,
+              child: Column(
                 children: [
-                  Image.asset(
-                    context.isDarkTheme ? _darkHeader : _lightHeader,
-                    key: const ValueKey('startup-account-header-image'),
-                    fit: BoxFit.cover,
-                    alignment: context.isDarkTheme
-                        ? Alignment.centerRight
-                        : Alignment.center,
-                  ),
-                  Positioned(
-                    top: 10,
-                    right: 10,
-                    child: IconButton.filledTonal(
-                      key: const ValueKey('startup-account-close'),
-                      onPressed: () => Navigator.of(context).pop(false),
-                      icon: const Icon(LucideIcons.x, size: 18),
-                      tooltip:
-                          Localizations.localeOf(context).languageCode == 'zh'
-                          ? '稍后再说'
-                          : 'Maybe later',
-                      style: IconButton.styleFrom(
-                        backgroundColor: palette.surfacePrimary.withValues(
-                          alpha: 0.82,
+                  SizedBox(
+                    key: const ValueKey('startup-account-card-header'),
+                    height: headerHeight,
+                    child: Stack(
+                      fit: StackFit.expand,
+                      children: [
+                        Image.asset(
+                          context.isDarkTheme ? _darkHeader : _lightHeader,
+                          key: const ValueKey('startup-account-header-image'),
+                          fit: BoxFit.cover,
+                          alignment: context.isDarkTheme
+                              ? Alignment.centerRight
+                              : Alignment.center,
                         ),
-                        foregroundColor: palette.textPrimary,
-                      ),
+                        Positioned(
+                          top: 10,
+                          right: 10,
+                          child: TextButton(
+                            key: const ValueKey('startup-account-never-remind'),
+                            onPressed: () async {
+                              await StorageService.setBool(
+                                StorageKeys.startupAccountPromptDismissed,
+                                true,
+                              );
+                              if (context.mounted) {
+                                Navigator.of(context).pop(false);
+                              }
+                            },
+                            style: TextButton.styleFrom(
+                              backgroundColor: palette.surfacePrimary
+                                  .withValues(alpha: 0.82),
+                              foregroundColor: palette.textPrimary,
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 12,
+                                vertical: 8,
+                              ),
+                              minimumSize: const Size(0, 36),
+                              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                            ),
+                            child: Text(
+                              Localizations.localeOf(context).languageCode ==
+                                      'zh'
+                                  ? '不再提醒'
+                                  : 'Don\'t remind me again',
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  Expanded(
+                    child: AccountPage.authOnly(
+                      key: const ValueKey('startup-account-auth-form'),
+                      showAuthHeading: false,
+                      onAuthenticated: onAuthenticated,
                     ),
                   ),
                 ],
               ),
-            ),
-            Expanded(
-              child: AccountPage.authOnly(
-                key: const ValueKey('startup-account-auth-form'),
-                onAuthenticated: onAuthenticated,
-              ),
-            ),
-          ],
+            );
+          },
         ),
       ),
     );

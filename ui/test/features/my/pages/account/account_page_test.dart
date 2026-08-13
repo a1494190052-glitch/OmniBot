@@ -168,8 +168,9 @@ void main() {
       expect(find.text('使用平台额度'), findsNothing);
       expect(find.text('使用自己的 API Key'), findsNothing);
       expect(find.text('本周剩余额度'), findsNothing);
+      expect(find.text('可用于平台提供的 AI 服务'), findsNothing);
       expect(find.textContaining('距离重置'), findsOneWidget);
-      expect(find.textContaining('周一 00:00'), findsOneWidget);
+      expect(find.textContaining('周一 00:00'), findsNothing);
       expect(
         find.byKey(const ValueKey('account-platform-quota-percent')),
         findsOneWidget,

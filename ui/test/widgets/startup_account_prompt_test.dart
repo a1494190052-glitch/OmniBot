@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:ui/constants/storage_keys.dart';
@@ -14,9 +15,7 @@ void main() {
   const accountChannel = MethodChannel('cn.com.omnimind.bot/account');
 
   setUp(() async {
-    SharedPreferences.setMockInitialValues(<String, Object>{
-      StorageKeys.welcomeCompleted: true,
-    });
+    SharedPreferences.setMockInitialValues(<String, Object>{});
     await StorageService.init();
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(accountChannel, (call) async {
@@ -35,6 +34,10 @@ void main() {
   testWidgets(
     'checks version policy before showing the signed-out account card',
     (tester) async {
+      tester.view.physicalSize = const Size(390, 844);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
       final navigatorKey = GlobalKey<NavigatorState>();
       final calls = <String>[];
 
@@ -42,6 +45,13 @@ void main() {
         MaterialApp(
           navigatorKey: navigatorKey,
           theme: AppTheme.lightTheme,
+          locale: const Locale('zh'),
+          supportedLocales: const <Locale>[Locale('zh')],
+          localizationsDelegates: const <LocalizationsDelegate<dynamic>>[
+            GlobalMaterialLocalizations.delegate,
+            GlobalWidgetsLocalizations.delegate,
+            GlobalCupertinoLocalizations.delegate,
+          ],
           home: StartupAccountPrompt(
             navigatorKey: navigatorKey,
             refreshVersionPolicy: () async => calls.add('version'),
@@ -67,21 +77,10 @@ void main() {
         find.byKey(const ValueKey('startup-account-header-image')),
       );
       expect(header.fit, BoxFit.cover);
-      expect(
-        tester
-            .widget<AspectRatio>(
-              find
-                  .ancestor(
-                    of: find.byKey(
-                      const ValueKey('startup-account-header-image'),
-                    ),
-                    matching: find.byType(AspectRatio),
-                  )
-                  .first,
-            )
-            .aspectRatio,
-        2.2,
+      final headerRect = tester.getRect(
+        find.byKey(const ValueKey('startup-account-card-header')),
       );
+      expect(headerRect.width / headerRect.height, closeTo(2.2, 0.02));
       expect(
         (header.image as AssetImage).assetName,
         'assets/my/atmosphere-light-mineral-02.webp',
@@ -94,10 +93,28 @@ void main() {
         find.byKey(const Key('account-auth-mode-selector')),
         findsOneWidget,
       );
+      expect(find.text('登录小万账号'), findsNothing);
+      expect(find.text('账号用于同步登录状态和平台额度；登录后官方 AI 会作为可选渠道提供。'), findsNothing);
+      expect(
+        tester
+            .getSize(find.byKey(const ValueKey('startup-account-card-content')))
+            .height,
+        lessThan(600),
+      );
 
-      await tester.tap(find.byKey(const ValueKey('startup-account-close')));
+      expect(find.text('不再提醒'), findsOneWidget);
+      await tester.tap(
+        find.byKey(const ValueKey('startup-account-never-remind')),
+      );
       await tester.pumpAndSettle();
       expect(find.byKey(const ValueKey('startup-account-card')), findsNothing);
+      expect(
+        StorageService.getBool(
+          StorageKeys.startupAccountPromptDismissed,
+          defaultValue: false,
+        ),
+        isTrue,
+      );
     },
   );
 
@@ -129,6 +146,42 @@ void main() {
     );
   });
 
+  testWidgets('compact auth card adapts to a short window', (tester) async {
+    tester.view.physicalSize = const Size(390, 520);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final navigatorKey = GlobalKey<NavigatorState>();
+    await tester.pumpWidget(
+      MaterialApp(
+        navigatorKey: navigatorKey,
+        theme: AppTheme.lightTheme,
+        home: StartupAccountPrompt(
+          navigatorKey: navigatorKey,
+          refreshVersionPolicy: () async {},
+          loadSession: () async =>
+              const AccountSessionState(configured: true, signedIn: false),
+          child: const Scaffold(body: Text('home')),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(
+      tester
+          .getSize(find.byKey(const ValueKey('startup-account-card-content')))
+          .height,
+      lessThanOrEqualTo(480),
+    );
+    await tester.tap(find.byKey(const ValueKey('account-auth-mode-register')));
+    await tester.pumpAndSettle();
+    expect(
+      find.byKey(const ValueKey('account-register-email')),
+      findsOneWidget,
+    );
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('does not prompt an already signed-in user', (tester) async {
     final navigatorKey = GlobalKey<NavigatorState>();
     await tester.pumpWidget(
@@ -148,7 +201,7 @@ void main() {
     expect(find.byKey(const ValueKey('startup-account-card')), findsNothing);
   });
 
-  testWidgets('does not interrupt unfinished onboarding', (tester) async {
+  testWidgets('also prompts during unfinished onboarding', (tester) async {
     await StorageService.setBool(StorageKeys.welcomeCompleted, false);
     final navigatorKey = GlobalKey<NavigatorState>();
     var accountChecks = 0;
@@ -163,6 +216,35 @@ void main() {
             return const AccountSessionState(configured: true, signedIn: false);
           },
           child: const Scaffold(body: Text('onboarding')),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(accountChecks, 1);
+    expect(find.byKey(const ValueKey('startup-account-card')), findsOneWidget);
+  });
+
+  testWidgets('does not prompt again after never remind is stored', (
+    tester,
+  ) async {
+    await StorageService.setBool(
+      StorageKeys.startupAccountPromptDismissed,
+      true,
+    );
+    final navigatorKey = GlobalKey<NavigatorState>();
+    var accountChecks = 0;
+    await tester.pumpWidget(
+      MaterialApp(
+        navigatorKey: navigatorKey,
+        home: StartupAccountPrompt(
+          navigatorKey: navigatorKey,
+          refreshVersionPolicy: () async {},
+          loadSession: () async {
+            accountChecks += 1;
+            return const AccountSessionState(configured: true, signedIn: false);
+          },
+          child: const Scaffold(body: Text('home')),
         ),
       ),
     );

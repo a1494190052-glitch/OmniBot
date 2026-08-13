@@ -21,13 +21,20 @@ String formatWeeklyQuotaResetCountdown(DateTime now, {required bool english}) {
 }
 
 class AccountPage extends StatefulWidget {
-  const AccountPage({super.key}) : authOnly = false, onAuthenticated = null;
+  const AccountPage({super.key})
+    : authOnly = false,
+      onAuthenticated = null,
+      showAuthHeading = true;
 
-  const AccountPage.authOnly({super.key, this.onAuthenticated})
-    : authOnly = true;
+  const AccountPage.authOnly({
+    super.key,
+    this.onAuthenticated,
+    this.showAuthHeading = true,
+  }) : authOnly = true;
 
   final bool authOnly;
   final VoidCallback? onAuthenticated;
+  final bool showAuthHeading;
 
   @override
   State<AccountPage> createState() => _AccountPageState();
@@ -1156,20 +1163,21 @@ class _AccountPageState extends State<AccountPage> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                AnimatedSwitcher(
-                  duration: const Duration(milliseconds: 180),
-                  child: SettingsSectionTitle(
-                    key: ValueKey(_registerMode),
-                    label: _registerMode
-                        ? _text('创建小万账号', 'Create your account')
-                        : _text('登录小万账号', 'Sign in to OmniBot'),
-                    subtitle: _text(
-                      '账号用于同步登录状态和平台额度；登录后官方 AI 会作为可选渠道提供。',
-                      'Your account syncs sessions and platform quota; official AI becomes an optional provider after sign-in.',
+                if (widget.showAuthHeading)
+                  AnimatedSwitcher(
+                    duration: const Duration(milliseconds: 180),
+                    child: SettingsSectionTitle(
+                      key: ValueKey(_registerMode),
+                      label: _registerMode
+                          ? _text('创建小万账号', 'Create your account')
+                          : _text('登录小万账号', 'Sign in to OmniBot'),
+                      subtitle: _text(
+                        '账号用于同步登录状态和平台额度；登录后官方 AI 会作为可选渠道提供。',
+                        'Your account syncs sessions and platform quota; official AI becomes an optional provider after sign-in.',
+                      ),
+                      bottomPadding: 16,
                     ),
-                    bottomPadding: 16,
                   ),
-                ),
                 _authModeSelector(),
               ],
             ),
@@ -1538,13 +1546,18 @@ class _AccountPageState extends State<AccountPage> {
   Widget _buildSignedIn(AccountOverview overview) {
     final settings = overview.settings;
     final platformQuota = settings.platform;
-    final quotaSubtitle = !settings.platformAvailable
+    final String? quotaSubtitle = !settings.platformAvailable
         ? _text(
             settings.platformUnavailableReason ?? '平台 AI 服务暂未开放，额度将在开放后使用',
             'Platform AI is not available yet; quota can be used after launch',
           )
         : settings.platform.enabled
-        ? _text('可用于平台提供的 AI 服务', 'Available for the platform AI service')
+        ? platformQuota.weeklyLimit > 0
+              ? _text(
+                  '距离重置 ${formatWeeklyQuotaResetCountdown(DateTime.now(), english: false)}',
+                  'Resets in ${formatWeeklyQuotaResetCountdown(DateTime.now(), english: true)}',
+                )
+              : null
         : _text('平台额度当前未启用', 'Platform quota is currently disabled');
     return SafeArea(
       top: false,
@@ -1571,13 +1584,6 @@ class _AccountPageState extends State<AccountPage> {
               icon: LucideIcons.coins,
               title: _text('平台额度', 'Platform quota'),
               subtitle: quotaSubtitle,
-              secondarySubtitle:
-                  settings.platformAvailable && platformQuota.weeklyLimit > 0
-                  ? _text(
-                      '距离重置 ${formatWeeklyQuotaResetCountdown(DateTime.now(), english: false)} · 周一 00:00',
-                      'Resets in ${formatWeeklyQuotaResetCountdown(DateTime.now(), english: true)} · Monday 00:00',
-                    )
-                  : null,
               trailing: settings.platformAvailable
                   ? _platformQuotaValue(platformQuota)
                   : null,
@@ -1700,8 +1706,7 @@ class _AccountPageState extends State<AccountPage> {
   Widget _summaryRow({
     required IconData icon,
     required String title,
-    required String subtitle,
-    String? secondarySubtitle,
+    required String? subtitle,
     Widget? trailing,
   }) {
     final palette = context.omniPalette;
@@ -1726,21 +1731,10 @@ class _AccountPageState extends State<AccountPage> {
                     fontFamily: 'PingFang SC',
                   ),
                 ),
-                const SizedBox(height: 2),
-                Text(
-                  subtitle,
-                  style: TextStyle(
-                    color: palette.textSecondary,
-                    fontSize: 11,
-                    fontWeight: FontWeight.w400,
-                    height: 1.55,
-                    fontFamily: 'PingFang SC',
-                  ),
-                ),
-                if (secondarySubtitle != null) ...[
+                if (subtitle != null && subtitle.isNotEmpty) ...[
                   const SizedBox(height: 2),
                   Text(
-                    secondarySubtitle,
+                    subtitle,
                     style: TextStyle(
                       color: palette.textSecondary,
                       fontSize: 11,
