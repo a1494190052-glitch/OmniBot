@@ -832,7 +832,7 @@ class _AccountPageState extends State<AccountPage> {
     } catch (_) {
       if (mounted) {
         setState(() {
-          _error = _text('操作失败，请稍后重试', 'Operation failed. Try again later.');
+          _error = _text('云服务开小差啦，请稍后重试', 'Operation failed. Try again later.');
         });
       }
     } finally {
@@ -876,7 +876,7 @@ class _AccountPageState extends State<AccountPage> {
           'Connect to the internet and check for updates before using account services',
         );
       default:
-        return _text('操作失败，请稍后重试', 'Operation failed. Try again later.');
+        return _text('云服务开小差啦，请稍后重试', 'Operation failed. Try again later.');
     }
   }
 

@@ -82,6 +82,37 @@ void main() {
     );
   });
 
+  testWidgets('uses the cloud service message for an unknown account error', (
+    tester,
+  ) async {
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(channel, (call) async {
+          if (call.method == 'getSessionState') {
+            return <String, Object?>{'configured': true, 'signedIn': false};
+          }
+          if (call.method == 'login') {
+            throw PlatformException(code: 'internal_error');
+          }
+          return null;
+        });
+
+    await tester.pumpWidget(_testApp());
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const ValueKey('account-login-email')),
+      'learner@example.com',
+    );
+    await tester.enterText(
+      find.byKey(const ValueKey('account-login-password')),
+      'password',
+    );
+    await tester.tap(find.byKey(const ValueKey('submit-auth')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('云服务开小差啦，请稍后重试'), findsOneWidget);
+    expect(find.text('操作失败，请稍后重试'), findsNothing);
+  });
+
   testWidgets(
     'blocks account UI on old versions while preserving BYOK guidance',
     (tester) async {
