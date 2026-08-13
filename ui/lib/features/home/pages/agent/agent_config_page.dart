@@ -314,7 +314,12 @@ class _AgentConfigPageState extends State<AgentConfigPage> {
     final palette = context.omniPalette;
     final card = context.isDarkTheme ? palette.surfacePrimary : Colors.white;
     return PopScope(
-      canPop: false,
+      // Built-in Agent configuration does not mutate the catalog entry, so it
+      // does not need to intercept system back just to return `_changed`.
+      // Keeping the route poppable is also required for Android predictive
+      // back: PredictiveBackGestureWrapper only starts when
+      // ModalRoute.popGestureEnabled is true.
+      canPop: _agent?.builtIn == true,
       onPopInvokedWithResult: (didPop, _) {
         if (!didPop) _close();
       },
