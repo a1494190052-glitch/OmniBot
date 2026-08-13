@@ -37,7 +37,7 @@ object OmniOfficialProvider {
 
     fun profileOrNull(status: PlatformAiProvisioningStatus): ModelProviderProfile? {
         val access = OmniAccount.currentAiRequestAccess()
-        if (access.mode != AiAccessMode.PLATFORM) {
+        if (!shouldExpose()) {
             return null
         }
         val ready = access.usesPlatform && status.ready

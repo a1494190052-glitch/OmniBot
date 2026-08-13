@@ -1,11 +1,9 @@
 package cn.com.omnimind.baselib.llm
 
-import cn.com.omnimind.baselib.account.AiAccessMode
 import cn.com.omnimind.baselib.account.AiSettings
 import cn.com.omnimind.baselib.account.OmniAccount
 import cn.com.omnimind.baselib.account.PlatformModel
 import cn.com.omnimind.baselib.account.PlatformModelsUnavailableException
-import com.tencent.mmkv.MMKV
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -35,18 +33,10 @@ internal fun PlatformAiProvisioningStatus.routingUnavailableReasonOrNull(): Stri
 }
 
 /**
- * Keeps the platform-only provider separate from device BYOK configuration.
- * The user's previous dispatch-scene binding is restored when platform mode
- * is left, so local provider keys and choices are never overwritten.
+ * Keeps the official provider catalog separate from device BYOK configuration.
+ * Synchronizing the catalog never mutates the user's scene bindings.
  */
 object PlatformAiProvisioner {
-    private const val DISPATCH_SCENE_ID = "scene.dispatch.model"
-    private const val KEY_ACTIVE = "platform_ai_official_binding_active_v1"
-    private const val KEY_BYOK_HAD_BINDING = "platform_ai_byok_had_binding_v1"
-    private const val KEY_BYOK_PROFILE_ID = "platform_ai_byok_profile_id_v1"
-    private const val KEY_BYOK_MODEL_ID = "platform_ai_byok_model_id_v1"
-    private const val KEY_PLATFORM_MODEL_ID = "platform_ai_model_id_v1"
-
     private val mutex = Mutex()
 
     @Volatile
@@ -69,9 +59,7 @@ object PlatformAiProvisioner {
         forceRefresh: Boolean = settings != null,
     ): PlatformAiProvisioningStatus =
         mutex.withLock {
-            val platformMode = settings?.effectiveMode == AiAccessMode.PLATFORM ||
-                (settings == null && OmniOfficialProvider.shouldExpose())
-            if (!platformMode) {
+            if (!OmniOfficialProvider.shouldExpose()) {
                 deactivateLocked()
                 return@withLock currentStatus
             }
@@ -85,13 +73,9 @@ object PlatformAiProvisioner {
                 return@withLock currentStatus
             }
 
-            val existingBinding = SceneModelBindingStore.getBinding(DISPATCH_SCENE_ID)
             if (!forceRefresh &&
                 currentStatus.ready &&
-                currentStatus.models.isNotEmpty() &&
-                existingBinding != null &&
-                OmniOfficialProvider.isOfficialProfile(existingBinding.providerProfileId) &&
-                currentStatus.models.any { it.id == existingBinding.modelId }
+                currentStatus.models.isNotEmpty()
             ) {
                 return@withLock currentStatus
             }
@@ -101,17 +85,9 @@ object PlatformAiProvisioner {
             )
             try {
                 val catalog = OmniAccount.repository().getPlatformModelCatalog()
-                val mmkv = MMKV.defaultMMKV()
-                val currentBinding = SceneModelBindingStore.getBinding(DISPATCH_SCENE_ID)
-                val rememberedModelId = currentBinding
-                    ?.takeIf {
-                        OmniOfficialProvider.isOfficialProfile(it.providerProfileId)
-                    }
-                    ?.modelId
-                    ?: mmkv.decodeString(KEY_PLATFORM_MODEL_ID)
                 val selection = OmniOfficialProvider.selectModels(
                     catalog = catalog,
-                    rememberedTextModelId = rememberedModelId,
+                    rememberedTextModelId = currentStatus.defaultModelId,
                 )
                 val selected = selection.defaultTextModel
                 if (selected == null) {
@@ -121,7 +97,6 @@ object PlatformAiProvisioner {
                     return@withLock currentStatus
                 }
 
-                activateBinding(mmkv, selected.id)
                 currentStatus = PlatformAiProvisioningStatus(
                     ready = true,
                     statusText = "官方文本模型已就绪",
@@ -168,59 +143,9 @@ object PlatformAiProvisioner {
         mutex.withLock { deactivateLocked() }
     }
 
-    private fun activateBinding(mmkv: MMKV, modelId: String) {
-        val wasActive = mmkv.decodeBool(KEY_ACTIVE, false)
-        if (!wasActive) {
-            val current = SceneModelBindingStore.getBinding(DISPATCH_SCENE_ID)
-            val byokBinding = current?.takeUnless {
-                OmniOfficialProvider.isOfficialProfile(it.providerProfileId)
-            }
-            mmkv.encode(KEY_BYOK_HAD_BINDING, byokBinding != null)
-            if (byokBinding == null) {
-                mmkv.removeValuesForKeys(arrayOf(KEY_BYOK_PROFILE_ID, KEY_BYOK_MODEL_ID))
-            } else {
-                mmkv.encode(KEY_BYOK_PROFILE_ID, byokBinding.providerProfileId)
-                mmkv.encode(KEY_BYOK_MODEL_ID, byokBinding.modelId)
-            }
-            mmkv.encode(KEY_ACTIVE, true)
-        }
-        mmkv.encode(KEY_PLATFORM_MODEL_ID, modelId)
-        SceneModelBindingStore.saveBinding(
-            sceneId = DISPATCH_SCENE_ID,
-            providerProfileId = OmniOfficialProvider.PROFILE_ID,
-            modelId = modelId,
-        )
-    }
-
     private fun deactivateLocked() {
-        val mmkv = MMKV.defaultMMKV()
-        if (mmkv.decodeBool(KEY_ACTIVE, false)) {
-            val current = SceneModelBindingStore.getBinding(DISPATCH_SCENE_ID)
-            if (current != null &&
-                OmniOfficialProvider.isOfficialProfile(current.providerProfileId)
-            ) {
-                mmkv.encode(KEY_PLATFORM_MODEL_ID, current.modelId)
-            }
-
-            val byokProfileId = mmkv.decodeString(KEY_BYOK_PROFILE_ID)?.trim().orEmpty()
-            val byokModelId = mmkv.decodeString(KEY_BYOK_MODEL_ID)?.trim().orEmpty()
-            val canRestore = mmkv.decodeBool(KEY_BYOK_HAD_BINDING, false) &&
-                byokProfileId.isNotEmpty() &&
-                byokModelId.isNotEmpty() &&
-                ModelProviderConfigStore.getProfile(byokProfileId)?.isConfigured() == true
-            if (canRestore) {
-                SceneModelBindingStore.saveBinding(
-                    sceneId = DISPATCH_SCENE_ID,
-                    providerProfileId = byokProfileId,
-                    modelId = byokModelId,
-                )
-            } else {
-                SceneModelBindingStore.clearBinding(DISPATCH_SCENE_ID)
-            }
-            mmkv.encode(KEY_ACTIVE, false)
-        }
         currentStatus = PlatformAiProvisioningStatus(
-            statusText = "平台模式未启用",
+            statusText = "官方 AI 账号未登录",
         )
     }
 

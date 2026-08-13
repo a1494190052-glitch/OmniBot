@@ -482,6 +482,7 @@ class OmniAgentExecutor(
                         workspaceMemoryService = memoryService,
                         conversationMode = conversationMode,
                         reasoningEffort = reasoningEffort,
+                        modelProviderProfileId = modelOverride?.providerProfileId,
                         terminalEnvironment = terminalEnvironment,
                         runControl = runControl,
                         longTermMemoryIndex = ltmIndex,

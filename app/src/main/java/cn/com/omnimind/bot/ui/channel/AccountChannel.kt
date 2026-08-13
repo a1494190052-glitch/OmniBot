@@ -270,9 +270,7 @@ class AccountChannel {
             "unit" to platform.unit,
         ),
         "updatedAt" to updatedAt,
-        "officialProviderReady" to (
-            effectiveMode != AiAccessMode.PLATFORM || provisioning.ready
-            ),
+        "officialProviderReady" to provisioning.ready,
         "officialProviderStatus" to provisioning.statusText,
     )
 }

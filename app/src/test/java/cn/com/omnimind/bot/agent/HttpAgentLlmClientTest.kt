@@ -47,7 +47,7 @@ class HttpAgentLlmClientTest {
         try {
             val client = HttpAgentLlmClient(
                 scope = scope,
-                modelOverride = testOverride(),
+                modelOverride = officialTestOverride(),
                 resolveRouteInfoOp = { model, _, _, _, explicitModel, protocolType, _ ->
                     resolvedExplicitModels += explicitModel
                     routeInfo(
@@ -178,7 +178,7 @@ class HttpAgentLlmClientTest {
         try {
             val client = HttpAgentLlmClient(
                 scope = scope,
-                modelOverride = testOverride(),
+                modelOverride = officialTestOverride(),
                 streamRequestOp = { _, _, _, _, _, _, _, _, _, _ ->
                     requestCount += 1
                     dummyEventSource()
@@ -322,6 +322,15 @@ class HttpAgentLlmClientTest {
             val client = HttpAgentLlmClient(
                 scope = scope,
                 modelOverride = testOverride(),
+                resolveRouteInfoOp = { model, _, _, _, explicitModel, protocolType, _ ->
+                    routeInfo(
+                        requestedModel = model,
+                        resolvedModel = explicitModel ?: model,
+                        protocolType = protocolType ?: "openai_compatible",
+                        requiresReasoningEcho = false,
+                        routeTag = "platform_gateway",
+                    )
+                },
                 streamRequestOp = { _, _, listener, _, _, _, _, _, _, _ ->
                     requestCount += 1
                     val source = dummyEventSource()
@@ -638,6 +647,11 @@ class HttpAgentLlmClientTest {
         modelId = "test-model",
         apiBase = "https://example.com",
         apiKey = "test-key"
+    )
+
+    private fun officialTestOverride() = testOverride().copy(
+        providerProfileId = "omnibot-official-ai",
+        apiKey = "",
     )
 
     private fun dummyEventSource(): EventSource {

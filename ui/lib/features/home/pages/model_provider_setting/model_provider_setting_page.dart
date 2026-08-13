@@ -155,6 +155,12 @@ class ModelProviderSettingPage extends StatefulWidget {
 }
 
 class _ModelProviderSettingPageState extends State<ModelProviderSettingPage> {
+  static List<ModelProviderProfileSummary> _byokProfiles(
+    List<ModelProviderProfileSummary> profiles,
+  ) => profiles
+      .where((profile) => profile.sourceType != 'omnibot_official')
+      .toList(growable: false);
+
   final TextEditingController _nameController = TextEditingController();
   final TextEditingController _baseUrlController = TextEditingController();
   final TextEditingController _apiKeyController = TextEditingController();
@@ -655,10 +661,14 @@ class _ModelProviderSettingPageState extends State<ModelProviderSettingPage> {
     try {
       final payload = await ModelProviderConfigService.listProfiles();
       if (!mounted) return;
+      final profiles = _byokProfiles(payload.profiles);
+      if (profiles.isEmpty) {
+        throw StateError('No editable BYOK provider profile is available');
+      }
 
-      final editingProfile = payload.profiles.firstWhere(
+      final editingProfile = profiles.firstWhere(
         (profile) => profile.id == payload.editingProfileId,
-        orElse: () => payload.profiles.first,
+        orElse: () => profiles.first,
       );
       final manualModelIds = await ModelProviderConfigService.getManualModelIds(
         profileId: editingProfile.id,
@@ -680,7 +690,7 @@ class _ModelProviderSettingPageState extends State<ModelProviderSettingPage> {
       final manualModels = storedModels[0] as List<ProviderModelOption>;
       final remoteModels = storedModels[1] as List<ProviderModelOption>;
       _applyProfile(
-        profiles: payload.profiles,
+        profiles: profiles,
         editingProfileId: editingProfile.id,
         manualModelIds: manualModelIds,
         hiddenChatModelIds: hiddenChatModelIds,
@@ -1248,9 +1258,13 @@ class _ModelProviderSettingPageState extends State<ModelProviderSettingPage> {
         current.id,
       );
       if (!mounted) return;
-      final fallback = payload.profiles.firstWhere(
+      final profiles = _byokProfiles(payload.profiles);
+      if (profiles.isEmpty) {
+        throw StateError('No editable BYOK provider profile is available');
+      }
+      final fallback = profiles.firstWhere(
         (profile) => profile.id == payload.editingProfileId,
-        orElse: () => payload.profiles.first,
+        orElse: () => profiles.first,
       );
       final manualModelIds = await ModelProviderConfigService.getManualModelIds(
         profileId: fallback.id,
@@ -1265,7 +1279,7 @@ class _ModelProviderSettingPageState extends State<ModelProviderSettingPage> {
       ]);
       if (!mounted) return;
       _applyProfile(
-        profiles: payload.profiles,
+        profiles: profiles,
         editingProfileId: fallback.id,
         manualModelIds: manualModelIds,
         hiddenChatModelIds: hiddenChatModelIds,

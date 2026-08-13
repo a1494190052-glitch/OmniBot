@@ -68,96 +68,63 @@ void main() {
     );
   });
 
-  testWidgets('shows email quota and platform mode after login', (
-    tester,
-  ) async {
-    tester.view.physicalSize = const Size(375, 812);
-    tester.view.devicePixelRatio = 1;
-    addTearDown(tester.view.resetPhysicalSize);
-    addTearDown(tester.view.resetDevicePixelRatio);
+  testWidgets(
+    'shows email and quota without an AI source chooser after login',
+    (tester) async {
+      tester.view.physicalSize = const Size(375, 812);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
 
-    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
-        .setMockMethodCallHandler(channel, (call) async {
-          if (call.method == 'getSessionState') {
-            return <String, Object?>{'configured': true, 'signedIn': true};
-          }
-          if (call.method == 'getOverview') {
-            return <String, Object?>{
-              'user': <String, Object?>{
-                'id': 'user-1',
-                'email': 'learner@example.com',
-                'role': 'user',
-                'status': 'active',
-              },
-              'settings': <String, Object?>{
-                'mode': 'platform',
-                'keyStorage': 'device',
-                'platformAvailable': true,
-                'platform': <String, Object?>{
-                  'platformEnabled': true,
-                  'balanceQuota': 1000,
-                  'weeklyLimitQuota': 5000,
-                  'weeklyUsedQuota': 1200,
-                  'unit': 'new_api_quota',
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(channel, (call) async {
+            if (call.method == 'getSessionState') {
+              return <String, Object?>{'configured': true, 'signedIn': true};
+            }
+            if (call.method == 'getOverview') {
+              return <String, Object?>{
+                'user': <String, Object?>{
+                  'id': 'user-1',
+                  'email': 'learner@example.com',
+                  'role': 'user',
+                  'status': 'active',
                 },
-              },
-            };
-          }
-          if (call.method == 'updateAiMode') {
-            return <String, Object?>{
-              'mode': 'byok',
-              'keyStorage': 'device',
-              'platformAvailable': true,
-              'platform': <String, Object?>{
-                'platformEnabled': true,
-                'balanceQuota': 1000,
-                'unit': 'new_api_quota',
-              },
-            };
-          }
-          return null;
-        });
+                'settings': <String, Object?>{
+                  'mode': 'platform',
+                  'keyStorage': 'device',
+                  'platformAvailable': true,
+                  'platform': <String, Object?>{
+                    'platformEnabled': true,
+                    'balanceQuota': 1000,
+                    'weeklyLimitQuota': 5000,
+                    'weeklyUsedQuota': 1200,
+                    'unit': 'new_api_quota',
+                  },
+                },
+              };
+            }
+            return null;
+          });
 
-    await tester.pumpWidget(_testApp());
-    await tester.pumpAndSettle();
+      await tester.pumpWidget(_testApp());
+      await tester.pumpAndSettle();
 
-    expect(find.text('learner@example.com'), findsOneWidget);
-    expect(find.text('1000'), findsOneWidget);
-    expect(find.text('使用平台额度'), findsOneWidget);
-    expect(find.text('本周剩余额度'), findsOneWidget);
-    expect(find.text('文字、识图、图片、语音共用，每周一自动恢复'), findsOneWidget);
-    expect(find.text('本周已用/预占 1200 / 5000'), findsOneWidget);
-    expect(find.text('Key 只保存在当前设备，不会上传账号服务器。'), findsNothing);
-    expect(find.text('由小万平台统一提供模型服务，不显示内部 API 端。'), findsNothing);
-    expect(find.byIcon(LucideIcons.userRound), findsOneWidget);
-    expect(find.byIcon(LucideIcons.coins), findsOneWidget);
-    expect(find.byIcon(LucideIcons.circleCheck), findsOneWidget);
-    expect(find.byType(Divider), findsWidgets);
-    _expectModeIconsVerticallyCentered(
-      tester,
-      optionKey: 'account-ai-mode-platform',
-      leadingIcon: LucideIcons.cloud,
-      trailingIcon: LucideIcons.circleCheck,
-    );
-    _expectModeIconsVerticallyCentered(
-      tester,
-      optionKey: 'account-ai-mode-byok',
-      leadingIcon: LucideIcons.keyRound,
-      trailingIcon: LucideIcons.circle,
-    );
-    expect(tester.takeException(), isNull);
-
-    await tester.tap(find.text('使用自己的 API Key'));
-    await tester.pump();
-    await tester.pump(const Duration(milliseconds: 250));
-
-    expect(find.text('AI 来源已更新'), findsOneWidget);
-    expect(find.byType(SnackBar), findsNothing);
-    expect(find.text('配置我的 API Key'), findsOneWidget);
-    expect(find.byType(Divider), findsWidgets);
-
-    await tester.pump(const Duration(seconds: 3));
-  });
+      expect(find.text('learner@example.com'), findsOneWidget);
+      expect(find.text('1000'), findsOneWidget);
+      expect(find.text('AI 来源'), findsNothing);
+      expect(find.text('使用平台额度'), findsNothing);
+      expect(find.text('使用自己的 API Key'), findsNothing);
+      expect(find.text('本周剩余额度'), findsOneWidget);
+      expect(find.text('文字、识图、图片、语音共用，每周一自动恢复'), findsOneWidget);
+      expect(find.text('本周已用/预占 1200 / 5000'), findsOneWidget);
+      expect(find.text('Key 只保存在当前设备，不会上传账号服务器。'), findsNothing);
+      expect(find.text('由小万平台统一提供模型服务，不显示内部 API 端。'), findsNothing);
+      expect(find.byIcon(LucideIcons.userRound), findsOneWidget);
+      expect(find.byIcon(LucideIcons.coins), findsOneWidget);
+      expect(find.byType(Divider), findsWidgets);
+      expect(tester.takeException(), isNull);
+    },
+  );
 
   testWidgets('disables platform mode while platform AI is unavailable', (
     tester,
@@ -196,7 +163,8 @@ void main() {
 
     expect(find.text('平台 AI 服务暂未开放'), findsWidgets);
     expect(find.text('1000'), findsNothing);
-    expect(find.text('配置我的 API Key'), findsOneWidget);
+    expect(find.text('AI 来源'), findsNothing);
+    expect(find.text('配置我的 API Key'), findsNothing);
   });
 
   testWidgets('resets a forgotten password with a reset-purpose email code', (
@@ -502,23 +470,6 @@ void main() {
     expect(find.text('登录小万账号'), findsOneWidget);
     await tester.pump(const Duration(seconds: 3));
   });
-}
-
-void _expectModeIconsVerticallyCentered(
-  WidgetTester tester, {
-  required String optionKey,
-  required IconData leadingIcon,
-  required IconData trailingIcon,
-}) {
-  final optionCenterY = tester.getCenter(find.byKey(ValueKey(optionKey))).dy;
-  expect(
-    tester.getCenter(find.byIcon(leadingIcon)).dy,
-    closeTo(optionCenterY, 1),
-  );
-  expect(
-    tester.getCenter(find.byIcon(trailingIcon)).dy,
-    closeTo(optionCenterY, 1),
-  );
 }
 
 Widget _testApp() {

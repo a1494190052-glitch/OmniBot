@@ -533,6 +533,11 @@ internal fun chatModelOverrideToAgentModelOverride(
     }
     val providerProfileName = runCatching {
         ModelProviderConfigStore.getProfile(modelOverride.providerProfileId)?.name
+            ?: PlatformAiProvisioner.officialProfileOrNull()
+                ?.takeIf {
+                    OmniOfficialProvider.isOfficialProfile(modelOverride.providerProfileId)
+                }
+                ?.name
     }.getOrNull()
     return AgentModelOverride(
         providerProfileId = modelOverride.providerProfileId,
@@ -569,6 +574,11 @@ private fun extractTextPayload(raw: JsonElement?): String {
 
 class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
     private val TAG = "[AssistsCoreManager]"
+
+    private fun lookupRuntimeProviderProfile(profileId: String): ModelProviderProfile? =
+        ModelProviderConfigStore.getProfile(profileId)
+            ?: PlatformAiProvisioner.officialProfileOrNull()
+                ?.takeIf { OmniOfficialProvider.isOfficialProfile(profileId) }
 
     companion object {
         private const val SUMMARY_TASK_PREFIX_TASK = "task-summary-"
@@ -1831,7 +1841,7 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
         ).historyAttachments
         val modelOverride = resolveChatTaskModelOverride(
             call.argument<Map<String, Any?>>("modelOverride"),
-            ModelProviderConfigStore::getProfile
+            ::lookupRuntimeProviderProfile
         )
         val reasoningEffort = normalizeReasoningEffort(
             call.argument<String>("reasoningEffort")
@@ -2819,18 +2829,15 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
             try {
                 val allProfiles = ModelProviderConfigStore.listProfiles()
                 val official = PlatformAiProvisioner.officialProfileOrNull()
-                val profiles = if (official != null) {
-                    listOf(official)
-                } else {
-                    allProfiles.filterNot { OmniOfficialProvider.isOfficialProfile(it.id) }
-                }
+                val profiles = allProfiles
+                    .filterNot { OmniOfficialProvider.isOfficialProfile(it.id) }
+                    .toMutableList()
+                    .apply { if (official != null) add(official) }
                 withContext(Dispatchers.Main) {
                     result.success(
                         mapOf(
                             "profiles" to profiles.map { it.toMap() },
-                            "editingProfileId" to (
-                                official?.id ?: ModelProviderConfigStore.getEditingProfileId()
-                                )
+                            "editingProfileId" to ModelProviderConfigStore.getEditingProfileId()
                         )
                     )
                 }
@@ -4025,7 +4032,7 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
     }
 
     private fun resolveAgentModelOverride(raw: Map<String, Any?>?): AgentModelOverride? {
-        return resolveDirectAgentModelOverride(raw, ModelProviderConfigStore::getProfile)
+        return resolveDirectAgentModelOverride(raw, ::lookupRuntimeProviderProfile)
     }
 
     fun createAgentTask(call: MethodCall, result: MethodChannel.Result) {

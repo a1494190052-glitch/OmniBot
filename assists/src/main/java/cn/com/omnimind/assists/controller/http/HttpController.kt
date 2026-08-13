@@ -21,6 +21,8 @@ import cn.com.omnimind.baselib.util.OmniLog
 import cn.com.omnimind.baselib.llm.ModelSceneRegistry
 import cn.com.omnimind.baselib.llm.OpenAiWireApi
 import cn.com.omnimind.baselib.llm.OpenAIResponsesRequest
+import cn.com.omnimind.baselib.llm.OmniOfficialProvider
+import cn.com.omnimind.baselib.llm.PlatformAiProvisioner
 import cn.com.omnimind.baselib.llm.ProviderModelOption
 import cn.com.omnimind.baselib.llm.ProviderCustomHeaderUtils
 import cn.com.omnimind.baselib.llm.SceneModelBindingStore
@@ -818,7 +820,11 @@ object HttpController {
             )
         }
         val sceneBinding = sceneProfile?.sceneId?.let(SceneModelBindingStore::getBinding)
-        val boundProfile = sceneBinding?.providerProfileId?.let(ModelProviderConfigStore::getProfile)
+        val boundProfile = sceneBinding?.providerProfileId?.let { profileId ->
+            ModelProviderConfigStore.getProfile(profileId)
+                ?: PlatformAiProvisioner.officialProfileOrNull()
+                    ?.takeIf { OmniOfficialProvider.isOfficialProfile(profileId) }
+        }
         val bindingApplied =
             explicitBase == null &&
                 explicitResolvedModel == null &&
@@ -874,15 +880,26 @@ object HttpController {
             ModelSceneRegistry.SceneTransport.OPENAI_COMPATIBLE,
             ModelSceneRegistry.SceneTransport.CONVERSATION_CHAT -> ModelSceneRegistry.ResponseParser.TEXT_CONTENT
         }
+        val aiAccess = OmniAccount.currentAiRequestAccess()
+        val explicitOfficialProvider =
+            explicitBase != null &&
+                explicitKey == null &&
+                explicitHeaders.isEmpty() &&
+                aiAccess.platformGatewayUrl?.let(::normalizeApiBase) == explicitBase
+        val officialProviderSelected =
+            (bindingApplied && OmniOfficialProvider.isOfficialProfile(boundProfile?.id)) ||
+                explicitOfficialProvider
         val routeTag = when {
+            officialProviderSelected -> AiRequestTransportPolicy.PLATFORM_ROUTE_TAG
             overrideApplied -> ROUTE_CUSTOM_OPENAI_COMPAT
             effectiveTransport == ModelSceneRegistry.SceneTransport.OPENAI_COMPATIBLE -> "openai_compatible"
             effectiveTransport == ModelSceneRegistry.SceneTransport.CONVERSATION_CHAT -> "conversation_chat"
             else -> null
         }
 
-        val aiAccess = OmniAccount.currentAiRequestAccess()
-        aiAccess.unavailableReason?.let { throw IllegalStateException(it) }
+        if (officialProviderSelected) {
+            aiAccess.unavailableReason?.let { throw IllegalStateException(it) }
+        }
         val transportRoute = AiRequestTransportPolicy.apply(
             access = aiAccess,
             byokRoute = AiTransportRoute(

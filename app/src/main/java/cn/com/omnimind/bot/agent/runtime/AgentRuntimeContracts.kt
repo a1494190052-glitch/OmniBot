@@ -15,6 +15,7 @@ interface AgentExecutionEnvironment {
     val workspaceMemoryService: WorkspaceMemoryService
     val conversationMode: String
     val reasoningEffort: String?
+    val modelProviderProfileId: String? get() = null
     val terminalEnvironment: Map<String, String>
     val runControl: AgentRunControl
 
@@ -39,6 +40,7 @@ data class DefaultAgentExecutionEnvironment(
     override val workspaceMemoryService: WorkspaceMemoryService,
     override val conversationMode: String,
     override val reasoningEffort: String? = null,
+    override val modelProviderProfileId: String? = null,
     override val terminalEnvironment: Map<String, String> = emptyMap(),
     override val runControl: AgentRunControl = NoOpAgentRunControl,
     override val longTermMemoryIndex: LongTermMemoryIndex? = null,

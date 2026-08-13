@@ -10,6 +10,7 @@ import cn.com.omnimind.baselib.llm.ChatCompletionThinking
 import cn.com.omnimind.baselib.llm.ChatCompletionTurn
 import cn.com.omnimind.baselib.llm.DeepSeekProvider
 import cn.com.omnimind.baselib.llm.ModelProviderConfigStore
+import cn.com.omnimind.baselib.llm.OmniOfficialProvider
 import cn.com.omnimind.baselib.llm.PlatformAiProvisioner
 import cn.com.omnimind.baselib.llm.ReasoningStreamUpdatePolicy
 import cn.com.omnimind.baselib.llm.contentText
@@ -156,7 +157,10 @@ class HttpAgentLlmClient(
         onReasoningUpdate: (suspend (String) -> Unit)?,
         onContentUpdate: (suspend (String) -> Unit)?
     ): ChatCompletionTurn {
-        val platformVisionModel = if (request.hasImageInput()) {
+        val usesOfficialProvider =
+            OmniOfficialProvider.isOfficialProfile(modelOverride?.providerProfileId) ||
+                (request.hasImageInput() && requestUsesOfficialProvider(request))
+        val platformVisionModel = if (request.hasImageInput() && usesOfficialProvider) {
             resolvePlatformVisionModelOp()?.trim()?.takeIf { it.isNotEmpty() }
         } else {
             null
@@ -187,6 +191,25 @@ class HttpAgentLlmClient(
             onReasoningUpdate = onReasoningUpdate,
             onContentUpdate = onContentUpdate,
         )
+    }
+
+    private fun requestUsesOfficialProvider(request: ChatCompletionRequest): Boolean {
+        if (OmniOfficialProvider.isOfficialProfile(modelOverride?.providerProfileId)) {
+            return true
+        }
+        if (modelOverride != null) {
+            return false
+        }
+        val routeInfo = resolveRouteInfoOp(
+            request.model,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+        )
+        return AiRequestTransportPolicy.isPlatformRoute(routeInfo.routeTag)
     }
 
     private suspend fun streamRoutedTurn(
@@ -230,6 +253,7 @@ class HttpAgentLlmClient(
                         model = candidateModel,
                         requestJson = requestJson,
                         explicitModel = effectiveExplicitModel,
+                        platformRoute = AiRequestTransportPolicy.isPlatformRoute(routeInfo.routeTag),
                         onReasoningUpdate = onReasoningUpdate,
                         onContentUpdate = onContentUpdate
                     )
@@ -276,13 +300,14 @@ class HttpAgentLlmClient(
         model: String,
         requestJson: String,
         explicitModel: String?,
+        platformRoute: Boolean,
         onReasoningUpdate: (suspend (String) -> Unit)?,
         onContentUpdate: (suspend (String) -> Unit)?,
     ): ChatCompletionTurn {
         return try {
             streamTurnOnce(model, requestJson, explicitModel, onReasoningUpdate, onContentUpdate)
         } catch (error: AgentStreamRequestException) {
-            if (error.statusCode != 401 || !refreshPlatformSessionOp()) {
+            if (error.statusCode != 401 || !platformRoute || !refreshPlatformSessionOp()) {
                 throw error
             }
             OmniLog.i(tag, "platform access token refreshed after 401; retrying once")

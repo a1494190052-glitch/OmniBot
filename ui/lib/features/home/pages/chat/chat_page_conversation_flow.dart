@@ -377,23 +377,6 @@ mixin _ChatPageConversationFlowMixin on _ChatPageStateBase {
     if (_activeMode != ChatPageMode.normal || _isOpenClawSurface) {
       return true;
     }
-    try {
-      final routing = await AccountService.getAiRoutingState();
-      if (routing.usesPlatform && routing.ready) {
-        return true;
-      }
-      if (routing.mode == AiAccessMode.platform && !routing.ready) {
-        if (mounted) {
-          showToast(
-            routing.unavailableReason ?? '平台 AI 暂时不可用，请稍后重试',
-            type: ToastType.warning,
-          );
-        }
-        return false;
-      }
-    } on PlatformException catch (error) {
-      debugPrint('读取账号 AI 路由失败，继续检查本机模型配置: ${error.code}');
-    }
     if (_hasConfiguredNormalChatProviderModel()) {
       return true;
     }

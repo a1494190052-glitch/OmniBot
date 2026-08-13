@@ -8,7 +8,6 @@ import android.media.AudioTrack
 import android.media.MediaPlayer
 import android.os.Handler
 import android.os.Looper
-import cn.com.omnimind.baselib.account.AiAccessMode
 import cn.com.omnimind.baselib.account.OmniAccount
 import cn.com.omnimind.bot.agent.AgentWorkspaceManager
 import cn.com.omnimind.baselib.http.OkHttpManager
@@ -276,22 +275,6 @@ class SceneVoicePlaybackManager(
             throw IllegalArgumentException("text is empty")
         }
         val config = SceneVoiceConfigStore.getConfig()
-        val access = OmniAccount.currentAiRequestAccess()
-        access.unavailableReason?.let { throw IllegalStateException(it) }
-        if (access.mode == AiAccessMode.PLATFORM) {
-            // Resolve the catalog in processItem on the IO scope. This keeps the
-            // synchronous Flutter method call fast while avoiding stale cached
-            // TTS model and voice selections.
-            return VoicePlaybackQueueItem(
-                messageId = normalizedMessageId,
-                text = normalizedText,
-                binding = null,
-                config = config,
-                cacheKey = "",
-                preferStreaming = false,
-                transport = VoiceTransport.PLATFORM_SPEECH,
-            )
-        }
         if (config.ttsMode == SceneVoiceConfigStore.TTS_MODE_CUSTOM_CURL) {
             val curl = config.customCurlCommand.trim()
             if (curl.isEmpty()) {
@@ -319,6 +302,24 @@ class SceneVoicePlaybackManager(
                 preferStreaming = false,
                 transport = VoiceTransport.CUSTOM_CURL,
                 customCurlCommand = curl
+            )
+        }
+        val rawBinding = SceneModelBindingStore.getBinding(SceneVoiceConfigStore.SCENE_ID)
+        if (OmniOfficialProvider.isOfficialProfile(rawBinding?.providerProfileId)) {
+            val access = OmniAccount.currentAiRequestAccess()
+            access.unavailableReason?.let { throw IllegalStateException(it) }
+            check(access.usesPlatform) { "官方 AI 账号未登录或服务暂不可用" }
+            // Resolve the catalog in processItem on the IO scope. This keeps the
+            // synchronous Flutter method call fast while avoiding stale cached
+            // TTS model and voice selections.
+            return VoicePlaybackQueueItem(
+                messageId = normalizedMessageId,
+                text = normalizedText,
+                binding = null,
+                config = config,
+                cacheKey = "",
+                preferStreaming = false,
+                transport = VoiceTransport.PLATFORM_SPEECH,
             )
         }
         val binding = resolveVoiceBinding()

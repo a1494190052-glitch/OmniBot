@@ -17,7 +17,7 @@ flowchart LR
 
 ## 两种模式的安全边界
 
-- 平台模式只发送账号 Access JWT。用户设备上的第三方地址、API Key、自定义请求头和协议设置全部丢弃，不能覆盖平台鉴权。
+- 只有明确选择“OmniBot 官方 AI”渠道时才发送账号 Access JWT。选择 BYOK 渠道时，用户设备上的第三方地址、API Key、自定义请求头、协议与 wire API 均保持原样。
 - BYOK 模式继续使用原有的设备本地模型配置，API Key 不上传账号服务器。
 - Flutter 界面只能读取 `mode`、`ready` 和错误原因，拿不到账号 Token、BYOK Key 或内部 New API 地址。
 - Access JWT 过期并收到 HTTP 401 时，主聊天会刷新登录会话并且只重试一次。
@@ -44,10 +44,10 @@ OMNIBOT_AI_GATEWAY_URL=https://model-api.omnimind.com.cn
 
 任何手机需要访问的公网网址都可以被手机所有者观察到，因此品牌网关域名本身无法保密；真正需要隐藏、并且当前设计隐藏的是 New API 的内网地址、管理界面和全部上游密钥。
 
-## 平台模式的零配置流程
+## 官方渠道的零配置流程
 
 1. 登录后读取账号的 AI 模式。
-2. 若为平台模式，自动启用只读的“OmniBot 官方 AI”。
+2. 登录后，自动追加只读的“OmniBot 官方 AI”渠道，不替换已有 BYOK Provider 或场景绑定。
 3. 用用户 JWT 请求品牌网关的 `/v1/models`，只保留主文本可用模型。
 4. 首次使用选择已经验证的 `Qwen3.5-Plus`；用户之后可以在官方列表内覆盖主文本场景模型。
 5. 保存主文本场景绑定后即可聊天，请求仍由品牌网关鉴权和扣额。
@@ -56,4 +56,4 @@ OMNIBOT_AI_GATEWAY_URL=https://model-api.omnimind.com.cn
 
 ## 当前范围
 
-主聊天文本、图片理解、图片生成和语音播放均按账号 AI 模式路由。平台模式只使用品牌网关和账号 Token，并按官方模型目录声明的文本、视觉、图片、TTS 能力工作；BYOK 模式保留设备端 Provider、Key、自定义 Header、协议与场景绑定。平台与 BYOK 凭据不会混用，切换模式也不会覆盖本地 BYOK 配置。
+主聊天文本、图片理解、图片生成和语音播放均按所选 Provider/场景绑定路由。选择官方渠道时只使用品牌网关和账号 Token，并按官方模型目录声明的文本、视觉、图片、TTS 能力工作；选择 BYOK 时保留设备端 Provider、Key、自定义 Header、协议、wire API 与场景绑定。两类凭据不会混用，登录、同步目录或退出账号也不会覆盖本地 BYOK 配置。

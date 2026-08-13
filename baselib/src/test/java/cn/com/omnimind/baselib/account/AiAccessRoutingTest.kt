@@ -1,7 +1,6 @@
 package cn.com.omnimind.baselib.account
 
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -21,7 +20,7 @@ class AiAccessRoutingTest {
     }
 
     @Test
-    fun platformModeRequiresSynchronizedAccountChoice() {
+    fun signedInAccountExposesOfficialAccessWithoutLegacyModeChoice() {
         val access = AiRequestAccessResolver.resolve(
             accountConfigured = true,
             signedIn = true,
@@ -30,12 +29,12 @@ class AiAccessRoutingTest {
             accessToken = "account-jwt",
         )
 
-        assertNull(access.mode)
-        assertTrue(!access.unavailableReason.isNullOrBlank())
+        assertEquals(AiAccessMode.PLATFORM, access.mode)
+        assertTrue(access.usesPlatform)
     }
 
     @Test
-    fun platformModeDropsEveryByokCredentialAndProtocolOverride() {
+    fun signedInAccountDoesNotReplaceAByokRoute() {
         val access = AiRequestAccessResolver.resolve(
             accountConfigured = true,
             signedIn = true,
@@ -58,12 +57,40 @@ class AiAccessRoutingTest {
             ),
         )
 
+        assertEquals("https://third-party.example/v1", route.apiBase)
+        assertEquals("user-byok-secret", route.apiKey)
+        assertEquals("Bearer user-override", route.customHeaders["Authorization"])
+        assertEquals("anthropic", route.protocolType)
+        assertEquals("responses", route.wireApi)
+        assertEquals("custom_openai_compat", route.routeTag)
+    }
+
+    @Test
+    fun explicitlySelectedOfficialRouteDropsEveryByokOverride() {
+        val access = AiRequestAccessResolver.resolve(
+            accountConfigured = true,
+            signedIn = true,
+            cachedMode = AiAccessMode.BYOK,
+            platformGatewayUrl = "https://brand.example/ai/",
+            accessToken = "account-jwt",
+        )
+        val route = AiRequestTransportPolicy.apply(
+            access = access,
+            byokRoute = AiTransportRoute(
+                apiBase = "https://brand.example/ai",
+                apiKey = "must-not-survive",
+                customHeaders = mapOf("X-Provider" to "must-not-survive"),
+                protocolType = "anthropic",
+                wireApi = "responses",
+                routeTag = AiRequestTransportPolicy.PLATFORM_ROUTE_TAG,
+            ),
+        )
+
         assertEquals("https://brand.example/ai", route.apiBase)
         assertEquals("account-jwt", route.apiKey)
         assertTrue(route.customHeaders.isEmpty())
         assertEquals("openai_compatible", route.protocolType)
         assertEquals("chat_completions", route.wireApi)
-        assertEquals("platform_gateway", route.routeTag)
         assertTrue(AiRequestTransportPolicy.isPlatformRoute(route.routeTag))
     }
 
@@ -97,7 +124,7 @@ class AiAccessRoutingTest {
         )
 
         assertTrue(!access.usesPlatform)
-        assertNull(access.bearerToken)
+        assertEquals(null, access.bearerToken)
         assertTrue(!access.unavailableReason.isNullOrBlank())
     }
 

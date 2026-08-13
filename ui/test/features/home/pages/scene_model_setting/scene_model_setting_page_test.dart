@@ -65,28 +65,6 @@ void main() {
     );
   }
 
-  Future<void> confirmDestination(WidgetTester tester) async {
-    expect(
-      find.byKey(const Key('data-destination-confirmation-dialog')),
-      findsOneWidget,
-    );
-    await tester.tap(find.byKey(const Key('data-destination-acknowledgement')));
-    await tester.pump();
-    await tester.tap(find.byKey(const Key('data-destination-confirm')));
-    await tester.pumpAndSettle();
-  }
-
-  Future<void> confirmDestinationWithoutSettling(WidgetTester tester) async {
-    expect(
-      find.byKey(const Key('data-destination-confirmation-dialog')),
-      findsOneWidget,
-    );
-    await tester.tap(find.byKey(const Key('data-destination-acknowledgement')));
-    await tester.pump();
-    await tester.tap(find.byKey(const Key('data-destination-confirm')));
-    await tester.pump();
-  }
-
   Future<void> pumpSceneSettings(WidgetTester tester) async {
     tester.view.physicalSize = const Size(1080, 2200);
     tester.view.devicePixelRatio = 1.0;
@@ -99,13 +77,16 @@ void main() {
 
   late Map<String, dynamic> savedVoiceConfig;
   late bool providerConfigured;
+  late bool providerDestinationConsentValid;
   late String providerBaseUrl;
   late int providerRevision;
   late String providerSourceType;
   late bool providerReadOnly;
   late bool providerReady;
+  late bool includeOfficialProvider;
   late int providerFetchCount;
   late List<Map<String, dynamic>> providerFetchResponse;
+  late List<Map<String, dynamic>> officialFetchResponse;
   late Completer<List<Map<String, dynamic>>>? providerFetchCompleter;
   late Object? providerFetchError;
   late Map<dynamic, dynamic>? lastProviderFetchArguments;
@@ -118,13 +99,16 @@ void main() {
       ModelsDevCatalogService.parseCatalog(_modelsDevCatalogJson),
     );
     providerConfigured = true;
+    providerDestinationConsentValid = true;
     providerBaseUrl = 'https://example.com/v1';
     providerRevision = 1;
     providerSourceType = 'custom';
     providerReadOnly = false;
     providerReady = true;
+    includeOfficialProvider = false;
     providerFetchCount = 0;
     providerFetchResponse = <Map<String, dynamic>>[];
+    officialFetchResponse = <Map<String, dynamic>>[];
     providerFetchCompleter = null;
     providerFetchError = null;
     lastProviderFetchArguments = null;
@@ -187,13 +171,26 @@ void main() {
                     'apiKey': 'secret',
                     'hasApiKey': true,
                     'configured': providerConfigured,
-                    'destinationConsentValid': providerConfigured,
+                    'destinationConsentValid': providerDestinationConsentValid,
                     'sourceType': providerSourceType,
                     'readOnly': providerReadOnly,
                     'ready': providerReady,
                     'revision': providerRevision,
                     'protocolType': 'openai_compatible',
                   },
+                  if (includeOfficialProvider)
+                    <String, dynamic>{
+                      'id': 'omnibot-official-ai',
+                      'name': 'OmniBot 官方 AI',
+                      'baseUrl': 'https://official.example/ai',
+                      'configured': true,
+                      'destinationConsentValid': true,
+                      'sourceType': 'omnibot_official',
+                      'readOnly': true,
+                      'ready': true,
+                      'revision': 0,
+                      'protocolType': 'openai_compatible',
+                    },
                 ],
                 'editingProfileId': 'provider-1',
               };
@@ -209,7 +206,10 @@ void main() {
               }
               final pending = providerFetchCompleter;
               if (pending != null) return pending.future;
-              return providerFetchResponse;
+              final arguments = (call.arguments as Map?) ?? const {};
+              return arguments['profileId'] == 'omnibot-official-ai'
+                  ? officialFetchResponse
+                  : providerFetchResponse;
             case 'getSceneVoiceConfig':
               return savedVoiceConfig;
             case 'saveSceneVoiceConfig':
@@ -280,9 +280,10 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('scene entry shows BYOK cache without fetching provider models', (
+  testWidgets('scene entry paints cache and has no manual refresh control', (
     tester,
   ) async {
+    providerDestinationConsentValid = false;
     await ModelProviderConfigService.saveCachedFetchedModels(
       profileId: 'provider-1',
       apiBase: providerBaseUrl,
@@ -297,7 +298,7 @@ void main() {
     expect(providerFetchCount, 0);
     expect(
       find.byKey(const Key('scene-model-refresh-provider-models-button')),
-      findsOneWidget,
+      findsNothing,
     );
     await tester.tap(
       find.byKey(
@@ -308,70 +309,35 @@ void main() {
     expect(find.text('cached-model'), findsOneWidget);
   });
 
-  testWidgets('manual BYOK refresh confirms once before fetch', (tester) async {
+  testWidgets('confirmed BYOK provider refreshes automatically', (
+    tester,
+  ) async {
     providerFetchResponse = <Map<String, dynamic>>[
       <String, dynamic>{'id': 'fresh-model', 'displayName': 'Fresh model'},
     ];
     await pumpSceneSettings(tester);
 
-    await tester.tap(
-      find.byKey(const Key('scene-model-refresh-provider-models-button')),
-    );
-    await tester.pump();
-
-    expect(providerFetchCount, 0);
-    expect(
-      find.byKey(const Key('data-destination-confirmation-dialog')),
-      findsOneWidget,
-    );
-    expect(find.text('https://example.com:443'), findsOneWidget);
-    expect(find.textContaining('/v1'), findsNothing);
-
-    await confirmDestination(tester);
-
     expect(providerFetchCount, 1);
     expect(lastProviderFetchArguments?['apiBase'], providerBaseUrl);
     expect(lastProviderFetchArguments?['profileId'], 'provider-1');
-    expect(lastProviderFetchArguments?['destinationConfirmed'], isTrue);
+    expect(lastProviderFetchArguments?['destinationConfirmed'], isNot(true));
     expect(
       find.byKey(const Key('data-destination-confirmation-dialog')),
       findsNothing,
     );
-    expect(
-      tester
-          .widget<OutlinedButton>(
-            find.byKey(const Key('scene-model-refresh-provider-models-button')),
-          )
-          .onPressed,
-      isNotNull,
-    );
-    await tester.pump(const Duration(seconds: 3));
   });
 
-  testWidgets('rejecting BYOK refresh performs zero fetch', (tester) async {
+  testWidgets('BYOK provider without destination consent is not refreshed', (
+    tester,
+  ) async {
+    providerDestinationConsentValid = false;
     await pumpSceneSettings(tester);
-
-    await tester.tap(
-      find.byKey(const Key('scene-model-refresh-provider-models-button')),
-    );
-    await tester.pump();
-    await tester.tap(find.byKey(const Key('data-destination-cancel')));
-    await tester.pumpAndSettle();
 
     expect(providerFetchCount, 0);
     expect(
-      find.byKey(const Key('scene-model-refresh-provider-models-progress')),
+      find.byKey(const Key('data-destination-confirmation-dialog')),
       findsNothing,
     );
-    expect(
-      tester
-          .widget<OutlinedButton>(
-            find.byKey(const Key('scene-model-refresh-provider-models-button')),
-          )
-          .onPressed,
-      isNotNull,
-    );
-    await tester.pump(const Duration(seconds: 3));
   });
 
   testWidgets('changed provider revision cannot apply an old fetch result', (
@@ -380,15 +346,6 @@ void main() {
     final pending = Completer<List<Map<String, dynamic>>>();
     providerFetchCompleter = pending;
     await pumpSceneSettings(tester);
-
-    await tester.tap(
-      find.byKey(const Key('scene-model-refresh-provider-models-button')),
-    );
-    await tester.pump();
-    await confirmDestinationWithoutSettling(tester);
-    for (var attempt = 0; attempt < 4 && providerFetchCount == 0; attempt++) {
-      await tester.pump();
-    }
     expect(providerFetchCount, 1);
 
     providerBaseUrl = 'https://replacement.example.com/v1';
@@ -398,14 +355,7 @@ void main() {
     ]);
     for (var attempt = 0; attempt < 10; attempt++) {
       await tester.pump();
-      final button = tester.widget<OutlinedButton>(
-        find.byKey(const Key('scene-model-refresh-provider-models-button')),
-      );
-      if (button.onPressed != null) break;
     }
-    expect(find.textContaining('user:token'), findsNothing);
-    expect(find.textContaining('/private'), findsNothing);
-    expect(find.textContaining('key=secret'), findsNothing);
 
     await tester.tap(
       find.byKey(
@@ -414,53 +364,28 @@ void main() {
     );
     await tester.pumpAndSettle();
     expect(find.text('stale-model'), findsNothing);
-    await tester.pump(const Duration(seconds: 3));
   });
 
-  testWidgets(
-    'manual refresh is single flight and disposal ignores completion',
-    (tester) async {
-      final pending = Completer<List<Map<String, dynamic>>>();
-      providerFetchCompleter = pending;
-      await pumpSceneSettings(tester);
-      final refreshButton = tester.widget<OutlinedButton>(
-        find.byKey(const Key('scene-model-refresh-provider-models-button')),
-      );
+  testWidgets('automatic refresh disposal ignores completion', (tester) async {
+    final pending = Completer<List<Map<String, dynamic>>>();
+    providerFetchCompleter = pending;
+    await pumpSceneSettings(tester);
+    expect(providerFetchCount, 1);
 
-      refreshButton.onPressed!();
-      await tester.pump();
-      await confirmDestinationWithoutSettling(tester);
-      for (var attempt = 0; attempt < 4 && providerFetchCount == 0; attempt++) {
-        await tester.pump();
-      }
-      expect(providerFetchCount, 1);
-      refreshButton.onPressed!();
-      await tester.pump();
-      expect(providerFetchCount, 1);
-      expect(
-        find.byKey(const Key('data-destination-confirmation-dialog')),
-        findsNothing,
-      );
-      expect(
-        find.byKey(const Key('scene-model-refresh-provider-models-progress')),
-        findsOneWidget,
-      );
+    await tester.pumpWidget(const MaterialApp(home: SizedBox.shrink()));
+    pending.complete(<Map<String, dynamic>>[
+      <String, dynamic>{'id': 'late-model', 'displayName': 'Late model'},
+    ]);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 20));
+    expect(providerFetchCount, 1);
+    expect(tester.takeException(), isNull);
+  });
 
-      await tester.pumpWidget(const MaterialApp(home: SizedBox.shrink()));
-      pending.complete(<Map<String, dynamic>>[
-        <String, dynamic>{'id': 'late-model', 'displayName': 'Late model'},
-      ]);
-      await tester.pump();
-      await tester.pump(const Duration(milliseconds: 20));
-      expect(providerFetchCount, 1);
-      expect(tester.takeException(), isNull);
-    },
-  );
-
-  testWidgets('official platform catalog is not blocked by BYOK confirmation', (
+  testWidgets('official catalog refreshes automatically without confirmation', (
     tester,
   ) async {
-    providerBaseUrl = '';
+    providerBaseUrl = 'https://official.example/ai';
     providerSourceType = 'omnibot_official';
     providerReadOnly = true;
     providerFetchResponse = <Map<String, dynamic>>[
@@ -469,49 +394,62 @@ void main() {
 
     await pumpSceneSettings(tester);
     expect(providerFetchCount, 1);
-    expect(
-      find.byKey(const Key('data-destination-confirmation-dialog')),
-      findsNothing,
-    );
-    await tester.pump(const Duration(seconds: 3));
-
-    await tester.tap(
-      find.byKey(const Key('scene-model-refresh-provider-models-button')),
-    );
-    await tester.pumpAndSettle();
-    expect(providerFetchCount, 2);
     expect(lastProviderFetchArguments?['destinationConfirmed'], isNot(true));
     expect(
       find.byKey(const Key('data-destination-confirmation-dialog')),
       findsNothing,
     );
-    await tester.pump(const Duration(seconds: 3));
+    await tester.tap(
+      find.byKey(
+        const Key('scene-model-selector-scene.compactor.context.chat'),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('official-model'), findsOneWidget);
   });
 
-  testWidgets('refresh errors never display endpoint token or exception text', (
+  testWidgets('scene selector shows BYOK and official channels together', (
+    tester,
+  ) async {
+    includeOfficialProvider = true;
+    providerFetchResponse = <Map<String, dynamic>>[
+      <String, dynamic>{'id': 'byok-model'},
+    ];
+    officialFetchResponse = <Map<String, dynamic>>[
+      <String, dynamic>{'id': 'official-model'},
+    ];
+
+    await pumpSceneSettings(tester);
+    expect(providerFetchCount, 2);
+
+    await tester.tap(
+      find.byKey(
+        const Key('scene-model-selector-scene.compactor.context.chat'),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('Provider One'), findsOneWidget);
+    expect(find.text('OmniBot 官方 AI'), findsOneWidget);
+    expect(find.text('byok-model'), findsOneWidget);
+
+    await tester.tap(find.text('OmniBot 官方 AI'));
+    await tester.pumpAndSettle();
+    expect(find.text('official-model'), findsOneWidget);
+  });
+
+  testWidgets('background refresh errors do not leak endpoint details', (
     tester,
   ) async {
     providerFetchError =
         'socket failed at https://user:token@example.com/private?key=secret';
     await pumpSceneSettings(tester);
-
-    await tester.tap(
-      find.byKey(const Key('scene-model-refresh-provider-models-button')),
-    );
-    await tester.pump();
-    await confirmDestinationWithoutSettling(tester);
     for (var attempt = 0; attempt < 10; attempt++) {
       await tester.pump();
-      final button = tester.widget<OutlinedButton>(
-        find.byKey(const Key('scene-model-refresh-provider-models-button')),
-      );
-      if (button.onPressed != null) break;
     }
 
     expect(find.textContaining('user:token'), findsNothing);
     expect(find.textContaining('/private'), findsNothing);
     expect(find.textContaining('key=secret'), findsNothing);
-    await tester.pump(const Duration(seconds: 3));
   });
 
   testWidgets('voice scene expands and saves voice settings', (tester) async {

@@ -3,7 +3,6 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_switch/flutter_switch.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
-import 'package:ui/services/data_destination_confirmation.dart';
 import 'package:ui/services/model_provider_config_service.dart';
 import 'package:ui/services/scene_model_config_service.dart';
 import 'package:ui/services/voice_playback_coordinator.dart';
@@ -43,8 +42,6 @@ class SceneModelSettingPage extends StatefulWidget {
 }
 
 class _SceneModelSettingPageState extends State<SceneModelSettingPage> {
-  static const bool _showManualRefreshButton = true;
-
   static const List<String> _sceneOrder = [
     'scene.dispatch.model',
     'scene.voice',
@@ -265,6 +262,7 @@ class _SceneModelSettingPageState extends State<SceneModelSettingPage> {
         profiles: profilesPayload.profiles,
         providerModelsByProfileId: enriched,
       );
+      _scheduleProviderModelRefresh(profilesPayload.profiles);
     } catch (_) {
       if (!mounted) return;
       showToast(context.l10n.sceneModelLoadFailed, type: ToastType.error);
@@ -273,6 +271,15 @@ class _SceneModelSettingPageState extends State<SceneModelSettingPage> {
         setState(() => _isLoading = false);
       }
     }
+  }
+
+  void _scheduleProviderModelRefresh(
+    List<ModelProviderProfileSummary> profiles,
+  ) {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || !identical(_profiles, profiles)) return;
+      unawaited(_refreshProviderModelsInBackground());
+    });
   }
 
   Map<String, List<ProviderModelOption>> _mergeBindingModels({
@@ -353,110 +360,60 @@ class _SceneModelSettingPageState extends State<SceneModelSettingPage> {
     });
   }
 
-  Future<void> _refreshProviderModels() async {
+  Future<void> _refreshProviderModelsInBackground() async {
     if (_isRefreshingModels) return;
     final refreshGeneration = ++_providerRefreshGeneration;
-    setState(() => _isRefreshingModels = true);
+    _isRefreshingModels = true;
     try {
       final snapshots = List<ModelProviderProfileSummary>.from(_profiles);
       final nextModels = <String, List<ProviderModelOption>>{
         for (final entry in _providerModelsByProfileId.entries)
           entry.key: List<ProviderModelOption>.from(entry.value),
       };
-      var refreshedCount = 0;
-      var failedCount = 0;
-      var rejectedCount = 0;
       for (final profile in snapshots) {
         if (!_isProviderRefreshActive(refreshGeneration)) return;
-        if (!profile.configured) {
+        final isOfficial = profile.sourceType == 'omnibot_official';
+        if (!isOfficial &&
+            (!profile.configured || !profile.destinationConsentValid)) {
           continue;
         }
         try {
-          final List<ProviderModelOption> remoteModels;
-          if (profile.sourceType == 'omnibot_official') {
-            remoteModels = await _fetchModelsForSnapshot(
-              profile,
-              refreshGeneration: refreshGeneration,
-              destinationConfirmed: false,
-            );
-          } else {
-            final outcome =
-                await confirmDataDestinationAndRun<List<ProviderModelOption>>(
-                  context: context,
-                  rawEndpoint: profile.baseUrl,
-                  capability: 'BYOK model provider',
-                  operation: context.trLegacy('刷新场景模型列表'),
-                  dataTypes: [
-                    context.trLegacy('模型列表请求和提供商配置'),
-                    if (profile.hasApiKey || profile.hasCustomHeaders)
-                      context.trLegacy('已安全保存的提供商凭据'),
-                  ],
-                  action: () => _fetchModelsForSnapshot(
-                    profile,
-                    refreshGeneration: refreshGeneration,
-                    destinationConfirmed: true,
-                  ),
-                );
-            if (!_isProviderRefreshActive(refreshGeneration)) return;
-            if (!outcome.confirmed || outcome.value == null) {
-              rejectedCount += 1;
-              continue;
-            }
-            remoteModels = outcome.value!;
-          }
+          final remoteModels = await _fetchModelsForSnapshot(
+            profile,
+            refreshGeneration: refreshGeneration,
+            destinationConfirmed: false,
+          );
           if (!_isProviderRefreshActive(refreshGeneration)) return;
-          final manualModelIds =
-              await ModelProviderConfigService.getManualModelIds(
-                profileId: profile.id,
-              );
+          final manualModelIds = isOfficial
+              ? const <String>[]
+              : await ModelProviderConfigService.getManualModelIds(
+                  profileId: profile.id,
+                );
           nextModels[profile.id] = ModelProviderConfigService.mergeModelOptions(
             remoteModels: remoteModels,
             manualModelIds: manualModelIds,
           );
-          refreshedCount += remoteModels.length;
         } catch (_) {
-          failedCount += 1;
+          // Keep the last cached list. Background refresh must not interrupt
+          // scene settings with dialogs or transient network error toasts.
         }
       }
 
       if (!_isProviderRefreshActive(refreshGeneration)) return;
-      setState(() {
-        _providerModelsByProfileId = _mergeBindingModels(
-          providerModelsByProfileId: nextModels,
-          bindings: _bindings,
-        );
-      });
-      if (!mounted) return;
-      if (failedCount > 0) {
-        showToast(
-          context.trLegacy('部分模型列表未刷新，请检查 Provider 配置后重试。'),
-          type: ToastType.warning,
-        );
-        return;
-      }
-      if (rejectedCount > 0 && refreshedCount == 0) {
-        showToast(
-          context.trLegacy('未刷新：你没有确认本次数据接收方。'),
-          type: ToastType.warning,
-        );
-        return;
-      }
-      if (!mounted) return;
-      showToast(
-        refreshedCount == 0
-            ? context.l10n.modelsNoAvailableModels
-            : context.l10n.sceneModelUpdatedModels(refreshedCount),
-        type: refreshedCount == 0 ? ToastType.warning : ToastType.success,
+      final merged = _mergeBindingModels(
+        providerModelsByProfileId: nextModels,
+        bindings: _bindings,
+      );
+      setState(() => _providerModelsByProfileId = merged);
+      _scheduleMetadataRefresh(
+        profiles: snapshots,
+        providerModelsByProfileId: merged,
       );
     } catch (_) {
-      if (!mounted) return;
-      showToast(
-        context.trLegacy('模型列表刷新失败，请检查 Provider 配置后重试。'),
-        type: ToastType.error,
-      );
+      // Initial cached content remains usable when background refresh fails.
     } finally {
-      if (mounted && refreshGeneration == _providerRefreshGeneration) {
-        setState(() => _isRefreshingModels = false);
+      if (refreshGeneration == _providerRefreshGeneration) {
+        _isRefreshingModels = false;
       }
     }
   }
@@ -1449,33 +1406,6 @@ class _SceneModelSettingPageState extends State<SceneModelSettingPage> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        if (_showManualRefreshButton)
-                          Align(
-                            alignment: Alignment.centerLeft,
-                            child: OutlinedButton.icon(
-                              key: const Key(
-                                'scene-model-refresh-provider-models-button',
-                              ),
-                              onPressed: _isRefreshingModels
-                                  ? null
-                                  : _refreshProviderModels,
-                              icon: _isRefreshingModels
-                                  ? const SizedBox(
-                                      key: Key(
-                                        'scene-model-refresh-provider-models-progress',
-                                      ),
-                                      width: 14,
-                                      height: 14,
-                                      child: CircularProgressIndicator(
-                                        strokeWidth: 2,
-                                      ),
-                                    )
-                                  : const Icon(LucideIcons.refreshCw, size: 16),
-                              label: Text(context.l10n.sceneModelRefreshList),
-                            ),
-                          ),
-                        if (_showManualRefreshButton)
-                          const SizedBox(height: 12),
                         Text(
                           context.trLegacy(
                             '点击右侧按钮后，可按 Provider 搜索、折叠并选择模型；Voice 的音色与自动播放可通过调节按钮展开。',

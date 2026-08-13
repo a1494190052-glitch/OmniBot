@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
-import 'package:ui/core/router/go_router_manager.dart';
 import 'package:ui/features/my/pages/account/account_lifecycle_sheets.dart';
 import 'package:ui/services/account_service.dart';
 import 'package:ui/theme/theme_context.dart';
@@ -183,19 +182,6 @@ class _AccountPageState extends State<AccountPage> {
               : _text('登录成功', 'Signed in'),
         );
       }
-    });
-  }
-
-  Future<void> _changeMode(AiAccessMode mode) async {
-    final overview = _overview;
-    if (overview == null || overview.settings.mode == mode) return;
-    await _withBusy(() async {
-      final settings = await AccountService.updateAiMode(mode);
-      if (!mounted) return;
-      setState(() {
-        _overview = AccountOverview(user: overview.user, settings: settings);
-      });
-      _showSuccessToast(_text('AI 来源已更新', 'AI source updated'));
     });
   }
 
@@ -971,8 +957,8 @@ class _AccountPageState extends State<AccountPage> {
                         ? _text('创建小万账号', 'Create your account')
                         : _text('登录小万账号', 'Sign in to OmniBot'),
                     subtitle: _text(
-                      '账号用于同步登录状态、平台额度和 AI 来源选择。',
-                      'Your account syncs sessions, platform quota, and AI source choice.',
+                      '账号用于同步登录状态和平台额度；登录后官方 AI 会作为可选渠道提供。',
+                      'Your account syncs sessions and platform quota; official AI becomes an optional provider after sign-in.',
                     ),
                     bottomPadding: 16,
                   ),
@@ -1413,24 +1399,6 @@ class _AccountPageState extends State<AccountPage> {
               ),
             ],
             const SizedBox(height: 24),
-            SettingsSectionTitle(label: _text('AI 来源', 'AI source')),
-            _modeOption(
-              mode: AiAccessMode.platform,
-              selected:
-                  settings.platformAvailable &&
-                  settings.mode == AiAccessMode.platform,
-              enabled: settings.platformAvailable,
-              icon: LucideIcons.cloud,
-              title: _text('使用平台额度', 'Use platform quota'),
-            ),
-            _modeOption(
-              mode: AiAccessMode.byok,
-              selected: settings.mode == AiAccessMode.byok,
-              icon: LucideIcons.keyRound,
-              title: _text('使用自己的 API Key', 'Use my own API key'),
-            ),
-            if (settings.mode == AiAccessMode.byok) ...[_apiKeyAction()],
-            const SizedBox(height: 24),
             SettingsSectionTitle(label: _text('账号管理', 'Account management')),
             _accountAction(
               key: const ValueKey('account-usage-action'),
@@ -1555,43 +1523,6 @@ class _AccountPageState extends State<AccountPage> {
     );
   }
 
-  Widget _apiKeyAction() {
-    final palette = context.omniPalette;
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: () => GoRouterManager.push('/home/model_provider_setting'),
-        borderRadius: BorderRadius.circular(14),
-        splashColor: palette.accentPrimary.withValues(alpha: 0.08),
-        highlightColor: Colors.transparent,
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(4, 13, 2, 13),
-          child: Row(
-            children: [
-              Icon(LucideIcons.settings, size: 18, color: palette.textPrimary),
-              const SizedBox(width: 10),
-              Expanded(
-                child: Text(
-                  _text('配置我的 API Key', 'Configure my API key'),
-                  style: TextStyle(
-                    color: palette.textPrimary,
-                    fontSize: 14,
-                    fontWeight: FontWeight.w500,
-                  ),
-                ),
-              ),
-              Icon(
-                LucideIcons.chevronRight,
-                size: 18,
-                color: palette.textTertiary,
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
   Widget _accountAction({
     required Key key,
     required IconData icon,
@@ -1633,99 +1564,6 @@ class _AccountPageState extends State<AccountPage> {
                 color: palette.textTertiary,
               ),
             ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _modeOption({
-    required AiAccessMode mode,
-    required bool selected,
-    required IconData icon,
-    required String title,
-    String? subtitle,
-    bool enabled = true,
-  }) {
-    final palette = context.omniPalette;
-    return Semantics(
-      button: true,
-      selected: selected,
-      enabled: enabled,
-      child: Material(
-        color: Colors.transparent,
-        child: InkWell(
-          onTap: _busy || !enabled ? null : () => _changeMode(mode),
-          borderRadius: BorderRadius.circular(14),
-          splashColor: palette.accentPrimary.withValues(alpha: 0.08),
-          highlightColor: Colors.transparent,
-          child: AnimatedContainer(
-            key: ValueKey('account-ai-mode-${mode.name}'),
-            duration: const Duration(milliseconds: 180),
-            padding: const EdgeInsets.fromLTRB(4, 14, 2, 14),
-            decoration: BoxDecoration(
-              color: selected
-                  ? palette.accentPrimary.withValues(alpha: 0.07)
-                  : Colors.transparent,
-              borderRadius: BorderRadius.circular(14),
-            ),
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.center,
-              children: [
-                Icon(
-                  icon,
-                  size: 20,
-                  color: !enabled
-                      ? palette.textTertiary
-                      : selected
-                      ? palette.accentPrimary
-                      : palette.textPrimary,
-                ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        title,
-                        style: TextStyle(
-                          color: enabled
-                              ? palette.textPrimary
-                              : palette.textTertiary,
-                          fontSize: 14,
-                          fontWeight: FontWeight.w500,
-                          height: 1.5,
-                          fontFamily: 'PingFang SC',
-                        ),
-                      ),
-                      if (subtitle != null && subtitle.isNotEmpty) ...[
-                        const SizedBox(height: 2),
-                        Text(
-                          subtitle,
-                          style: TextStyle(
-                            color: enabled
-                                ? palette.textSecondary
-                                : palette.textTertiary,
-                            fontSize: 11,
-                            fontWeight: FontWeight.w400,
-                            height: 1.55,
-                            fontFamily: 'PingFang SC',
-                          ),
-                        ),
-                      ],
-                    ],
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Icon(
-                  selected ? LucideIcons.circleCheck : LucideIcons.circle,
-                  size: 19,
-                  color: enabled && selected
-                      ? palette.accentPrimary
-                      : palette.textTertiary,
-                ),
-              ],
-            ),
           ),
         ),
       ),

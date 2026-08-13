@@ -861,27 +861,11 @@ class ModelProviderConfigService {
     final manualModelIds = isOfficial
         ? const <String>[]
         : await getManualModelIds(profileId: normalizedProfileId);
-    List<ProviderModelOption> remoteModels;
-    if (isOfficial && resolvedProfile?.ready == true) {
-      try {
-        remoteModels = await fetchModels(
-          profileId: normalizedProfileId,
-          providerName: resolvedProfile?.name ?? '',
-        );
-      } catch (_) {
-        remoteModels = await getCachedFetchedModels(
-          profileId: normalizedProfileId,
-          apiBase: resolvedProfile?.baseUrl ?? '',
-          profileRevision: resolvedProfile?.revision,
-        );
-      }
-    } else {
-      remoteModels = await getCachedFetchedModels(
-        profileId: normalizedProfileId,
-        apiBase: resolvedProfile?.baseUrl ?? '',
-        profileRevision: resolvedProfile?.revision,
-      );
-    }
+    final remoteModels = await getCachedFetchedModels(
+      profileId: normalizedProfileId,
+      apiBase: resolvedProfile?.baseUrl ?? '',
+      profileRevision: resolvedProfile?.revision,
+    );
     final merged = mergeModelOptions(
       remoteModels: remoteModels,
       manualModelIds: manualModelIds,

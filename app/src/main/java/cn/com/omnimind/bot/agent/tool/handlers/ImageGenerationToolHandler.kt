@@ -1,12 +1,12 @@
 package cn.com.omnimind.bot.agent.tool.handlers
 
-import cn.com.omnimind.baselib.account.AiAccessMode
 import cn.com.omnimind.baselib.account.OmniAccount
 import cn.com.omnimind.baselib.http.OkHttpManager
 import cn.com.omnimind.baselib.llm.ModelProviderConfigStore
 import cn.com.omnimind.baselib.llm.OmniOfficialProvider
 import cn.com.omnimind.baselib.llm.PlatformAiProvisioner
 import cn.com.omnimind.baselib.llm.ProviderCustomHeaderUtils
+import cn.com.omnimind.baselib.llm.SceneModelBindingStore
 import cn.com.omnimind.baselib.util.ContentEndpointSecurity
 import cn.com.omnimind.baselib.util.CredentialEndpointSecurity
 import cn.com.omnimind.bot.BuildConfig
@@ -106,7 +106,7 @@ class ImageGenerationToolHandler(
             val outputPath = args["outputPath"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty()
             require(outputPath.isNotEmpty()) { "outputPath cannot be empty" }
 
-            val route = resolveRoute(args)
+            val route = resolveRoute(args, env)
             val size = args["size"]?.jsonPrimitive?.contentOrNull?.trim()
                 ?.takeIf(String::isNotEmpty)
                 ?: "1024x1024"
@@ -187,10 +187,18 @@ class ImageGenerationToolHandler(
         }
     }
 
-    private suspend fun resolveRoute(args: JsonObject): ImageGenerationRoute {
+    private suspend fun resolveRoute(
+        args: JsonObject,
+        env: AgentExecutionEnvironment,
+    ): ImageGenerationRoute {
+        val profileId = args["providerProfileId"]?.jsonPrimitive?.contentOrNull?.trim()
+            ?.takeIf(String::isNotEmpty)
+            ?: env.modelProviderProfileId?.trim()?.takeIf(String::isNotEmpty)
+            ?: SceneModelBindingStore.getBinding("scene.dispatch.model")?.providerProfileId
         val access = OmniAccount.currentAiRequestAccess()
-        access.unavailableReason?.let { throw IllegalStateException(it) }
-        if (access.mode == AiAccessMode.PLATFORM) {
+        if (OmniOfficialProvider.isOfficialProfile(profileId)) {
+            access.unavailableReason?.let { throw IllegalStateException(it) }
+            check(access.usesPlatform) { "官方 AI 账号未登录或服务暂不可用" }
             val status = PlatformAiProvisioner.ensureReadyStatus()
             val model = status.defaultImageModelId
                 ?: throw IllegalStateException("官方图片生成能力暂不可用")
@@ -205,8 +213,6 @@ class ImageGenerationToolHandler(
             )
         }
 
-        val profileId = args["providerProfileId"]?.jsonPrimitive?.contentOrNull?.trim()
-            ?.takeIf(String::isNotEmpty)
         val profile = profileId?.let(ModelProviderConfigStore::getProfile)
             ?: ModelProviderConfigStore.getEditingProfile()
         val bundledImageConfig = bundledImageProviderConfig()
