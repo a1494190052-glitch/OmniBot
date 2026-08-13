@@ -79,6 +79,10 @@ class _StreamingTextBatchState {
 }
 
 class ChatConversationRuntimeState {
+  static const Duration _localSnapshotEchoSuppressionDuration = Duration(
+    seconds: 2,
+  );
+
   ChatConversationRuntimeState({
     required this.conversationId,
     required this.mode,
@@ -132,6 +136,7 @@ class ChatConversationRuntimeState {
   ChatIslandDisplayLayer chatIslandDisplayLayer;
   String? lastAgentToolType;
   ChatBrowserSessionSnapshot? browserSessionSnapshot;
+  int _localSnapshotEchoSuppressionUntilMillis = 0;
 
   bool get hasInFlightTask =>
       isAiResponding ||
@@ -139,6 +144,16 @@ class ChatConversationRuntimeState {
       isExecutingTask ||
       currentDispatchTaskId != null ||
       currentAiMessages.isNotEmpty;
+
+  bool get shouldSuppressLocalMessageSnapshotEcho =>
+      DateTime.now().millisecondsSinceEpoch <
+      _localSnapshotEchoSuppressionUntilMillis;
+
+  void expectLocalMessageSnapshotEcho() {
+    _localSnapshotEchoSuppressionUntilMillis = DateTime.now()
+        .add(_localSnapshotEchoSuppressionDuration)
+        .millisecondsSinceEpoch;
+  }
 
   /// Turns currently believed to be producing output.
   ///
@@ -367,14 +382,14 @@ class ChatConversationRuntimeCoordinator extends ChangeNotifier {
     // currentThinkingMessages, currentDispatchTaskId, …) stays exactly as
     // the reducer left it.
     if (preserveLiveStreamingState) {
-      runtime.messages.replaceAllMessages(normalizedMessages);
+      _replaceRuntimeMessagesIfChanged(runtime, normalizedMessages);
       runtime.conversation = conversation ?? runtime.conversation;
       _pruneAgentReplayDeltaOffsets(runtime, normalizedMessages);
       notifyListeners();
       return;
     }
     _flushRuntimeStreamingText(runtime);
-    runtime.messages.replaceAllMessages(normalizedMessages);
+    _replaceRuntimeMessagesIfChanged(runtime, normalizedMessages);
     runtime.conversation = conversation ?? runtime.conversation;
     runtime.isAiResponding = isAiResponding;
     runtime.isContextCompressing = isContextCompressing;
@@ -410,6 +425,26 @@ class ChatConversationRuntimeCoordinator extends ChangeNotifier {
     _pruneAgentReplayDeltaOffsets(runtime, messages);
     runtime.agentNextEntrySequence = 0;
     notifyListeners();
+  }
+
+  void _replaceRuntimeMessagesIfChanged(
+    ChatConversationRuntimeState runtime,
+    List<ChatMessageModel> messages,
+  ) {
+    final current = runtime.messages;
+    if (current.length == messages.length) {
+      var sameInstancesInOrder = true;
+      for (var index = 0; index < messages.length; index += 1) {
+        if (!identical(current[index], messages[index])) {
+          sameInstancesInOrder = false;
+          break;
+        }
+      }
+      if (sameInstancesInOrder) {
+        return;
+      }
+    }
+    current.replaceAllMessages(messages);
   }
 
   void _pruneAgentReplayDeltaOffsets(
@@ -856,6 +891,11 @@ class ChatConversationRuntimeCoordinator extends ChangeNotifier {
       preserveLatestMetadata: true,
     );
     if (persistMessages) {
+      // replaceConversationMessages is echoed back to Flutter as
+      // messages_replaced. The runtime already owns this exact snapshot; if
+      // the page reloads it while the completed run is folding, every row is
+      // recreated and the chat visibly flashes through its empty state.
+      runtime.expectLocalMessageSnapshotEcho();
       await ConversationHistoryService.saveConversationMessages(
         conversationId,
         snapshotMessages,

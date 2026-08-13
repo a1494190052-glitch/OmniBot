@@ -35,12 +35,25 @@ enum ChatMessageListMutationKind { none, content, structure }
 bool shouldReloadConversationMessagesChanged({
   required String? reason,
   required bool hasInFlightTask,
+  bool hasRuntimeMessages = false,
+  bool suppressLocalSnapshotEcho = false,
 }) {
   final isRuntimeStreamSnapshot =
       reason == 'agent_stream_snapshot' ||
       reason == 'chat_task_stream_snapshot';
-  return !isRuntimeStreamSnapshot || !hasInFlightTask;
+  if (isRuntimeStreamSnapshot && (hasInFlightTask || hasRuntimeMessages)) {
+    return false;
+  }
+  if (reason == 'messages_replaced' && suppressLocalSnapshotEcho) {
+    return false;
+  }
+  return true;
 }
+
+bool shouldPreferInMemoryForConversationListChanged({
+  required bool hasInFlightTask,
+  required bool hasRuntimeMessages,
+}) => hasInFlightTask || hasRuntimeMessages;
 
 /// Number of newest-first entries to remove before retrying a user turn.
 ///
