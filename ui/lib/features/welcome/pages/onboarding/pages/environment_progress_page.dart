@@ -269,6 +269,9 @@ class _CrossFadeText extends StatelessWidget {
 class _MilestoneStepper extends StatelessWidget {
   const _MilestoneStepper({required this.controller});
 
+  static const double _milestoneDiameter = 30;
+  static const double _milestoneRadius = _milestoneDiameter / 2;
+
   final OnboardingEnvironmentController controller;
 
   @override
@@ -301,14 +304,22 @@ class _MilestoneStepper extends StatelessWidget {
                   children: List<Widget>.generate(labels.length - 1, (index) {
                     final filled = index < currentPhase || controller.ready;
                     return Expanded(
-                      child: AnimatedContainer(
-                        duration: reduceMotion
-                            ? Duration.zero
-                            : const Duration(milliseconds: 300),
-                        height: 2,
-                        color: filled
-                            ? palette.accentPrimary
-                            : palette.borderStrong.withValues(alpha: 0.4),
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: _milestoneRadius,
+                        ),
+                        child: AnimatedContainer(
+                          key: ValueKey(
+                            'tutorial-environment-milestone-connector-$index',
+                          ),
+                          duration: reduceMotion
+                              ? Duration.zero
+                              : const Duration(milliseconds: 300),
+                          height: 2,
+                          color: filled
+                              ? palette.accentPrimary
+                              : palette.borderStrong.withValues(alpha: 0.4),
+                        ),
                       ),
                     );
                   }),
@@ -329,8 +340,11 @@ class _MilestoneStepper extends StatelessWidget {
                     child: Column(
                       children: [
                         Container(
-                          width: 30,
-                          height: 30,
+                          key: ValueKey(
+                            'tutorial-environment-milestone-node-$index',
+                          ),
+                          width: _milestoneDiameter,
+                          height: _milestoneDiameter,
                           decoration: BoxDecoration(
                             color: completed
                                 ? color

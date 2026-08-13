@@ -13,8 +13,7 @@ import kotlinx.serialization.json.jsonPrimitive
 
 /**
  * `memory_load(slug)` — fetches the full body of a long-term memory entry
- * by its slug (from the index summary already in the system prompt or from
- * a prior `memory_search` result).
+ * by its slug from a prior `memory_search` result.
  *
  * Same-turn dedup: if the slug was already loaded this turn we return a
  * short "alreadyInContext" hint instead of the body again — saves tokens

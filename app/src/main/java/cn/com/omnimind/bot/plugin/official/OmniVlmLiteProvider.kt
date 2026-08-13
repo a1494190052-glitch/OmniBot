@@ -4,7 +4,6 @@ import android.content.Context
 import cn.com.omnimind.bot.BuildConfig
 import cn.com.omnimind.bot.mcp.McpServerManager
 import cn.com.omnimind.bot.omniflow.OmniFlowAppPlatform
-import cn.com.omnimind.bot.omniflow.OmniFlow
 import cn.com.omnimind.bot.omniflow.OmniFlowPluginRuntime
 import cn.com.omnimind.bot.omniflow.OmniFlowRuntimeProvider
 import cn.com.omnimind.bot.plugin.OmniPlugin
@@ -36,7 +35,6 @@ class OmniVlmLiteProvider(
             RuntimeBundlePrepareMode.INSTALL -> runtimeProvider.install(appContext, platform)
             RuntimeBundlePrepareMode.UPDATE -> runtimeProvider.update(appContext, platform)
         }
-        OmniFlow.prepareAndStart(appContext)
     }
 
     override suspend fun remove() {

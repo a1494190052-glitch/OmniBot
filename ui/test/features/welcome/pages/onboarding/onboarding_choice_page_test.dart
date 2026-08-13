@@ -21,6 +21,7 @@ void main() {
     'cn.com.omnimind.bot/SpecialPermissionEvent',
   );
   const assistsChannel = MethodChannel('cn.com.omnimind.bot/AssistCoreEvent');
+  const accountChannel = MethodChannel('cn.com.omnimind.bot/account');
   late String savedDistribution;
   late List<String> requestedPackageIds;
   late Map<String, dynamic> terminalSnapshot;
@@ -188,6 +189,12 @@ void main() {
       }
       return null;
     });
+    messenger.setMockMethodCallHandler(accountChannel, (call) async {
+      if (call.method == 'getSessionState') {
+        return <String, Object?>{'configured': true, 'signedIn': false};
+      }
+      return null;
+    });
   });
 
   tearDown(() {
@@ -195,6 +202,7 @@ void main() {
         TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
     messenger.setMockMethodCallHandler(terminalChannel, null);
     messenger.setMockMethodCallHandler(assistsChannel, null);
+    messenger.setMockMethodCallHandler(accountChannel, null);
   });
 
   testWidgets(
@@ -286,6 +294,23 @@ void main() {
             .value,
         isNull,
       );
+      for (var index = 0; index < 3; index++) {
+        final leadingMilestone = tester.getRect(
+          find.byKey(ValueKey('tutorial-environment-milestone-node-$index')),
+        );
+        final trailingMilestone = tester.getRect(
+          find.byKey(
+            ValueKey('tutorial-environment-milestone-node-${index + 1}'),
+          ),
+        );
+        final connector = tester.getRect(
+          find.byKey(
+            ValueKey('tutorial-environment-milestone-connector-$index'),
+          ),
+        );
+        expect(connector.left, closeTo(leadingMilestone.right, 0.01));
+        expect(connector.right, closeTo(trailingMilestone.left, 0.01));
+      }
       final firstProgress = tester
           .widget<CircularProgressIndicator>(
             find.byKey(const ValueKey('tutorial-environment-progress-ring')),
@@ -506,10 +531,44 @@ void main() {
       await openProviderPage(tester);
 
       expect(find.text('模型配置（可选）'), findsOneWidget);
+      final accountEntry = find.byKey(
+        const ValueKey('tutorial-provider-account-auth'),
+      );
+      expect(accountEntry, findsOneWidget);
       expect(
         find.byKey(const ValueKey('tutorial-provider-deepseek')),
         findsOne,
       );
+      expect(
+        tester.getTopLeft(accountEntry).dy,
+        lessThan(
+          tester
+              .getTopLeft(
+                find.byKey(const ValueKey('tutorial-provider-deepseek')),
+              )
+              .dy,
+        ),
+      );
+      await tester.tap(accountEntry);
+      await tester.pumpAndSettle();
+      expect(
+        find.byKey(const ValueKey('standalone-account-auth-page')),
+        findsOneWidget,
+      );
+      expect(find.text('登录与注册'), findsOneWidget);
+      expect(find.text('账号与 AI 服务'), findsNothing);
+      expect(
+        find.byKey(const ValueKey('account-auth-only-surface')),
+        findsOneWidget,
+      );
+      expect(find.byKey(const Key('submit-auth')), findsOneWidget);
+      Navigator.of(
+        tester.element(
+          find.byKey(const ValueKey('standalone-account-auth-page')),
+        ),
+      ).pop();
+      await tester.pumpAndSettle();
+      expect(find.text('模型配置（可选）'), findsOneWidget);
       expect(find.byKey(const ValueKey('tutorial-back-button')), findsNothing);
       expect(
         find.byKey(const ValueKey('tutorial-bottom-back')),
@@ -669,6 +728,14 @@ void main() {
     final connect = find.byKey(const ValueKey('tutorial-provider-connect'));
     await showFinder(tester, connect);
     await tester.tap(connect);
+    await tester.pumpAndSettle();
+    expect(
+      find.byKey(const Key('data-destination-confirmation-dialog')),
+      findsOneWidget,
+    );
+    await tester.tap(find.byKey(const Key('data-destination-acknowledgement')));
+    await tester.pump();
+    await tester.tap(find.byKey(const Key('data-destination-confirm')));
     await tester.pumpAndSettle();
 
     expect(find.text('已准备 2 个模型'), findsOneWidget);

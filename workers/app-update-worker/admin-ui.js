@@ -304,6 +304,9 @@ textarea.text-input { min-height: 130px; resize: vertical; line-height: 1.6; }
   background: var(--surface-1); border-radius: 10px;
   color: var(--ink-2); font-size: 13px; padding: 12px 16px; margin-bottom: 18px;
 }
+.policy-form { max-width: 760px; }
+.policy-form .config-hint { margin-top: 14px; }
+.policy-actions { display: flex; align-items: center; gap: 10px; margin-top: 16px; }
 code { background: var(--accent-soft); border-radius: 5px; padding: 1px 6px; font-size: 12px; }
 </style>
 </head>
@@ -328,6 +331,7 @@ code { background: var(--accent-soft); border-radius: 5px; padding: 1px 6px; fon
     <nav class="nav">
       <button id="nav-analytics" class="active">数据统计</button>
       <button id="nav-releases">版本管理</button>
+      <button id="nav-cloud-policy">云服务门禁</button>
     </nav>
     <div class="topbar-right">
       <span id="worker-host"></span>
@@ -406,6 +410,30 @@ code { background: var(--accent-soft); border-radius: 5px; padding: 1px 6px; fon
       </div>
       <div class="card"><div id="releases-list"></div></div>
     </section>
+
+    <!-- Cloud-service policy -->
+    <section id="page-cloud-policy" class="hidden">
+      <div class="card">
+        <div class="card-head">
+          <div>
+            <div class="card-title">账号与官方云服务最低版本</div>
+            <div class="card-caption">低于最低版本的客户端不能注册、登录或使用官方云 AI;未登录 BYOK 不受影响</div>
+          </div>
+        </div>
+        <div class="card-body policy-form">
+          <label class="field-label" for="cloud-minimum-version">最低允许版本</label>
+          <input id="cloud-minimum-version" class="text-input" inputmode="numeric" placeholder="例如 0.5.7;留空表示关闭门禁">
+          <label class="field-label" for="cloud-policy-message">拦截提示(可选)</label>
+          <textarea id="cloud-policy-message" class="text-input" maxlength="500" placeholder="请升级到最新版后继续使用账号与官方 AI 服务"></textarea>
+          <div id="cloud-policy-status" class="config-hint">正在读取当前策略…</div>
+          <div class="policy-actions">
+            <button id="cloud-policy-save" class="btn btn-primary">保存并应用</button>
+            <button id="cloud-policy-refresh" class="btn">重新读取</button>
+            <span class="filter-note">最低版本按数字分段比较,且包含该版本</span>
+          </div>
+        </div>
+      </div>
+    </section>
   </main>
 </div>
 
@@ -477,6 +505,7 @@ code { background: var(--accent-soft); border-radius: 5px; padding: 1px 6px; fon
     days: 30,
     analyticsConfigured: true,
     releases: [],
+    cloudServicePolicy: null,
     analytics: {},          // metric -> rows
     tableMode: {},          // chart id -> boolean
     editor: null,           // { isNew, original, assets }
@@ -585,6 +614,7 @@ code { background: var(--accent-soft); border-radius: 5px; padding: 1px 6px; fon
     $('worker-host').textContent = location.host;
     $('analytics-config-hint').classList.toggle('hidden', state.analyticsConfigured);
     loadReleases();
+    loadCloudServicePolicy();
     loadAnalytics();
   }
 
@@ -606,14 +636,76 @@ code { background: var(--accent-soft); border-radius: 5px; padding: 1px 6px; fon
 
   // ---------- navigation ----------
   function switchPage(name) {
-    var isAnalytics = name === 'analytics';
-    $('page-analytics').classList.toggle('hidden', !isAnalytics);
-    $('page-releases').classList.toggle('hidden', isAnalytics);
-    $('nav-analytics').classList.toggle('active', isAnalytics);
-    $('nav-releases').classList.toggle('active', !isAnalytics);
+    var names = ['analytics', 'releases', 'cloud-policy'];
+    for (var i = 0; i < names.length; i += 1) {
+      var active = names[i] === name;
+      $('page-' + names[i]).classList.toggle('hidden', !active);
+      $('nav-' + names[i]).classList.toggle('active', active);
+    }
+    if (name === 'cloud-policy') loadCloudServicePolicy();
   }
   $('nav-analytics').addEventListener('click', function () { switchPage('analytics'); });
   $('nav-releases').addEventListener('click', function () { switchPage('releases'); });
+  $('nav-cloud-policy').addEventListener('click', function () { switchPage('cloud-policy'); });
+
+  // ---------- cloud-service policy ----------
+  function loadCloudServicePolicy() {
+    $('cloud-policy-refresh').disabled = true;
+    return api('/admin/cloud-service-policy').then(function (payload) {
+      state.cloudServicePolicy = payload.policy || null;
+      renderCloudServicePolicy();
+    }).catch(function (error) {
+      if (error.message !== 'unauthorized') {
+        $('cloud-policy-status').textContent = '读取失败:' + error.message;
+        toast('读取云服务门禁失败:' + error.message, true);
+      }
+    }).then(function () { $('cloud-policy-refresh').disabled = false; });
+  }
+
+  function renderCloudServicePolicy() {
+    var policy = state.cloudServicePolicy || {};
+    $('cloud-minimum-version').value = policy.minimumVersion || '';
+    $('cloud-policy-message').value = policy.message || '';
+    if (policy.enabled) {
+      var updated = policy.updatedAt ? ' · 更新于 ' + fmtDate(policy.updatedAt) : '';
+      $('cloud-policy-status').textContent = '门禁已启用 · 最低允许版本 v' + policy.minimumVersion + updated;
+    } else {
+      $('cloud-policy-status').textContent = '门禁当前已关闭;保存非空最低版本后立即启用';
+    }
+  }
+
+  $('cloud-policy-refresh').addEventListener('click', function () { loadCloudServicePolicy(); });
+  $('cloud-policy-save').addEventListener('click', function () {
+    var minimumVersion = $('cloud-minimum-version').value.trim().replace(/^[vV]/, '');
+    if (minimumVersion && !/^\\d+(\\.\\d+)*$/.test(minimumVersion)) {
+      toast('最低版本只能包含以点分隔的数字', true);
+      return;
+    }
+
+    var latest = latestStableVersion().replace(/^v/, '');
+    if (minimumVersion && (!latest || compareVersions(minimumVersion, latest) > 0)) {
+      var warning = latest
+        ? '最低版本 v' + minimumVersion + ' 高于当前最新正式版 v' + latest + ',用户可能无法升级到可用版本。仍然保存?'
+        : '当前没有可用的正式版安装包,启用门禁后用户可能无法升级。仍然保存?';
+      if (!confirm(warning)) return;
+    }
+
+    $('cloud-policy-save').disabled = true;
+    api('/admin/cloud-service-policy', {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        minimumVersion: minimumVersion,
+        message: $('cloud-policy-message').value.trim()
+      })
+    }).then(function (payload) {
+      state.cloudServicePolicy = payload.policy || null;
+      renderCloudServicePolicy();
+      toast(minimumVersion ? '已保存,将应用于后续更新检查' : '云服务门禁已关闭');
+    }).catch(function (error) {
+      toast('保存云服务门禁失败:' + error.message, true);
+    }).then(function () { $('cloud-policy-save').disabled = false; });
+  });
 
   // ---------- analytics ----------
   var daysSeg = $('days-seg');

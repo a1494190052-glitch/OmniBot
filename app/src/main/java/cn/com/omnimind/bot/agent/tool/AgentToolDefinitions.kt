@@ -525,6 +525,20 @@ object AgentToolDefinitions {
             "The task instructions that the subagent should execute immediately when triggered. Do not include scheduling phrases such as daily, at a specific time, scheduled, remind me, alarm, or create a task. Describe the real action that should be carried out at execution time."
     )
 
+    val contextTimeNowTool: JsonObject = buildJsonObject {
+        put("type", "function")
+        putJsonObject("function") {
+            put("name", "context_time_now")
+            put("displayName", "查询当前时间")
+            put("toolType", "builtin")
+            put("description", "返回设备当前的精确本地时间、UTC 时间、时区、星期和毫秒时间戳。询问‘现在几点’或需要精确时分秒时调用。")
+            putJsonObject("parameters") {
+                put("type", "object")
+                putJsonObject("properties") {}
+            }
+        }
+    }
+
     val contextAppsQueryTool: JsonObject = buildJsonObject {
         put("type", "function")
         putJsonObject("function") {
@@ -2046,7 +2060,7 @@ object AgentToolDefinitions {
             put("name", "memory_load")
             put("displayName", "加载长期记忆")
             put("toolType", "memory")
-            put("description", "按 slug 加载完整的长期记忆条目正文。slug 来自系统提示中“长期记忆索引”块列出的条目。同一轮内重复加载会被自动跳过。")
+            put("description", "按 slug 加载完整的长期记忆条目正文。slug 来自 memory_search 返回的长期记忆命中。同一轮内重复加载会被自动跳过。")
             put("postToolRule", "读取后再决定是否需要进一步检索或写入。")
             putJsonObject("parameters") {
                 put("type", "object")
@@ -2142,6 +2156,7 @@ object AgentToolDefinitions {
     }
 
     private val builtinToolDefinitions: List<JsonObject> = listOf(
+        contextTimeNowTool,
         contextAppsQueryTool,
         vlmTaskTool,
         terminalExecuteTool,

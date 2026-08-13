@@ -61,6 +61,7 @@ class LegacyTextLocalizer {
     '本地 Alpine 与远程 PC Bridge':
         'Local terminal environment and remote PC Bridge',
     '本地终端环境与远程 PC Bridge': 'Local terminal environment and remote PC Bridge',
+    'Agent 模式': 'Agent Mode',
     '管理 ACP Agent、可用状态与统一模型绑定':
         'Manage ACP Agents, availability, and unified model bindings',
     '远程 PC Bridge': 'Remote PC Bridge',

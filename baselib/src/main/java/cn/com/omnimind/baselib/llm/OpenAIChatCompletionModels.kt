@@ -33,6 +33,8 @@ data class ChatCompletionRequest(
     val functionCall: JsonElement? = null,
     @SerialName("reasoning_effort")
     val reasoningEffort: String? = null,
+    @SerialName("prompt_cache_key")
+    val promptCacheKey: String? = null,
     @SerialName("enable_thinking")
     val enableThinking: Boolean? = null,
     val thinking: ChatCompletionThinking? = null,

@@ -1,7 +1,10 @@
 package cn.com.omnimind.bot.agent
 
 import cn.com.omnimind.assists.controller.http.HttpController
+import cn.com.omnimind.baselib.llm.ChatCompletionMessage
+import cn.com.omnimind.baselib.llm.ChatCompletionRequest
 import cn.com.omnimind.baselib.llm.contentText
+import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
@@ -22,6 +25,28 @@ class HttpControllerResponsesTest {
     }
 
     @Test
+    fun `chat completions request serializes prompt cache key`() {
+        val payload = json.encodeToString(
+            ChatCompletionRequest(
+                model = "gpt-4.1",
+                messages = listOf(
+                    ChatCompletionMessage(
+                        role = "user",
+                        content = kotlinx.serialization.json.JsonPrimitive("hello")
+                    )
+                ),
+                promptCacheKey = "omnibot:v1:0123456789abcdef0123:conversation:42"
+            )
+        )
+        val root = json.parseToJsonElement(payload).jsonObject
+
+        assertEquals(
+            "omnibot:v1:0123456789abcdef0123:conversation:42",
+            root["prompt_cache_key"]?.jsonPrimitive?.content
+        )
+    }
+
+    @Test
     fun `responses request body maps chat history to instructions input and function call output`() {
         val method = HttpController::class.java.getDeclaredMethod(
             "buildOpenAIResponsesRequestBody",
@@ -35,6 +60,7 @@ class HttpControllerResponsesTest {
                 {
                   "model": "gpt-4.1",
                   "stream": true,
+                  "prompt_cache_key": "omnibot:v1:test:conversation:42",
                   "max_completion_tokens": 256,
                   "tool_choice": "required",
                   "tools": [
@@ -69,6 +95,10 @@ class HttpControllerResponsesTest {
 
         val root = json.parseToJsonElement(payload).jsonObject
         assertEquals("gpt-4.1-mini", root["model"]?.jsonPrimitive?.content)
+        assertEquals(
+            "omnibot:v1:test:conversation:42",
+            root["prompt_cache_key"]?.jsonPrimitive?.content
+        )
         assertEquals("You are helpful.", root["instructions"]?.jsonPrimitive?.content)
         assertEquals("required", root["tool_choice"]?.jsonPrimitive?.content)
         assertEquals("256", root["max_output_tokens"]?.jsonPrimitive?.content)

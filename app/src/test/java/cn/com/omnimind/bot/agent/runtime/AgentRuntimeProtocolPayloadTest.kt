@@ -1,5 +1,6 @@
 package cn.com.omnimind.bot.agent.runtime
 
+import java.io.File
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -10,7 +11,7 @@ class AgentRuntimeProtocolPayloadTest {
     @Test
     fun managedAcpCatalogIncludesSupportedAgentsWithoutGemini() {
         assertEquals(
-            listOf("Codex", "Claude Code", "OpenCode"),
+            listOf("Codex", "Claude Code", "OpenCode", "DeepSeek Harness"),
             AcpAgentProfileStore.OFFICIAL_AGENTS.map { it.name }
         )
         assertTrue(AcpAgentProfileStore.OFFICIAL_AGENTS.all { it.builtIn })
@@ -23,6 +24,139 @@ class AgentRuntimeProtocolPayloadTest {
             "@agentclientprotocol/codex-acp@1.1.7",
             AcpAgentProfileStore.officialRuntime(codex)?.managedAdapterPackage
         )
+        val deepSeek = AcpAgentProfileStore.OFFICIAL_AGENTS.first {
+            it.id == AcpAgentProfileStore.DEEPSEEK_HARNESS_AGENT_ID
+        }
+        assertEquals("dsh-acp-demo", deepSeek.command)
+        assertEquals(
+            listOf("--config", "/root/.dsh/omnibot-acp/cordis.yml"),
+            deepSeek.arguments
+        )
+        val deepSeekRuntime = AcpAgentProfileStore.officialRuntime(deepSeek)
+        assertEquals("node", deepSeekRuntime?.discoveryCommand)
+        assertTrue(
+            deepSeekRuntime?.managedAdapterPackages.orEmpty().contains(
+                "@deepseek-ai/dsh-acp-demo@next"
+            )
+        )
+        assertTrue(
+            deepSeekRuntime?.managedAdapterPackages.orEmpty().contains(
+                "@deepseek-ai/dsh-llm-deepseek@next"
+            )
+        )
+        assertTrue(
+            deepSeekRuntime?.managedAdapterPackages.orEmpty()
+                .all { it.endsWith("@next") }
+        )
+        assertTrue(deepSeekRuntime?.requiresNativeBuildTools == true)
+        assertTrue(
+            deepSeekRuntime?.managedAdapterHealthCommand.orEmpty().contains("node-pty")
+        )
+        assertTrue(MANAGED_NATIVE_BUILD_PREREQUISITES_COMMAND.contains("apk add --no-cache build-base python3"))
+        assertTrue(MANAGED_NATIVE_BUILD_PREREQUISITES_COMMAND.contains("build-essential python3"))
+        assertTrue(DEEPSEEK_HARNESS_NPM_INSTALL_COMMAND.contains("repair_deepseek_harness_node_pty"))
+        assertTrue(DEEPSEEK_HARNESS_NPM_INSTALL_COMMAND.contains("node-gyp configure"))
+        assertTrue(DEEPSEEK_HARNESS_NPM_INSTALL_COMMAND.contains("cmd_copy = rm -rf"))
+        assertTrue(DEEPSEEK_HARNESS_NPM_INSTALL_COMMAND.contains("omnibot-node-gyp-copy"))
+        assertTrue(DEEPSEEK_HARNESS_NPM_INSTALL_COMMAND.contains("exec /bin/ln"))
+    }
+
+    @Test
+    fun deepSeekHarnessConfigRoundTripsAndBuildsLaunchEnvironment() {
+        val config = DeepSeekHarnessConfig(
+            baseUrl = "https://gateway.example/v1",
+            model = "deepseek-custom",
+            apiKey = "sk-test",
+            reasoningEffort = "high",
+            permissionMode = "read-only"
+        )
+
+        val restored = parseDeepSeekHarnessConfig(
+            buildDeepSeekHarnessConfigJson(config)
+        )
+
+        assertEquals(config, restored)
+        assertEquals("https://gateway.example/v1", restored.toEnvironment()["DEEPSEEK_BASE_URL"])
+        assertEquals("deepseek-custom", restored.toEnvironment()["DSH_MODEL"])
+        assertEquals("high", restored.toEnvironment()["DSH_REASONING_EFFORT"])
+        assertEquals("read-only", restored.toEnvironment()["DSH_PERMISSION_MODE"])
+        assertEquals("1", restored.toEnvironment()["NODE_NO_WARNINGS"])
+    }
+
+    @Test
+    fun deepSeekHarnessProviderConfigEditPreservesComposerPermissionDefault() {
+        val restored = deepSeekHarnessConfigFromArgs(
+            args = mapOf(
+                "baseUrl" to "https://gateway.example/v1",
+                "model" to "deepseek-custom",
+                "apiKey" to "sk-updated",
+                "reasoningEffort" to "high"
+            ),
+            current = DeepSeekHarnessConfig(permissionMode = "read-only")
+        )
+
+        assertEquals("read-only", restored.permissionMode)
+    }
+
+    @Test
+    fun deepSeekHarnessCordisCompositionOwnsTheMissingAcpCapabilities() {
+        val config = buildDeepSeekHarnessCordisConfig()
+
+        assertTrue(config.contains("name: '@deepseek-ai/dsh-llm-deepseek'"))
+        assertTrue(config.contains("name: '$DEEPSEEK_HARNESS_OMNIBOT_ACP_PLUGIN_PATH'"))
+        assertFalse(config.contains("name: '@deepseek-ai/dsh-acp-demo'"))
+        assertTrue(config.contains("workspaceRoot: /workspace"))
+        assertTrue(config.contains("persistenceCompression: none"))
+        assertTrue(config.contains("process.env.DSH_MODEL"))
+        assertTrue(config.contains("process.env.DSH_REASONING_EFFORT"))
+        assertTrue(config.contains("process.env.DSH_PERMISSION_MODE"))
+        assertTrue(config.contains("policy: ask"))
+    }
+
+    @Test
+    fun deepSeekHarnessInteractiveBridgePublishesUiAndConfigEvents() {
+        val workingDirectory = File(requireNotNull(System.getProperty("user.dir")))
+        val source = listOf(
+            workingDirectory.resolve(
+                "app/src/main/assets/deepseek_harness/omnibot-acp-demo.mjs"
+            ),
+            workingDirectory.resolve(
+                "src/main/assets/deepseek_harness/omnibot-acp-demo.mjs"
+            )
+        ).firstOrNull(File::isFile)?.readText()
+            ?: error("DeepSeek Harness interactive ACP asset is missing.")
+
+        assertTrue(source.contains("sessionUpdate: 'agent_thought_chunk'"))
+        assertTrue(source.contains("messageId: thoughtMessageId("))
+        assertTrue(source.contains("sessionUpdate: 'tool_call'"))
+        assertTrue(source.contains("sessionUpdate: 'tool_call_update'"))
+        assertTrue(source.contains("messageId: event.data.message.id"))
+        assertTrue(source.contains("category: 'model'"))
+        assertTrue(source.contains("category: 'thought_level'"))
+        assertTrue(source.contains("category: 'mode'"))
+        assertTrue(source.contains("installModelSelection(agentCtx, selection)"))
+        assertTrue(source.contains("setSandboxMode(record.agent.session, mode)"))
+    }
+
+    @Test
+    fun dshFreshSessionOnlyReconnectFallsBackToANewThread() {
+        assertTrue(
+            isRecoverableAgentThreadError(
+                "The selected ACP agent did not advertise session resume or loadSession."
+            )
+        )
+        assertTrue(isRecoverableAgentThreadError("unknown session: old-session"))
+        assertFalse(isRecoverableAgentThreadError("provider authentication failed"))
+    }
+
+    @Test
+    fun managedNpmPackageSpecsResolveTheirInstalledPackageNames() {
+        assertEquals(
+            "@deepseek-ai/dsh-acp-demo",
+            npmPackageName("@deepseek-ai/dsh-acp-demo@next")
+        )
+        assertEquals("plain-package", npmPackageName("plain-package@1.2.3"))
+        assertEquals("@scope/package", npmPackageName("@scope/package"))
     }
 
     @Test

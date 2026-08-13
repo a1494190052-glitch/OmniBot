@@ -14,6 +14,7 @@ import 'package:ui/theme/app_theme_controller.dart';
 import 'package:ui/theme/app_theme_mode.dart';
 import 'package:ui/theme/app_theme.dart';
 import 'package:ui/widgets/embedded_terminal_init_overlay.dart';
+import 'package:ui/widgets/startup_account_prompt.dart';
 
 import 'core/router/go_router_manager.dart';
 import 'services/event_bus.dart';
@@ -139,6 +140,7 @@ class _MyAppState extends ConsumerState<MyApp> {
     );
     LegacyTextLocalizer.setResolvedLocale(resolvedLocale.locale);
     final widget = MaterialApp.router(
+      debugShowCheckedModeBanner: false,
       onGenerateTitle: (context) =>
           AppLocalizations.of(context)?.appName ?? 'Omnibot',
       theme: lightTheme,
@@ -162,7 +164,7 @@ class _MyAppState extends ConsumerState<MyApp> {
             child: Stack(
               fit: StackFit.expand,
               children: [
-                child ?? const SizedBox.shrink(),
+                StartupAccountPrompt(child: child ?? const SizedBox.shrink()),
                 const EmbeddedTerminalInitToastListener(),
               ],
             ),

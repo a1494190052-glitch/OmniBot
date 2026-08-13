@@ -1,14 +1,15 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:ui/core/router/go_router_manager.dart';
 import 'package:ui/services/agent_runtime_service.dart';
 import 'package:ui/services/storage_service.dart';
-import 'package:ui/theme/app_colors.dart';
 import 'package:ui/theme/theme_context.dart';
 import 'package:ui/utils/ui.dart';
 import 'package:ui/widgets/agent_brand_icon.dart';
 import 'package:ui/widgets/common_app_bar.dart';
+import 'package:ui/widgets/omni_segmented_slider.dart';
 import 'package:ui/widgets/settings_section_title.dart';
 
 enum _AgentFilter { all, available, unavailable }
@@ -121,8 +122,8 @@ class _AgentModeSettingPageState extends State<AgentModeSettingPage> {
     if (agent.managedAdapter && agent.status == 'unchecked') {
       showToast(
         _text(
-          '首次检测会自动准备 ACP 适配器，下载可能需要一些时间。',
-          'The first check prepares the ACP adapter and may take a moment.',
+          '首次检测会自动准备 ACP 适配器；也可在终端环境页统一安装，下载可能需要一些时间。',
+          'The first check prepares the ACP adapter. You can also install it from Terminal Environment; the download may take a moment.',
         ),
       );
     }
@@ -138,8 +139,8 @@ class _AgentModeSettingPageState extends State<AgentModeSettingPage> {
         builder: (dialogContext) => AlertDialog(
           title: Text(
             ok
-                ? _text('ACP 初始化成功', 'ACP initialized')
-                : _text('ACP 初始化失败', 'ACP initialization failed'),
+                ? _text('Agent 检测成功', 'Agent check succeeded')
+                : _text('Agent 检测失败', 'Agent check failed'),
           ),
           content: SingleChildScrollView(
             child: SelectableText(
@@ -222,13 +223,12 @@ class _AgentModeSettingPageState extends State<AgentModeSettingPage> {
   Widget build(BuildContext context) {
     final palette = context.omniPalette;
     final dark = context.isDarkTheme;
-    final background = dark ? palette.pageBackground : AppColors.background;
     final card = dark ? palette.surfacePrimary : Colors.white;
     final agents = _visibleAgents;
     final managed = agents.where((agent) => agent.builtIn).toList();
     final custom = agents.where((agent) => !agent.builtIn).toList();
     return Scaffold(
-      backgroundColor: background,
+      backgroundColor: palette.pageBackground,
       appBar: CommonAppBar(
         title: _text('Agent 模式', 'Agent mode'),
         primary: true,
@@ -242,12 +242,12 @@ class _AgentModeSettingPageState extends State<AgentModeSettingPage> {
                     height: 18,
                     child: CircularProgressIndicator(strokeWidth: 2),
                   )
-                : const Icon(Icons.refresh_rounded),
+                : const Icon(LucideIcons.refreshCw),
           ),
           IconButton(
             tooltip: _text('添加自定义 ACP Agent', 'Add custom ACP Agent'),
             onPressed: _busyAgentId == null ? _addCustomAgent : null,
-            icon: const Icon(Icons.add_rounded),
+            icon: const Icon(LucideIcons.plus),
           ),
         ],
       ),
@@ -286,98 +286,109 @@ class _AgentModeSettingPageState extends State<AgentModeSettingPage> {
                       'Built-in Agents always remain visible. Status comes from command detection and ACP initialize. Each Agent owns its API, account, and default model configuration.',
                     ),
                   ),
-                  TextField(
-                    decoration: InputDecoration(
-                      prefixIcon: const Icon(Icons.search_rounded),
-                      hintText: _text('搜索 Agent', 'Search Agents'),
-                      filled: true,
-                      fillColor: card,
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(12),
-                        borderSide: BorderSide.none,
-                      ),
-                    ),
-                    onChanged: (value) => setState(() => _query = value),
-                  ),
-                  const SizedBox(height: 10),
-                  SegmentedButton<_AgentFilter>(
-                    segments: [
-                      ButtonSegment(
+                  _buildSearchField(card),
+                  const SizedBox(height: 12),
+                  OmniSegmentedSlider<_AgentFilter>(
+                    value: _filter,
+                    keyPrefix: 'agent-filter',
+                    options: [
+                      OmniSegmentedOption(
                         value: _AgentFilter.all,
-                        label: Text(
-                          '${_text('全部', 'All')} ${_countFor(_AgentFilter.all)}',
-                        ),
+                        label:
+                            '${_text('全部', 'All')} '
+                            '${_countFor(_AgentFilter.all)}',
                       ),
-                      ButtonSegment(
+                      OmniSegmentedOption(
                         value: _AgentFilter.available,
-                        label: Text(
-                          '${_text('可用', 'Available')} '
-                          '${_countFor(_AgentFilter.available)}',
-                        ),
+                        label:
+                            '${_text('可用', 'Available')} '
+                            '${_countFor(_AgentFilter.available)}',
                       ),
-                      ButtonSegment(
+                      OmniSegmentedOption(
                         value: _AgentFilter.unavailable,
-                        label: Text(
-                          '${_text('不可用', 'Unavailable')} '
-                          '${_countFor(_AgentFilter.unavailable)}',
-                        ),
+                        label:
+                            '${_text('不可用', 'Unavailable')} '
+                            '${_countFor(_AgentFilter.unavailable)}',
                       ),
                     ],
-                    selected: {_filter},
-                    showSelectedIcon: false,
-                    onSelectionChanged: (values) =>
-                        setState(() => _filter = values.first),
+                    onChanged: (value) => setState(() => _filter = value),
                   ),
                   if (managed.isNotEmpty) ...[
                     const SizedBox(height: 20),
-                    _sectionLabel(_text('预置 Agent', 'Built-in Agents')),
-                    const SizedBox(height: 8),
-                    for (final agent in managed) ...[
-                      _AgentCard(
-                        agent: agent,
-                        busy: agent.id == _busyAgentId,
-                        onTest: () => _test(agent),
-                        onConfigure: () => _openAgentConfig(agent),
-                        cardColor: card,
-                      ),
-                      const SizedBox(height: 10),
+                    _buildSectionLabel(_text('预置 Agent', 'Built-in Agents')),
+                    for (var i = 0; i < managed.length; i++) ...[
+                      _buildAgentTile(managed[i]),
+                      if (i < managed.length - 1) _buildRowDivider(),
                     ],
                   ],
                   if (custom.isNotEmpty) ...[
-                    const SizedBox(height: 12),
-                    _sectionLabel(_text('自定义 Agent', 'Custom Agents')),
-                    const SizedBox(height: 8),
-                    for (final agent in custom) ...[
-                      _AgentCard(
-                        agent: agent,
-                        busy: agent.id == _busyAgentId,
-                        onTest: () => _test(agent),
-                        onConfigure: () => _openAgentConfig(agent),
-                        cardColor: card,
-                      ),
-                      const SizedBox(height: 10),
+                    const SizedBox(height: 24),
+                    _buildSectionLabel(_text('自定义 Agent', 'Custom Agents')),
+                    for (var i = 0; i < custom.length; i++) ...[
+                      _buildAgentTile(custom[i]),
+                      if (i < custom.length - 1) _buildRowDivider(),
                     ],
                   ],
                   if (agents.isEmpty) ...[
-                    const SizedBox(height: 42),
-                    Center(
-                      child: Text(
-                        _text('没有匹配的 Agent', 'No matching Agents'),
-                        style: TextStyle(color: palette.textSecondary),
-                      ),
+                    const SizedBox(height: 48),
+                    Column(
+                      children: [
+                        Icon(
+                          LucideIcons.searchX,
+                          size: 26,
+                          color: palette.textTertiary,
+                        ),
+                        const SizedBox(height: 12),
+                        Text(
+                          _text('没有匹配的 Agent', 'No matching Agents'),
+                          style: TextStyle(
+                            color: palette.textSecondary,
+                            fontSize: 13,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          _text(
+                            '换个关键词或筛选条件试试',
+                            'Try a different keyword or filter',
+                          ),
+                          style: TextStyle(
+                            color: palette.textTertiary,
+                            fontSize: 12,
+                          ),
+                        ),
+                      ],
                     ),
                   ],
                   // 远程 PC Bridge：全局共享配置入口（仅配置远程 Codex app-server 连接）。
                   const SizedBox(height: 24),
-                  _sectionLabel(_text('远程运行', 'Remote runtime')),
-                  const SizedBox(height: 8),
-                  _RemoteBridgeCard(
-                    enabled: _remoteBridgeEnabled,
-                    cardColor: card,
+                  _buildSectionLabel(_text('远程运行', 'Remote runtime')),
+                  _FlatTile(
+                    leading: Icon(
+                      LucideIcons.monitorSmartphone,
+                      size: 18,
+                      color: palette.accentPrimary,
+                    ),
+                    title: _text('远程 PC Bridge', 'Remote PC Bridge'),
+                    statusColor: _remoteBridgeEnabled
+                        ? const Color(0xFF2EAF67)
+                        : const Color(0xFF98A2B3),
+                    statusLabel: _remoteBridgeEnabled
+                        ? _text('已启用', 'Enabled')
+                        : _text('未启用', 'Not enabled'),
+                    subtitle: _remoteBridgeEnabled
+                        ? _text(
+                            'Agent 聊天使用远程 Codex app-server',
+                            'Agent chat runs on the remote Codex app-server',
+                          )
+                        : _text(
+                            '配置远程 Codex app-server 连接',
+                            'Configure a remote Codex app-server connection',
+                          ),
                     onTap: () {
                       GoRouterManager.push('/home/remote_codex_setting');
                     },
-                    english: _english,
                   ),
                 ],
               ),
@@ -385,14 +396,113 @@ class _AgentModeSettingPageState extends State<AgentModeSettingPage> {
     );
   }
 
-  Widget _sectionLabel(String value) {
-    return Text(
-      value,
-      style: TextStyle(
-        color: context.omniPalette.textSecondary,
-        fontSize: 12,
-        fontWeight: FontWeight.w600,
+  Widget _buildSearchField(Color card) {
+    final palette = context.omniPalette;
+    return TextField(
+      style: TextStyle(color: palette.textPrimary, fontSize: 14),
+      cursorColor: palette.accentPrimary,
+      decoration: InputDecoration(
+        hintText: _text('搜索 Agent', 'Search Agents'),
+        hintStyle: TextStyle(color: palette.textTertiary, fontSize: 13.5),
+        prefixIcon: Padding(
+          padding: const EdgeInsets.only(left: 14, right: 8),
+          child: Icon(LucideIcons.search, size: 18, color: palette.textTertiary),
+        ),
+        prefixIconConstraints: const BoxConstraints(),
+        filled: true,
+        fillColor: card,
+        isDense: true,
+        contentPadding: const EdgeInsets.symmetric(vertical: 13),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(14),
+          borderSide: BorderSide(color: palette.borderSubtle),
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(14),
+          borderSide: BorderSide(
+            color: palette.accentPrimary.withValues(alpha: 0.6),
+          ),
+        ),
       ),
+      onChanged: (value) => setState(() => _query = value),
+    );
+  }
+
+  /// 与设置主页一致的分组小标题。
+  Widget _buildSectionLabel(String label) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(4, 0, 4, 10),
+      child: Text(
+        label,
+        style: TextStyle(
+          fontSize: 11,
+          fontWeight: FontWeight.w600,
+          letterSpacing: 0.6,
+          color: context.omniPalette.textTertiary,
+          fontFamily: 'PingFang SC',
+        ),
+      ),
+    );
+  }
+
+  /// 与设置主页一致的行间隔细分隔线（左侧缩进对齐标题文字）。
+  Widget _buildRowDivider() {
+    final palette = context.omniPalette;
+    return Padding(
+      padding: const EdgeInsets.only(left: 30),
+      child: Divider(
+        height: 1,
+        thickness: 1,
+        color: palette.borderSubtle.withValues(
+          alpha: context.isDarkTheme ? 0.5 : 0.78,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildAgentTile(AcpAgentProfile agent) {
+    final palette = context.omniPalette;
+    final status = _statusPresentation(agent.status, _english);
+    final statusColor = agent.enabled
+        ? status.color
+        : const Color(0xFF98A2B3);
+    final hasError =
+        (agent.lastCheckError ?? '').isNotEmpty && agent.status != 'online';
+    final canTest = agent.enabled && agent.status != 'missing';
+    final busy = agent.id == _busyAgentId;
+    final needsManagedPreparation =
+        agent.managedAdapter &&
+        agent.status == 'unchecked' &&
+        agent.lastCheckError?.contains('will be prepared') == true;
+    final testLabel = needsManagedPreparation
+        ? _text('准备并初始化', 'Prepare & initialize')
+        : agent.status == 'unchecked'
+        ? _text('检测', 'Check')
+        : _text('重新检测', 'Check again');
+    return _FlatTile(
+      tileKey: Key('agent-config-${agent.id}'),
+      leading: AgentBrandIcon(
+        agentId: agent.id,
+        size: 18,
+        fallbackColor: palette.accentPrimary,
+      ),
+      title: agent.name,
+      statusColor: statusColor,
+      statusLabel: !agent.enabled
+          ? _text('已停用', 'Disabled')
+          : status.label,
+      subtitle: agent.description.isNotEmpty
+          ? agent.description
+          : ([agent.command, ...agent.arguments]).join(' '),
+      subtitleMonospace: agent.description.isEmpty,
+      errorText: hasError ? agent.lastCheckError : null,
+      actionLabel: canTest ? testLabel : null,
+      actionKey: Key('agent-check-${agent.id}'),
+      onAction: canTest ? () => _test(agent) : null,
+      navigationLabel: _text('配置', 'Configure'),
+      navigationKey: Key('agent-navigation-${agent.id}'),
+      busy: busy,
+      onTap: () => _openAgentConfig(agent),
     );
   }
 }
@@ -500,51 +610,64 @@ class _AddCustomAgentDialogState extends State<_AddCustomAgentDialog> {
   }
 }
 
-class _AgentCard extends StatelessWidget {
-  const _AgentCard({
-    required this.agent,
-    required this.busy,
-    required this.onTest,
-    required this.onConfigure,
-    required this.cardColor,
+/// 扁平设置行：与设置主页（settings_page）一致的行式排版，
+/// 行首 18px 图标 + 标题 + 状态/副标题，整行可点击。
+class _FlatTile extends StatelessWidget {
+  const _FlatTile({
+    required this.leading,
+    required this.title,
+    required this.onTap,
+    this.tileKey,
+    this.statusColor,
+    this.statusLabel,
+    this.subtitle,
+    this.subtitleMonospace = false,
+    this.errorText,
+    this.actionLabel,
+    this.actionKey,
+    this.onAction,
+    this.navigationLabel,
+    this.navigationKey,
+    this.busy = false,
   });
 
-  final AcpAgentProfile agent;
+  final Widget leading;
+  final String title;
+  final VoidCallback onTap;
+  final Key? tileKey;
+  final Color? statusColor;
+  final String? statusLabel;
+  final String? subtitle;
+  final bool subtitleMonospace;
+  final String? errorText;
+  final String? actionLabel;
+  final Key? actionKey;
+  final VoidCallback? onAction;
+  final String? navigationLabel;
+  final Key? navigationKey;
   final bool busy;
-  final VoidCallback onTest;
-  final VoidCallback onConfigure;
-  final Color cardColor;
 
   @override
   Widget build(BuildContext context) {
     final palette = context.omniPalette;
-    final english =
-        Localizations.localeOf(context).languageCode.toLowerCase() == 'en';
-    final status = _statusPresentation(agent.status, english);
-    return Container(
-      padding: const EdgeInsets.fromLTRB(14, 14, 10, 10),
-      decoration: BoxDecoration(
-        color: cardColor,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: palette.borderSubtle),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
+    final hasSubtitle = (subtitle ?? '').isNotEmpty;
+    final hasStatus = statusLabel != null && statusColor != null;
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        key: tileKey,
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(14),
+        splashColor: palette.accentPrimary.withValues(alpha: 0.08),
+        highlightColor: Colors.transparent,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(4, 13, 2, 13),
+          child: Row(
             children: [
-              Container(
-                width: 36,
-                height: 36,
-                decoration: BoxDecoration(
-                  color: palette.surfaceSecondary,
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                child: AgentBrandIcon(
-                  agentId: agent.id,
-                  size: 20,
-                  fallbackColor: palette.accentPrimary,
-                ),
+              SizedBox(
+                width: 18,
+                height: 18,
+                child: Center(child: leading),
               ),
               const SizedBox(width: 10),
               Expanded(
@@ -552,108 +675,175 @@ class _AgentCard extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      agent.name,
+                      title,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
                       style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w500,
                         color: palette.textPrimary,
-                        fontSize: 15,
-                        fontWeight: FontWeight.w600,
+                        height: 1.5,
+                        fontFamily: 'PingFang SC',
                       ),
                     ),
-                    const SizedBox(height: 3),
-                    Row(
-                      children: [
-                        Container(
-                          width: 7,
-                          height: 7,
-                          decoration: BoxDecoration(
-                            color: status.color,
-                            shape: BoxShape.circle,
-                          ),
+                    if (hasStatus || hasSubtitle) ...[
+                      const SizedBox(height: 2),
+                      Row(
+                        children: [
+                          if (hasStatus) ...[
+                            Container(
+                              width: 6,
+                              height: 6,
+                              decoration: BoxDecoration(
+                                color: statusColor,
+                                shape: BoxShape.circle,
+                              ),
+                            ),
+                            const SizedBox(width: 5),
+                            Text(
+                              statusLabel!,
+                              style: TextStyle(
+                                fontSize: 11,
+                                fontWeight: FontWeight.w500,
+                                color: statusColor,
+                                height: 1.55,
+                                fontFamily: 'PingFang SC',
+                              ),
+                            ),
+                          ],
+                          if (hasSubtitle) ...[
+                            if (hasStatus)
+                              Text(
+                                '  ·  ',
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  color: palette.textTertiary,
+                                  height: 1.55,
+                                ),
+                              ),
+                            Flexible(
+                              child: Text(
+                                subtitle!,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  color: palette.textSecondary,
+                                  height: 1.55,
+                                  fontFamily: subtitleMonospace
+                                      ? 'monospace'
+                                      : 'PingFang SC',
+                                ),
+                              ),
+                            ),
+                          ],
+                        ],
+                      ),
+                    ],
+                    if ((errorText ?? '').isNotEmpty) ...[
+                      const SizedBox(height: 2),
+                      Text(
+                        errorText!,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontSize: 11,
+                          color: Theme.of(context).colorScheme.error,
+                          height: 1.55,
+                          fontFamily: 'PingFang SC',
                         ),
-                        const SizedBox(width: 5),
-                        Text(
-                          !agent.enabled
-                              ? (english ? 'Disabled' : '已停用')
-                              : status.label,
-                          style: TextStyle(
-                            color: palette.textSecondary,
-                            fontSize: 11,
-                          ),
-                        ),
-                      ],
-                    ),
+                      ),
+                    ],
                   ],
                 ),
               ),
-              if (busy)
-                const SizedBox(
-                  width: 18,
-                  height: 18,
-                  child: CircularProgressIndicator(strokeWidth: 2),
-                )
-              else
-                IconButton(
-                  key: Key('agent-config-${agent.id}'),
-                  tooltip: english ? 'Agent configuration' : 'Agent 配置',
-                  onPressed: onConfigure,
-                  icon: const Icon(Icons.chevron_right_rounded),
+              Padding(
+                padding: const EdgeInsets.only(left: 10),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    if (busy)
+                      const Padding(
+                        padding: EdgeInsets.symmetric(vertical: 3),
+                        child: SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        ),
+                      )
+                    else if (actionLabel != null && onAction != null)
+                      TextButton(
+                        key: actionKey,
+                        onPressed: onAction,
+                        style: TextButton.styleFrom(
+                          minimumSize: Size.zero,
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 4,
+                            vertical: 3,
+                          ),
+                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                          visualDensity: VisualDensity.compact,
+                        ),
+                        child: ConstrainedBox(
+                          constraints: const BoxConstraints(maxWidth: 150),
+                          child: Text(
+                            actionLabel!,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w600,
+                              color: palette.accentPrimary,
+                              fontFamily: 'PingFang SC',
+                            ),
+                          ),
+                        ),
+                      ),
+                    if ((busy || actionLabel != null) &&
+                        navigationLabel != null)
+                      const SizedBox(height: 3),
+                    if (navigationLabel != null)
+                      InkWell(
+                        key: navigationKey,
+                        onTap: onTap,
+                        borderRadius: BorderRadius.circular(8),
+                        child: Padding(
+                          padding: const EdgeInsets.fromLTRB(4, 3, 0, 3),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Text(
+                                navigationLabel!,
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w500,
+                                  color: palette.textSecondary,
+                                  fontFamily: 'PingFang SC',
+                                ),
+                              ),
+                              const SizedBox(width: 3),
+                              Icon(
+                                LucideIcons.chevronRight,
+                                size: 16,
+                                color: palette.textTertiary,
+                              ),
+                            ],
+                          ),
+                        ),
+                      )
+                    else
+                      Icon(
+                        LucideIcons.chevronRight,
+                        size: 18,
+                        color: palette.textTertiary,
+                      ),
+                  ],
                 ),
+              ),
             ],
           ),
-          if (agent.description.isNotEmpty) ...[
-            const SizedBox(height: 10),
-            Text(
-              agent.description,
-              style: TextStyle(color: palette.textSecondary, fontSize: 12),
-            ),
-          ],
-          const SizedBox(height: 8),
-          SelectableText(
-            ([agent.command, ...agent.arguments]).join(' '),
-            style: TextStyle(
-              color: palette.textTertiary,
-              fontFamily: 'monospace',
-              fontSize: 11,
-            ),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            english ? 'API: configured by the Agent' : 'API：由 Agent 自身配置',
-            style: TextStyle(color: palette.textSecondary, fontSize: 12),
-          ),
-          if ((agent.lastCheckError ?? '').isNotEmpty &&
-              agent.status != 'online') ...[
-            const SizedBox(height: 6),
-            Text(
-              agent.lastCheckError!,
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                color: Theme.of(context).colorScheme.error,
-                fontSize: 11,
-              ),
-            ),
-          ],
-          const SizedBox(height: 8),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.end,
-            children: [
-              TextButton(
-                onPressed: busy || !agent.enabled || agent.status == 'missing'
-                    ? null
-                    : onTest,
-                child: Text(
-                  agent.managedAdapter &&
-                          agent.status == 'unchecked' &&
-                          agent.lastCheckError?.contains('will be prepared') ==
-                              true
-                      ? (english ? 'Prepare & initialize' : '准备并初始化')
-                      : (english ? 'Initialize' : '初始化检测'),
-                ),
-              ),
-            ],
-          ),
-        ],
+        ),
       ),
     );
   }
@@ -695,87 +885,4 @@ Map<String, String> _parseEnvironment(String source) {
     ),
     _ => (label: english ? 'Unchecked' : '未检测', color: const Color(0xFFE3A52B)),
   };
-}
-
-/// 远程 PC Bridge 卡片入口：点击跳转到独立的 Bridge 配置页（扫码/测试/自动保存全部保留）。
-class _RemoteBridgeCard extends StatelessWidget {
-  const _RemoteBridgeCard({
-    required this.enabled,
-    required this.cardColor,
-    required this.onTap,
-    required this.english,
-  });
-
-  final bool enabled;
-  final Color cardColor;
-  final VoidCallback onTap;
-  final bool english;
-
-  @override
-  Widget build(BuildContext context) {
-    final palette = context.omniPalette;
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(12),
-        child: Container(
-          padding: const EdgeInsets.fromLTRB(14, 14, 10, 14),
-          decoration: BoxDecoration(
-            color: cardColor,
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: palette.borderSubtle),
-          ),
-          child: Row(
-            children: [
-              Container(
-                width: 36,
-                height: 36,
-                decoration: BoxDecoration(
-                  color: palette.surfaceSecondary,
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                child: Icon(
-                  Icons.terminal_rounded,
-                  size: 20,
-                  color: palette.accentPrimary,
-                ),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      english ? 'Remote PC Bridge' : '远程 PC Bridge',
-                      style: TextStyle(
-                        color: palette.textPrimary,
-                        fontSize: 15,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                    const SizedBox(height: 3),
-                    Text(
-                      enabled
-                          ? (english
-                                ? 'Enabled — Agent chat uses remote Codex app-server'
-                                : '已启用 — Agent 聊天使用远程 Codex app-server')
-                          : (english
-                                ? 'Configure remote Codex app-server connection'
-                                : '配置远程 Codex app-server 连接'),
-                      style: TextStyle(
-                        color: palette.textSecondary,
-                        fontSize: 12,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              Icon(Icons.chevron_right_rounded, color: palette.textTertiary),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
 }

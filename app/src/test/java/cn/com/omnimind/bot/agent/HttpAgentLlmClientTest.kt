@@ -1,10 +1,14 @@
 package cn.com.omnimind.bot.agent
 
 import cn.com.omnimind.assists.controller.http.HttpController
+import cn.com.omnimind.baselib.account.PlatformModelsUnavailableException
 import cn.com.omnimind.baselib.llm.ChatCompletionFunction
+import cn.com.omnimind.baselib.llm.ChatCompletionMessage
+import cn.com.omnimind.baselib.llm.ChatCompletionRequest
 import cn.com.omnimind.baselib.llm.ChatCompletionStreamOptions
 import cn.com.omnimind.baselib.llm.ChatCompletionTool
 import cn.com.omnimind.baselib.llm.OpenAiWireApi
+import cn.com.omnimind.bot.media.PlatformMediaProtocol
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -25,6 +29,7 @@ import okhttp3.ResponseBody.Companion.toResponseBody
 import okhttp3.sse.EventSource
 import okhttp3.sse.EventSourceListener
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -38,6 +43,282 @@ class HttpAgentLlmClientTest {
     }
 
     @Test
+    fun `platform image input uses catalog vision model`() = runBlocking {
+        val scope = CoroutineScope(Job() + Dispatchers.Default)
+        val requestedModels = mutableListOf<String>()
+        val requestBodies = mutableListOf<String>()
+        val resolvedExplicitModels = mutableListOf<String?>()
+        val streamedExplicitModels = mutableListOf<String?>()
+        try {
+            val client = HttpAgentLlmClient(
+                scope = scope,
+                modelOverride = officialTestOverride(),
+                resolveRouteInfoOp = { model, _, _, _, explicitModel, protocolType, _ ->
+                    resolvedExplicitModels += explicitModel
+                    routeInfo(
+                        requestedModel = model,
+                        resolvedModel = explicitModel ?: model,
+                        protocolType = protocolType ?: "openai_compatible",
+                        requiresReasoningEcho = false,
+                    )
+                },
+                streamRequestOp = { model, body, listener, _, _, _, explicitModel, _, _, _ ->
+                    requestedModels += model
+                    requestBodies += body
+                    streamedExplicitModels += explicitModel
+                    val source = dummyEventSource()
+                    listener.onOpen(source, okResponse())
+                    val content = if (requestedModels.size == 1) {
+                        "a red status light next to a disabled switch"
+                    } else {
+                        "done"
+                    }
+                    listener.onEvent(
+                        source,
+                        null,
+                        "message",
+                        """{"choices":[{"delta":{"content":"$content"},"finish_reason":"stop"}]}"""
+                    )
+                    listener.onEvent(source, null, "message", "[DONE]")
+                    source
+                },
+                resolvePlatformVisionModelOp = { "official-vision-model" },
+                streamIdleWatchdogMs = 5_000L,
+                json = json,
+            )
+            val request = ChatCompletionRequest(
+                model = "scene.dispatch.model",
+                messages = listOf(
+                    ChatCompletionMessage(
+                        role = "system",
+                        content = JsonPrimitive("large agent history that is unnecessary for this image turn"),
+                    ),
+                    ChatCompletionMessage(
+                        role = "user",
+                        content = json.parseToJsonElement(
+                            """[{"type":"text","text":"historic image context"},{"type":"image_url","image_url":{"url":"data:image/jpeg;base64,AQ=="}}]"""
+                        ),
+                    ),
+                    ChatCompletionMessage(
+                        role = "user",
+                        content = json.parseToJsonElement(
+                            """[{"type":"text","text":"what is this"},{"type":"image_url","image_url":{"url":"data:image/jpeg;base64,AA=="}}]"""
+                        )
+                    )
+                ),
+                reasoningEffort = "medium",
+                thinking = cn.com.omnimind.baselib.llm.ChatCompletionThinking(type = "enabled"),
+                maxCompletionTokens = 16_384,
+                tools = listOf(
+                    cn.com.omnimind.baselib.llm.ChatCompletionTool(
+                        function = cn.com.omnimind.baselib.llm.ChatCompletionFunction(
+                            name = "unnecessary_tool",
+                        ),
+                    ),
+                ),
+                toolChoice = JsonPrimitive("auto"),
+                parallelToolCalls = true,
+                promptCacheKey = "full-agent-context",
+                stream = true,
+            )
+
+            val turn = client.streamTurn(request)
+
+            assertEquals("done", turn.message.contentText())
+            assertEquals(listOf("official-vision-model", "scene.dispatch.model"), requestedModels)
+            assertEquals(
+                listOf(
+                    "official-vision-model",
+                    "official-vision-model",
+                    "test-model",
+                    "test-model",
+                ),
+                resolvedExplicitModels,
+            )
+            assertEquals(listOf("official-vision-model", "test-model"), streamedExplicitModels)
+
+            val visionRequest = json.parseToJsonElement(requestBodies[0]).jsonObject
+            assertNull(visionRequest["reasoning_effort"])
+            assertNull(visionRequest["thinking"])
+            assertEquals("true", visionRequest["enable_thinking"]?.jsonPrimitive?.content)
+            assertEquals(
+                1_024,
+                visionRequest["max_completion_tokens"]?.jsonPrimitive?.content?.toInt(),
+            )
+            assertEquals(1, visionRequest["messages"]?.let { it as JsonArray }?.size)
+            assertEquals(0, visionRequest["tools"]?.let { it as JsonArray }?.size)
+            assertNull(visionRequest["tool_choice"])
+            assertNull(visionRequest["parallel_tool_calls"])
+            assertNull(visionRequest["prompt_cache_key"])
+            assertEquals(
+                "official-vision-model",
+                visionRequest["model"]
+                    ?.jsonPrimitive
+                    ?.content
+            )
+
+            val agentRequest = json.parseToJsonElement(requestBodies[1]).jsonObject
+            assertEquals("medium", agentRequest["reasoning_effort"]?.jsonPrimitive?.content)
+            assertEquals(3, agentRequest["messages"]?.let { it as JsonArray }?.size)
+            assertEquals(1, agentRequest["tools"]?.let { it as JsonArray }?.size)
+            assertEquals("auto", agentRequest["tool_choice"]?.jsonPrimitive?.content)
+            assertEquals("true", agentRequest["parallel_tool_calls"]?.jsonPrimitive?.content)
+            assertEquals(
+                "full-agent-context",
+                agentRequest["prompt_cache_key"]?.jsonPrimitive?.content,
+            )
+            assertTrue(agentRequest.toString().contains("what is this"))
+            assertTrue(agentRequest.toString().contains("historic image context"))
+            assertTrue(agentRequest.toString().contains("a red status light"))
+            assertFalse(agentRequest.toString().contains("image_url"))
+        } finally {
+            scope.cancel()
+        }
+    }
+
+    @Test
+    fun `platform image input fails closed when catalog has no vision model`() = runBlocking {
+        val scope = CoroutineScope(Job() + Dispatchers.Default)
+        var requestCount = 0
+        try {
+            val client = HttpAgentLlmClient(
+                scope = scope,
+                modelOverride = officialTestOverride(),
+                streamRequestOp = { _, _, _, _, _, _, _, _, _, _ ->
+                    requestCount += 1
+                    dummyEventSource()
+                },
+                resolvePlatformVisionModelOp = {
+                    throw PlatformModelsUnavailableException("no official vision model")
+                },
+                streamIdleWatchdogMs = 5_000L,
+                json = json,
+            )
+            val request = ChatCompletionRequest(
+                model = "scene.dispatch.model",
+                messages = listOf(
+                    ChatCompletionMessage(
+                        role = "user",
+                        content = json.parseToJsonElement(
+                            """[{"type":"input_image","image_url":"https://example.com/image.jpg"}]"""
+                        )
+                    )
+                ),
+                stream = true,
+            )
+
+            val error = runCatching { client.streamTurn(request) }.exceptionOrNull()
+
+            assertTrue(error is PlatformModelsUnavailableException)
+            assertEquals(0, requestCount)
+        } finally {
+            scope.cancel()
+        }
+    }
+
+    @Test
+    fun `platform multi image request over safe JSON limit is rejected before send`() = runBlocking {
+        val scope = CoroutineScope(Job() + Dispatchers.Default)
+        var requestCount = 0
+        try {
+            val client = HttpAgentLlmClient(
+                scope = scope,
+                modelOverride = testOverride(),
+                resolveRouteInfoOp = { model, _, _, _, _, protocolType, _ ->
+                    routeInfo(
+                        requestedModel = model,
+                        resolvedModel = model,
+                        protocolType = protocolType ?: "openai_compatible",
+                        requiresReasoningEcho = false,
+                        providerProfileId = null,
+                        routeTag = "platform_gateway",
+                    )
+                },
+                streamRequestOp = { _, _, _, _, _, _, _, _, _, _ ->
+                    requestCount += 1
+                    dummyEventSource()
+                },
+                resolvePlatformVisionModelOp = { "official-vision-model" },
+                json = json,
+            )
+            val imageData = "A".repeat(4 * 1024 * 1024)
+            val blocks = buildList {
+                add(JsonObject(mapOf("type" to JsonPrimitive("text"), "text" to JsonPrimitive("分析这些图片"))))
+                repeat(4) {
+                    add(
+                        JsonObject(
+                            mapOf(
+                                "type" to JsonPrimitive("image_url"),
+                                "image_url" to JsonObject(
+                                    mapOf(
+                                        "url" to JsonPrimitive("data:image/jpeg;base64,$imageData")
+                                    )
+                                ),
+                            )
+                        )
+                    )
+                }
+            }
+            val request = ChatCompletionRequest(
+                model = "scene.dispatch.model",
+                messages = listOf(ChatCompletionMessage("user", JsonArray(blocks))),
+                stream = true,
+            )
+
+            val error = runCatching { client.streamTurn(request) }.exceptionOrNull()
+
+            assertTrue(error?.message.orEmpty().contains("请求内容过大"))
+            assertEquals(0, requestCount)
+        } finally {
+            scope.cancel()
+        }
+    }
+
+    @Test
+    fun `platform long unicode context is measured as final UTF8 and rejected before send`() = runBlocking {
+        val scope = CoroutineScope(Job() + Dispatchers.Default)
+        var requestCount = 0
+        try {
+            val client = HttpAgentLlmClient(
+                scope = scope,
+                modelOverride = testOverride(),
+                resolveRouteInfoOp = { model, _, _, _, _, protocolType, _ ->
+                    routeInfo(
+                        requestedModel = model,
+                        resolvedModel = model,
+                        protocolType = protocolType ?: "openai_compatible",
+                        requiresReasoningEcho = false,
+                        providerProfileId = null,
+                        routeTag = "platform_gateway",
+                    )
+                },
+                streamRequestOp = { _, _, _, _, _, _, _, _, _, _ ->
+                    requestCount += 1
+                    dummyEventSource()
+                },
+                json = json,
+            )
+            val longUnicodeContext = "你".repeat(
+                (PlatformMediaProtocol.MAX_PLATFORM_JSON_UTF8_BYTES / 3L).toInt() + 1
+            )
+            val request = ChatCompletionRequest(
+                model = "official-text-model",
+                messages = listOf(
+                    ChatCompletionMessage("user", JsonPrimitive(longUnicodeContext))
+                ),
+                stream = true,
+            )
+
+            val error = runCatching { client.streamTurn(request) }.exceptionOrNull()
+
+            assertTrue(error?.message.orEmpty().contains("15 MiB"))
+            assertEquals(0, requestCount)
+        } finally {
+            scope.cancel()
+        }
+    }
+
+    @Test
     fun `platform 401 refreshes account session and retries exactly once`() = runBlocking {
         val scope = CoroutineScope(Job() + Dispatchers.Default)
         var requestCount = 0
@@ -46,6 +327,15 @@ class HttpAgentLlmClientTest {
             val client = HttpAgentLlmClient(
                 scope = scope,
                 modelOverride = testOverride(),
+                resolveRouteInfoOp = { model, _, _, _, explicitModel, protocolType, _ ->
+                    routeInfo(
+                        requestedModel = model,
+                        resolvedModel = explicitModel ?: model,
+                        protocolType = protocolType ?: "openai_compatible",
+                        requiresReasoningEcho = false,
+                        routeTag = "platform_gateway",
+                    )
+                },
                 streamRequestOp = { _, _, listener, _, _, _, _, _, _, _ ->
                     requestCount += 1
                     val source = dummyEventSource()
@@ -591,6 +881,11 @@ class HttpAgentLlmClientTest {
         apiKey = "test-key"
     )
 
+    private fun officialTestOverride() = testOverride().copy(
+        providerProfileId = "omnibot-official-ai",
+        apiKey = "",
+    )
+
     private fun dummyEventSource(): EventSource {
         return object : EventSource {
             override fun request(): Request =
@@ -626,13 +921,15 @@ class HttpAgentLlmClientTest {
         requiresReasoningEcho: Boolean,
         apiBase: String = "https://example.com",
         wireApi: String = OpenAiWireApi.CHAT_COMPLETIONS,
+        providerProfileId: String? = "test",
+        routeTag: String? = "test",
     ) = HttpController.ChatCompletionRouteInfo(
         requestedModel = requestedModel,
         resolvedModel = resolvedModel,
         apiBase = apiBase,
-        providerProfileId = "test",
+        providerProfileId = providerProfileId,
         providerProfileName = "Test",
-        routeTag = "test",
+        routeTag = routeTag,
         bindingApplied = false,
         bindingProfileMissing = false,
         overrideApplied = true,

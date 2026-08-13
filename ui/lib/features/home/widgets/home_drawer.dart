@@ -74,6 +74,24 @@ const String _kDrawerPluginMarketIconSvg =
     '<circle cx="12" cy="12" r="4"/>'
     '</svg>';
 
+const String _kDrawerUsageStatisticsIconSvg =
+    '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" '
+    'xmlns="http://www.w3.org/2000/svg">'
+    '<rect x="0.5" y="18" width="5" height="5" rx="1.5" fill="currentColor"/>'
+    '<rect x="0.5" y="12" width="5" height="5" rx="1.5" fill="currentColor"/>'
+    '<rect x="6.5" y="18" width="5" height="5" rx="1.5" fill="currentColor"/>'
+    '<rect x="6.5" y="12" width="5" height="5" rx="1.5" fill="currentColor"/>'
+    '<rect x="6.5" y="6" width="5" height="5" rx="1.5" fill="currentColor"/>'
+    '<rect x="6.5" y="0" width="5" height="5" rx="1.5" fill="currentColor"/>'
+    '<rect x="12.5" y="18" width="5" height="5" rx="1.5" fill="currentColor"/>'
+    '<rect x="12.5" y="12" width="5" height="5" rx="1.5" fill="currentColor"/>'
+    '<rect x="12.5" y="6" width="5" height="5" rx="1.5" fill="currentColor"/>'
+    '<rect x="18.5" y="18" width="5" height="5" rx="1.5" fill="currentColor"/>'
+    '<rect x="18.5" y="12" width="5" height="5" rx="1.5" fill="currentColor"/>'
+    '<rect x="18.5" y="6" width="5" height="5" rx="1.5" fill="currentColor"/>'
+    '<rect x="18.5" y="0" width="5" height="5" rx="1.5" fill="currentColor"/>'
+    '</svg>';
+
 /// 首页侧边栏
 class HomeDrawer extends ConsumerStatefulWidget {
   const HomeDrawer({
@@ -157,6 +175,7 @@ class HomeDrawerState extends ConsumerState<HomeDrawer> {
   List<_ScheduledConversationGroup>? _promotedThreadKeysCacheSource;
   StreamSubscription<Map<String, dynamic>>?
   _conversationListChangedSubscription;
+  StreamSubscription<bool>? _sidebarPolicyChangedSubscription;
   StreamSubscription<List<ScheduledTask>>? _scheduledTasksChangedSubscription;
 
   @override
@@ -172,6 +191,11 @@ class HomeDrawerState extends ConsumerState<HomeDrawer> {
         .listen((_) {
           unawaited(_loadConversations());
         });
+    _sidebarPolicyChangedSubscription = ConversationService
+        .sidebarPolicyChangedStream
+        .listen((_) {
+          unawaited(_loadConversations());
+        });
     _scheduledTasksChangedSubscription = ScheduledTaskStorageService
         .scheduledTasksChangedStream
         .listen(_handleScheduledTasksChanged);
@@ -182,6 +206,7 @@ class HomeDrawerState extends ConsumerState<HomeDrawer> {
   void dispose() {
     _searchDebounceTimer?.cancel();
     _conversationListChangedSubscription?.cancel();
+    _sidebarPolicyChangedSubscription?.cancel();
     _scheduledTasksChangedSubscription?.cancel();
     if (_searchFocusNode.hasFocus) {
       widget.onSearchFocusChanged?.call(false);

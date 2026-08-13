@@ -254,9 +254,7 @@ class _SkillStorePageState extends State<SkillStorePage> {
     final visibleSkills = _visibleSkills;
 
     return Scaffold(
-      backgroundColor: context.isDarkTheme
-          ? palette.pageBackground
-          : AppColors.background,
+      backgroundColor: palette.pageBackground,
       appBar: CommonAppBar(
         title: context.l10n.skillStoreTitle,
         primary: true,

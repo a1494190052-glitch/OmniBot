@@ -53,7 +53,8 @@ class AssistsCoreManagerChatOnlyTest {
                 name = "Provider One",
                 baseUrl = "https://example.com/v1",
                 apiKey = "secret",
-                protocolType = "openai_compatible"
+                protocolType = "openai_compatible",
+                destinationConsentValid = true,
             )
         }
 
@@ -80,11 +81,36 @@ class AssistsCoreManagerChatOnlyTest {
                 name = "Provider One",
                 baseUrl = "https://api.anthropic.com",
                 apiKey = "secret",
-                protocolType = "anthropic"
+                protocolType = "anthropic",
+                destinationConsentValid = true,
             )
         }
 
         assertNotNull(result)
+        assertEquals(1000000, result?.contextLimit)
+    }
+
+    @Test
+    fun `resolveDirectAgentModelOverride preserves contextLimit from payload`() {
+        val result = resolveDirectAgentModelOverride(
+            raw = mapOf(
+                "providerProfileId" to "provider-1",
+                "modelId" to "claude-fable-5",
+                "contextLimit" to "1000000"
+            )
+        ) { id ->
+            ModelProviderProfile(
+                id = id,
+                name = "Provider One",
+                baseUrl = "https://api.anthropic.com",
+                apiKey = "secret",
+                protocolType = "anthropic",
+                destinationConsentValid = true,
+            )
+        }
+
+        assertNotNull(result)
+        assertEquals("Provider One", result?.providerProfileName)
         assertEquals(1000000, result?.contextLimit)
     }
 
@@ -238,6 +264,7 @@ class AssistsCoreManagerChatOnlyTest {
 
         assertEquals(256000, resolvePromptTokenThresholdFallback(256000, override))
         assertEquals(1000000, resolvePromptTokenThresholdFallback(null, override))
+        assertEquals(1000000, resolvePromptTokenThresholdFallback(2000000, override))
         assertEquals(
             128000,
             resolvePromptTokenThresholdFallback(

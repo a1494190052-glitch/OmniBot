@@ -120,6 +120,42 @@ class AgentOrchestratorTest {
     }
 
     @Test
+    fun promptCacheKeyIsStableAcrossAgentModelRounds() = runBlocking {
+        val llmClient = FakeLlmClient(
+            turns = listOf(
+                assistantTurn(toolCalls = listOf(toolCall("file_read"))),
+                assistantTurn(content = "完成")
+            )
+        )
+        val toolExecutor = FakeToolExecutor(
+            results = mapOf(
+                "file_read" to listOf(
+                    ToolExecutionResult.ContextResult(
+                        toolName = "file_read",
+                        summaryText = "read",
+                        previewJson = "{}",
+                        rawResultJson = "{}",
+                        success = true
+                    )
+                )
+            )
+        )
+        val cacheKey = "omnibot:v1:0123456789abcdef0123:conversation:42"
+
+        createOrchestrator(llmClient, toolExecutor).run(
+            AgentOrchestrator.Input(
+                callback = RecordingCallback(),
+                initialMessages = initialMessages("读取文件"),
+                executionEnv = FakeExecutionEnvironment("读取文件"),
+                promptCacheKey = cacheKey
+            )
+        )
+
+        assertEquals(2, llmClient.requests.size)
+        assertTrue(llmClient.requests.all { it.promptCacheKey == cacheKey })
+    }
+
+    @Test
     fun failedToolResultCanNaturallyBecomeTextReply() = runBlocking {
         val llmClient = FakeLlmClient(
             turns = listOf(
@@ -477,6 +513,65 @@ class AgentOrchestratorTest {
         assertEquals("ABCD", callback.finalChatMessages().last())
         assertTrue(result is AgentResult.Success)
         assertEquals("length", (result as AgentResult.Success).response.finishReason)
+    }
+
+    @Test
+    fun lengthTruncatedToolCallIsRejectedAndOnlyCompleteReissueExecutes() = runBlocking {
+        val llmClient = FakeLlmClient(
+            turns = listOf(
+                assistantTurn(
+                    toolCalls = listOf(
+                        toolCall(
+                            name = "file_read",
+                            arguments = """{"path":"/workspace/part",
+                            """.trimIndent(),
+                            id = "call-truncated"
+                        )
+                    ),
+                    finishReason = "length"
+                ),
+                assistantTurn(
+                    toolCalls = listOf(
+                        toolCall(
+                            name = "file_read",
+                            arguments = """{"path":"/workspace/complete.txt"}""",
+                            id = "call-complete"
+                        )
+                    ),
+                    finishReason = "tool_calls"
+                ),
+                assistantTurn(content = "已使用完整参数读取文件。", finishReason = "stop")
+            )
+        )
+        val toolExecutor = FakeToolExecutor(
+            results = mapOf(
+                "file_read" to listOf(
+                    ToolExecutionResult.ContextResult(
+                        toolName = "file_read",
+                        summaryText = "读取完成",
+                        previewJson = "{}",
+                        rawResultJson = "{}",
+                        success = true
+                    )
+                )
+            )
+        )
+
+        val result = createOrchestrator(llmClient, toolExecutor).run(
+            AgentOrchestrator.Input(
+                callback = RecordingCallback(),
+                initialMessages = initialMessages("读取文件"),
+                executionEnv = FakeExecutionEnvironment("读取文件")
+            )
+        )
+
+        assertTrue(result is AgentResult.Success)
+        assertEquals(listOf("file_read"), toolExecutor.executeCalls)
+        assertEquals(3, llmClient.requests.size)
+        val rejectedResult = llmClient.requests[1].messages.last()
+        assertEquals("tool", rejectedResult.role)
+        assertEquals("call-truncated", rejectedResult.toolCallId)
+        assertTrue(rejectedResult.contentText().contains("参数可能被截断"))
     }
 
     @Test
@@ -1071,6 +1166,61 @@ class AgentOrchestratorTest {
     }
 
     @Test
+    fun `retries transient http 500 before succeeding`() = runBlocking {
+        val llmClient = FakeLlmClient(
+            turns = listOf(assistantTurn(content = "服务恢复后已完成。")),
+            failures = listOf(
+                AgentStreamRequestException(
+                    statusCode = 500,
+                    reason = "internal server error",
+                    responseBody = null
+                )
+            )
+        )
+        val callback = RecordingCallback()
+
+        val result = createOrchestrator(llmClient, FakeToolExecutor()).run(
+            AgentOrchestrator.Input(
+                callback = callback,
+                initialMessages = initialMessages("继续"),
+                executionEnv = FakeExecutionEnvironment("继续")
+            )
+        )
+
+        assertTrue(result is AgentResult.Success)
+        assertEquals(2, llmClient.requests.size)
+        assertEquals(1, callback.retryingEvents.size)
+    }
+
+    @Test
+    fun `does not retry quota exhausted 429`() = runBlocking {
+        val llmClient = FakeLlmClient(
+            turns = emptyList(),
+            failures = listOf(
+                AgentStreamRequestException(
+                    statusCode = 429,
+                    reason = "request rejected",
+                    responseBody = """{"error":{"code":"insufficient_quota"}}"""
+                )
+            )
+        )
+        val callback = RecordingCallback()
+
+        val result = createOrchestrator(llmClient, FakeToolExecutor()).run(
+            AgentOrchestrator.Input(
+                callback = callback,
+                initialMessages = initialMessages("继续"),
+                executionEnv = FakeExecutionEnvironment("继续")
+            )
+        )
+
+        assertTrue(result is AgentResult.Error)
+        assertEquals(1, llmClient.requests.size)
+        assertTrue(callback.retryingEvents.isEmpty())
+        assertEquals("HTTP 429: request rejected", callback.errors.single())
+    }
+
+    @Test
     fun `surfaces retryable terminal error after exhausting transient retries`() = runBlocking {
         val llmClient = FakeLlmClient(
             turns = emptyList(),
@@ -1137,6 +1287,163 @@ class AgentOrchestratorTest {
         assertTrue(callback.finalChatMessages().isEmpty())
     }
 
+    @Test
+    fun `detects provider context overflow without confusing throttling`() {
+        assertTrue(
+            isContextOverflowTurnFailure(
+                AgentStreamRequestException(
+                    statusCode = 400,
+                    reason = "invalid_request_error",
+                    responseBody = "Your input exceeds the context window of this model"
+                )
+            )
+        )
+        assertTrue(
+            isContextOverflowTurnFailure(
+                AgentStreamRequestException(
+                    statusCode = 400,
+                    reason = "invalid_parameter_error",
+                    responseBody = "Range of input length should be [1, 131072]"
+                )
+            )
+        )
+        assertFalse(
+            isContextOverflowTurnFailure(
+                AgentStreamRequestException(
+                    statusCode = 429,
+                    reason = "rate limit",
+                    responseBody = "Too many tokens were submitted this minute"
+                )
+            )
+        )
+    }
+
+    @Test
+    fun `detects zero output length stop only when prompt fills context`() {
+        assertTrue(
+            isLengthStopAtContextCapacity(
+                finishReason = "length",
+                promptTokens = 127_000,
+                completionTokens = 0,
+                contextCapacityTokens = 128_000
+            )
+        )
+        assertFalse(
+            isLengthStopAtContextCapacity(
+                finishReason = "length",
+                promptTokens = 100_000,
+                completionTokens = 0,
+                contextCapacityTokens = 128_000
+            )
+        )
+        assertFalse(
+            isLengthStopAtContextCapacity(
+                finishReason = "length",
+                promptTokens = 127_000,
+                completionTokens = 1,
+                contextCapacityTokens = 128_000
+            )
+        )
+    }
+
+    @Test
+    fun `context overflow compacts and retries once without consuming round budget`() = runBlocking {
+        val overflow = AgentStreamRequestException(
+            statusCode = 400,
+            reason = "invalid_request_error",
+            responseBody = "Your input exceeds the context window of this model"
+        )
+        val llmClient = FakeLlmClient(
+            turns = listOf(assistantTurn(content = "压缩后完成。")),
+            failures = listOf(overflow)
+        )
+        val compactor = FakeContextCompactor()
+
+        val result = createOrchestrator(
+            llmClient = llmClient,
+            toolExecutor = FakeToolExecutor()
+        ).run(
+            AgentOrchestrator.Input(
+                callback = RecordingCallback(),
+                initialMessages = initialMessages("继续长任务"),
+                executionEnv = FakeExecutionEnvironment("继续长任务"),
+                conversationId = 42L,
+                contextCompactor = compactor,
+                maxModelRounds = 1
+            )
+        )
+
+        assertFalse(result is AgentResult.Error)
+        assertEquals(2, llmClient.requests.size)
+        assertEquals(1, compactor.overflowCompactionCalls)
+        assertEquals("[compacted]", llmClient.requests.last().messages.first().content.toString().trim('"'))
+    }
+
+    @Test
+    fun `second context overflow stops instead of looping compaction`() = runBlocking {
+        val overflow = AgentStreamRequestException(
+            statusCode = 400,
+            reason = "context_length_exceeded",
+            responseBody = null
+        )
+        val llmClient = FakeLlmClient(
+            turns = emptyList(),
+            failures = listOf(overflow, overflow)
+        )
+        val compactor = FakeContextCompactor()
+
+        val result = createOrchestrator(
+            llmClient = llmClient,
+            toolExecutor = FakeToolExecutor()
+        ).run(
+            AgentOrchestrator.Input(
+                callback = RecordingCallback(),
+                initialMessages = initialMessages("继续长任务"),
+                executionEnv = FakeExecutionEnvironment("继续长任务"),
+                conversationId = 42L,
+                contextCompactor = compactor,
+                maxModelRounds = 1
+            )
+        )
+
+        assertTrue(result is AgentResult.Error)
+        assertEquals(2, llmClient.requests.size)
+        assertEquals(1, compactor.overflowCompactionCalls)
+    }
+
+    @Test
+    fun `zero output length stop at context capacity compacts and retries once`() = runBlocking {
+        val llmClient = FakeLlmClient(
+            turns = listOf(
+                assistantTurn(
+                    promptTokens = 127_000,
+                    completionTokens = 0,
+                    finishReason = "length"
+                ),
+                assistantTurn(content = "压缩后恢复输出。")
+            )
+        )
+        val compactor = FakeContextCompactor()
+
+        val result = createOrchestrator(
+            llmClient = llmClient,
+            toolExecutor = FakeToolExecutor()
+        ).run(
+            AgentOrchestrator.Input(
+                callback = RecordingCallback(),
+                initialMessages = initialMessages("继续长任务"),
+                executionEnv = FakeExecutionEnvironment("继续长任务"),
+                conversationId = 42L,
+                contextCompactor = compactor,
+                maxModelRounds = 1
+            )
+        )
+
+        assertFalse(result is AgentResult.Error)
+        assertEquals(2, llmClient.requests.size)
+        assertEquals(1, compactor.overflowCompactionCalls)
+    }
+
     private fun createOrchestrator(
         llmClient: FakeLlmClient,
         toolExecutor: FakeToolExecutor,
@@ -1167,6 +1474,8 @@ class AgentOrchestratorTest {
         content: String = "",
         toolCalls: List<AssistantToolCall> = emptyList(),
         promptTokens: Int? = null,
+        completionTokens: Int? = null,
+        totalTokens: Int? = null,
         prefillTokensPerSecond: Double? = null,
         decodeTokensPerSecond: Double? = null,
         finishReason: String? = null
@@ -1181,6 +1490,8 @@ class AgentOrchestratorTest {
             usage =
                 if (
                     promptTokens == null &&
+                    completionTokens == null &&
+                    totalTokens == null &&
                     prefillTokensPerSecond == null &&
                     decodeTokensPerSecond == null
                 ) {
@@ -1188,6 +1499,8 @@ class AgentOrchestratorTest {
                 } else {
                     ChatCompletionUsage(
                         promptTokens = promptTokens,
+                        completionTokens = completionTokens,
+                        totalTokens = totalTokens,
                         prefillTokensPerSecond = prefillTokensPerSecond,
                         decodeTokensPerSecond = decodeTokensPerSecond
                     )
@@ -1299,6 +1612,39 @@ class AgentOrchestratorTest {
             } else {
                 ToolExecutionResult.Error(toolCall.function.name, "missing fake result")
             }
+        }
+    }
+
+    private class FakeContextCompactor : AgentContextCompactionController {
+        var overflowCompactionCalls = 0
+
+        override suspend fun resolvePromptTokenThreshold(conversationId: Long?): Int = 128_000
+
+        override suspend fun compactIfNeeded(
+            conversationId: Long?,
+            conversationMode: String,
+            promptTokens: Int?,
+            messages: List<ChatCompletionMessage>,
+            contextTokens: Int?,
+            promptTokenThresholdOverride: Int?,
+            callback: AgentCallback?
+        ): List<ChatCompletionMessage> = messages
+
+        override suspend fun compactForOverflow(
+            conversationId: Long?,
+            conversationMode: String,
+            latestPromptTokens: Int?,
+            messages: List<ChatCompletionMessage>,
+            promptTokenThresholdOverride: Int?,
+            callback: AgentCallback?
+        ): List<ChatCompletionMessage> {
+            overflowCompactionCalls += 1
+            return listOf(
+                ChatCompletionMessage(
+                    role = "user",
+                    content = JsonPrimitive("[compacted]")
+                )
+            )
         }
     }
 

@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:ui/l10n/legacy_text_localizer.dart';
 import 'package:ui/services/ai_request_log_service.dart';
 import 'package:ui/theme/app_colors.dart';
@@ -462,7 +463,7 @@ class _AiRequestLogsPageState extends State<AiRequestLogsPage> {
                         duration: const Duration(milliseconds: 180),
                         curve: Curves.easeOutCubic,
                         child: Icon(
-                          Icons.expand_more_rounded,
+                          LucideIcons.chevronDown,
                           size: 18,
                           color: palette.textTertiary,
                         ),
@@ -639,7 +640,7 @@ class _AiRequestLogsPageState extends State<AiRequestLogsPage> {
         actions: [
           IconButton(
             onPressed: _loadLogs,
-            icon: const Icon(Icons.refresh),
+            icon: const Icon(LucideIcons.refreshCw),
             tooltip: LegacyTextLocalizer.localize('刷新'),
           ),
         ],
@@ -916,7 +917,7 @@ class _JsonNodeState extends State<_JsonNode> {
               width: 18,
               height: 18,
               child: Icon(
-                _expanded ? Icons.arrow_drop_down : Icons.arrow_right,
+                _expanded ? LucideIcons.chevronDown : LucideIcons.chevronRight,
                 size: 18,
                 color: context.isDarkTheme
                     ? context.omniPalette.textSecondary

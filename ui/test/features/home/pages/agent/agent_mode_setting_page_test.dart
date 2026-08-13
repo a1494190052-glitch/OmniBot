@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:ui/features/home/pages/agent/agent_mode_setting_page.dart';
 import 'package:ui/l10n/generated/app_localizations.dart';
@@ -35,6 +36,15 @@ void main() {
                 'offline',
                 arguments: const ['acp'],
               ),
+              _agent(
+                'deepseek-harness-acp',
+                'DeepSeek Harness',
+                'dsh-acp-demo',
+                'unchecked',
+                managedAdapter: true,
+                lastCheckError:
+                    'ACP adapter will be prepared during Initialize.',
+              ),
             ],
           };
         });
@@ -68,17 +78,34 @@ void main() {
     expect(find.text('Claude Code'), findsOneWidget);
     expect(find.text('Gemini CLI'), findsNothing);
     expect(find.text('OpenCode'), findsOneWidget);
+    expect(find.text('DeepSeek Harness'), findsOneWidget);
     expect(find.text('可用'), findsWidgets);
     expect(find.text('未安装'), findsOneWidget);
     expect(find.text('初始化失败'), findsOneWidget);
-    expect(find.text('全部 3'), findsOneWidget);
+    expect(find.text('全部 4'), findsOneWidget);
     expect(find.text('预置 Agent'), findsOneWidget);
     expect(find.text('官方 Agent'), findsNothing);
     expect(find.text('官方'), findsNothing);
     expect(find.textContaining('统一 API'), findsNothing);
     expect(find.byType(PopupMenuButton<String>), findsNothing);
-    // 3 Agent 卡片 + 1 远程 PC Bridge 入口卡片。
-    expect(find.byIcon(Icons.chevron_right_rounded), findsNWidgets(4));
+    expect(find.text('初始化检测'), findsNothing);
+    expect(find.text('重新检测'), findsNWidgets(2));
+    expect(find.text('准备并初始化'), findsOneWidget);
+    expect(find.text('配置'), findsNWidgets(4));
+    // 4 Agent 配置入口 + 1 远程 PC Bridge 入口。
+    expect(find.byIcon(LucideIcons.chevronRight), findsNWidgets(5));
+    expect(
+      tester
+          .getTopLeft(find.byKey(const Key('agent-check-deepseek-harness-acp')))
+          .dy,
+      lessThan(
+        tester
+            .getTopLeft(
+              find.byKey(const Key('agent-navigation-deepseek-harness-acp')),
+            )
+            .dy,
+      ),
+    );
     expect(find.text('远程 PC Bridge'), findsOneWidget);
     expect(find.text('远程运行'), findsOneWidget);
     expect(find.text('使用'), findsNothing);
@@ -145,6 +172,8 @@ Map<String, dynamic> _agent(
   String command,
   String status, {
   List<String> arguments = const [],
+  bool managedAdapter = false,
+  String? lastCheckError,
 }) {
   return <String, dynamic>{
     'id': id,
@@ -158,5 +187,7 @@ Map<String, dynamic> _agent(
     'selected': id == 'codex-acp',
     'installed': status != 'missing',
     'status': status,
+    'managedAdapter': managedAdapter,
+    if (lastCheckError != null) 'lastCheckError': lastCheckError,
   };
 }

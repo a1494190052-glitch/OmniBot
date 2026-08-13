@@ -20,6 +20,18 @@ interface ConversationDao {
     @Query("SELECT * FROM conversations ORDER BY updatedAt DESC")
     suspend fun getAll(): List<Conversation>
 
+    @Query("SELECT * FROM conversations WHERE isArchived = 0 ORDER BY updatedAt DESC")
+    suspend fun getUnarchived(): List<Conversation>
+
+    @Query("SELECT * FROM conversations WHERE isArchived = 1 ORDER BY updatedAt DESC")
+    suspend fun getArchived(): List<Conversation>
+
+    @Query(
+        "UPDATE conversations SET isArchived = 1 " +
+            "WHERE isArchived = 0 AND updatedAt < :cutoff"
+    )
+    suspend fun archiveUpdatedBefore(cutoff: Long): Int
+
     @Query("SELECT * FROM conversations ORDER BY updatedAt DESC LIMIT :limit OFFSET :offset")
     suspend fun getConversationsByPage(offset: Int, limit: Int): List<Conversation>
 

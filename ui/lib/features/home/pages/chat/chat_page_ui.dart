@@ -1294,12 +1294,6 @@ mixin _ChatPageUiMixin on _ChatPageStateBase {
                   _activeMode == ChatPageMode.agent,
               isPureChatSelected: _isPureChatSelected,
               isPureChatToggleLocked: _isPureChatToggleLocked,
-              showDebugConversationIdCopy: !kReleaseMode,
-              onDebugConversationIdCopyTap: !kReleaseMode
-                  ? () {
-                      unawaited(_copyCurrentConversationIdForDebug());
-                    }
-                  : null,
               showWorkspacePaneButton: showWorkspacePaneButton,
               onWorkspacePaneTap: onWorkspacePaneTap,
               tutorialMenuAnchorKey: _firstUseTourMenuAnchorKey,
@@ -1340,6 +1334,8 @@ mixin _ChatPageUiMixin on _ChatPageStateBase {
                       onTriggerSlashCommand: _triggerSlashCommandPanel,
                       attachments: _pendingAttachments,
                       hasExternalSendPayload: _editingUserMessageHasAttachments,
+                      isEditingUserMessage: _editingUserMessageId != null,
+                      onCancelUserMessageEditing: _stopUserMessageEditing,
                       onRemoveAttachment: _removePendingAttachment,
                       selectedModelOverrideId:
                           _activeMode == ChatPageMode.normal &&
@@ -1416,6 +1412,7 @@ mixin _ChatPageUiMixin on _ChatPageStateBase {
                               _agentRuntimeStatus.runtime != 'remote' &&
                               !_agentRuntimeStatus.remoteEnabled
                           ? const <AgentPermissionMode>[
+                              AgentPermissionMode.readOnly,
                               AgentPermissionMode.defaultMode,
                               AgentPermissionMode.fullAccess,
                             ]
@@ -2375,20 +2372,31 @@ mixin _ChatPageUiMixin on _ChatPageStateBase {
     await _retryUserMessageText(editedText, attachments: attachments);
   }
 
-  int _retryMessageRoundLength(ChatMessageModel message) {
+  int _retryMessageRoundLength(
+    ChatMessageModel message, {
+    bool preserveUserMessage = false,
+  }) {
     if (!_canRetryUserMessage(message)) return 0;
-    final targetIndex = _messages.indexWhere((item) => item.id == message.id);
-    if (targetIndex == -1) return 0;
-    return targetIndex + 1;
+    return retriedMessageRoundRemovalCount(
+      _messages,
+      userMessageId: message.id,
+      preserveUserMessage: preserveUserMessage,
+    );
   }
 
-  Future<void> _clearRetriedMessageRound(ChatMessageModel message) async {
+  Future<void> _clearRetriedMessageRound(
+    ChatMessageModel message, {
+    bool preserveUserMessage = false,
+  }) async {
     if (_isAiResponding) {
       _onCancelTask();
       if (!mounted) return;
     }
 
-    final removeCount = _retryMessageRoundLength(message);
+    final removeCount = _retryMessageRoundLength(
+      message,
+      preserveUserMessage: preserveUserMessage,
+    );
     if (removeCount <= 0) return;
 
     final shouldClearEditState = _editingUserMessageId == message.id;
@@ -2422,33 +2430,6 @@ mixin _ChatPageUiMixin on _ChatPageStateBase {
     showToast(
       success
           ? (LegacyTextLocalizer.isEnglish ? 'Message copied' : '已复制消息内容')
-          : (LegacyTextLocalizer.isEnglish ? 'Copy failed' : '复制失败'),
-      type: success ? ToastType.success : ToastType.error,
-    );
-  }
-
-  Future<void> _copyCurrentConversationIdForDebug() async {
-    final conversationId = _currentConversationId;
-    if (conversationId == null ||
-        isEphemeralConversation(conversationId, activeConversationModeValue)) {
-      showToast(
-        LegacyTextLocalizer.isEnglish
-            ? 'No adb-ready conversation ID yet'
-            : '当前会话还没有可用于 adb 的 ID',
-        type: ToastType.warning,
-      );
-      return;
-    }
-
-    final success = await AssistsMessageService.copyToClipboard(
-      conversationId.toString(),
-    );
-    if (!mounted) return;
-    showToast(
-      success
-          ? (LegacyTextLocalizer.isEnglish
-                ? 'Conversation ID copied: $conversationId'
-                : '已复制会话 ID：$conversationId')
           : (LegacyTextLocalizer.isEnglish ? 'Copy failed' : '复制失败'),
       type: success ? ToastType.success : ToastType.error,
     );
@@ -2489,10 +2470,14 @@ mixin _ChatPageUiMixin on _ChatPageStateBase {
       if (!mounted) return;
     }
 
-    await _clearRetriedMessageRound(message);
+    await _clearRetriedMessageRound(message, preserveUserMessage: true);
     if (!mounted) return;
 
-    await _retryUserMessageText(text, attachments: attachments);
+    await _retryUserMessageText(
+      text,
+      attachments: attachments,
+      retainedUserMessageId: message.id,
+    );
     if (!mounted) return;
   }
 

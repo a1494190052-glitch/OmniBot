@@ -1,6 +1,7 @@
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
+import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:ui/l10n/l10n.dart';
 import 'package:ui/l10n/legacy_text_localizer.dart';
 import 'package:ui/services/storage_usage_service.dart';
@@ -456,7 +457,7 @@ class _StorageUsagePageState extends State<StorageUsagePage> {
             ),
             TextButton.icon(
               onPressed: _loadSummary,
-              icon: const Icon(Icons.refresh_rounded, size: 16),
+              icon: const Icon(LucideIcons.refreshCw, size: 16),
               label: Text(_t(context, '重新分析', 'Analyze again')),
             ),
           ],
@@ -518,7 +519,7 @@ class _StorageUsagePageState extends State<StorageUsagePage> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Icon(
-              Icons.trending_up_rounded,
+              LucideIcons.trendingUp,
               size: 18,
               color: palette.accentPrimary,
             ),

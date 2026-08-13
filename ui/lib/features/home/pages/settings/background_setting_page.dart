@@ -9,6 +9,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter/services.dart' show rootBundle;
 import 'package:flutter_svg/flutter_svg.dart';
+import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:ui/l10n/app_language_mode.dart';
 import 'package:ui/l10n/app_locale_controller.dart';
 import 'package:ui/l10n/l10n.dart';
@@ -613,19 +614,19 @@ class _BackgroundSettingPageState extends State<BackgroundSettingPage> {
                 OmniSegmentedOption<AppLanguageMode>(
                   value: AppLanguageMode.system,
                   label: context.l10n.languageFollowSystem,
-                  icon: Icons.smartphone_rounded,
+                  icon: LucideIcons.smartphone,
                   id: 'system',
                 ),
                 OmniSegmentedOption<AppLanguageMode>(
                   value: AppLanguageMode.zhHans,
                   label: context.l10n.languageZhHans,
-                  icon: Icons.translate_rounded,
+                  icon: LucideIcons.languages,
                   id: 'zhHans',
                 ),
                 OmniSegmentedOption<AppLanguageMode>(
                   value: AppLanguageMode.en,
                   label: context.l10n.languageEnglish,
-                  icon: Icons.language_rounded,
+                  icon: LucideIcons.languages,
                   id: 'en',
                 ),
               ],
@@ -652,9 +653,7 @@ class _BackgroundSettingPageState extends State<BackgroundSettingPage> {
           SwitchListTile.adaptive(
             key: const ValueKey('appearance-background-enable-switch'),
             contentPadding: EdgeInsets.zero,
-            secondary: _buildGlobalSettingLeadingIcon(
-              icon: Icons.wallpaper_outlined,
-            ),
+            secondary: _buildGlobalSettingLeadingIcon(icon: LucideIcons.image),
             title: Text(
               context.l10n.appearanceEnableBackground,
               style: TextStyle(
@@ -707,7 +706,7 @@ class _BackgroundSettingPageState extends State<BackgroundSettingPage> {
             OutlinedButton.icon(
               key: const ValueKey('background-pick-local-image'),
               onPressed: _pickLocalImage,
-              icon: const Icon(Icons.photo_library_outlined),
+              icon: const Icon(LucideIcons.images),
               label: Text(
                 localPath.isEmpty
                     ? context.l10n.appearancePickImage
@@ -2172,15 +2171,15 @@ class _BackgroundSettingPageState extends State<BackgroundSettingPage> {
                     message: context.trLegacy('刷新'),
                     child: IconButton(
                       onPressed: _petBusy ? null : _refreshPetOptions,
-                      icon: const Icon(Icons.refresh_rounded),
+                      icon: const Icon(LucideIcons.refreshCw),
                       color: palette.textSecondary,
                     ),
                   ),
                   const SizedBox(width: 4),
                   Icon(
                     _petExpanded
-                        ? Icons.keyboard_arrow_up_rounded
-                        : Icons.keyboard_arrow_down_rounded,
+                        ? LucideIcons.chevronUp
+                        : LucideIcons.chevronDown,
                     color: palette.textSecondary,
                   ),
                 ],
@@ -2212,11 +2211,7 @@ class _BackgroundSettingPageState extends State<BackgroundSettingPage> {
       padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
       child: Row(
         children: [
-          Icon(
-            Icons.folder_zip_outlined,
-            size: 22,
-            color: palette.textSecondary,
-          ),
+          Icon(LucideIcons.fileArchive, size: 22, color: palette.textSecondary),
           const SizedBox(width: 12),
           Expanded(
             child: Column(
@@ -2244,7 +2239,7 @@ class _BackgroundSettingPageState extends State<BackgroundSettingPage> {
           OutlinedButton.icon(
             key: const ValueKey('pet-package-import-button'),
             onPressed: _petBusy ? null : _importPetPackage,
-            icon: const Icon(Icons.upload_file_rounded, size: 18),
+            icon: const Icon(LucideIcons.fileUp, size: 18),
             label: Text(context.trLegacy('上传压缩包')),
           ),
         ],
@@ -2336,7 +2331,7 @@ class _BackgroundSettingPageState extends State<BackgroundSettingPage> {
                 bundle: rootBundle,
                 fit: BoxFit.contain,
                 errorBuilder: (_, __, ___) =>
-                    Icon(Icons.pets_rounded, color: palette.textSecondary),
+                    Icon(LucideIcons.pawPrint, color: palette.textSecondary),
               )
             : isSvg
             ? SvgPicture.file(
@@ -2344,16 +2339,14 @@ class _BackgroundSettingPageState extends State<BackgroundSettingPage> {
                 key: ValueKey('${option.imagePath}:$imageStamp'),
                 fit: BoxFit.contain,
                 placeholderBuilder: (_) =>
-                    Icon(Icons.pets_rounded, color: palette.textSecondary),
+                    Icon(LucideIcons.pawPrint, color: palette.textSecondary),
               )
             : Image.file(
                 imageFile!,
                 key: ValueKey('${option.imagePath}:$imageStamp'),
                 fit: BoxFit.contain,
-                errorBuilder: (_, __, ___) => Icon(
-                  Icons.broken_image_outlined,
-                  color: palette.textSecondary,
-                ),
+                errorBuilder: (_, __, ___) =>
+                    Icon(LucideIcons.imageOff, color: palette.textSecondary),
               ),
       ),
     );

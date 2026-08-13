@@ -11,6 +11,8 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import kotlinx.serialization.encodeToString
+import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.jsonObject
@@ -19,6 +21,11 @@ import java.io.File
 
 class AgentConversationHistorySupportTest {
     private val gson = Gson()
+    private val canonicalJson = Json {
+        ignoreUnknownKeys = true
+        explicitNulls = false
+        encodeDefaults = false
+    }
 
     @Test
     fun `stale ui snapshot cannot delete a pending external user message`() {
@@ -268,6 +275,125 @@ class AgentConversationHistorySupportTest {
         assertTrue(allReplayText.contains("assistant should start being replayed"))
         assertFalse(allReplayText.contains("super long raw payload"))
         assertFalse(allReplayText.contains("super long raw payload terminal"))
+    }
+
+    @Test
+    fun `canonical tool replay preserves original ids results and final assistant ordering`() {
+        val firstCall = AssistantToolCall(
+            id = "call_1",
+            function = AssistantToolCallFunction(
+                name = "memory_search",
+                arguments = "{\"query\":\"cache\"}"
+            )
+        )
+        val secondCall = AssistantToolCall(
+            id = "call_2",
+            function = AssistantToolCallFunction(
+                name = "skills_read",
+                arguments = "{\"skillId\":\"debugging\"}"
+            )
+        )
+        val canonicalAssistant = ChatCompletionMessage(
+            role = "assistant",
+            toolCalls = listOf(firstCall, secondCall),
+            reasoningContent = "先读取稳定上下文"
+        )
+        val firstResult = ChatCompletionMessage(
+            role = "tool",
+            toolCallId = firstCall.id,
+            content = JsonPrimitive("{\"result\":\"memory exact\"}")
+        )
+        val secondResult = ChatCompletionMessage(
+            role = "tool",
+            toolCallId = secondCall.id,
+            content = JsonPrimitive("{\"result\":\"skill exact\"}")
+        )
+        val assistantJson = canonicalJson.encodeToString(canonicalAssistant)
+
+        fun toolEntry(
+            id: Long,
+            entryId: String,
+            callId: String,
+            result: ChatCompletionMessage
+        ) = AgentConversationEntry(
+            id = id,
+            conversationId = 7,
+            conversationMode = "normal",
+            entryId = entryId,
+            entryType = AgentConversationHistoryRepository.ENTRY_TYPE_TOOL_EVENT,
+            status = AgentConversationHistoryRepository.STATUS_SUCCESS,
+            summary = "done",
+            payloadJson = gson.toJson(
+                mapOf(
+                    "toolName" to result.toolCallId,
+                    "modelToolCallId" to callId,
+                    "modelAssistantMessageJson" to assistantJson,
+                    "modelToolResultMessageJson" to canonicalJson.encodeToString(result)
+                )
+            ),
+            createdAt = id,
+            updatedAt = id
+        )
+
+        val entries = listOf(
+            AgentConversationEntry(
+                id = 1,
+                conversationId = 7,
+                conversationMode = "normal",
+                entryId = "task-user",
+                entryType = AgentConversationHistoryRepository.ENTRY_TYPE_USER_MESSAGE,
+                status = AgentConversationHistoryRepository.STATUS_SUCCESS,
+                summary = "continue",
+                payloadJson = gson.toJson(
+                    AgentConversationHistorySupport.buildTextMessagePayload(
+                        messageId = "task-user",
+                        user = 1,
+                        text = "continue",
+                        isError = false,
+                        streamMeta = null,
+                        createdAt = 1L
+                    )
+                ),
+                createdAt = 1,
+                updatedAt = 1
+            ),
+            AgentConversationEntry(
+                id = 2,
+                conversationId = 7,
+                conversationMode = "normal",
+                entryId = "task-assistant",
+                entryType = AgentConversationHistoryRepository.ENTRY_TYPE_ASSISTANT_MESSAGE,
+                status = AgentConversationHistoryRepository.STATUS_SUCCESS,
+                summary = "final answer",
+                payloadJson = gson.toJson(
+                    AgentConversationHistorySupport.buildTextMessagePayload(
+                        messageId = "task-assistant",
+                        user = 2,
+                        text = "final answer",
+                        isError = false,
+                        streamMeta = null,
+                        createdAt = 2L
+                    )
+                ),
+                createdAt = 2,
+                updatedAt = 2
+            ),
+            toolEntry(3, "task-tool-1", firstCall.id, firstResult),
+            toolEntry(4, "task-tool-2", secondCall.id, secondResult)
+        )
+
+        val replay = AgentConversationHistorySupport.buildPromptRelevantMessages(entries)
+
+        assertEquals(
+            listOf("user", "assistant", "tool", "tool", "assistant"),
+            replay.map { it.role }
+        )
+        assertEquals(listOf("call_1", "call_2"), replay[1].toolCalls?.map { it.id })
+        assertEquals("call_1", replay[2].toolCallId)
+        assertEquals("call_2", replay[3].toolCallId)
+        assertEquals("{\"result\":\"memory exact\"}", replay[2].content?.jsonPrimitive?.content)
+        assertEquals("{\"result\":\"skill exact\"}", replay[3].content?.jsonPrimitive?.content)
+        assertEquals("final answer", replay[4].content?.jsonPrimitive?.content)
     }
 
     @Test

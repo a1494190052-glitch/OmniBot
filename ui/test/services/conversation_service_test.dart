@@ -5,6 +5,7 @@ import 'package:ui/models/conversation_model.dart';
 import 'package:ui/models/conversation_thread_target.dart';
 import 'package:ui/services/conversation_history_service.dart';
 import 'package:ui/services/conversation_service.dart';
+import 'package:ui/services/storage_service.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -16,18 +17,44 @@ void main() {
   late List<Map<String, dynamic>> nativeConversations;
   late List<MethodCall> agentRuntimeCalls;
   late bool agentRuntimeArchiveShouldThrow;
+  late Map<String, dynamic> lastGetConversationsArguments;
 
   setUp(() async {
     SharedPreferences.setMockInitialValues(<String, Object>{});
+    await StorageService.init();
     nativeConversations = <Map<String, dynamic>>[];
     agentRuntimeCalls = <MethodCall>[];
     agentRuntimeArchiveShouldThrow = false;
+    lastGetConversationsArguments = <String, dynamic>{};
     messenger.setMockMethodCallHandler(channel, (call) async {
       final args = Map<String, dynamic>.from(
         (call.arguments as Map?) ?? const {},
       );
       switch (call.method) {
         case 'getConversations':
+          lastGetConversationsArguments = args;
+          final archiveBefore = (args['archiveBefore'] as num?)?.toInt();
+          if (archiveBefore != null) {
+            nativeConversations = nativeConversations.map((conversation) {
+              final updatedAt =
+                  (conversation['updatedAt'] as num?)?.toInt() ?? 0;
+              if (conversation['isArchived'] != true &&
+                  updatedAt < archiveBefore) {
+                return <String, dynamic>{...conversation, 'isArchived': true};
+              }
+              return conversation;
+            }).toList();
+          }
+          if (args['archivedOnly'] == true) {
+            return nativeConversations
+                .where((conversation) => conversation['isArchived'] == true)
+                .toList();
+          }
+          if (args['includeArchived'] != true) {
+            return nativeConversations
+                .where((conversation) => conversation['isArchived'] != true)
+                .toList();
+          }
           return nativeConversations;
         case 'createConversation':
           final nextId =
@@ -134,6 +161,122 @@ void main() {
     expect(conversations.single.id, 42);
     expect(conversations.single.mode, ConversationMode.openclaw);
     expect(conversations.single.title, 'openclaw hello');
+  });
+
+  test(
+    'sidebar archives every conversation mode older than seven days',
+    () async {
+      final now = DateTime.utc(2026, 8, 13, 12);
+      final cutoff = ConversationService.recentConversationCutoff(now: now);
+      nativeConversations = <Map<String, dynamic>>[
+        for (final entry in <(int, ConversationMode)>[
+          (1, ConversationMode.normal),
+          (2, ConversationMode.agent),
+          (3, ConversationMode.chatOnly),
+        ])
+          {
+            'id': entry.$1,
+            'title': 'old ${entry.$2.storageValue}',
+            'mode': entry.$2.storageValue,
+            'isArchived': false,
+            'status': 0,
+            'messageCount': 0,
+            'createdAt': cutoff - 1,
+            'updatedAt': cutoff - 1,
+          },
+        {
+          'id': 4,
+          'title': 'recent conversation',
+          'mode': ConversationMode.normal.storageValue,
+          'isArchived': false,
+          'status': 0,
+          'messageCount': 0,
+          'createdAt': cutoff,
+          'updatedAt': cutoff,
+        },
+      ];
+
+      final conversations = await ConversationService.getSidebarConversations(
+        now: now,
+      );
+
+      expect(conversations.map((conversation) => conversation.id), <int>[4]);
+      expect(
+        nativeConversations
+            .take(3)
+            .every((conversation) => conversation['isArchived'] == true),
+        isTrue,
+      );
+      expect(lastGetConversationsArguments['archiveBefore'], cutoff);
+      expect(lastGetConversationsArguments['includeArchived'], isFalse);
+      expect(lastGetConversationsArguments['archivedOnly'], isFalse);
+    },
+  );
+
+  test('sidebar snapshot applies the enabled seven-day window', () async {
+    final now = DateTime.utc(2026, 8, 13, 12);
+    final cutoff = ConversationService.recentConversationCutoff(now: now);
+    final snapshot = <ConversationModel>[
+      ConversationModel(
+        id: 1,
+        title: 'old',
+        status: 0,
+        messageCount: 0,
+        createdAt: cutoff - 1,
+        updatedAt: cutoff - 1,
+      ),
+      ConversationModel(
+        id: 2,
+        title: 'recent',
+        status: 0,
+        messageCount: 0,
+        createdAt: cutoff,
+        updatedAt: cutoff,
+      ),
+      ConversationModel(
+        id: 3,
+        title: 'already archived',
+        isArchived: true,
+        status: 0,
+        messageCount: 0,
+        createdAt: cutoff + 1,
+        updatedAt: cutoff + 1,
+      ),
+    ];
+
+    expect(
+      ConversationService.filterSidebarSnapshot(
+        snapshot,
+        now: now,
+      ).map((conversation) => conversation.id),
+      <int>[2],
+    );
+  });
+
+  test('disabled sidebar policy stops automatic archiving', () async {
+    await StorageService.setBool(
+      StorageService.kRecentConversationsOnlyEnabledKey,
+      false,
+    );
+    nativeConversations = <Map<String, dynamic>>[
+      {
+        'id': 5,
+        'title': 'old but active',
+        'mode': ConversationMode.chatOnly.storageValue,
+        'isArchived': false,
+        'status': 0,
+        'messageCount': 0,
+        'createdAt': 1,
+        'updatedAt': 1,
+      },
+    ];
+
+    final conversations = await ConversationService.getSidebarConversations();
+
+    expect(conversations.map((conversation) => conversation.id), <int>[5]);
+    expect(lastGetConversationsArguments, isNot(contains('archiveBefore')));
+    expect(lastGetConversationsArguments['includeArchived'], isTrue);
+    expect(nativeConversations.single['isArchived'], isFalse);
   });
 
   test(

@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:flutter_svg/flutter_svg.dart';
 import 'package:flutter_switch/flutter_switch.dart';
+import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:ui/core/router/go_router_manager.dart';
 import 'package:ui/features/home/state/habitual_hand_controller.dart';
 import 'package:ui/features/home/state/predictive_back_controller.dart';
@@ -9,6 +9,7 @@ import 'package:ui/l10n/l10n.dart';
 import 'package:ui/models/chat_startup_behavior.dart';
 import 'package:ui/models/habitual_hand.dart';
 import 'package:ui/services/assists_core_service.dart';
+import 'package:ui/services/conversation_service.dart';
 import 'package:ui/services/hide_from_recents_service.dart';
 import 'package:ui/services/special_permission.dart';
 import 'package:ui/services/storage_service.dart';
@@ -32,6 +33,7 @@ class _ExperienceMiscSettingPageState
   bool _preventScreenSleepDuringTasksEnabled = true;
   bool _taskCompletionNotificationEnabled = true;
   bool _useIndependentChatSendButton = true;
+  bool _recentConversationsOnlyEnabled = true;
   ChatStartupBehavior _chatStartupBehavior = ChatStartupBehavior.resumeLast;
 
   @override
@@ -53,6 +55,8 @@ class _ExperienceMiscSettingPageState
 
     _useIndependentChatSendButton =
         StorageService.isIndependentChatSendButtonEnabled();
+    _recentConversationsOnlyEnabled =
+        ConversationService.isRecentConversationsOnlyEnabled();
     _chatStartupBehavior = StorageService.getChatStartupBehavior();
     _loadHideFromRecentsState();
     _loadVibrationState();
@@ -195,6 +199,20 @@ class _ExperienceMiscSettingPageState
     });
   }
 
+  Future<void> _onRecentConversationsOnlyChanged(bool value) async {
+    final saved = await ConversationService.setRecentConversationsOnlyEnabled(
+      value,
+    );
+    if (!mounted) return;
+    if (!saved) {
+      showToast(context.l10n.settingsSaveFailed, type: ToastType.error);
+      return;
+    }
+    setState(() {
+      _recentConversationsOnlyEnabled = value;
+    });
+  }
+
   Future<void> _onChatStartupBehaviorChanged(ChatStartupBehavior? value) async {
     if (value == null) {
       return;
@@ -241,7 +259,7 @@ class _ExperienceMiscSettingPageState
         label: context.trLegacy('杂项'),
         items: [
           _SettingItem(
-            icon: Icons.alarm_outlined,
+            icon: LucideIcons.alarmClock,
             title: context.l10n.settingsAlarmTitle,
             subtitle: context.l10n.settingsAlarmSubtitle,
             onTap: () {
@@ -249,7 +267,7 @@ class _ExperienceMiscSettingPageState
             },
           ),
           _SettingItem(
-            icon: Icons.home_outlined,
+            icon: LucideIcons.house,
             title: context.trLegacy('首页设置'),
             subtitle: context.trLegacy('管理聊天首页问候语和快捷指令'),
             onTap: () {
@@ -257,14 +275,22 @@ class _ExperienceMiscSettingPageState
             },
           ),
           _SettingItem(
-            icon: Icons.power_settings_new_rounded,
+            icon: LucideIcons.power,
             title: context.trLegacy('启动时'),
             subtitle: context.trLegacy('选择应用启动后打开的对话'),
             trailing: _buildStartupBehaviorDropdown(_chatStartupBehavior),
           ),
           _SettingItem(
-            icon: Icons.visibility_off_outlined,
-            iconSvg: 'assets/home/hide_recents_setting_icon.svg',
+            icon: Icons.auto_delete_outlined,
+            title: context.l10n.settingsRecentConversationsOnlyTitle,
+            subtitle: context.l10n.settingsRecentConversationsOnlySubtitle,
+            trailing: _buildSwitchTrailing(
+              value: _recentConversationsOnlyEnabled,
+              onToggle: _onRecentConversationsOnlyChanged,
+            ),
+          ),
+          _SettingItem(
+            icon: LucideIcons.eyeOff,
             title: context.l10n.settingsHideRecentsTitle,
             subtitle: context.l10n.settingsHideRecentsSubtitle,
             trailing: _buildSwitchTrailing(
@@ -273,8 +299,7 @@ class _ExperienceMiscSettingPageState
             ),
           ),
           _SettingItem(
-            icon: Icons.vibration,
-            iconSvg: 'assets/home/vibration_icon.svg',
+            icon: LucideIcons.vibrate,
             title: context.l10n.settingsVibrationTitle,
             subtitle: context.l10n.settingsVibrationSubtitle,
             trailing: _buildSwitchTrailing(
@@ -283,7 +308,7 @@ class _ExperienceMiscSettingPageState
             ),
           ),
           _SettingItem(
-            icon: Icons.keyboard_return_rounded,
+            icon: LucideIcons.cornerDownLeft,
             title: context.l10n.settingsIndependentSendButtonTitle,
             subtitle: context.l10n.settingsIndependentSendButtonSubtitle,
             trailing: _buildSwitchTrailing(
@@ -302,7 +327,7 @@ class _ExperienceMiscSettingPageState
             ),
           ),
           _SettingItem(
-            icon: Icons.screen_lock_portrait_outlined,
+            icon: LucideIcons.smartphone,
             title: context.trLegacy('防止任务运行时屏幕休眠'),
             subtitle: context.trLegacy('任务运行期间保持屏幕常亮，适用于小万（OmniAi）、Agent 和纯聊天'),
             trailing: _buildSwitchTrailing(
@@ -311,7 +336,7 @@ class _ExperienceMiscSettingPageState
             ),
           ),
           _SettingItem(
-            icon: Icons.notifications_active_outlined,
+            icon: LucideIcons.bellRing,
             title: context.trLegacy('任务完成通知'),
             subtitle: context.trLegacy('小万（OmniAi）、Agent 和纯聊天完成后推送提醒'),
             trailing: _buildSwitchTrailing(
@@ -320,7 +345,7 @@ class _ExperienceMiscSettingPageState
             ),
           ),
           _SettingItem(
-            icon: Icons.drive_folder_upload_outlined,
+            icon: LucideIcons.folderUp,
             title: context.trLegacy('使用小万打开'),
             subtitle: context.trLegacy('分别设置图片和文件的打开方式'),
             onTap: () {
@@ -328,13 +353,13 @@ class _ExperienceMiscSettingPageState
             },
           ),
           _SettingItem(
-            iconSvg: 'assets/home/habitual_hand_setting_icon.svg',
+            icon: LucideIcons.hand,
             title: context.l10n.settingsHabitualHandTitle,
             subtitle: context.l10n.settingsHabitualHandSubtitle,
             trailing: _buildHabitualHandDropdown(habitualHand),
           ),
           _SettingItem(
-            icon: Icons.school_outlined,
+            icon: LucideIcons.graduationCap,
             title: context.trLegacy('快速开始'),
             subtitle: context.trLegacy('重新查看基础配置与可选插件说明'),
             onTap: () {
@@ -474,7 +499,7 @@ class _ExperienceMiscSettingPageState
                 Padding(
                   padding: const EdgeInsets.only(left: 12),
                   child: Icon(
-                    Icons.chevron_right_rounded,
+                    LucideIcons.chevronRight,
                     size: 18,
                     color: palette.textTertiary,
                   ),
@@ -492,14 +517,7 @@ class _ExperienceMiscSettingPageState
     return SizedBox(
       width: 18,
       height: 18,
-      child: item.iconSvg != null
-          ? SvgPicture.asset(
-              item.iconSvg!,
-              width: 18,
-              height: 18,
-              colorFilter: ColorFilter.mode(iconColor, BlendMode.srcIn),
-            )
-          : item.icon != null
+      child: item.icon != null
           ? Icon(item.icon, size: 18, color: iconColor)
           : const SizedBox.shrink(),
     );
@@ -524,7 +542,7 @@ class _ExperienceMiscSettingPageState
               fontWeight: FontWeight.w500,
             ),
             icon: Icon(
-              Icons.keyboard_arrow_down_rounded,
+              LucideIcons.chevronDown,
               size: 18,
               color: palette.textTertiary,
             ),
@@ -572,7 +590,7 @@ class _ExperienceMiscSettingPageState
               fontWeight: FontWeight.w500,
             ),
             icon: Icon(
-              Icons.keyboard_arrow_down_rounded,
+              LucideIcons.chevronDown,
               size: 18,
               color: palette.textTertiary,
             ),
@@ -630,7 +648,6 @@ class _SettingSection {
 
 class _SettingItem {
   final IconData? icon;
-  final String? iconSvg;
   final String title;
   final String? subtitle;
   final Widget? trailing;
@@ -638,7 +655,6 @@ class _SettingItem {
 
   const _SettingItem({
     this.icon,
-    this.iconSvg,
     required this.title,
     this.subtitle,
     this.trailing,

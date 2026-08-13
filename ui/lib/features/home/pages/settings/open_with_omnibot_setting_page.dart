@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:ui/l10n/l10n.dart';
 import 'package:ui/services/app_state_service.dart';
 import 'package:ui/theme/theme_context.dart';
@@ -113,7 +114,7 @@ class _OpenWithOmnibotSettingPageState
         label: context.trLegacy('使用小万打开'),
         items: [
           _SettingItem(
-            icon: Icons.image_outlined,
+            icon: LucideIcons.image,
             title: context.trLegacy('图片'),
             subtitle: _modeSubtitle(
               target: _targetImage,
@@ -127,7 +128,7 @@ class _OpenWithOmnibotSettingPageState
             ),
           ),
           _SettingItem(
-            icon: Icons.insert_drive_file_outlined,
+            icon: LucideIcons.file,
             title: context.trLegacy('文件'),
             subtitle: _modeSubtitle(
               target: _targetFile,
@@ -201,7 +202,7 @@ class _OpenWithOmnibotSettingPageState
               fontWeight: FontWeight.w500,
             ),
             icon: Icon(
-              Icons.keyboard_arrow_down_rounded,
+              LucideIcons.chevronDown,
               size: 18,
               color: palette.textTertiary,
             ),

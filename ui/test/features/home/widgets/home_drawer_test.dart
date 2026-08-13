@@ -11,6 +11,7 @@ import 'package:ui/features/home/widgets/conversation_slidable.dart';
 import 'package:ui/features/home/widgets/home_drawer.dart';
 import 'package:ui/l10n/app_language_mode.dart';
 import 'package:ui/l10n/generated/app_localizations.dart';
+import 'package:ui/l10n/legacy_text_localizer.dart';
 import 'package:ui/models/conversation_model.dart';
 import 'package:ui/models/conversation_thread_target.dart';
 import 'package:ui/models/habitual_hand.dart';
@@ -111,6 +112,27 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(selectedMode, ConversationMode.normal);
+  });
+
+  testWidgets('shows the restored trajectory footer shortcut', (tester) async {
+    LegacyTextLocalizer.setResolvedLocale(const Locale('zh'));
+    addTearDown(LegacyTextLocalizer.clearResolvedLocale);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: DefaultAssetBundle(
+          bundle: _SvgTestAssetBundle(),
+          child: _buildProviderScope(
+            child: const Scaffold(
+              body: SizedBox(width: 360, height: 720, child: HomeDrawer()),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.byTooltip('轨迹'), findsOneWidget);
   });
 
   testWidgets(

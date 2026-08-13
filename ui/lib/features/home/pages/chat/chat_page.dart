@@ -5,7 +5,6 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:math' as math;
 import 'package:file_picker/file_picker.dart';
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/scheduler.dart';
@@ -28,7 +27,6 @@ import 'services/chat_conversation_runtime_coordinator.dart';
 import 'package:ui/constants/openclaw/openclaw_keys.dart';
 import 'package:ui/core/router/go_router_manager.dart';
 import 'package:ui/services/app_state_service.dart';
-import 'package:ui/services/account_service.dart';
 import 'package:ui/services/app_update_service.dart';
 import 'package:ui/services/app_background_service.dart';
 import 'package:ui/services/agent_browser_session_service.dart';
@@ -577,6 +575,7 @@ abstract class _ChatPageStateBase extends State<ChatPage>
       'codex-acp' => 'Codex',
       'claude-code-acp' => 'Claude Code',
       'opencode-acp' => 'OpenCode',
+      'deepseek-harness-acp' => 'DeepSeek Harness',
       _ => 'Agent',
     };
   }
@@ -2054,6 +2053,7 @@ abstract class _ChatPageStateBase extends State<ChatPage>
   Future<void> _retryUserMessageText(
     String text, {
     List<Map<String, dynamic>> attachments,
+    String? retainedUserMessageId,
   });
 
   Future<void> _sendChatMessage(String aiMessageId);

@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -56,6 +55,17 @@ void main() {
   const assistCoreChannel = MethodChannel(
     'cn.com.omnimind.bot/AssistCoreEvent',
   );
+  Future<void> confirmDestination(WidgetTester tester) async {
+    expect(
+      find.byKey(const Key('data-destination-confirmation-dialog')),
+      findsOneWidget,
+    );
+    await tester.tap(find.byKey(const Key('data-destination-acknowledgement')));
+    await tester.pump();
+    await tester.tap(find.byKey(const Key('data-destination-confirm')));
+    await tester.pumpAndSettle();
+  }
+
   Map<String, dynamic> profilePayload({
     String name = 'Provider 1',
     String baseUrl = 'https://api.openai.com/v1',
@@ -165,15 +175,60 @@ void main() {
     },
   );
 
+  testWidgets('provider page filters the runtime OmniBot official channel', (
+    tester,
+  ) async {
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    messenger.setMockMethodCallHandler(assistCoreChannel, (call) async {
+      if (call.method == 'listModelProviderProfiles') {
+        final payload = profilePayload();
+        (payload['profiles'] as List<Map<String, dynamic>>)
+            .add(<String, dynamic>{
+              'id': 'omnibot-official-ai',
+              'name': 'OmniBot 官方 AI',
+              'baseUrl': 'https://official.example/ai',
+              'sourceType': 'omnibot_official',
+              'readOnly': true,
+              'ready': true,
+              'configured': true,
+              'protocolType': 'openai_compatible',
+              'wireApi': 'chat_completions',
+            });
+        return payload;
+      }
+      return null;
+    });
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: AppTheme.lightTheme,
+        darkTheme: AppTheme.darkTheme,
+        home: const ModelProviderSettingPage(),
+      ),
+    );
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 50));
+
+    expect(find.text('Provider 1'), findsWidgets);
+    await tester.tap(find.byKey(const Key('provider-config-title')));
+    await tester.pumpAndSettle();
+    expect(find.text('OmniBot 官方 AI'), findsNothing);
+  });
+
   testWidgets('provider page does not wait for metadata refresh', (
     tester,
   ) async {
-    SharedPreferences.setMockInitialValues(<String, Object>{
-      'manual_provider_model_ids_v2': jsonEncode(<String, List<String>>{
-        'provider-1': <String>['gpt-4o'],
-      }),
-    });
+    tester.view.physicalSize = const Size(1080, 2200);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    SharedPreferences.setMockInitialValues(<String, Object>{});
     await StorageService.init();
+    await ModelProviderConfigService.saveManualModelIds(
+      profileId: 'provider-1',
+      ids: const <String>['gpt-4o'],
+    );
     ModelsDevCatalogService.resetForTesting();
     final loader = Completer<ModelsDevCatalog>();
     addTearDown(() {
@@ -502,6 +557,8 @@ void main() {
 
     await tester.tap(find.text('Kimi'));
     await tester.pumpAndSettle();
+    expect(saveCalls, 0);
+    await confirmDestination(tester);
 
     expect(saveCalls, 1);
     expect(savedWireApi, 'chat_completions');
@@ -562,6 +619,8 @@ void main() {
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 700));
 
+    expect(saveCalls, 0);
+    await confirmDestination(tester);
     expect(saveCalls, 1);
   });
 

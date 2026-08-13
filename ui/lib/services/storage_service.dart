@@ -164,12 +164,13 @@ class StorageService {
   static const String kHabitualHandKey = 'habitual_hand';
   static const String kThemeOptionKey = 'theme_option';
   static const String kLanguageOptionKey = 'language_option';
-  static const String kMcpLocalServiceEnabledKey =
-      'mcp_local_service_enabled';
+  static const String kMcpLocalServiceEnabledKey = 'mcp_local_service_enabled';
   static const String kWorkspaceMemoryConfiguredKey =
       'workspace_memory_configured';
   static const String kRemoteBridgeEnabledKey = 'remote_bridge_enabled';
   static const String kPredictiveBackEnabledKey = 'predictive_back_enabled';
+  static const String kRecentConversationsOnlyEnabledKey =
+      'recent_conversations_only_enabled';
 
   static const String _kManualModelContextThresholdsKey =
       'manual_model_context_thresholds';
@@ -274,6 +275,11 @@ class StorageService {
 
   static Future<bool> setPredictiveBackEnabled(bool enabled) {
     return setBool(kPredictiveBackEnabledKey, enabled);
+  }
+
+  static bool isRecentConversationsOnlyEnabled() {
+    return getBool(kRecentConversationsOnlyEnabledKey, defaultValue: true) ??
+        true;
   }
 
   static ChatStartupBehavior getChatStartupBehavior() {

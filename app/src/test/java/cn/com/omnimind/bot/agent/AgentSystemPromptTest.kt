@@ -4,6 +4,7 @@ import cn.com.omnimind.baselib.i18n.PromptLocale
 import com.rk.terminal.runtime.TerminalDistribution
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import org.junit.Assert.assertTrue
 import org.junit.Assert.assertEquals
 import org.junit.Test
@@ -54,6 +55,16 @@ class AgentSystemPromptTest {
             "\"ephemeral\"",
             (firstBlock["cache_control"] as JsonObject)["type"].toString()
         )
+    }
+
+    @Test
+    fun exactTimeIsExposedAsAZeroArgumentTool() {
+        val function = AgentToolDefinitions.contextTimeNowTool["function"] as JsonObject
+        val parameters = function["parameters"] as JsonObject
+
+        assertEquals("context_time_now", function["name"]?.jsonPrimitive?.content)
+        assertEquals("object", parameters["type"]?.jsonPrimitive?.content)
+        assertTrue((parameters["properties"] as JsonObject).isEmpty())
     }
 
     @Test
@@ -129,5 +140,51 @@ class AgentSystemPromptTest {
         assertTrue(prompt.contains("description=Runs in Ubuntu."))
         assertTrue(!prompt.contains("Alpine"))
         assertTrue(!prompt.contains("{{OMNIBOT_TERMINAL_DISTRIBUTION}}"))
+    }
+
+    @Test
+    fun buildKeepsTurnMemoryAndSkillBodiesOutOfCachedSystemPrompt() {
+        val prompt = AgentSystemPrompt.build(
+            workspace = AgentWorkspaceDescriptor(
+                id = "conversation-harness",
+                rootPath = "/workspace",
+                androidRootPath = "/data/user/0/cn.com.omnimind.bot/workspace",
+                uriRoot = "omnibot://workspace",
+                currentCwd = "/workspace",
+                androidCurrentCwd = "/data/user/0/cn.com.omnimind.bot/workspace",
+                shellRootPath = "/workspace",
+                retentionPolicy = "shared_root"
+            ),
+            installedSkills = emptyList(),
+            skillsRootShellPath = "/workspace/.omnibot/skills",
+            skillsRootAndroidPath = "/data/user/0/cn.com.omnimind.bot/workspace/.omnibot/skills",
+            resolvedSkills = listOf(
+                ResolvedSkillContext(
+                    skillId = "turn-only",
+                    frontmatter = mapOf("name" to "turn-only"),
+                    bodyMarkdown = "TURN_ONLY_SKILL_BODY",
+                    triggerReason = "test"
+                )
+            ),
+            memoryContext = WorkspaceMemoryPromptContext(
+                soul = "SOUL_STAYS_STABLE",
+                longTermMemory = "VOLATILE_LONG_TERM_MEMORY",
+                todayShortMemory = "VOLATILE_DAILY_MEMORY",
+                longTermIndexSummary = "VOLATILE_MEMORY_INDEX"
+            ),
+            locale = PromptLocale.EN_US,
+            terminalDistribution = TerminalDistribution.alpine
+        )
+
+        assertTrue(prompt.contains("SOUL_STAYS_STABLE"))
+        assertTrue(prompt.contains("skills_read"))
+        assertTrue(prompt.contains("memory_search"))
+        assertTrue(prompt.contains("memory_load"))
+        assertTrue(!prompt.contains("[skills.loaded]"))
+        assertTrue(!prompt.contains("[memory.context]"))
+        assertTrue(!prompt.contains("TURN_ONLY_SKILL_BODY"))
+        assertTrue(!prompt.contains("VOLATILE_LONG_TERM_MEMORY"))
+        assertTrue(!prompt.contains("VOLATILE_DAILY_MEMORY"))
+        assertTrue(!prompt.contains("VOLATILE_MEMORY_INDEX"))
     }
 }

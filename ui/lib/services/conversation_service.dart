@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -5,8 +7,10 @@ import 'package:ui/models/conversation_model.dart';
 import 'package:ui/models/conversation_thread_target.dart';
 import 'package:ui/services/agent_runtime_service.dart';
 import 'package:ui/services/conversation_history_service.dart';
+import 'package:ui/services/storage_service.dart';
 
 class ConversationService {
+  static const Duration recentConversationWindow = Duration(days: 7);
   static const MethodChannel _assistCore = MethodChannel(
     'cn.com.omnimind.bot/AssistCoreEvent',
   );
@@ -14,6 +18,31 @@ class ConversationService {
       'hidden_agent_conversation_ids';
   static const String _legacyHiddenAgentConversationIdsKey =
       'hidden_codex_conversation_ids';
+  static final StreamController<bool> _sidebarPolicyChangedController =
+      StreamController<bool>.broadcast();
+
+  static Stream<bool> get sidebarPolicyChangedStream =>
+      _sidebarPolicyChangedController.stream;
+
+  static bool isRecentConversationsOnlyEnabled() =>
+      StorageService.isRecentConversationsOnlyEnabled();
+
+  static Future<bool> setRecentConversationsOnlyEnabled(bool enabled) async {
+    final saved = await StorageService.setBool(
+      StorageService.kRecentConversationsOnlyEnabledKey,
+      enabled,
+    );
+    if (saved) {
+      _sidebarPolicyChangedController.add(enabled);
+    }
+    return saved;
+  }
+
+  static int recentConversationCutoff({DateTime? now}) {
+    return (now ?? DateTime.now())
+        .subtract(recentConversationWindow)
+        .millisecondsSinceEpoch;
+  }
 
   static List<ConversationModel> _normalizeConversations(List<dynamic> raw) {
     final conversations = raw
@@ -39,11 +68,15 @@ class ConversationService {
   static Future<List<ConversationModel>> getAllConversations({
     bool includeArchived = false,
     bool archivedOnly = false,
+    int? archiveBefore,
   }) async {
     try {
-      final result = await _assistCore.invokeMethod<List<dynamic>>(
-        'getConversations',
-      );
+      final result = await _assistCore
+          .invokeMethod<List<dynamic>>('getConversations', <String, dynamic>{
+            'includeArchived': includeArchived,
+            'archivedOnly': archivedOnly,
+            if (archiveBefore != null) 'archiveBefore': archiveBefore,
+          });
       if (result == null) return [];
       final conversations = await _filterHiddenAgentConversations(
         _normalizeConversations(result),
@@ -62,6 +95,32 @@ class ConversationService {
       debugPrint('[ConversationService] 获取对话列表异常: $e');
       return [];
     }
+  }
+
+  static Future<List<ConversationModel>> getSidebarConversations({
+    DateTime? now,
+  }) {
+    final recentOnly = isRecentConversationsOnlyEnabled();
+    return getAllConversations(
+      includeArchived: !recentOnly,
+      archiveBefore: recentOnly ? recentConversationCutoff(now: now) : null,
+    );
+  }
+
+  static List<ConversationModel> filterSidebarSnapshot(
+    List<ConversationModel> conversations, {
+    DateTime? now,
+  }) {
+    if (!isRecentConversationsOnlyEnabled()) {
+      return List<ConversationModel>.from(conversations);
+    }
+    final cutoff = recentConversationCutoff(now: now);
+    return conversations
+        .where(
+          (conversation) =>
+              !conversation.isArchived && conversation.updatedAt >= cutoff,
+        )
+        .toList(growable: false);
   }
 
   static Future<List<ConversationModel>> getConversationsByPage({

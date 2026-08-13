@@ -74,6 +74,7 @@ class AssistsCoreManagerAgentFinalizationTest {
             promptTokenThreshold = 128_000,
             completionTokens = 87,
             cachedTokens = 10_000,
+            cacheCreationTokens = 512,
             totalTokens = 10_087
         )
 
@@ -84,10 +85,14 @@ class AssistsCoreManagerAgentFinalizationTest {
         )
 
         assertNotNull(snapshot)
-        assertEquals(20_000, snapshot?.ctxTokens)
+        assertEquals(10_000, snapshot?.ctxTokens)
         assertEquals(10_000, snapshot?.inputTokens)
         assertEquals(87, snapshot?.outputTokens)
         assertEquals(10_000, snapshot?.cacheTokens)
+        assertEquals(10_000, snapshot?.totalInputTokens)
+        assertEquals(0, snapshot?.uncachedInputTokens)
+        assertEquals(10_000, snapshot?.cacheReadTokens)
+        assertEquals(512, snapshot?.cacheWriteTokens)
         assertEquals(10_087, snapshot?.totalTokens)
         assertEquals(128_000, snapshot?.promptTokenThreshold)
     }

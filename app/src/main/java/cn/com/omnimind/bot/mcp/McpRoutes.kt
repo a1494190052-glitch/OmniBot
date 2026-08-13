@@ -20,7 +20,7 @@ object McpRoutes {
 
         authenticate("bearer-auth") {
             get("/mcp/state") {
-                call.respond(McpServerManager.currentState().toMap())
+                call.respond(McpServerManager.currentState().toJsonObject())
             }
         }
     }

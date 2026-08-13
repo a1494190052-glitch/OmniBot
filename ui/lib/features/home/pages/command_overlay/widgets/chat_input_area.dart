@@ -3,8 +3,9 @@ import 'dart:async';
 import 'dart:io';
 import 'dart:math' as math;
 import 'dart:ui';
-import 'package:flutter_svg/flutter_svg.dart';
+
 import 'package:flutter/material.dart';
+import 'package:flutter_svg/flutter_svg.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:ui/features/home/pages/command_overlay/services/manual_recording_flow_controller.dart';
 import 'package:ui/services/model_vendor_catalog.dart';
@@ -34,12 +35,14 @@ const String _kLucideCommandSvg =
 
 const String _kAgentPermissionDefaultIconAsset =
     'assets/home/chat/permission_hand.svg';
+const String _kAgentPermissionReadOnlyIconAsset =
+    'assets/home/chat/permission_lock.svg';
 const String _kAgentPermissionAutoReviewIconAsset =
     'assets/home/chat/agent.svg';
 const String _kAgentPermissionFullAccessIconAsset =
     'assets/home/chat/permission_shield_alert.svg';
 
-enum AgentPermissionMode { defaultMode, autoReview, fullAccess }
+enum AgentPermissionMode { readOnly, defaultMode, autoReview, fullAccess }
 
 typedef AgentRunSettingsChanged =
     FutureOr<void> Function({String? modelId, String? reasoningEffort});
@@ -140,6 +143,8 @@ class ChatInputArea extends StatefulWidget {
   final Future<void> Function()? onPickAttachment;
   final List<ChatInputAttachment> attachments;
   final bool hasExternalSendPayload;
+  final bool isEditingUserMessage;
+  final VoidCallback? onCancelUserMessageEditing;
   final ValueChanged<String>? onRemoveAttachment;
   final VoidCallback? onTriggerSlashCommand;
   final String? selectedModelOverrideId;
@@ -176,6 +181,8 @@ class ChatInputArea extends StatefulWidget {
     this.onPickAttachment,
     this.attachments = const [],
     this.hasExternalSendPayload = false,
+    this.isEditingUserMessage = false,
+    this.onCancelUserMessageEditing,
     this.onRemoveAttachment,
     this.onTriggerSlashCommand,
     this.selectedModelOverrideId,
@@ -516,7 +523,6 @@ abstract class _ChatInputAreaStateBase extends State<ChatInputArea>
     widget.controller.addListener(_onTextChanged);
     widget.focusNode.addListener(_onFocusChanged);
     WidgetsBinding.instance.addObserver(this);
-
     _terminalSvg = const SizedBox.shrink();
     _sendSvg = const SizedBox.shrink();
     _pauseSvg = const SizedBox.shrink();

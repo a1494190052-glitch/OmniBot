@@ -130,6 +130,14 @@ class AppLocalizationsEn extends AppLocalizations {
       'Hide the app from the recent tasks list when enabled';
 
   @override
+  String get settingsRecentConversationsOnlyTitle =>
+      'Show Only Recent 7-Day Conversations';
+
+  @override
+  String get settingsRecentConversationsOnlySubtitle =>
+      'Automatically archive conversations not updated for over 7 days to speed up the sidebar';
+
+  @override
   String get settingsAlarmTitle => 'Alarm Settings';
 
   @override
@@ -1536,6 +1544,10 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get alpineOpenCode => 'OpenCode CLI with built-in ACP support';
+
+  @override
+  String get alpineDeepSeekHarness =>
+      'DeepSeek Harness (dsh) ACP runtime, installed from the latest npm next channel';
 
   @override
   String get alpineSshClient => 'SSH Client';

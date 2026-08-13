@@ -5,6 +5,9 @@ import cn.com.omnimind.baselib.account.OmniAccount
 import cn.com.omnimind.baselib.database.DatabaseHelper
 import cn.com.omnimind.baselib.i18n.AppLocaleManager
 import cn.com.omnimind.baselib.llm.ModelProviderConfigStore
+import cn.com.omnimind.baselib.llm.PlatformAiProvisioner
+import cn.com.omnimind.baselib.util.AppSecretStore
+import cn.com.omnimind.baselib.util.CredentialEndpointSecurity
 import cn.com.omnimind.baselib.util.OmniLog
 import cn.com.omnimind.bot.agent.AgentPromptSettingsStore
 import cn.com.omnimind.bot.agent.AgentWorkspaceManager
@@ -79,6 +82,8 @@ class App : BaseApplication() {
         Res.application = this
 
         MMKV.initialize(this)
+        CredentialEndpointSecurity.configureDebugLoopback(BuildConfig.DEBUG)
+        AppSecretStore.initialize(this)
         ModelProviderConfigStore.initialize(this)
         DebugOmniMindProviderBootstrap.install()
         OfficialOmniPluginProviders.register()
@@ -86,12 +91,11 @@ class App : BaseApplication() {
             context = this,
             baseUrl = BuildConfig.BASE_URL,
             platformGatewayUrl = BuildConfig.AI_GATEWAY_URL,
+            allowInsecureLoopback = BuildConfig.DEBUG,
+            cloudServiceAccessProvider = {
+                AppUpdateManager.getCloudServiceAccessState(this)
+            },
         )
-        if (OmniAccount.isConfigured() && OmniAccount.repository().isSignedIn()) {
-            CoroutineScope(Dispatchers.IO).launch {
-                runCatching { OmniAccount.repository().getAiSettings() }
-            }
-        }
         AgentPromptSettingsStore.initializeAndCleanupLegacyFiles(this)
         LegacyLocalModelDataCleanup.start(this)
         setupUncaughtExceptionHandler()
@@ -183,7 +187,24 @@ class App : BaseApplication() {
 
     fun initSDKsAfterPrivacyConsent() {
         OmniLog.d("AppStartup", "initSDKsAfterPrivacyConsent start")
-        AppUpdateManager.requestSilentCheckIfDue(this)
+        AppUpdateManager.schedulePeriodicChecks(this)
+        CoroutineScope(Dispatchers.IO).launch {
+            runCatching {
+                AppUpdateManager.checkNow(this@App, force = true)
+            }.onFailure {
+                OmniLog.w("AppStartup", "Cloud-service version policy check failed: ${it.message}")
+            }
+            if (
+                OmniAccount.isConfigured() &&
+                OmniAccount.repository().isSignedIn() &&
+                OmniAccount.currentCloudServiceAccess().allowed
+            ) {
+                runCatching {
+                    val settings = OmniAccount.repository().getAiSettings()
+                    PlatformAiProvisioner.synchronize(settings)
+                }
+            }
+        }
         OmniLog.d("AppStartup", "initSDKsAfterPrivacyConsent completed")
     }
 }

@@ -7,6 +7,7 @@ import cn.com.omnimind.bot.omniflow.OmniFlowPluginRuntime
 import cn.com.omnimind.bot.omniflow.OmniVlmPlugin
 import cn.com.omnimind.bot.omniflow.asOmniFlowModelClient
 import cn.com.omnimind.bot.plugin.OmniPluginHost
+import cn.com.omnimind.bot.plugin.official.OmniVlmLiteProvider
 import io.modelcontextprotocol.kotlin.sdk.server.Server
 import io.modelcontextprotocol.kotlin.sdk.server.ServerOptions
 import io.modelcontextprotocol.kotlin.sdk.types.CallToolResult
@@ -128,17 +129,37 @@ internal object AndroidDeviceMcpServer {
     }
 
     private suspend fun ensureOmniFlowReady(context: Context) {
-        ensureRuntimeEnabled(
+        val host = OmniPluginHost.get(context)
+        ensureDefaultPluginEnabled(
             isEnabled = OmniFlowPluginRuntime::isEnabled,
-            initialize = { OmniPluginHost.get(context).list() },
+            inspect = {
+                host.list()
+                    .firstOrNull { it.descriptor.id == OmniVlmLiteProvider.ID }
+                    ?.let { DefaultPluginStatus(installed = it.installed, enabled = it.enabled) }
+            },
+            install = { host.install(OmniVlmLiteProvider.ID) },
+            enable = { host.setEnabled(OmniVlmLiteProvider.ID, true) },
         )
     }
 
-    internal suspend fun ensureRuntimeEnabled(
+    internal data class DefaultPluginStatus(
+        val installed: Boolean,
+        val enabled: Boolean,
+    )
+
+    internal suspend fun ensureDefaultPluginEnabled(
         isEnabled: () -> Boolean,
-        initialize: suspend () -> Unit,
+        inspect: suspend () -> DefaultPluginStatus?,
+        install: suspend () -> Unit,
+        enable: suspend () -> Unit,
     ) {
-        if (!isEnabled()) initialize()
+        if (isEnabled()) return
+        val status = inspect()
+        when {
+            status?.enabled == true -> Unit
+            status?.installed == true -> enable()
+            else -> install()
+        }
         require(isEnabled()) { "omniflow_plugin_not_enabled" }
     }
 

@@ -4,9 +4,9 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:ui/l10n/l10n.dart';
 import 'package:flutter_slidable/flutter_slidable.dart';
-import 'package:flutter_svg/flutter_svg.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:ui/services/builtin_official_provider_catalog.dart';
+import 'package:ui/services/data_destination_confirmation.dart';
 import 'package:ui/services/model_provider_config_service.dart';
 import 'package:ui/services/model_vendor_catalog.dart';
 import 'package:ui/theme/app_colors.dart';
@@ -17,47 +17,6 @@ import 'package:ui/widgets/common_app_bar.dart';
 import 'package:ui/widgets/provider_vendor_icon.dart';
 import 'package:ui/widgets/settings_section_title.dart';
 
-const String _kArrowBigDownSvg = '''
-<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-  <path d="M15 11a1 1 0 0 0 1 1h2.939a1 1 0 0 1 .75 1.811l-6.835 6.836a1.207 1.207 0 0 1-1.707 0L4.31 13.81a1 1 0 0 1 .75-1.811H8a1 1 0 0 0 1-1V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1z"/>
-</svg>
-''';
-
-const String _kPlusSvg = '''
-<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-  <path d="M5 12h14"/>
-  <path d="M12 5v14"/>
-</svg>
-''';
-
-const String _kPackageSvg = '''
-<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-  <path d="M11 21.73a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73z"/>
-  <path d="M12 22V12"/>
-  <polyline points="3.29 7 12 12 20.71 7"/>
-  <path d="m7.5 4.27 9 5.15"/>
-</svg>
-''';
-
-const String _kInputImageSvg = '''
-<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-image-icon lucide-image"><rect width="18" height="18" x="3" y="3" rx="2" ry="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/></svg>
-''';
-
-const String _kInputTextSvg = '''
-<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-file-text-icon lucide-file-text"><path d="M6 22a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.704.706l3.588 3.588A2.4 2.4 0 0 1 20 8v12a2 2 0 0 1-2 2z"/><path d="M14 2v5a1 1 0 0 0 1 1h5"/><path d="M10 9H8"/><path d="M16 13H8"/><path d="M16 17H8"/></svg>
-''';
-
-const String _kInputPdfSvg = '''
-<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-file-icon lucide-file"><path d="M6 22a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.704.706l3.588 3.588A2.4 2.4 0 0 1 20 8v12a2 2 0 0 1-2 2z"/><path d="M14 2v5a1 1 0 0 0 1 1h5"/></svg>
-''';
-
-const String _kReasoningSvg = '''
-<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5a3 3 0 1 0-5.997.125 4 4 0 0 0-2.524 5.77 4 4 0 0 0 1.07 6.046A3.5 3.5 0 0 0 12 18.5"/><path d="M12 5a3 3 0 1 1 5.997.125 4 4 0 0 1 2.524 5.77 4 4 0 0 1-1.07 6.046A3.5 3.5 0 0 1 12 18.5"/><path d="M12 5v13.5"/><path d="M8 14h.01"/><path d="M16 14h.01"/><path d="M9 9h.01"/><path d="M15 9h.01"/></svg>
-''';
-
-const String _kGroupToggleClosedIconAsset =
-    'assets/home/chat/mode_menu_closed.svg';
-const String _kGroupToggleOpenIconAsset = 'assets/home/chat/mode_menu_open.svg';
 const double _kProviderSwitchPopupMaxHeight = 320;
 const double _kProviderTypePopupMinWidth = 200;
 const double _kProviderTypePopupHorizontalMargin = 16;
@@ -196,6 +155,12 @@ class ModelProviderSettingPage extends StatefulWidget {
 }
 
 class _ModelProviderSettingPageState extends State<ModelProviderSettingPage> {
+  static List<ModelProviderProfileSummary> _byokProfiles(
+    List<ModelProviderProfileSummary> profiles,
+  ) => profiles
+      .where((profile) => profile.sourceType != 'omnibot_official')
+      .toList(growable: false);
+
   final TextEditingController _nameController = TextEditingController();
   final TextEditingController _baseUrlController = TextEditingController();
   final TextEditingController _apiKeyController = TextEditingController();
@@ -219,6 +184,8 @@ class _ModelProviderSettingPageState extends State<ModelProviderSettingPage> {
   bool _isSavingProfile = false;
   bool _saveQueued = false;
   bool _isSwitchingProfile = false;
+  bool _apiKeyDirty = false;
+  bool _customHeadersDirty = false;
   String _selectedSourceType = BuiltinOfficialProviderCatalog.customKey;
   String _selectedProtocolType = 'openai_compatible';
   String _selectedWireApi = 'chat_completions';
@@ -258,8 +225,7 @@ class _ModelProviderSettingPageState extends State<ModelProviderSettingPage> {
       );
 
   bool get _isDarkTheme => context.isDarkTheme;
-  Color get _pageBackground =>
-      _isDarkTheme ? context.omniPalette.pageBackground : AppColors.background;
+  Color get _pageBackground => context.omniPalette.pageBackground;
   Color get _cardColor =>
       _isDarkTheme ? context.omniPalette.surfacePrimary : Colors.white;
   Color get _primaryTextColor =>
@@ -449,7 +415,7 @@ class _ModelProviderSettingPageState extends State<ModelProviderSettingPage> {
     _loadData();
     _nameController.addListener(_onProfileChanged);
     _baseUrlController.addListener(_onProfileChanged);
-    _apiKeyController.addListener(_onProfileChanged);
+    _apiKeyController.addListener(_onApiKeyChanged);
     _nameFocusNode.addListener(_onProfileFieldFocusChanged);
     _baseUrlFocusNode.addListener(_onProfileFieldFocusChanged);
     _apiKeyFocusNode.addListener(_onProfileFieldFocusChanged);
@@ -458,16 +424,14 @@ class _ModelProviderSettingPageState extends State<ModelProviderSettingPage> {
   @override
   void dispose() {
     _autoSaveTimer?.cancel();
-    if (_shouldAutoSaveDraft) {
-      unawaited(_persistProfileDraft());
-    }
+    // A destination confirmation cannot be shown safely during dispose.
     unawaited(_persistManualModelIds());
     _nameFocusNode.removeListener(_onProfileFieldFocusChanged);
     _baseUrlFocusNode.removeListener(_onProfileFieldFocusChanged);
     _apiKeyFocusNode.removeListener(_onProfileFieldFocusChanged);
     _nameController.removeListener(_onProfileChanged);
     _baseUrlController.removeListener(_onProfileChanged);
-    _apiKeyController.removeListener(_onProfileChanged);
+    _apiKeyController.removeListener(_onApiKeyChanged);
     _nameController.dispose();
     _baseUrlController.dispose();
     _apiKeyController.dispose();
@@ -491,6 +455,13 @@ class _ModelProviderSettingPageState extends State<ModelProviderSettingPage> {
     _scheduleAutoSave();
   }
 
+  void _onApiKeyChanged() {
+    if (!_isSyncingControllers) {
+      _apiKeyDirty = true;
+    }
+    _onProfileChanged();
+  }
+
   void _onProfileFieldFocusChanged() {
     if (_isSyncingControllers || _isLoading || _isSwitchingProfile) {
       return;
@@ -506,6 +477,7 @@ class _ModelProviderSettingPageState extends State<ModelProviderSettingPage> {
     if (_isSyncingControllers || _isLoading || _isSwitchingProfile) {
       return;
     }
+    _customHeadersDirty = true;
     _updateCustomHeadersError();
     if (_hasAnyProfileFieldFocus) {
       _autoSaveTimer?.cancel();
@@ -538,6 +510,7 @@ class _ModelProviderSettingPageState extends State<ModelProviderSettingPage> {
     final nextBaseUrl = normalizedBaseUrl ?? '';
     final nextCustomHeaders = _validatedCustomHeadersDraft();
     final hasCustomHeaderChanges =
+        _customHeadersDirty &&
         nextCustomHeaders != null &&
         !_stringMapsEqual(
           nextCustomHeaders,
@@ -547,8 +520,11 @@ class _ModelProviderSettingPageState extends State<ModelProviderSettingPage> {
         );
     return _nameController.text.trim() != current.name ||
         nextBaseUrl != currentBaseUrl ||
-        _apiKeyController.text.trim() != current.apiKey ||
-        hasCustomHeaderChanges;
+        _apiKeyDirty ||
+        hasCustomHeaderChanges ||
+        _selectedSourceType != current.sourceType ||
+        _selectedProtocolType != current.protocolType ||
+        _selectedWireApi != current.wireApi;
   }
 
   Future<void> _persistManualModelIds() async {
@@ -566,27 +542,34 @@ class _ModelProviderSettingPageState extends State<ModelProviderSettingPage> {
     }
   }
 
-  Future<void> _persistProfileDraft() async {
+  Future<bool> _persistProfileDraft() async {
     final current = _currentProfile;
     if (current == null || current.readOnly) {
-      return;
+      return true;
     }
     _autoSaveTimer?.cancel();
     _autoSaveTimer = null;
 
     if (_isSavingProfile) {
       _saveQueued = true;
-      return;
+      return false;
     }
 
     do {
       _saveQueued = false;
       final nextName = _nameController.text.trim();
+      final rawBaseUrl = _baseUrlController.text.trim();
       final nextBaseUrl =
-          ModelProviderConfigService.normalizeApiBase(
-            _baseUrlController.text,
-          ) ??
-          '';
+          ModelProviderConfigService.normalizeApiBase(rawBaseUrl) ?? '';
+      if (rawBaseUrl.isNotEmpty && nextBaseUrl.isEmpty) {
+        if (mounted) {
+          showToast(
+            context.l10n.modelProviderInvalidBaseUrl,
+            type: ToastType.error,
+          );
+        }
+        return false;
+      }
       final nextApiKey = _apiKeyController.text.trim();
       final nextCustomHeaders =
           _validatedCustomHeadersDraft() ??
@@ -598,41 +581,79 @@ class _ModelProviderSettingPageState extends State<ModelProviderSettingPage> {
 
       if (nextName == current.name &&
           nextBaseUrl == currentBaseUrl &&
-          nextApiKey == current.apiKey &&
-          _stringMapsEqual(
-            nextCustomHeaders,
-            ModelProviderConfigService.normalizeCustomHeaders(
-              current.customHeaders,
-            ),
-          )) {
-        return;
+          !_apiKeyDirty &&
+          !_customHeadersDirty &&
+          _selectedSourceType == current.sourceType &&
+          _selectedProtocolType == current.protocolType &&
+          _selectedWireApi == current.wireApi) {
+        return true;
       }
 
       _isSavingProfile = true;
       try {
-        final saved = await ModelProviderConfigService.saveProfile(
+        Future<ModelProviderProfileSummary> saveAction({
+          bool destinationConfirmed = false,
+        }) => ModelProviderConfigService.saveProfile(
           id: current.id,
           name: nextName.isEmpty ? current.name : nextName,
-          baseUrl: _baseUrlController.text.trim(),
-          apiKey: nextApiKey,
-          customHeaders: nextCustomHeaders,
+          baseUrl: rawBaseUrl,
+          apiKey: _apiKeyDirty ? nextApiKey : null,
+          customHeaders: _customHeadersDirty ? nextCustomHeaders : null,
           sourceType: _selectedSourceType,
           protocolType: _selectedProtocolType,
           wireApi: _selectedWireApi,
+          destinationConfirmed: destinationConfirmed,
         );
-        if (!mounted) return;
+        final ModelProviderProfileSummary saved;
+        if (nextBaseUrl.isEmpty || _selectedSourceType == 'omnibot_official') {
+          saved = await saveAction();
+        } else {
+          final outcome =
+              await confirmDataDestinationAndRun<ModelProviderProfileSummary>(
+                context: context,
+                rawEndpoint: rawBaseUrl,
+                capability: 'BYOK model provider',
+                operation: _headerText(
+                  '保存提供商配置',
+                  'Save provider configuration',
+                ),
+                dataTypes: [
+                  _headerText(
+                    '提供商名称、接口类型和接收地址',
+                    'Provider name, API type, and receiver address',
+                  ),
+                  if (_apiKeyDirty || current.hasApiKey)
+                    _headerText('API Key（仅写入）', 'API key (write-only)'),
+                  if (_customHeadersDirty || current.hasCustomHeaders)
+                    _headerText('自定义请求头（仅写入）', 'Custom headers (write-only)'),
+                ],
+                action: () => saveAction(destinationConfirmed: true),
+              );
+          if (!outcome.confirmed || outcome.value == null) return false;
+          saved = outcome.value!;
+        }
+        if (!mounted) return false;
         setState(() {
           _profiles = _profiles
               .map((profile) => profile.id == saved.id ? saved : profile)
               .toList();
           _editingProfileId = saved.id;
         });
+        _apiKeyDirty = false;
+        _customHeadersDirty = false;
       } catch (_) {
-        // Auto-save failures should not interrupt typing.
+        if (mounted) {
+          showToast(
+            _headerText('保存提供商失败', 'Failed to save provider'),
+            type: ToastType.error,
+          );
+        }
+        return false;
       } finally {
         _isSavingProfile = false;
       }
     } while (_saveQueued && mounted);
+    return true;
   }
 
   Future<void> _loadData() async {
@@ -640,10 +661,14 @@ class _ModelProviderSettingPageState extends State<ModelProviderSettingPage> {
     try {
       final payload = await ModelProviderConfigService.listProfiles();
       if (!mounted) return;
+      final profiles = _byokProfiles(payload.profiles);
+      if (profiles.isEmpty) {
+        throw StateError('No editable BYOK provider profile is available');
+      }
 
-      final editingProfile = payload.profiles.firstWhere(
+      final editingProfile = profiles.firstWhere(
         (profile) => profile.id == payload.editingProfileId,
-        orElse: () => payload.profiles.first,
+        orElse: () => profiles.first,
       );
       final manualModelIds = await ModelProviderConfigService.getManualModelIds(
         profileId: editingProfile.id,
@@ -665,7 +690,7 @@ class _ModelProviderSettingPageState extends State<ModelProviderSettingPage> {
       final manualModels = storedModels[0] as List<ProviderModelOption>;
       final remoteModels = storedModels[1] as List<ProviderModelOption>;
       _applyProfile(
-        profiles: payload.profiles,
+        profiles: profiles,
         editingProfileId: editingProfile.id,
         manualModelIds: manualModelIds,
         hiddenChatModelIds: hiddenChatModelIds,
@@ -704,8 +729,10 @@ class _ModelProviderSettingPageState extends State<ModelProviderSettingPage> {
     if (syncControllers) {
       _syncController(_nameController, current.name);
       _syncController(_baseUrlController, current.baseUrl);
-      _syncController(_apiKeyController, current.apiKey);
+      _syncController(_apiKeyController, '');
       _replaceCustomHeaderEntries(current.customHeaders);
+      _apiKeyDirty = false;
+      _customHeadersDirty = false;
     }
     setState(() {
       _profiles = profiles;
@@ -744,6 +771,16 @@ class _ModelProviderSettingPageState extends State<ModelProviderSettingPage> {
       profileId: profile.id,
       apiBase: profile.baseUrl,
     );
+    if (profile.sourceType == 'omnibot_official' && profile.ready) {
+      try {
+        return await ModelProviderConfigService.fetchModels(
+          profileId: profile.id,
+          providerName: profile.name,
+        );
+      } catch (_) {
+        return cached;
+      }
+    }
     if (!enrichMetadata) {
       return cached;
     }
@@ -989,7 +1026,7 @@ class _ModelProviderSettingPageState extends State<ModelProviderSettingPage> {
     _isSwitchingProfile = true;
     try {
       if (_shouldAutoSaveDraft) {
-        await _persistProfileDraft();
+        if (!await _persistProfileDraft()) return;
       }
       final selected = await ModelProviderConfigService.setEditingProfile(
         profileId,
@@ -1091,7 +1128,6 @@ class _ModelProviderSettingPageState extends State<ModelProviderSettingPage> {
     final current = _currentProfile;
     if (current == null || _isFetchingModels) return;
     final baseUrl = _baseUrlController.text.trim();
-    final apiKey = _apiKeyController.text.trim();
 
     if (baseUrl.isEmpty) {
       if (!silentError) {
@@ -1125,13 +1161,42 @@ class _ModelProviderSettingPageState extends State<ModelProviderSettingPage> {
 
     setState(() => _isFetchingModels = true);
     try {
-      final models = await ModelProviderConfigService.fetchModels(
+      Future<List<ProviderModelOption>> fetchAction({
+        bool destinationConfirmed = false,
+      }) => ModelProviderConfigService.fetchModels(
         apiBase: baseUrl,
-        apiKey: apiKey,
-        customHeaders: customHeaders,
+        apiKey: _apiKeyDirty ? _apiKeyController.text.trim() : null,
+        customHeaders: _customHeadersDirty ? customHeaders : null,
         profileId: current.id,
         providerName: current.name,
+        destinationConfirmed: destinationConfirmed,
       );
+      final List<ProviderModelOption> models;
+      if (current.sourceType == 'omnibot_official') {
+        models = await fetchAction();
+      } else {
+        final outcome =
+            await confirmDataDestinationAndRun<List<ProviderModelOption>>(
+              context: context,
+              rawEndpoint: baseUrl,
+              capability: 'BYOK model provider',
+              operation: _headerText('刷新模型列表', 'Refresh model list'),
+              dataTypes: [
+                _headerText(
+                  '模型列表请求和提供商配置',
+                  'Model list request and provider configuration',
+                ),
+                if (current.hasApiKey || _apiKeyDirty)
+                  _headerText(
+                    '已安全保存或新输入的 API Key',
+                    'Stored or newly entered API key',
+                  ),
+              ],
+              action: () => fetchAction(destinationConfirmed: true),
+            );
+        if (!outcome.confirmed || outcome.value == null) return;
+        models = outcome.value!;
+      }
       if (!mounted) return;
       setState(() {
         _remoteModels = models;
@@ -1145,10 +1210,13 @@ class _ModelProviderSettingPageState extends State<ModelProviderSettingPage> {
           type: models.isEmpty ? ToastType.warning : ToastType.success,
         );
       }
-    } catch (e) {
+    } catch (_) {
       if (!mounted || silentError) return;
       showToast(
-        context.l10n.modelProviderFetchFailed(e.toString()),
+        _headerText(
+          '模型列表刷新失败，请检查配置后重试',
+          'Failed to refresh models. Check the configuration and try again.',
+        ),
         type: ToastType.error,
       );
     } finally {
@@ -1190,9 +1258,13 @@ class _ModelProviderSettingPageState extends State<ModelProviderSettingPage> {
         current.id,
       );
       if (!mounted) return;
-      final fallback = payload.profiles.firstWhere(
+      final profiles = _byokProfiles(payload.profiles);
+      if (profiles.isEmpty) {
+        throw StateError('No editable BYOK provider profile is available');
+      }
+      final fallback = profiles.firstWhere(
         (profile) => profile.id == payload.editingProfileId,
-        orElse: () => payload.profiles.first,
+        orElse: () => profiles.first,
       );
       final manualModelIds = await ModelProviderConfigService.getManualModelIds(
         profileId: fallback.id,
@@ -1207,7 +1279,7 @@ class _ModelProviderSettingPageState extends State<ModelProviderSettingPage> {
       ]);
       if (!mounted) return;
       _applyProfile(
-        profiles: payload.profiles,
+        profiles: profiles,
         editingProfileId: fallback.id,
         manualModelIds: manualModelIds,
         hiddenChatModelIds: hiddenChatModelIds,
@@ -1457,22 +1529,61 @@ class _ModelProviderSettingPageState extends State<ModelProviderSettingPage> {
       _syncController(_baseUrlController, selected.baseUrl);
     }
     try {
-      final saved = await ModelProviderConfigService.saveProfile(
+      Future<ModelProviderProfileSummary> saveAction({
+        bool destinationConfirmed = false,
+      }) => ModelProviderConfigService.saveProfile(
         id: current.id,
         name: _nameController.text.trim().isEmpty
             ? current.name
             : _nameController.text.trim(),
         baseUrl: _baseUrlController.text.trim(),
-        apiKey: _apiKeyController.text.trim(),
-        customHeaders:
-            _validatedCustomHeadersDraft() ??
-            ModelProviderConfigService.normalizeCustomHeaders(
-              current.customHeaders,
-            ),
+        apiKey: _apiKeyDirty ? _apiKeyController.text.trim() : null,
+        customHeaders: _customHeadersDirty
+            ? (_validatedCustomHeadersDraft() ?? const <String, String>{})
+            : null,
         sourceType: selected.sourceType,
         protocolType: nextProtocolType,
         wireApi: nextWireApi,
+        destinationConfirmed: destinationConfirmed,
       );
+      final ModelProviderProfileSummary saved;
+      final rawBaseUrl = _baseUrlController.text.trim();
+      if (selected.sourceType == 'omnibot_official' || rawBaseUrl.isEmpty) {
+        saved = await saveAction();
+      } else {
+        final outcome =
+            await confirmDataDestinationAndRun<ModelProviderProfileSummary>(
+              context: context,
+              rawEndpoint: rawBaseUrl,
+              capability: 'BYOK model provider',
+              operation: _headerText('选择提供商', 'Select provider'),
+              dataTypes: [
+                _headerText(
+                  '提供商配置和接收地址',
+                  'Provider configuration and receiver address',
+                ),
+                if (current.hasApiKey || _apiKeyDirty)
+                  _headerText(
+                    '已安全保存或新输入的 API Key',
+                    'Stored or newly entered API key',
+                  ),
+              ],
+              action: () => saveAction(destinationConfirmed: true),
+            );
+        if (!outcome.confirmed || outcome.value == null) {
+          if (mounted) {
+            setState(() {
+              _selectedSourceType = previousSourceType;
+              _selectedProtocolType = previousValue;
+              _selectedWireApi = previousWireApi;
+            });
+            _syncController(_nameController, previousName);
+            _syncController(_baseUrlController, previousBaseUrl);
+          }
+          return;
+        }
+        saved = outcome.value!;
+      }
       if (!mounted) return;
       setState(() {
         _profiles = _profiles.map((p) => p.id == saved.id ? saved : p).toList();
@@ -1483,6 +1594,8 @@ class _ModelProviderSettingPageState extends State<ModelProviderSettingPage> {
           saved.wireApi,
         );
       });
+      _apiKeyDirty = false;
+      _customHeadersDirty = false;
     } catch (_) {
       if (!mounted) return;
       setState(() {
@@ -1781,7 +1894,7 @@ class _ModelProviderSettingPageState extends State<ModelProviderSettingPage> {
                     duration: const Duration(milliseconds: 180),
                     curve: Curves.easeOutCubic,
                     child: Icon(
-                      Icons.expand_more_rounded,
+                      LucideIcons.chevronDown,
                       size: 20,
                       color: _tertiaryTextColor,
                     ),
@@ -1832,7 +1945,7 @@ class _ModelProviderSettingPageState extends State<ModelProviderSettingPage> {
                   alignment: Alignment.centerRight,
                   child: TextButton.icon(
                     onPressed: _addCustomHeaderEntry,
-                    icon: const Icon(Icons.add, size: 16),
+                    icon: const Icon(LucideIcons.plus, size: 16),
                     label: Text(_headerText('新增', 'Add')),
                   ),
                 ),
@@ -1951,7 +2064,7 @@ class _ModelProviderSettingPageState extends State<ModelProviderSettingPage> {
                 ? null
                 : () => _removeCustomHeaderEntry(entry.id),
             icon: Icon(
-              Icons.delete_outline,
+              LucideIcons.trash2,
               size: 18,
               color: readOnly ? _tertiaryTextColor : AppColors.alertRed,
             ),
@@ -1962,7 +2075,7 @@ class _ModelProviderSettingPageState extends State<ModelProviderSettingPage> {
   }
 
   Widget _buildModelActionButton({
-    required String svg,
+    required IconData icon,
     required VoidCallback? onPressed,
     bool highlighted = false,
     bool loading = false,
@@ -1999,12 +2112,7 @@ class _ModelProviderSettingPageState extends State<ModelProviderSettingPage> {
                       valueColor: AlwaysStoppedAnimation<Color>(iconColor),
                     ),
                   )
-                : SvgPicture.string(
-                    svg,
-                    width: 20,
-                    height: 20,
-                    colorFilter: ColorFilter.mode(iconColor, BlendMode.srcIn),
-                  ),
+                : Icon(icon, size: 20, color: iconColor),
           ),
         ),
       ),
@@ -2075,7 +2183,7 @@ class _ModelProviderSettingPageState extends State<ModelProviderSettingPage> {
 
   Widget _buildCompactIconChip({
     required String key,
-    required String svg,
+    required IconData icon,
     required String tooltip,
     String? label,
   }) {
@@ -2101,15 +2209,7 @@ class _ModelProviderSettingPageState extends State<ModelProviderSettingPage> {
           mainAxisSize: MainAxisSize.min,
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            SvgPicture.string(
-              svg,
-              width: 14,
-              height: 14,
-              colorFilter: ColorFilter.mode(
-                _secondaryTextColor,
-                BlendMode.srcIn,
-              ),
-            ),
+            Icon(icon, size: 14, color: _secondaryTextColor),
             if (label != null) ...[
               const SizedBox(width: 4),
               Text(
@@ -2131,10 +2231,10 @@ class _ModelProviderSettingPageState extends State<ModelProviderSettingPage> {
     );
   }
 
-  Widget _buildModalityIcon({required String svg, required String tooltip}) {
+  Widget _buildModalityIcon({required IconData icon, required String tooltip}) {
     return _buildCompactIconChip(
       key: 'provider-model-modality-${tooltip.toLowerCase().split(' ').first}',
-      svg: svg,
+      icon: icon,
       tooltip: tooltip,
     );
   }
@@ -2206,7 +2306,7 @@ class _ModelProviderSettingPageState extends State<ModelProviderSettingPage> {
       widgets.add(
         _buildCompactIconChip(
           key: 'provider-model-reasoning-${model.id}',
-          svg: _kReasoningSvg,
+          icon: LucideIcons.brain,
           tooltip: 'Reasoning',
         ),
       );
@@ -2226,16 +2326,18 @@ class _ModelProviderSettingPageState extends State<ModelProviderSettingPage> {
     final widgets = <Widget>[];
     if (modalities.contains('text')) {
       widgets.add(
-        _buildModalityIcon(svg: _kInputTextSvg, tooltip: 'Text input'),
+        _buildModalityIcon(icon: LucideIcons.fileText, tooltip: 'Text input'),
       );
     }
     if (modalities.contains('image')) {
       widgets.add(
-        _buildModalityIcon(svg: _kInputImageSvg, tooltip: 'Image input'),
+        _buildModalityIcon(icon: LucideIcons.image, tooltip: 'Image input'),
       );
     }
     if (modalities.contains('pdf')) {
-      widgets.add(_buildModalityIcon(svg: _kInputPdfSvg, tooltip: 'PDF input'));
+      widgets.add(
+        _buildModalityIcon(icon: LucideIcons.file, tooltip: 'PDF input'),
+      );
     }
     for (final modality in modalities) {
       if (modality == 'text' || modality == 'image' || modality == 'pdf') {
@@ -2420,7 +2522,7 @@ class _ModelProviderSettingPageState extends State<ModelProviderSettingPage> {
                           duration: _modelGroupToggleDuration,
                           curve: Curves.easeInOutCubicEmphasized,
                           child: Icon(
-                            Icons.keyboard_arrow_down_rounded,
+                            LucideIcons.chevronDown,
                             size: 18,
                             color: _tertiaryTextColor,
                           ),
@@ -2476,13 +2578,12 @@ class _ModelProviderSettingPageState extends State<ModelProviderSettingPage> {
             width: 48,
             height: 44,
             child: Center(
-              child: SvgPicture.asset(
+              child: Icon(
                 isOpen
-                    ? _kGroupToggleOpenIconAsset
-                    : _kGroupToggleClosedIconAsset,
-                width: 20,
-                height: 20,
-                colorFilter: ColorFilter.mode(iconColor, BlendMode.srcIn),
+                    ? LucideIcons.listCollapse
+                    : LucideIcons.listChevronsUpDown,
+                size: 20,
+                color: iconColor,
               ),
             ),
           ),
@@ -2534,14 +2635,10 @@ class _ModelProviderSettingPageState extends State<ModelProviderSettingPage> {
                     alignment: Alignment.centerRight,
                     child: Padding(
                       padding: EdgeInsets.only(right: deleteIconRightPadding),
-                      child: SvgPicture.asset(
-                        'assets/memory/memory_delete.svg',
-                        width: _modelDeleteIconSize,
-                        height: _modelDeleteIconSize,
-                        colorFilter: const ColorFilter.mode(
-                          Colors.white,
-                          BlendMode.srcIn,
-                        ),
+                      child: Icon(
+                        LucideIcons.trash2,
+                        size: _modelDeleteIconSize,
+                        color: Colors.white,
                       ),
                     ),
                   ),
@@ -2798,14 +2895,14 @@ class _ModelProviderSettingPageState extends State<ModelProviderSettingPage> {
                   Padding(
                     padding: const EdgeInsets.only(left: 6),
                     child: Icon(
-                      Icons.lock_outline,
+                      LucideIcons.lockKeyhole,
                       size: 14,
                       color: _tertiaryTextColor,
                     ),
                   ),
                 const SizedBox(width: 2),
                 Icon(
-                  Icons.keyboard_arrow_down_rounded,
+                  LucideIcons.chevronDown,
                   size: 18,
                   color: _secondaryTextColor,
                 ),
@@ -2862,7 +2959,7 @@ class _ModelProviderSettingPageState extends State<ModelProviderSettingPage> {
                     ),
                     const SizedBox(width: 2),
                     Icon(
-                      Icons.keyboard_arrow_down_rounded,
+                      LucideIcons.chevronDown,
                       size: 18,
                       color: _secondaryTextColor,
                     ),
@@ -2912,7 +3009,7 @@ class _ModelProviderSettingPageState extends State<ModelProviderSettingPage> {
                     ),
                     const SizedBox(width: 8),
                     Icon(
-                      Icons.keyboard_arrow_down_rounded,
+                      LucideIcons.chevronDown,
                       size: 20,
                       color: _secondaryTextColor,
                     ),
@@ -3005,15 +3102,7 @@ class _ModelProviderSettingPageState extends State<ModelProviderSettingPage> {
                             ),
                             const SizedBox(width: 8),
                             _buildModelActionButton(
-                              svg: '''
-<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-  <path d="M3 6h18"/>
-  <path d="M8 6V4h8v2"/>
-  <path d="M19 6l-1 14H6L5 6"/>
-  <path d="M10 11v6"/>
-  <path d="M14 11v6"/>
-</svg>
-''',
+                              icon: LucideIcons.trash2,
                               onPressed:
                                   _profiles.length <= 1 ||
                                       _currentProfile?.readOnly == true
@@ -3022,7 +3111,7 @@ class _ModelProviderSettingPageState extends State<ModelProviderSettingPage> {
                             ),
                             const SizedBox(width: 8),
                             _buildModelActionButton(
-                              svg: _kPlusSvg,
+                              icon: LucideIcons.plus,
                               onPressed: _promptAddProfile,
                             ),
                           ],
@@ -3090,8 +3179,8 @@ class _ModelProviderSettingPageState extends State<ModelProviderSettingPage> {
                               },
                               icon: Icon(
                                 _obscureApiKey
-                                    ? Icons.visibility_off
-                                    : Icons.visibility,
+                                    ? LucideIcons.eyeOff
+                                    : LucideIcons.eye,
                                 color: _tertiaryTextColor,
                                 size: 18,
                               ),
@@ -3100,7 +3189,13 @@ class _ModelProviderSettingPageState extends State<ModelProviderSettingPage> {
                         ),
                         const SizedBox(height: 8),
                         Text(
-                          context.l10n.modelProviderApiKeyHint,
+                          _currentProfile?.hasApiKey == true &&
+                                  _apiKeyController.text.isEmpty
+                              ? _headerText(
+                                  '已安全保存 API Key；输入新值才会替换。',
+                                  'An API key is stored securely. Enter a new value only to replace it.',
+                                )
+                              : context.l10n.modelProviderApiKeyHint,
                           style: TextStyle(
                             color: _tertiaryTextColor,
                             fontSize: 12,
@@ -3135,14 +3230,14 @@ class _ModelProviderSettingPageState extends State<ModelProviderSettingPage> {
                               ),
                             ),
                             _buildModelActionButton(
-                              svg: _kPlusSvg,
+                              icon: LucideIcons.plus,
                               onPressed: _currentProfile?.readOnly == true
                                   ? null
                                   : _promptAddModel,
                             ),
                             const SizedBox(width: 8),
                             _buildModelActionButton(
-                              svg: _kArrowBigDownSvg,
+                              icon: LucideIcons.arrowBigDown,
                               onPressed: _isFetchingModels
                                   ? null
                                   : _fetchModelsLocalized,
@@ -3191,14 +3286,10 @@ class _ModelProviderSettingPageState extends State<ModelProviderSettingPage> {
                                     child: Column(
                                       mainAxisSize: MainAxisSize.min,
                                       children: [
-                                        SvgPicture.string(
-                                          _kPackageSvg,
-                                          width: 64,
-                                          height: 64,
-                                          colorFilter: ColorFilter.mode(
-                                            _tertiaryTextColor,
-                                            BlendMode.srcIn,
-                                          ),
+                                        Icon(
+                                          LucideIcons.package,
+                                          size: 64,
+                                          color: _tertiaryTextColor,
                                         ),
                                         const SizedBox(height: 10),
                                         Text(
@@ -3305,7 +3396,7 @@ class _ProviderSwitchPopupEntryState extends State<_ProviderSwitchPopupEntry> {
               ),
               if (selected)
                 Icon(
-                  Icons.check_rounded,
+                  LucideIcons.check,
                   size: 16,
                   color: _isDarkTheme(context)
                       ? palette.accentPrimary
@@ -3793,7 +3884,7 @@ class _SelectionPopupEntryState extends State<_SelectionPopupEntry> {
               ),
               if (selected)
                 Icon(
-                  Icons.check_rounded,
+                  LucideIcons.check,
                   size: 16,
                   color: isDark
                       ? palette.accentPrimary
@@ -3867,7 +3958,7 @@ class _ProviderTypePopupEntryState extends State<_ProviderTypePopupEntry> {
               ),
               if (selected)
                 Icon(
-                  Icons.check_rounded,
+                  LucideIcons.check,
                   size: 16,
                   color: isDark
                       ? palette.accentPrimary

@@ -193,6 +193,11 @@ class AgentConversationHistoryRepository(
     ) = withContext(Dispatchers.IO) {
         val existingConversation = DatabaseHelper.getConversationById(conversationId)
         val existingEntries = loadThreadEntriesAscSafe(conversationId, conversationMode)
+        val existingToolPayloads = existingEntries
+            .filter { it.entryType == ENTRY_TYPE_TOOL_EVENT }
+            .associate { entry ->
+                entry.entryId to AgentConversationHistorySupport.readMap(entry.payloadJson)
+            }
         val preservedSummary = existingConversation?.contextSummary
             ?.trim()
             ?.takeIf { it.isNotEmpty() }
@@ -233,7 +238,17 @@ class AgentConversationHistoryRepository(
                 else -> extractSummaryFromMessagePayload(message)
             }
             val payloadJson = if (restoredToolPayload != null) {
-                gson.toJson(restoredToolPayload)
+                val existingToolPayload = existingToolPayloads[entryId].orEmpty()
+                val replayPreservedPayload = restoredToolPayload.toMutableMap().apply {
+                    listOf(
+                        "modelToolCallId",
+                        "modelAssistantMessageJson",
+                        "modelToolResultMessageJson"
+                    ).forEach { key ->
+                        existingToolPayload[key]?.let { value -> put(key, value) }
+                    }
+                }
+                gson.toJson(replayPreservedPayload)
             } else {
                 gson.toJson(message)
             }

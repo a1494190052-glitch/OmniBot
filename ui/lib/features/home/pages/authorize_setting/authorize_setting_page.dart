@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_switch/flutter_switch.dart';
+import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:ui/features/home/pages/authorize/accessibility_permission_prompt.dart';
 import 'package:ui/l10n/l10n.dart';
 import 'package:ui/services/special_permission.dart';
@@ -104,7 +105,7 @@ class _AuthorizeSettingPageState extends State<AuthorizeSettingPage>
         ),
         items: [
           _AuthorizeSettingItem(
-            icon: Icons.notifications_none_rounded,
+            icon: LucideIcons.bell,
             title: context.l10n.authorizeReceiveNotifications,
             subtitle: context.l10n.authorizeNotificationsDesc,
             trailing: _buildSwitchTrailing(
@@ -125,7 +126,7 @@ class _AuthorizeSettingPageState extends State<AuthorizeSettingPage>
         ),
         items: [
           _AuthorizeSettingItem(
-            icon: Icons.accessibility_new_rounded,
+            icon: LucideIcons.accessibility,
             title: _localeText(zh: '无障碍权限', en: 'Accessibility Permission'),
             subtitle: _localeText(
               zh: '用于读取页面并执行点击、滑动和输入；可在系统设置的“无障碍”中开启。',
@@ -133,9 +134,7 @@ class _AuthorizeSettingPageState extends State<AuthorizeSettingPage>
             ),
             trailing: _buildPermissionTrailing(
               label: context.trLegacy(_accessibilityReady ? '已开启' : '去开启'),
-              color: _accessibilityReady
-                  ? _tertiaryTextColor
-                  : _accentColor,
+              color: _accessibilityReady ? _tertiaryTextColor : _accentColor,
             ),
             onTap: () async {
               await showAccessibilityPermissionPrompt(context);
@@ -143,7 +142,7 @@ class _AuthorizeSettingPageState extends State<AuthorizeSettingPage>
             },
           ),
           _AuthorizeSettingItem(
-            icon: Icons.battery_saver_outlined,
+            icon: LucideIcons.batteryCharging,
             title: context.trLegacy('后台运行权限'),
             subtitle: _localeText(
               zh: '减少系统回收，让消息、定时任务和本机服务在后台稳定继续。',
@@ -158,7 +157,7 @@ class _AuthorizeSettingPageState extends State<AuthorizeSettingPage>
             },
           ),
           _AuthorizeSettingItem(
-            icon: Icons.picture_in_picture_alt_outlined,
+            icon: LucideIcons.pictureInPicture2,
             title: context.trLegacy('悬浮窗权限'),
             subtitle: _localeText(
               zh: '允许小万在其他应用上方显示宠物、半屏聊天和任务提醒。',
@@ -173,7 +172,7 @@ class _AuthorizeSettingPageState extends State<AuthorizeSettingPage>
             },
           ),
           _AuthorizeSettingItem(
-            icon: Icons.apps_outlined,
+            icon: LucideIcons.layoutGrid,
             title: context.trLegacy('应用列表读取'),
             subtitle: _localeText(
               zh: '用于识别设备已安装应用，并提供应用上下文。',
@@ -199,7 +198,7 @@ class _AuthorizeSettingPageState extends State<AuthorizeSettingPage>
         ),
         items: [
           _AuthorizeSettingItem(
-            icon: Icons.folder_open_rounded,
+            icon: LucideIcons.folderOpen,
             title: _localeText(zh: '所有文件访问权限', en: 'All files access'),
             subtitle: _localeText(
               zh: '允许小万访问设备公共存储中的文件与文件夹，用于文件读取、整理和下载等操作。',
@@ -216,7 +215,7 @@ class _AuthorizeSettingPageState extends State<AuthorizeSettingPage>
             },
           ),
           _AuthorizeSettingItem(
-            icon: Icons.adb_rounded,
+            icon: LucideIcons.usb,
             title: context.trLegacy('Shizuku 权限'),
             subtitle: _shizukuStatus.localizedGuide,
             trailing: _buildPermissionTrailing(
@@ -477,7 +476,7 @@ class _AuthorizeSettingPageState extends State<AuthorizeSettingPage>
                 Padding(
                   padding: const EdgeInsets.only(left: 12),
                   child: Icon(
-                    Icons.chevron_right_rounded,
+                    LucideIcons.chevronRight,
                     size: 18,
                     color: _tertiaryTextColor,
                   ),
@@ -516,11 +515,7 @@ class _AuthorizeSettingPageState extends State<AuthorizeSettingPage>
             ),
           ),
           const SizedBox(width: 4),
-          Icon(
-            Icons.chevron_right_rounded,
-            size: 18,
-            color: _tertiaryTextColor,
-          ),
+          Icon(LucideIcons.chevronRight, size: 18, color: _tertiaryTextColor),
         ],
       ),
     );

@@ -1,7 +1,9 @@
 package cn.com.omnimind.bot.agent
 
 import cn.com.omnimind.assists.controller.http.HttpController
+import cn.com.omnimind.baselib.account.AiRequestTransportPolicy
 import cn.com.omnimind.baselib.account.OmniAccount
+import cn.com.omnimind.baselib.account.PlatformModelsUnavailableException
 import cn.com.omnimind.baselib.llm.ChatCompletionRequest
 import cn.com.omnimind.baselib.llm.ChatCompletionMessage
 import cn.com.omnimind.baselib.llm.ChatCompletionThinking
@@ -10,8 +12,12 @@ import cn.com.omnimind.baselib.llm.ChatCompletionUsage
 import cn.com.omnimind.baselib.llm.DeepSeekProvider
 import cn.com.omnimind.baselib.llm.ModelProviderConfigStore
 import cn.com.omnimind.baselib.llm.OpenAiWireApi
+import cn.com.omnimind.baselib.llm.OmniOfficialProvider
+import cn.com.omnimind.baselib.llm.PlatformAiProvisioner
 import cn.com.omnimind.baselib.llm.ReasoningStreamUpdatePolicy
+import cn.com.omnimind.baselib.llm.contentText
 import cn.com.omnimind.baselib.util.OmniLog
+import cn.com.omnimind.bot.media.PlatformMediaProtocol
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
@@ -111,6 +117,17 @@ class HttpAgentLlmClient(
             false
         }
     },
+    private val resolvePlatformVisionModelOp: suspend () -> String? = {
+        val access = OmniAccount.currentAiRequestAccess()
+        if (!access.usesPlatform) {
+            null
+        } else {
+            PlatformAiProvisioner.ensureReadyStatus().defaultVisionModelId
+                ?: throw PlatformModelsUnavailableException(
+                    "官方服务当前没有可用的图片理解模型"
+                )
+        }
+    },
     private val streamIdleWatchdogMs: Long = 0L,
     private val maxTransientStreamRetries: Int = 2,
     private val transientStreamRetryDelayMs: Long = 750L,
@@ -140,6 +157,12 @@ class HttpAgentLlmClient(
             "timeout",
             "timed out",
         )
+        // The platform gateway reserves quota from the whole prompt plus the
+        // requested output ceiling. Reusing full agent history, every tool schema,
+        // and the 16K ceiling can reserve several times a user's weekly allowance
+        // before the vision model is called. A vision turn only needs the current
+        // image question; subsequent text turns still use the normal agent context.
+        const val PLATFORM_VISION_MAX_COMPLETION_TOKENS = 1_024
     }
 
     internal data class StreamRequestVariant(
@@ -152,6 +175,67 @@ class HttpAgentLlmClient(
         onReasoningUpdate: (suspend (String) -> Unit)?,
         onContentUpdate: (suspend (String) -> Unit)?
     ): ChatCompletionTurn {
+        val usesOfficialProvider =
+            OmniOfficialProvider.isOfficialProfile(modelOverride?.providerProfileId) ||
+                (request.hasImageInput() && requestUsesOfficialProvider(request))
+        val platformVisionModel = if (request.hasImageInput() && usesOfficialProvider) {
+            resolvePlatformVisionModelOp()?.trim()?.takeIf { it.isNotEmpty() }
+        } else {
+            null
+        }
+        if (platformVisionModel == null) {
+            return streamRoutedTurn(
+                request = request,
+                effectiveExplicitModel = modelOverride?.modelId,
+                onReasoningUpdate = onReasoningUpdate,
+                onContentUpdate = onContentUpdate,
+            )
+        }
+
+        // Platform vision is a bounded preprocessing turn. Feed its description
+        // back into the normal Agent turn so system/history, tools and the stable
+        // prompt cache key remain available for the actual user request.
+        val visionTurn = streamRoutedTurn(
+            request = request.forPlatformVision(platformVisionModel),
+            effectiveExplicitModel = platformVisionModel,
+            onReasoningUpdate = null,
+            onContentUpdate = null,
+        )
+        val description = visionTurn.message.contentText().trim()
+        check(description.isNotEmpty()) { "官方图片理解模型未返回可用内容" }
+        return streamRoutedTurn(
+            request = request.withPlatformVisionDescription(description),
+            effectiveExplicitModel = modelOverride?.modelId,
+            onReasoningUpdate = onReasoningUpdate,
+            onContentUpdate = onContentUpdate,
+        )
+    }
+
+    private fun requestUsesOfficialProvider(request: ChatCompletionRequest): Boolean {
+        if (OmniOfficialProvider.isOfficialProfile(modelOverride?.providerProfileId)) {
+            return true
+        }
+        if (modelOverride != null) {
+            return false
+        }
+        val routeInfo = resolveRouteInfoOp(
+            request.model,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+        )
+        return AiRequestTransportPolicy.isPlatformRoute(routeInfo.routeTag)
+    }
+
+    private suspend fun streamRoutedTurn(
+        request: ChatCompletionRequest,
+        effectiveExplicitModel: String?,
+        onReasoningUpdate: (suspend (String) -> Unit)?,
+        onContentUpdate: (suspend (String) -> Unit)?,
+    ): ChatCompletionTurn {
         val modelCandidates = buildModelCandidates(request.model)
         val sanitizedRequest = sanitizeRequestForTarget(request)
         var lastFailure: AgentStreamRequestException? = null
@@ -163,7 +247,7 @@ class HttpAgentLlmClient(
                 modelOverride?.apiBase,
                 modelOverride?.apiKey,
                 modelOverride?.customHeaders,
-                modelOverride?.modelId,
+                effectiveExplicitModel,
                 modelOverride?.protocolType,
                 modelOverride?.wireApi
             )
@@ -180,9 +264,14 @@ class HttpAgentLlmClient(
                     // Encode lazily, one variant at a time, so we never hold multiple
                     // copies of a potentially huge request payload in memory at once.
                     val requestJson = json.encodeToString(variant.request)
+                    if (AiRequestTransportPolicy.isPlatformRoute(routeInfo.routeTag)) {
+                        PlatformMediaProtocol.requirePlatformJsonRequestWithinLimit(requestJson)
+                    }
                     return streamTurnWithPlatformAuthRetry(
                         model = candidateModel,
                         requestJson = requestJson,
+                        explicitModel = effectiveExplicitModel,
+                        platformRoute = AiRequestTransportPolicy.isPlatformRoute(routeInfo.routeTag),
                         onReasoningUpdate = onReasoningUpdate,
                         onContentUpdate = onContentUpdate
                     )
@@ -228,23 +317,26 @@ class HttpAgentLlmClient(
     private suspend fun streamTurnWithPlatformAuthRetry(
         model: String,
         requestJson: String,
+        explicitModel: String?,
+        platformRoute: Boolean,
         onReasoningUpdate: (suspend (String) -> Unit)?,
         onContentUpdate: (suspend (String) -> Unit)?,
     ): ChatCompletionTurn {
         return try {
-            streamTurnOnce(model, requestJson, onReasoningUpdate, onContentUpdate)
+            streamTurnOnce(model, requestJson, explicitModel, onReasoningUpdate, onContentUpdate)
         } catch (error: AgentStreamRequestException) {
-            if (error.statusCode != 401 || !refreshPlatformSessionOp()) {
+            if (error.statusCode != 401 || !platformRoute || !refreshPlatformSessionOp()) {
                 throw error
             }
             OmniLog.i(tag, "platform access token refreshed after 401; retrying once")
-            streamTurnOnce(model, requestJson, onReasoningUpdate, onContentUpdate)
+            streamTurnOnce(model, requestJson, explicitModel, onReasoningUpdate, onContentUpdate)
         }
     }
 
     private suspend fun streamTurnOnce(
         model: String,
         requestJson: String,
+        explicitModel: String?,
         onReasoningUpdate: (suspend (String) -> Unit)?,
         onContentUpdate: (suspend (String) -> Unit)?
     ): ChatCompletionTurn {
@@ -255,6 +347,7 @@ class HttpAgentLlmClient(
                     doStreamTurnOnce(
                         model,
                         requestJson,
+                        explicitModel,
                         onReasoningUpdate,
                         onContentUpdate,
                         forceHttp1 = false,
@@ -265,6 +358,7 @@ class HttpAgentLlmClient(
                         doStreamTurnOnce(
                             model,
                             requestJson,
+                            explicitModel,
                             onReasoningUpdate,
                             onContentUpdate,
                             forceHttp1 = true,
@@ -326,6 +420,7 @@ class HttpAgentLlmClient(
     private suspend fun doStreamTurnOnce(
         model: String,
         requestJson: String,
+        explicitModel: String?,
         onReasoningUpdate: (suspend (String) -> Unit)?,
         onContentUpdate: (suspend (String) -> Unit)?,
         forceHttp1: Boolean
@@ -337,7 +432,7 @@ class HttpAgentLlmClient(
             modelOverride?.apiBase,
             modelOverride?.apiKey,
             modelOverride?.customHeaders,
-            modelOverride?.modelId,
+            explicitModel,
             modelOverride?.protocolType,
             modelOverride?.wireApi
         )
@@ -585,7 +680,7 @@ class HttpAgentLlmClient(
                 modelOverride?.apiBase,
                 modelOverride?.apiKey,
                 modelOverride?.customHeaders,
-                modelOverride?.modelId,
+                explicitModel,
                 modelOverride?.protocolType,
                 modelOverride?.wireApi,
                 forceHttp1
@@ -693,6 +788,17 @@ class HttpAgentLlmClient(
 
         if (legacyRequest != null) {
             add("legacy_functions", legacyRequest)
+        }
+        request.promptCacheKey?.let {
+            add(
+                "no_prompt_cache_key",
+                compatibleRequest.copy(
+                    streamOptions = null,
+                    parallelToolCalls = null,
+                    toolChoice = null,
+                    promptCacheKey = null
+                )
+            )
         }
         return variants
     }
@@ -927,6 +1033,9 @@ class HttpAgentLlmClient(
         val parsed = runCatching { json.parseToJsonElement(raw) }.getOrNull() as? JsonObject
             ?: return sanitizeReason(raw)
         val errorObj = parsed["error"] as? JsonObject
+        val formalErrorCode = extractJsonText(errorObj?.get("code"))
+            ?: extractJsonText(parsed["code"])
+        PlatformMediaProtocol.stableUserMessageForErrorCode(formalErrorCode)?.let { return it }
 
         val candidates = listOf(
             extractJsonText(errorObj?.get("message")),
@@ -966,6 +1075,117 @@ class HttpAgentLlmClient(
             candidates.add("scene.dispatch.model")
         }
         return candidates.toList()
+    }
+
+    private fun ChatCompletionRequest.hasImageInput(): Boolean =
+        messages.any { message -> message.content.containsImageInput() }
+
+    private fun ChatCompletionRequest.forPlatformVision(model: String): ChatCompletionRequest {
+        val normalizedReasoning = reasoningEffort?.trim()?.lowercase()
+        val compatibleEnableThinking = when {
+            enableThinking != null -> enableThinking
+            normalizedReasoning == null -> null
+            normalizedReasoning in setOf("no", "none", "disabled") -> false
+            else -> true
+        }
+        val currentImageMessage = messages.lastOrNull { message ->
+            message.content.containsImageInput()
+        }
+        return copy(
+            messages = currentImageMessage?.let(::listOf) ?: messages,
+            model = model,
+            maxCompletionTokens = maxCompletionTokens?.coerceAtMost(
+                PLATFORM_VISION_MAX_COMPLETION_TOKENS
+            ),
+            maxTokens = maxTokens?.coerceAtMost(PLATFORM_VISION_MAX_COMPLETION_TOKENS),
+            tools = emptyList(),
+            toolChoice = null,
+            parallelToolCalls = null,
+            functions = null,
+            functionCall = null,
+            promptCacheKey = null,
+            reasoningEffort = null,
+            thinking = null,
+            enableThinking = compatibleEnableThinking,
+        )
+    }
+
+    private fun ChatCompletionRequest.withPlatformVisionDescription(
+        description: String,
+    ): ChatCompletionRequest {
+        val imageMessageIndex = messages.indexOfLast { message ->
+            message.content.containsImageInput()
+        }
+        if (imageMessageIndex < 0) return this
+        val nextMessages = messages.mapIndexed { index, message ->
+            if (!message.content.containsImageInput()) {
+                return@mapIndexed message
+            }
+            val originalText = message.content.textInputForVisionFollowUp().trim()
+            val replacement = buildString {
+                if (originalText.isNotEmpty()) {
+                    append(originalText)
+                    append("\n\n")
+                }
+                if (index == imageMessageIndex) {
+                    if (originalText.isEmpty()) {
+                        append("请根据以下图片识别结果继续完成用户请求。\n\n")
+                    }
+                    append("[图片识别结果]\n")
+                    append(description)
+                } else {
+                    append("[历史图片内容已省略；请结合后续对话中的已有分析。]")
+                }
+            }
+            message.copy(content = JsonPrimitive(replacement))
+        }
+        return copy(messages = nextMessages)
+    }
+
+    private fun JsonElement?.textInputForVisionFollowUp(): String {
+        return when (this) {
+            is JsonPrimitive -> contentOrNull.orEmpty()
+            is JsonArray -> mapNotNull { element ->
+                when (element) {
+                    is JsonPrimitive -> element.contentOrNull
+                    is JsonObject -> {
+                        val type = (element["type"] as? JsonPrimitive)
+                            ?.contentOrNull
+                            ?.trim()
+                            ?.lowercase()
+                        if (type == "text" || type == "input_text") {
+                            (element["text"] as? JsonPrimitive)?.contentOrNull
+                        } else {
+                            null
+                        }
+                    }
+                    else -> null
+                }
+            }.joinToString("\n")
+            is JsonObject -> (get("text") as? JsonPrimitive)?.contentOrNull.orEmpty()
+            else -> ""
+        }
+    }
+
+    private fun JsonElement?.containsImageInput(): Boolean {
+        return when (this) {
+            is JsonArray -> any { element -> element.containsImageInput() }
+            is JsonObject -> {
+                val type = (get("type") as? JsonPrimitive)
+                    ?.contentOrNull
+                    ?.trim()
+                    ?.lowercase()
+                type == "image_url" ||
+                    type == "input_image" ||
+                    type == "image" ||
+                    containsKey("image_url") ||
+                    containsKey("imageUrl") ||
+                    containsKey("input_image") ||
+                    containsKey("inputImage") ||
+                    values.any { element -> element.containsImageInput() }
+            }
+            else -> false
+        }
     }
 
     private fun isModelNotSupported(error: AgentStreamRequestException): Boolean {

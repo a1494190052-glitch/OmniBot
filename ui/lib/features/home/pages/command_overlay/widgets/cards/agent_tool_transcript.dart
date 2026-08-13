@@ -278,6 +278,7 @@ String _resolveAgentToolPromptAgentName(Map<String, dynamic> cardData) {
     'codex-acp' || 'codex-remote' => 'Codex',
     'claude-code-acp' => 'Claude Code',
     'opencode-acp' => 'OpenCode',
+    'deepseek-harness-acp' => 'DeepSeek Harness',
     _ => '',
   };
 }

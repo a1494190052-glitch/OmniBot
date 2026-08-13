@@ -552,6 +552,24 @@ class AgentRuntimeManager private constructor(
                 path = OPENCODE_CONFIG_JSON_PATH,
                 displayPath = OPENCODE_CONFIG_JSON_DISPLAY_PATH
             )
+            AcpAgentProfileStore.DEEPSEEK_HARNESS_AGENT_ID -> {
+                val config = parseDeepSeekHarnessConfig(
+                    readTerminalTextFile(
+                        path = DEEPSEEK_HARNESS_CONFIG_PATH,
+                        executorKey = "deepseek-harness-config-read"
+                    )
+                )
+                linkedMapOf(
+                    "agentId" to profile.id,
+                    "kind" to "deepseek-harness",
+                    "configPath" to DEEPSEEK_HARNESS_CONFIG_DISPLAY_PATH,
+                    "baseUrl" to config.baseUrl,
+                    "model" to config.model,
+                    "apiKey" to config.apiKey,
+                    "reasoningEffort" to config.reasoningEffort,
+                    "permissionMode" to config.permissionMode
+                )
+            }
             else -> linkedMapOf(
                 "agentId" to profile.id,
                 "kind" to "profile"
@@ -626,6 +644,20 @@ class AgentRuntimeManager private constructor(
                     path = OPENCODE_CONFIG_JSON_PATH,
                     content = content,
                     executorKey = "agent-config-write-${profile.id}"
+                )
+            }
+            AcpAgentProfileStore.DEEPSEEK_HARNESS_AGENT_ID -> {
+                val current = parseDeepSeekHarnessConfig(
+                    readTerminalTextFile(
+                        path = DEEPSEEK_HARNESS_CONFIG_PATH,
+                        executorKey = "deepseek-harness-config-before-write"
+                    )
+                )
+                val config = deepSeekHarnessConfigFromArgs(args, current)
+                writeTerminalTextFile(
+                    path = DEEPSEEK_HARNESS_CONFIG_PATH,
+                    content = buildDeepSeekHarnessConfigJson(config),
+                    executorKey = "deepseek-harness-config-write"
                 )
             }
             else -> throw UnsupportedOperationException(
@@ -839,8 +871,7 @@ class AgentRuntimeManager private constructor(
     }
 
     private fun shouldRecoverMissingThread(error: Throwable): Boolean {
-        val message = error.message?.lowercase().orEmpty()
-        return message.contains("thread not found")
+        return isRecoverableAgentThreadError(error.message.orEmpty())
     }
 
     private suspend fun ensureThreadForTurn(args: Map<String, Any?>, cwd: String): String {
@@ -906,18 +937,65 @@ class AgentRuntimeManager private constructor(
     private suspend fun prepareLocalAcpLaunch(
         profile: AcpAgentProfile
     ): Map<String, String> {
-        ensureManagedAcpAdapter(profile)
-        return if (profile.id == AcpAgentProfileStore.DEFAULT_CODEX_AGENT_ID) {
-            mapOf("CODEX_HOME" to AgentRuntimeDefaults.CODEX_HOME)
+        val deepSeekEnvironment = if (
+            profile.id == AcpAgentProfileStore.DEEPSEEK_HARNESS_AGENT_ID &&
+            AcpAgentProfileStore.officialRuntime(profile) != null
+        ) {
+            val config = parseDeepSeekHarnessConfig(
+                readTerminalTextFile(
+                    path = DEEPSEEK_HARNESS_CONFIG_PATH,
+                    executorKey = "deepseek-harness-launch-config-read"
+                )
+            )
+            require(config.apiKey.isNotBlank()) {
+                "Configure the DeepSeek API key in Agent mode settings before starting DeepSeek Harness."
+            }
+            config.toEnvironment()
         } else {
             emptyMap()
         }
+        ensureManagedAcpAdapter(profile)
+        return when (profile.id) {
+            AcpAgentProfileStore.DEFAULT_CODEX_AGENT_ID ->
+                mapOf("CODEX_HOME" to AgentRuntimeDefaults.CODEX_HOME)
+            AcpAgentProfileStore.DEEPSEEK_HARNESS_AGENT_ID -> {
+                if (AcpAgentProfileStore.officialRuntime(profile) != null) {
+                    writeTerminalTextFile(
+                        path = DEEPSEEK_HARNESS_OMNIBOT_ACP_PLUGIN_PATH,
+                        content = readDeepSeekHarnessAcpPluginAsset(),
+                        executorKey = "deepseek-harness-acp-plugin-write"
+                    )
+                    writeTerminalTextFile(
+                        path = DEEPSEEK_HARNESS_CORDIS_PATH,
+                        content = buildDeepSeekHarnessCordisConfig(),
+                        executorKey = "deepseek-harness-cordis-write"
+                    )
+                }
+                deepSeekEnvironment
+            }
+            else -> emptyMap()
+        }
+    }
+
+    private fun readDeepSeekHarnessAcpPluginAsset(): String {
+        return appContext.assets
+            .open(DEEPSEEK_HARNESS_OMNIBOT_ACP_PLUGIN_ASSET)
+            .bufferedReader()
+            .use { it.readText() }
     }
 
     private suspend fun ensureManagedAcpAdapter(profile: AcpAgentProfile) {
         val runtime = AcpAgentProfileStore.officialRuntime(profile) ?: return
         val packageName = runtime.managedAdapterPackage ?: return
-        if (isTerminalCommandAvailable(profile.command)) {
+        val managedPackages = runtime.managedAdapterPackages
+            .ifEmpty { listOf(packageName) }
+        val commandAvailable = isTerminalCommandAvailable(profile.command)
+        val allPackagesReady = managedPackages.size == 1 ||
+            (commandAvailable && areManagedNpmPackagesInstalled(managedPackages))
+        val adapterHealthy = runtime.managedAdapterHealthCommand
+            ?.let { isTerminalShellCommandSuccessful(it) }
+            ?: true
+        if (commandAvailable && allPackagesReady && adapterHealthy) {
             return
         }
         if (!isTerminalCommandAvailable(runtime.discoveryCommand)) {
@@ -931,13 +1009,26 @@ class AgentRuntimeManager private constructor(
                 "npm is required to prepare the ${profile.name} ACP adapter."
             )
         }
+        val installTargets = managedPackages.joinToString(" ") { shellQuote(it) }
+        val nativeBuildPrerequisites = if (runtime.requiresNativeBuildTools) {
+            MANAGED_NATIVE_BUILD_PREREQUISITES_COMMAND
+        } else {
+            ":"
+        }
+        val adapterHealthCheck = runtime.managedAdapterHealthCommand ?: ":"
+        val adapterInstallCommand = if (runtime.requiresNativeBuildTools) {
+            DEEPSEEK_HARNESS_NPM_INSTALL_COMMAND
+        } else {
+            "npm install -g --prefix /root/.npm-global --no-audit --no-fund $installTargets"
+        }
         val command = """
             set -eu
+            $nativeBuildPrerequisites
             mkdir -p /root/.npm-global/bin
             export PATH="/root/.npm-global/bin:${'$'}PATH"
-            npm install -g --prefix /root/.npm-global --no-audit --no-fund \
-                ${shellQuote(packageName)}
+            $adapterInstallCommand
             command -v ${shellQuote(profile.command)} >/dev/null 2>&1
+            $adapterHealthCheck
         """.trimIndent()
         val result = TerminalManager.getInstance(appContext).executeHiddenCommand(
             command = command,
@@ -961,11 +1052,36 @@ class AgentRuntimeManager private constructor(
         }
     }
 
+    private suspend fun areManagedNpmPackagesInstalled(
+        packageSpecs: List<String>
+    ): Boolean {
+        if (packageSpecs.isEmpty()) return true
+        val checks = packageSpecs.joinToString(" && ") { spec ->
+            val packageName = npmPackageName(spec)
+            "test -f ${shellQuote("/root/.npm-global/lib/node_modules/$packageName/package.json")}"
+        }
+        val result = TerminalManager.getInstance(appContext).executeHiddenCommand(
+            command = checks,
+            executorKey = "acp-managed-packages-probe-${packageSpecs.hashCode()}",
+            timeoutMs = 20_000L
+        )
+        return result.isOk && result.exitCode == 0
+    }
+
     private suspend fun isTerminalCommandAvailable(command: String): Boolean {
         val result = TerminalManager.getInstance(appContext).executeHiddenCommand(
             command = "$MANAGED_NPM_PATH_PREFIX " +
                 "command -v ${shellQuote(command)} >/dev/null 2>&1",
             executorKey = "acp-command-probe-${command.hashCode()}",
+            timeoutMs = 20_000L
+        )
+        return result.isOk && result.exitCode == 0
+    }
+
+    private suspend fun isTerminalShellCommandSuccessful(command: String): Boolean {
+        val result = TerminalManager.getInstance(appContext).executeHiddenCommand(
+            command = "$MANAGED_NPM_PATH_PREFIX $command",
+            executorKey = "acp-shell-health-${command.hashCode()}",
             timeoutMs = 20_000L
         )
         return result.isOk && result.exitCode == 0
@@ -1502,6 +1618,46 @@ private enum class AgentRuntimeKind(val payloadValue: String) {
 private const val MANAGED_ACP_INSTALL_TIMEOUT_MS = 10 * 60 * 1_000L
 private const val MANAGED_NPM_PATH_PREFIX =
     "PATH=\"/root/.npm-global/bin:\$PATH\"; export PATH;"
+internal val MANAGED_NATIVE_BUILD_PREREQUISITES_COMMAND = """
+    ensure_native_build_tools() {
+      if command -v make >/dev/null 2>&1 &&
+         command -v c++ >/dev/null 2>&1 &&
+         command -v python3 >/dev/null 2>&1; then
+        return 0
+      fi
+      if command -v apk >/dev/null 2>&1; then
+        apk add --no-cache build-base python3
+      elif command -v apt-get >/dev/null 2>&1; then
+        apt-get update
+        DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends build-essential python3
+      else
+        echo "DeepSeek Harness requires make, a C++ compiler, and Python 3 to build node-pty." >&2
+        return 1
+      fi
+    }
+    ensure_native_build_tools
+""".trimIndent()
+private const val DEEPSEEK_HARNESS_HOME = "/root/.dsh/omnibot-acp"
+private const val DEEPSEEK_HARNESS_CONFIG_PATH =
+    "$DEEPSEEK_HARNESS_HOME/config.json"
+private const val DEEPSEEK_HARNESS_CONFIG_DISPLAY_PATH =
+    "~/.dsh/omnibot-acp/config.json"
+private const val DEEPSEEK_HARNESS_CORDIS_PATH =
+    "$DEEPSEEK_HARNESS_HOME/cordis.yml"
+private const val DEEPSEEK_HARNESS_OMNIBOT_ACP_PLUGIN_ASSET =
+    "deepseek_harness/omnibot-acp-demo.mjs"
+internal const val DEEPSEEK_HARNESS_OMNIBOT_ACP_PLUGIN_PATH =
+    "/root/.npm-global/lib/node_modules/@deepseek-ai/dsh-acp-demo/lib/omnibot-acp-demo.mjs"
+private const val DEEPSEEK_PUBLIC_BASE_URL = "https://api.deepseek.com"
+private const val DEEPSEEK_HARNESS_DEFAULT_MODEL = "deepseek-v4-pro"
+private const val DEEPSEEK_HARNESS_DEFAULT_REASONING_EFFORT = "max"
+private const val DEEPSEEK_HARNESS_DEFAULT_PERMISSION_MODE = "workspace-write"
+private val DEEPSEEK_HARNESS_REASONING_EFFORTS = setOf("off", "high", "max")
+private val DEEPSEEK_HARNESS_PERMISSION_MODES = setOf(
+    "read-only",
+    "workspace-write",
+    "danger-full-access"
+)
 
 private val LOCAL_ACP_METHODS = setOf(
     "thread/start",
@@ -1764,6 +1920,161 @@ private fun buildRemoteBridgeConfigPayload(
         "remoteConfigured" to remoteConfig.isConfigured,
         "runtime" to runtime
     )
+}
+
+internal data class DeepSeekHarnessConfig(
+    val baseUrl: String = DEEPSEEK_PUBLIC_BASE_URL,
+    val model: String = DEEPSEEK_HARNESS_DEFAULT_MODEL,
+    val apiKey: String = "",
+    val reasoningEffort: String = DEEPSEEK_HARNESS_DEFAULT_REASONING_EFFORT,
+    val permissionMode: String = DEEPSEEK_HARNESS_DEFAULT_PERMISSION_MODE
+) {
+    fun toEnvironment(): Map<String, String> = linkedMapOf(
+        "DEEPSEEK_BASE_URL" to baseUrl,
+        "DEEPSEEK_API_KEY" to apiKey,
+        "DSH_MODEL" to model,
+        "DSH_REASONING_EFFORT" to reasoningEffort,
+        "DSH_PERMISSION_MODE" to permissionMode,
+        "DSH_ACP_HOME" to DEEPSEEK_HARNESS_HOME,
+        "NODE_NO_WARNINGS" to "1"
+    )
+}
+
+internal fun parseDeepSeekHarnessConfig(source: String): DeepSeekHarnessConfig {
+    val json = runCatching {
+        JsonParser.parseString(source)
+            .takeIf { it.isJsonObject }
+            ?.asJsonObject
+    }.getOrNull() ?: return DeepSeekHarnessConfig()
+    fun stringValue(key: String): String? = json.get(key)
+        ?.takeIf { it.isJsonPrimitive }
+        ?.asString
+        ?.trim()
+        ?.takeIf(String::isNotEmpty)
+    val reasoningEffort = stringValue("reasoningEffort")
+        ?.takeIf { it in DEEPSEEK_HARNESS_REASONING_EFFORTS }
+        ?: DEEPSEEK_HARNESS_DEFAULT_REASONING_EFFORT
+    val permissionMode = stringValue("permissionMode")
+        ?.takeIf { it in DEEPSEEK_HARNESS_PERMISSION_MODES }
+        ?: DEEPSEEK_HARNESS_DEFAULT_PERMISSION_MODE
+    return DeepSeekHarnessConfig(
+        baseUrl = stringValue("baseUrl") ?: DEEPSEEK_PUBLIC_BASE_URL,
+        model = stringValue("model") ?: DEEPSEEK_HARNESS_DEFAULT_MODEL,
+        apiKey = stringValue("apiKey").orEmpty(),
+        reasoningEffort = reasoningEffort,
+        permissionMode = permissionMode
+    )
+}
+
+internal fun deepSeekHarnessConfigFromArgs(
+    args: Map<String, Any?>,
+    current: DeepSeekHarnessConfig = DeepSeekHarnessConfig()
+): DeepSeekHarnessConfig {
+    val baseUrl = args.stringValue("baseUrl")
+        ?: throw IllegalArgumentException("DeepSeek Base URL is required.")
+    val model = args.stringValue("model")
+        ?: throw IllegalArgumentException("DeepSeek model ID is required.")
+    val apiKey = args.stringValue("apiKey")
+        ?: throw IllegalArgumentException("DeepSeek API key is required.")
+    val reasoningEffort = args.stringValue("reasoningEffort")
+        ?: DEEPSEEK_HARNESS_DEFAULT_REASONING_EFFORT
+    require(reasoningEffort in DEEPSEEK_HARNESS_REASONING_EFFORTS) {
+        "DeepSeek Harness reasoning effort must be off, high, or max."
+    }
+    val permissionMode = args.stringValue("permissionMode")
+        ?: current.permissionMode
+    require(permissionMode in DEEPSEEK_HARNESS_PERMISSION_MODES) {
+        "DeepSeek Harness permission mode must be read-only, workspace-write, or danger-full-access."
+    }
+    return DeepSeekHarnessConfig(
+        baseUrl = baseUrl,
+        model = model,
+        apiKey = apiKey,
+        reasoningEffort = reasoningEffort,
+        permissionMode = permissionMode
+    )
+}
+
+internal fun buildDeepSeekHarnessConfigJson(
+    config: DeepSeekHarnessConfig
+): String {
+    return GsonBuilder()
+        .setPrettyPrinting()
+        .create()
+        .toJson(
+            linkedMapOf(
+                "baseUrl" to config.baseUrl,
+                "model" to config.model,
+                "apiKey" to config.apiKey,
+                "reasoningEffort" to config.reasoningEffort,
+                "permissionMode" to config.permissionMode
+            )
+        ) + "\n"
+}
+
+/** Phone-safe DeepSeek Harness composition with Omnibot's interactive ACP bridge. */
+internal fun buildDeepSeekHarnessCordisConfig(): String = """
+    - id: llm-deepseek
+      name: '@deepseek-ai/dsh-llm-deepseek'
+      config:
+        thinking: enabled
+        reasoningEffort: !!js "process.env.DSH_REASONING_EFFORT ?? 'max'"
+
+    - id: sandbox
+      name: '@deepseek-ai/dsh-sandbox-local'
+
+    - id: sandbox-policy
+      name: '@deepseek-ai/dsh-sandbox-policy'
+      config:
+        mode: !!js "process.env.DSH_PERMISSION_MODE ?? 'workspace-write'"
+        workspaceRoot: /workspace
+
+    - id: subprocess
+      name: '@deepseek-ai/dsh-subprocess-local'
+
+    - id: bash
+      name: '@deepseek-ai/dsh-bash-sandbox'
+      config:
+        timeoutMs: 60000
+
+    - id: approval
+      name: '@deepseek-ai/dsh-user-approval'
+      config:
+        policy: ask
+
+    - id: acp-agent
+      name: '$DEEPSEEK_HARNESS_OMNIBOT_ACP_PLUGIN_PATH'
+      config:
+        provider: deepseek-official
+        model: !!js "process.env.DSH_MODEL ?? 'deepseek-v4-pro'"
+        reasoningEffort: !!js "process.env.DSH_REASONING_EFFORT ?? 'max'"
+        permissionMode: !!js "process.env.DSH_PERMISSION_MODE ?? 'workspace-write'"
+        persistenceRoot: !!js "(process.env.DSH_ACP_HOME ?? '/root/.dsh/omnibot-acp') + '/sessions'"
+        persistenceCompression: none
+        workspaceContext:
+          maxBytes: 65536
+        skills:
+          enabled: false
+        toolBash:
+          enableRunInBackground: false
+        toolJobs: false
+        goals: false
+        persona: |
+          You are a coding assistant powered by {{model}} on DeepSeek Harness.
+          Your working directory is {{cwd}}. Inspect files, make focused changes,
+          and verify work with relevant tests before answering.
+""".trimIndent() + "\n"
+
+internal fun npmPackageName(spec: String): String {
+    val versionSeparator = spec.lastIndexOf('@')
+    return if (versionSeparator > 0) spec.substring(0, versionSeparator) else spec
+}
+
+internal fun isRecoverableAgentThreadError(message: String): Boolean {
+    val normalized = message.lowercase()
+    return normalized.contains("thread not found") ||
+        normalized.contains("unknown session") ||
+        normalized.contains("did not advertise session resume or loadsession")
 }
 
 internal fun buildCodexConfigToml(

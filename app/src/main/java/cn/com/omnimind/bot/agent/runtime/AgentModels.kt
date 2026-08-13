@@ -20,6 +20,7 @@ data class AgentFinalResponse(
     val promptTokenThreshold: Int? = null,
     val completionTokens: Int? = null,
     val cachedTokens: Int? = null,
+    val cacheCreationTokens: Int? = null,
     val totalTokens: Int? = null
 )
 
@@ -36,6 +37,7 @@ sealed class AgentResult {
         val promptTokenThreshold: Int? = null,
         val completionTokens: Int? = null,
         val cachedTokens: Int? = null,
+        val cacheCreationTokens: Int? = null,
         val totalTokens: Int? = null
     ) : AgentResult()
     
@@ -187,6 +189,14 @@ interface AgentCallback {
      * 工具调用开始
      */
     suspend fun onToolCallStart(toolName: String, arguments: JsonObject)
+
+    suspend fun onToolCallStart(
+        toolCallId: String,
+        toolName: String,
+        arguments: JsonObject
+    ) {
+        onToolCallStart(toolName, arguments)
+    }
     
     /**
      * 工具调用进度更新
@@ -201,6 +211,21 @@ interface AgentCallback {
      * 工具调用完成
      */
     suspend fun onToolCallComplete(toolName: String, result: ToolExecutionResult)
+
+    suspend fun onToolCallComplete(
+        toolCallId: String,
+        toolName: String,
+        result: ToolExecutionResult
+    ) {
+        onToolCallComplete(toolName, result)
+    }
+
+    /** Persist the exact bounded messages that were sent back to the model. */
+    suspend fun onToolReplayReady(
+        toolCallId: String,
+        assistantMessage: cn.com.omnimind.baselib.llm.ChatCompletionMessage,
+        toolResultMessage: cn.com.omnimind.baselib.llm.ChatCompletionMessage
+    ) = Unit
     
     /**
      * 聊天消息

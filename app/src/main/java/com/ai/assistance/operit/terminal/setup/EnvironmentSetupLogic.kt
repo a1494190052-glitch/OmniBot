@@ -1,5 +1,8 @@
 package com.ai.assistance.operit.terminal.setup
 
+import cn.com.omnimind.bot.agent.runtime.DEEPSEEK_HARNESS_NPM_PACKAGE_NAMES
+import cn.com.omnimind.bot.agent.runtime.DEEPSEEK_HARNESS_NPM_INSTALL_COMMAND
+import cn.com.omnimind.bot.agent.runtime.DEEPSEEK_HARNESS_NATIVE_HEALTH_COMMAND
 import com.ai.assistance.operit.terminal.utils.SourceManager
 import com.rk.terminal.runtime.UbuntuRepositoryManager
 import com.rk.terminal.ui.screens.settings.WorkingMode
@@ -11,6 +14,18 @@ object EnvironmentSetupLogic {
         val categoryId: String
     )
 
+    private val DEEPSEEK_HARNESS_PACKAGE_FILES =
+        DEEPSEEK_HARNESS_NPM_PACKAGE_NAMES.joinToString(" && ") { packageName ->
+            "test -f '/root/.npm-global/lib/node_modules/$packageName/package.json'"
+        }
+    private val DEEPSEEK_HARNESS_CHECK_COMMAND =
+        "PATH=\"/root/.npm-global/bin:${'$'}PATH\"; export PATH; " +
+            "command -v dsh-acp-demo >/dev/null 2>&1 && " +
+            DEEPSEEK_HARNESS_PACKAGE_FILES + " && " +
+            DEEPSEEK_HARNESS_NATIVE_HEALTH_COMMAND
+    private const val DEEPSEEK_HARNESS_VERSION_COMMAND =
+        "node -p \"require('/root/.npm-global/lib/node_modules/@deepseek-ai/dsh-acp-demo/package.json').version\""
+
     val packageDefinitions: List<PackageDefinition> = listOf(
         PackageDefinition("nodejs", "node --version", "dev"),
         PackageDefinition("npm", "npm --version", "dev"),
@@ -21,6 +36,7 @@ object EnvironmentSetupLogic {
         PackageDefinition("codex", "codex --version", "ai"),
         PackageDefinition("claude_code", "claude --version", "ai"),
         PackageDefinition("opencode", "opencode --version", "ai"),
+        PackageDefinition("deepseek_harness", DEEPSEEK_HARNESS_CHECK_COMMAND, "ai"),
         PackageDefinition("ssh_client", "ssh -V 2>&1", "ssh"),
         PackageDefinition("sshpass", "sshpass -V 2>&1", "ssh"),
         PackageDefinition("openssh_server", "sshd -V 2>&1", "ssh")
@@ -48,6 +64,16 @@ object EnvironmentSetupLogic {
         "codex" to listOf("nodejs", "npm", "git", "bash", "curl", "ripgrep"),
         "claude_code" to listOf("nodejs", "npm", "git", "bash", "curl", "ripgrep"),
         "opencode" to listOf("nodejs", "npm", "git", "bash", "curl", "ripgrep"),
+        "deepseek_harness" to listOf(
+            "nodejs",
+            "npm",
+            "git",
+            "bash",
+            "curl",
+            "ripgrep",
+            "build-base",
+            "python3"
+        ),
         "python" to listOf("python3", "py3-numpy"),
         "pip" to listOf("py3-pip"),
         "uv" to listOf("python3", "py3-pip"),
@@ -68,6 +94,15 @@ object EnvironmentSetupLogic {
         "codex" to listOf("nodejs", "git", "bash", "curl", "ripgrep"),
         "claude_code" to listOf("nodejs", "git", "bash", "curl", "ripgrep"),
         "opencode" to listOf("nodejs", "git", "bash", "curl", "ripgrep"),
+        "deepseek_harness" to listOf(
+            "nodejs",
+            "git",
+            "bash",
+            "curl",
+            "ripgrep",
+            "build-essential",
+            "python3"
+        ),
         "python" to listOf("python3", "python3-numpy"),
         "pip" to listOf("python3-pip"),
         "uv" to listOf("python3", "python3-pip"),
@@ -156,6 +191,10 @@ object EnvironmentSetupLogic {
             commands += "npm install -g --no-audit --no-fund opencode-ai@latest"
             commands += "ln -sf /root/.npm-global/bin/opencode /usr/local/bin/opencode || true"
         }
+        if ("deepseek_harness" in requested) {
+            commands += DEEPSEEK_HARNESS_NPM_INSTALL_COMMAND
+            commands += "ln -sf /root/.npm-global/bin/dsh-acp-demo /usr/local/bin/dsh-acp-demo || true"
+        }
         if ("openssh_server" in requested) {
             commands += "mkdir -p /var/run/sshd /etc/ssh"
             commands += "ssh-keygen -A || true"
@@ -178,6 +217,8 @@ object EnvironmentSetupLogic {
             appendLine("  set -e")
             commands.forEach { command ->
                 appendLine("  $command")
+                appendLine("  setup_status=${'$'}?")
+                appendLine("  [ \"${'$'}setup_status\" -eq 0 ] || return \"${'$'}setup_status\"")
             }
             appendLine("}")
             if (validationChecks.isNotEmpty()) {
@@ -274,6 +315,11 @@ object EnvironmentSetupLogic {
                     commandCheck = "PATH=\"/root/.npm-global/bin:${'$'}PATH\"; export PATH; command -v opencode >/dev/null 2>&1 && opencode --version >/dev/null 2>&1",
                     versionCommand = "opencode --version"
                 )
+                "deepseek_harness" -> buildProbeSnippet(
+                    packageId = packageId,
+                    commandCheck = DEEPSEEK_HARNESS_CHECK_COMMAND,
+                    versionCommand = DEEPSEEK_HARNESS_VERSION_COMMAND
+                )
                 "ssh_client" -> buildProbeSnippet(
                     packageId = packageId,
                     commandCheck = "command -v ssh >/dev/null 2>&1",
@@ -328,6 +374,7 @@ object EnvironmentSetupLogic {
             "codex" -> "PATH=\"/root/.npm-global/bin:${'$'}PATH\"; export PATH; command -v codex && codex --version"
             "claude_code" -> "PATH=\"/root/.npm-global/bin:${'$'}PATH\"; export PATH; command -v claude && claude --version"
             "opencode" -> "PATH=\"/root/.npm-global/bin:${'$'}PATH\"; export PATH; command -v opencode && opencode --version"
+            "deepseek_harness" -> DEEPSEEK_HARNESS_CHECK_COMMAND
             "ripgrep" -> "command -v rg"
             "tmux" -> "command -v tmux"
             "xz" -> "command -v xz"
@@ -353,6 +400,7 @@ object EnvironmentSetupLogic {
             "openssh_client" -> "ssh_client"
             "ssh_server" -> "openssh_server"
             "claude", "claude-code" -> "claude_code"
+            "dsh", "deepseek-harness", "deepseek_harness_acp" -> "deepseek_harness"
             else -> packageId.trim()
         }
     }
@@ -424,6 +472,9 @@ object EnvironmentSetupLogic {
                 "PATH=\"/root/.npm-global/bin:${'$'}PATH\"; export PATH; opencode --version >/dev/null 2>&1"
             )
         }
+        if ("deepseek_harness" in requested) {
+            add("DeepSeek Harness", DEEPSEEK_HARNESS_CHECK_COMMAND)
+        }
         if ("ssh_client" in requested) {
             add("SSH client", "ssh -V >/dev/null 2>&1")
         }
@@ -465,5 +516,10 @@ object EnvironmentSetupLogic {
         return "printf '__OMNI_ENV__\\t%s\\tMISSING\\t\\n' '$packageId'"
     }
 
-    private val NPM_AGENT_PACKAGE_IDS = setOf("codex", "claude_code", "opencode")
+    private val NPM_AGENT_PACKAGE_IDS = setOf(
+        "codex",
+        "claude_code",
+        "opencode",
+        "deepseek_harness"
+    )
 }

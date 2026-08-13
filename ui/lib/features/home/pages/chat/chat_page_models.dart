@@ -35,11 +35,41 @@ enum ChatMessageListMutationKind { none, content, structure }
 bool shouldReloadConversationMessagesChanged({
   required String? reason,
   required bool hasInFlightTask,
+  bool hasRuntimeMessages = false,
+  bool suppressLocalSnapshotEcho = false,
 }) {
   final isRuntimeStreamSnapshot =
       reason == 'agent_stream_snapshot' ||
       reason == 'chat_task_stream_snapshot';
-  return !isRuntimeStreamSnapshot || !hasInFlightTask;
+  if (isRuntimeStreamSnapshot && (hasInFlightTask || hasRuntimeMessages)) {
+    return false;
+  }
+  if (reason == 'messages_replaced' && suppressLocalSnapshotEcho) {
+    return false;
+  }
+  return true;
+}
+
+bool shouldPreferInMemoryForConversationListChanged({
+  required bool hasInFlightTask,
+  required bool hasRuntimeMessages,
+}) => hasInFlightTask || hasRuntimeMessages;
+
+/// Number of newest-first entries to remove before retrying a user turn.
+///
+/// A plain retry keeps the original user entry visible and only clears the
+/// assistant/process entries that followed it. An edited resend replaces the
+/// user entry as well because its content may have changed.
+int retriedMessageRoundRemovalCount(
+  List<ChatMessageModel> messages, {
+  required String userMessageId,
+  required bool preserveUserMessage,
+}) {
+  final targetIndex = messages.indexWhere(
+    (message) => message.id == userMessageId && message.user == 1,
+  );
+  if (targetIndex < 0) return 0;
+  return targetIndex + (preserveUserMessage ? 0 : 1);
 }
 
 class ChatMessageListItemNotifier extends ValueNotifier<ChatMessageModel> {

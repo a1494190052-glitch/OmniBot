@@ -84,6 +84,58 @@ void main() {
     );
   });
 
+  testWidgets(
+    'completion cross-fades the running label into the folded header',
+    (tester) async {
+      final startedAt = DateTime.now().subtract(const Duration(seconds: 5));
+      var status = AgentRunStatus.running;
+      late StateSetter setState;
+
+      await tester.pumpWidget(
+        _wrap(
+          StatefulBuilder(
+            builder: (context, stateSetter) {
+              setState = stateSetter;
+              return AgentRunHeader(
+                taskId: 'turn-transition',
+                agentId: 'deepseek-harness',
+                status: status,
+                startedAt: startedAt,
+                finishedAt: status == AgentRunStatus.finished
+                    ? startedAt.add(const Duration(seconds: 5))
+                    : null,
+                onToggleExpanded: status == AgentRunStatus.finished
+                    ? () {}
+                    : null,
+              );
+            },
+          ),
+        ),
+      );
+      await tester.pump();
+
+      setState(() {
+        status = AgentRunStatus.finished;
+      });
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 90));
+
+      expect(
+        find.byKey(const ValueKey('acp-processing-label')),
+        findsOneWidget,
+      );
+      expect(find.byKey(const ValueKey('acp-processed-label')), findsOneWidget);
+      expect(
+        find.byKey(const ValueKey('agent-run-summary-chevron-turn-transition')),
+        findsOneWidget,
+      );
+
+      await tester.pumpAndSettle();
+      expect(find.byKey(const ValueKey('acp-processing-label')), findsNothing);
+      expect(find.byKey(const ValueKey('acp-processed-label')), findsOneWidget);
+    },
+  );
+
   testWidgets('a sub-second run omits the elapsed suffix', (tester) async {
     final startedAt = DateTime(2026, 7, 25, 15, 48, 0);
 

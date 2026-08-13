@@ -22,31 +22,66 @@ class AndroidDeviceMcpServerTest {
     }
 
     @Test
-    fun `tool call waits for plugin restoration before rejecting runtime`() = runBlocking {
+    fun `missing default plugin is installed before tool call`() = runBlocking {
         var enabled = false
-        var initializationCount = 0
+        var installCount = 0
+        var enableCount = 0
 
-        AndroidDeviceMcpServer.ensureRuntimeEnabled(
+        AndroidDeviceMcpServer.ensureDefaultPluginEnabled(
             isEnabled = { enabled },
-            initialize = {
-                initializationCount += 1
+            inspect = { null },
+            install = {
+                installCount += 1
+                enabled = true
+            },
+            enable = { enableCount += 1 },
+        )
+
+        assertTrue(enabled)
+        assertEquals(1, installCount)
+        assertEquals(0, enableCount)
+    }
+
+    @Test
+    fun `disabled installed default plugin is formally enabled`() = runBlocking {
+        var enabled = false
+        var installCount = 0
+        var enableCount = 0
+
+        AndroidDeviceMcpServer.ensureDefaultPluginEnabled(
+            isEnabled = { enabled },
+            inspect = {
+                AndroidDeviceMcpServer.DefaultPluginStatus(
+                    installed = true,
+                    enabled = false,
+                )
+            },
+            install = { installCount += 1 },
+            enable = {
+                enableCount += 1
                 enabled = true
             },
         )
 
         assertTrue(enabled)
-        assertEquals(1, initializationCount)
+        assertEquals(0, installCount)
+        assertEquals(1, enableCount)
     }
 
     @Test
     fun `ready runtime skips plugin restoration`() = runBlocking {
-        var initializationCount = 0
+        var inspectionCount = 0
 
-        AndroidDeviceMcpServer.ensureRuntimeEnabled(
+        AndroidDeviceMcpServer.ensureDefaultPluginEnabled(
             isEnabled = { true },
-            initialize = { initializationCount += 1 },
+            inspect = {
+                inspectionCount += 1
+                null
+            },
+            install = { error("install must not run") },
+            enable = { error("enable must not run") },
         )
 
-        assertEquals(0, initializationCount)
+        assertEquals(0, inspectionCount)
     }
 }

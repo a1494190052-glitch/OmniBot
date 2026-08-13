@@ -34,7 +34,8 @@ class AssistsUtil {
             provider: String? = null,
             openClawConfig: TaskParams.OpenClawConfig? = null,
             modelOverride: TaskParams.ChatModelOverride? = null,
-            reasoningEffort: String? = null
+            reasoningEffort: String? = null,
+            promptCacheKey: String? = null
         ) {
             AssistsCore.startTask(
                 TaskParams.ChatTaskParams(
@@ -44,7 +45,8 @@ class AssistsUtil {
                     provider = provider,
                     openClawConfig = openClawConfig,
                     modelOverride = modelOverride,
-                    reasoningEffort = reasoningEffort
+                    reasoningEffort = reasoningEffort,
+                    promptCacheKey = promptCacheKey
                 )
             )
         }

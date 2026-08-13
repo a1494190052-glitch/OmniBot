@@ -56,20 +56,17 @@ class ConversationDomainService(
         includeArchived: Boolean = true,
         archivedOnly: Boolean = false
     ): List<Map<String, Any?>> {
-        val conversations = DatabaseHelper.getAllConversations()
-            .filter { conversation ->
-                when {
-                    archivedOnly -> conversation.isArchived
-                    includeArchived -> true
-                    else -> !conversation.isArchived
-                }
-            }
-        val agentBindings =
-            if (conversations.any { it.mode == AGENT_MODE_STORAGE_VALUE }) {
-                DatabaseHelper.getAllAgentSessionBindings()
-            } else {
-                emptyList()
-            }
+        val conversations = when {
+            archivedOnly -> DatabaseHelper.getArchivedConversations()
+            includeArchived -> DatabaseHelper.getAllConversations()
+            else -> DatabaseHelper.getUnarchivedConversations()
+        }
+        val agentConversationIds = conversations
+            .filter { it.mode == AGENT_MODE_STORAGE_VALUE }
+            .map { it.id }
+        val agentBindings = DatabaseHelper.getAgentSessionBindingsByConversationIds(
+            agentConversationIds
+        )
         val agentBindingByConversationId =
             agentBindings.associateBy { binding -> binding.conversationId }
         return conversations.map { conversation ->
@@ -88,6 +85,17 @@ class ConversationDomainService(
                 agentId = agentId
             )
         }
+    }
+
+    suspend fun archiveConversationsUpdatedBefore(cutoff: Long): Int {
+        if (cutoff <= 0L) return 0
+        val archivedCount = DatabaseHelper.archiveConversationsUpdatedBefore(cutoff)
+        if (archivedCount > 0) {
+            FlutterChatSyncBridge.dispatchConversationListChanged(
+                reason = "conversations_auto_archived"
+            )
+        }
+        return archivedCount
     }
 
     suspend fun getConversationPayload(conversationId: Long): Map<String, Any?>? {

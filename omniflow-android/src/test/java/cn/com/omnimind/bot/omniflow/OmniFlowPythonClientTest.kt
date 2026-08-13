@@ -13,6 +13,11 @@ import org.junit.Test
 
 class OmniFlowPythonClientTest {
     @Test
+    fun `cold initialization has a dedicated startup timeout`() {
+        assertEquals(120_000L, OmniFlowPythonClient.INITIALIZE_TIMEOUT_MS)
+    }
+
+    @Test
     fun `tool timeout follows tool call arguments`() {
         assertEquals(
             210_000L,

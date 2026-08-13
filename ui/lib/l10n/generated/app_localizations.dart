@@ -320,6 +320,18 @@ abstract class AppLocalizations {
   /// **'开启后应用将从最近任务列表中隐藏'**
   String get settingsHideRecentsSubtitle;
 
+  /// No description provided for @settingsRecentConversationsOnlyTitle.
+  ///
+  /// In zh, this message translates to:
+  /// **'仅显示近7天会话'**
+  String get settingsRecentConversationsOnlyTitle;
+
+  /// No description provided for @settingsRecentConversationsOnlySubtitle.
+  ///
+  /// In zh, this message translates to:
+  /// **'自动归档超过 7 天未更新的会话，减少侧边栏加载卡顿'**
+  String get settingsRecentConversationsOnlySubtitle;
+
   /// No description provided for @settingsAlarmTitle.
   ///
   /// In zh, this message translates to:
@@ -2761,6 +2773,12 @@ abstract class AppLocalizations {
   /// In zh, this message translates to:
   /// **'OpenCode CLI（内置 ACP 支持）'**
   String get alpineOpenCode;
+
+  /// No description provided for @alpineDeepSeekHarness.
+  ///
+  /// In zh, this message translates to:
+  /// **'DeepSeek Harness（dsh）ACP 运行组件，安装时跟随 npm next 最新发布线'**
+  String get alpineDeepSeekHarness;
 
   /// No description provided for @alpineSshClient.
   ///

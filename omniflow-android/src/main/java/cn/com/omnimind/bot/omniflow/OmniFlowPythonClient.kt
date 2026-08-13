@@ -77,7 +77,7 @@ class OmniFlowPythonClient(
                     ),
                 ),
             )
-            val result = withTimeout(DEFAULT_CALL_TIMEOUT_MS) {
+            val result = withTimeout(INITIALIZE_TIMEOUT_MS) {
                 readResponse(activeSession, requestId, hostCall = null)
             }
             writeNotification(activeSession.writer, "notifications/initialized")
@@ -311,6 +311,7 @@ class OmniFlowPythonClient(
         private const val HOST_METHOD_PREFIX = "omniflow/"
         private const val PROCESS_EXIT_GRACE_MS = 1_000L
         private const val STDERR_TAIL_CHARS = 8_192
+        internal const val INITIALIZE_TIMEOUT_MS = 120_000L
         private const val DEFAULT_CALL_TIMEOUT_MS = 30_000L
         private const val SEMANTIC_COMPILE_TIMEOUT_MS = 210_000L
         private const val RUN_TIMEOUT_MS = 10 * 60_000L

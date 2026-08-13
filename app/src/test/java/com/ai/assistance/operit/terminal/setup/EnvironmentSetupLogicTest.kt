@@ -156,6 +156,58 @@ class EnvironmentSetupLogicTest {
     }
 
     @Test
+    fun buildInstallCommands_installsLatestDeepSeekHarnessRuntime() {
+        val commands = EnvironmentSetupLogic.buildInstallCommands(
+            selectedPackageIds = listOf("deepseek_harness"),
+            repositorySetupCommand = ""
+        )
+
+        val apkAdd = commands.first { it.startsWith("apk --wait 300 add ") }
+        assertTrue(apkAdd.contains("nodejs"))
+        assertTrue(apkAdd.contains("npm"))
+        assertTrue(apkAdd.contains("build-base"))
+        assertTrue(apkAdd.contains("python3"))
+        val npmInstall = commands.first { it.contains("install_deepseek_harness_packages") }
+        assertTrue(npmInstall.contains("@deepseek-ai/dsh-acp-demo@next"))
+        assertTrue(npmInstall.contains("@deepseek-ai/dsh-llm-deepseek@next"))
+        assertTrue(!npmInstall.contains("0.1.0-rc.6"))
+        assertTrue(npmInstall.contains("omnibot-node-gyp-copy"))
+        assertTrue(npmInstall.contains("exec /bin/ln"))
+        assertTrue(
+            commands.contains(
+                "ln -sf /root/.npm-global/bin/dsh-acp-demo /usr/local/bin/dsh-acp-demo || true"
+            )
+        )
+    }
+
+    @Test
+    fun buildInventoryProbeCommand_detectsCompleteDeepSeekHarnessRuntime() {
+        val command = EnvironmentSetupLogic.buildInventoryProbeCommand(
+            listOf("deepseek_harness")
+        )
+
+        assertTrue(command.contains("command -v dsh-acp-demo"))
+        assertTrue(command.contains("@deepseek-ai/dsh-acp-demo/package.json"))
+        assertTrue(command.contains("@deepseek-ai/dsh-user-approval/package.json"))
+        assertTrue(command.contains("node-pty"))
+        assertTrue(command.contains("createRequire"))
+        assertTrue(command.contains("node -p"))
+    }
+
+    @Test
+    fun buildInstallCommands_installsUbuntuDeepSeekHarnessNativeBuildTools() {
+        val commands = EnvironmentSetupLogic.buildInstallCommands(
+            selectedPackageIds = listOf("deepseek_harness"),
+            repositorySetupCommand = "",
+            workingMode = WorkingMode.UBUNTU
+        )
+
+        val aptInstall = commands.last { it.startsWith("apt-get update") }
+        assertTrue(aptInstall.contains("build-essential"))
+        assertTrue(aptInstall.contains("python3"))
+    }
+
+    @Test
     fun buildInventoryProbeCommand_validatesRuntimeCwdForNodeAndPython() {
         val command = EnvironmentSetupLogic.buildInventoryProbeCommand(listOf("nodejs", "python", "pip"))
 
@@ -182,6 +234,8 @@ class EnvironmentSetupLogicTest {
         assertTrue(script.contains("python3 -c 'import os; os.getcwd()'"))
         assertTrue(script.contains("python3 -c 'import numpy'"))
         assertTrue(script.contains("pip3 --version"))
+        assertTrue(script.contains("setup_status=${'$'}?"))
+        assertTrue(script.contains("|| return \"${'$'}setup_status\""))
         assertTrue(script.indexOf("run_setup && run_validate") < script.indexOf("选中的环境已准备完成"))
     }
 

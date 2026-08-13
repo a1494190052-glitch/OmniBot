@@ -4,6 +4,7 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import cn.com.omnimind.bot.agent.tool.handlers.decodeImageWriteContentForFileName
@@ -319,5 +320,115 @@ class SkillRuntimeBehaviorTest {
         assertTrue(errorsFile.readText().contains("命令执行失败"))
         assertTrue(payload!!.guidance.contains("self-improving-agent"))
         assertTrue(payload.relatedHints.any { it.contains("ERR-20260409-OLD") })
+    }
+
+    @Test
+    fun failureHookDeduplicatesRedactsAndClosesVerifiedArgumentRecovery() {
+        val skillsRoot = Files.createTempDirectory("self-improving-harness-test").toFile()
+        val skill = ResolvedSkillContext(
+            skillId = SelfImprovingSkillFailureHook.SKILL_ID,
+            frontmatter = mapOf("name" to SelfImprovingSkillFailureHook.SKILL_ID),
+            bodyMarkdown = "先检查失败原因，不要原样重试",
+            triggerReason = "test"
+        )
+        val failure = ToolExecutionResult.Error(
+            toolName = "browser_use",
+            message = "Missing required field url"
+        )
+
+        val first = SelfImprovingSkillFailureHook.capture(
+            skillsRoot = skillsRoot,
+            skill = skill,
+            userMessage = "打开页面，token=private-user-token",
+            toolName = "browser_use",
+            toolType = "context",
+            argumentsJson = """{"apiKey":"sk-privatecredential123456","action":"navigate"}""",
+            result = failure,
+            agentRunId = "run-1",
+            failureStage = "argument_validation"
+        )!!
+        val second = SelfImprovingSkillFailureHook.capture(
+            skillsRoot = skillsRoot,
+            skill = skill,
+            userMessage = "打开页面",
+            toolName = "browser_use",
+            toolType = "context",
+            argumentsJson = """{"apiKey":"sk-anotherprivate123456","action":"navigate"}""",
+            result = failure,
+            agentRunId = "run-1",
+            failureStage = "argument_validation"
+        )!!
+
+        val pendingContent = first.logFile.readText()
+        assertEquals(first.entryId, second.entryId)
+        assertEquals(2, second.occurrences)
+        assertTrue(second.reusedEntry)
+        assertEquals(1, Regex("^## \\[", RegexOption.MULTILINE).findAll(pendingContent).count())
+        assertTrue(pendingContent.contains("- 出现次数: 2"))
+        assertFalse(pendingContent.contains("privatecredential"))
+        assertFalse(pendingContent.contains("anotherprivate"))
+
+        val resolution = SelfImprovingSkillFailureHook.resolveAfterSuccess(
+            skillsRoot = skillsRoot,
+            agentRunId = "run-1",
+            toolName = "browser_use",
+            argumentsJson = """{"action":"navigate","url":"https://example.com"}""",
+            result = ToolExecutionResult.ContextResult(
+                toolName = "browser_use",
+                summaryText = "页面已打开",
+                previewJson = "{}",
+                rawResultJson = "{}",
+                success = true
+            )
+        )
+
+        assertNotNull(resolution)
+        assertTrue(resolution!!.shouldPromoteDaily)
+        val resolvedContent = first.logFile.readText()
+        assertTrue(resolvedContent.contains("**状态**: resolved"))
+        assertTrue(resolvedContent.contains("same_run_verified_success"))
+        assertTrue(resolvedContent.contains("涉及字段：apiKey, action, url"))
+    }
+
+    @Test
+    fun failureHookDoesNotAutoResolveExecutionFailureAfterGenericSuccess() {
+        val skillsRoot = Files.createTempDirectory("self-improving-runtime-failure-test").toFile()
+        val skill = ResolvedSkillContext(
+            skillId = SelfImprovingSkillFailureHook.SKILL_ID,
+            frontmatter = mapOf("name" to SelfImprovingSkillFailureHook.SKILL_ID),
+            bodyMarkdown = "先检查失败原因，不要原样重试",
+            triggerReason = "test"
+        )
+        val captured = SelfImprovingSkillFailureHook.capture(
+            skillsRoot = skillsRoot,
+            skill = skill,
+            userMessage = "打开页面",
+            toolName = "browser_use",
+            toolType = "context",
+            argumentsJson = """{"action":"navigate","url":"https://example.com"}""",
+            result = ToolExecutionResult.Error(
+                toolName = "browser_use",
+                message = "Browser process crashed"
+            ),
+            agentRunId = "run-runtime",
+            failureStage = "execution"
+        )!!
+
+        val resolution = SelfImprovingSkillFailureHook.resolveAfterSuccess(
+            skillsRoot = skillsRoot,
+            agentRunId = "run-runtime",
+            toolName = "browser_use",
+            argumentsJson = """{"action":"navigate","url":"https://example.com"}""",
+            result = ToolExecutionResult.ContextResult(
+                toolName = "browser_use",
+                summaryText = "页面已打开",
+                previewJson = "{}",
+                rawResultJson = "{}",
+                success = true
+            )
+        )
+
+        assertNull(resolution)
+        assertTrue(captured.logFile.readText().contains("**状态**: pending"))
     }
 }

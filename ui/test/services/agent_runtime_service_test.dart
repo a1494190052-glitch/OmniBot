@@ -256,6 +256,8 @@ void main() {
       await AgentRuntimeService.writeAgentConfig(
         'claude-code-acp',
         content: ' {\n  "env": {}\n}\n ',
+        reasoningEffort: 'high',
+        permissionMode: 'workspace-write',
       );
 
       expect(calls.map((call) => call.method), [
@@ -266,6 +268,8 @@ void main() {
       expect(calls.last.arguments, {
         'agentId': 'claude-code-acp',
         'content': ' {\n  "env": {}\n}\n ',
+        'reasoningEffort': 'high',
+        'permissionMode': 'workspace-write',
       });
     },
   );

@@ -130,12 +130,20 @@ mixin _ChatInputAreaComposerMixin on _ChatInputAreaStateBase {
         ),
       ),
     };
-    return NotificationListener<SizeChangedLayoutNotification>(
-      onNotification: (_) {
-        _reportInputHeightAfterBuild();
-        return false;
-      },
-      child: SizeChangedLayoutNotifier(child: composer),
+    return TextFieldTapRegion(
+      onTapOutside: widget.isEditingUserMessage
+          ? (_) {
+              widget.focusNode.unfocus();
+              widget.onCancelUserMessageEditing?.call();
+            }
+          : null,
+      child: NotificationListener<SizeChangedLayoutNotification>(
+        onNotification: (_) {
+          _reportInputHeightAfterBuild();
+          return false;
+        },
+        child: SizeChangedLayoutNotifier(child: composer),
+      ),
     );
   }
 
@@ -180,7 +188,8 @@ mixin _ChatInputAreaComposerMixin on _ChatInputAreaStateBase {
               _buildAttachmentPreview(),
               const SizedBox(height: 8),
             ],
-            if ((widget.selectedModelOverrideId ?? '').trim().isNotEmpty) ...[
+            if (!widget.isEditingUserMessage &&
+                (widget.selectedModelOverrideId ?? '').trim().isNotEmpty) ...[
               _buildSelectedModelOverrideChip(),
               const SizedBox(height: 8),
             ],
@@ -197,6 +206,21 @@ mixin _ChatInputAreaComposerMixin on _ChatInputAreaStateBase {
   }
 
   Widget _buildLargeActionRow({required bool hasPayload}) {
+    if (widget.isEditingUserMessage) {
+      return Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          SizedBox(width: 28, height: 28, child: _buildLargeAddButton()),
+          const Spacer(),
+          SizedBox(
+            width: 28,
+            height: 28,
+            child: _buildLargeSendOrStopButton(hasPayload: hasPayload),
+          ),
+        ],
+      );
+    }
+
     final contextUsageRatio = widget.contextUsageRatio;
     final rightActions = <Widget>[
       if (contextUsageRatio != null) ...[
@@ -333,11 +357,27 @@ mixin _ChatInputAreaComposerMixin on _ChatInputAreaStateBase {
   }
 
   Widget _buildLargeAddButton() {
+    final isEnglish = Localizations.localeOf(context).languageCode == 'en';
     return IconButton(
+      key: const ValueKey('chat-input-add-or-cancel-edit-button'),
       padding: EdgeInsets.zero,
       iconSize: 20,
-      icon: _addSvg,
+      tooltip: widget.isEditingUserMessage
+          ? (isEnglish ? 'Exit editing' : '退出编辑')
+          : (isEnglish ? 'Add attachment' : '添加附件'),
+      icon: AnimatedRotation(
+        key: const ValueKey('chat-input-add-or-cancel-edit-icon'),
+        turns: widget.isEditingUserMessage ? 0.125 : 0,
+        duration: _buttonAnimationDuration,
+        curve: _buttonAnimationCurve,
+        child: _addSvg,
+      ),
       onPressed: () {
+        if (widget.isEditingUserMessage) {
+          widget.onCancelUserMessageEditing?.call();
+          return;
+        }
+
         if (widget.useAttachmentPickerForPlus &&
             widget.onPickAttachment != null) {
           if (_isPopupVisible) {
@@ -899,12 +939,9 @@ mixin _ChatInputAreaComposerMixin on _ChatInputAreaStateBase {
       final opened = widget.onAgentRunSettingsOpened;
       if (opened != null) {
         unawaited(
-          Future<void>.sync(opened).catchError((
-            Object error,
-            StackTrace stackTrace,
-          ) {
-            debugPrint('Refresh Agent run settings failed: $error');
-          }),
+          Future<void>.sync(
+            opened,
+          ).catchError((Object error, StackTrace stackTrace) {}),
         );
       }
       _isOpeningAgentRunSettingsMenu = false;
@@ -1200,8 +1237,8 @@ mixin _ChatInputAreaComposerMixin on _ChatInputAreaStateBase {
   String _agentPermissionLabel(AgentPermissionMode mode) {
     final english = Localizations.localeOf(context).languageCode == 'en';
     return switch (mode) {
-      AgentPermissionMode.defaultMode =>
-        english ? 'Default permissions' : '默认权限',
+      AgentPermissionMode.readOnly => english ? 'Read only' : '只读',
+      AgentPermissionMode.defaultMode => english ? 'Workspace write' : '工作区读写',
       AgentPermissionMode.autoReview => english ? 'Auto review' : '自动审查',
       AgentPermissionMode.fullAccess => english ? 'Full access' : '完全访问权限',
     };
@@ -1209,6 +1246,7 @@ mixin _ChatInputAreaComposerMixin on _ChatInputAreaStateBase {
 
   String _agentPermissionIconAsset(AgentPermissionMode mode) {
     return switch (mode) {
+      AgentPermissionMode.readOnly => _kAgentPermissionReadOnlyIconAsset,
       AgentPermissionMode.defaultMode => _kAgentPermissionDefaultIconAsset,
       AgentPermissionMode.autoReview => _kAgentPermissionAutoReviewIconAsset,
       AgentPermissionMode.fullAccess => _kAgentPermissionFullAccessIconAsset,

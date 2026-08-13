@@ -5,6 +5,7 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:ui/constants/storage_keys.dart';
 import 'package:ui/core/router/go_router_manager.dart';
 import 'package:ui/features/home/pages/chat/chat_page.dart';
+import 'package:ui/features/my/pages/account/account_auth_page.dart';
 import 'package:ui/services/special_permission.dart';
 import 'package:ui/services/storage_service.dart';
 import 'package:ui/theme/theme_context.dart';
@@ -233,10 +234,20 @@ class _OnboardingChoicePageState extends State<OnboardingChoicePage> {
   }
 
   Future<void> _configureProvider() async {
-    final success = await _provider.configure(t: _t);
+    final success = await _provider.configure(context: context, t: _t);
     if (success && mounted) {
       _goToPage(TutorialPage.modelInventory);
     }
+  }
+
+  Future<void> _openAccountAuth() async {
+    if (!mounted) return;
+    await Navigator.of(context).push<bool>(
+      MaterialPageRoute<bool>(
+        builder: (_) => const AccountAuthPage(),
+        settings: const RouteSettings(name: 'onboarding-account-auth'),
+      ),
+    );
   }
 
   Future<void> _requestShizuku() async {
@@ -376,6 +387,7 @@ class _OnboardingChoicePageState extends State<OnboardingChoicePage> {
       TutorialPage.provider => OnboardingProviderPage(
         controller: _provider,
         scrollController: _scrollController,
+        onOpenAccount: () => unawaited(_openAccountAuth()),
       ),
       TutorialPage.providerConnection => OnboardingProviderConnectionPage(
         controller: _provider,

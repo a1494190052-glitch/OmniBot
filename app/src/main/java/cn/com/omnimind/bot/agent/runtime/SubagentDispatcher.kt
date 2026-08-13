@@ -160,6 +160,7 @@ class SubagentDispatcher(
                 workspaceMemoryService = parentEnv.workspaceMemoryService,
                 conversationMode = parentEnv.conversationMode,
                 reasoningEffort = parentEnv.reasoningEffort,
+                modelProviderProfileId = parentEnv.modelProviderProfileId,
                 terminalEnvironment = parentEnv.terminalEnvironment,
                 runControl = NoOpAgentRunControl,
                 longTermMemoryIndex = parentEnv.longTermMemoryIndex,

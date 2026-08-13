@@ -98,6 +98,33 @@ void main() {
       expect(runtime.currentAiMessages, isEmpty);
       expect(runtime.activeAgentTaskIds, isEmpty);
     });
+
+    test(
+      'keeps row notifiers when a refresh reuses runtime message objects',
+      () {
+        const conversationId = 0xD55;
+        const mode = kChatRuntimeModeAgent;
+        final runtime = coordinator.ensureRuntime(
+          conversationId: conversationId,
+          mode: mode,
+          initialMessages: <ChatMessageModel>[
+            ChatMessageModel.assistantMessage('final', id: 'turn-1-text'),
+          ],
+        );
+        final originalNotifier = runtime.messages.listenableAt(0);
+        var structuralNotifications = 0;
+        runtime.messages.addListener(() => structuralNotifications += 1);
+
+        coordinator.replaceConversationSnapshot(
+          conversationId: conversationId,
+          mode: mode,
+          messages: List<ChatMessageModel>.from(runtime.messages),
+        );
+
+        expect(runtime.messages.listenableAt(0), same(originalNotifier));
+        expect(structuralNotifications, 0);
+      },
+    );
   });
 
   group('shouldReloadConversationMessagesChanged', () {
@@ -139,6 +166,86 @@ void main() {
           hasInFlightTask: false,
         ),
         isTrue,
+      );
+    });
+
+    test('keeps the completed in-memory timeline during native echoes', () {
+      expect(
+        shouldReloadConversationMessagesChanged(
+          reason: 'agent_stream_snapshot',
+          hasInFlightTask: false,
+          hasRuntimeMessages: true,
+        ),
+        isFalse,
+      );
+      expect(
+        shouldReloadConversationMessagesChanged(
+          reason: 'messages_replaced',
+          hasInFlightTask: false,
+          hasRuntimeMessages: true,
+          suppressLocalSnapshotEcho: true,
+        ),
+        isFalse,
+      );
+      expect(
+        shouldReloadConversationMessagesChanged(
+          reason: 'messages_replaced',
+          hasInFlightTask: false,
+          hasRuntimeMessages: true,
+        ),
+        isTrue,
+      );
+    });
+  });
+
+  group('conversation list refresh source', () {
+    test('keeps a populated runtime even after its task completes', () {
+      expect(
+        shouldPreferInMemoryForConversationListChanged(
+          hasInFlightTask: false,
+          hasRuntimeMessages: true,
+        ),
+        isTrue,
+      );
+      expect(
+        shouldPreferInMemoryForConversationListChanged(
+          hasInFlightTask: false,
+          hasRuntimeMessages: false,
+        ),
+        isFalse,
+      );
+    });
+  });
+
+  group('retriedMessageRoundRemovalCount', () {
+    final messages = <ChatMessageModel>[
+      ChatMessageModel.assistantMessage('旧回复', id: 'assistant'),
+      ChatMessageModel.cardMessage(const <String, dynamic>{
+        'type': 'deep_thinking',
+      }, id: 'thinking'),
+      ChatMessageModel.userMessage('保留显示的用户消息', id: 'user'),
+      ChatMessageModel.assistantMessage('更早回复', id: 'older-assistant'),
+    ];
+
+    test('plain retry clears old response but preserves the user entry', () {
+      final removeCount = retriedMessageRoundRemovalCount(
+        messages,
+        userMessageId: 'user',
+        preserveUserMessage: true,
+      );
+
+      expect(removeCount, 2);
+      expect(messages.skip(removeCount).first.id, 'user');
+    });
+
+    test('edited resend also removes the original user entry', () {
+      expect(
+        retriedMessageRoundRemovalCount(
+          messages,
+          userMessageId: 'user',
+          preserveUserMessage: false,
+        ),
+        3,
       );
     });
   });

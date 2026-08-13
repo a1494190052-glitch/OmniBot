@@ -44,6 +44,10 @@ class AgentConversationContextCompactorTest {
         assertTrue(systemPromptContent.contains("type=text"))
         assertTrue(systemPromptContent.contains("context compaction engine"))
         assertTrue(systemPromptContent.contains("cache_control={type=ephemeral}"))
+        assertTrue(systemPromptContent.contains("## Goal"))
+        assertTrue(systemPromptContent.contains("## Constraints & Preferences"))
+        assertTrue(systemPromptContent.contains("## Critical Context"))
+        assertTrue(systemPromptContent.contains("Do NOT continue the conversation"))
 
         val summaryMessage = requestMessages[1]
         assertEquals("user", summaryMessage["role"])
@@ -95,6 +99,60 @@ class AgentConversationContextCompactorTest {
                 ?.get("type")
                 ?.toString()
                 ?.trim('"')
+        )
+    }
+
+    @Test
+    fun `auto compaction trigger reserves adaptive headroom`() {
+        assertEquals(
+            112_000,
+            AgentConversationContextCompactor.resolveAutoCompactionTrigger(128_000)
+        )
+        assertEquals(
+            28_000,
+            AgentConversationContextCompactor.resolveAutoCompactionTrigger(32_000)
+        )
+        assertEquals(
+            5_952,
+            AgentConversationContextCompactor.resolveAutoCompactionTrigger(8_000)
+        )
+    }
+
+    @Test
+    fun `reported context tokens include completion and prefer conservative total`() {
+        assertEquals(
+            12_000,
+            AgentConversationContextCompactor.resolveReportedContextTokens(
+                promptTokens = 10_000,
+                completionTokens = 2_000,
+                totalTokens = null
+            )
+        )
+        assertEquals(
+            13_000,
+            AgentConversationContextCompactor.resolveReportedContextTokens(
+                promptTokens = 10_000,
+                completionTokens = 2_000,
+                totalTokens = 13_000
+            )
+        )
+    }
+
+    @Test
+    fun `effective context capacity never exceeds selected model limit`() {
+        assertEquals(
+            32_000,
+            AgentConversationContextCompactor.resolveEffectiveContextCapacity(
+                storedThreshold = 128_000,
+                modelContextLimit = 32_000
+            )
+        )
+        assertEquals(
+            64_000,
+            AgentConversationContextCompactor.resolveEffectiveContextCapacity(
+                storedThreshold = 64_000,
+                modelContextLimit = 128_000
+            )
         )
     }
 }

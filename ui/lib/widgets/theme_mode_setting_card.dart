@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:ui/l10n/l10n.dart';
 import 'package:ui/theme/app_theme_controller.dart';
 import 'package:ui/theme/app_theme_mode.dart';
@@ -7,11 +8,7 @@ import 'package:ui/widgets/omni_segmented_slider.dart';
 import 'package:ui/widgets/settings_section_title.dart';
 
 class ThemeModeSettingCard extends ConsumerWidget {
-  const ThemeModeSettingCard({
-    super.key,
-    this.title,
-    this.subtitle,
-  });
+  const ThemeModeSettingCard({super.key, this.title, this.subtitle});
 
   final String? title;
   final String? subtitle;
@@ -36,19 +33,19 @@ class ThemeModeSettingCard extends ConsumerWidget {
             OmniSegmentedOption<AppThemeMode>(
               value: AppThemeMode.system,
               label: context.l10n.themeModeSystem,
-              icon: Icons.brightness_auto_rounded,
+              icon: LucideIcons.sunMoon,
               id: 'system',
             ),
             OmniSegmentedOption<AppThemeMode>(
               value: AppThemeMode.light,
               label: context.l10n.themeModeLight,
-              icon: Icons.light_mode_rounded,
+              icon: LucideIcons.sun,
               id: 'light',
             ),
             OmniSegmentedOption<AppThemeMode>(
               value: AppThemeMode.dark,
               label: context.l10n.themeModeDark,
-              icon: Icons.dark_mode_rounded,
+              icon: LucideIcons.moon,
               id: 'dark',
             ),
           ],

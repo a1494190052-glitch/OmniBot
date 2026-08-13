@@ -5,6 +5,7 @@ import cn.com.omnimind.baselib.llm.AssistantToolCall
 import cn.com.omnimind.baselib.llm.ChatCompletionMessage
 import cn.com.omnimind.baselib.llm.ChatCompletionRequest
 import cn.com.omnimind.baselib.llm.ChatCompletionStreamOptions
+import cn.com.omnimind.baselib.llm.ChatCompletionTool
 import cn.com.omnimind.baselib.llm.contentText
 import cn.com.omnimind.baselib.util.OmniLog
 import cn.com.omnimind.bot.agent.tool.AgentToolConcurrencyPolicy
@@ -14,6 +15,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.serialization.decodeFromString
+import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
@@ -24,6 +26,68 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
+import java.security.MessageDigest
+
+private val CONTEXT_OVERFLOW_PATTERNS = listOf(
+    Regex("prompt is too long", RegexOption.IGNORE_CASE),
+    Regex("request_too_large", RegexOption.IGNORE_CASE),
+    Regex("input is too long for requested model", RegexOption.IGNORE_CASE),
+    Regex("exceeds (?:the )?context window", RegexOption.IGNORE_CASE),
+    Regex("exceeds (?:the )?(?:model'?s )?maximum context length", RegexOption.IGNORE_CASE),
+    Regex("input token count.*exceeds the maximum", RegexOption.IGNORE_CASE),
+    Regex("maximum prompt length is \\d+", RegexOption.IGNORE_CASE),
+    Regex("reduce the length of the messages", RegexOption.IGNORE_CASE),
+    Regex("maximum context length is \\d+ tokens", RegexOption.IGNORE_CASE),
+    Regex("exceeds (?:the )?maximum allowed input length", RegexOption.IGNORE_CASE),
+    Regex("exceeds the available context size", RegexOption.IGNORE_CASE),
+    Regex("greater than the context length", RegexOption.IGNORE_CASE),
+    Regex("context window exceeds limit", RegexOption.IGNORE_CASE),
+    Regex("exceeded model token limit", RegexOption.IGNORE_CASE),
+    Regex("too large for model with \\d+ maximum context length", RegexOption.IGNORE_CASE),
+    Regex("model_context_window_exceeded", RegexOption.IGNORE_CASE),
+    Regex("prompt too long; exceeded (?:max )?context length", RegexOption.IGNORE_CASE),
+    Regex("range of input length should be", RegexOption.IGNORE_CASE),
+    Regex("context[_ ]length[_ ]exceeded", RegexOption.IGNORE_CASE),
+    Regex("too many tokens", RegexOption.IGNORE_CASE),
+    Regex("token limit exceeded", RegexOption.IGNORE_CASE)
+)
+
+private val NON_CONTEXT_OVERFLOW_PATTERNS = listOf(
+    Regex("rate limit", RegexOption.IGNORE_CASE),
+    Regex("too many requests", RegexOption.IGNORE_CASE),
+    Regex("throttl", RegexOption.IGNORE_CASE)
+)
+
+internal fun isContextOverflowTurnFailure(error: Throwable): Boolean {
+    if (error !is AgentStreamRequestException) return false
+    val failureText = buildString {
+        append(error.reason)
+        error.responseBody?.takeIf { it.isNotBlank() }?.let { body ->
+            append(' ')
+            append(body)
+        }
+    }
+    if (NON_CONTEXT_OVERFLOW_PATTERNS.any { it.containsMatchIn(failureText) }) {
+        return false
+    }
+    return CONTEXT_OVERFLOW_PATTERNS.any { it.containsMatchIn(failureText) }
+}
+
+internal fun isLengthStopAtContextCapacity(
+    finishReason: String?,
+    promptTokens: Int?,
+    completionTokens: Int?,
+    contextCapacityTokens: Int?
+): Boolean {
+    val normalizedReason = finishReason?.trim()?.lowercase().orEmpty()
+    val isLengthStop = normalizedReason == "length" ||
+        normalizedReason == "max_tokens" ||
+        normalizedReason == "max_completion_tokens"
+    if (!isLengthStop || completionTokens != 0) return false
+    val prompt = promptTokens?.takeIf { it >= 0 } ?: return false
+    val capacity = contextCapacityTokens?.takeIf { it > 0 } ?: return false
+    return prompt.toLong() * 100L >= capacity.toLong() * 99L
+}
 
 class AgentOrchestrator(
     private val llmClient: AgentLlmClient,
@@ -45,6 +109,11 @@ class AgentOrchestrator(
     ) : RuntimeException(errorMessage, cause)
 
     private class TerminalTurnRequestFailure(
+        val errorMessage: String,
+        cause: Throwable
+    ) : RuntimeException(errorMessage, cause)
+
+    private class ContextOverflowTurnFailure(
         val errorMessage: String,
         cause: Throwable
     ) : RuntimeException(errorMessage, cause)
@@ -73,7 +142,8 @@ class AgentOrchestrator(
         val initialMessages: List<ChatCompletionMessage>,
         val executionEnv: AgentExecutionEnvironment,
         val conversationId: Long? = null,
-        val contextCompactor: AgentConversationContextCompactor? = null,
+        val promptCacheKey: String? = null,
+        val contextCompactor: AgentContextCompactionController? = null,
         val maxModelRounds: Int? = null,
         val maxCompletionTokens: Int = 16384
     )
@@ -94,11 +164,43 @@ class AgentOrchestrator(
         val promptTokens: Int? = null,
         val completionTokens: Int? = null,
         val totalTokens: Int? = null,
-        val cachedTokens: Int? = null
+        val cachedTokens: Int? = null,
+        val cacheCreationTokens: Int? = null
     )
 
     private fun t(zh: String, en: String): String {
         return if (AppLocaleManager.isEnglish()) en else zh
+    }
+
+    private fun logPromptCacheFingerprints(
+        messages: List<ChatCompletionMessage>,
+        tools: List<ChatCompletionTool>
+    ) {
+        val latestIndex = messages.lastIndex
+        fun encodedMessage(index: Int): String {
+            return messages.getOrNull(index)?.let { json.encodeToString(it) }.orEmpty()
+        }
+        val history = messages
+            .drop(2)
+            .dropLast(if (messages.size > 2) 1 else 0)
+            .joinToString(separator = "\u001e") { json.encodeToString(it) }
+        logInfo(
+            tag,
+            "cache_prefix_fingerprint " +
+                "system=${shortFingerprint(encodedMessage(0))} " +
+                "time=${shortFingerprint(encodedMessage(1))} " +
+                "tools=${shortFingerprint(json.encodeToString(tools))} " +
+                "history=${shortFingerprint(history)} " +
+                "latest=${shortFingerprint(encodedMessage(latestIndex))} " +
+                "messages=${messages.size} tools_count=${tools.size}"
+        )
+    }
+
+    private fun shortFingerprint(value: String): String {
+        return MessageDigest.getInstance("SHA-256")
+            .digest(value.toByteArray(Charsets.UTF_8))
+            .joinToString(separator = "") { byte -> "%02x".format(byte) }
+            .take(12)
     }
 
     private fun resolveTurnUsage(turn: ChatCompletionTurn): TurnUsage {
@@ -114,11 +216,20 @@ class AgentOrchestrator(
                     ?.contentOrNull
                     ?.toIntOrNull()
             }
+        val cacheCreationTokens = usage?.promptTokensDetails
+            ?.let { detail ->
+                (detail as? kotlinx.serialization.json.JsonObject)
+                    ?.get("cache_creation_tokens")
+                    ?.jsonPrimitive
+                    ?.contentOrNull
+                    ?.toIntOrNull()
+            }
         return TurnUsage(
             promptTokens = promptTokens,
             completionTokens = completionTokens,
             totalTokens = totalTokens,
-            cachedTokens = cachedTokens
+            cachedTokens = cachedTokens,
+            cacheCreationTokens = cacheCreationTokens
         )
     }
 
@@ -145,6 +256,7 @@ class AgentOrchestrator(
         var completedModelRounds = 0
         var lengthContinuationRounds = 0
         var missingToolCallRecoveryRounds = 0
+        var contextOverflowRecoveryRounds = 0
         var terminated = false
         var terminalError: AgentResult.Error? = null
 
@@ -175,18 +287,24 @@ class AgentOrchestrator(
                     tag,
                     "round=$round request_tools=${toolRegistry.toolsForModel.size}"
                 )
+                val requestMessages = memory.snapshot()
+                logPromptCacheFingerprints(
+                    messages = requestMessages,
+                    tools = toolRegistry.toolsForModel
+                )
                 val disableThinking = input.executionEnv.reasoningEffort == "no"
                 val turn = try {
                     streamTurnWithRetry(
                         callback = callback,
                         request = ChatCompletionRequest(
-                            messages = memory.snapshot(),
+                            messages = requestMessages,
                             model = model,
                             maxCompletionTokens = input.maxCompletionTokens.coerceIn(1, 16384),
                             stream = true,
                             streamOptions = ChatCompletionStreamOptions(includeUsage = true),
                             enableThinking = if (disableThinking) false else null,
                             reasoningEffort = if (disableThinking) null else input.executionEnv.reasoningEffort,
+                            promptCacheKey = input.promptCacheKey,
                             tools = toolRegistry.toolsForModel,
                             toolChoice = toolChoiceForRound,
                             parallelToolCalls = true
@@ -198,16 +316,75 @@ class AgentOrchestrator(
                     terminalError = AgentResult.Error(e.errorMessage, e)
                     terminated = true
                     break@roundLoop
+                } catch (e: ContextOverflowTurnFailure) {
+                    val compacted = if (contextOverflowRecoveryRounds < 1) {
+                        input.contextCompactor?.compactForOverflow(
+                            conversationId = input.conversationId,
+                            conversationMode = input.executionEnv.conversationMode,
+                            latestPromptTokens = latestPromptTokens,
+                            messages = memory.snapshot(),
+                            promptTokenThresholdOverride = latestPromptTokenThreshold,
+                            callback = callback
+                        )
+                    } else {
+                        null
+                    }
+                    if (compacted != null) {
+                        memory.replaceAll(compacted)
+                        contextOverflowRecoveryRounds += 1
+                        completedModelRounds = (completedModelRounds - 1).coerceAtLeast(0)
+                        logInfo(
+                            tag,
+                            "context_overflow compacted=true retry=$contextOverflowRecoveryRounds/1"
+                        )
+                        continue@roundLoop
+                    }
+                    callback.onError(e.errorMessage, true)
+                    terminalError = AgentResult.Error(e.errorMessage, e)
+                    terminated = true
+                    break@roundLoop
                 } catch (e: TerminalTurnRequestFailure) {
                     callback.onError(e.errorMessage, true)
                     terminalError = AgentResult.Error(e.errorMessage, e)
                     terminated = true
                     break@roundLoop
                 }
-
                 val turnUsage = resolveTurnUsage(turn)
                 lastTurnUsage = turnUsage
                 lastFinishReason = turn.finishReason
+                latestPromptTokens = turnUsage.promptTokens
+                latestPromptTokenThreshold =
+                    input.contextCompactor?.resolvePromptTokenThreshold(input.conversationId)
+                if (
+                    isLengthStopAtContextCapacity(
+                        finishReason = lastFinishReason,
+                        promptTokens = turnUsage.promptTokens,
+                        completionTokens = turnUsage.completionTokens,
+                        contextCapacityTokens = latestPromptTokenThreshold
+                    ) &&
+                    contextOverflowRecoveryRounds < 1
+                ) {
+                    val compacted = input.contextCompactor?.compactForOverflow(
+                        conversationId = input.conversationId,
+                        conversationMode = input.executionEnv.conversationMode,
+                        latestPromptTokens = latestPromptTokens,
+                        messages = memory.snapshot(),
+                        promptTokenThresholdOverride = latestPromptTokenThreshold,
+                        callback = callback
+                    )
+                    if (compacted != null) {
+                        memory.replaceAll(compacted)
+                        contextOverflowRecoveryRounds += 1
+                        completedModelRounds = (completedModelRounds - 1).coerceAtLeast(0)
+                        logInfo(
+                            tag,
+                            "context_capacity_length_stop compacted=true " +
+                                "retry=$contextOverflowRecoveryRounds/1"
+                        )
+                        continue@roundLoop
+                    }
+                }
+                contextOverflowRecoveryRounds = 0
                 lastPrefillTokensPerSecond =
                     turn.usage?.prefillTokensPerSecond ?: lastPrefillTokensPerSecond
                 lastDecodeTokensPerSecond =
@@ -223,21 +400,17 @@ class AgentOrchestrator(
                     "round=$round parsed_tool_calls=${toolCalls.size} finish_reason=${lastFinishReason.orEmpty()} assistant_content_len=${lastAssistantContent.length}"
                 )
 
-                memory.add(
-                    ChatCompletionMessage(
-                        role = "assistant",
-                        content = normalizeAssistantContentForNextRound(
-                            content = turn.message.content,
-                            toolCalls = toolCalls
-                        ),
-                        toolCalls = toolCalls.ifEmpty { null },
-                        reasoningContent = turn.message.reasoningContent
-                            ?.takeIf { it.isNotBlank() }
-                    )
+                val assistantMessageForMemory = ChatCompletionMessage(
+                    role = "assistant",
+                    content = normalizeAssistantContentForNextRound(
+                        content = turn.message.content,
+                        toolCalls = toolCalls
+                    ),
+                    toolCalls = toolCalls.ifEmpty { null },
+                    reasoningContent = turn.message.reasoningContent
+                        ?.takeIf { it.isNotBlank() }
                 )
-                latestPromptTokens = turnUsage.promptTokens
-                latestPromptTokenThreshold =
-                    input.contextCompactor?.resolvePromptTokenThreshold(input.conversationId)
+                memory.add(assistantMessageForMemory)
                 latestPromptTokens?.let { promptTokens ->
                     callback.onPromptTokenUsageChanged(
                         latestPromptTokens = promptTokens,
@@ -250,10 +423,54 @@ class AgentOrchestrator(
                         conversationMode = input.executionEnv.conversationMode,
                         promptTokens = latestPromptTokens,
                         messages = memory.snapshot(),
+                        contextTokens = AgentConversationContextCompactor
+                            .resolveReportedContextTokens(
+                                promptTokens = turnUsage.promptTokens,
+                                completionTokens = turnUsage.completionTokens,
+                                totalTokens = turnUsage.totalTokens
+                            ),
                         promptTokenThresholdOverride = latestPromptTokenThreshold,
                         callback = callback
                     )
                     memory.replaceAll(compacted)
+                }
+
+                // A provider can finish with `length` after streaming a syntactically
+                // valid but incomplete tool-call argument object. Never execute those
+                // calls: feed one result per call back to the model so it can re-issue
+                // the complete operation in the next round.
+                if (toolCalls.isNotEmpty() && isLengthFinishReason(lastFinishReason)) {
+                    val reason = buildTruncatedToolCallMessage()
+                    toolCalls.forEach { toolCall ->
+                        val result = ToolExecutionResult.Error(
+                            toolName = toolCall.function.name,
+                            message = reason
+                        )
+                        executedTools.add(result)
+                        callback.onToolCallComplete(
+                            toolCall.id,
+                            toolCall.function.name,
+                            result
+                        )
+                        appendToolResultMessage(
+                            memory = memory,
+                            env = input.executionEnv,
+                            callback = callback,
+                            assistantMessage = assistantMessageForMemory,
+                            toolCall = toolCall,
+                            descriptor = toolRegistry.runtimeDescriptor(toolCall.function.name),
+                            result = result
+                        )
+                    }
+                    accumulatedAssistantContent = ""
+                    lengthContinuationRounds = 0
+                    missingToolCallRecoveryRounds = 0
+                    logInfo(
+                        tag,
+                        "round=$round rejected_truncated_tool_calls=${toolCalls.size} " +
+                            "finish_reason=${lastFinishReason.orEmpty()}"
+                    )
+                    continue@roundLoop
                 }
 
                 if (toolCalls.isEmpty()) {
@@ -385,12 +602,20 @@ class AgentOrchestrator(
                             toolCall = toolCall,
                             descriptor = descriptor,
                             argumentsJson = null,
-                            result = result
+                            result = result,
+                            failureStage = "argument_parse"
                         )
                         executedTools.add(result)
-                        callback.onToolCallComplete(toolCall.function.name, result)
+                        callback.onToolCallComplete(
+                            toolCall.id,
+                            toolCall.function.name,
+                            result
+                        )
                         appendToolResultMessage(
                             memory = memory,
+                            env = input.executionEnv,
+                            callback = callback,
+                            assistantMessage = assistantMessageForMemory,
                             toolCall = toolCall,
                             descriptor = descriptor,
                             result = result,
@@ -419,12 +644,20 @@ class AgentOrchestrator(
                             toolCall = toolCall,
                             descriptor = descriptor,
                             argumentsJson = parsedArgs.toString(),
-                            result = result
+                            result = result,
+                            failureStage = "argument_validation"
                         )
                         executedTools.add(result)
-                        callback.onToolCallComplete(toolCall.function.name, result)
+                        callback.onToolCallComplete(
+                            toolCall.id,
+                            toolCall.function.name,
+                            result
+                        )
                         appendToolResultMessage(
                             memory = memory,
+                            env = input.executionEnv,
+                            callback = callback,
+                            assistantMessage = assistantMessageForMemory,
                             toolCall = toolCall,
                             descriptor = descriptor,
                             result = result,
@@ -477,7 +710,11 @@ class AgentOrchestrator(
                                             descriptor = desc,
                                             parsedArgs = args
                                         )
-                                        callback.onToolCallComplete(call.function.name, result)
+                                        callback.onToolCallComplete(
+                                            call.id,
+                                            call.function.name,
+                                            result
+                                        )
                                         call to result
                                     }
                                 }.awaitAll()
@@ -495,7 +732,11 @@ class AgentOrchestrator(
                                     descriptor = desc,
                                     parsedArgs = args
                                 )
-                                callback.onToolCallComplete(call.function.name, result)
+                                callback.onToolCallComplete(
+                                    call.id,
+                                    call.function.name,
+                                    result
+                                )
                                 singles.add(call to result)
                             }
                             batchResults = singles
@@ -519,10 +760,22 @@ class AgentOrchestrator(
                                 toolCall = call,
                                 descriptor = desc,
                                 argumentsJson = args.toString(),
-                                result = result
+                                result = result,
+                                failureStage = "execution"
                             )
+                            if (failureLearning == null) {
+                                resolveFailureLearningAfterSuccess(
+                                    env = input.executionEnv,
+                                    toolCall = call,
+                                    argumentsJson = args.toString(),
+                                    result = result
+                                )
+                            }
                             appendToolResultMessage(
                                 memory = memory,
+                                env = input.executionEnv,
+                                callback = callback,
+                                assistantMessage = assistantMessageForMemory,
                                 toolCall = call,
                                 descriptor = desc,
                                 result = result,
@@ -581,6 +834,9 @@ class AgentOrchestrator(
                 pendingToolCallBackfillReason?.let { reason ->
                     appendSyntheticToolResultMessages(
                         memory = memory,
+                        env = input.executionEnv,
+                        callback = callback,
+                        assistantMessage = assistantMessageForMemory,
                         toolCalls = toolCalls,
                         descriptorMap = descriptorMap,
                         writtenToolCallIds = writtenToolCallIds,
@@ -600,7 +856,7 @@ class AgentOrchestrator(
             throw e
         } catch (e: Exception) {
             callback.onError("Agent execution failed: ${e.message}")
-            return AgentResult.Error("Agent execution failed", e as? Exception)
+            return AgentResult.Error("Agent execution failed", e)
         } finally {
             runCatching { toolRouter.dispose() }
         }
@@ -633,6 +889,7 @@ class AgentOrchestrator(
                 promptTokenThreshold = latestPromptTokenThreshold,
                 completionTokens = lastTurnUsage?.completionTokens,
                 cachedTokens = lastTurnUsage?.cachedTokens,
+                cacheCreationTokens = lastTurnUsage?.cacheCreationTokens,
                 totalTokens = lastTurnUsage?.totalTokens
             ),
             executedTools = executedTools,
@@ -642,6 +899,7 @@ class AgentOrchestrator(
             promptTokenThreshold = latestPromptTokenThreshold,
             completionTokens = lastTurnUsage?.completionTokens,
             cachedTokens = lastTurnUsage?.cachedTokens,
+            cacheCreationTokens = lastTurnUsage?.cacheCreationTokens,
             totalTokens = lastTurnUsage?.totalTokens
         )
         callback.onComplete(finalResult)
@@ -678,6 +936,16 @@ class AgentOrchestrator(
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
+                if (isContextOverflowTurnFailure(e)) {
+                    val requestError = e as AgentStreamRequestException
+                    throw ContextOverflowTurnFailure(
+                        errorMessage = formatTurnFailureReason(
+                            requestError.statusCode,
+                            requestError.reason
+                        ),
+                        cause = e
+                    )
+                }
                 val decision = classifyRetryableTurnFailure(e)
                 val canRetry = decision.retryable && retryCount < maxTurnRequestRetries
                 if (!canRetry) {
@@ -719,7 +987,11 @@ class AgentOrchestrator(
             toolName = toolCall.function.name,
             toolCallId = toolCall.id
         )
-        callback.onToolCallStart(toolCall.function.name, parsedArgs)
+        callback.onToolCallStart(
+            toolCall.id,
+            toolCall.function.name,
+            parsedArgs
+        )
         return try {
             coroutineScope {
                 val deferred = async {
@@ -749,17 +1021,37 @@ class AgentOrchestrator(
         }
     }
 
-    private fun appendToolResultMessage(
+    private suspend fun appendToolResultMessage(
         memory: AgentChatMemory,
+        env: AgentExecutionEnvironment,
+        callback: AgentCallback,
+        assistantMessage: ChatCompletionMessage,
         toolCall: AssistantToolCall,
         descriptor: AgentToolRegistry.RuntimeToolDescriptor,
         result: ToolExecutionResult,
         failureLearning: FailureLearningHookPayload? = null
     ) {
-        val textContent = eventAdapter.toolResultContent(
+        val rawTextContent = eventAdapter.toolResultContent(
             descriptor = descriptor,
             result = result,
             extras = failureLearning?.toPayload() ?: emptyMap()
+        )
+        val offloadArtifact = if (
+            rawTextContent.length > AgentEventAdapter.MAX_MODEL_TOOL_RESULT_CHARS
+        ) {
+            runCatching {
+                env.workspaceManager.writeOffload(
+                    agentRunId = env.agentRunId,
+                    extension = "json",
+                    content = rawTextContent
+                )
+            }.getOrNull()
+        } else {
+            null
+        }
+        val textContent = eventAdapter.compactToolResultContent(
+            rawContent = rawTextContent,
+            offloadArtifact = offloadArtifact
         )
         val imageDataUrl = (result as? ToolExecutionResult.ContextResult)
             ?.imageDataUrl
@@ -793,17 +1085,24 @@ class AgentOrchestrator(
             JsonPrimitive(textContent)
         }
 
-        memory.add(
-            ChatCompletionMessage(
-                role = "tool",
-                toolCallId = toolCall.id,
-                content = content
-            )
+        val toolResultMessage = ChatCompletionMessage(
+            role = "tool",
+            toolCallId = toolCall.id,
+            content = content
+        )
+        memory.add(toolResultMessage)
+        callback.onToolReplayReady(
+            toolCallId = toolCall.id,
+            assistantMessage = assistantMessage,
+            toolResultMessage = toolResultMessage
         )
     }
 
-    private fun appendSyntheticToolResultMessages(
+    private suspend fun appendSyntheticToolResultMessages(
         memory: AgentChatMemory,
+        env: AgentExecutionEnvironment,
+        callback: AgentCallback,
+        assistantMessage: ChatCompletionMessage,
         toolCalls: List<AssistantToolCall>,
         descriptorMap: MutableMap<String, AgentToolRegistry.RuntimeToolDescriptor>,
         writtenToolCallIds: MutableSet<String>,
@@ -819,14 +1118,23 @@ class AgentOrchestrator(
             val descriptor = descriptorMap.getOrPut(toolCall.id) {
                 toolRegistry.runtimeDescriptor(toolCall.function.name)
             }
+            val syntheticResult = ToolExecutionResult.Error(
+                toolName = toolCall.function.name,
+                message = buildSyntheticToolSkipMessage(reason)
+            )
+            callback.onToolCallComplete(
+                toolCall.id,
+                toolCall.function.name,
+                syntheticResult
+            )
             appendToolResultMessage(
                 memory = memory,
+                env = env,
+                callback = callback,
+                assistantMessage = assistantMessage,
                 toolCall = toolCall,
                 descriptor = descriptor,
-                result = ToolExecutionResult.Error(
-                    toolName = toolCall.function.name,
-                    message = buildSyntheticToolSkipMessage(reason)
-                )
+                result = syntheticResult
             )
             writtenToolCallIds += toolCall.id
             syntheticIds += toolCall.id
@@ -924,7 +1232,8 @@ class AgentOrchestrator(
         toolCall: AssistantToolCall,
         descriptor: AgentToolRegistry.RuntimeToolDescriptor,
         argumentsJson: String?,
-        result: ToolExecutionResult
+        result: ToolExecutionResult,
+        failureStage: String
     ): FailureLearningHookPayload? {
         if (!SelfImprovingSkillFailureHook.shouldHandle(result)) {
             return null
@@ -937,10 +1246,38 @@ class AgentOrchestrator(
             toolName = toolCall.function.name,
             toolType = descriptor.toolType,
             argumentsJson = argumentsJson,
-            result = result
+            result = result,
+            agentRunId = env.agentRunId,
+            failureStage = failureStage
         ) ?: return null
         return payload.copy(
             logShellPath = env.workspaceManager.shellPathForAndroid(payload.logFile)
+        )
+    }
+
+    private fun resolveFailureLearningAfterSuccess(
+        env: AgentExecutionEnvironment,
+        toolCall: AssistantToolCall,
+        argumentsJson: String?,
+        result: ToolExecutionResult
+    ) {
+        if (env.failureLearningSkill == null) return
+        val resolution = SelfImprovingSkillFailureHook.resolveAfterSuccess(
+            skillsRoot = env.workspaceManager.skillsRoot(),
+            agentRunId = env.agentRunId,
+            toolName = toolCall.function.name,
+            argumentsJson = argumentsJson,
+            result = result
+        ) ?: return
+        if (resolution.shouldPromoteDaily) {
+            runCatching {
+                env.workspaceMemoryService.appendDailyMemoryIfNovel(resolution.lesson)
+            }
+        }
+        logInfo(
+            tag,
+            "self_improving_resolved entry=${resolution.entryId} " +
+                "tool=${toolCall.function.name} promoted_daily=${resolution.shouldPromoteDaily}"
         )
     }
 
@@ -989,6 +1326,13 @@ class AgentOrchestrator(
             normalized == "max_completion_tokens"
     }
 
+    private fun buildTruncatedToolCallMessage(): String {
+        return t(
+            "本工具调用未执行：模型输出达到长度上限，参数可能被截断。请在下一轮重新发起并提供完整参数。",
+            "This tool call was not executed because the model output reached its length limit and the arguments may be truncated. Re-issue it in the next round with complete arguments."
+        )
+    }
+
     private fun isStopFinishReason(reason: String?): Boolean {
         return reason?.trim()?.lowercase() == "stop"
     }
@@ -996,11 +1340,27 @@ class AgentOrchestrator(
     private fun classifyRetryableTurnFailure(error: Throwable): RetryDecision {
         if (error is AgentStreamRequestException) {
             val statusCode = error.statusCode
+            val providerFailureText = buildString {
+                append(error.reason)
+                error.responseBody?.takeIf { it.isNotBlank() }?.let {
+                    append(' ')
+                    append(it)
+                }
+            }
+            if (looksLikeNonRetryableProviderLimitFailure(providerFailureText)) {
+                return RetryDecision(
+                    retryable = false,
+                    reason = formatTurnFailureReason(statusCode, error.reason)
+                )
+            }
             val retryableStatus = statusCode == 408 ||
                 statusCode == 429 ||
+                statusCode == 500 ||
                 statusCode == 502 ||
                 statusCode == 503 ||
-                statusCode == 504
+                statusCode == 504 ||
+                statusCode == 524 ||
+                statusCode == 529
             val retryableReason = looksLikeTransientTransportFailure(error.reason)
             if (retryableStatus || retryableReason) {
                 return RetryDecision(
@@ -1025,6 +1385,20 @@ class AgentOrchestrator(
             retryable = false,
             reason = message.ifEmpty { error::class.java.simpleName }
         )
+    }
+
+    private fun looksLikeNonRetryableProviderLimitFailure(message: String): Boolean {
+        if (message.isBlank()) return false
+        val normalized = message.lowercase()
+        return normalized.contains("insufficient_quota") ||
+            normalized.contains("quota exceeded") ||
+            normalized.contains("out of budget") ||
+            normalized.contains("billing") ||
+            normalized.contains("monthly usage limit") ||
+            normalized.contains("weekly usage limit") ||
+            normalized.contains("freeusagelimiterror") ||
+            normalized.contains("gousagelimiterror") ||
+            normalized.contains("available balance")
     }
 
     private fun looksLikeTransientTransportFailure(message: String): Boolean {

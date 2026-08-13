@@ -229,9 +229,8 @@ extension _HomeDrawerSearch on HomeDrawerState {
     });
 
     try {
-      final loadedConversations = await ConversationService.getAllConversations(
-        includeArchived: true,
-      );
+      final loadedConversations =
+          await ConversationService.getSidebarConversations();
       final loadedScheduledTasks =
           await ScheduledTaskStorageService.loadScheduledTasks();
       debugPrint(

@@ -1,5 +1,6 @@
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:ui/l10n/l10n.dart';
 import 'package:ui/services/assists_core_service.dart';
 import 'package:ui/services/device_service.dart';
@@ -65,7 +66,10 @@ class _AlarmSettingPageState extends State<AlarmSettingPage> {
   Future<void> _pickLocalMp3() async {
     final granted = await _ensureAudioReadPermission();
     if (!granted) {
-      showToast(context.l10n.alarmAudioPermissionDenied, type: ToastType.warning);
+      showToast(
+        context.l10n.alarmAudioPermissionDenied,
+        type: ToastType.warning,
+      );
       return;
     }
 
@@ -134,8 +138,9 @@ class _AlarmSettingPageState extends State<AlarmSettingPage> {
       return;
     }
 
-    final error = (payload['message'] ?? payload['summary'] ?? context.trLegacy('保存失败'))
-        .toString();
+    final error =
+        (payload['message'] ?? payload['summary'] ?? context.trLegacy('保存失败'))
+            .toString();
     showToast(error, type: ToastType.error);
   }
 
@@ -143,10 +148,11 @@ class _AlarmSettingPageState extends State<AlarmSettingPage> {
   Widget build(BuildContext context) {
     final palette = context.omniPalette;
     return Scaffold(
-      backgroundColor: context.isDarkTheme
-          ? palette.pageBackground
-          : AppColors.background,
-      appBar: CommonAppBar(title: context.l10n.settingsAlarmTitle, primary: true),
+      backgroundColor: palette.pageBackground,
+      appBar: CommonAppBar(
+        title: context.l10n.settingsAlarmTitle,
+        primary: true,
+      ),
       body: _loading
           ? const Center(child: CircularProgressIndicator())
           : SafeArea(
@@ -156,7 +162,9 @@ class _AlarmSettingPageState extends State<AlarmSettingPage> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    SettingsSectionTitle(label: context.l10n.alarmRingtoneSource),
+                    SettingsSectionTitle(
+                      label: context.l10n.alarmRingtoneSource,
+                    ),
                     _buildSourceCard(),
                     if (_source == _sourceLocalMp3) ...[
                       const SizedBox(height: 18),
@@ -182,7 +190,11 @@ class _AlarmSettingPageState extends State<AlarmSettingPage> {
                               : Colors.white,
                           minimumSize: const Size.fromHeight(48),
                         ),
-                        child: Text(_saving ? context.trLegacy('保存中...') : context.trLegacy('保存')),
+                        child: Text(
+                          _saving
+                              ? context.trLegacy('保存中...')
+                              : context.trLegacy('保存'),
+                        ),
                       ),
                     ),
                   ],
@@ -282,7 +294,7 @@ class _AlarmSettingPageState extends State<AlarmSettingPage> {
                 Padding(
                   padding: const EdgeInsets.only(top: 8),
                   child: Icon(
-                    Icons.check_rounded,
+                    LucideIcons.check,
                     size: 16,
                     color: context.isDarkTheme
                         ? palette.accentPrimary
@@ -298,7 +310,9 @@ class _AlarmSettingPageState extends State<AlarmSettingPage> {
 
   Widget _buildLocalFileCard() {
     final palette = context.omniPalette;
-    final displayPath = _localPath.isEmpty ? context.trLegacy('未选择文件') : _localPath;
+    final displayPath = _localPath.isEmpty
+        ? context.trLegacy('未选择文件')
+        : _localPath;
 
     return SizedBox(
       width: double.infinity,

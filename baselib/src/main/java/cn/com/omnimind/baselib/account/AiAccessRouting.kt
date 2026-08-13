@@ -11,9 +11,9 @@ interface AiAccessModeStore {
 }
 
 /**
- * Persists only the user's platform/BYOK choice. This value is not a secret;
- * account tokens remain in EncryptedAccountTokenStore and BYOK keys remain in
- * the existing device-local model-provider store.
+ * Retains the legacy server setting for protocol compatibility. Official AI is
+ * now exposed as an additional provider after sign-in, so this value no longer
+ * selects a global request route.
  */
 class SharedPreferencesAiAccessModeStore(context: Context) : AiAccessModeStore {
     private val preferences = context.applicationContext.getSharedPreferences(
@@ -61,10 +61,12 @@ data class AiTransportRoute(
 )
 
 object AiRequestTransportPolicy {
-    private const val PLATFORM_ROUTE_TAG = "platform_gateway"
+    const val PLATFORM_ROUTE_TAG = "platform_gateway"
+
+    fun isPlatformRoute(routeTag: String?): Boolean = routeTag == PLATFORM_ROUTE_TAG
 
     fun apply(access: AiRequestAccess, byokRoute: AiTransportRoute): AiTransportRoute {
-        if (!access.usesPlatform) return byokRoute
+        if (!isPlatformRoute(byokRoute.routeTag) || !access.usesPlatform) return byokRoute
         return AiTransportRoute(
             apiBase = access.platformGatewayUrl,
             apiKey = access.bearerToken,
@@ -78,31 +80,43 @@ object AiRequestTransportPolicy {
 
 /** Pure policy kept separate so the security boundary can be unit-tested. */
 object AiRequestAccessResolver {
+    @Suppress("UNUSED_PARAMETER")
     fun resolve(
         accountConfigured: Boolean,
         signedIn: Boolean,
         cachedMode: AiAccessMode?,
         platformGatewayUrl: String?,
         accessToken: String?,
+        allowInsecureLoopback: Boolean = false,
+        cloudServiceAccess: CloudServiceAccessState =
+            CloudServiceAccessState.allowedByDefault(),
     ): AiRequestAccess {
         if (!accountConfigured || !signedIn) {
             return AiRequestAccess(mode = AiAccessMode.BYOK)
         }
-        if (cachedMode == null) {
+        if (!cloudServiceAccess.allowed) {
             return AiRequestAccess(
-                mode = null,
-                unavailableReason = "账号的 AI 使用方式尚未同步，请打开账号中心后重试",
+                mode = AiAccessMode.PLATFORM,
+                unavailableReason = cloudServiceAccess.message.ifBlank {
+                    if (cloudServiceAccess.policyKnown) {
+                        "请升级应用后再使用账号与官方云服务"
+                    } else {
+                        "无法验证云服务最低版本，请联网检查更新"
+                    }
+                },
             )
         }
-        if (cachedMode == AiAccessMode.BYOK) {
-            return AiRequestAccess(mode = AiAccessMode.BYOK)
-        }
-
         val gateway = platformGatewayUrl?.trim()?.trimEnd('/').orEmpty()
         if (gateway.isEmpty()) {
             return AiRequestAccess(
                 mode = AiAccessMode.PLATFORM,
                 unavailableReason = "平台 AI 网关尚未配置",
+            )
+        }
+        if (!OfficialEndpointSecurity.isAllowed(gateway, allowInsecureLoopback)) {
+            return AiRequestAccess(
+                mode = AiAccessMode.PLATFORM,
+                unavailableReason = "Platform AI gateway must use HTTPS",
             )
         }
         val token = accessToken?.trim().orEmpty()

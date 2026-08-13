@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:ui/features/home/pages/settings/settings_page.dart';
 import 'package:ui/l10n/generated/app_localizations.dart';
@@ -92,7 +93,32 @@ void main() {
     );
     await tester.pumpAndSettle();
 
+    Future<void> expectEntryIcon(String title, IconData icon) async {
+      final titleFinder = find.text(title);
+      await tester.scrollUntilVisible(
+        titleFinder,
+        400,
+        scrollable: find.byType(Scrollable).first,
+      );
+      final tileFinder = find.ancestor(
+        of: titleFinder,
+        matching: find.byType(InkWell),
+      );
+      expect(
+        find.descendant(of: tileFinder, matching: find.byIcon(icon)),
+        findsOneWidget,
+      );
+    }
+
     expect(find.text('账号与 AI 服务'), findsOneWidget);
+
+    await expectEntryIcon('模型提供商', LucideIcons.box);
+    await expectEntryIcon('场景模型配置', LucideIcons.fileBox);
+    await expectEntryIcon('Workspace 记忆配置', LucideIcons.database);
+    await expectEntryIcon('Agent 模式', LucideIcons.bot);
+    await expectEntryIcon('本机服务', LucideIcons.monitorSmartphone);
+    await expectEntryIcon('MCP 工具', LucideIcons.hammer);
+    await expectEntryIcon('外观设置', LucideIcons.palette);
 
     for (final title in <String>['模型与记忆', '服务与环境', '体验与外观', '权限与信息']) {
       final titleFinder = find.text(title);
@@ -107,5 +133,60 @@ void main() {
         findsNothing,
       );
     }
+  });
+
+  testWidgets('local service actions start at the left edge of the sheet', (
+    tester,
+  ) async {
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(mcpChannel, (call) async {
+          if (call.method == 'state') {
+            return <String, Object?>{
+              'enabled': true,
+              'running': true,
+              'host': '127.0.0.1',
+              'port': 8765,
+              'token': 'test-token',
+            };
+          }
+          return null;
+        });
+    tester.view.devicePixelRatio = 1;
+    tester.view.physicalSize = const Size(390, 844);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    addTearDown(tester.view.resetPhysicalSize);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        locale: const Locale('zh'),
+        theme: AppTheme.lightTheme,
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
+        home: DefaultAssetBundle(
+          bundle: _SvgTestAssetBundle(),
+          child: const SettingsPage(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.scrollUntilVisible(
+      find.text('本机服务'),
+      400,
+      scrollable: find.byType(Scrollable).first,
+    );
+    await tester.tap(find.text('本机服务'));
+    await tester.pumpAndSettle();
+
+    final sheet = find.byKey(const ValueKey('local-service-sheet'));
+    expect(sheet, findsOneWidget);
+    expect(
+      tester
+          .widget<Wrap>(find.byKey(const ValueKey('local-service-actions')))
+          .alignment,
+      WrapAlignment.start,
+    );
+    expect(find.text('复制地址'), findsOneWidget);
+    expect(find.text('复制 Token'), findsOneWidget);
+    expect(find.text('刷新 Token'), findsOneWidget);
   });
 }

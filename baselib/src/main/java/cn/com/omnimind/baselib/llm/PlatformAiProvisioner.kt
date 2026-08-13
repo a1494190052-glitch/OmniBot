@@ -1,0 +1,160 @@
+package cn.com.omnimind.baselib.llm
+
+import cn.com.omnimind.baselib.account.AiSettings
+import cn.com.omnimind.baselib.account.OmniAccount
+import cn.com.omnimind.baselib.account.PlatformModel
+import cn.com.omnimind.baselib.account.PlatformModelsUnavailableException
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+
+data class PlatformAiProvisioningStatus(
+    val ready: Boolean = false,
+    val statusText: String = "正在同步官方文本模型",
+    val defaultModelId: String? = null,
+    val models: List<ProviderModelOption> = emptyList(),
+    val catalogVersion: String? = null,
+    val defaultVisionModelId: String? = null,
+    val defaultImageModelId: String? = null,
+    val defaultTtsModelId: String? = null,
+    val visionModels: List<ProviderModelOption> = emptyList(),
+    val imageModels: List<ProviderModelOption> = emptyList(),
+    val ttsModels: List<ProviderModelOption> = emptyList(),
+    val ttsVoiceAliases: List<String> = emptyList(),
+    val defaultTtsVoiceAlias: String? = null,
+)
+
+internal fun PlatformAiProvisioningStatus.routingUnavailableReasonOrNull(): String? {
+    if (ready) {
+        return null
+    }
+    return statusText.takeIf { it.isNotBlank() }
+        ?: "官方文本模型暂时不可用，请稍后重试"
+}
+
+/**
+ * Keeps the official provider catalog separate from device BYOK configuration.
+ * Synchronizing the catalog never mutates the user's scene bindings.
+ */
+object PlatformAiProvisioner {
+    private val mutex = Mutex()
+
+    @Volatile
+    private var currentStatus = PlatformAiProvisioningStatus()
+
+    fun status(): PlatformAiProvisioningStatus = currentStatus
+
+    fun officialProfileOrNull(): ModelProviderProfile? =
+        OmniOfficialProvider.profileOrNull(currentStatus)
+
+    fun routingUnavailableReason(): String? {
+        if (!OmniOfficialProvider.shouldExpose()) {
+            return null
+        }
+        return currentStatus.routingUnavailableReasonOrNull()
+    }
+
+    suspend fun synchronize(
+        settings: AiSettings? = null,
+        forceRefresh: Boolean = settings != null,
+    ): PlatformAiProvisioningStatus =
+        mutex.withLock {
+            if (!OmniOfficialProvider.shouldExpose()) {
+                deactivateLocked()
+                return@withLock currentStatus
+            }
+
+            val access = OmniAccount.currentAiRequestAccess()
+            if (!access.usesPlatform) {
+                currentStatus = PlatformAiProvisioningStatus(
+                    statusText = access.unavailableReason
+                        ?: "平台 AI 登录状态尚未就绪，请重新登录",
+                )
+                return@withLock currentStatus
+            }
+
+            if (!forceRefresh &&
+                currentStatus.ready &&
+                currentStatus.models.isNotEmpty()
+            ) {
+                return@withLock currentStatus
+            }
+
+            currentStatus = PlatformAiProvisioningStatus(
+                statusText = "正在同步官方文本模型",
+            )
+            try {
+                val catalog = OmniAccount.repository().getPlatformModelCatalog()
+                val selection = OmniOfficialProvider.selectModels(
+                    catalog = catalog,
+                    rememberedTextModelId = currentStatus.defaultModelId,
+                )
+                val selected = selection.defaultTextModel
+                if (selected == null) {
+                    currentStatus = PlatformAiProvisioningStatus(
+                        statusText = "官方服务当前没有可用的已验证文本模型",
+                    )
+                    return@withLock currentStatus
+                }
+
+                currentStatus = PlatformAiProvisioningStatus(
+                    ready = true,
+                    statusText = "官方文本模型已就绪",
+                    defaultModelId = selected.id,
+                    models = selection.textModels.toOptions(),
+                    catalogVersion = catalog.version,
+                    defaultVisionModelId = selection.defaultVisionModel?.id,
+                    defaultImageModelId = selection.defaultImageModel?.id,
+                    defaultTtsModelId = selection.defaultTtsModel?.id,
+                    visionModels = selection.visionModels.toOptions(),
+                    imageModels = selection.imageModels.toOptions(),
+                    ttsModels = selection.ttsModels.toOptions(),
+                    ttsVoiceAliases = selection.ttsVoiceAliases,
+                    defaultTtsVoiceAlias = selection.defaultTtsVoiceAlias,
+                )
+            } catch (error: CancellationException) {
+                throw error
+            } catch (_: Throwable) {
+                currentStatus = PlatformAiProvisioningStatus(
+                    statusText = "获取官方模型失败，请检查网络后重试",
+                )
+            }
+            currentStatus
+        }
+
+    suspend fun ensureReadyStatus(): PlatformAiProvisioningStatus {
+        val existing = currentStatus
+        if (existing.ready && existing.models.isNotEmpty()) {
+            return existing
+        }
+        val synchronized = synchronize()
+        if (!synchronized.ready || synchronized.models.isEmpty()) {
+            throw PlatformModelsUnavailableException(
+                synchronized.statusText.ifBlank { "官方文本模型暂时不可用" }
+            )
+        }
+        return synchronized
+    }
+
+    suspend fun ensureReadyAndGetModels(): List<ProviderModelOption> =
+        ensureReadyStatus().models
+
+    suspend fun deactivate() {
+        mutex.withLock { deactivateLocked() }
+    }
+
+    private fun deactivateLocked() {
+        currentStatus = PlatformAiProvisioningStatus(
+            statusText = "官方 AI 账号未登录",
+        )
+    }
+
+    private fun List<PlatformModel>.toOptions(): List<ProviderModelOption> =
+        map { model ->
+            ProviderModelOption(
+                id = model.id,
+                displayName = model.id,
+                ownedBy = model.ownedBy,
+            )
+        }
+}
