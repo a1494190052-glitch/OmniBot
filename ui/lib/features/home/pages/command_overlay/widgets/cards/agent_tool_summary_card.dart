@@ -375,6 +375,10 @@ class _VlmTaskResultCard extends StatelessWidget {
     final summary = (payload['content'] ?? cardData['summary'] ?? '')
         .toString()
         .trim();
+    final autoRegistered = payload['auto_registered'] == true;
+    final registrationHint = (payload['registration_hint'] ?? '')
+        .toString()
+        .trim();
     final title = LegacyTextLocalizer.localize(
       success ? 'GUI 任务已完成' : 'GUI 任务未完成',
     );
@@ -437,6 +441,17 @@ class _VlmTaskResultCard extends StatelessWidget {
                 ),
               ),
             ],
+            if (success && registrationHint.isNotEmpty) ...[
+              const SizedBox(height: 6),
+              Text(
+                registrationHint,
+                style: TextStyle(
+                  color: palette.textSecondary,
+                  fontSize: 11,
+                  height: 1.35,
+                ),
+              ),
+            ],
             if (runId.isNotEmpty || success) ...[
               const SizedBox(height: 4),
               Wrap(
@@ -452,9 +467,17 @@ class _VlmTaskResultCard extends StatelessWidget {
                   if (success)
                     TextButton.icon(
                       key: const ValueKey('vlm-task-open-functions'),
-                      onPressed: () => context.push('/task/omniflow'),
+                      onPressed: () => context.push(
+                        autoRegistered || runId.isEmpty
+                            ? '/task/omniflow'
+                            : '/task/run_log/$runId',
+                      ),
                       icon: const Icon(LucideIcons.workflow, size: 15),
-                      label: Text(LegacyTextLocalizer.localize('复用指令')),
+                      label: Text(
+                        LegacyTextLocalizer.localize(
+                          autoRegistered ? '查看复用指令' : '注册为复用指令',
+                        ),
+                      ),
                     ),
                 ],
               ),

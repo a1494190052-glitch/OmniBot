@@ -19,12 +19,17 @@ class VlmPluginBoundaryTest {
             "app/src/main/java/cn/com/omnimind/bot/plugin/OmniPluginHost.kt",
         )
         val appBuild = projectSource("app/build.gradle.kts")
+        val mcpServerManager = projectSource(
+            "app/src/main/java/cn/com/omnimind/bot/mcp/McpServerManager.kt",
+        )
         val terminalBuild = projectSource("ReTerminal/core/main/build.gradle.kts")
 
         assertTrue(provider.contains("RuntimeBundleAdapter"))
         assertTrue(provider.contains("runtimeProvider.install(appContext, platform)"))
+        assertTrue(provider.contains("OmniFlow.prepareAndStart(appContext)"))
         assertFalse(provider.contains("RuntimeBundlePrepareMode.INSTALL -> Unit"))
         assertTrue(provider.contains("OmniFlowPluginRuntime.enable(appContext)"))
+        assertTrue(provider.contains("McpServerManager.setEnabled(appContext, true)"))
         assertFalse(provider.contains("finally"))
         assertFalse(provider.contains("vlm_task"))
         assertFalse(provider.contains("VlmToolHandler"))
@@ -42,13 +47,24 @@ class VlmPluginBoundaryTest {
                 "exclude(\"omni-vlm-lite/**\", \"vibe-project/**\", \"omnilink-agent/**\")",
             ),
         )
-        assertTrue(appBuild.contains("DEFAULT_INSTALL_GUI_PLUGIN\", \"false\""))
-        assertTrue(appBuild.contains("ALLOW_PACKAGED_PLUGIN_FALLBACK"))
+        assertTrue(appBuild.contains("DEFAULT_INSTALL_GUI_PLUGIN\", \"true\""))
+        assertTrue(appBuild.contains("ALLOW_PACKAGED_PLUGIN_FALLBACK\", \"true\""))
+        assertTrue(appBuild.contains("omniFlowPackagedArchivePath"))
+        assertTrue(appBuild.contains("File(omniFlowPackagedArchivePath).name"))
+        assertFalse(Regex("omniflow-gui-runtime-\\d+\\.\\d+\\.\\d+\\.zip").containsMatchIn(appBuild))
+        assertTrue(appBuild.contains("into(\"runtime-components\")"))
         assertTrue(appBuild.contains("omnibotProfile in profiles"))
+        assertTrue(mcpServerManager.indexOf("json(McpJson)") < mcpServerManager.indexOf("gson()"))
         assertTrue(terminalBuild.contains("includeEmbeddedPythonEnvironment"))
-        assertTrue(terminalBuild.contains("it == \"investor\""))
+        assertTrue(terminalBuild.contains("includeEmbeddedUbuntuEnvironment"))
+        assertTrue(terminalBuild.contains("includeEmbeddedPythonEnvironment = providers.provider { true }"))
         assertTrue(terminalBuild.contains("root.deleteRecursively()"))
-        assertTrue(catalog.contains("\"profiles\": [\"investor\"]"))
+        assertFalse(
+            Regex(
+                "\\\"id\\\": \\\"com\\.omnimind\\.omni-vlm-lite\\\"[\\s\\S]*?" +
+                    "\\\"profiles\\\": \\[\\\"investor\\\"\\]",
+            ).containsMatchIn(catalog.substringBefore("com.omnimind.vibe-project-builder")),
+        )
     }
 
     private fun projectSource(path: String): String {

@@ -109,6 +109,8 @@ void main() {
                 'run_id': 'gui-run-1',
                 'success': true,
                 'content': '蓝牙已打开',
+                'registration_available': true,
+                'registration_hint': '本次成功操作已保存为 RunLog，可注册为复用指令。',
               }),
             },
           ),
@@ -119,8 +121,9 @@ void main() {
     expect(find.byKey(const ValueKey('vlm-task-result-card')), findsOneWidget);
     expect(find.text('GUI 任务已完成'), findsOneWidget);
     expect(find.text('蓝牙已打开'), findsOneWidget);
+    expect(find.textContaining('可注册为复用指令'), findsOneWidget);
     expect(find.text('查看 RunLog'), findsOneWidget);
-    expect(find.text('复用指令'), findsOneWidget);
+    expect(find.text('注册为复用指令'), findsOneWidget);
     expect(find.byKey(kAgentToolDetailSheetKey), findsNothing);
   });
 

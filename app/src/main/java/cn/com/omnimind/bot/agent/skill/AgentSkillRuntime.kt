@@ -350,6 +350,32 @@ class SkillIndexService(
         }
     }
 
+    internal fun deleteSkillInstallation(rootPath: String): Boolean {
+        synchronized(SKILL_INDEX_LOCK) {
+            val canonicalRoot = File(rootPath).canonicalFile
+            val skillsRoot = workspaceManager.skillsRoot().canonicalFile
+            require(
+                canonicalRoot.parentFile == skillsRoot && canonicalRoot.name != SKILL_REGISTRY_FILE_NAME
+            ) { "skill 安装目录非法" }
+            val entry = buildInstalledEntry(
+                skillDir = canonicalRoot,
+                registry = registryStore().read(),
+                builtinAssets = builtinStore().listBuiltins().associateBy { it.id }
+            ) ?: return false
+            val deleted = !canonicalRoot.exists() || canonicalRoot.deleteRecursively()
+            if (!deleted) return false
+            val stillInstalled = scanInstalledEntries(
+                root = skillsRoot,
+                registry = registryStore().read(),
+                builtinAssets = builtinStore().listBuiltins().associateBy { it.id }
+            ).any { it.id == entry.id }
+            if (!stillInstalled) {
+                registryStore().remove(entry.id)
+            }
+            return true
+        }
+    }
+
     fun setSkillEnabled(skillId: String, enabled: Boolean): SkillIndexEntry {
         val entry = findManagedInstalledSkill(skillId, includeDisabled = true)
             ?: throw IllegalArgumentException("未找到已安装 skill：$skillId")

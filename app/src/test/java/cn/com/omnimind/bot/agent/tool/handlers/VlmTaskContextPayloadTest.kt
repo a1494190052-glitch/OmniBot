@@ -30,6 +30,29 @@ class VlmTaskContextPayloadTest {
         assertEquals(7, payload["step_count"])
         assertEquals(7, payload["action_count"])
         assertEquals("state-final", payload["final_state_id"])
+        assertEquals(true, payload["registration_available"])
+        assertTrue(payload["registration_hint"].toString().contains("可注册为复用指令"))
         assertTrue(payload["next_agent_instruction"].toString().contains("run_log_id"))
+        assertTrue(payload["next_agent_instruction"].toString().contains("Do not claim"))
+    }
+
+    @Test
+    fun `vlm result reports automatic function registration without suggesting it again`() {
+        val payload = buildVlmTaskContextPayload(
+            requestedRunId = "gui-request",
+            goal = "打开蓝牙",
+            resultRunId = "gui-request",
+            success = true,
+            doneReason = "finished",
+            content = "蓝牙已打开",
+            finalStateId = "state-final",
+            extras = mapOf(
+                "auto_registered" to true,
+                "registered_function_id" to "enable_bluetooth",
+            ),
+        )
+
+        assertTrue(payload["registration_hint"].toString().contains("已自动注册"))
+        assertTrue(payload["next_agent_instruction"].toString().contains("registered_function_id"))
     }
 }

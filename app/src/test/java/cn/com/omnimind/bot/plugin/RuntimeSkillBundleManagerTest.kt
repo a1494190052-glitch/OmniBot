@@ -4,8 +4,6 @@ import java.io.File
 import java.security.MessageDigest
 import java.util.zip.ZipEntry
 import java.util.zip.ZipOutputStream
-import kotlinx.serialization.json.buildJsonObject
-import kotlinx.serialization.json.put
 import kotlin.io.path.createTempDirectory
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -15,147 +13,112 @@ import org.junit.Test
 
 class RuntimeSkillBundleManagerTest {
     @Test
-    fun `prebuilt runtime archive requires a pinned sha256`() {
+    fun `component archive requires a pinned sha256`() {
         val error = expectFailure {
-            RuntimeSkillSpec(
-                id = "omniflow-gui-runtime",
-                packagedAssetPath = "omni-vlm-lite/runtime-skill/omniflow-gui-runtime",
-                prebuiltRuntimeArchive = "scripts/runtime.prebuilt.zip",
+            runtimeSpec(
+                componentArchiveUrl = "https://github.com/example/runtime.zip",
             ).validated()
         }
 
-        assertTrue(error.message.orEmpty().contains("SHA-256"))
+        assertTrue(error.message.orEmpty().contains("URL and SHA-256"))
     }
 
     @Test
-    fun `prebuilt runtime archive and checksum validate together`() {
-        val spec = RuntimeSkillSpec(
-            id = "omniflow-gui-runtime",
-            packagedAssetPath = "omni-vlm-lite/runtime-skill/omniflow-gui-runtime",
-            prebuiltRuntimeArchive = "scripts/runtime.prebuilt.zip",
-            prebuiltRuntimeSha256 = "a".repeat(64),
+    fun `component version must use semantic versioning`() {
+        val error = expectFailure {
+            runtimeSpec(componentVersion = "latest").validated()
+        }
+
+        assertTrue(error.message.orEmpty().contains("component version"))
+    }
+
+    @Test
+    fun `component archive and checksum validate together`() {
+        val spec = runtimeSpec(
+            componentArchiveUrl = "https://github.com/example/runtime.zip",
+            componentArchiveSha256 = "a".repeat(64),
         ).validated()
 
-        assertEquals("scripts/runtime.prebuilt.zip", spec.prebuiltRuntimeArchive)
+        assertEquals("2.1.6", spec.componentVersion)
+        assertEquals("a".repeat(64), spec.componentArchiveSha256)
     }
 
     @Test
-    fun `verified prebuilt runtime is extracted and source archive is removed`() {
-        val root = createTempDirectory("omniflow-prebuilt-").toFile()
-        try {
-            val archive = File(root, "runtime.prebuilt.zip")
-            writeArchive(
-                archive,
-                mapOf(
-                    "python/omniflow/bridge.py" to "# bridge\n",
-                    ".runtime/installed.json" to "{}\n",
-                ),
-            )
-            val expectedSha256 = sha256(archive)
-            val target = File(root, "runtime")
+    fun `packaged release archive uses the same pinned checksum`() {
+        val spec = RuntimeSkillSpec(
+            componentId = COMPONENT_ID,
+            componentVersion = COMPONENT_VERSION,
+            id = SKILL_ID,
+            packagedArchivePath = "runtime-components/component.zip",
+            componentArchiveUrl = "https://github.com/example/component.zip",
+            componentArchiveSha256 = "a".repeat(64),
+        ).validated()
 
-            unpackVerifiedPrebuiltRuntime(
-                archive = archive,
-                target = target,
-                expectedSha256 = expectedSha256,
-                runtimeId = "omniflow-gui-runtime",
-            )
+        assertEquals("runtime-components/component.zip", spec.packagedArchivePath)
+        assertEquals("a".repeat(64), spec.componentArchiveSha256)
+    }
 
-            assertEquals("# bridge\n", File(target, "python/omniflow/bridge.py").readText())
-            assertTrue(File(target, ".runtime/installed.json").isFile)
-            assertFalse(archive.exists())
-        } finally {
-            root.deleteRecursively()
+    @Test
+    fun `packaged release archive requires a pinned checksum`() {
+        val error = expectFailure {
+            RuntimeSkillSpec(
+                componentId = COMPONENT_ID,
+                componentVersion = COMPONENT_VERSION,
+                id = SKILL_ID,
+                packagedArchivePath = "runtime-components/component.zip",
+            ).validated()
         }
+
+        assertTrue(error.message.orEmpty().contains("packaged archive SHA-256"))
     }
 
     @Test
-    fun `prebuilt runtime checksum mismatch fails before extraction`() {
-        val root = createTempDirectory("omniflow-prebuilt-").toFile()
-        try {
-            val archive = File(root, "runtime.prebuilt.zip")
-            writeArchive(
-                archive,
-                mapOf(
-                    "python/omniflow/bridge.py" to "# bridge\n",
-                    ".runtime/installed.json" to "{}\n",
-                ),
-            )
-            val target = File(root, "runtime")
-
-            val error = expectFailure {
-                unpackVerifiedPrebuiltRuntime(
-                    archive = archive,
-                    target = target,
-                    expectedSha256 = "0".repeat(64),
-                    runtimeId = "omniflow-gui-runtime",
-                )
-            }
-
-            assertTrue(error.message.orEmpty().contains("checksum_mismatch"))
-            assertFalse(target.exists())
-            assertTrue(archive.isFile)
-        } finally {
-            root.deleteRecursively()
-        }
-    }
-
-    @Test
-    fun `prebuilt runtime rejects entries escaping the runtime directory`() {
-        val root = createTempDirectory("omniflow-prebuilt-").toFile()
-        try {
-            val archive = File(root, "runtime.prebuilt.zip")
-            writeArchive(
-                archive,
-                mapOf(
-                    "../escaped" to "bad",
-                    "python/omniflow/bridge.py" to "# bridge\n",
-                    ".runtime/installed.json" to "{}\n",
-                ),
-            )
-
-            val error = expectFailure {
-                unpackVerifiedPrebuiltRuntime(
-                    archive = archive,
-                    target = File(root, "runtime"),
-                    expectedSha256 = sha256(archive),
-                    runtimeId = "omniflow-gui-runtime",
-                )
-            }
-
-            assertTrue(error.message.orEmpty().contains("unsafe_entry"))
-            assertFalse(File(root, "escaped").exists())
-        } finally {
-            root.deleteRecursively()
-        }
-    }
-
-    @Test
-    fun `verified component archive extracts the declared runtime skill`() {
+    fun `verified component archive extracts bundled runtime`() {
         val root = createTempDirectory("omniflow-component-").toFile()
         try {
             val archive = File(root, "component.zip")
-            writeArchive(
-                archive,
-                mapOf(
-                    "component.json" to componentJson(),
-                    "runtime-skill/omniflow-gui-runtime/SKILL.md" to
-                        "---\nname: omniflow-gui-runtime\n---\n",
-                ),
-            )
+            writeArchive(archive, validComponentEntries())
             val target = File(root, "unpacked")
 
             unpackVerifiedComponentArchive(
                 archive = archive,
                 target = target,
                 expectedSha256 = sha256(archive),
-                componentId = "com.omnimind.omni-vlm-lite",
-                runtimeSkillId = "omniflow-gui-runtime",
+                componentId = COMPONENT_ID,
+                componentVersion = COMPONENT_VERSION,
+                runtimeSkillId = SKILL_ID,
             )
 
-            assertTrue(
-                File(target, "runtime-skill/omniflow-gui-runtime/SKILL.md").isFile,
-            )
+            assertTrue(File(target, "SKILL.md").isFile)
+            assertFalse(File(target, "pyproject.toml").exists())
+            assertFalse(File(target, "uv.lock").exists())
+            assertFalse(File(target, "runtime.prebuilt.zip").exists())
+        } finally {
+            root.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `component archive checksum mismatch fails before extraction`() {
+        val root = createTempDirectory("omniflow-component-").toFile()
+        try {
+            val archive = File(root, "component.zip")
+            writeArchive(archive, validComponentEntries())
+            val target = File(root, "unpacked")
+
+            val error = expectFailure {
+                unpackVerifiedComponentArchive(
+                    archive = archive,
+                    target = target,
+                    expectedSha256 = "0".repeat(64),
+                    componentId = COMPONENT_ID,
+                    componentVersion = COMPONENT_VERSION,
+                    runtimeSkillId = SKILL_ID,
+                )
+            }
+
+            assertTrue(error.message.orEmpty().contains("checksum_mismatch"))
+            assertFalse(target.exists())
         } finally {
             root.deleteRecursively()
         }
@@ -168,12 +131,7 @@ class RuntimeSkillBundleManagerTest {
             val archive = File(root, "component.zip")
             writeArchive(
                 archive,
-                mapOf(
-                    "../escaped" to "bad",
-                    "component.json" to componentJson(),
-                    "runtime-skill/omniflow-gui-runtime/SKILL.md" to
-                        "---\nname: omniflow-gui-runtime\n---\n",
-                ),
+                validComponentEntries() + ("../escaped" to "bad"),
             )
 
             val error = expectFailure {
@@ -181,8 +139,9 @@ class RuntimeSkillBundleManagerTest {
                     archive = archive,
                     target = File(root, "unpacked"),
                     expectedSha256 = sha256(archive),
-                    componentId = "com.omnimind.omni-vlm-lite",
-                    runtimeSkillId = "omniflow-gui-runtime",
+                    componentId = COMPONENT_ID,
+                    componentVersion = COMPONENT_VERSION,
+                    runtimeSkillId = SKILL_ID,
                 )
             }
 
@@ -193,10 +152,60 @@ class RuntimeSkillBundleManagerTest {
         }
     }
 
-    private fun componentJson(): String = buildJsonObject {
-        put("id", "com.omnimind.omni-vlm-lite")
-        put("runtimeSkill", buildJsonObject { put("id", "omniflow-gui-runtime") })
-    }.toString()
+    @Test
+    fun `component manifest accepts bundled site packages`() {
+        val root = createTempDirectory("omniflow-component-").toFile()
+        try {
+            validComponentEntries().forEach { (path, contents) ->
+                File(root, path).apply {
+                    parentFile?.mkdirs()
+                    writeText(contents)
+                }
+            }
+
+            val install = readRuntimeComponentInstall(
+                root = root,
+                expectedComponentId = COMPONENT_ID,
+                expectedComponentVersion = COMPONENT_VERSION,
+                expectedSkillId = SKILL_ID,
+            )
+
+            assertEquals("bundled", install.manager)
+            assertEquals("vendor/site-packages", install.sitePackagesPath)
+        } finally {
+            root.deleteRecursively()
+        }
+    }
+
+    private fun runtimeSpec(
+        componentVersion: String = COMPONENT_VERSION,
+        componentArchiveUrl: String? = null,
+        componentArchiveSha256: String? = null,
+    ) = RuntimeSkillSpec(
+        componentId = COMPONENT_ID,
+        componentVersion = componentVersion,
+        id = SKILL_ID,
+        packagedAssetPath = if (componentArchiveUrl == null) "omni-vlm-lite/runtime-skill" else null,
+        componentArchiveUrl = componentArchiveUrl,
+        componentArchiveSha256 = componentArchiveSha256,
+    )
+
+    private fun validComponentEntries(): Map<String, String> = mapOf(
+        "component.json" to """
+            {
+              "schemaVersion": 1,
+              "id": "$COMPONENT_ID",
+              "version": "$COMPONENT_VERSION",
+              "skill": {"id": "$SKILL_ID"},
+              "install": {
+                "manager": "bundled",
+                "sitePackages": "vendor/site-packages"
+              }
+            }
+        """.trimIndent(),
+        "SKILL.md" to "---\nname: $SKILL_ID\n---\n",
+        "vendor/site-packages/.keep" to "",
+    )
 
     private fun writeArchive(archive: File, entries: Map<String, String>) {
         ZipOutputStream(archive.outputStream().buffered()).use { output ->
@@ -227,5 +236,11 @@ class RuntimeSkillBundleManagerTest {
         error("unreachable")
     } catch (error: Throwable) {
         error
+    }
+
+    private companion object {
+        const val COMPONENT_ID = "com.omnimind.omni-vlm-lite"
+        const val COMPONENT_VERSION = "2.1.6"
+        const val SKILL_ID = "omniflow-gui-runtime"
     }
 }

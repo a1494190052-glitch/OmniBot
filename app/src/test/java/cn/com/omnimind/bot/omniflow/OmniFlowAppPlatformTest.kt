@@ -11,16 +11,20 @@ import org.junit.Test
 
 class OmniFlowAppPlatformTest {
     @Test
-    fun `python preparation installs only the required runtime packages when missing`() {
+    fun `python preparation only requires system numpy`() {
         val command = buildOmniFlowPythonPrepareCommand("3.12")
 
-        assertTrue(command.contains("if ! packages_ready; then"))
+        assertTrue(command.contains("if ! base_packages_ready; then"))
+        assertTrue(command.contains("apk --wait 300 add --no-cache python3 py3-pip py3-numpy"))
         assertTrue(command.contains("python3 -c 'import numpy'"))
-        assertTrue(command.contains("apk add --no-cache python3 py3-pip py3-numpy libstdc++"))
-        assertTrue(command.contains("OMNIFLOW_PYTHON_STAGE=repair_start package=py3-numpy"))
+        assertTrue(command.contains("OMNIFLOW_PYTHON_STAGE=repair_start package=python-numpy"))
+        assertTrue(command.contains("OMNIFLOW_PYTHON_STAGE=probe_ready source=environment"))
         assertTrue(command.contains("/etc/omnibot-python-environment"))
-        assertTrue(command.contains("printf '%s\\n' 'alpine-3.21-python3.12-numpy2.1.3-v3'"))
+        assertTrue(command.contains("alpine-3.21-python3.12-numpy2.1.3-v3"))
+        assertFalse(command.contains("grep -qx 'alpine-3.21-python3.12-numpy2.1.3-v3'"))
         assertFalse(command.contains("printf '%s\\\\n'"))
+        assertFalse(command.contains("command -v uv"))
+        assertFalse(command.contains("uv sync"))
         assertTrue(command.trimEnd().endsWith("OMNIFLOW_PYTHON_STAGE=ready'"))
         assertFalse(command.contains("nodejs"))
     }

@@ -20,7 +20,7 @@ object DebugOmniMindProviderBootstrap {
     )
 
     fun install() {
-        if (!BuildConfig.DEBUG) return
+        if (!BuildConfig.ENABLE_LLMTHU_BOOTSTRAP) return
         val llmThuPlan = createLlmThuPlan(
             apiBase = BuildConfig.DEBUG_LLMTHU_API_BASE,
             apiKey = BuildConfig.DEBUG_LLMTHU_API_KEY,

@@ -102,7 +102,7 @@ private data class RuntimeBundlePluginWire(
                 presentation = presentation,
             ),
             adapterId = adapter,
-            runtimeSkill = runtimeSkill.toSpec(),
+            runtimeSkill = runtimeSkill.toSpec(id, version),
         )
     }
 
@@ -115,28 +115,22 @@ private data class RuntimeBundlePluginWire(
 @Serializable
 private data class RuntimeSkillWire(
     val id: String = "",
-    val packagedAssetPath: String = "",
-    val schemaAssetPath: String? = null,
+    val packagedAssetPath: String? = null,
+    val packagedArchivePath: String? = null,
     val markerFile: String = "PACKAGED_RUNTIME_SKILL",
-    val bootstrapScript: String = "scripts/bootstrap_runtime.py",
-    val runtimeDataPath: String = "scripts/runtime/.runtime",
-    val prebuiltRuntimeArchive: String? = null,
-    val prebuiltRuntimeSha256: String? = null,
     val componentArchiveUrl: String? = null,
     val componentArchiveSha256: String? = null,
-    val bootstrapTimeoutSeconds: Int = 15 * 60,
+    val installTimeoutSeconds: Int = 15 * 60,
 ) {
-    fun toSpec(): RuntimeSkillSpec = RuntimeSkillSpec(
+    fun toSpec(componentId: String, componentVersion: String): RuntimeSkillSpec = RuntimeSkillSpec(
+        componentId = componentId,
+        componentVersion = componentVersion,
         id = id,
         packagedAssetPath = packagedAssetPath,
-        schemaAssetPath = schemaAssetPath,
+        packagedArchivePath = packagedArchivePath,
         markerFile = markerFile,
-        bootstrapScript = bootstrapScript,
-        runtimeDataPath = runtimeDataPath,
-        prebuiltRuntimeArchive = prebuiltRuntimeArchive,
-        prebuiltRuntimeSha256 = prebuiltRuntimeSha256,
         componentArchiveUrl = componentArchiveUrl,
         componentArchiveSha256 = componentArchiveSha256,
-        bootstrapTimeoutSeconds = bootstrapTimeoutSeconds,
+        installTimeoutSeconds = installTimeoutSeconds,
     ).validated()
 }

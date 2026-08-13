@@ -32,7 +32,7 @@ interface OmniFlowPlatform {
     suspend fun bootstrapRuntimeSkill(
         context: Context,
         location: OmniFlowSkillLocation,
-    )
+    ): OmniFlowSkillLocation
 
     suspend fun reclaimRuntimeSkill(context: Context)
 

@@ -4,12 +4,12 @@
     {
       "id": "com.omnimind.omni-vlm-lite",
       "name": "OmniFlow",
-      "version": "2.1.5",
+      "version": "2.1.7",
       "interfaceVersion": 1,
       "description": "Android GUI automation powered by the OmniFlow VLM runtime.",
       "publisher": "OmniMind",
       "kind": "runtime_bundle",
-      "downloadSizeBytes": 1053137,
+      "downloadSizeBytes": 958690,
       "capabilities": [
         "Manual recording",
         "Canonical RunLog",
@@ -23,16 +23,10 @@
       "adapter": "omniflow_android_gui",
       "runtimeSkill": {
         "id": "omniflow-gui-runtime",
-        "packagedAssetPath": "omni-vlm-lite/runtime-skill/omniflow-gui-runtime",
-        "schemaAssetPath": "omni-vlm-lite/schemas",
-        "markerFile": "PACKAGED_RUNTIME_SKILL",
-        "bootstrapScript": "scripts/bootstrap_runtime.py",
-        "runtimeDataPath": "scripts/runtime/.runtime",
-        "prebuiltRuntimeArchive": "scripts/runtime.prebuilt.zip",
-        "prebuiltRuntimeSha256": "da400a742ddb56f464505b41485c95678655f82ab7e5767d30446909ae508582",
-        "componentArchiveUrl": "https://github.com/omnimind-ai/OmniBot/releases/download/v0.5.6.15/omniflow-component-2.1.5.zip",
-        "componentArchiveSha256": "2c33d27f59c2bafa30791f71824a88ffaf7c57d156c89177cbec72f82ff2210b",
-        "bootstrapTimeoutSeconds": 900
+        "packagedArchivePath": "runtime-components/omniflow-gui-runtime-2.1.7.zip",
+        "componentArchiveUrl": "https://github.com/omnimind-ai/OmniBotSkills/releases/download/omniflow-gui-runtime-v2.1.7/omniflow-gui-runtime-2.1.7.zip",
+        "componentArchiveSha256": "a45d336b76e928b9eee7785e4078dfb58b863afcfcfe3f6ade7720b487fa9f36",
+        "installTimeoutSeconds": 900
       },
       "presentation": {
         "description": {
@@ -43,7 +37,10 @@
         "usage": [
           {
             "icon": "power",
-            "title": {"zh": "按需准备 runtime", "en": "Prepare the runtime on demand"},
+            "title": {
+              "zh": "按需准备 runtime",
+              "en": "Prepare the runtime on demand"
+            },
             "description": {
               "zh": "插件包统一管理 OmniFlow、OmniTransfer、模型 checkpoint 和 Python 依赖，并在安装或更新阶段校验版本与契约。",
               "en": "The plugin package manages OmniFlow, OmniTransfer, the model checkpoint, and Python dependencies, verifying versions and contracts during install or update."
@@ -51,7 +48,10 @@
           },
           {
             "icon": "touch",
-            "title": {"zh": "独立启停", "en": "Independent lifecycle"},
+            "title": {
+              "zh": "独立启停",
+              "en": "Independent lifecycle"
+            },
             "description": {
               "zh": "插件可以独立安装、更新、启用、停用和卸载，不改变 OpenOmniBot 主应用的基础生命周期。",
               "en": "The plugin can be installed, updated, enabled, disabled, and uninstalled without changing the host app lifecycle."
@@ -59,16 +59,22 @@
           },
           {
             "icon": "layers",
-            "title": {"zh": "不增加基础安装包体积", "en": "Keeps the base app small"},
+            "title": {
+              "zh": "只增加一个轻量基线包",
+              "en": "Adds only a small baseline"
+            },
             "description": {
-              "zh": "录制、RunLog、Function、checker、重放和热更新都由插件包提供；主应用只提供稳定的 Android host 与插件契约。",
-              "en": "Recording, RunLog, Function, checker, replay, and hot update capabilities come from the plugin package; the host provides only the stable Android host and plugin contract."
+              "zh": "APK 只内置一个约 1 MB 的已验收基线 ZIP；录制、RunLog、Function、checker、重放和后续热更新仍由插件包提供。",
+              "en": "The APK embeds only an accepted baseline ZIP of about 1 MB; recording, RunLog, Function, checker, replay, and later hot updates still come from the plugin package."
             }
           }
         ],
         "ready": {
           "key": "omniflow-ready-guide",
-          "title": {"zh": "OmniFlow 自动化增强已启用", "en": "OmniFlow automation is enabled"},
+          "title": {
+            "zh": "OmniFlow 自动化增强已启用",
+            "en": "OmniFlow automation is enabled"
+          },
           "steps": [
             {
               "zh": "在线执行：回到聊天，直接说“打开蓝牙”或“新建联系人”。",
@@ -89,14 +95,20 @@
               "navigation": "go",
               "icon": "chat",
               "requiresReadiness": true,
-              "label": {"zh": "去聊天试用", "en": "Try in chat"}
+              "label": {
+                "zh": "去聊天试用",
+                "en": "Try in chat"
+              }
             },
             {
               "route": "/task/omniflow",
               "navigation": "push",
               "icon": "route",
               "requiresReadiness": false,
-              "label": {"zh": "查看已保存操作", "en": "View saved actions"}
+              "label": {
+                "zh": "查看已保存操作",
+                "en": "View saved actions"
+              }
             }
           ]
         },
@@ -104,18 +116,33 @@
           "route": "/task/omniflow",
           "navigation": "push",
           "icon": "route",
-          "label": {"zh": "已保存操作与执行记录", "en": "Saved actions & history"}
+          "label": {
+            "zh": "已保存操作与执行记录",
+            "en": "Saved actions & history"
+          }
         },
         "dashboard": {
           "route": "/task/omniflow",
           "navigation": "push",
           "icon": "dashboard",
-          "label": {"zh": "进入 Dashboard", "en": "Open Dashboard"}
+          "label": {
+            "zh": "进入 Dashboard",
+            "en": "Open Dashboard"
+          }
         },
         "capabilityLabels": {
-          "Manual recording": {"zh": "录下你的手机操作", "en": "Record your phone actions"},
-          "Canonical RunLog": {"zh": "查看任务执行的每一步", "en": "Review every step of a task"},
-          "RunLog to Function": {"zh": "把成功操作保存下来重复使用", "en": "Save successful actions for reuse"},
+          "Manual recording": {
+            "zh": "录下你的手机操作",
+            "en": "Record your phone actions"
+          },
+          "Canonical RunLog": {
+            "zh": "查看任务执行的每一步",
+            "en": "Review every step of a task"
+          },
+          "RunLog to Function": {
+            "zh": "把成功操作保存下来重复使用",
+            "en": "Save successful actions for reuse"
+          },
           "Function recall and parameter binding": {
             "zh": "相似任务自动找到流程并替换新内容",
             "en": "Find a matching flow and substitute new details"
@@ -154,7 +181,9 @@
       ],
       "settingsSchema": {},
       "adapter": "sandbox_bundle",
-      "profiles": ["investor"],
+      "profiles": [
+        "investor"
+      ],
       "runtimeSkill": {
         "id": "vibe-project-builder",
         "packagedAssetPath": "vibe-project/runtime-skill/vibe-project-builder",
@@ -169,7 +198,10 @@
           "route": "/home/plugin_market/com.omnimind.vibe-project-builder",
           "navigation": "push",
           "icon": "dashboard",
-          "label": {"zh": "进入 Vibe Builder", "en": "Open Vibe Builder"}
+          "label": {
+            "zh": "进入 Vibe Builder",
+            "en": "Open Vibe Builder"
+          }
         }
       }
     },
@@ -192,7 +224,9 @@
       ],
       "settingsSchema": {},
       "adapter": "omnilink_agent",
-      "profiles": ["investor"],
+      "profiles": [
+        "investor"
+      ],
       "runtimeSkill": {
         "id": "omnilink-agent",
         "packagedAssetPath": "omnilink-agent/runtime-skill/omnilink-agent",
@@ -207,7 +241,10 @@
         "usage": [
           {
             "icon": "devices",
-            "title": {"zh": "先看协作设备", "en": "Inspect devices first"},
+            "title": {
+              "zh": "先看协作设备",
+              "en": "Inspect devices first"
+            },
             "description": {
               "zh": "说“列出协作设备”，小万会读取设备 readiness，再按你的意图组合查询。",
               "en": "Say “list collaboration devices”; Xiaowan reads readiness and composes the requested query."
@@ -215,7 +252,10 @@
           },
           {
             "icon": "battery",
-            "title": {"zh": "查询另一台手机状态", "en": "Query the other phone"},
+            "title": {
+              "zh": "查询另一台手机状态",
+              "en": "Query the other phone"
+            },
             "description": {
               "zh": "说“查另一台手机的电量和是否在线”，小万会读取实时 readiness。",
               "en": "Say “check the other phone's battery and reachability”; Xiaowan reads live readiness."
@@ -223,7 +263,10 @@
           },
           {
             "icon": "notifications",
-            "title": {"zh": "接收另一台手机通知", "en": "Receive remote notifications"},
+            "title": {
+              "zh": "接收另一台手机通知",
+              "en": "Receive remote notifications"
+            },
             "description": {
               "zh": "说“开始接收另一台手机的通知”，通知会持续回流当前聊天，正文按隐私策略隐藏。",
               "en": "Say “start receiving notifications from the other phone”; safe summaries return to this chat while content stays private."
@@ -231,7 +274,10 @@
           },
           {
             "icon": "notifications",
-            "title": {"zh": "小万自己组合事件订阅", "en": "Compose event subscriptions"},
+            "title": {
+              "zh": "小万自己组合事件订阅",
+              "en": "Compose event subscriptions"
+            },
             "description": {
               "zh": "说“开始接收另一台手机的通知”，小万会选择安全事件类型并建立持续回流。",
               "en": "Say “start receiving notifications from the other phone”; Xiaowan selects safe event types and starts the stream."
@@ -239,7 +285,10 @@
           },
           {
             "icon": "send",
-            "title": {"zh": "让两个小万互相发信号", "en": "Message between Agents"},
+            "title": {
+              "zh": "让两个小万互相发信号",
+              "en": "Message between Agents"
+            },
             "description": {
               "zh": "说“给另一台设备上的小万发消息：……”；消息带幂等 ID，可安全重试。",
               "en": "Say “send a message to the other Xiaowan: …”; messages carry an idempotency ID and can be retried safely."
@@ -247,7 +296,10 @@
           },
           {
             "icon": "sync",
-            "title": {"zh": "入站消息实时回流", "en": "Inbound events return live"},
+            "title": {
+              "zh": "入站消息实时回流",
+              "en": "Inbound events return live"
+            },
             "description": {
               "zh": "另一台设备的 Agent 消息和事件摘要会自动回到当前聊天，不需要用户复制 CLI 输出。",
               "en": "Agent messages and notification events from the other device return to the current chat without copying CLI output."
@@ -256,7 +308,10 @@
         ],
         "ready": {
           "key": "omnilink-agent-ready-guide",
-          "title": {"zh": "OmniLink 协作已启用", "en": "OmniLink collaboration is enabled"},
+          "title": {
+            "zh": "OmniLink 协作已启用",
+            "en": "OmniLink collaboration is enabled"
+          },
           "steps": [
             {
               "zh": "回到聊天，说“列出协作设备”。",
@@ -277,16 +332,34 @@
               "navigation": "go",
               "icon": "chat",
               "requiresReadiness": true,
-              "label": {"zh": "去聊天试用", "en": "Try in chat"}
+              "label": {
+                "zh": "去聊天试用",
+                "en": "Try in chat"
+              }
             }
           ]
         },
         "capabilityLabels": {
-          "List connected devices": {"zh": "查看已连接协作设备", "en": "List connected devices"},
-          "Read device readiness": {"zh": "读取设备状态与能力就绪度", "en": "Read device readiness"},
-          "Send idempotent Agent messages": {"zh": "向另一个小万发送可重试消息", "en": "Send retry-safe Agent messages"},
-          "Subscribe to Agent message events": {"zh": "订阅另一台设备的小万消息", "en": "Subscribe to peer Agent events"},
-          "Reconnect-safe event cursors": {"zh": "断线重连后不丢消息", "en": "Recover events after reconnect"}
+          "List connected devices": {
+            "zh": "查看已连接协作设备",
+            "en": "List connected devices"
+          },
+          "Read device readiness": {
+            "zh": "读取设备状态与能力就绪度",
+            "en": "Read device readiness"
+          },
+          "Send idempotent Agent messages": {
+            "zh": "向另一个小万发送可重试消息",
+            "en": "Send retry-safe Agent messages"
+          },
+          "Subscribe to Agent message events": {
+            "zh": "订阅另一台设备的小万消息",
+            "en": "Subscribe to peer Agent events"
+          },
+          "Reconnect-safe event cursors": {
+            "zh": "断线重连后不丢消息",
+            "en": "Recover events after reconnect"
+          }
         }
       }
     }

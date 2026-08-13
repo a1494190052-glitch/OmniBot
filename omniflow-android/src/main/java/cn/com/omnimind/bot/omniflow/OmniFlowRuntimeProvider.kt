@@ -77,7 +77,7 @@ class OmniFlowRuntimeProvider {
     ): PreparedOmniFlowRuntime {
         val startedAt = System.currentTimeMillis()
         log("prepare_start refresh=$refresh")
-        val location = if (packagedOnly) {
+        var location = if (packagedOnly) {
             platform.resolvePackagedRuntimeSkill(appContext)
         } else {
             platform.resolveRuntimeSkill(appContext, refresh = refresh)
@@ -96,7 +96,7 @@ class OmniFlowRuntimeProvider {
             "prepare_python_ready durationMs=${System.currentTimeMillis() - startedAt} " +
                 "python=${manifest.pythonVersion}",
         )
-        platform.bootstrapRuntimeSkill(appContext, location)
+        location = platform.bootstrapRuntimeSkill(appContext, location)
         log(
             "prepare_bootstrap_ready durationMs=${System.currentTimeMillis() - startedAt}",
         )
@@ -111,7 +111,7 @@ class OmniFlowRuntimeProvider {
                 ),
                 shellPythonSourcePath = "${location.shellRoot}/scripts/runtime/python",
                 shellSitePackagesPath =
-                    "${location.shellRoot}/scripts/runtime/.runtime/site-packages",
+                    "${location.shellRoot}/vendor/site-packages",
                 shellOmniTransferRoot =
                     "${location.shellRoot}/scripts/runtime/.runtime/omnitransfer",
                 shellOmniTransferCheckpointPath =
@@ -137,25 +137,28 @@ class OmniFlowRuntimeProvider {
         skillRoot: File,
         manifest: OmniFlowRuntimeManifest,
     ) {
-        val required = listOf(
+        val required = requiredOmniFlowRuntimePaths(manifest)
+        require(required.all { File(skillRoot, it).isFile }) {
+            "omniflow_skill_runtime_incomplete"
+        }
+    }
+
+    internal fun requiredOmniFlowRuntimePaths(
+        manifest: OmniFlowRuntimeManifest,
+    ): List<String> = listOf(
             "scripts/runtime/python/omniflow/bridge.py",
-            "scripts/runtime/python/src/integrations/runlog.py",
+            "scripts/runtime/python/omniflow/runlog.py",
+            "vendor/site-packages/json_repair/__init__.py",
             "scripts/runtime/python/schemas/oob/oob_canonical_actions.v1.json",
             "scripts/runtime/python/schemas/oob/omniflow_canonical_run_log.v1.json",
             "scripts/runtime/python/schemas/oob/omniflow_function.v2.json",
             "scripts/runtime/python/schemas/oob/omniflow_checker_rule.v1.json",
             "scripts/runtime/python/schemas/oob/omniflow_android_bridge.v2.json",
-            "scripts/runtime/.runtime/site-packages/json_repair/__init__.py",
             "scripts/runtime/.runtime/omnitransfer/src/omnitransfer/runtime.py",
             "scripts/runtime/.runtime/omnitransfer/src/omnitransfer/numpy_matcher.py",
             "scripts/runtime/.runtime/omnitransfer/src/omnitransfer/numpy_v9_matcher.py",
             "scripts/runtime/.runtime/omnitransfer/src/omnitransfer/${manifest.omniTransferCheckpoint}",
-            "scripts/runtime/.runtime/installed.json",
         )
-        require(required.all { File(skillRoot, it).isFile }) {
-            "omniflow_skill_runtime_incomplete"
-        }
-    }
 
     private fun alignPythonStoreWithRuntime(
         context: Context,

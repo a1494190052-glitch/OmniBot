@@ -2,7 +2,9 @@ package cn.com.omnimind.bot.plugin.official
 
 import android.content.Context
 import cn.com.omnimind.bot.BuildConfig
+import cn.com.omnimind.bot.mcp.McpServerManager
 import cn.com.omnimind.bot.omniflow.OmniFlowAppPlatform
+import cn.com.omnimind.bot.omniflow.OmniFlow
 import cn.com.omnimind.bot.omniflow.OmniFlowPluginRuntime
 import cn.com.omnimind.bot.omniflow.OmniFlowRuntimeProvider
 import cn.com.omnimind.bot.plugin.OmniPlugin
@@ -24,14 +26,17 @@ class OmniVlmLiteProvider(
             context = appContext,
             spec = definition.runtimeSkill,
             allowPackagedFallback = BuildConfig.ALLOW_PACKAGED_PLUGIN_FALLBACK,
+            preferPackagedFallback = BuildConfig.PREFER_PACKAGED_OMNIFLOW_RUNTIME,
         )
     )
 
     override suspend fun prepare(mode: RuntimeBundlePrepareMode) {
+        OmniFlowPluginRuntime.install(platform, runtimeProvider)
         when (mode) {
             RuntimeBundlePrepareMode.INSTALL -> runtimeProvider.install(appContext, platform)
             RuntimeBundlePrepareMode.UPDATE -> runtimeProvider.update(appContext, platform)
         }
+        OmniFlow.prepareAndStart(appContext)
     }
 
     override suspend fun remove() {
@@ -54,6 +59,7 @@ class OmniVlmLiteProvider(
 
             override suspend fun onEnable() {
                 OmniFlowPluginRuntime.enable(appContext)
+                McpServerManager.setEnabled(appContext, true)
             }
 
             override suspend fun onDisable() {

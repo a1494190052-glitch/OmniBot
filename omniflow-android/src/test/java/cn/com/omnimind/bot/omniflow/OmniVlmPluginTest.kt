@@ -3,6 +3,8 @@ package cn.com.omnimind.bot.omniflow
 import android.content.Context
 import cn.com.omnimind.baselib.llm.ChatCompletionRequest
 import cn.com.omnimind.baselib.llm.ChatCompletionTurn
+import cn.com.omnimind.baselib.runlog.State
+import cn.com.omnimind.baselib.runlog.actionOf
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Test
@@ -48,6 +50,23 @@ class OmniVlmPluginTest {
         assertEquals(
             "temporary experiment guidance",
             arguments["step_skill_guidance"],
+        )
+    }
+
+    @Test
+    fun `device host blocks payment confirmation actions`() {
+        val state = State.create(
+            packageName = "com.example.shop",
+            activityName = "CheckoutActivity",
+            displayWidth = 1080,
+            displayHeight = 2400,
+            xml = "<node text='立即支付'/>",
+        )
+
+        assertEquals(true, blocksPaymentConfirmation(state, actionOf("click")))
+        assertEquals(
+            false,
+            blocksPaymentConfirmation(state, actionOf("press_key", mapOf("key" to "BACK"))),
         )
     }
 

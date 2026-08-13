@@ -10,7 +10,7 @@ object OmniFlowPluginRuntime {
         runtimeProvider: OmniFlowRuntimeProvider = OmniFlowRuntimeProvider(),
     ) = shared.install(platform, runtimeProvider)
 
-    fun enable(context: Context) = shared.enable(context)
+    suspend fun enable(context: Context) = shared.enable(context)
 
     suspend fun disable() = shared.disable()
 
@@ -37,11 +37,11 @@ internal class OmniFlowPluginRuntimeController(
         enabled = false
     }
 
-    fun enable(context: Context) {
+    suspend fun enable(context: Context) {
         check(installed) { "omniflow_plugin_not_installed" }
         if (enabled) return
+        backend.prepareAndStart(context)
         enabled = true
-        backend.warmup(context)
     }
 
     suspend fun disable() {
@@ -64,7 +64,7 @@ internal interface OmniFlowPluginBackend {
         runtimeProvider: OmniFlowRuntimeProvider,
     )
 
-    fun warmup(context: Context)
+    suspend fun prepareAndStart(context: Context)
 
     suspend fun shutdown()
 }
@@ -75,7 +75,9 @@ private object DefaultOmniFlowPluginBackend : OmniFlowPluginBackend {
         runtimeProvider: OmniFlowRuntimeProvider,
     ) = OmniFlow.configure(platform, runtimeProvider)
 
-    override fun warmup(context: Context) = OmniFlow.warmup(context)
+    override suspend fun prepareAndStart(context: Context) {
+        OmniFlow.prepareAndStart(context)
+    }
 
     override suspend fun shutdown() = OmniFlow.shutdown()
 }

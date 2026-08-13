@@ -1,6 +1,8 @@
 package cn.com.omnimind.bot.omniflow
 
 import android.content.Context
+import cn.com.omnimind.baselib.runlog.Action
+import cn.com.omnimind.baselib.runlog.State
 import java.io.File
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
@@ -33,6 +35,24 @@ internal fun firstText(vararg values: Any?): String {
     }
     return ""
 }
+
+internal fun blocksPaymentConfirmation(state: State, action: Action): Boolean {
+    if (action.tool !in setOf("click", "long_press", "input_text", "swipe")) return false
+    val normalized = state.xml.lowercase().replace(Regex("\\s+"), " ")
+    return PAYMENT_CONFIRMATION_MARKERS.any(normalized::contains)
+}
+
+private val PAYMENT_CONFIRMATION_MARKERS = setOf(
+    "确认支付",
+    "立即支付",
+    "去支付",
+    "支付密码",
+    "付款密码",
+    "收银台",
+    "pay now",
+    "confirm payment",
+    "payment password",
+)
 
 internal fun jsonValue(value: Any?): JsonElement = when (value) {
     null -> JsonNull

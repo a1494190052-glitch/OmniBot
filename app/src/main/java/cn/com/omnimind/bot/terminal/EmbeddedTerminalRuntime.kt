@@ -152,7 +152,6 @@ object EmbeddedTerminalRuntime {
         "pip3",
         "rg",
         "tmux",
-        "uv",
         "xz"
     )
 
@@ -200,6 +199,7 @@ object EmbeddedTerminalRuntime {
                   procps \
                   psmisc \
                   python3 \
+                  py3-numpy \
                   py3-pip \
                   py3-virtualenv \
                   ripgrep \
@@ -213,10 +213,7 @@ object EmbeddedTerminalRuntime {
             $packageBootstrap
             ln -sf /usr/bin/python3 /usr/local/bin/python || true
             python3 -m pip install --break-system-packages --upgrade pip >/dev/null 2>&1 || true
-            python3 -m pip install --break-system-packages --upgrade uv >/dev/null 2>&1 || true
             npm install -g pnpm --no-audit --no-fund >/dev/null 2>&1 || true
-            if [ -x "${'$'}HOME/.local/bin/uv" ]; then ln -sf "${'$'}HOME/.local/bin/uv" /usr/local/bin/uv; fi
-            if [ -x "${'$'}HOME/.local/bin/uvx" ]; then ln -sf "${'$'}HOME/.local/bin/uvx" /usr/local/bin/uvx; fi
         """.trimIndent()
     }
 

@@ -43,7 +43,7 @@ internal class OmniFlowAppPlatform(
             terminalStatus.message.ifBlank { "omniflow_terminal_runtime_unavailable" }
         }
         val prefs = appContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-        val environmentVersion = "$expectedVersion+preinstalled-numpy-v3"
+        val environmentVersion = "$expectedVersion+system-numpy-v2"
         if (prefs.getString(READY_VERSION_KEY, null) == environmentVersion) {
             log("python_ready_cached version=$environmentVersion")
             return
@@ -105,13 +105,19 @@ internal class OmniFlowAppPlatform(
     override suspend fun bootstrapRuntimeSkill(
         context: Context,
         location: OmniFlowSkillLocation,
-    ) {
-        runtimeSkills.bootstrap(
+    ): OmniFlowSkillLocation {
+        val ready = runtimeSkills.bootstrap(
             cn.com.omnimind.bot.plugin.runtime.RuntimeSkillLocation(
                 androidRoot = location.androidRoot,
                 shellRoot = location.shellRoot,
                 source = location.source,
+                staged = location.source == "market-pending",
             )
+        )
+        return OmniFlowSkillLocation(
+            androidRoot = ready.androidRoot,
+            shellRoot = ready.shellRoot,
+            source = ready.source,
         )
     }
 
@@ -134,24 +140,20 @@ internal fun buildOmniFlowPythonPrepareCommand(expectedVersion: String): String 
         set -e
         expected='$expectedVersion'
         echo 'OMNIFLOW_PYTHON_STAGE=probe_start'
-        packages_ready() {
-          test -f /etc/omnibot-python-environment &&
-          grep -qx 'alpine-3.21-python3.12-numpy2.1.3-v3' /etc/omnibot-python-environment &&
+        base_packages_ready() {
           command -v python3 >/dev/null 2>&1 &&
           python3 -c 'import sys; print("%d.%d" % sys.version_info[:2])' | grep -qx "${'$'}expected" &&
-          python3 -m pip --version >/dev/null 2>&1 &&
-          python3 -c 'import numpy' >/dev/null 2>&1 &&
-          test -e /usr/lib/libstdc++.so.6
+          python3 -c 'import numpy' >/dev/null 2>&1
         }
-        if ! packages_ready; then
-          echo 'OMNIFLOW_PYTHON_STAGE=repair_start package=py3-numpy'
-          apk add --no-cache python3 py3-pip py3-numpy libstdc++
+        if ! base_packages_ready; then
+          echo 'OMNIFLOW_PYTHON_STAGE=repair_start package=python-numpy'
+          apk --wait 300 add --no-cache python3 py3-pip py3-numpy
           printf '%s\n' 'alpine-3.21-python3.12-numpy2.1.3-v3' > /etc/omnibot-python-environment
-          echo 'OMNIFLOW_PYTHON_STAGE=repair_ready package=py3-numpy'
+          echo 'OMNIFLOW_PYTHON_STAGE=repair_ready package=python-numpy'
         else
-          echo 'OMNIFLOW_PYTHON_STAGE=probe_ready source=cache'
+          echo 'OMNIFLOW_PYTHON_STAGE=probe_ready source=environment'
         fi
-        packages_ready
+        base_packages_ready
         echo 'OMNIFLOW_PYTHON_STAGE=ready'
     """.trimIndent()
 }

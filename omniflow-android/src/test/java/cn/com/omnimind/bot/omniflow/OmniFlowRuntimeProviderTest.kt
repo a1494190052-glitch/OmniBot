@@ -60,6 +60,29 @@ class OmniFlowRuntimeProviderTest {
         )
     }
 
+    @Test
+    fun `runtime completeness uses package owned runlog module`() {
+        val manifest = OmniFlowRuntimeManifest(
+            version = "test",
+            protocol = "test",
+            capabilities = setOf("initialize"),
+            bridgeContractSha256 = "0".repeat(64),
+            pythonVersion = "3.12",
+            omniFlowCommit = "flow",
+            omniFlowSourceSha256 = "1".repeat(64),
+            omniTransferCommit = "transfer",
+            omniTransferSourceSha256 = "2".repeat(64),
+            omniTransferCheckpoint = "checkpoints/v9.npz",
+            numpyVersion = "numpy",
+            jsonRepairVersion = "json-repair",
+        )
+
+        val required = OmniFlowRuntimeProvider().requiredOmniFlowRuntimePaths(manifest)
+
+        assertTrue("scripts/runtime/python/omniflow/runlog.py" in required)
+        assertFalse("scripts/runtime/python/src/integrations/runlog.py" in required)
+    }
+
     private class RefreshRecordingPlatform : OmniFlowPlatform {
         val refreshRequests = mutableListOf<Boolean>()
 
@@ -82,7 +105,7 @@ class OmniFlowRuntimeProviderTest {
         override suspend fun bootstrapRuntimeSkill(
             context: Context,
             location: OmniFlowSkillLocation,
-        ) = Unit
+        ): OmniFlowSkillLocation = location
 
         override suspend fun reclaimRuntimeSkill(context: Context) = Unit
 

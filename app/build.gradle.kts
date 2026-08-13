@@ -32,11 +32,14 @@ val llmThuApiBase = prop("LLMTHU_API_BASE")
 val llmThuApiKey = prop("LLMTHU_API_KEY")
 val llmThuModel = prop("LLMTHU_MODEL")
     .ifBlank { "GLM-5.1" }
+val bundleLlmThuProvider = prop("OOB_BUNDLE_LLMTHU_PROVIDER") == "1"
 val omnibotProfile = prop("OMNIBOT_PROFILE").ifBlank { "main" }
 require(omnibotProfile in setOf("main", "investor")) {
     "OMNIBOT_PROFILE must be main or investor: $omnibotProfile"
 }
 val isInvestorProfile = omnibotProfile == "investor"
+val preferPackagedOmniFlowRuntime =
+    prop("OOB_PREFER_PACKAGED_OMNIFLOW_RUNTIME") == "1"
 val omnibotAiGatewayUrl = prop("OMNIBOT_AI_GATEWAY_URL")
 val resolvedOmnibotBaseUrl = omnibotBaseUrl
     .ifBlank { "https://account.omnimind.com.cn" }
@@ -48,6 +51,23 @@ val webChatDistDir = File(webChatSourceDir, "dist")
 val webChatAssetsRootDir = layout.buildDirectory.dir("generated/omnibot_assets").get().asFile
 val webChatAssetsDir = File(webChatAssetsRootDir, "webchat")
 val pluginSourceDir = rootProject.file("plugins")
+val pluginCatalogFile = File(pluginSourceDir, "catalog.v1.json")
+@Suppress("UNCHECKED_CAST")
+val pluginCatalog = JsonSlurper().parse(pluginCatalogFile) as Map<String, Any?>
+@Suppress("UNCHECKED_CAST")
+val pluginCatalogEntries = pluginCatalog.getValue("plugins") as List<Map<String, Any?>>
+val omniFlowCatalogEntry = pluginCatalogEntries.first {
+    it["id"] == "com.omnimind.omni-vlm-lite"
+}
+@Suppress("UNCHECKED_CAST")
+val omniFlowRuntimeSkill = omniFlowCatalogEntry.getValue("runtimeSkill") as Map<String, Any?>
+val omniFlowPackagedArchivePath = omniFlowRuntimeSkill.getValue("packagedArchivePath").toString()
+require(omniFlowPackagedArchivePath.startsWith("runtime-components/")) {
+    "OmniFlow packagedArchivePath must be under runtime-components: $omniFlowPackagedArchivePath"
+}
+val omniFlowBaselineArchive = rootProject.file(
+    "artifacts/${File(omniFlowPackagedArchivePath).name}",
+)
 val pluginAssetsRootDir = layout.buildDirectory.dir("generated/plugin_assets/$omnibotProfile")
     .get().asFile
 val webChatPackageJson = File(webChatSourceDir, "package.json")
@@ -105,9 +125,13 @@ val syncWebChatBundle by tasks.registering(Copy::class) {
 val syncPluginAssets by tasks.registering(Sync::class) {
     group = "plugin packaging"
     description = "Generate the packaged plugin catalog for the selected build profile."
-    inputs.file(File(pluginSourceDir, "catalog.v1.json"))
+    inputs.file(pluginCatalogFile)
+    inputs.file(omniFlowBaselineArchive)
     inputs.property("omnibotProfile", omnibotProfile)
     from(pluginSourceDir)
+    from(omniFlowBaselineArchive) {
+        into("runtime-components")
+    }
     into(pluginAssetsRootDir)
     exclude("catalog.v1.json")
     if (!isInvestorProfile) {
@@ -118,7 +142,7 @@ val syncPluginAssets by tasks.registering(Sync::class) {
     }
     doLast {
         @Suppress("UNCHECKED_CAST")
-        val source = JsonSlurper().parse(File(pluginSourceDir, "catalog.v1.json"))
+        val source = JsonSlurper().parse(pluginCatalogFile)
             as Map<String, Any?>
         @Suppress("UNCHECKED_CAST")
         val plugins = source.getValue("plugins") as List<Map<String, Any?>>
@@ -156,10 +180,16 @@ android {
         buildConfigField("String", "DEBUG_LLMTHU_API_BASE", buildConfigString(""))
         buildConfigField("String", "DEBUG_LLMTHU_API_KEY", buildConfigString(""))
         buildConfigField("String", "DEBUG_LLMTHU_MODEL", buildConfigString(""))
+        buildConfigField("boolean", "ENABLE_LLMTHU_BOOTSTRAP", "false")
         buildConfigField("String", "OMNIBOT_PROFILE", buildConfigString(omnibotProfile))
-        buildConfigField("boolean", "DEFAULT_INSTALL_GUI_PLUGIN", "false")
+        buildConfigField("boolean", "DEFAULT_INSTALL_GUI_PLUGIN", "true")
         buildConfigField("boolean", "DEFAULT_INSTALL_ALL_PLUGINS", isInvestorProfile.toString())
-        buildConfigField("boolean", "ALLOW_PACKAGED_PLUGIN_FALLBACK", isInvestorProfile.toString())
+        buildConfigField("boolean", "ALLOW_PACKAGED_PLUGIN_FALLBACK", "true")
+        buildConfigField(
+            "boolean",
+            "PREFER_PACKAGED_OMNIFLOW_RUNTIME",
+            preferPackagedOmniFlowRuntime.toString(),
+        )
         ndk {
             abiFilters.addAll(listOf("arm64-v8a"))
         }
@@ -205,6 +235,28 @@ android {
     buildTypes {
         release {
             signingConfig = signingConfigs.getByName("release")
+            buildConfigField(
+                "boolean",
+                "ENABLE_LLMTHU_BOOTSTRAP",
+                bundleLlmThuProvider.toString(),
+            )
+            if (bundleLlmThuProvider) {
+                buildConfigField(
+                    "String",
+                    "DEBUG_LLMTHU_API_BASE",
+                    buildConfigString(llmThuApiBase),
+                )
+                buildConfigField(
+                    "String",
+                    "DEBUG_LLMTHU_API_KEY",
+                    buildConfigString(llmThuApiKey),
+                )
+                buildConfigField(
+                    "String",
+                    "DEBUG_LLMTHU_MODEL",
+                    buildConfigString(llmThuModel),
+                )
+            }
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(
@@ -216,6 +268,7 @@ android {
             signingConfig = signingConfigs.getByName("debug")
             applicationIdSuffix = ".debug"
             isMinifyEnabled = false
+            buildConfigField("boolean", "ENABLE_LLMTHU_BOOTSTRAP", "true")
             buildConfigField(
                 "String",
                 "DEBUG_LLMTHU_API_BASE",
@@ -341,6 +394,7 @@ dependencies {
     implementation(libs.ktor.serialization.gson)
     implementation(libs.ktor.serialization.kotlinx.json)
     implementation(libs.ktor.server.call.logging)
+    implementation(libs.mcp.kotlin.sdk.server)
     testImplementation(libs.junit)
     debugImplementation(libs.androidx.ui.tooling)
     debugImplementation(libs.androidx.ui.test.manifest )

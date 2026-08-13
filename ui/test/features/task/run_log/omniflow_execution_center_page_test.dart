@@ -500,4 +500,5 @@ void main() {
     expect(find.text('2 VLM calls'), findsOneWidget);
     expect(find.byKey(const ValueKey('run-log-open-run-1')), findsOneWidget);
   });
+
 }

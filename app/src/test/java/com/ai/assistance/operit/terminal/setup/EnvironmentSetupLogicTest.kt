@@ -18,9 +18,10 @@ class EnvironmentSetupLogicTest {
             repositorySetupCommand = ""
         )
 
-        val apkAdd = commands.first { it.startsWith("apk add ") }
+        val apkAdd = commands.first { it.startsWith("apk --wait 300 add ") }
         assertTrue(apkAdd.contains("python3"))
         assertTrue(apkAdd.contains("py3-pip"))
+        assertTrue(apkAdd.contains("py3-numpy"))
         assertTrue(apkAdd.contains("nodejs"))
         assertTrue(apkAdd.contains("npm"))
         assertTrue(apkAdd.contains("openssh-client-default"))
@@ -29,7 +30,7 @@ class EnvironmentSetupLogicTest {
         assertTrue(commands.contains("ln -sf /usr/bin/pip3 /usr/local/bin/pip || true"))
         assertTrue(
             commands.contains(
-                "if ! apk add --no-cache uv; then python3 -m pip install --break-system-packages --upgrade uv; fi"
+                "if ! apk --wait 300 add --no-cache uv; then python3 -m pip install --break-system-packages --upgrade uv; fi"
             )
         )
     }
@@ -42,7 +43,7 @@ class EnvironmentSetupLogicTest {
         )
 
         assertEquals("echo mirror-ready", commands.first())
-        assertTrue(commands.any { it == "apk add --no-cache curl" })
+        assertTrue(commands.any { it == "apk --wait 300 add --no-cache curl" })
     }
 
     @Test
@@ -66,6 +67,7 @@ class EnvironmentSetupLogicTest {
 
         val aptInstall = commands.last { it.startsWith("apt-get update") }
         assertTrue(aptInstall.contains("python3"))
+        assertTrue(aptInstall.contains("python3-numpy"))
         assertTrue(aptInstall.contains("python3-pip"))
         assertTrue(aptInstall.contains("nodejs"))
         assertTrue(!aptInstall.split(Regex("\\s+")).contains("npm"))
@@ -81,7 +83,7 @@ class EnvironmentSetupLogicTest {
             repositorySetupCommand = ""
         )
 
-        val apkAdd = commands.first { it.startsWith("apk add ") }
+        val apkAdd = commands.first { it.startsWith("apk --wait 300 add ") }
         assertTrue(apkAdd.contains("nodejs"))
         assertTrue(apkAdd.contains("npm"))
         assertTrue(apkAdd.contains("git"))
@@ -114,7 +116,7 @@ class EnvironmentSetupLogicTest {
             repositorySetupCommand = ""
         )
 
-        val apkAdd = commands.first { it.startsWith("apk add ") }
+        val apkAdd = commands.first { it.startsWith("apk --wait 300 add ") }
         assertTrue(apkAdd.contains("nodejs"))
         assertTrue(apkAdd.contains("npm"))
         assertTrue(commands.count { it == "npm config set prefix /root/.npm-global" } == 1)
@@ -159,7 +161,7 @@ class EnvironmentSetupLogicTest {
 
         assertTrue(command.contains("node -e 'process.cwd();"))
         assertTrue(command.contains("process.versions.node"))
-        assertTrue(command.contains("python3 -c 'import os; os.getcwd()'"))
+        assertTrue(command.contains("python3 -c 'import os, numpy; os.getcwd()'"))
         assertTrue(command.contains("pip3 --version"))
     }
 
@@ -178,6 +180,7 @@ class EnvironmentSetupLogicTest {
         assertTrue(script.contains("校验基础目录操作"))
         assertTrue(script.contains("node -e 'process.cwd();"))
         assertTrue(script.contains("python3 -c 'import os; os.getcwd()'"))
+        assertTrue(script.contains("python3 -c 'import numpy'"))
         assertTrue(script.contains("pip3 --version"))
         assertTrue(script.indexOf("run_setup && run_validate") < script.indexOf("选中的环境已准备完成"))
     }

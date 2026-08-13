@@ -17,21 +17,29 @@ the adapter selected by `adapter`.
    `investor` builds.
 5. Publish a complete Skill with the same `runtimeSkill.id` in the official
    Skills repository when the runtime should support independent updates. A
-   market runtime must contain `scripts/runtime/python/omniflow/bridge.py` and
-   `scripts/runtime/.runtime/installed.json`; incomplete entries are ignored.
+   market runtime must contain a matching `component.json` and every runtime
+   file declared by its adapter; incomplete entries are ignored.
 
 Plugins may expose a direct management surface through
 `presentation.dashboard`. The market uses this action for its quick-entry
 button and the detail page prefers it over the legacy `installedAction`.
 
-Install atomically downloads the catalog's versioned component ZIP, verifies its
-pinned SHA-256, registers the contribution, and enables it. The platform does
-not persist the installed state until all of those steps succeed. Update fetches
-the newly catalogued component without reinstalling the APK and switches only
-to a complete verified market runtime. The normal `main`
-profile contains no packaged runtime and never falls back to APK assets. The
-`investor` profile may retain a packaged offline fallback. Uninstall disables
-official Skills and reclaims their downloaded runtime data.
+Install verifies and extracts the embedded versioned component ZIP and registers
+the baseline without running a package manager. Update downloads the newly catalogued
+component, verifies its pinned SHA-256, and switches only after the pending
+version is complete. Every profile embeds the same small Release ZIP as its
+first-install baseline; the APK does not duplicate the unpacked runtime source
+tree. Download or compatibility failures preserve the installed version or
+fall back to that baseline. Uninstall disables official Skills and reclaims
+their installed runtime data.
+
+## MCP-first runtime bundles
+
+An MCP-capable runtime declares its public tool names in `component.json`. OpenOmniBot's built-in
+standard MCP endpoint exposes those tools and forwards them to the installed runtime through the
+existing internal bridge. Neither side contains Agent-specific configuration or a private network
+protocol. Skills contain guidance, GitHub Releases contain immutable versioned assets, and harness
+tests verify the release and MCP interface.
 
 ## OmniFlow automation bundle
 
@@ -87,9 +95,9 @@ inside `.omni/data` migrate automatically on first access.
 The repository maintains one host implementation and two packaging profiles:
 
 - `./gradlew assembleDevelopStandardDebug -POMNIBOT_PROFILE=main
-  -Ptarget=lib/main_standard.dart` builds the normal `main` profile. It exposes
-  the OmniFlow catalog entry but installs it only on demand from the plugin
-  market; no OmniFlow or investor runtime payload is embedded in the APK.
+  -Ptarget=lib/main_standard.dart` builds the normal `main` profile. It embeds
+  one verified OmniFlow baseline ZIP and installs it by default without a
+  component download; later plugin updates come from GitHub Releases.
 - `./gradlew assembleDevelopStandardDebug -POMNIBOT_PROFILE=investor
   -Ptarget=lib/main_standard.dart` builds the `investor` profile. It keeps
   the complete packaged plugin catalog and enables all official demo plugins

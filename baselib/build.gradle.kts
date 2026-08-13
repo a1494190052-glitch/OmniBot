@@ -69,6 +69,7 @@ dependencies {
 
     // 将Room编译器移到kapt作用域
     kapt(libs.androidx.room.compiler)
+    kapt(libs.kotlin.metadata.jvm)
 
     implementation(libs.kotlinx.serialization.json)
     implementation(libs.shizuku.api)

@@ -22,6 +22,8 @@ class RuntimeBundleProviderTest {
             ),
             adapterId = "test",
             runtimeSkill = RuntimeSkillSpec(
+                componentId = "com.omnimind.test-runtime",
+                componentVersion = "1.0.0",
                 id = "test-runtime",
                 packagedAssetPath = "plugins/test-runtime",
             ),

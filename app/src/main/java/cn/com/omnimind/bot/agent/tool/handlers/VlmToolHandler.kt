@@ -332,6 +332,7 @@ internal fun buildVlmTaskContextPayload(
     stepCount: Int? = null,
     extras: Map<String, Any?> = emptyMap(),
 ): Map<String, Any?> = linkedMapOf<String, Any?>().apply {
+    val autoRegistered = extras["auto_registered"] == true
     put("context_type", "vlm_task_result")
     put("requested_run_id", requestedRunId)
     put("run_id", resultRunId)
@@ -346,12 +347,30 @@ internal fun buildVlmTaskContextPayload(
     put("final_state", finalState)
     put("step_count", stepCount)
     put("action_count", stepCount)
+    if (success) {
+        put("registration_available", true)
+        put(
+            "registration_hint",
+            if (autoRegistered) {
+                "本次任务已自动注册为复用指令，可在复用指令中直接执行。"
+            } else {
+                "本次成功操作已保存为 RunLog，可注册为复用指令以便下次快速执行。"
+            },
+        )
+    }
     put(
         "next_agent_instruction",
         if (success) {
-            "Treat this VLM task result as the current execution context. " +
-                "Use run_log_id when the user asks to register or reuse this task, " +
-                "and use final_state for follow-up."
+            if (autoRegistered) {
+                "Treat this VLM task result as the current execution context. Tell the " +
+                    "user the task completed and was registered as a reusable Function. " +
+                    "Use registered_function_id for reuse and final_state for follow-up."
+            } else {
+                "Treat this VLM task result as the current execution context. Tell the " +
+                    "user the successful run was saved as a RunLog and can be registered " +
+                    "as a reusable Function. Do not claim registration already succeeded. " +
+                    "Use run_log_id for registration and final_state for follow-up."
+            }
         } else {
             "Treat this as the current VLM task failure context. Preserve goal and " +
                 "run_log_id when explaining the failure or deciding whether to retry."

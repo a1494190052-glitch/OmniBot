@@ -9,31 +9,45 @@ import org.junit.Test
 
 class OmniFlowPluginRuntimeTest {
     @Test
-    fun `enabling optional plugin warms the resident Python runtime`() = runBlocking {
+    fun `enabling optional plugin verifies the resident Python runtime`() = runBlocking {
         val backend = RecordingBackend()
         val runtime = OmniFlowPluginRuntimeController(backend)
 
         assertFalse(runtime.isEnabled())
-        assertEquals(0, backend.warmupCount)
+        assertEquals(0, backend.prepareCount)
 
         runtime.install(TestPlatform, OmniFlowRuntimeProvider())
         assertFalse(runtime.isEnabled())
-        assertEquals(0, backend.warmupCount)
+        assertEquals(0, backend.prepareCount)
 
         runtime.enable(TestContext)
         assertTrue(runtime.isEnabled())
-        assertEquals(1, backend.warmupCount)
+        assertEquals(1, backend.prepareCount)
 
         runtime.enable(TestContext)
-        assertEquals(1, backend.warmupCount)
+        assertEquals(1, backend.prepareCount)
 
         runtime.disable()
         assertFalse(runtime.isEnabled())
         assertEquals(1, backend.shutdownCount)
     }
 
-    private class RecordingBackend : OmniFlowPluginBackend {
-        var warmupCount = 0
+    @Test
+    fun `failed readiness does not expose an enabled plugin`() = runBlocking {
+        val backend = RecordingBackend(prepareFailure = IllegalStateException("bridge failed"))
+        val runtime = OmniFlowPluginRuntimeController(backend)
+        runtime.install(TestPlatform, OmniFlowRuntimeProvider())
+
+        val error = runCatching { runtime.enable(TestContext) }.exceptionOrNull()
+
+        assertEquals("bridge failed", error?.message)
+        assertFalse(runtime.isEnabled())
+    }
+
+    private class RecordingBackend(
+        private val prepareFailure: Throwable? = null,
+    ) : OmniFlowPluginBackend {
+        var prepareCount = 0
         var shutdownCount = 0
 
         override fun configure(
@@ -41,8 +55,9 @@ class OmniFlowPluginRuntimeTest {
             runtimeProvider: OmniFlowRuntimeProvider,
         ) = Unit
 
-        override fun warmup(context: Context) {
-            warmupCount += 1
+        override suspend fun prepareAndStart(context: Context) {
+            prepareCount += 1
+            prepareFailure?.let { throw it }
         }
 
         override suspend fun shutdown() {
@@ -67,7 +82,7 @@ class OmniFlowPluginRuntimeTest {
         override suspend fun bootstrapRuntimeSkill(
             context: Context,
             location: OmniFlowSkillLocation,
-        ) = Unit
+        ): OmniFlowSkillLocation = location
 
         override suspend fun reclaimRuntimeSkill(context: Context) = Unit
 

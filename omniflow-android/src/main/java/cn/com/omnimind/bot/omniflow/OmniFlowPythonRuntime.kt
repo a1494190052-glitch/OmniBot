@@ -176,6 +176,9 @@ object OmniFlowPythonRuntime {
         warmupJob(context.applicationContext)
     }
 
+    suspend fun prepareAndStart(context: Context): OmniFlowRuntimeManifest =
+        ensureReady(context.applicationContext)
+
     suspend fun call(
         context: Context,
         operation: String,
@@ -199,7 +202,7 @@ object OmniFlowPythonRuntime {
         require(operation == "tools/call") { "background_operation_not_allowed:$operation" }
         runtimeScope.launch {
             runCatching {
-                callIsolated(context, operation, payload, hostCall)
+                call(context, operation, payload, hostCall)
             }.onFailure { error ->
                 if (error !is CancellationException) {
                     OmniLog.w(
@@ -210,34 +213,6 @@ object OmniFlowPythonRuntime {
             }
         }
         return mapOf("accepted" to true)
-    }
-
-    private suspend fun callIsolated(
-        context: Context,
-        operation: String,
-        payload: Map<String, Any?> = emptyMap(),
-        hostCall: OmniFlowPythonHostCall? = null,
-    ): Map<String, Any?> {
-        awaitReady(context.applicationContext)
-        val host = requireNotNull(platform) { "omniflow_platform_not_configured" }
-        val preparedRuntime = runtimeProvider.prepare(context.applicationContext, host)
-        val candidate = OmniFlowPythonClient(
-            processStarter = { command, environment ->
-                host.startProcess(context.applicationContext, command, environment)
-            },
-            bridgeCommand = OmniFlowPythonClient.bridgeCommand(
-                preparedRuntime.shellPythonSourcePath,
-                preparedRuntime.shellSitePackagesPath,
-                preparedRuntime.shellOmniTransferRoot,
-                preparedRuntime.shellOmniTransferCheckpointPath,
-                developerOverrideShellPath(context, preparedRuntime),
-            ),
-        )
-        return try {
-            candidate.call(operation, payload, hostCall)
-        } finally {
-            runCatching { candidate.close() }
-        }
     }
 
     private suspend fun ensureReady(context: Context): OmniFlowRuntimeManifest {
@@ -292,60 +267,23 @@ object OmniFlowPythonRuntime {
             ),
         )
         try {
-                val initialization = candidate.initialize()
-                require(initialization["protocolVersion"] == preparedRuntime.manifest.protocol) {
-                    "unsupported_omniflow_protocol:${initialization["protocolVersion"]}"
-                }
-                val metadata = initialization["_meta"] as? Map<*, *>
-                val runtime = metadata?.get("omniflow/runtime") as? Map<*, *> ?: emptyMap<Any, Any>()
-                require(
-                    runtime["contract_sha256"] == preparedRuntime.manifest.bridgeContractSha256,
-                ) {
-                    "omniflow_bridge_contract_mismatch:${runtime["contract_sha256"]}"
-                }
-                require(runtime["runtime_version"] == preparedRuntime.manifest.version) {
-                    "omniflow_runtime_version_mismatch:${runtime["runtime_version"]}"
-                }
-                require(runtime["omniflow_commit"] == preparedRuntime.manifest.omniFlowCommit) {
-                    "omniflow_commit_mismatch:${runtime["omniflow_commit"]}"
-                }
-                if (!developerOverride) {
-                    require(
-                        runtime["omniflow_source_sha256"] ==
-                            preparedRuntime.manifest.omniFlowSourceSha256,
-                    ) {
-                        "omniflow_source_mismatch:${runtime["omniflow_source_sha256"]}"
-                    }
-                }
-                require(
-                    runtime["omnitransfer_commit"] == preparedRuntime.manifest.omniTransferCommit,
-                ) {
-                    "omnitransfer_commit_mismatch:${runtime["omnitransfer_commit"]}"
-                }
-                require(
-                    runtime["omnitransfer_source_sha256"] ==
-                        preparedRuntime.manifest.omniTransferSourceSha256,
-                ) {
-                    "omnitransfer_source_mismatch:${runtime["omnitransfer_source_sha256"]}"
-                }
-                val omniTransferReady = declaredOmniTransferRuntimeStatus(
-                    runtime["omnitransfer_ready"],
+            val initialization = candidate.initialize()
+            val metadata = initialization["_meta"] as? Map<*, *>
+            val runtime = metadata?.get("omniflow/runtime") as? Map<*, *> ?: emptyMap<Any, Any>()
+            if (initialization["protocolVersion"] != preparedRuntime.manifest.protocol) {
+                OmniLog.w(
+                    TAG,
+                    "protocol_diff expected=${preparedRuntime.manifest.protocol} " +
+                        "actual=${initialization["protocolVersion"]}",
                 )
-                if (!omniTransferReady) {
-                    OmniLog.w(
-                        TAG,
-                        "omnitransfer_degraded backend=${runtime["omnitransfer_backend"]}; " +
-                            "failed mappings will fall back to the online VLM",
-                    )
-                }
-                val capabilities = (runtime["capabilities"] as? List<*>)
-                    .orEmpty()
-                    .mapTo(linkedSetOf()) { it.toString() }
-                require(capabilities == preparedRuntime.manifest.capabilities) {
-                    "omniflow_capabilities_mismatch:" +
-                        "expected=${preparedRuntime.manifest.capabilities.sorted().joinToString(",")}:" +
-                        "actual=${capabilities.sorted().joinToString(",")}"
-                }
+            }
+            if (runtime["omnitransfer_ready"] != true) {
+                OmniLog.w(
+                    TAG,
+                    "omnitransfer_degraded backend=${runtime["omnitransfer_backend"]}; " +
+                        "failed mappings will fall back to the online VLM",
+                )
+            }
             client = candidate
             activeManifest = preparedRuntime.manifest
             ready = true

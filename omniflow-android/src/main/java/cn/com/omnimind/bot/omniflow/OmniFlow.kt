@@ -19,6 +19,7 @@ import java.io.ByteArrayOutputStream
 import java.util.Base64
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.UUID
+import java.util.concurrent.ConcurrentHashMap
 import java.util.zip.DeflaterOutputStream
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineStart
@@ -30,7 +31,7 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 
-private data class ExecutionRequest(
+internal data class ExecutionRequest(
     val id: String,
     val goal: String,
     val source: String,
@@ -74,6 +75,9 @@ object OmniFlow {
     fun warmup(context: Context) {
         OmniFlowPythonRuntime.start(context)
     }
+
+    suspend fun prepareAndStart(context: Context): OmniFlowRuntimeManifest =
+        OmniFlowPythonRuntime.prepareAndStart(context)
 
     suspend fun shutdown() {
         executions.stop()
@@ -134,7 +138,7 @@ object OmniFlow {
                             hooks.beforeOperation()
                             ensureRunning(stopped, hooks)
                         }
-                        val host = AndroidHost(
+                        val host = OmniFlowDeviceDispatcher(
                             context = context,
                             request = request,
                             runFinished = runFinished,
@@ -203,7 +207,7 @@ object OmniFlow {
         require(toolCall.name.isNotBlank()) { "tool_call_name_required" }
         if (toolCall.name in NON_INTERACTIVE_TOOL_NAMES) {
             return Result(
-                payload = AndroidHost(
+                payload = OmniFlowDeviceDispatcher(
                     context = context,
                     modelClient = modelClient,
                 ).call(
@@ -284,10 +288,11 @@ object OmniFlow {
         "get_run_log",
         "get_run_log_state",
         "convert_run_log",
+        "save_function",
     )
 }
 
-private class AndroidHost(
+class OmniFlowDeviceDispatcher internal constructor(
     context: Context,
     private val request: ExecutionRequest? = null,
     private val runFinished: AtomicBoolean = AtomicBoolean(false),
@@ -301,6 +306,16 @@ private class AndroidHost(
     private val afterScreenshot: suspend () -> Unit = {},
     private val onProgress: suspend (String, Map<String, Any?>) -> Unit = { _, _ -> },
 ) {
+    companion object {
+        fun create(
+            context: Context,
+            modelClient: OmniFlowModelClient? = null,
+        ): OmniFlowDeviceDispatcher = OmniFlowDeviceDispatcher(
+            context = context,
+            modelClient = modelClient,
+        )
+    }
+
     private val appContext = context.applicationContext
     private val environment = AndroidGuiEnvironment(appContext)
     private val writer = request?.let { activeRun ->
@@ -314,7 +329,8 @@ private class AndroidHost(
         }
     }
     private val modelMetrics = ModelRunLogMetrics()
-    private val hostCall = OmniFlowPythonHostCall(::handleHostCall)
+    private val hostCall = OmniFlowPythonHostCall(::callDevice)
+    private val externalRunWriters = ConcurrentHashMap<String, RunLogWriter>()
 
     var currentStateId: String? = null
         private set
@@ -375,9 +391,9 @@ private class AndroidHost(
         ).also(::finishRun)
     }
 
-    private suspend fun handleHostCall(
+    suspend fun callDevice(
         method: String,
-        payload: Map<String, Any?>,
+        payload: Map<String, Any?> = emptyMap(),
     ): Map<String, Any?> =
         when (method) {
             "observe" -> observe(payload)
@@ -386,7 +402,9 @@ private class AndroidHost(
             "get_state" -> getState(payload)
             "installed_apps" -> installedApps()
             "list_run_logs" -> listRunLogs(payload)
+            "begin_run" -> beginExternalRun(payload)
             "record_step" -> recordStep(payload)
+            "finish_run" -> finishExternalRun(payload)
             "model_turn" -> modelTurn(payload)
             "complete_json" -> completeJson(payload)
             "schedule_operation" -> schedule(payload)
@@ -418,6 +436,13 @@ private class AndroidHost(
         val action = Action.fromMap(mapValue(payload["action"]))
         val sourceState = State.fromMap(mapValue(payload["state"]))
         require(sourceState.stateId == currentStateId) { "host_action_state_stale" }
+        if (blocksPaymentConfirmation(sourceState, action)) {
+            return mapOf(
+                "success" to false,
+                "error" to "payment_confirmation_blocked",
+                "extra" to mapOf("message" to "payment_confirmation_blocked"),
+            )
+        }
         beforeAction(action)
         return try {
             val metadata = mapValue(payload["metadata"])
@@ -489,8 +514,48 @@ private class AndroidHost(
         val fact = mapValue(payload["fact"])
         requireStateExists(firstText(fact["before_state_id"]))
         requireStateExists(firstText(fact["after_state_id"]))
-        val record = requireNotNull(writer) { "record_step_run_not_configured" }.write(fact)
+        val externalRunId = firstText(payload["run_id"])
+        val activeWriter = writer ?: externalRunWriters[externalRunId]
+        val record = requireNotNull(activeWriter) { "record_step_run_not_configured" }.write(fact)
         return mapOf("step" to record.step)
+    }
+
+    private fun beginExternalRun(payload: Map<String, Any?>): Map<String, Any?> {
+        val runId = firstText(payload["run_id"])
+        require(runId.isNotEmpty()) { "run_id_required" }
+        InternalRunLogStore.beginRun(
+            context = appContext,
+            runId = runId,
+            goal = firstText(payload["goal"]),
+            source = firstText(payload["source"]).ifBlank { "mcp" },
+            toolName = firstText(payload["tool_name"]),
+            operationDescription = firstText(payload["description"], payload["goal"]),
+            startedAtMs = (payload["started_at_ms"] as? Number)?.toLong()
+                ?: System.currentTimeMillis(),
+        )
+        externalRunWriters[runId] = RunLogWriter { record ->
+            InternalRunLogStore.upsertRecordedStep(appContext, runId, record)
+        }
+        return mapOf("started" to true, "run_id" to runId)
+    }
+
+    private fun finishExternalRun(payload: Map<String, Any?>): Map<String, Any?> {
+        val runId = firstText(payload["run_id"])
+        require(runId.isNotEmpty()) { "run_id_required" }
+        externalRunWriters.remove(runId)
+        InternalRunLogStore.finishRun(
+            context = appContext,
+            runId = runId,
+            success = payload["success"] == true,
+            doneReason = firstText(payload["done_reason"]).ifBlank {
+                if (payload["success"] == true) "finished" else "error"
+            },
+            errorMessage = firstText(payload["error_message"]).takeIf(String::isNotEmpty),
+            finishedAtMs = (payload["finished_at_ms"] as? Number)?.toLong()
+                ?: System.currentTimeMillis(),
+            finalStateId = firstText(payload["final_state_id"]).takeIf(String::isNotEmpty),
+        )
+        return mapOf("finished" to true, "run_id" to runId)
     }
 
     private suspend fun modelTurn(payload: Map<String, Any?>): Map<String, Any?> {

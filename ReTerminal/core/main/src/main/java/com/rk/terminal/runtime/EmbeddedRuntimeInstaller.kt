@@ -19,7 +19,8 @@ object EmbeddedRuntimeInstaller {
     private data class RuntimeAssetSpec(
         val outputName: String,
         val assetCandidates: List<String>,
-        val executable: Boolean = false
+        val executable: Boolean = false,
+        val required: Boolean = true
     )
 
     data class InstallStatus(
@@ -46,7 +47,8 @@ object EmbeddedRuntimeInstaller {
         ),
         RuntimeAssetSpec(
             outputName = "ubuntu.tar.gz",
-            assetCandidates = listOf("ubuntu.tar.gz", "ubuntu.tar")
+            assetCandidates = listOf("ubuntu.tar.gz", "ubuntu.tar"),
+            required = false
         ),
         RuntimeAssetSpec(
             outputName = "runtime-manifest",
@@ -69,7 +71,7 @@ object EmbeddedRuntimeInstaller {
                         }.isSuccess
                     }
                 }
-                val missingAssets = resolvedAssets.filterValues { it == null }.keys
+                val missingAssets = resolvedAssets.filter { (spec, asset) -> spec.required && asset == null }.keys
                 if (missingAssets.isNotEmpty()) {
                     return@withLock InstallStatus(
                         success = false,
@@ -91,7 +93,7 @@ object EmbeddedRuntimeInstaller {
                 }.filter { it.second != null }.associate { it.first to requireNotNull(it.second) }
                 val fastPath = manifestAsset != null && manifestFile.isFile &&
                     manifestFile.readText().trim() == manifestAsset &&
-                    runtimeAssets.filter { it.outputName != "runtime-manifest" }
+                    runtimeAssets.filter { it.outputName != "runtime-manifest" && resolvedAssets[it] != null }
                         .all { spec ->
                             val target = File(context.filesDir, spec.outputName)
                             target.isFile && target.length() > 0L &&
@@ -106,8 +108,7 @@ object EmbeddedRuntimeInstaller {
                 var refreshedFiles = 0
                 val installedFiles = mutableMapOf<String, File>()
                 runtimeAssets.forEach { spec ->
-                    val assetName = resolvedAssets.getValue(spec)
-                        ?: error("Missing runtime asset mapping for ${spec.outputName}")
+                    val assetName = resolvedAssets.getValue(spec) ?: return@forEach
                     val target = File(context.filesDir, spec.outputName)
                     if (copyAssetIfChanged(
                             context = context,

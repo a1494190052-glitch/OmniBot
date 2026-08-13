@@ -111,7 +111,7 @@ class OmniFlowModelHostTest {
                 override suspend fun bootstrapRuntimeSkill(
                     context: Context,
                     location: OmniFlowSkillLocation,
-                ) = Unit
+                ): OmniFlowSkillLocation = location
 
                 override suspend fun reclaimRuntimeSkill(context: Context) = Unit
 
@@ -450,7 +450,7 @@ class OmniFlowModelHostTest {
                 override suspend fun bootstrapRuntimeSkill(
                     context: Context,
                     location: OmniFlowSkillLocation,
-                ) = Unit
+                ): OmniFlowSkillLocation = location
 
                 override suspend fun reclaimRuntimeSkill(context: Context) = Unit
 
