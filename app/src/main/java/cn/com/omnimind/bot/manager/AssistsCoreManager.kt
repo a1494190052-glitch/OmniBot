@@ -5984,10 +5984,19 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
      */
     fun getConversations(call: MethodCall, result: MethodChannel.Result) {
         OmniLog.d(TAG, "[getConversations] 开始获取对话列表...")
+        val includeArchived = call.argument<Boolean>("includeArchived") ?: true
+        val archivedOnly = call.argument<Boolean>("archivedOnly") ?: false
+        val archiveBefore = call.argument<Number>("archiveBefore")?.toLong()
         workJob.launch {
             try {
+                if (archiveBefore != null && archiveBefore > 0L) {
+                    conversationDomainService.archiveConversationsUpdatedBefore(
+                        archiveBefore
+                    )
+                }
                 val jsonList = conversationDomainService.listConversationPayloads(
-                    includeArchived = true
+                    includeArchived = includeArchived,
+                    archivedOnly = archivedOnly
                 )
                 OmniLog.d(TAG, "[getConversations] 从数据库获取到 ${jsonList.size} 条对话记录")
                 withContext(Dispatchers.Main) {

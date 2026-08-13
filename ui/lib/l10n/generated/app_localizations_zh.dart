@@ -120,6 +120,13 @@ class AppLocalizationsZh extends AppLocalizations {
   String get settingsHideRecentsSubtitle => '开启后应用将从最近任务列表中隐藏';
 
   @override
+  String get settingsRecentConversationsOnlyTitle => '仅显示近7天会话';
+
+  @override
+  String get settingsRecentConversationsOnlySubtitle =>
+      '自动归档超过 7 天未更新的会话，减少侧边栏加载卡顿';
+
+  @override
   String get settingsAlarmTitle => '闹钟设置';
 
   @override

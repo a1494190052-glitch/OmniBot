@@ -9,6 +9,7 @@ import 'package:ui/l10n/l10n.dart';
 import 'package:ui/models/chat_startup_behavior.dart';
 import 'package:ui/models/habitual_hand.dart';
 import 'package:ui/services/assists_core_service.dart';
+import 'package:ui/services/conversation_service.dart';
 import 'package:ui/services/hide_from_recents_service.dart';
 import 'package:ui/services/special_permission.dart';
 import 'package:ui/services/storage_service.dart';
@@ -32,6 +33,7 @@ class _ExperienceMiscSettingPageState
   bool _preventScreenSleepDuringTasksEnabled = true;
   bool _taskCompletionNotificationEnabled = true;
   bool _useIndependentChatSendButton = true;
+  bool _recentConversationsOnlyEnabled = true;
   ChatStartupBehavior _chatStartupBehavior = ChatStartupBehavior.resumeLast;
 
   @override
@@ -53,6 +55,8 @@ class _ExperienceMiscSettingPageState
 
     _useIndependentChatSendButton =
         StorageService.isIndependentChatSendButtonEnabled();
+    _recentConversationsOnlyEnabled =
+        ConversationService.isRecentConversationsOnlyEnabled();
     _chatStartupBehavior = StorageService.getChatStartupBehavior();
     _loadHideFromRecentsState();
     _loadVibrationState();
@@ -195,6 +199,20 @@ class _ExperienceMiscSettingPageState
     });
   }
 
+  Future<void> _onRecentConversationsOnlyChanged(bool value) async {
+    final saved = await ConversationService.setRecentConversationsOnlyEnabled(
+      value,
+    );
+    if (!mounted) return;
+    if (!saved) {
+      showToast(context.l10n.settingsSaveFailed, type: ToastType.error);
+      return;
+    }
+    setState(() {
+      _recentConversationsOnlyEnabled = value;
+    });
+  }
+
   Future<void> _onChatStartupBehaviorChanged(ChatStartupBehavior? value) async {
     if (value == null) {
       return;
@@ -261,6 +279,15 @@ class _ExperienceMiscSettingPageState
             title: context.trLegacy('启动时'),
             subtitle: context.trLegacy('选择应用启动后打开的对话'),
             trailing: _buildStartupBehaviorDropdown(_chatStartupBehavior),
+          ),
+          _SettingItem(
+            icon: Icons.auto_delete_outlined,
+            title: context.l10n.settingsRecentConversationsOnlyTitle,
+            subtitle: context.l10n.settingsRecentConversationsOnlySubtitle,
+            trailing: _buildSwitchTrailing(
+              value: _recentConversationsOnlyEnabled,
+              onToggle: _onRecentConversationsOnlyChanged,
+            ),
           ),
           _SettingItem(
             icon: LucideIcons.eyeOff,

@@ -165,6 +165,7 @@ class HomeDrawerState extends ConsumerState<HomeDrawer> {
   List<_ScheduledConversationGroup>? _promotedThreadKeysCacheSource;
   StreamSubscription<Map<String, dynamic>>?
   _conversationListChangedSubscription;
+  StreamSubscription<bool>? _sidebarPolicyChangedSubscription;
   StreamSubscription<List<ScheduledTask>>? _scheduledTasksChangedSubscription;
 
   @override
@@ -180,6 +181,11 @@ class HomeDrawerState extends ConsumerState<HomeDrawer> {
         .listen((_) {
           unawaited(_loadConversations());
         });
+    _sidebarPolicyChangedSubscription = ConversationService
+        .sidebarPolicyChangedStream
+        .listen((_) {
+          unawaited(_loadConversations());
+        });
     _scheduledTasksChangedSubscription = ScheduledTaskStorageService
         .scheduledTasksChangedStream
         .listen(_handleScheduledTasksChanged);
@@ -190,6 +196,7 @@ class HomeDrawerState extends ConsumerState<HomeDrawer> {
   void dispose() {
     _searchDebounceTimer?.cancel();
     _conversationListChangedSubscription?.cancel();
+    _sidebarPolicyChangedSubscription?.cancel();
     _scheduledTasksChangedSubscription?.cancel();
     if (_searchFocusNode.hasFocus) {
       widget.onSearchFocusChanged?.call(false);

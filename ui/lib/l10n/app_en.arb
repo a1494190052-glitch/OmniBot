@@ -37,6 +37,8 @@
   "settingsAlpineSubtitle": "Choose and manage the built-in Alpine or Ubuntu terminal system",
   "settingsHideRecentsTitle": "Hide from Recents",
   "settingsHideRecentsSubtitle": "Hide the app from the recent tasks list when enabled",
+  "settingsRecentConversationsOnlyTitle": "Show Only Recent 7-Day Conversations",
+  "settingsRecentConversationsOnlySubtitle": "Automatically archive conversations not updated for over 7 days to speed up the sidebar",
   "settingsAlarmTitle": "Alarm Settings",
   "settingsAlarmSubtitle": "Configure the default ringtone, a local mp3, or an mp3 URL",
   "settingsAppearanceTitle": "Appearance",

@@ -449,6 +449,18 @@ object DatabaseHelper {
         return getDatabase().conversationDao().getAll()
     }
 
+    suspend fun getUnarchivedConversations(): List<Conversation> {
+        return getDatabase().conversationDao().getUnarchived()
+    }
+
+    suspend fun getArchivedConversations(): List<Conversation> {
+        return getDatabase().conversationDao().getArchived()
+    }
+
+    suspend fun archiveConversationsUpdatedBefore(cutoff: Long): Int {
+        return getDatabase().conversationDao().archiveUpdatedBefore(cutoff)
+    }
+
     suspend fun getConversationsByPage(offset: Int, limit: Int): List<Conversation> {
         return getDatabase().conversationDao().getConversationsByPage(offset, limit)
     }
@@ -643,6 +655,14 @@ object DatabaseHelper {
 
     suspend fun getAllAgentSessionBindings(): List<AgentSessionBinding> {
         return getDatabase().agentSessionBindingDao().getAll()
+    }
+
+    suspend fun getAgentSessionBindingsByConversationIds(
+        conversationIds: List<Long>
+    ): List<AgentSessionBinding> {
+        if (conversationIds.isEmpty()) return emptyList()
+        return getDatabase().agentSessionBindingDao()
+            .getByConversationIds(conversationIds)
     }
 
     suspend fun getAgentSessionBindingByConversationId(conversationId: Long): AgentSessionBinding? {

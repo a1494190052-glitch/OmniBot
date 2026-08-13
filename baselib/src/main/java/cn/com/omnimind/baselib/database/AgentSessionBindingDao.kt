@@ -13,6 +13,9 @@ interface AgentSessionBindingDao {
     @Query("SELECT * FROM codex_thread_bindings")
     suspend fun getAll(): List<AgentSessionBinding>
 
+    @Query("SELECT * FROM codex_thread_bindings WHERE conversationId IN (:conversationIds)")
+    suspend fun getByConversationIds(conversationIds: List<Long>): List<AgentSessionBinding>
+
     @Query("SELECT * FROM codex_thread_bindings WHERE conversationId = :conversationId LIMIT 1")
     suspend fun getByConversationId(conversationId: Long): AgentSessionBinding?
 

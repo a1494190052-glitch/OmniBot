@@ -69,7 +69,7 @@ extension _HomeDrawerImagePreviews on HomeDrawerState {
   }
 
   void _restoreDrawerSnapshotFromMemory() {
-    _allConversations = List<ConversationModel>.from(
+    _allConversations = ConversationService.filterSidebarSnapshot(
       HomeDrawerState._conversationSnapshotCache,
     );
     _conversationImagePreviewCache
@@ -114,14 +114,16 @@ extension _HomeDrawerImagePreviews on HomeDrawerState {
       if (rawConversations is! List) {
         return;
       }
-      final conversations = rawConversations
-          .whereType<Map>()
-          .map(
-            (item) => ConversationModel.fromJson(
-              Map<String, dynamic>.from(item.cast<String, dynamic>()),
-            ),
-          )
-          .toList(growable: false);
+      final conversations = ConversationService.filterSidebarSnapshot(
+        rawConversations
+            .whereType<Map>()
+            .map(
+              (item) => ConversationModel.fromJson(
+                Map<String, dynamic>.from(item.cast<String, dynamic>()),
+              ),
+            )
+            .toList(growable: false),
+      );
       if (conversations.isEmpty) {
         return;
       }
@@ -826,8 +828,8 @@ class _ConversationImageThumbnailState
         ? palette.surfaceSecondary
         : palette.previewFallback;
     // 34dp 缩略图按显示像素解码，避免原图全分辨率解码占用图像缓存。
-    final cacheWidth =
-        (widget.size * MediaQuery.devicePixelRatioOf(context)).ceil();
+    final cacheWidth = (widget.size * MediaQuery.devicePixelRatioOf(context))
+        .ceil();
     final image = switch (widget.preview) {
       _ConversationImagePreview(bytes: final bytes?) => Image.memory(
         bytes,
