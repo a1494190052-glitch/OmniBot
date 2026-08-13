@@ -63,6 +63,8 @@ data class AiTransportRoute(
 object AiRequestTransportPolicy {
     private const val PLATFORM_ROUTE_TAG = "platform_gateway"
 
+    fun isPlatformRoute(routeTag: String?): Boolean = routeTag == PLATFORM_ROUTE_TAG
+
     fun apply(access: AiRequestAccess, byokRoute: AiTransportRoute): AiTransportRoute {
         if (!access.usesPlatform) return byokRoute
         return AiTransportRoute(

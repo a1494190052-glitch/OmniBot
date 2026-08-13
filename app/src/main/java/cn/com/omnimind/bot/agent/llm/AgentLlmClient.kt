@@ -1,6 +1,7 @@
 package cn.com.omnimind.bot.agent
 
 import cn.com.omnimind.assists.controller.http.HttpController
+import cn.com.omnimind.baselib.account.AiRequestTransportPolicy
 import cn.com.omnimind.baselib.account.OmniAccount
 import cn.com.omnimind.baselib.account.PlatformModelsUnavailableException
 import cn.com.omnimind.baselib.llm.ChatCompletionRequest
@@ -9,9 +10,9 @@ import cn.com.omnimind.baselib.llm.ChatCompletionThinking
 import cn.com.omnimind.baselib.llm.ChatCompletionTurn
 import cn.com.omnimind.baselib.llm.DeepSeekProvider
 import cn.com.omnimind.baselib.llm.ModelProviderConfigStore
-import cn.com.omnimind.baselib.llm.OmniOfficialProvider
 import cn.com.omnimind.baselib.llm.PlatformAiProvisioner
 import cn.com.omnimind.baselib.llm.ReasoningStreamUpdatePolicy
+import cn.com.omnimind.baselib.llm.contentText
 import cn.com.omnimind.baselib.util.OmniLog
 import cn.com.omnimind.bot.media.PlatformMediaProtocol
 import kotlinx.coroutines.CompletableDeferred
@@ -160,12 +161,42 @@ class HttpAgentLlmClient(
         } else {
             null
         }
-        val effectiveExplicitModel = platformVisionModel ?: modelOverride?.modelId
-        val routedRequest = platformVisionModel?.let { model ->
-            request.forPlatformVision(model)
-        } ?: request
-        val modelCandidates = buildModelCandidates(routedRequest.model)
-        val sanitizedRequest = sanitizeRequestForTarget(routedRequest)
+        if (platformVisionModel == null) {
+            return streamRoutedTurn(
+                request = request,
+                effectiveExplicitModel = modelOverride?.modelId,
+                onReasoningUpdate = onReasoningUpdate,
+                onContentUpdate = onContentUpdate,
+            )
+        }
+
+        // Platform vision is a bounded preprocessing turn. Feed its description
+        // back into the normal Agent turn so system/history, tools and the stable
+        // prompt cache key remain available for the actual user request.
+        val visionTurn = streamRoutedTurn(
+            request = request.forPlatformVision(platformVisionModel),
+            effectiveExplicitModel = platformVisionModel,
+            onReasoningUpdate = null,
+            onContentUpdate = null,
+        )
+        val description = visionTurn.message.contentText().trim()
+        check(description.isNotEmpty()) { "官方图片理解模型未返回可用内容" }
+        return streamRoutedTurn(
+            request = request.withPlatformVisionDescription(description),
+            effectiveExplicitModel = modelOverride?.modelId,
+            onReasoningUpdate = onReasoningUpdate,
+            onContentUpdate = onContentUpdate,
+        )
+    }
+
+    private suspend fun streamRoutedTurn(
+        request: ChatCompletionRequest,
+        effectiveExplicitModel: String?,
+        onReasoningUpdate: (suspend (String) -> Unit)?,
+        onContentUpdate: (suspend (String) -> Unit)?,
+    ): ChatCompletionTurn {
+        val modelCandidates = buildModelCandidates(request.model)
+        val sanitizedRequest = sanitizeRequestForTarget(request)
         var lastFailure: AgentStreamRequestException? = null
 
         for (modelIndex in modelCandidates.indices) {
@@ -192,7 +223,7 @@ class HttpAgentLlmClient(
                     // Encode lazily, one variant at a time, so we never hold multiple
                     // copies of a potentially huge request payload in memory at once.
                     val requestJson = json.encodeToString(variant.request)
-                    if (routeInfo.providerProfileId == OmniOfficialProvider.PROFILE_ID) {
+                    if (AiRequestTransportPolicy.isPlatformRoute(routeInfo.routeTag)) {
                         PlatformMediaProtocol.requirePlatformJsonRequestWithinLimit(requestJson)
                     }
                     return streamTurnWithPlatformAuthRetry(
@@ -906,6 +937,63 @@ class HttpAgentLlmClient(
             thinking = null,
             enableThinking = compatibleEnableThinking,
         )
+    }
+
+    private fun ChatCompletionRequest.withPlatformVisionDescription(
+        description: String,
+    ): ChatCompletionRequest {
+        val imageMessageIndex = messages.indexOfLast { message ->
+            message.content.containsImageInput()
+        }
+        if (imageMessageIndex < 0) return this
+        val nextMessages = messages.mapIndexed { index, message ->
+            if (!message.content.containsImageInput()) {
+                return@mapIndexed message
+            }
+            val originalText = message.content.textInputForVisionFollowUp().trim()
+            val replacement = buildString {
+                if (originalText.isNotEmpty()) {
+                    append(originalText)
+                    append("\n\n")
+                }
+                if (index == imageMessageIndex) {
+                    if (originalText.isEmpty()) {
+                        append("请根据以下图片识别结果继续完成用户请求。\n\n")
+                    }
+                    append("[图片识别结果]\n")
+                    append(description)
+                } else {
+                    append("[历史图片内容已省略；请结合后续对话中的已有分析。]")
+                }
+            }
+            message.copy(content = JsonPrimitive(replacement))
+        }
+        return copy(messages = nextMessages)
+    }
+
+    private fun JsonElement?.textInputForVisionFollowUp(): String {
+        return when (this) {
+            is JsonPrimitive -> contentOrNull.orEmpty()
+            is JsonArray -> mapNotNull { element ->
+                when (element) {
+                    is JsonPrimitive -> element.contentOrNull
+                    is JsonObject -> {
+                        val type = (element["type"] as? JsonPrimitive)
+                            ?.contentOrNull
+                            ?.trim()
+                            ?.lowercase()
+                        if (type == "text" || type == "input_text") {
+                            (element["text"] as? JsonPrimitive)?.contentOrNull
+                        } else {
+                            null
+                        }
+                    }
+                    else -> null
+                }
+            }.joinToString("\n")
+            is JsonObject -> (get("text") as? JsonPrimitive)?.contentOrNull.orEmpty()
+            else -> ""
+        }
     }
 
     private fun JsonElement?.containsImageInput(): Boolean {

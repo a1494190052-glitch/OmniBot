@@ -9,6 +9,7 @@ import cn.com.omnimind.baselib.llm.PlatformAiProvisioner
 import cn.com.omnimind.baselib.llm.ProviderCustomHeaderUtils
 import cn.com.omnimind.baselib.util.ContentEndpointSecurity
 import cn.com.omnimind.baselib.util.CredentialEndpointSecurity
+import cn.com.omnimind.bot.BuildConfig
 import cn.com.omnimind.bot.agent.AgentCallback
 import cn.com.omnimind.bot.agent.AgentExecutionEnvironment
 import cn.com.omnimind.bot.agent.AgentToolExecutionHandle
@@ -208,22 +209,45 @@ class ImageGenerationToolHandler(
             ?.takeIf(String::isNotEmpty)
         val profile = profileId?.let(ModelProviderConfigStore::getProfile)
             ?: ModelProviderConfigStore.getEditingProfile()
-        require(!profile.readOnly && !OmniOfficialProvider.isOfficialProfile(profile.id)) {
-            "The current provider is read-only and cannot generate images. Select a BYOK provider profile."
-        }
+        val bundledImageConfig = bundledImageProviderConfig()
         val apiKey = profile.apiKey.trim()
-        require(apiKey.isNotEmpty()) {
+        val useBundledImageProvider = shouldUseBundledImageProvider(
+            profileApiKey = apiKey,
+            bundledApiKey = bundledImageConfig.apiKey,
+        )
+        if (!useBundledImageProvider) {
+            require(!profile.readOnly && !OmniOfficialProvider.isOfficialProfile(profile.id)) {
+                "The current provider is read-only and cannot generate images. Select a BYOK provider profile."
+            }
+            require(profile.isConfigured()) {
+                "Confirm the BYOK provider destination before generating images."
+            }
+        }
+        val effectiveApiKey = if (useBundledImageProvider) bundledImageConfig.apiKey else apiKey
+        require(effectiveApiKey.isNotEmpty()) {
             "Image provider apiKey is empty. Configure a BYOK OpenAI-compatible provider profile."
         }
         val requestedModel = normalizeImageModelId(args["model"]?.jsonPrimitive?.contentOrNull)
         return ImageGenerationRoute(
             platform = false,
-            endpoint = resolveImageGenerationEndpoint(profile.baseUrl, apiKey),
-            apiKey = apiKey,
-            customHeaders = profile.customHeaders,
-            model = requestedModel ?: DEFAULT_IMAGE_MODEL,
-            providerProfileId = profile.id,
-            providerProfileName = profile.name,
+            endpoint = resolveImageGenerationEndpoint(
+                baseUrl = if (useBundledImageProvider) bundledImageConfig.baseUrl else profile.baseUrl,
+                apiKey = effectiveApiKey,
+            ),
+            apiKey = effectiveApiKey,
+            customHeaders = if (useBundledImageProvider) emptyMap() else profile.customHeaders,
+            model = requestedModel
+                ?: if (useBundledImageProvider) bundledImageConfig.model else DEFAULT_IMAGE_MODEL,
+            providerProfileId = if (useBundledImageProvider) {
+                BUNDLED_IMAGE_PROVIDER_ID
+            } else {
+                profile.id
+            },
+            providerProfileName = if (useBundledImageProvider) {
+                BUNDLED_IMAGE_PROVIDER_NAME
+            } else {
+                profile.name
+            },
         )
     }
 
@@ -387,6 +411,19 @@ class ImageGenerationToolHandler(
     private fun normalizeImageModelId(rawModel: String?): String? =
         rawModel?.trim()?.takeIf(String::isNotEmpty)?.replace(Regex("\\s+"), "")
 
+    private data class BundledImageProviderConfig(
+        val baseUrl: String,
+        val model: String,
+        val apiKey: String,
+    )
+
+    private fun bundledImageProviderConfig(): BundledImageProviderConfig =
+        BundledImageProviderConfig(
+            baseUrl = BuildConfig.IMAGE_BASE_URL.trim().ifBlank { DEFAULT_IMAGE_BASE_URL },
+            model = BuildConfig.IMAGE_MODEL.trim().ifBlank { DEFAULT_IMAGE_MODEL },
+            apiKey = BuildConfig.IMAGE_API_KEY.trim(),
+        )
+
     private data class ImageGenerationRoute(
         val platform: Boolean,
         val endpoint: String,
@@ -398,8 +435,8 @@ class ImageGenerationToolHandler(
     )
 
     companion object {
-        // Retained for source compatibility with the existing main-branch tests and
-        // legacy configuration. Platform mode never reads this endpoint or bundled key.
+        private const val BUNDLED_IMAGE_PROVIDER_ID = "bundled-image-provider"
+        private const val BUNDLED_IMAGE_PROVIDER_NAME = "Xiaowan Image Provider"
         internal const val DEFAULT_IMAGE_BASE_URL = "https://cloud.omnimind.com.cn"
         internal const val DEFAULT_IMAGE_MODEL = "gpt-image-2"
         internal const val MAX_IMAGE_BYTES: Long = 20L * 1024L * 1024L

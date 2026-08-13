@@ -56,4 +56,4 @@ OMNIBOT_AI_GATEWAY_URL=https://model-api.omnimind.com.cn
 
 ## 当前范围
 
-这次只接通主聊天文本请求和只读官方 Provider 的文本模型发现。图片生成、语音以及 BYOK Provider 的模型检测仍沿用各自原有配置，后续要逐条决定是否也使用平台额度，不能未经计费确认就自动切换。
+主聊天文本、图片理解、图片生成和语音播放均按账号 AI 模式路由。平台模式只使用品牌网关和账号 Token，并按官方模型目录声明的文本、视觉、图片、TTS 能力工作；BYOK 模式保留设备端 Provider、Key、自定义 Header、协议与场景绑定。平台与 BYOK 凭据不会混用，切换模式也不会覆盖本地 BYOK 配置。

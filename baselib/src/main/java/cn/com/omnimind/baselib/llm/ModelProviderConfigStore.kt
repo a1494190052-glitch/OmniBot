@@ -794,10 +794,36 @@ object ModelProviderConfigStore {
                     return@mapNotNull null
                 }
                 val normalizedBaseUrl = normalizeBaseUrl(profile.baseUrl.orEmpty()).orEmpty()
-                val revision = profile.revision?.coerceAtLeast(0L) ?: 0L
-                val consentVersion = profile.consentVersion?.coerceAtLeast(0) ?: 0
-                val consentOrigin = profile.consentOrigin?.trim().orEmpty()
-                val consentRevision = profile.consentRevision?.coerceAtLeast(0L) ?: 0L
+                // Profiles written before destination consent metadata existed were
+                // already explicitly configured by the user. Preserve that choice on
+                // upgrade instead of silently disabling the provider. A profile saved
+                // by the new UI with explicit zero-valued consent metadata remains
+                // inactive until the destination is confirmed.
+                val isLegacyConfiguredProfile = normalizedBaseUrl.isNotEmpty() &&
+                    profile.revision == null &&
+                    profile.consentVersion == null &&
+                    profile.consentOrigin == null &&
+                    profile.consentRevision == null
+                val revision = when {
+                    isLegacyConfiguredProfile -> 1L
+                    else -> profile.revision?.coerceAtLeast(0L) ?: 0L
+                }
+                val consentVersion = when {
+                    isLegacyConfiguredProfile -> CURRENT_DESTINATION_CONSENT_VERSION
+                    else -> profile.consentVersion?.coerceAtLeast(0) ?: 0
+                }
+                val consentOrigin = when {
+                    isLegacyConfiguredProfile -> try {
+                        canonicalOrigin(normalizedBaseUrl)
+                    } catch (_: Exception) {
+                        ""
+                    }
+                    else -> profile.consentOrigin?.trim().orEmpty()
+                }
+                val consentRevision = when {
+                    isLegacyConfiguredProfile -> revision
+                    else -> profile.consentRevision?.coerceAtLeast(0L) ?: 0L
+                }
                 val consentValid = try {
                     consentVersion == CURRENT_DESTINATION_CONSENT_VERSION &&
                         consentRevision == revision &&

@@ -64,6 +64,7 @@ class AiAccessRoutingTest {
         assertEquals("openai_compatible", route.protocolType)
         assertEquals("chat_completions", route.wireApi)
         assertEquals("platform_gateway", route.routeTag)
+        assertTrue(AiRequestTransportPolicy.isPlatformRoute(route.routeTag))
     }
 
     @Test

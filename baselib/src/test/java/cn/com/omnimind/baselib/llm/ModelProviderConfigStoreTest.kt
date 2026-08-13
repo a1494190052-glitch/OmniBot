@@ -116,12 +116,25 @@ class ModelProviderConfigStoreTest {
     }
 
     @Test
-    fun legacyProviderRemainsVisibleButInactiveUntilDestinationIsConfirmed() {
+    fun legacyProviderKeepsWorkingAfterConsentMetadataUpgrade() {
         val profile = ModelProviderConfigStore.decodeProfilesJson(
             """[{"id":"legacy","name":"Legacy","baseUrl":"https://api.example.com/v1"}]"""
         ).single()
 
         assertEquals("https://api.example.com/v1", profile.baseUrl)
+        assertTrue(profile.destinationConsentValid)
+        assertTrue(profile.isConfigured())
+        assertEquals(1L, profile.revision)
+        assertEquals(1, profile.consentVersion)
+        assertEquals(1L, profile.consentRevision)
+    }
+
+    @Test
+    fun explicitlyUnconfirmedProviderRemainsInactive() {
+        val profile = ModelProviderConfigStore.decodeProfilesJson(
+            """[{"id":"pending","name":"Pending","baseUrl":"https://api.example.com/v1","revision":1,"consentVersion":0,"consentOrigin":"","consentRevision":0}]"""
+        ).single()
+
         assertFalse(profile.destinationConsentValid)
         assertFalse(profile.isConfigured())
     }

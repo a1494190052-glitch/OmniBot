@@ -4,7 +4,6 @@ import cn.com.omnimind.assists.controller.http.HttpController
 import cn.com.omnimind.baselib.account.PlatformModelsUnavailableException
 import cn.com.omnimind.baselib.llm.ChatCompletionMessage
 import cn.com.omnimind.baselib.llm.ChatCompletionRequest
-import cn.com.omnimind.baselib.llm.OmniOfficialProvider
 import cn.com.omnimind.bot.media.PlatformMediaProtocol
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
@@ -25,6 +24,7 @@ import okhttp3.Response
 import okhttp3.sse.EventSource
 import okhttp3.sse.EventSourceListener
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -40,10 +40,10 @@ class HttpAgentLlmClientTest {
     @Test
     fun `platform image input uses catalog vision model`() = runBlocking {
         val scope = CoroutineScope(Job() + Dispatchers.Default)
-        var requestedModel: String? = null
-        var requestJson: String? = null
+        val requestedModels = mutableListOf<String>()
+        val requestBodies = mutableListOf<String>()
         val resolvedExplicitModels = mutableListOf<String?>()
-        var streamedExplicitModel: String? = null
+        val streamedExplicitModels = mutableListOf<String?>()
         try {
             val client = HttpAgentLlmClient(
                 scope = scope,
@@ -58,16 +58,21 @@ class HttpAgentLlmClientTest {
                     )
                 },
                 streamRequestOp = { model, body, listener, _, _, _, explicitModel, _, _, _ ->
-                    requestedModel = model
-                    requestJson = body
-                    streamedExplicitModel = explicitModel
+                    requestedModels += model
+                    requestBodies += body
+                    streamedExplicitModels += explicitModel
                     val source = dummyEventSource()
                     listener.onOpen(source, okResponse())
+                    val content = if (requestedModels.size == 1) {
+                        "a red status light next to a disabled switch"
+                    } else {
+                        "done"
+                    }
                     listener.onEvent(
                         source,
                         null,
                         "message",
-                        """{"choices":[{"delta":{"content":"seen"},"finish_reason":"stop"}]}"""
+                        """{"choices":[{"delta":{"content":"$content"},"finish_reason":"stop"}]}"""
                     )
                     listener.onEvent(source, null, "message", "[DONE]")
                     source
@@ -82,6 +87,12 @@ class HttpAgentLlmClientTest {
                     ChatCompletionMessage(
                         role = "system",
                         content = JsonPrimitive("large agent history that is unnecessary for this image turn"),
+                    ),
+                    ChatCompletionMessage(
+                        role = "user",
+                        content = json.parseToJsonElement(
+                            """[{"type":"text","text":"historic image context"},{"type":"image_url","image_url":{"url":"data:image/jpeg;base64,AQ=="}}]"""
+                        ),
                     ),
                     ChatCompletionMessage(
                         role = "user",
@@ -108,30 +119,53 @@ class HttpAgentLlmClientTest {
 
             val turn = client.streamTurn(request)
 
-            assertEquals("seen", turn.message.contentText())
-            assertEquals("official-vision-model", requestedModel)
-            assertTrue(resolvedExplicitModels.isNotEmpty())
-            assertTrue(resolvedExplicitModels.all { it == "official-vision-model" })
-            assertEquals("official-vision-model", streamedExplicitModel)
-            val encodedRequest = json.parseToJsonElement(requireNotNull(requestJson)).jsonObject
-            assertNull(encodedRequest["reasoning_effort"])
-            assertNull(encodedRequest["thinking"])
-            assertEquals("true", encodedRequest["enable_thinking"]?.jsonPrimitive?.content)
+            assertEquals("done", turn.message.contentText())
+            assertEquals(listOf("official-vision-model", "scene.dispatch.model"), requestedModels)
+            assertEquals(
+                listOf(
+                    "official-vision-model",
+                    "official-vision-model",
+                    "test-model",
+                    "test-model",
+                ),
+                resolvedExplicitModels,
+            )
+            assertEquals(listOf("official-vision-model", "test-model"), streamedExplicitModels)
+
+            val visionRequest = json.parseToJsonElement(requestBodies[0]).jsonObject
+            assertNull(visionRequest["reasoning_effort"])
+            assertNull(visionRequest["thinking"])
+            assertEquals("true", visionRequest["enable_thinking"]?.jsonPrimitive?.content)
             assertEquals(
                 1_024,
-                encodedRequest["max_completion_tokens"]?.jsonPrimitive?.content?.toInt(),
+                visionRequest["max_completion_tokens"]?.jsonPrimitive?.content?.toInt(),
             )
-            assertEquals(1, encodedRequest["messages"]?.let { it as JsonArray }?.size)
-            assertEquals(0, encodedRequest["tools"]?.let { it as JsonArray }?.size)
-            assertNull(encodedRequest["tool_choice"])
-            assertNull(encodedRequest["parallel_tool_calls"])
-            assertNull(encodedRequest["prompt_cache_key"])
+            assertEquals(1, visionRequest["messages"]?.let { it as JsonArray }?.size)
+            assertEquals(0, visionRequest["tools"]?.let { it as JsonArray }?.size)
+            assertNull(visionRequest["tool_choice"])
+            assertNull(visionRequest["parallel_tool_calls"])
+            assertNull(visionRequest["prompt_cache_key"])
             assertEquals(
                 "official-vision-model",
-                encodedRequest["model"]
+                visionRequest["model"]
                     ?.jsonPrimitive
                     ?.content
             )
+
+            val agentRequest = json.parseToJsonElement(requestBodies[1]).jsonObject
+            assertEquals("medium", agentRequest["reasoning_effort"]?.jsonPrimitive?.content)
+            assertEquals(3, agentRequest["messages"]?.let { it as JsonArray }?.size)
+            assertEquals(1, agentRequest["tools"]?.let { it as JsonArray }?.size)
+            assertEquals("auto", agentRequest["tool_choice"]?.jsonPrimitive?.content)
+            assertEquals("true", agentRequest["parallel_tool_calls"]?.jsonPrimitive?.content)
+            assertEquals(
+                "full-agent-context",
+                agentRequest["prompt_cache_key"]?.jsonPrimitive?.content,
+            )
+            assertTrue(agentRequest.toString().contains("what is this"))
+            assertTrue(agentRequest.toString().contains("historic image context"))
+            assertTrue(agentRequest.toString().contains("a red status light"))
+            assertFalse(agentRequest.toString().contains("image_url"))
         } finally {
             scope.cancel()
         }
@@ -191,7 +225,8 @@ class HttpAgentLlmClientTest {
                         resolvedModel = model,
                         protocolType = protocolType ?: "openai_compatible",
                         requiresReasoningEcho = false,
-                        providerProfileId = OmniOfficialProvider.PROFILE_ID,
+                        providerProfileId = null,
+                        routeTag = "platform_gateway",
                     )
                 },
                 streamRequestOp = { _, _, _, _, _, _, _, _, _, _ ->
@@ -248,7 +283,8 @@ class HttpAgentLlmClientTest {
                         resolvedModel = model,
                         protocolType = protocolType ?: "openai_compatible",
                         requiresReasoningEcho = false,
-                        providerProfileId = OmniOfficialProvider.PROFILE_ID,
+                        providerProfileId = null,
+                        routeTag = "platform_gateway",
                     )
                 },
                 streamRequestOp = { _, _, _, _, _, _, _, _, _, _ ->
@@ -637,14 +673,15 @@ class HttpAgentLlmClientTest {
         protocolType: String,
         requiresReasoningEcho: Boolean,
         apiBase: String = "https://example.com",
-        providerProfileId: String = "test",
+        providerProfileId: String? = "test",
+        routeTag: String? = "test",
     ) = HttpController.ChatCompletionRouteInfo(
         requestedModel = requestedModel,
         resolvedModel = resolvedModel,
         apiBase = apiBase,
         providerProfileId = providerProfileId,
         providerProfileName = "Test",
-        routeTag = "test",
+        routeTag = routeTag,
         bindingApplied = false,
         bindingProfileMissing = false,
         overrideApplied = true,
