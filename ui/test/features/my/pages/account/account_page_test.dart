@@ -345,6 +345,26 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('account-usage-action')));
     await tester.pumpAndSettle();
 
+    final sheet = find.byKey(const ValueKey('platform-usage-sheet'));
+    expect(sheet, findsOneWidget);
+    final sheetScroll = find.descendant(
+      of: sheet,
+      matching: find.byType(SingleChildScrollView),
+    );
+    expect(
+      tester.widget<SingleChildScrollView>(sheetScroll).padding,
+      const EdgeInsets.all(16),
+    );
+    expect(
+      tester
+          .widget<Wrap>(find.byKey(const ValueKey('platform-usage-actions')))
+          .alignment,
+      WrapAlignment.start,
+    );
+    expect(
+      find.descendant(of: sheet, matching: find.byType(ListTile)),
+      findsNothing,
+    );
     expect(find.text('qwen-official'), findsOneWidget);
     expect(find.text('消耗 17'), findsOneWidget);
     expect(find.textContaining('输入 12'), findsOneWidget);
@@ -383,6 +403,18 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('account-sessions-action')));
     await tester.pumpAndSettle();
 
+    final sheet = find.byKey(const ValueKey('account-sessions-sheet'));
+    expect(sheet, findsOneWidget);
+    expect(
+      find.descendant(of: sheet, matching: find.byType(ListTile)),
+      findsNothing,
+    );
+    expect(
+      tester
+          .widget<Wrap>(find.byKey(const ValueKey('account-sessions-actions')))
+          .alignment,
+      WrapAlignment.start,
+    );
     expect(find.text('当前设备'), findsOneWidget);
     expect(find.text('其他登录设备 1'), findsOneWidget);
     await tester.tap(find.byKey(const ValueKey('revoke-session-other-1')));

@@ -507,16 +507,14 @@ class _AccountPageState extends State<AccountPage> {
 
   Future<void> _showPlatformUsage() => showModalBottomSheet<void>(
     context: context,
-    isScrollControlled: true,
-    showDragHandle: true,
+    backgroundColor: context.omniPalette.surfacePrimary,
     builder: (context) =>
         PlatformUsageSheet(english: _english, errorMessage: _messageFor),
   );
 
   Future<void> _showSessions() => showModalBottomSheet<void>(
     context: context,
-    isScrollControlled: true,
-    showDragHandle: true,
+    backgroundColor: context.omniPalette.surfacePrimary,
     builder: (context) =>
         SessionsSheet(english: _english, errorMessage: _messageFor),
   );

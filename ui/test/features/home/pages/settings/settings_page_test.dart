@@ -134,4 +134,59 @@ void main() {
       );
     }
   });
+
+  testWidgets('local service actions start at the left edge of the sheet', (
+    tester,
+  ) async {
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(mcpChannel, (call) async {
+          if (call.method == 'state') {
+            return <String, Object?>{
+              'enabled': true,
+              'running': true,
+              'host': '127.0.0.1',
+              'port': 8765,
+              'token': 'test-token',
+            };
+          }
+          return null;
+        });
+    tester.view.devicePixelRatio = 1;
+    tester.view.physicalSize = const Size(390, 844);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    addTearDown(tester.view.resetPhysicalSize);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        locale: const Locale('zh'),
+        theme: AppTheme.lightTheme,
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
+        home: DefaultAssetBundle(
+          bundle: _SvgTestAssetBundle(),
+          child: const SettingsPage(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.scrollUntilVisible(
+      find.text('本机服务'),
+      400,
+      scrollable: find.byType(Scrollable).first,
+    );
+    await tester.tap(find.text('本机服务'));
+    await tester.pumpAndSettle();
+
+    final sheet = find.byKey(const ValueKey('local-service-sheet'));
+    expect(sheet, findsOneWidget);
+    expect(
+      tester
+          .widget<Wrap>(find.byKey(const ValueKey('local-service-actions')))
+          .alignment,
+      WrapAlignment.start,
+    );
+    expect(find.text('复制地址'), findsOneWidget);
+    expect(find.text('复制 Token'), findsOneWidget);
+    expect(find.text('刷新 Token'), findsOneWidget);
+  });
 }

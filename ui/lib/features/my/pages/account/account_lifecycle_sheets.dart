@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:ui/services/account_service.dart';
+import 'package:ui/theme/theme_context.dart';
+import 'package:ui/widgets/settings_detail_sheet.dart';
 
 class PlatformUsageSheet extends StatefulWidget {
   const PlatformUsageSheet({
@@ -53,54 +55,23 @@ class _PlatformUsageSheetState extends State<PlatformUsageSheet> {
 
   @override
   Widget build(BuildContext context) {
-    return SafeArea(
-      top: false,
-      child: SizedBox(
-        height: MediaQuery.sizeOf(context).height * 0.72,
-        child: Column(
-          children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(20, 0, 8, 8),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          _text('最近平台用量', 'Recent platform usage'),
-                          style: Theme.of(context).textTheme.titleLarge,
-                        ),
-                        const SizedBox(height: 4),
-                        Text(
-                          _text(
-                            '仅显示最近 20 条，额度以服务器结算为准。',
-                            'Shows the latest 20 records. Server settlement is authoritative.',
-                          ),
-                          style: Theme.of(context).textTheme.bodySmall,
-                        ),
-                      ],
-                    ),
-                  ),
-                  IconButton(
-                    key: const ValueKey('refresh-platform-usage'),
-                    tooltip: _text('刷新', 'Refresh'),
-                    onPressed: _entries == null ? null : _load,
-                    icon: const Icon(LucideIcons.refreshCw),
-                  ),
-                  IconButton(
-                    tooltip: _text('关闭', 'Close'),
-                    onPressed: () => Navigator.pop(context),
-                    icon: const Icon(LucideIcons.x),
-                  ),
-                ],
-              ),
-            ),
-            const Divider(height: 1),
-            Expanded(child: _buildBody()),
-          ],
-        ),
+    return SettingsDetailSheet(
+      key: const ValueKey('platform-usage-sheet'),
+      title: _text('最近平台用量', 'Recent platform usage'),
+      subtitle: _text(
+        '仅显示最近 20 条，额度以服务器结算为准。',
+        'Shows the latest 20 records. Server settlement is authoritative.',
       ),
+      body: _buildBody(),
+      actionsKey: const ValueKey('platform-usage-actions'),
+      actions: [
+        TextButton(
+          key: const ValueKey('refresh-platform-usage'),
+          style: settingsDetailSheetActionStyle(context),
+          onPressed: _entries == null ? null : _load,
+          child: Text(_text('刷新', 'Refresh')),
+        ),
+      ],
     );
   }
 
@@ -127,33 +98,35 @@ class _PlatformUsageSheetState extends State<PlatformUsageSheet> {
         ),
       );
     }
-    return ListView.separated(
-      padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
-      itemCount: entries.length,
-      separatorBuilder: (_, _) => const Divider(height: 1),
-      itemBuilder: (context, index) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: List<Widget>.generate(entries.length * 2 - 1, (itemIndex) {
+        if (itemIndex.isOdd) return const _SheetListDivider();
+        final index = itemIndex ~/ 2;
         final entry = entries[index];
         final model = entry.model.trim().isEmpty
             ? _text('官方模型', 'Official model')
             : entry.model;
-        return ListTile(
+        return _SheetListRow(
           key: ValueKey('platform-usage-$index'),
-          contentPadding: const EdgeInsets.symmetric(horizontal: 4),
-          leading: const Icon(LucideIcons.bot),
-          title: Text(model, maxLines: 1, overflow: TextOverflow.ellipsis),
-          subtitle: Text(
-            '${formatAccountDate(entry.createdAt)}\n'
+          icon: LucideIcons.bot,
+          title: model,
+          details: [
+            formatAccountDate(entry.createdAt),
             '${_text('输入', 'Input')} ${entry.promptTokens} · '
-            '${_text('输出', 'Output')} ${entry.completionTokens} · '
-            '${_text('共', 'Total')} ${entry.totalTokens}',
-          ),
-          isThreeLine: true,
+                '${_text('输出', 'Output')} ${entry.completionTokens} · '
+                '${_text('总计', 'Total')} ${entry.totalTokens}',
+          ],
           trailing: Text(
             _text('消耗 ${entry.quotaUsed}', 'Used ${entry.quotaUsed}'),
-            style: const TextStyle(fontWeight: FontWeight.w600),
+            style: TextStyle(
+              color: context.omniPalette.accentPrimary,
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+            ),
           ),
         );
-      },
+      }),
     );
   }
 }
@@ -343,75 +316,48 @@ class _SessionsSheetState extends State<SessionsSheet> {
     final sessions = _sessions;
     final hasOtherSessions =
         sessions?.any((session) => !session.current) ?? false;
-    return SafeArea(
-      top: false,
-      child: SizedBox(
-        height: MediaQuery.sizeOf(context).height * 0.76,
-        child: Column(
-          children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(20, 0, 8, 8),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          _text('登录设备', 'Signed-in devices'),
-                          style: Theme.of(context).textTheme.titleLarge,
-                        ),
-                        const SizedBox(height: 4),
-                        Text(
-                          _text(
-                            '服务目前仅记录登录时间，暂不读取设备名称。',
-                            'The service records sign-in times without reading device names.',
-                          ),
-                          style: Theme.of(context).textTheme.bodySmall,
-                        ),
-                      ],
-                    ),
-                  ),
-                  IconButton(
-                    tooltip: _text('刷新', 'Refresh'),
-                    onPressed: sessions == null || _busy ? null : _load,
-                    icon: const Icon(LucideIcons.refreshCw),
-                  ),
-                  IconButton(
-                    tooltip: _text('关闭', 'Close'),
-                    onPressed: _busy ? null : () => Navigator.pop(context),
-                    icon: const Icon(LucideIcons.x),
-                  ),
-                ],
-              ),
-            ),
-            const Divider(height: 1),
-            if (_error != null && sessions != null)
-              _InlineSheetNotice(message: _error!, error: true)
-            else if (_notice != null)
-              _InlineSheetNotice(message: _notice!),
-            Expanded(child: _buildBody()),
-            if (hasOtherSessions)
-              Padding(
-                padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
-                child: OutlinedButton.icon(
-                  key: const ValueKey('revoke-other-sessions'),
-                  onPressed: _busy ? null : _revokeOtherSessions,
-                  style: OutlinedButton.styleFrom(
-                    minimumSize: const Size.fromHeight(46),
-                  ),
-                  icon: _revokingAll
-                      ? const SizedBox.square(
-                          dimension: 17,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        )
-                      : const Icon(LucideIcons.logOut, size: 18),
-                  label: Text(_text('退出全部其他设备', 'Sign out all other devices')),
-                ),
-              ),
-          ],
-        ),
+    return SettingsDetailSheet(
+      key: const ValueKey('account-sessions-sheet'),
+      title: _text('登录设备', 'Signed-in devices'),
+      subtitle: _text(
+        '服务目前仅记录登录时间，暂不读取设备名称。',
+        'The service records sign-in times without reading device names.',
       ),
+      body: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (_error != null && sessions != null)
+            _InlineSheetNotice(message: _error!, error: true)
+          else if (_notice != null)
+            _InlineSheetNotice(message: _notice!),
+          _buildBody(),
+        ],
+      ),
+      actionsKey: const ValueKey('account-sessions-actions'),
+      actions: [
+        TextButton(
+          key: const ValueKey('refresh-account-sessions'),
+          style: settingsDetailSheetActionStyle(context),
+          onPressed: sessions == null || _busy ? null : _load,
+          child: Text(_text('刷新', 'Refresh')),
+        ),
+        if (hasOtherSessions)
+          TextButton.icon(
+            key: const ValueKey('revoke-other-sessions'),
+            onPressed: _busy ? null : _revokeOtherSessions,
+            style: settingsDetailSheetActionStyle(
+              context,
+              foregroundColor: Theme.of(context).colorScheme.error,
+            ),
+            icon: _revokingAll
+                ? const SizedBox.square(
+                    dimension: 16,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Icon(LucideIcons.logOut, size: 16),
+            label: Text(_text('退出全部其他设备', 'Sign out all other devices')),
+          ),
+      ],
     );
   }
 
@@ -434,11 +380,11 @@ class _SessionsSheetState extends State<SessionsSheet> {
         message: _text('没有可显示的登录设备', 'No sessions to display'),
       );
     }
-    return ListView.separated(
-      padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
-      itemCount: sessions.length,
-      separatorBuilder: (_, _) => const Divider(height: 1),
-      itemBuilder: (context, index) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: List<Widget>.generate(sessions.length * 2 - 1, (itemIndex) {
+        if (itemIndex.isOdd) return const _SheetListDivider();
+        final index = itemIndex ~/ 2;
         final session = sessions[index];
         final otherIndex = session.current
             ? 0
@@ -450,21 +396,22 @@ class _SessionsSheetState extends State<SessionsSheet> {
             ? _text('当前设备', 'Current device')
             : _text('其他登录设备 $otherIndex', 'Other device $otherIndex');
         final busy = _busySessionId == session.id;
-        return ListTile(
+        return _SheetListRow(
           key: ValueKey('account-session-${session.id}'),
-          contentPadding: const EdgeInsets.symmetric(horizontal: 4),
-          leading: Icon(
-            session.current ? LucideIcons.smartphone : LucideIcons.monitor,
-          ),
-          title: Text(title),
-          subtitle: Text(
+          icon: session.current ? LucideIcons.smartphone : LucideIcons.monitor,
+          title: title,
+          details: [
             '${_text('最近活动', 'Last active')} '
-            '${formatAccountDate(session.lastUsedAt ?? session.createdAt)}',
-          ),
+                '${formatAccountDate(session.lastUsedAt ?? session.createdAt)}',
+          ],
           trailing: session.current
               ? null
               : TextButton(
                   key: ValueKey('revoke-session-${session.id}'),
+                  style: settingsDetailSheetActionStyle(
+                    context,
+                    foregroundColor: Theme.of(context).colorScheme.error,
+                  ),
                   onPressed: _busy ? null : () => _revoke(session),
                   child: busy
                       ? const SizedBox.square(
@@ -474,7 +421,88 @@ class _SessionsSheetState extends State<SessionsSheet> {
                       : Text(_text('退出', 'Sign out')),
                 ),
         );
-      },
+      }),
+    );
+  }
+}
+
+class _SheetListDivider extends StatelessWidget {
+  const _SheetListDivider();
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsetsDirectional.only(start: 28),
+      child: Divider(
+        height: 1,
+        thickness: 1,
+        color: context.omniPalette.borderSubtle.withValues(
+          alpha: context.isDarkTheme ? 0.5 : 0.78,
+        ),
+      ),
+    );
+  }
+}
+
+class _SheetListRow extends StatelessWidget {
+  const _SheetListRow({
+    super.key,
+    required this.icon,
+    required this.title,
+    required this.details,
+    this.trailing,
+  });
+
+  final IconData icon;
+  final String title;
+  final List<String> details;
+  final Widget? trailing;
+
+  @override
+  Widget build(BuildContext context) {
+    final palette = context.omniPalette;
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 12),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(
+            padding: const EdgeInsets.only(top: 2),
+            child: Icon(icon, size: 18, color: palette.textSecondary),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: palette.textPrimary,
+                    fontSize: 14,
+                    height: 1.45,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+                for (final detail in details) ...[
+                  const SizedBox(height: 2),
+                  Text(
+                    detail,
+                    style: TextStyle(
+                      color: palette.textSecondary,
+                      fontSize: 11,
+                      height: 1.5,
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+          if (trailing != null) ...[const SizedBox(width: 8), trailing!],
+        ],
+      ),
     );
   }
 }
@@ -527,7 +555,7 @@ class _InlineSheetNotice extends StatelessWidget {
         : Theme.of(context).colorScheme.primary;
     return Container(
       width: double.infinity,
-      margin: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+      margin: const EdgeInsets.only(bottom: 8),
       padding: const EdgeInsets.all(10),
       decoration: BoxDecoration(
         color: color.withValues(alpha: 0.08),

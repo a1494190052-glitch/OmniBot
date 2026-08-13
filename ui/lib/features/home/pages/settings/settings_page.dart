@@ -13,6 +13,7 @@ import 'package:ui/theme/app_colors.dart';
 import 'package:ui/theme/theme_context.dart';
 import 'package:ui/utils/ui.dart';
 import 'package:ui/widgets/common_app_bar.dart';
+import 'package:ui/widgets/settings_detail_sheet.dart';
 
 class SettingsPage extends StatefulWidget {
   const SettingsPage({super.key});
@@ -159,98 +160,69 @@ class _SettingsPageState extends State<SettingsPage> {
           fontSize: 13,
           color: sheetPalette.textPrimary,
         );
-        final actionStyle = TextButton.styleFrom(
-          foregroundColor: sheetPalette.accentPrimary,
-          minimumSize: const Size(0, 36),
-          padding: const EdgeInsets.symmetric(horizontal: 10),
-        );
+        final actionStyle = settingsDetailSheetActionStyle(sheetContext);
 
-        return SafeArea(
-          top: false,
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  l10n.settingsMcpLocalService,
-                  style: TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.w600,
-                    color: sheetPalette.textPrimary,
-                  ),
-                ),
-                const SizedBox(height: 12),
-                Text(l10n.settingsMcpAddress, style: labelStyle),
-                SelectableText(info.endpoint, style: valueStyle),
-                const SizedBox(height: 8),
-                Text(l10n.settingsMcpToken, style: labelStyle),
-                SelectableText(
-                  info.token.isEmpty ? l10n.settingsNotGenerated : info.token,
-                  style: valueStyle,
-                ),
-                const SizedBox(height: 12),
-                Align(
-                  alignment: AlignmentDirectional.centerEnd,
-                  child: Wrap(
-                    spacing: 4,
-                    runSpacing: 2,
-                    alignment: WrapAlignment.end,
-                    children: [
-                      TextButton(
-                        style: actionStyle,
-                        onPressed: () {
-                          Clipboard.setData(ClipboardData(text: info.endpoint));
-                          Navigator.of(sheetContext).pop();
-                          showToast(l10n.settingsCopiedAddress);
-                        },
-                        child: Text(l10n.settingsCopyAddress),
-                      ),
-                      TextButton(
-                        style: actionStyle,
-                        onPressed: () {
-                          Clipboard.setData(ClipboardData(text: info.token));
-                          Navigator.of(sheetContext).pop();
-                          showToast(l10n.settingsCopiedToken);
-                        },
-                        child: Text(l10n.settingsCopyToken),
-                      ),
-                      TextButton(
-                        style: actionStyle,
-                        onPressed: () async {
-                          Navigator.of(sheetContext).pop();
-                          try {
-                            final refreshed =
-                                await McpServerService.refreshToken();
-                            if (!mounted) return;
-                            setState(() {
-                              _mcpInfo = refreshed ?? _mcpInfo;
-                            });
-                            showToast(l10n.settingsTokenRefreshed);
-                          } catch (_) {
-                            showToast(
-                              l10n.settingsTokenRefreshFailed,
-                              type: ToastType.error,
-                            );
-                          }
-                        },
-                        child: Text(l10n.settingsRefreshToken),
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  l10n.settingsMcpSecurityNotice,
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: sheetPalette.textSecondary,
-                  ),
-                ),
-                const SizedBox(height: 8),
-              ],
+        return SettingsDetailSheet(
+          key: const ValueKey('local-service-sheet'),
+          title: l10n.settingsMcpLocalService,
+          body: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(l10n.settingsMcpAddress, style: labelStyle),
+              SelectableText(info.endpoint, style: valueStyle),
+              const SizedBox(height: 8),
+              Text(l10n.settingsMcpToken, style: labelStyle),
+              SelectableText(
+                info.token.isEmpty ? l10n.settingsNotGenerated : info.token,
+                style: valueStyle,
+              ),
+            ],
+          ),
+          actionsKey: const ValueKey('local-service-actions'),
+          actions: [
+            TextButton(
+              style: actionStyle,
+              onPressed: () {
+                Clipboard.setData(ClipboardData(text: info.endpoint));
+                Navigator.of(sheetContext).pop();
+                showToast(l10n.settingsCopiedAddress);
+              },
+              child: Text(l10n.settingsCopyAddress),
             ),
+            TextButton(
+              style: actionStyle,
+              onPressed: () {
+                Clipboard.setData(ClipboardData(text: info.token));
+                Navigator.of(sheetContext).pop();
+                showToast(l10n.settingsCopiedToken);
+              },
+              child: Text(l10n.settingsCopyToken),
+            ),
+            TextButton(
+              style: actionStyle,
+              onPressed: () async {
+                Navigator.of(sheetContext).pop();
+                try {
+                  final refreshed = await McpServerService.refreshToken();
+                  if (!mounted) return;
+                  setState(() {
+                    _mcpInfo = refreshed ?? _mcpInfo;
+                  });
+                  showToast(l10n.settingsTokenRefreshed);
+                } catch (_) {
+                  showToast(
+                    l10n.settingsTokenRefreshFailed,
+                    type: ToastType.error,
+                  );
+                }
+              },
+              child: Text(l10n.settingsRefreshToken),
+            ),
+          ],
+          footer: Text(
+            l10n.settingsMcpSecurityNotice,
+            style: TextStyle(fontSize: 12, color: sheetPalette.textSecondary),
           ),
         );
       },

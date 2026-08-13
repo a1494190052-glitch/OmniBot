@@ -289,6 +289,23 @@ void main() {
             .value,
         isNull,
       );
+      for (var index = 0; index < 3; index++) {
+        final leadingMilestone = tester.getRect(
+          find.byKey(ValueKey('tutorial-environment-milestone-node-$index')),
+        );
+        final trailingMilestone = tester.getRect(
+          find.byKey(
+            ValueKey('tutorial-environment-milestone-node-${index + 1}'),
+          ),
+        );
+        final connector = tester.getRect(
+          find.byKey(
+            ValueKey('tutorial-environment-milestone-connector-$index'),
+          ),
+        );
+        expect(connector.left, closeTo(leadingMilestone.right, 0.01));
+        expect(connector.right, closeTo(trailingMilestone.left, 0.01));
+      }
       final firstProgress = tester
           .widget<CircularProgressIndicator>(
             find.byKey(const ValueKey('tutorial-environment-progress-ring')),
