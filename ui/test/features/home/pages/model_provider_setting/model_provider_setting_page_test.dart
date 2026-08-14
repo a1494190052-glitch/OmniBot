@@ -165,6 +165,56 @@ void main() {
     },
   );
 
+  testWidgets('saved API key can be revealed without triggering a save', (
+    tester,
+  ) async {
+    var saveCalls = 0;
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    messenger.setMockMethodCallHandler(assistCoreChannel, (call) async {
+      switch (call.method) {
+        case 'listModelProviderProfiles':
+          return profilePayload();
+        case 'saveModelProviderProfile':
+          saveCalls += 1;
+          return savedProfileResponse(
+            Map<dynamic, dynamic>.from(call.arguments as Map),
+          );
+      }
+      return null;
+    });
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: AppTheme.lightTheme,
+        darkTheme: AppTheme.darkTheme,
+        home: const ModelProviderSettingPage(),
+      ),
+    );
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 50));
+
+    final apiKeyFieldFinder = find.byWidgetPredicate(
+      (widget) =>
+          widget is TextField && widget.decoration?.labelText == 'API Key',
+    );
+    final hiddenField = tester.widget<TextField>(apiKeyFieldFinder);
+    expect(hiddenField.controller?.text, 'sk-demo');
+    expect(hiddenField.obscureText, isTrue);
+
+    await tester.tap(
+      find.byKey(const Key('provider-api-key-visibility-button')),
+    );
+    await tester.pump();
+
+    final revealedField = tester.widget<TextField>(apiKeyFieldFinder);
+    expect(revealedField.controller?.text, 'sk-demo');
+    expect(revealedField.obscureText, isFalse);
+
+    await tester.pump(const Duration(milliseconds: 700));
+    expect(saveCalls, 0);
+  });
+
   testWidgets('provider page filters the runtime OmniBot official channel', (
     tester,
   ) async {

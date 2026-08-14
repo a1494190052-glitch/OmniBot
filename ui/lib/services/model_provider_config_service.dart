@@ -61,14 +61,14 @@ class ModelProviderConfig {
     if (map == null) {
       return ModelProviderConfig.empty();
     }
+    final apiKey = (map['apiKey'] ?? '').toString();
     return ModelProviderConfig(
       id: (map['id'] ?? '').toString(),
       name: (map['name'] ?? '').toString(),
       baseUrl: (map['baseUrl'] ?? '').toString(),
-      // BYOK secrets are write-only. Ignore legacy/native payload values.
-      apiKey: '',
+      apiKey: apiKey,
       customHeaders: const <String, String>{},
-      hasApiKey: map['hasApiKey'] == true,
+      hasApiKey: map['hasApiKey'] == true || apiKey.isNotEmpty,
       hasCustomHeaders: map['hasCustomHeaders'] == true,
       source: (map['source'] ?? 'none').toString(),
       providerType: (map['providerType'] ?? 'custom').toString(),
@@ -117,13 +117,14 @@ class ModelProviderProfileSummary {
   });
 
   factory ModelProviderProfileSummary.fromMap(Map<dynamic, dynamic>? map) {
+    final apiKey = (map?['apiKey'] ?? '').toString();
     return ModelProviderProfileSummary(
       id: (map?['id'] ?? '').toString(),
       name: (map?['name'] ?? '').toString(),
       baseUrl: (map?['baseUrl'] ?? '').toString(),
-      apiKey: '',
+      apiKey: apiKey,
       customHeaders: const <String, String>{},
-      hasApiKey: map?['hasApiKey'] == true,
+      hasApiKey: map?['hasApiKey'] == true || apiKey.isNotEmpty,
       hasCustomHeaders: map?['hasCustomHeaders'] == true,
       sourceType: (map?['sourceType'] ?? 'custom').toString(),
       readOnly: map?['readOnly'] == true,
@@ -661,13 +662,14 @@ class ModelProviderConfigService {
       apiBase: cacheBase,
       models: models,
     );
-    final isCapabilityScopedOfficialRequest =
+    final normalizedCapability = capability?.trim().toLowerCase() ?? '';
+    final isNonTextCapabilityScopedOfficialRequest =
         profileSnapshot?.sourceType == 'omnibot_official' &&
-        capability != null &&
-        capability.trim().isNotEmpty;
+        normalizedCapability.isNotEmpty &&
+        normalizedCapability != 'text';
     if (targetProfileId != null &&
         profileSnapshot != null &&
-        !isCapabilityScopedOfficialRequest) {
+        !isNonTextCapabilityScopedOfficialRequest) {
       try {
         final latestProfile = await _findProfileById(targetProfileId);
         final requestedBase = normalizeApiBase(apiBase) ?? '';
@@ -911,10 +913,29 @@ class ModelProviderConfigService {
     final payload = await listProfiles();
     final groups = <ProviderModelGroup>[];
     for (final profile in payload.profiles) {
-      final models = await getChatModelOptionsForProfile(
-        profile.id,
-        profile: profile,
-      );
+      List<ProviderModelOption> models;
+      // The official runtime catalog is capability-scoped and is not managed
+      // by the BYOK visibility list. Refresh its full text catalog here so the
+      // chat selector does not degrade to only the scene-bound fallback model.
+      if (profile.sourceType == 'omnibot_official' && profile.configured) {
+        try {
+          models = await fetchModels(
+            profileId: profile.id,
+            providerName: profile.name,
+            capability: 'text',
+          );
+        } catch (_) {
+          models = await getChatModelOptionsForProfile(
+            profile.id,
+            profile: profile,
+          );
+        }
+      } else {
+        models = await getChatModelOptionsForProfile(
+          profile.id,
+          profile: profile,
+        );
+      }
       groups.add(ProviderModelGroup(profile: profile, models: models));
     }
     return groups;

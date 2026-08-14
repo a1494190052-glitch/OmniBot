@@ -18,7 +18,7 @@ class EnvironmentSetupLogicTest {
             repositorySetupCommand = ""
         )
 
-        val apkAdd = commands.first { it.startsWith("apk add ") }
+        val apkAdd = commands.first { it.contains("omnibot_apk_add") }
         assertTrue(apkAdd.contains("python3"))
         assertTrue(apkAdd.contains("py3-pip"))
         assertTrue(apkAdd.contains("nodejs"))
@@ -42,7 +42,7 @@ class EnvironmentSetupLogicTest {
         )
 
         assertEquals("echo mirror-ready", commands.first())
-        assertTrue(commands.any { it == "apk add --no-cache curl" })
+        assertTrue(commands.any { it.contains("omnibot_apk_add 'curl'") })
     }
 
     @Test
@@ -81,7 +81,7 @@ class EnvironmentSetupLogicTest {
             repositorySetupCommand = ""
         )
 
-        val apkAdd = commands.first { it.startsWith("apk add ") }
+        val apkAdd = commands.first { it.contains("omnibot_apk_add") }
         assertTrue(apkAdd.contains("nodejs"))
         assertTrue(apkAdd.contains("npm"))
         assertTrue(apkAdd.contains("git"))
@@ -114,7 +114,7 @@ class EnvironmentSetupLogicTest {
             repositorySetupCommand = ""
         )
 
-        val apkAdd = commands.first { it.startsWith("apk add ") }
+        val apkAdd = commands.first { it.contains("omnibot_apk_add") }
         assertTrue(apkAdd.contains("nodejs"))
         assertTrue(apkAdd.contains("npm"))
         assertTrue(commands.count { it == "npm config set prefix /root/.npm-global" } == 1)
@@ -160,7 +160,7 @@ class EnvironmentSetupLogicTest {
             repositorySetupCommand = ""
         )
 
-        val apkAdd = commands.first { it.startsWith("apk add ") }
+        val apkAdd = commands.first { it.contains("omnibot_apk_add") }
         assertTrue(apkAdd.contains("nodejs"))
         assertTrue(apkAdd.contains("npm"))
         assertTrue(apkAdd.contains("build-base"))
@@ -190,6 +190,62 @@ class EnvironmentSetupLogicTest {
         assertTrue(command.contains("node-pty"))
         assertTrue(command.contains("createRequire"))
         assertTrue(command.contains("node -p"))
+    }
+
+    @Test
+    fun buildAlpinePackageInstallCommand_repairsAndRetriesOneInterruptedTransaction() {
+        val tempDir = Files.createTempDirectory("omnibot-apk-retry-test").toFile()
+        try {
+            val invocationLog = File(tempDir, "apk-invocations.log")
+            val fakeApk = File(tempDir, "apk").apply {
+                writeText(
+                    """
+                        #!/bin/sh
+                        printf '%s\n' "${'$'}*" >> "${'$'}OMNIBOT_TEST_APK_LOG"
+                        if [ "${'$'}1" = "fix" ]; then
+                          if [ "${'$'}3" = "--upgrade" ]; then
+                            exit 0
+                          fi
+                          exit 1
+                        fi
+                        add_attempts="${'$'}(grep -c '^add ' "${'$'}OMNIBOT_TEST_APK_LOG" 2>/dev/null || true)"
+                        if [ "${'$'}add_attempts" -eq 1 ]; then
+                          exit 5
+                        fi
+                        exit 0
+                    """.trimIndent()
+                )
+                setExecutable(true)
+            }
+            assertTrue(fakeApk.canExecute())
+
+            val command = buildAlpinePackageInstallCommand(
+                listOf("build-base", "python3")
+            )
+            val process = ProcessBuilder("/bin/sh", "-c", command)
+                .redirectErrorStream(true)
+                .apply {
+                    environment()["OMNIBOT_TEST_APK_LOG"] = invocationLog.absolutePath
+                    environment()["PATH"] =
+                        tempDir.absolutePath + File.pathSeparator + environment()["PATH"]
+                }
+                .start()
+            val output = process.inputStream.bufferedReader().use { it.readText() }
+            val exitCode = process.waitFor()
+
+            assertEquals(output, 0, exitCode)
+            assertEquals(
+                listOf(
+                    "add --no-cache build-base python3",
+                    "fix --no-cache",
+                    "fix --no-cache --upgrade",
+                    "add --no-cache build-base python3"
+                ),
+                invocationLog.readLines()
+            )
+        } finally {
+            tempDir.deleteRecursively()
+        }
     }
 
     @Test

@@ -157,7 +157,7 @@ object EnvironmentSetupLogic {
             commands += if (workingMode == WorkingMode.UBUNTU) {
                 "apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends ${systemPackages.joinToString(" ")}"
             } else {
-                "apk add --no-cache ${systemPackages.joinToString(" ")}"
+                buildAlpinePackageInstallCommand(systemPackages)
             }
         }
 

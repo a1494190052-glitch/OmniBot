@@ -37,19 +37,22 @@ void main() {
 
   tearDown(ModelsDevCatalogService.resetForTesting);
 
-  test('provider payload treats native credentials as write-only', () {
-    final profile = ModelProviderProfileSummary.fromMap({
+  test('provider payload exposes API key for the settings editor', () {
+    final payload = <String, dynamic>{
       'id': 'provider-1',
       'name': 'Provider',
       'baseUrl': 'https://provider.example/v1',
-      'apiKey': 'must-not-enter-dart',
-      'customHeaders': {'Authorization': 'must-not-enter-dart'},
+      'apiKey': 'sk-persisted',
+      'customHeaders': {'Authorization': 'custom-header-secret'},
       'hasApiKey': true,
       'hasCustomHeaders': true,
       'revision': 7,
-    });
+    };
+    final config = ModelProviderConfig.fromMap(payload);
+    final profile = ModelProviderProfileSummary.fromMap(payload);
 
-    expect(profile.apiKey, isEmpty);
+    expect(config.apiKey, 'sk-persisted');
+    expect(profile.apiKey, 'sk-persisted');
     expect(profile.customHeaders, isEmpty);
     expect(profile.hasApiKey, isTrue);
     expect(profile.hasCustomHeaders, isTrue);
@@ -431,6 +434,75 @@ void main() {
       ['gpt-4o'],
     );
   });
+
+  test(
+    'chat groups refresh every official text model without scene filtering',
+    () async {
+      SharedPreferences.setMockInitialValues({});
+      await StorageService.init();
+      final messenger =
+          TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+      final fetchCalls = <MethodCall>[];
+      messenger.setMockMethodCallHandler(assistCoreChannel, (call) async {
+        switch (call.method) {
+          case 'listModelProviderProfiles':
+            return <String, dynamic>{
+              'profiles': <Map<String, dynamic>>[
+                <String, dynamic>{
+                  'id': 'omnibot-official-ai',
+                  'name': 'OmniBot 官方 AI',
+                  'sourceType': 'omnibot_official',
+                  'readOnly': true,
+                  'ready': true,
+                  'configured': true,
+                  'revision': 0,
+                },
+              ],
+              'editingProfileId': 'omnibot-official-ai',
+            };
+          case 'getModelProviderConfig':
+            return <String, dynamic>{
+              'id': 'omnibot-official-ai',
+              'name': 'OmniBot 官方 AI',
+              'providerType': 'omnibot_official',
+              'ready': true,
+              'configured': true,
+            };
+          case 'fetchProviderModels':
+            fetchCalls.add(call);
+            return <Map<String, dynamic>>[
+              <String, dynamic>{'id': 'official-text-a'},
+              <String, dynamic>{'id': 'official-text-b'},
+            ];
+          default:
+            throw PlatformException(code: 'unexpected_method');
+        }
+      });
+      addTearDown(
+        () => messenger.setMockMethodCallHandler(assistCoreChannel, null),
+      );
+
+      final groups = await ModelProviderConfigService.loadChatModelGroups();
+
+      expect(groups, hasLength(1));
+      expect(groups.single.models.map((model) => model.id), <String>[
+        'official-text-a',
+        'official-text-b',
+      ]);
+      expect(fetchCalls, hasLength(1));
+      final arguments = Map<dynamic, dynamic>.from(
+        fetchCalls.single.arguments as Map,
+      );
+      expect(arguments['capability'], 'text');
+      expect(
+        (await ModelProviderConfigService.getCachedFetchedModels(
+          profileId: 'omnibot-official-ai',
+          profileRevision: 0,
+        )).map((model) => model.id),
+        <String>['official-text-a', 'official-text-b'],
+      );
+    },
+  );
 
   test('provider model cache is bound to the profile revision', () async {
     SharedPreferences.setMockInitialValues({});

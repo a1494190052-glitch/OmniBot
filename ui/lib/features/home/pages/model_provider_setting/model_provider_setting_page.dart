@@ -696,7 +696,7 @@ class _ModelProviderSettingPageState extends State<ModelProviderSettingPage> {
     if (syncControllers) {
       _syncController(_nameController, current.name);
       _syncController(_baseUrlController, current.baseUrl);
-      _syncController(_apiKeyController, '');
+      _syncController(_apiKeyController, current.apiKey);
       _replaceCustomHeaderEntries(current.customHeaders);
       _apiKeyDirty = false;
       _customHeadersDirty = false;
@@ -3068,6 +3068,9 @@ class _ModelProviderSettingPageState extends State<ModelProviderSettingPage> {
                             label: 'API Key',
                             hint: 'e.g., sk-xxxx',
                             suffixIcon: IconButton(
+                              key: const Key(
+                                'provider-api-key-visibility-button',
+                              ),
                               splashRadius: 18,
                               onPressed: () {
                                 setState(() {
@@ -3086,13 +3089,7 @@ class _ModelProviderSettingPageState extends State<ModelProviderSettingPage> {
                         ),
                         const SizedBox(height: 8),
                         Text(
-                          _currentProfile?.hasApiKey == true &&
-                                  _apiKeyController.text.isEmpty
-                              ? _headerText(
-                                  '已安全保存 API Key；输入新值才会替换。',
-                                  'An API key is stored securely. Enter a new value only to replace it.',
-                                )
-                              : context.l10n.modelProviderApiKeyHint,
+                          context.l10n.modelProviderApiKeyHint,
                           style: TextStyle(
                             color: _tertiaryTextColor,
                             fontSize: 12,

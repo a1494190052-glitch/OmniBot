@@ -52,7 +52,9 @@ class AgentRuntimeProtocolPayloadTest {
         assertTrue(
             deepSeekRuntime?.managedAdapterHealthCommand.orEmpty().contains("node-pty")
         )
-        assertTrue(MANAGED_NATIVE_BUILD_PREREQUISITES_COMMAND.contains("apk add --no-cache build-base python3"))
+        assertTrue(MANAGED_NATIVE_BUILD_PREREQUISITES_COMMAND.contains("omnibot_apk_add 'build-base' 'python3'"))
+        assertTrue(MANAGED_NATIVE_BUILD_PREREQUISITES_COMMAND.contains("apk fix --no-cache"))
+        assertTrue(MANAGED_NATIVE_BUILD_PREREQUISITES_COMMAND.contains("apk fix --no-cache --upgrade"))
         assertTrue(MANAGED_NATIVE_BUILD_PREREQUISITES_COMMAND.contains("build-essential python3"))
         assertTrue(DEEPSEEK_HARNESS_NPM_INSTALL_COMMAND.contains("repair_deepseek_harness_node_pty"))
         assertTrue(DEEPSEEK_HARNESS_NPM_INSTALL_COMMAND.contains("node-gyp configure"))
