@@ -135,6 +135,8 @@ class SpecialPermissionChannel {
                         .getEmbeddedTerminalDistribution(result)
                     "setEmbeddedTerminalDistribution" -> specialPermissionManager!!
                         .setEmbeddedTerminalDistribution(call, result)
+                    "switchEmbeddedTerminalDistribution" -> specialPermissionManager!!
+                        .switchEmbeddedTerminalDistribution(call, result)
                     "getEmbeddedTerminalSetupSessionSnapshot" -> specialPermissionManager!!
                         .getEmbeddedTerminalSetupSessionSnapshot(result)
                     "installEmbeddedTerminalPackages" -> specialPermissionManager!!
@@ -159,6 +161,8 @@ class SpecialPermissionChannel {
                         .prepareTermuxLiveWrapper(call, result)
                     "getEmbeddedTerminalInitSnapshot" -> specialPermissionManager!!
                         .getEmbeddedTerminalInitSnapshot(result)
+                    "cancelEmbeddedTerminalInit" -> specialPermissionManager!!
+                        .cancelEmbeddedTerminalInit(result)
                     "isUnknownAppInstallAllowed" -> specialPermissionManager!!
                         .isUnknownAppInstallAllowed(result)
                     "openUnknownAppInstallSettings" -> specialPermissionManager!!

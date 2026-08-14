@@ -19,6 +19,7 @@ import com.rk.libcommons.localLibDir
 import com.rk.settings.Settings
 import com.rk.terminal.App
 import com.rk.terminal.runtime.EmbeddedRuntimeInstaller
+import com.rk.terminal.runtime.EmbeddedRuntimeInstaller.RuntimeInstallProgress
 import com.rk.terminal.runtime.AlpineRepositoryManager
 import com.rk.terminal.runtime.TerminalDistribution
 import com.rk.terminal.runtime.UbuntuRepositoryManager
@@ -100,9 +101,14 @@ class TerminalManager private constructor(
     }
 
     suspend fun initializeEnvironment(
-        onProgress: suspend (String) -> Unit = {}
+        distribution: TerminalDistribution.Spec = TerminalDistribution.selected(),
+        onProgress: suspend (RuntimeInstallProgress) -> Unit = {}
     ): Boolean {
-        val status = EmbeddedRuntimeInstaller.ensureRuntimeInstalled(context, onProgress)
+        val status = EmbeddedRuntimeInstaller.ensureRuntimeInstalled(
+            context = context,
+            distribution = distribution,
+            onProgress = onProgress
+        )
         if (!status.success) {
             return false
         }
@@ -238,10 +244,11 @@ class TerminalManager private constructor(
         command: String,
         executorKey: String,
         timeoutMs: Long,
+        distribution: TerminalDistribution.Spec = TerminalDistribution.selected(),
         onProcessStarted: ((Process) -> Unit)? = null,
         onOutputChunk: suspend (String) -> Unit = {}
     ): HiddenExecResult {
-        if (!initializeEnvironment()) {
+        if (!initializeEnvironment(distribution = distribution)) {
             return HiddenExecResult(
                 output = "",
                 exitCode = -1,
@@ -252,7 +259,7 @@ class TerminalManager private constructor(
 
         return withContext(Dispatchers.IO) {
             val process = runCatching {
-                buildHiddenExecProcess(executorKey, command).start()
+                buildHiddenExecProcess(executorKey, command, distribution).start()
             }.getOrElse { error ->
                 return@withContext HiddenExecResult(
                     output = "",
@@ -351,12 +358,17 @@ class TerminalManager private constructor(
         return sessionsById[sessionId]?.terminalSession
     }
 
-    private fun buildHiddenExecProcess(executorKey: String, command: String): ProcessBuilder {
+    private fun buildHiddenExecProcess(
+        executorKey: String,
+        command: String,
+        distribution: TerminalDistribution.Spec
+    ): ProcessBuilder {
         return buildAlpineProcess(
             executorKey = executorKey,
             command = command,
             redirectErrorStream = true,
-            extraEnvironment = mapOf("OMNIBOT_HEADLESS" to "1")
+            extraEnvironment = mapOf("OMNIBOT_HEADLESS" to "1"),
+            distribution = distribution
         )
     }
 
@@ -364,7 +376,8 @@ class TerminalManager private constructor(
         executorKey: String,
         command: String,
         redirectErrorStream: Boolean,
-        extraEnvironment: Map<String, String> = emptyMap()
+        extraEnvironment: Map<String, String> = emptyMap(),
+        distribution: TerminalDistribution.Spec = TerminalDistribution.selected()
     ): ProcessBuilder {
         val initHost = ensureShellScripts()
         val processBuilder = ProcessBuilder(
@@ -376,7 +389,7 @@ class TerminalManager private constructor(
         )
         processBuilder.redirectErrorStream(redirectErrorStream)
         val env = processBuilder.environment()
-        buildEnvironmentMap(sessionId = executorKey).forEach { (key, value) ->
+        buildEnvironmentMap(sessionId = executorKey, distribution = distribution).forEach { (key, value) ->
             env[key] = value
         }
         extraEnvironment.forEach { (key, value) ->
@@ -391,8 +404,10 @@ class TerminalManager private constructor(
         return buildEnvironmentMap(sessionId).map { "${it.key}=${it.value}" }.toTypedArray()
     }
 
-    private fun buildEnvironmentMap(sessionId: String): Map<String, String> {
-        val distribution = TerminalDistribution.selected()
+    private fun buildEnvironmentMap(
+        sessionId: String,
+        distribution: TerminalDistribution.Spec = TerminalDistribution.selected()
+    ): Map<String, String> {
         val filesParent = context.filesDir.parentFile ?: context.filesDir
         val linker = if (File("/system/bin/linker64").exists()) "/system/bin/linker64" else "/system/bin/linker"
         val hostWorkspaceDir = AgentWorkspaceManager.rootDirectory(context).apply { mkdirs() }

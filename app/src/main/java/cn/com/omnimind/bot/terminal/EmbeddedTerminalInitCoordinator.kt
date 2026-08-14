@@ -4,10 +4,14 @@ import android.content.Context
 import cn.com.omnimind.baselib.util.OmniLog
 import cn.com.omnimind.bot.termux.TermuxCommandRunner
 import cn.com.omnimind.bot.termux.TermuxLiveEnvironmentResult
+import com.ai.assistance.operit.terminal.TerminalManager
+import com.rk.terminal.runtime.TerminalDistribution
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 
 object EmbeddedTerminalInitCoordinator {
@@ -41,7 +45,12 @@ object EmbeddedTerminalInitCoordinator {
         val startedAt: Long = 0L,
         val updatedAt: Long = 0L,
         val completedAt: Long? = null,
-        val seenBasePackages: Set<String> = emptySet()
+        val seenBasePackages: Set<String> = emptySet(),
+        val phase: String? = null,
+        val distribution: String? = null,
+        val downloadedBytes: Long = 0L,
+        val totalBytes: Long = 0L,
+        val error: String? = null
     )
 
     private val mainScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
@@ -52,6 +61,7 @@ object EmbeddedTerminalInitCoordinator {
 
     private var embeddedTerminalInitState = EmbeddedTerminalInitState()
     private var activeRun: CompletableDeferred<TermuxLiveEnvironmentResult>? = null
+    private var activeJob: Job? = null
 
     fun addListener(listener: (Map<String, Any?>) -> Unit) {
         synchronized(listenerLock) {
@@ -78,7 +88,12 @@ object EmbeddedTerminalInitCoordinator {
             "logLines" to snapshot.logLines,
             "startedAt" to snapshot.startedAt.takeIf { it > 0L },
             "updatedAt" to snapshot.updatedAt.takeIf { it > 0L },
-            "completedAt" to snapshot.completedAt
+            "completedAt" to snapshot.completedAt,
+            "phase" to snapshot.phase,
+            "distribution" to snapshot.distribution,
+            "downloadedBytes" to snapshot.downloadedBytes,
+            "totalBytes" to snapshot.totalBytes,
+            "error" to snapshot.error
         )
     }
 
@@ -94,9 +109,10 @@ object EmbeddedTerminalInitCoordinator {
             }
         }
         val appContext = context.applicationContext
-        workerScope.launch {
+        val job = workerScope.launch {
             runPreparation(appContext, deferred)
         }
+        synchronized(stateLock) { activeJob = job }
         return true
     }
 
@@ -120,7 +136,10 @@ object EmbeddedTerminalInitCoordinator {
             }
         }
         if (shouldStartNow) {
-            runPreparation(appContext, deferred, selectedPackageIds)
+            val job = workerScope.launch {
+                runPreparation(appContext, deferred, selectedPackageIds)
+            }
+            synchronized(stateLock) { activeJob = job }
         }
         val status = deferred.await()
         return if (!shouldStartNow && selectedPackageIds != null && status.success) {
@@ -128,6 +147,38 @@ object EmbeddedTerminalInitCoordinator {
         } else {
             status
         }
+    }
+
+    suspend fun prepareDistribution(
+        context: Context,
+        distribution: TerminalDistribution.Spec
+    ): TermuxLiveEnvironmentResult {
+        val appContext = context.applicationContext
+        val deferred = synchronized(stateLock) {
+            if (activeRun?.isCompleted == false) {
+                return TermuxLiveEnvironmentResult(
+                    success = false,
+                    wrapperReady = false,
+                    sharedStorageReady = false,
+                    message = "另一个终端环境准备任务正在运行，请稍后再试。"
+                )
+            }
+            CompletableDeferred<TermuxLiveEnvironmentResult>().also {
+                activeRun = it
+                resetEmbeddedTerminalInitStateLocked()
+            }
+        }
+        val job = workerScope.launch {
+            runDistributionPreparation(appContext, distribution, deferred)
+        }
+        synchronized(stateLock) { activeJob = job }
+        return deferred.await()
+    }
+
+    fun cancelCurrent(): Boolean {
+        val job = synchronized(stateLock) { activeJob?.takeIf { it.isActive } }
+        job?.cancel(CancellationException("用户取消终端环境准备"))
+        return job != null
     }
 
     private suspend fun runPreparation(
@@ -146,7 +197,13 @@ object EmbeddedTerminalInitCoordinator {
             ) { progress ->
                 emitEmbeddedTerminalInitProgress(
                     kind = progress.kind.name.lowercase(),
-                    message = progress.message
+                    message = progress.message,
+                    phase = progress.phase,
+                    distribution = progress.distribution,
+                    downloadedBytes = progress.downloadedBytes,
+                    totalBytes = progress.totalBytes,
+                    explicitProgress = progress.progress,
+                    error = progress.error
                 )
             }
             val status =
@@ -174,6 +231,18 @@ object EmbeddedTerminalInitCoordinator {
                 finalMessage = status.message
             )
             deferred.complete(status)
+        } catch (error: CancellationException) {
+            val message = "终端环境准备已取消，已保留下载进度。"
+            emitEmbeddedTerminalInitProgress(kind = "error", message = message, error = message)
+            markEmbeddedTerminalInitCompleted(success = false, finalMessage = message)
+            deferred.complete(
+                TermuxLiveEnvironmentResult(
+                    success = false,
+                    wrapperReady = false,
+                    sharedStorageReady = false,
+                    message = message
+                )
+            )
         } catch (error: Exception) {
             OmniLog.e(TAG, "Failed to prepare embedded terminal runtime", error)
             val failureMessage = error.message ?: "检查内嵌终端环境失败"
@@ -190,6 +259,134 @@ object EmbeddedTerminalInitCoordinator {
             synchronized(stateLock) {
                 if (activeRun === deferred) {
                     activeRun = null
+                    activeJob = null
+                }
+            }
+        }
+    }
+
+    private suspend fun runDistributionPreparation(
+        context: Context,
+        distribution: TerminalDistribution.Spec,
+        deferred: CompletableDeferred<TermuxLiveEnvironmentResult>
+    ) {
+        try {
+            emitEmbeddedTerminalInitProgress(
+                kind = "status",
+                message = "正在准备 ${distribution.displayName} 终端环境",
+                phase = "checking",
+                distribution = distribution.id
+            )
+            var runtimeFailureMessage: String? = null
+            val manager = TerminalManager.getInstance(context)
+            val initialized = manager.initializeEnvironment(distribution = distribution) { progress ->
+                progress.error?.takeIf { it.isNotBlank() }?.let { runtimeFailureMessage = it }
+                emitEmbeddedTerminalInitProgress(
+                    kind = if (progress.error == null) "status" else "error",
+                    message = progress.message,
+                    phase = progress.phase,
+                    distribution = progress.distribution,
+                    downloadedBytes = progress.downloadedBytes,
+                    totalBytes = progress.totalBytes,
+                    explicitProgress = progress.progress,
+                    error = progress.error
+                )
+            }
+            val status = if (!initialized) {
+                TermuxLiveEnvironmentResult(
+                    success = false,
+                    wrapperReady = false,
+                    sharedStorageReady = false,
+                    message = runtimeFailureMessage ?: "${distribution.displayName} 终端环境准备失败。"
+                )
+            } else {
+                emitEmbeddedTerminalInitProgress(
+                    kind = "status",
+                    message = "正在验证 ${distribution.displayName} 终端环境",
+                    phase = "verifying",
+                    distribution = distribution.id,
+                    explicitProgress = 0.98
+                )
+                val probe = manager.executeHiddenCommand(
+                    command = "true",
+                    executorKey = "distribution-switch-${distribution.id}",
+                    timeoutMs = 60_000L,
+                    distribution = distribution
+                )
+                if (probe.isOk && probe.exitCode == 0) {
+                    TermuxLiveEnvironmentResult(
+                        success = true,
+                        wrapperReady = true,
+                        sharedStorageReady = true,
+                        message = "${distribution.displayName} 终端环境已就绪。"
+                    )
+                } else {
+                    val details = probe.error.ifBlank {
+                        probe.output.trim().takeLast(800).ifBlank { "运行时验证未通过。" }
+                    }
+                    TermuxLiveEnvironmentResult(
+                        success = false,
+                        wrapperReady = false,
+                        sharedStorageReady = false,
+                        message = "${distribution.displayName} 终端环境验证失败：$details"
+                    )
+                }
+            }
+            emitEmbeddedTerminalInitProgress(
+                kind = if (status.success) "status" else "error",
+                message = status.message,
+                phase = if (status.success) "ready" else "error",
+                distribution = distribution.id,
+                explicitProgress = if (status.success) 1.0 else null,
+                error = status.message.takeUnless { status.success }
+            )
+            markEmbeddedTerminalInitCompleted(
+                success = status.success,
+                finalMessage = status.message
+            )
+            deferred.complete(status)
+        } catch (error: CancellationException) {
+            val message = "终端环境准备已取消，已保留下载进度。"
+            emitEmbeddedTerminalInitProgress(
+                kind = "error",
+                message = message,
+                phase = "cancelled",
+                distribution = distribution.id,
+                error = message
+            )
+            markEmbeddedTerminalInitCompleted(success = false, finalMessage = message)
+            deferred.complete(
+                TermuxLiveEnvironmentResult(
+                    success = false,
+                    wrapperReady = false,
+                    sharedStorageReady = false,
+                    message = message
+                )
+            )
+        } catch (error: Exception) {
+            OmniLog.e(TAG, "Failed to prepare ${distribution.id} terminal runtime", error)
+            val message = error.message ?: "${distribution.displayName} 终端环境准备失败。"
+            emitEmbeddedTerminalInitProgress(
+                kind = "error",
+                message = message,
+                phase = "error",
+                distribution = distribution.id,
+                error = message
+            )
+            markEmbeddedTerminalInitCompleted(success = false, finalMessage = message)
+            deferred.complete(
+                TermuxLiveEnvironmentResult(
+                    success = false,
+                    wrapperReady = false,
+                    sharedStorageReady = false,
+                    message = message
+                )
+            )
+        } finally {
+            synchronized(stateLock) {
+                if (activeRun === deferred) {
+                    activeRun = null
+                    activeJob = null
                 }
             }
         }
@@ -197,16 +394,37 @@ object EmbeddedTerminalInitCoordinator {
 
     private fun emitEmbeddedTerminalInitProgress(
         kind: String,
-        message: String
+        message: String,
+        phase: String? = null,
+        distribution: String? = null,
+        downloadedBytes: Long = 0L,
+        totalBytes: Long = 0L,
+        explicitProgress: Double? = null,
+        error: String? = null
     ) {
         if (message.isBlank()) {
             return
         }
-        updateEmbeddedTerminalInitState(kind, message)
+        updateEmbeddedTerminalInitState(
+            kind,
+            message,
+            phase,
+            distribution,
+            downloadedBytes,
+            totalBytes,
+            explicitProgress,
+            error
+        )
         val payload = mapOf(
             "kind" to kind,
             "message" to message,
-            "timestamp" to System.currentTimeMillis()
+            "timestamp" to System.currentTimeMillis(),
+            "phase" to phase,
+            "distribution" to distribution,
+            "downloadedBytes" to downloadedBytes,
+            "totalBytes" to totalBytes,
+            "progress" to explicitProgress,
+            "error" to error
         )
         val currentListeners = synchronized(listenerLock) {
             listeners.toList()
@@ -239,7 +457,13 @@ object EmbeddedTerminalInitCoordinator {
 
     private fun updateEmbeddedTerminalInitState(
         kind: String,
-        message: String
+        message: String,
+        phase: String?,
+        distribution: String?,
+        downloadedBytes: Long,
+        totalBytes: Long,
+        explicitProgress: Double?,
+        error: String?
     ) {
         val normalizedMessage = message.trim()
         if (normalizedMessage.isBlank()) {
@@ -271,7 +495,10 @@ object EmbeddedTerminalInitCoordinator {
                     current.seenBasePackages
                 }
 
-            val derivedProgress = deriveEmbeddedTerminalInitProgress(
+            val derivedProgress = explicitProgress?.let { downloadProgress ->
+                // Runtime download occupies the preparation section before package setup.
+                0.14 + downloadProgress.coerceIn(0.0, 1.0) * 0.42
+            } ?: deriveEmbeddedTerminalInitProgress(
                 kind = kind,
                 message = normalizedMessage,
                 seenBasePackages = nextSeenBasePackages,
@@ -289,7 +516,12 @@ object EmbeddedTerminalInitCoordinator {
                     formatEmbeddedTerminalInitLogLines(kind, normalizedLines)
                 ),
                 updatedAt = now,
-                seenBasePackages = nextSeenBasePackages
+                seenBasePackages = nextSeenBasePackages,
+                phase = phase ?: current.phase,
+                distribution = distribution ?: current.distribution,
+                downloadedBytes = downloadedBytes,
+                totalBytes = totalBytes,
+                error = error ?: current.error
             )
         }
     }
