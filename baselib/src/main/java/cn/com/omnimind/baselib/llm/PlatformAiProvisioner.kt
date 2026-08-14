@@ -34,15 +34,44 @@ internal fun PlatformAiProvisioningStatus.routingUnavailableReasonOrNull(): Stri
         ?: "官方文本模型暂时不可用，请稍后重试"
 }
 
+internal const val EMBEDDING_CATALOG_REFRESH_COOLDOWN_MILLIS = 5L * 60L * 1_000L
+
+internal fun shouldRefreshEmbeddingCatalog(
+    lastAttemptAtMillis: Long,
+    nowMillis: Long,
+    cooldownMillis: Long = EMBEDDING_CATALOG_REFRESH_COOLDOWN_MILLIS,
+): Boolean {
+    if (lastAttemptAtMillis <= 0L) return true
+    val elapsed = nowMillis - lastAttemptAtMillis
+    return elapsed < 0L || elapsed >= cooldownMillis
+}
+
+internal fun PlatformAiProvisioningStatus.hasReadyTextCatalog(): Boolean =
+    ready && models.isNotEmpty()
+
+internal fun preserveLastKnownGoodCatalogOrFailure(
+    previous: PlatformAiProvisioningStatus,
+    failureStatusText: String,
+): PlatformAiProvisioningStatus =
+    if (previous.hasReadyTextCatalog()) {
+        previous
+    } else {
+        PlatformAiProvisioningStatus(statusText = failureStatusText)
+    }
+
 /**
  * Keeps the official provider catalog separate from device BYOK configuration.
  * Synchronizing the catalog never mutates the user's scene bindings.
  */
 object PlatformAiProvisioner {
     private val mutex = Mutex()
+    private val embeddingRefreshGate = Any()
 
     @Volatile
     private var currentStatus = PlatformAiProvisioningStatus()
+
+    @Volatile
+    private var lastEmbeddingCatalogRefreshAttemptAtMillis = 0L
 
     fun status(): PlatformAiProvisioningStatus = currentStatus
 
@@ -59,6 +88,7 @@ object PlatformAiProvisioner {
     suspend fun synchronize(
         settings: AiSettings? = null,
         forceRefresh: Boolean = settings != null,
+        preserveReadyCatalogOnFailure: Boolean = false,
     ): PlatformAiProvisioningStatus =
         mutex.withLock {
             if (!OmniOfficialProvider.shouldExpose()) {
@@ -68,6 +98,7 @@ object PlatformAiProvisioner {
 
             val access = OmniAccount.currentAiRequestAccess()
             if (!access.usesPlatform) {
+                clearEmbeddingCatalogRefreshAttempt()
                 currentStatus = PlatformAiProvisioningStatus(
                     statusText = access.unavailableReason
                         ?: "平台 AI 登录状态尚未就绪，请重新登录",
@@ -75,21 +106,22 @@ object PlatformAiProvisioner {
                 return@withLock currentStatus
             }
 
-            if (!forceRefresh &&
-                currentStatus.ready &&
-                currentStatus.models.isNotEmpty()
-            ) {
-                return@withLock currentStatus
+            val previousStatus = currentStatus
+            if (!forceRefresh && previousStatus.hasReadyTextCatalog()) {
+                return@withLock previousStatus
             }
 
-            currentStatus = PlatformAiProvisioningStatus(
-                statusText = "正在同步官方文本模型",
-            )
+            if (!preserveReadyCatalogOnFailure || !previousStatus.hasReadyTextCatalog()) {
+                currentStatus = PlatformAiProvisioningStatus(
+                    statusText = "正在同步官方文本模型",
+                )
+            }
             try {
+                markEmbeddingCatalogRefreshAttempt()
                 val catalog = OmniAccount.repository().getPlatformModelCatalog()
                 val selection = OmniOfficialProvider.selectModels(
                     catalog = catalog,
-                    rememberedTextModelId = currentStatus.defaultModelId,
+                    rememberedTextModelId = previousStatus.defaultModelId,
                 )
                 val selected = selection.defaultTextModel
                 if (selected == null) {
@@ -119,9 +151,15 @@ object PlatformAiProvisioner {
             } catch (error: CancellationException) {
                 throw error
             } catch (_: Throwable) {
-                currentStatus = PlatformAiProvisioningStatus(
-                    statusText = "获取官方模型失败，请检查网络后重试",
-                )
+                val failureStatusText = "获取官方模型失败，请检查网络后重试"
+                currentStatus = if (preserveReadyCatalogOnFailure) {
+                    preserveLastKnownGoodCatalogOrFailure(
+                        previous = previousStatus,
+                        failureStatusText = failureStatusText,
+                    )
+                } else {
+                    PlatformAiProvisioningStatus(statusText = failureStatusText)
+                }
             }
             currentStatus
         }
@@ -150,7 +188,13 @@ object PlatformAiProvisioner {
         if (existing.hasReadyEmbedding()) {
             return existing
         }
-        return synchronize(forceRefresh = true)
+        if (!reserveEmbeddingCatalogRefreshAttempt()) {
+            return existing
+        }
+        return synchronize(
+            forceRefresh = true,
+            preserveReadyCatalogOnFailure = true,
+        )
     }
 
     suspend fun ensureReadyAndGetModels(): List<ProviderModelOption> =
@@ -161,9 +205,38 @@ object PlatformAiProvisioner {
     }
 
     private fun deactivateLocked() {
+        clearEmbeddingCatalogRefreshAttempt()
         currentStatus = PlatformAiProvisioningStatus(
             statusText = "官方 AI 账号未登录",
         )
+    }
+
+    private fun clockMillis(): Long = System.currentTimeMillis()
+
+    private fun reserveEmbeddingCatalogRefreshAttempt(): Boolean =
+        synchronized(embeddingRefreshGate) {
+            val nowMillis = clockMillis()
+            if (!shouldRefreshEmbeddingCatalog(
+                    lastAttemptAtMillis = lastEmbeddingCatalogRefreshAttemptAtMillis,
+                    nowMillis = nowMillis,
+                )
+            ) {
+                return@synchronized false
+            }
+            lastEmbeddingCatalogRefreshAttemptAtMillis = nowMillis
+            true
+        }
+
+    private fun markEmbeddingCatalogRefreshAttempt() {
+        synchronized(embeddingRefreshGate) {
+            lastEmbeddingCatalogRefreshAttemptAtMillis = clockMillis()
+        }
+    }
+
+    private fun clearEmbeddingCatalogRefreshAttempt() {
+        synchronized(embeddingRefreshGate) {
+            lastEmbeddingCatalogRefreshAttemptAtMillis = 0L
+        }
     }
 
     private fun List<PlatformModel>.toOptions(): List<ProviderModelOption> =

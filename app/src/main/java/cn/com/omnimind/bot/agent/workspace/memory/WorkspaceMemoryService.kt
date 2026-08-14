@@ -88,21 +88,79 @@ data class WorkspaceMemoryRollupStatus(
     val lastRunSummary: String?
 )
 
-private data class MemoryChunk(
+internal data class MemoryChunk(
     val id: String,
     val source: String,
     val date: String?,
     val text: String
 )
 
-private data class MemoryIndexEntry(
+internal data class MemoryIndexEntry(
     val id: String,
     val source: String,
     val date: String?,
     val text: String,
     val embedding: List<Double> = emptyList(),
+    val embeddingConfigId: String? = null,
+    val embeddingDimensions: Int? = null,
     val updatedAt: Long = System.currentTimeMillis()
 )
+
+internal fun WorkspaceMemoryEmbeddingConfig.embeddingConfigId(): String? {
+    if (!configured) return null
+    val normalizedModelId = modelId?.trim().orEmpty()
+    if (normalizedModelId.isEmpty()) return null
+    val normalizedApiBase = apiBase
+        ?.let(ModelProviderConfigStore::stripDirectRequestUrlMarker)
+        ?.trim()
+        ?.trimEnd('/')
+        .orEmpty()
+    val rawIdentity = listOf(
+        if (usesPlatform) "platform" else "byok",
+        providerProfileId?.trim().orEmpty(),
+        normalizedApiBase,
+        normalizedModelId,
+    ).joinToString("\u0000")
+    return MessageDigest.getInstance("SHA-256")
+        .digest(rawIdentity.toByteArray(StandardCharsets.UTF_8))
+        .joinToString("") { "%02x".format(it) }
+}
+
+internal fun MemoryIndexEntry.canReuseFor(
+    chunk: MemoryChunk,
+    config: WorkspaceMemoryEmbeddingConfig,
+    requestedEmbeddingConfigId: String?,
+    expectedEmbeddingDimensions: Int?,
+    shouldRequestEmbeddings: Boolean,
+): Boolean {
+    if (text != chunk.text) return false
+    if (!config.configured || !shouldRequestEmbeddings) return true
+    val storedDimensions = embeddingDimensions ?: return false
+    return requestedEmbeddingConfigId != null &&
+        embeddingConfigId == requestedEmbeddingConfigId &&
+        embedding.isNotEmpty() &&
+        storedDimensions == embedding.size &&
+        (expectedEmbeddingDimensions == null || storedDimensions == expectedEmbeddingDimensions)
+}
+
+internal fun embeddingsAreCompatible(a: List<Double>, b: List<Double>): Boolean =
+    a.isNotEmpty() && a.size == b.size
+
+internal fun cosineSimilarity(a: List<Double>, b: List<Double>): Double {
+    if (!embeddingsAreCompatible(a, b)) return 0.0
+    var dot = 0.0
+    var normA = 0.0
+    var normB = 0.0
+    for (i in a.indices) {
+        val av = a[i]
+        val bv = b[i]
+        dot += av * bv
+        normA += av * av
+        normB += bv * bv
+    }
+    if (normA <= 0 || normB <= 0) return 0.0
+    return dot / (sqrt(normA) * sqrt(normB))
+}
 
 private data class RollupInference(
     val summary: String?,
@@ -416,26 +474,35 @@ class WorkspaceMemoryService(
         require(normalizedQuery.isNotEmpty()) { "query is empty" }
         val embeddingConfig = resolveEmbeddingConfig()
         val chunks = collectChunks()
-        val index = refreshAndLoadIndex(chunks, embeddingConfig)
         val queryEmbedding = if (embeddingConfig.configured) {
             runCatching { requestEmbedding(embeddingConfig, normalizedQuery) }
                 .onFailure {
                     OmniLog.w(TAG, "embedding query failed: ${it.message}")
                 }
                 .getOrNull()
+                ?.takeIf { vector -> vector.isNotEmpty() && vector.all(Double::isFinite) }
         } else {
             null
         }
-        val usedEmbedding = queryEmbedding != null
+        val index = refreshAndLoadIndex(
+            chunks = chunks,
+            config = embeddingConfig,
+            expectedEmbeddingDimensions = queryEmbedding?.size,
+            shouldRequestEmbeddings = queryEmbedding != null,
+        )
+        val usedEmbedding = queryEmbedding != null &&
+            index.any { embeddingsAreCompatible(queryEmbedding, it.embedding) }
 
         val scored = index.map { entry ->
             val lexical = lexicalScore(normalizedQuery, entry.text)
-            val semantic = if (queryEmbedding != null && entry.embedding.isNotEmpty()) {
+            val hasCompatibleEmbedding = queryEmbedding != null &&
+                embeddingsAreCompatible(queryEmbedding, entry.embedding)
+            val semantic = if (hasCompatibleEmbedding) {
                 cosineSimilarity(queryEmbedding, entry.embedding)
             } else {
                 0.0
             }
-            val score = if (usedEmbedding) {
+            val score = if (hasCompatibleEmbedding) {
                 semantic * 0.82 + lexical * 0.18
             } else {
                 lexical
@@ -1082,8 +1149,10 @@ class WorkspaceMemoryService(
             // catalog cached before embedding was published. Refresh that
             // incomplete catalog before deciding to fall back to lexical
             // retrieval.
-            val platformStatus = runBlocking {
-                PlatformAiProvisioner.ensureEmbeddingReadyStatus()
+            val platformStatus = if (enabled) {
+                runBlocking { PlatformAiProvisioner.ensureEmbeddingReadyStatus() }
+            } else {
+                PlatformAiProvisioner.status()
             }
             val platformProfile = PlatformAiProvisioner.officialProfileOrNull()
             val platformModelId = platformStatus.defaultEmbeddingModelId
@@ -1230,24 +1299,40 @@ class WorkspaceMemoryService(
 
     private fun refreshAndLoadIndex(
         chunks: List<MemoryChunk>,
-        config: WorkspaceMemoryEmbeddingConfig
+        config: WorkspaceMemoryEmbeddingConfig,
+        expectedEmbeddingDimensions: Int? = null,
+        shouldRequestEmbeddings: Boolean = config.configured,
     ): List<MemoryIndexEntry> {
         val indexFile = File(workspaceManager.memoryIndexDirectory(), "index.json")
         val existing = loadIndex(indexFile).associateBy { it.id }.toMutableMap()
+        val requestedEmbeddingConfigId = config.embeddingConfigId()
         val next = mutableListOf<MemoryIndexEntry>()
         chunks.forEach { chunk ->
             val old = existing.remove(chunk.id)
-            val reusable = old != null &&
-                old.text == chunk.text &&
-                (!config.configured || old.embedding.isNotEmpty())
-            if (reusable) {
+            if (old?.canReuseFor(
+                    chunk = chunk,
+                    config = config,
+                    requestedEmbeddingConfigId = requestedEmbeddingConfigId,
+                    expectedEmbeddingDimensions = expectedEmbeddingDimensions,
+                    shouldRequestEmbeddings = shouldRequestEmbeddings,
+                ) == true
+            ) {
                 next += requireNotNull(old)
                 return@forEach
             }
-            val embedding = if (config.configured) {
+            val embedding = if (config.configured && shouldRequestEmbeddings) {
                 runCatching { requestEmbedding(config, chunk.text) }
                     .onFailure { OmniLog.w(TAG, "embedding chunk failed: ${it.message}") }
                     .getOrElse { emptyList() }
+                    .takeIf { vector ->
+                        vector.isNotEmpty() &&
+                            vector.all(Double::isFinite) &&
+                            (
+                                expectedEmbeddingDimensions == null ||
+                                    vector.size == expectedEmbeddingDimensions
+                                )
+                    }
+                    .orEmpty()
             } else {
                 emptyList()
             }
@@ -1256,7 +1341,9 @@ class WorkspaceMemoryService(
                 source = chunk.source,
                 date = chunk.date,
                 text = chunk.text,
-                embedding = embedding
+                embedding = embedding,
+                embeddingConfigId = requestedEmbeddingConfigId.takeIf { embedding.isNotEmpty() },
+                embeddingDimensions = embedding.size.takeIf { it > 0 },
             )
         }
         saveIndex(indexFile, next)
@@ -1353,23 +1440,6 @@ class WorkspaceMemoryService(
         if (qTokens.isEmpty() || tTokens.isEmpty()) return 0.0
         val hit = qTokens.count { tTokens.contains(it) }
         return hit.toDouble() / qTokens.size.toDouble()
-    }
-
-    private fun cosineSimilarity(a: List<Double>, b: List<Double>): Double {
-        val size = minOf(a.size, b.size)
-        if (size == 0) return 0.0
-        var dot = 0.0
-        var normA = 0.0
-        var normB = 0.0
-        for (i in 0 until size) {
-            val av = a[i]
-            val bv = b[i]
-            dot += av * bv
-            normA += av * av
-            normB += bv * bv
-        }
-        if (normA <= 0 || normB <= 0) return 0.0
-        return dot / (sqrt(normA) * sqrt(normB))
     }
 
     private fun tokenize(text: String): List<String> {
