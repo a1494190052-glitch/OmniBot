@@ -5,6 +5,7 @@ import cn.com.omnimind.assists.controller.http.HttpController
 import cn.com.omnimind.baselib.i18n.AppLocaleManager
 import cn.com.omnimind.baselib.i18n.PromptLocale
 import cn.com.omnimind.baselib.llm.ModelProviderConfigStore
+import cn.com.omnimind.baselib.llm.ModelProviderProfile
 import cn.com.omnimind.baselib.llm.ModelSceneRegistry
 import cn.com.omnimind.baselib.llm.OmniOfficialProvider
 import cn.com.omnimind.baselib.llm.PlatformAiProvisioner
@@ -160,6 +161,19 @@ internal fun cosineSimilarity(a: List<Double>, b: List<Double>): Double {
     }
     if (normA <= 0 || normB <= 0) return 0.0
     return dot / (sqrt(normA) * sqrt(normB))
+}
+
+internal fun explicitByokEmbeddingProfile(
+    bindingProviderProfileId: String?,
+    boundProfile: ModelProviderProfile?,
+): ModelProviderProfile? {
+    val normalizedBindingId = bindingProviderProfileId?.trim().orEmpty()
+    if (normalizedBindingId.isEmpty() ||
+        OmniOfficialProvider.isOfficialProfile(normalizedBindingId)
+    ) {
+        return null
+    }
+    return boundProfile?.takeIf { it.id == normalizedBindingId }
 }
 
 private data class RollupInference(
@@ -1144,6 +1158,21 @@ class WorkspaceMemoryService(
 
     private fun resolveEmbeddingConfig(): WorkspaceMemoryEmbeddingConfig {
         val enabled = mmkv?.decodeBool(KEY_EMBEDDING_ENABLED, true) ?: true
+        val sceneProfile = ModelSceneRegistry.getRuntimeProfile(SCENE_MEMORY_EMBEDDING)
+        val binding = SceneModelBindingStore.getBinding(SCENE_MEMORY_EMBEDDING)
+        val boundProfile = binding?.providerProfileId
+            ?.let(ModelProviderConfigStore::getProfile)
+        val explicitByokProfile = explicitByokEmbeddingProfile(
+            bindingProviderProfileId = binding?.providerProfileId,
+            boundProfile = boundProfile,
+        )
+        if (explicitByokProfile != null) {
+            return resolveByokEmbeddingConfig(
+                enabled = enabled,
+                profile = explicitByokProfile,
+                modelId = binding?.modelId,
+            )
+        }
         if (OmniOfficialProvider.shouldExpose()) {
             // A process can already be text-ready while still holding the
             // catalog cached before embedding was published. Refresh that
@@ -1173,14 +1202,29 @@ class WorkspaceMemoryService(
                 usesPlatform = true,
             )
         }
-        val sceneProfile = ModelSceneRegistry.getRuntimeProfile(SCENE_MEMORY_EMBEDDING)
-        val binding = SceneModelBindingStore.getBinding(SCENE_MEMORY_EMBEDDING)
-        val profile = binding?.providerProfileId?.let { ModelProviderConfigStore.getProfile(it) }
+        val applicableBinding = binding?.takeIf {
+            boundProfile != null && !OmniOfficialProvider.isOfficialProfile(it.providerProfileId)
+        }
+        val profile = boundProfile
+            ?.takeIf { applicableBinding != null }
             ?: ModelProviderConfigStore.getEditingProfile()
-        val modelId = binding?.modelId?.trim()
-            ?.takeIf { it.isNotEmpty() }
+        val modelId = applicableBinding?.modelId?.trim()
+            ?.takeIf(String::isNotEmpty)
             ?: sceneProfile?.model?.trim()
                 ?.takeIf { it.isNotEmpty() && !it.startsWith("scene.") }
+        return resolveByokEmbeddingConfig(
+            enabled = enabled,
+            profile = profile,
+            modelId = modelId,
+        )
+    }
+
+    private fun resolveByokEmbeddingConfig(
+        enabled: Boolean,
+        profile: ModelProviderProfile,
+        modelId: String?,
+    ): WorkspaceMemoryEmbeddingConfig {
+        val normalizedModelId = modelId?.trim()?.takeIf(String::isNotEmpty)
         val apiBase = profile.baseUrl.trim().ifEmpty { null }
         val apiKey = profile.apiKey.trim()
         if (profile.protocolType == "anthropic") {
@@ -1190,7 +1234,7 @@ class WorkspaceMemoryService(
                 sceneId = SCENE_MEMORY_EMBEDDING,
                 providerProfileId = profile.id,
                 providerProfileName = profile.name,
-                modelId = modelId,
+                modelId = normalizedModelId,
                 apiBase = apiBase,
                 hasApiKey = apiKey.isNotEmpty(),
             )
@@ -1198,14 +1242,14 @@ class WorkspaceMemoryService(
         val configured = enabled &&
             !apiBase.isNullOrBlank() &&
             apiKey.isNotEmpty() &&
-            !modelId.isNullOrBlank()
+            !normalizedModelId.isNullOrBlank()
         return WorkspaceMemoryEmbeddingConfig(
             enabled = enabled,
             configured = configured,
             sceneId = SCENE_MEMORY_EMBEDDING,
             providerProfileId = profile.id,
             providerProfileName = profile.name,
-            modelId = modelId,
+            modelId = normalizedModelId,
             apiBase = apiBase,
             hasApiKey = apiKey.isNotEmpty(),
         )

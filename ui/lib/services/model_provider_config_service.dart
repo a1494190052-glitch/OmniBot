@@ -612,6 +612,7 @@ class ModelProviderConfigService {
     Map<String, String>? customHeaders,
     String? profileId,
     String providerName = '',
+    String? capability,
   }) async {
     // Capture the persisted profile before starting the network request. A
     // response obtained for an older profile revision must never replace the
@@ -630,6 +631,8 @@ class ModelProviderConfigService {
           if (customHeaders != null) 'useProvidedCustomHeaders': true,
           if (profileId != null && profileId.trim().isNotEmpty)
             'profileId': profileId.trim(),
+          if (capability != null && capability.trim().isNotEmpty)
+            'capability': capability.trim(),
           if (profileSnapshot != null)
             'expectedProfileRevision': profileSnapshot.revision,
           if (profileSnapshot != null)
@@ -658,7 +661,13 @@ class ModelProviderConfigService {
       apiBase: cacheBase,
       models: models,
     );
-    if (targetProfileId != null && profileSnapshot != null) {
+    final isCapabilityScopedOfficialRequest =
+        profileSnapshot?.sourceType == 'omnibot_official' &&
+        capability != null &&
+        capability.trim().isNotEmpty;
+    if (targetProfileId != null &&
+        profileSnapshot != null &&
+        !isCapabilityScopedOfficialRequest) {
       try {
         final latestProfile = await _findProfileById(targetProfileId);
         final requestedBase = normalizeApiBase(apiBase) ?? '';

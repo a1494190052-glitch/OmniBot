@@ -1,5 +1,6 @@
 package cn.com.omnimind.bot.agent
 
+import cn.com.omnimind.baselib.llm.ModelProviderProfile
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
@@ -7,6 +8,23 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class WorkspaceMemoryEmbeddingIndexTest {
+    @Test
+    fun `explicit BYOK binding is preferred but official binding is not`() {
+        val byok = ModelProviderProfile(
+            id = "provider-a",
+            name = "Provider A",
+            baseUrl = "https://example.com/v1",
+            apiKey = "secret",
+        )
+
+        assertEquals(byok, explicitByokEmbeddingProfile("provider-a", byok))
+        assertEquals(null, explicitByokEmbeddingProfile("other-provider", byok))
+        assertEquals(
+            null,
+            explicitByokEmbeddingProfile("omnibot-official-ai", byok),
+        )
+    }
+
     @Test
     fun `embedding identity changes with route provider and model`() {
         val base = embeddingConfig()

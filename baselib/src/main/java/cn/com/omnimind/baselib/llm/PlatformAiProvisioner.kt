@@ -26,6 +26,26 @@ data class PlatformAiProvisioningStatus(
     val defaultTtsVoiceAlias: String? = null,
 )
 
+object PlatformModelCapability {
+    const val TEXT = "text"
+    const val VISION = "vision"
+    const val IMAGE = "image"
+    const val EMBEDDING = "embedding"
+    const val TTS = "tts"
+}
+
+internal fun PlatformAiProvisioningStatus.modelsForCapability(
+    capability: String?,
+): List<ProviderModelOption> =
+    when (capability?.trim()?.lowercase().orEmpty()) {
+        "", PlatformModelCapability.TEXT -> models
+        PlatformModelCapability.VISION -> visionModels
+        PlatformModelCapability.IMAGE -> imageModels
+        PlatformModelCapability.EMBEDDING -> embeddingModels
+        PlatformModelCapability.TTS -> ttsModels
+        else -> emptyList()
+    }
+
 internal fun PlatformAiProvisioningStatus.routingUnavailableReasonOrNull(): String? {
     if (ready) {
         return null
@@ -197,8 +217,17 @@ object PlatformAiProvisioner {
         )
     }
 
-    suspend fun ensureReadyAndGetModels(): List<ProviderModelOption> =
-        ensureReadyStatus().models
+    suspend fun ensureReadyAndGetModels(
+        capability: String? = null,
+    ): List<ProviderModelOption> {
+        val normalizedCapability = capability?.trim()?.lowercase().orEmpty()
+        val readyStatus = if (normalizedCapability == PlatformModelCapability.EMBEDDING) {
+            ensureEmbeddingReadyStatus()
+        } else {
+            ensureReadyStatus()
+        }
+        return readyStatus.modelsForCapability(normalizedCapability)
+    }
 
     suspend fun deactivate() {
         mutex.withLock { deactivateLocked() }

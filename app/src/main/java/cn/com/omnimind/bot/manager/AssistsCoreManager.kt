@@ -3078,13 +3078,14 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
         val useProvidedApiKey = call.argument<Boolean>("useProvidedApiKey") == true
         val useProvidedCustomHeaders = call.argument<Boolean>("useProvidedCustomHeaders") == true
         val profileId = call.argument<String>("profileId")?.trim()
+        val capability = call.argument<String>("capability")?.trim()
         val expectedProfileRevision = call.argument<Number>("expectedProfileRevision")?.toLong()
         val expectedProfileBaseUrl = call.argument<String>("expectedProfileBaseUrl")?.trim().orEmpty()
 
         workJob.launch {
             try {
                 if (OmniOfficialProvider.isOfficialProfile(profileId)) {
-                    val models = PlatformAiProvisioner.ensureReadyAndGetModels()
+                    val models = PlatformAiProvisioner.ensureReadyAndGetModels(capability)
                     withContext(Dispatchers.Main) {
                         result.success(models.map { it.toMap() })
                     }
@@ -3152,11 +3153,12 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
         val useProvidedApiKey = call.argument<Boolean>("useProvidedApiKey") == true
         val useProvidedCustomHeaders = call.argument<Boolean>("useProvidedCustomHeaders") == true
         val profileId = call.argument<String>("profileId")?.trim()
+        val capability = call.argument<String>("capability")?.trim()
 
         workJob.launch {
             try {
                 if (OmniOfficialProvider.isOfficialProfile(profileId)) {
-                    val available = PlatformAiProvisioner.ensureReadyAndGetModels()
+                    val available = PlatformAiProvisioner.ensureReadyAndGetModels(capability)
                         .any { it.id == model }
                     withContext(Dispatchers.Main) {
                         result.success(

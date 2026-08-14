@@ -146,6 +146,7 @@ void main() {
       final models = await ModelProviderConfigService.fetchModels(
         apiBase: 'https://provider.example/v1',
         profileId: 'provider-1',
+        capability: 'embedding',
       );
 
       expect(models.single.id, 'model-1');
@@ -153,6 +154,7 @@ void main() {
         fetchCalls.single.arguments as Map,
       );
       expect(arguments['expectedProfileRevision'], 9);
+      expect(arguments['capability'], 'embedding');
       expect(
         arguments['expectedProfileBaseUrl'],
         'https://provider.example/v1',
