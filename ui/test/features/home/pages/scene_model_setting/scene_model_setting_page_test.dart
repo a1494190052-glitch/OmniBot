@@ -77,7 +77,6 @@ void main() {
 
   late Map<String, dynamic> savedVoiceConfig;
   late bool providerConfigured;
-  late bool providerDestinationConsentValid;
   late String providerBaseUrl;
   late int providerRevision;
   late String providerSourceType;
@@ -99,7 +98,6 @@ void main() {
       ModelsDevCatalogService.parseCatalog(_modelsDevCatalogJson),
     );
     providerConfigured = true;
-    providerDestinationConsentValid = true;
     providerBaseUrl = 'https://example.com/v1';
     providerRevision = 1;
     providerSourceType = 'custom';
@@ -171,7 +169,6 @@ void main() {
                     'apiKey': 'secret',
                     'hasApiKey': true,
                     'configured': providerConfigured,
-                    'destinationConsentValid': providerDestinationConsentValid,
                     'sourceType': providerSourceType,
                     'readOnly': providerReadOnly,
                     'ready': providerReady,
@@ -184,7 +181,6 @@ void main() {
                       'name': 'OmniBot 官方 AI',
                       'baseUrl': 'https://official.example/ai',
                       'configured': true,
-                      'destinationConsentValid': true,
                       'sourceType': 'omnibot_official',
                       'readOnly': true,
                       'ready': true,
@@ -283,7 +279,7 @@ void main() {
   testWidgets('scene entry paints cache and has no manual refresh control', (
     tester,
   ) async {
-    providerDestinationConsentValid = false;
+    providerFetchError = StateError('offline');
     await ModelProviderConfigService.saveCachedFetchedModels(
       profileId: 'provider-1',
       apiBase: providerBaseUrl,
@@ -295,7 +291,7 @@ void main() {
 
     await pumpSceneSettings(tester);
 
-    expect(providerFetchCount, 0);
+    expect(providerFetchCount, 1);
     expect(
       find.byKey(const Key('scene-model-refresh-provider-models-button')),
       findsNothing,
@@ -309,7 +305,7 @@ void main() {
     expect(find.text('cached-model'), findsOneWidget);
   });
 
-  testWidgets('confirmed BYOK provider refreshes automatically', (
+  testWidgets('configured BYOK provider refreshes automatically', (
     tester,
   ) async {
     providerFetchResponse = <Map<String, dynamic>>[
@@ -320,24 +316,6 @@ void main() {
     expect(providerFetchCount, 1);
     expect(lastProviderFetchArguments?['apiBase'], providerBaseUrl);
     expect(lastProviderFetchArguments?['profileId'], 'provider-1');
-    expect(lastProviderFetchArguments?['destinationConfirmed'], isNot(true));
-    expect(
-      find.byKey(const Key('data-destination-confirmation-dialog')),
-      findsNothing,
-    );
-  });
-
-  testWidgets('BYOK provider without destination consent is not refreshed', (
-    tester,
-  ) async {
-    providerDestinationConsentValid = false;
-    await pumpSceneSettings(tester);
-
-    expect(providerFetchCount, 0);
-    expect(
-      find.byKey(const Key('data-destination-confirmation-dialog')),
-      findsNothing,
-    );
   });
 
   testWidgets('changed provider revision cannot apply an old fetch result', (
@@ -382,9 +360,7 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('official catalog refreshes automatically without confirmation', (
-    tester,
-  ) async {
+  testWidgets('official catalog refreshes automatically', (tester) async {
     providerBaseUrl = 'https://official.example/ai';
     providerSourceType = 'omnibot_official';
     providerReadOnly = true;
@@ -394,11 +370,6 @@ void main() {
 
     await pumpSceneSettings(tester);
     expect(providerFetchCount, 1);
-    expect(lastProviderFetchArguments?['destinationConfirmed'], isNot(true));
-    expect(
-      find.byKey(const Key('data-destination-confirmation-dialog')),
-      findsNothing,
-    );
     await tester.tap(
       find.byKey(
         const Key('scene-model-selector-scene.compactor.context.chat'),

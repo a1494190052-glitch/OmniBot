@@ -55,16 +55,6 @@ void main() {
   const assistCoreChannel = MethodChannel(
     'cn.com.omnimind.bot/AssistCoreEvent',
   );
-  Future<void> confirmDestination(WidgetTester tester) async {
-    expect(
-      find.byKey(const Key('data-destination-confirmation-dialog')),
-      findsOneWidget,
-    );
-    await tester.tap(find.byKey(const Key('data-destination-acknowledgement')));
-    await tester.pump();
-    await tester.tap(find.byKey(const Key('data-destination-confirm')));
-    await tester.pumpAndSettle();
-  }
 
   Map<String, dynamic> profilePayload({
     String name = 'Provider 1',
@@ -557,8 +547,6 @@ void main() {
 
     await tester.tap(find.text('Kimi'));
     await tester.pumpAndSettle();
-    expect(saveCalls, 0);
-    await confirmDestination(tester);
 
     expect(saveCalls, 1);
     expect(savedWireApi, 'chat_completions');
@@ -619,8 +607,6 @@ void main() {
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 700));
 
-    expect(saveCalls, 0);
-    await confirmDestination(tester);
     expect(saveCalls, 1);
   });
 

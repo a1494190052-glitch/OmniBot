@@ -399,11 +399,17 @@ void main() {
       tester.widget<SingleChildScrollView>(sheetScroll).padding,
       const EdgeInsets.all(16),
     );
+    final refresh = find.byKey(const ValueKey('refresh-platform-usage'));
+    expect(find.byKey(const ValueKey('platform-usage-actions')), findsNothing);
     expect(
-      tester
-          .widget<Wrap>(find.byKey(const ValueKey('platform-usage-actions')))
-          .alignment,
-      WrapAlignment.start,
+      tester.getTopRight(refresh).dx,
+      closeTo(tester.getTopRight(sheet).dx - 16, 0.01),
+    );
+    expect(
+      tester.getTopLeft(refresh).dy,
+      lessThan(
+        tester.getTopLeft(find.byKey(const ValueKey('platform-usage-0'))).dy,
+      ),
     );
     expect(
       find.descendant(of: sheet, matching: find.byType(ListTile)),
@@ -574,6 +580,31 @@ void main() {
     expect(changePasswordSheet, findsOneWidget);
     expect(find.byType(SettingsDetailSheet), findsOneWidget);
     expect(find.byType(AlertDialog), findsNothing);
+    expect(
+      find.descendant(of: changePasswordSheet, matching: find.text('取消')),
+      findsNothing,
+    );
+    final showPasswords = find.byKey(const ValueKey('show-change-passwords'));
+    final confirmChangePassword = find.byKey(
+      const ValueKey('confirm-change-password'),
+    );
+    expect(
+      tester.getCenter(showPasswords).dy,
+      closeTo(tester.getCenter(confirmChangePassword).dy, 0.01),
+    );
+    expect(
+      tester.getTopRight(confirmChangePassword).dx,
+      closeTo(tester.getTopRight(changePasswordSheet).dx - 16, 0.01),
+    );
+
+    final sheetTop = tester.getTopLeft(changePasswordSheet).dy;
+    await tester.tapAt(Offset(10, sheetTop / 2));
+    await tester.pumpAndSettle();
+    expect(changePasswordSheet, findsNothing);
+    expect(attempts, 0);
+
+    await tester.tap(find.byKey(const ValueKey('change-password-action')));
+    await tester.pumpAndSettle();
 
     const newPassword = 'Changed26!';
     await tester.enterText(

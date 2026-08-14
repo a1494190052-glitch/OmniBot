@@ -6,7 +6,6 @@ import 'package:ui/l10n/l10n.dart';
 import 'package:flutter_slidable/flutter_slidable.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:ui/services/builtin_official_provider_catalog.dart';
-import 'package:ui/services/data_destination_confirmation.dart';
 import 'package:ui/services/model_provider_config_service.dart';
 import 'package:ui/services/model_vendor_catalog.dart';
 import 'package:ui/theme/app_colors.dart';
@@ -424,7 +423,6 @@ class _ModelProviderSettingPageState extends State<ModelProviderSettingPage> {
   @override
   void dispose() {
     _autoSaveTimer?.cancel();
-    // A destination confirmation cannot be shown safely during dispose.
     unawaited(_persistManualModelIds());
     _nameFocusNode.removeListener(_onProfileFieldFocusChanged);
     _baseUrlFocusNode.removeListener(_onProfileFieldFocusChanged);
@@ -591,9 +589,7 @@ class _ModelProviderSettingPageState extends State<ModelProviderSettingPage> {
 
       _isSavingProfile = true;
       try {
-        Future<ModelProviderProfileSummary> saveAction({
-          bool destinationConfirmed = false,
-        }) => ModelProviderConfigService.saveProfile(
+        final saved = await ModelProviderConfigService.saveProfile(
           id: current.id,
           name: nextName.isEmpty ? current.name : nextName,
           baseUrl: rawBaseUrl,
@@ -602,36 +598,7 @@ class _ModelProviderSettingPageState extends State<ModelProviderSettingPage> {
           sourceType: _selectedSourceType,
           protocolType: _selectedProtocolType,
           wireApi: _selectedWireApi,
-          destinationConfirmed: destinationConfirmed,
         );
-        final ModelProviderProfileSummary saved;
-        if (nextBaseUrl.isEmpty || _selectedSourceType == 'omnibot_official') {
-          saved = await saveAction();
-        } else {
-          final outcome =
-              await confirmDataDestinationAndRun<ModelProviderProfileSummary>(
-                context: context,
-                rawEndpoint: rawBaseUrl,
-                capability: 'BYOK model provider',
-                operation: _headerText(
-                  '保存提供商配置',
-                  'Save provider configuration',
-                ),
-                dataTypes: [
-                  _headerText(
-                    '提供商名称、接口类型和接收地址',
-                    'Provider name, API type, and receiver address',
-                  ),
-                  if (_apiKeyDirty || current.hasApiKey)
-                    _headerText('API Key（仅写入）', 'API key (write-only)'),
-                  if (_customHeadersDirty || current.hasCustomHeaders)
-                    _headerText('自定义请求头（仅写入）', 'Custom headers (write-only)'),
-                ],
-                action: () => saveAction(destinationConfirmed: true),
-              );
-          if (!outcome.confirmed || outcome.value == null) return false;
-          saved = outcome.value!;
-        }
         if (!mounted) return false;
         setState(() {
           _profiles = _profiles
@@ -1161,42 +1128,13 @@ class _ModelProviderSettingPageState extends State<ModelProviderSettingPage> {
 
     setState(() => _isFetchingModels = true);
     try {
-      Future<List<ProviderModelOption>> fetchAction({
-        bool destinationConfirmed = false,
-      }) => ModelProviderConfigService.fetchModels(
+      final models = await ModelProviderConfigService.fetchModels(
         apiBase: baseUrl,
         apiKey: _apiKeyDirty ? _apiKeyController.text.trim() : null,
         customHeaders: _customHeadersDirty ? customHeaders : null,
         profileId: current.id,
         providerName: current.name,
-        destinationConfirmed: destinationConfirmed,
       );
-      final List<ProviderModelOption> models;
-      if (current.sourceType == 'omnibot_official') {
-        models = await fetchAction();
-      } else {
-        final outcome =
-            await confirmDataDestinationAndRun<List<ProviderModelOption>>(
-              context: context,
-              rawEndpoint: baseUrl,
-              capability: 'BYOK model provider',
-              operation: _headerText('刷新模型列表', 'Refresh model list'),
-              dataTypes: [
-                _headerText(
-                  '模型列表请求和提供商配置',
-                  'Model list request and provider configuration',
-                ),
-                if (current.hasApiKey || _apiKeyDirty)
-                  _headerText(
-                    '已安全保存或新输入的 API Key',
-                    'Stored or newly entered API key',
-                  ),
-              ],
-              action: () => fetchAction(destinationConfirmed: true),
-            );
-        if (!outcome.confirmed || outcome.value == null) return;
-        models = outcome.value!;
-      }
       if (!mounted) return;
       setState(() {
         _remoteModels = models;
@@ -1529,9 +1467,7 @@ class _ModelProviderSettingPageState extends State<ModelProviderSettingPage> {
       _syncController(_baseUrlController, selected.baseUrl);
     }
     try {
-      Future<ModelProviderProfileSummary> saveAction({
-        bool destinationConfirmed = false,
-      }) => ModelProviderConfigService.saveProfile(
+      final saved = await ModelProviderConfigService.saveProfile(
         id: current.id,
         name: _nameController.text.trim().isEmpty
             ? current.name
@@ -1544,46 +1480,7 @@ class _ModelProviderSettingPageState extends State<ModelProviderSettingPage> {
         sourceType: selected.sourceType,
         protocolType: nextProtocolType,
         wireApi: nextWireApi,
-        destinationConfirmed: destinationConfirmed,
       );
-      final ModelProviderProfileSummary saved;
-      final rawBaseUrl = _baseUrlController.text.trim();
-      if (selected.sourceType == 'omnibot_official' || rawBaseUrl.isEmpty) {
-        saved = await saveAction();
-      } else {
-        final outcome =
-            await confirmDataDestinationAndRun<ModelProviderProfileSummary>(
-              context: context,
-              rawEndpoint: rawBaseUrl,
-              capability: 'BYOK model provider',
-              operation: _headerText('选择提供商', 'Select provider'),
-              dataTypes: [
-                _headerText(
-                  '提供商配置和接收地址',
-                  'Provider configuration and receiver address',
-                ),
-                if (current.hasApiKey || _apiKeyDirty)
-                  _headerText(
-                    '已安全保存或新输入的 API Key',
-                    'Stored or newly entered API key',
-                  ),
-              ],
-              action: () => saveAction(destinationConfirmed: true),
-            );
-        if (!outcome.confirmed || outcome.value == null) {
-          if (mounted) {
-            setState(() {
-              _selectedSourceType = previousSourceType;
-              _selectedProtocolType = previousValue;
-              _selectedWireApi = previousWireApi;
-            });
-            _syncController(_nameController, previousName);
-            _syncController(_baseUrlController, previousBaseUrl);
-          }
-          return;
-        }
-        saved = outcome.value!;
-      }
       if (!mounted) return;
       setState(() {
         _profiles = _profiles.map((p) => p.id == saved.id ? saved : p).toList();

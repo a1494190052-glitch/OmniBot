@@ -373,15 +373,13 @@ class _SceneModelSettingPageState extends State<SceneModelSettingPage> {
       for (final profile in snapshots) {
         if (!_isProviderRefreshActive(refreshGeneration)) return;
         final isOfficial = profile.sourceType == 'omnibot_official';
-        if (!isOfficial &&
-            (!profile.configured || !profile.destinationConsentValid)) {
+        if (!isOfficial && !profile.configured) {
           continue;
         }
         try {
           final remoteModels = await _fetchModelsForSnapshot(
             profile,
             refreshGeneration: refreshGeneration,
-            destinationConfirmed: false,
           );
           if (!_isProviderRefreshActive(refreshGeneration)) return;
           final manualModelIds = isOfficial
@@ -421,7 +419,6 @@ class _SceneModelSettingPageState extends State<SceneModelSettingPage> {
   Future<List<ProviderModelOption>> _fetchModelsForSnapshot(
     ModelProviderProfileSummary snapshot, {
     required int refreshGeneration,
-    required bool destinationConfirmed,
   }) async {
     if (!_isProviderRefreshActive(refreshGeneration)) return const [];
     final current = _findProfile(_profiles, snapshot.id);
@@ -432,7 +429,6 @@ class _SceneModelSettingPageState extends State<SceneModelSettingPage> {
       apiBase: snapshot.baseUrl,
       profileId: snapshot.id,
       providerName: snapshot.name,
-      destinationConfirmed: destinationConfirmed,
     );
     if (!_isProviderRefreshActive(refreshGeneration)) return const [];
     final latestPayload = await ModelProviderConfigService.listProfiles();

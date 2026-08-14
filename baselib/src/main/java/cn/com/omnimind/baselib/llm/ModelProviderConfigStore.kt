@@ -13,7 +13,6 @@ import com.tencent.mmkv.MMKV
 import java.net.URI
 
 object ModelProviderConfigStore {
-    private const val CURRENT_DESTINATION_CONSENT_VERSION = 1
     private const val TAG = "ModelProviderConfigStore"
     private const val DIRECT_REQUEST_URL_MARKER = "#"
 
@@ -121,12 +120,6 @@ object ModelProviderConfigStore {
         val wireApi: String? = null,
         @field:SerializedName("revision")
         val revision: Long? = null,
-        @field:SerializedName("consentVersion")
-        val consentVersion: Int? = null,
-        @field:SerializedName("consentOrigin")
-        val consentOrigin: String? = null,
-        @field:SerializedName("consentRevision")
-        val consentRevision: Long? = null,
     )
 
     fun listProfiles(): List<ModelProviderProfile> {
@@ -250,7 +243,6 @@ object ModelProviderConfigStore {
         sourceType: String? = null,
         protocolType: String = "openai_compatible",
         wireApi: String = OpenAiWireApi.CHAT_COMPLETIONS,
-        destinationConfirmed: Boolean = false,
     ): ModelProviderProfile {
         ModelProviderMigration.ensureMigrated()
         require(!OmniOfficialProvider.isOfficialProfile(id)) {
@@ -269,8 +261,6 @@ object ModelProviderConfigStore {
                 rawUrl = stripDirectRequestUrlMarker(normalizedBaseUrl),
                 allowInsecureLoopback = CredentialEndpointSecurity.isDebugLoopbackAllowed(),
             )
-        } else {
-            require(!destinationConfirmed) { "cannot confirm an empty provider destination" }
         }
         val mmkv = MMKV.defaultMMKV()
 
@@ -291,21 +281,6 @@ object ModelProviderConfigStore {
         )
         val existingProfile = current.getOrNull(currentIndex)
         val nextRevision = (existingProfile?.revision ?: 0L) + 1L
-        val canRetainConsent = existingProfile?.destinationConsentValid == true && try {
-            canonicalEndpoint(existingProfile.baseUrl) == canonicalEndpoint(normalizedBaseUrl)
-        } catch (_: Exception) {
-            false
-        }
-        val consentVersion = if (destinationConfirmed || canRetainConsent) {
-            CURRENT_DESTINATION_CONSENT_VERSION
-        } else {
-            0
-        }
-        val consentOrigin = if (consentVersion == CURRENT_DESTINATION_CONSENT_VERSION) {
-            canonicalOrigin(normalizedBaseUrl)
-        } else {
-            ""
-        }
         val nextProfile = ModelProviderProfile(
             id = normalizedId,
             name = sanitizedName,
@@ -321,10 +296,6 @@ object ModelProviderConfigStore {
             protocolType = normalizedProtocolType,
             wireApi = normalizedWireApi,
             revision = nextRevision,
-            consentVersion = consentVersion,
-            consentOrigin = consentOrigin,
-            consentRevision = if (consentVersion == CURRENT_DESTINATION_CONSENT_VERSION) nextRevision else 0L,
-            destinationConsentValid = consentVersion == CURRENT_DESTINATION_CONSENT_VERSION,
         )
 
         if (currentIndex >= 0) {
@@ -383,7 +354,6 @@ object ModelProviderConfigStore {
             ready = profile.ready,
             statusText = profile.statusText,
             wireApi = profile.wireApi,
-            destinationConsentValid = profile.destinationConsentValid,
         )
     }
 
@@ -391,7 +361,6 @@ object ModelProviderConfigStore {
         baseUrl: String,
         apiKey: String,
         customHeaders: Map<String, String> = emptyMap(),
-        destinationConfirmed: Boolean = false,
     ) {
         val current = getEditingProfile()
         require(!current.readOnly) { "builtin provider is read only" }
@@ -404,21 +373,7 @@ object ModelProviderConfigStore {
             sourceType = current.sourceType,
             protocolType = current.protocolType,
             wireApi = current.wireApi,
-            destinationConfirmed = destinationConfirmed,
         )
-    }
-
-    fun hasCurrentDestinationConsent(
-        profile: ModelProviderProfile,
-        rawUrl: String = profile.baseUrl,
-    ): Boolean {
-        if (profile.readOnly) return true
-        if (!profile.destinationConsentValid) return false
-        return try {
-            canonicalEndpoint(profile.baseUrl) == canonicalEndpoint(rawUrl)
-        } catch (_: Exception) {
-            false
-        }
     }
 
     /** Compare provider destinations without exposing their values to callers. */
@@ -605,18 +560,6 @@ object ModelProviderConfigStore {
         }
     }
 
-    internal fun canonicalOrigin(rawUrl: String): String {
-        val uri = URI(canonicalEndpoint(rawUrl))
-        val scheme = uri.scheme.lowercase()
-        val host = uri.host.lowercase()
-        val port = if (uri.port >= 0) uri.port else if (scheme == "https" || scheme == "wss") 443 else 80
-        return buildString {
-            append(scheme).append("://")
-            if (host.contains(':')) append('[').append(host).append(']') else append(host)
-            append(':').append(port)
-        }
-    }
-
     private fun canonicalEndpoint(rawUrl: String): String {
         val safe = ContentEndpointSecurity.requireSafe(
             rawUrl = stripDirectRequestUrlMarker(rawUrl),
@@ -794,43 +737,10 @@ object ModelProviderConfigStore {
                     return@mapNotNull null
                 }
                 val normalizedBaseUrl = normalizeBaseUrl(profile.baseUrl.orEmpty()).orEmpty()
-                // Profiles written before destination consent metadata existed were
-                // already explicitly configured by the user. Preserve that choice on
-                // upgrade instead of silently disabling the provider. A profile saved
-                // by the new UI with explicit zero-valued consent metadata remains
-                // inactive until the destination is confirmed.
-                val isLegacyConfiguredProfile = normalizedBaseUrl.isNotEmpty() &&
-                    profile.revision == null &&
-                    profile.consentVersion == null &&
-                    profile.consentOrigin == null &&
-                    profile.consentRevision == null
-                val revision = when {
-                    isLegacyConfiguredProfile -> 1L
-                    else -> profile.revision?.coerceAtLeast(0L) ?: 0L
-                }
-                val consentVersion = when {
-                    isLegacyConfiguredProfile -> CURRENT_DESTINATION_CONSENT_VERSION
-                    else -> profile.consentVersion?.coerceAtLeast(0) ?: 0
-                }
-                val consentOrigin = when {
-                    isLegacyConfiguredProfile -> try {
-                        canonicalOrigin(normalizedBaseUrl)
-                    } catch (_: Exception) {
-                        ""
-                    }
-                    else -> profile.consentOrigin?.trim().orEmpty()
-                }
-                val consentRevision = when {
-                    isLegacyConfiguredProfile -> revision
-                    else -> profile.consentRevision?.coerceAtLeast(0L) ?: 0L
-                }
-                val consentValid = try {
-                    consentVersion == CURRENT_DESTINATION_CONSENT_VERSION &&
-                        consentRevision == revision &&
-                        consentOrigin == canonicalOrigin(normalizedBaseUrl)
-                } catch (_: Exception) {
-                    false
-                }
+                // Profiles written before revision metadata existed start at
+                // revision 1 so request snapshot protection remains effective.
+                val revision = profile.revision?.coerceAtLeast(0L)
+                    ?: if (normalizedBaseUrl.isNotEmpty()) 1L else 0L
                 ModelProviderProfile(
                     id = normalizedId,
                     name = profile.name?.trim().orEmpty().ifEmpty { DEFAULT_PROFILE_NAME },
@@ -850,10 +760,6 @@ object ModelProviderConfigStore {
                     protocolType = normalizeProtocolType(profile.protocolType),
                     wireApi = normalizeWireApi(profile.wireApi),
                     revision = revision,
-                    consentVersion = consentVersion,
-                    consentOrigin = consentOrigin,
-                    consentRevision = consentRevision,
-                    destinationConsentValid = consentValid,
                 )
             }
     }
@@ -881,9 +787,6 @@ object ModelProviderConfigStore {
                 protocolType = normalizeProtocolType(profile.protocolType),
                 wireApi = normalizeWireApi(profile.wireApi),
                 revision = profile.revision,
-                consentVersion = profile.consentVersion,
-                consentOrigin = profile.consentOrigin,
-                consentRevision = profile.consentRevision,
             )
         }
         return gson.toJson(normalized)

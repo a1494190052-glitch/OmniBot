@@ -65,16 +65,13 @@ class _PlatformUsageSheetState extends State<PlatformUsageSheet> {
         'Shows the latest 20 records. Server settlement is authoritative.',
       ),
       fillAvailableHeight: true,
+      headerAction: TextButton(
+        key: const ValueKey('refresh-platform-usage'),
+        style: settingsDetailSheetActionStyle(context),
+        onPressed: _entries == null ? null : _load,
+        child: Text(_text('刷新', 'Refresh')),
+      ),
       body: _buildBody(),
-      actionsKey: const ValueKey('platform-usage-actions'),
-      actions: [
-        TextButton(
-          key: const ValueKey('refresh-platform-usage'),
-          style: settingsDetailSheetActionStyle(context),
-          onPressed: _entries == null ? null : _load,
-          child: Text(_text('刷新', 'Refresh')),
-        ),
-      ],
     );
   }
 

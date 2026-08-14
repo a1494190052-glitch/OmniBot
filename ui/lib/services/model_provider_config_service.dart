@@ -19,7 +19,6 @@ class ModelProviderConfig {
   final bool ready;
   final String statusText;
   final bool configured;
-  final bool destinationConsentValid;
   final String wireApi;
 
   const ModelProviderConfig({
@@ -36,7 +35,6 @@ class ModelProviderConfig {
     required this.ready,
     required this.statusText,
     required this.configured,
-    this.destinationConsentValid = false,
     required this.wireApi,
   });
 
@@ -55,7 +53,6 @@ class ModelProviderConfig {
       ready: false,
       statusText: '',
       configured: false,
-      destinationConsentValid: false,
       wireApi: 'chat_completions',
     );
   }
@@ -79,7 +76,6 @@ class ModelProviderConfig {
       ready: map['ready'] == true,
       statusText: (map['statusText'] ?? '').toString(),
       configured: map['configured'] == true,
-      destinationConsentValid: map['destinationConsentValid'] == true,
       wireApi: (map['wireApi'] ?? 'chat_completions').toString(),
     );
   }
@@ -99,7 +95,6 @@ class ModelProviderProfileSummary {
   final String statusText;
   final bool configured;
   final int revision;
-  final bool destinationConsentValid;
   final String protocolType;
   final String wireApi;
 
@@ -117,7 +112,6 @@ class ModelProviderProfileSummary {
     required this.statusText,
     required this.configured,
     this.revision = 0,
-    this.destinationConsentValid = false,
     this.protocolType = 'openai_compatible',
     this.wireApi = 'chat_completions',
   });
@@ -137,7 +131,6 @@ class ModelProviderProfileSummary {
       statusText: (map?['statusText'] ?? '').toString(),
       configured: map?['configured'] == true,
       revision: (map?['revision'] as num?)?.toInt() ?? 0,
-      destinationConsentValid: map?['destinationConsentValid'] == true,
       protocolType: (map?['protocolType'] ?? 'openai_compatible').toString(),
       wireApi: (map?['wireApi'] ?? 'chat_completions').toString(),
     );
@@ -158,7 +151,6 @@ class ModelProviderProfileSummary {
       ready: ready,
       statusText: statusText,
       configured: configured,
-      destinationConsentValid: destinationConsentValid,
       wireApi: wireApi,
     );
   }
@@ -441,7 +433,6 @@ class ModelProviderConfigService {
     Map<String, String>? customHeaders,
     bool clearApiKey = false,
     bool clearCustomHeaders = false,
-    bool destinationConfirmed = false,
     String sourceType = 'custom',
     String protocolType = 'openai_compatible',
     String? wireApi,
@@ -466,7 +457,6 @@ class ModelProviderConfigService {
             'customHeaders': normalizedCustomHeaders,
           if (normalizedCustomHeaders != null) 'replaceCustomHeaders': true,
           if (clearCustomHeaders) 'clearCustomHeaders': true,
-          if (destinationConfirmed) 'destinationConfirmed': true,
           'sourceType': sourceType,
           'protocolType': protocolType,
           'wireApi': resolvedWireApi,
@@ -498,7 +488,6 @@ class ModelProviderConfigService {
     required String baseUrl,
     required String apiKey,
     Map<String, String> customHeaders = const <String, String>{},
-    bool destinationConfirmed = false,
   }) async {
     final result = await AssistsMessageService.assistCore
         .invokeMethod<Map<dynamic, dynamic>>('saveModelProviderConfig', {
@@ -507,7 +496,6 @@ class ModelProviderConfigService {
           'replaceApiKey': true,
           'customHeaders': normalizeCustomHeaders(customHeaders),
           'replaceCustomHeaders': true,
-          if (destinationConfirmed) 'destinationConfirmed': true,
         });
     return ModelProviderConfig.fromMap(result);
   }
@@ -624,7 +612,6 @@ class ModelProviderConfigService {
     Map<String, String>? customHeaders,
     String? profileId,
     String providerName = '',
-    bool destinationConfirmed = false,
   }) async {
     // Capture the persisted profile before starting the network request. A
     // response obtained for an older profile revision must never replace the
@@ -647,7 +634,6 @@ class ModelProviderConfigService {
             'expectedProfileRevision': profileSnapshot.revision,
           if (profileSnapshot != null)
             'expectedProfileBaseUrl': profileSnapshot.baseUrl,
-          if (destinationConfirmed) 'destinationConfirmed': true,
         });
     final models = (result ?? const [])
         .map((item) => ProviderModelOption.fromMap(item as Map?))

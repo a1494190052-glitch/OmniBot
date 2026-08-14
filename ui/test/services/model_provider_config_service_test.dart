@@ -47,7 +47,6 @@ void main() {
       'hasApiKey': true,
       'hasCustomHeaders': true,
       'revision': 7,
-      'destinationConsentValid': true,
     });
 
     expect(profile.apiKey, isEmpty);
@@ -55,7 +54,6 @@ void main() {
     expect(profile.hasApiKey, isTrue);
     expect(profile.hasCustomHeaders, isTrue);
     expect(profile.revision, 7);
-    expect(profile.destinationConsentValid, isTrue);
   });
 
   test(
@@ -83,7 +81,6 @@ void main() {
         id: 'provider-1',
         name: 'Provider',
         baseUrl: 'https://provider.example/v1',
-        destinationConfirmed: true,
       );
       final preserved = Map<dynamic, dynamic>.from(
         calls.single.arguments as Map,
@@ -92,7 +89,6 @@ void main() {
       expect(preserved.containsKey('customHeaders'), isFalse);
       expect(preserved['replaceApiKey'], isNull);
       expect(preserved['replaceCustomHeaders'], isNull);
-      expect(preserved['destinationConfirmed'], isTrue);
 
       calls.clear();
       await ModelProviderConfigService.saveProfile(
@@ -101,7 +97,6 @@ void main() {
         baseUrl: 'https://provider.example/v1',
         apiKey: 'replacement',
         customHeaders: const {'X-Provider-Token': 'replacement-header'},
-        destinationConfirmed: true,
       );
       final replaced = Map<dynamic, dynamic>.from(
         calls.single.arguments as Map,
@@ -151,7 +146,6 @@ void main() {
       final models = await ModelProviderConfigService.fetchModels(
         apiBase: 'https://provider.example/v1',
         profileId: 'provider-1',
-        destinationConfirmed: true,
       );
 
       expect(models.single.id, 'model-1');

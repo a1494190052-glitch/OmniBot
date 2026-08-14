@@ -532,8 +532,8 @@ class _AccountPageState extends State<AccountPage> {
       context: context,
       backgroundColor: context.omniPalette.surfacePrimary,
       isScrollControlled: true,
-      isDismissible: false,
-      enableDrag: false,
+      isDismissible: true,
+      enableDrag: true,
       builder: (dialogContext) => StatefulBuilder(
         builder: (context, setDialogState) => PopScope(
           canPop: !submitting,
@@ -590,75 +590,82 @@ class _AccountPageState extends State<AccountPage> {
                           ? null
                           : _text('两次密码不一致', 'Passwords do not match'),
                     ),
-                    CheckboxListTile(
-                      value: showPasswords,
-                      contentPadding: EdgeInsets.zero,
-                      controlAffinity: ListTileControlAffinity.leading,
-                      onChanged: submitting
-                          ? null
-                          : (value) => setDialogState(
-                              () => showPasswords = value ?? false,
-                            ),
-                      title: Text(_text('显示密码', 'Show passwords')),
+                    if (dialogError != null) ...[
+                      const SizedBox(height: 12),
+                      _errorBanner(dialogError!),
+                    ],
+                    const SizedBox(height: 4),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: CheckboxListTile(
+                            key: const ValueKey('show-change-passwords'),
+                            value: showPasswords,
+                            dense: true,
+                            visualDensity: VisualDensity.compact,
+                            contentPadding: EdgeInsets.zero,
+                            controlAffinity: ListTileControlAffinity.leading,
+                            onChanged: submitting
+                                ? null
+                                : (value) => setDialogState(
+                                    () => showPasswords = value ?? false,
+                                  ),
+                            title: Text(_text('显示密码', 'Show passwords')),
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        FilledButton(
+                          key: const ValueKey('confirm-change-password'),
+                          onPressed: submitting
+                              ? null
+                              : () async {
+                                  if (!(formKey.currentState?.validate() ??
+                                      false)) {
+                                    return;
+                                  }
+                                  setDialogState(() {
+                                    submitting = true;
+                                    dialogError = null;
+                                  });
+                                  try {
+                                    await AccountService.changePassword(
+                                      currentPassword: currentPassword,
+                                      newPassword: newPassword,
+                                    );
+                                    if (dialogContext.mounted) {
+                                      Navigator.pop(dialogContext, true);
+                                    }
+                                  } on PlatformException catch (error) {
+                                    if (!dialogContext.mounted) return;
+                                    setDialogState(() {
+                                      submitting = false;
+                                      dialogError = _messageFor(error);
+                                    });
+                                  } catch (_) {
+                                    if (!dialogContext.mounted) return;
+                                    setDialogState(() {
+                                      submitting = false;
+                                      dialogError = _text(
+                                        '修改失败，请稍后重试',
+                                        'Could not change the password. Try again later.',
+                                      );
+                                    });
+                                  }
+                                },
+                          child: submitting
+                              ? const SizedBox.square(
+                                  dimension: 18,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                  ),
+                                )
+                              : Text(_text('确认修改', 'Change password')),
+                        ),
+                      ],
                     ),
-                    if (dialogError != null) _errorBanner(dialogError!),
                   ],
                 ),
               ),
-              actionsKey: const ValueKey('change-password-actions'),
-              actions: [
-                TextButton(
-                  style: settingsDetailSheetActionStyle(context),
-                  onPressed: submitting
-                      ? null
-                      : () => Navigator.pop(dialogContext, false),
-                  child: Text(_text('取消', 'Cancel')),
-                ),
-                FilledButton(
-                  key: const ValueKey('confirm-change-password'),
-                  onPressed: submitting
-                      ? null
-                      : () async {
-                          if (!(formKey.currentState?.validate() ?? false)) {
-                            return;
-                          }
-                          setDialogState(() {
-                            submitting = true;
-                            dialogError = null;
-                          });
-                          try {
-                            await AccountService.changePassword(
-                              currentPassword: currentPassword,
-                              newPassword: newPassword,
-                            );
-                            if (dialogContext.mounted) {
-                              Navigator.pop(dialogContext, true);
-                            }
-                          } on PlatformException catch (error) {
-                            if (!dialogContext.mounted) return;
-                            setDialogState(() {
-                              submitting = false;
-                              dialogError = _messageFor(error);
-                            });
-                          } catch (_) {
-                            if (!dialogContext.mounted) return;
-                            setDialogState(() {
-                              submitting = false;
-                              dialogError = _text(
-                                '修改失败，请稍后重试',
-                                'Could not change the password. Try again later.',
-                              );
-                            });
-                          }
-                        },
-                  child: submitting
-                      ? const SizedBox.square(
-                          dimension: 18,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        )
-                      : Text(_text('确认修改', 'Change password')),
-                ),
-              ],
             ),
           ),
         ),

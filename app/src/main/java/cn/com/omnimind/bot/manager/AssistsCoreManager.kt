@@ -1020,7 +1020,6 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
             "statusText" to statusText,
             "configured" to isConfigured(),
             "wireApi" to wireApi,
-            "destinationConsentValid" to destinationConsentValid,
         )
     }
 
@@ -1042,7 +1041,6 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
             "protocolType" to protocolType,
             "wireApi" to wireApi,
             "revision" to revision,
-            "destinationConsentValid" to destinationConsentValid,
         )
     }
 
@@ -2934,7 +2932,6 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
         val sourceType = call.argument<String>("sourceType")?.trim()
         val protocolType = call.argument<String>("protocolType")?.trim() ?: "openai_compatible"
         val wireApi = call.argument<String>("wireApi")?.trim().orEmpty()
-        val destinationConfirmed = call.argument<Boolean>("destinationConfirmed") == true
 
         workJob.launch {
             try {
@@ -2960,7 +2957,6 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
                     sourceType = sourceType,
                     protocolType = protocolType,
                     wireApi = wireApi,
-                    destinationConfirmed = destinationConfirmed,
                 )
                 withContext(Dispatchers.Main) {
                     result.success(saved.toMap())
@@ -3025,7 +3021,6 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
         val clearApiKey = call.argument<Boolean>("clearApiKey") == true
         val replaceCustomHeaders = call.argument<Boolean>("replaceCustomHeaders") == true
         val clearCustomHeaders = call.argument<Boolean>("clearCustomHeaders") == true
-        val destinationConfirmed = call.argument<Boolean>("destinationConfirmed") == true
 
         workJob.launch {
             try {
@@ -3044,7 +3039,6 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
                     baseUrl,
                     apiKey,
                     customHeaders,
-                    destinationConfirmed = destinationConfirmed,
                 )
                 val saved = ModelProviderConfigStore.getConfig()
                 withContext(Dispatchers.Main) {
@@ -3083,7 +3077,6 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
         )
         val useProvidedApiKey = call.argument<Boolean>("useProvidedApiKey") == true
         val useProvidedCustomHeaders = call.argument<Boolean>("useProvidedCustomHeaders") == true
-        val destinationConfirmed = call.argument<Boolean>("destinationConfirmed") == true
         val profileId = call.argument<String>("profileId")?.trim()
         val expectedProfileRevision = call.argument<Number>("expectedProfileRevision")?.toLong()
         val expectedProfileBaseUrl = call.argument<String>("expectedProfileBaseUrl")?.trim().orEmpty()
@@ -3113,15 +3106,6 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
                         )
                 ) { "provider profile changed" }
                 val apiBase = if (baseUrlArg.isNotEmpty()) baseUrlArg else profile.baseUrl
-                if (!destinationConfirmed) {
-                    require(
-                        ModelProviderConfigStore.sameCanonicalEndpoint(profile.baseUrl, apiBase)
-                    ) { "provider profile changed" }
-                }
-                check(
-                    destinationConfirmed ||
-                        ModelProviderConfigStore.hasCurrentDestinationConsent(profile, apiBase)
-                ) { "Provider destination confirmation is required" }
                 val apiKey = if (useProvidedApiKey) apiKeyArg else profile.apiKey
                 val customHeaders = if (useProvidedCustomHeaders) customHeadersArg else profile.customHeaders
                 val models = HttpController.fetchProviderModels(
@@ -3167,7 +3151,6 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
         )
         val useProvidedApiKey = call.argument<Boolean>("useProvidedApiKey") == true
         val useProvidedCustomHeaders = call.argument<Boolean>("useProvidedCustomHeaders") == true
-        val destinationConfirmed = call.argument<Boolean>("destinationConfirmed") == true
         val profileId = call.argument<String>("profileId")?.trim()
 
         workJob.launch {
@@ -3189,10 +3172,6 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
                 val profile = profileId?.let(ModelProviderConfigStore::getProfile)
                     ?: ModelProviderConfigStore.getEditingProfile()
                 val apiBase = if (baseUrlArg.isNotEmpty()) baseUrlArg else profile.baseUrl
-                check(
-                    destinationConfirmed ||
-                        ModelProviderConfigStore.hasCurrentDestinationConsent(profile, apiBase)
-                ) { "Provider destination confirmation is required" }
                 val apiKey = if (useProvidedApiKey) apiKeyArg else profile.apiKey
                 val customHeaders = if (useProvidedCustomHeaders) {
                     customHeadersArg
