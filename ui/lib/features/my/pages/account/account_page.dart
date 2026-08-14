@@ -8,6 +8,7 @@ import 'package:ui/theme/theme_context.dart';
 import 'package:ui/utils/ui.dart';
 import 'package:ui/widgets/app_update_dialog.dart';
 import 'package:ui/widgets/common_app_bar.dart';
+import 'package:ui/widgets/settings_detail_sheet.dart';
 import 'package:ui/widgets/settings_section_title.dart';
 
 String formatWeeklyQuotaResetCountdown(DateTime now, {required bool english}) {
@@ -527,28 +528,34 @@ class _AccountPageState extends State<AccountPage> {
     var submitting = false;
     var showPasswords = false;
     String? dialogError;
-    final changed = await showDialog<bool>(
+    final changed = await showModalBottomSheet<bool>(
       context: context,
-      barrierDismissible: false,
+      backgroundColor: context.omniPalette.surfacePrimary,
+      isScrollControlled: true,
+      isDismissible: false,
+      enableDrag: false,
       builder: (dialogContext) => StatefulBuilder(
         builder: (context, setDialogState) => PopScope(
           canPop: !submitting,
-          child: AlertDialog(
-            title: Text(_text('修改密码', 'Change password')),
-            content: SingleChildScrollView(
-              child: Form(
+          child: AnimatedPadding(
+            duration: const Duration(milliseconds: 180),
+            curve: Curves.easeOutCubic,
+            padding: EdgeInsets.only(
+              bottom: MediaQuery.viewInsetsOf(context).bottom,
+            ),
+            child: SettingsDetailSheet(
+              key: const ValueKey('change-password-sheet'),
+              title: _text('修改密码', 'Change password'),
+              subtitle: _text(
+                '修改成功后，其他设备会退出登录，当前设备不受影响。',
+                'Other devices will be signed out. This device stays signed in.',
+              ),
+              body: Form(
                 key: formKey,
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    Text(
-                      _text(
-                        '修改成功后，其他设备会退出登录，当前设备不受影响。',
-                        'Other devices will be signed out. This device stays signed in.',
-                      ),
-                    ),
-                    const SizedBox(height: 16),
                     TextFormField(
                       key: const ValueKey('current-password-field'),
                       obscureText: !showPasswords,
@@ -598,59 +605,61 @@ class _AccountPageState extends State<AccountPage> {
                   ],
                 ),
               ),
-            ),
-            actions: [
-              TextButton(
-                onPressed: submitting
-                    ? null
-                    : () => Navigator.pop(dialogContext, false),
-                child: Text(_text('取消', 'Cancel')),
-              ),
-              FilledButton(
-                key: const ValueKey('confirm-change-password'),
-                onPressed: submitting
-                    ? null
-                    : () async {
-                        if (!(formKey.currentState?.validate() ?? false)) {
-                          return;
-                        }
-                        setDialogState(() {
-                          submitting = true;
-                          dialogError = null;
-                        });
-                        try {
-                          await AccountService.changePassword(
-                            currentPassword: currentPassword,
-                            newPassword: newPassword,
-                          );
-                          if (dialogContext.mounted) {
-                            Navigator.pop(dialogContext, true);
+              actionsKey: const ValueKey('change-password-actions'),
+              actions: [
+                TextButton(
+                  style: settingsDetailSheetActionStyle(context),
+                  onPressed: submitting
+                      ? null
+                      : () => Navigator.pop(dialogContext, false),
+                  child: Text(_text('取消', 'Cancel')),
+                ),
+                FilledButton(
+                  key: const ValueKey('confirm-change-password'),
+                  onPressed: submitting
+                      ? null
+                      : () async {
+                          if (!(formKey.currentState?.validate() ?? false)) {
+                            return;
                           }
-                        } on PlatformException catch (error) {
-                          if (!dialogContext.mounted) return;
                           setDialogState(() {
-                            submitting = false;
-                            dialogError = _messageFor(error);
+                            submitting = true;
+                            dialogError = null;
                           });
-                        } catch (_) {
-                          if (!dialogContext.mounted) return;
-                          setDialogState(() {
-                            submitting = false;
-                            dialogError = _text(
-                              '修改失败，请稍后重试',
-                              'Could not change the password. Try again later.',
+                          try {
+                            await AccountService.changePassword(
+                              currentPassword: currentPassword,
+                              newPassword: newPassword,
                             );
-                          });
-                        }
-                      },
-                child: submitting
-                    ? const SizedBox.square(
-                        dimension: 18,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                    : Text(_text('确认修改', 'Change password')),
-              ),
-            ],
+                            if (dialogContext.mounted) {
+                              Navigator.pop(dialogContext, true);
+                            }
+                          } on PlatformException catch (error) {
+                            if (!dialogContext.mounted) return;
+                            setDialogState(() {
+                              submitting = false;
+                              dialogError = _messageFor(error);
+                            });
+                          } catch (_) {
+                            if (!dialogContext.mounted) return;
+                            setDialogState(() {
+                              submitting = false;
+                              dialogError = _text(
+                                '修改失败，请稍后重试',
+                                'Could not change the password. Try again later.',
+                              );
+                            });
+                          }
+                        },
+                  child: submitting
+                      ? const SizedBox.square(
+                          dimension: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : Text(_text('确认修改', 'Change password')),
+                ),
+              ],
+            ),
           ),
         ),
       ),

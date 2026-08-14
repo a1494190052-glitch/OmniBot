@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
@@ -6,6 +8,8 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:ui/core/router/go_router_manager.dart';
 import 'package:ui/features/my/pages/account/account_page.dart';
 import 'package:ui/theme/app_theme.dart';
+import 'package:ui/widgets/provider_vendor_icon.dart';
+import 'package:ui/widgets/settings_detail_sheet.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -347,6 +351,7 @@ void main() {
     tester,
   ) async {
     _setPhoneViewport(tester);
+    final usage = Completer<List<Map<String, Object?>>>();
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(channel, (call) async {
           switch (call.method) {
@@ -356,16 +361,7 @@ void main() {
               return _signedInOverview();
             case 'listPlatformUsage':
               expect(call.arguments, <String, Object?>{'limit': 20});
-              return <Map<String, Object?>>[
-                <String, Object?>{
-                  'model': 'qwen-official',
-                  'promptTokens': 12,
-                  'completionTokens': 8,
-                  'totalTokens': 20,
-                  'quotaUsed': 17,
-                  'createdAt': '2026-08-12T08:30:00Z',
-                },
-              ];
+              return usage.future;
           }
           return null;
         });
@@ -374,10 +370,27 @@ void main() {
     await tester.pumpAndSettle();
     await _scrollTo(tester, const ValueKey('account-usage-action'));
     await tester.tap(find.byKey(const ValueKey('account-usage-action')));
-    await tester.pumpAndSettle();
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
 
     final sheet = find.byKey(const ValueKey('platform-usage-sheet'));
+    final loadingHeight = tester.getSize(sheet).height;
+    expect(loadingHeight, greaterThan(400));
+
+    usage.complete(<Map<String, Object?>>[
+      <String, Object?>{
+        'model': 'qwen-official',
+        'promptTokens': 12,
+        'completionTokens': 8,
+        'totalTokens': 20,
+        'quotaUsed': 17,
+        'createdAt': '2026-08-12T08:30:00Z',
+      },
+    ]);
+    await tester.pumpAndSettle();
+
     expect(sheet, findsOneWidget);
+    expect(tester.getSize(sheet).height, loadingHeight);
     final sheetScroll = find.descendant(
       of: sheet,
       matching: find.byType(SingleChildScrollView),
@@ -399,6 +412,41 @@ void main() {
     expect(find.text('qwen-official'), findsOneWidget);
     expect(find.text('消耗 17'), findsOneWidget);
     expect(find.textContaining('输入 12'), findsOneWidget);
+    expect(
+      tester
+          .widget<ProviderVendorIcon>(
+            find.byKey(const ValueKey('platform-usage-model-icon-0')),
+          )
+          .vendor
+          ?.key,
+      'alibaba',
+    );
+    expect(
+      find.descendant(
+        of: sheet,
+        matching: find.byIcon(LucideIcons.arrowDownToLine),
+      ),
+      findsOneWidget,
+    );
+    expect(
+      find.descendant(
+        of: sheet,
+        matching: find.byIcon(LucideIcons.arrowUpFromLine),
+      ),
+      findsOneWidget,
+    );
+    expect(
+      find.descendant(of: sheet, matching: find.byIcon(LucideIcons.sigma)),
+      findsOneWidget,
+    );
+    final quota = tester.widget<Text>(
+      find.byKey(const ValueKey('platform-usage-quota-0')),
+    );
+    final quotaSpan = quota.textSpan! as TextSpan;
+    expect(
+      quotaSpan.children![1].style!.fontSize,
+      greaterThan(quotaSpan.style!.fontSize!),
+    );
   });
 
   testWidgets('revokes one session and then all remaining other sessions', (
@@ -406,6 +454,7 @@ void main() {
   ) async {
     _setPhoneViewport(tester);
     final calls = <MethodCall>[];
+    final sessions = Completer<List<Map<String, Object?>>>();
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(channel, (call) async {
           calls.add(call);
@@ -415,11 +464,7 @@ void main() {
             case 'getOverview':
               return _signedInOverview();
             case 'listSessions':
-              return <Map<String, Object?>>[
-                _sessionPayload('current', current: true, minute: 30),
-                _sessionPayload('other-1', current: false, minute: 20),
-                _sessionPayload('other-2', current: false, minute: 10),
-              ];
+              return sessions.future;
             case 'revokeSession':
               return null;
             case 'revokeOtherSessions':
@@ -432,10 +477,22 @@ void main() {
     await tester.pumpAndSettle();
     await _scrollTo(tester, const ValueKey('account-sessions-action'));
     await tester.tap(find.byKey(const ValueKey('account-sessions-action')));
-    await tester.pumpAndSettle();
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
 
     final sheet = find.byKey(const ValueKey('account-sessions-sheet'));
+    final loadingHeight = tester.getSize(sheet).height;
+    expect(loadingHeight, greaterThan(400));
+
+    sessions.complete(<Map<String, Object?>>[
+      _sessionPayload('current', current: true, minute: 30),
+      _sessionPayload('other-1', current: false, minute: 20),
+      _sessionPayload('other-2', current: false, minute: 10),
+    ]);
+    await tester.pumpAndSettle();
+
     expect(sheet, findsOneWidget);
+    expect(tester.getSize(sheet).height, loadingHeight);
     expect(
       find.descendant(of: sheet, matching: find.byType(ListTile)),
       findsNothing,
@@ -510,6 +567,13 @@ void main() {
     await _scrollTo(tester, const ValueKey('change-password-action'));
     await tester.tap(find.byKey(const ValueKey('change-password-action')));
     await tester.pumpAndSettle();
+
+    final changePasswordSheet = find.byKey(
+      const ValueKey('change-password-sheet'),
+    );
+    expect(changePasswordSheet, findsOneWidget);
+    expect(find.byType(SettingsDetailSheet), findsOneWidget);
+    expect(find.byType(AlertDialog), findsNothing);
 
     const newPassword = 'Changed26!';
     await tester.enterText(
