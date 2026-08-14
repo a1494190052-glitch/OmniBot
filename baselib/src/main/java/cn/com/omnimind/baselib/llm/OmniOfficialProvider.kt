@@ -9,10 +9,12 @@ data class OfficialModelSelection(
     val textModels: List<PlatformModel> = emptyList(),
     val visionModels: List<PlatformModel> = emptyList(),
     val imageModels: List<PlatformModel> = emptyList(),
+    val embeddingModels: List<PlatformModel> = emptyList(),
     val ttsModels: List<PlatformModel> = emptyList(),
     val defaultTextModel: PlatformModel? = null,
     val defaultVisionModel: PlatformModel? = null,
     val defaultImageModel: PlatformModel? = null,
+    val defaultEmbeddingModel: PlatformModel? = null,
     val defaultTtsModel: PlatformModel? = null,
     val ttsVoiceAliases: List<String> = emptyList(),
     val defaultTtsVoiceAlias: String? = null,
@@ -87,6 +89,11 @@ object OmniOfficialProvider {
         } else {
             emptyList()
         }
+        val embeddingModels = if (catalog.hasOfficialCatalog) {
+            declared(catalog.capabilities.embedding)
+        } else {
+            emptyList()
+        }
         val ttsModels = if (catalog.hasOfficialCatalog) {
             declared(catalog.capabilities.tts)
         } else {
@@ -125,10 +132,15 @@ object OmniOfficialProvider {
             textModels = textModels,
             visionModels = visionModels,
             imageModels = imageModels,
+            embeddingModels = embeddingModels,
             ttsModels = ttsModels,
             defaultTextModel = defaultText,
             defaultVisionModel = declaredDefault(catalog.defaults.vision, visionModels),
             defaultImageModel = declaredDefault(catalog.defaults.image, imageModels),
+            defaultEmbeddingModel = declaredDefault(
+                catalog.defaults.embedding,
+                embeddingModels,
+            ),
             defaultTtsModel = declaredDefault(catalog.defaults.tts, ttsModels),
             ttsVoiceAliases = ttsVoiceAliases,
             defaultTtsVoiceAlias = defaultTtsVoiceAlias,

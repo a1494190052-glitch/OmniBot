@@ -16,9 +16,11 @@ data class PlatformAiProvisioningStatus(
     val catalogVersion: String? = null,
     val defaultVisionModelId: String? = null,
     val defaultImageModelId: String? = null,
+    val defaultEmbeddingModelId: String? = null,
     val defaultTtsModelId: String? = null,
     val visionModels: List<ProviderModelOption> = emptyList(),
     val imageModels: List<ProviderModelOption> = emptyList(),
+    val embeddingModels: List<ProviderModelOption> = emptyList(),
     val ttsModels: List<ProviderModelOption> = emptyList(),
     val ttsVoiceAliases: List<String> = emptyList(),
     val defaultTtsVoiceAlias: String? = null,
@@ -105,9 +107,11 @@ object PlatformAiProvisioner {
                     catalogVersion = catalog.version,
                     defaultVisionModelId = selection.defaultVisionModel?.id,
                     defaultImageModelId = selection.defaultImageModel?.id,
+                    defaultEmbeddingModelId = selection.defaultEmbeddingModel?.id,
                     defaultTtsModelId = selection.defaultTtsModel?.id,
                     visionModels = selection.visionModels.toOptions(),
                     imageModels = selection.imageModels.toOptions(),
+                    embeddingModels = selection.embeddingModels.toOptions(),
                     ttsModels = selection.ttsModels.toOptions(),
                     ttsVoiceAliases = selection.ttsVoiceAliases,
                     defaultTtsVoiceAlias = selection.defaultTtsVoiceAlias,
@@ -136,6 +140,19 @@ object PlatformAiProvisioner {
         return synchronized
     }
 
+    /**
+     * Refreshes a text-ready catalog when embedding was added server-side
+     * after the process cached an older catalog. Text routing alone is not a
+     * sufficient readiness signal for workspace semantic retrieval.
+     */
+    suspend fun ensureEmbeddingReadyStatus(): PlatformAiProvisioningStatus {
+        val existing = currentStatus
+        if (existing.hasReadyEmbedding()) {
+            return existing
+        }
+        return synchronize(forceRefresh = true)
+    }
+
     suspend fun ensureReadyAndGetModels(): List<ProviderModelOption> =
         ensureReadyStatus().models
 
@@ -157,4 +174,11 @@ object PlatformAiProvisioner {
                 ownedBy = model.ownedBy,
             )
         }
+
+    private fun PlatformAiProvisioningStatus.hasReadyEmbedding(): Boolean {
+        val modelId = defaultEmbeddingModelId?.trim().orEmpty()
+        return ready &&
+            modelId.isNotEmpty() &&
+            embeddingModels.any { it.id == modelId }
+    }
 }
