@@ -727,41 +727,42 @@ class _PluginDetailPageState extends State<PluginDetailPage> {
               ? Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    Row(
-                      children: [
-                        Expanded(
-                          child: Column(
-                            mainAxisSize: MainAxisSize.min,
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                context.l10n.pluginEnableTitle,
-                                style: TextStyle(
-                                  color: palette.textPrimary,
-                                  fontSize: 14,
-                                  fontWeight: FontWeight.w500,
+                    if (!plugin.required)
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  context.l10n.pluginEnableTitle,
+                                  style: TextStyle(
+                                    color: palette.textPrimary,
+                                    fontSize: 14,
+                                    fontWeight: FontWeight.w500,
+                                  ),
                                 ),
-                              ),
-                              const SizedBox(height: 2),
-                              Text(
-                                context.l10n.pluginEnableDescription,
-                                style: TextStyle(
-                                  color: palette.textTertiary,
-                                  fontSize: 11,
+                                const SizedBox(height: 2),
+                                Text(
+                                  context.l10n.pluginEnableDescription,
+                                  style: TextStyle(
+                                    color: palette.textTertiary,
+                                    fontSize: 11,
+                                  ),
                                 ),
-                              ),
-                            ],
+                              ],
+                            ),
                           ),
-                        ),
-                        Switch.adaptive(
-                          value: plugin.enabled,
-                          onChanged: _busy || !plugin.compatible
-                              ? null
-                              : _toggle,
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 8),
+                          Switch.adaptive(
+                            value: plugin.enabled,
+                            onChanged: _busy || !plugin.compatible
+                                ? null
+                                : _toggle,
+                          ),
+                        ],
+                      ),
+                    if (!plugin.required) const SizedBox(height: 8),
                     Row(
                       children: [
                         if (installedAction.isNotEmpty) ...[
@@ -784,18 +785,22 @@ class _PluginDetailPageState extends State<PluginDetailPage> {
                           onPressed: _busy ? null : _update,
                           child: Text(context.l10n.pluginUpdate),
                         ),
-                        const SizedBox(width: 4),
-                        TextButton(
-                          onPressed: _busy ? null : _uninstall,
-                          style: TextButton.styleFrom(
-                            foregroundColor: AppColors.alertRed,
+                        if (!plugin.required) ...[
+                          const SizedBox(width: 4),
+                          TextButton(
+                            onPressed: _busy ? null : _uninstall,
+                            style: TextButton.styleFrom(
+                              foregroundColor: AppColors.alertRed,
+                            ),
+                            child: Text(context.l10n.pluginUninstall),
                           ),
-                          child: Text(context.l10n.pluginUninstall),
-                        ),
+                        ],
                       ],
                     ),
                   ],
                 )
+              : plugin.required
+              ? const SizedBox.shrink()
               : SizedBox(
                   width: double.infinity,
                   height: 46,

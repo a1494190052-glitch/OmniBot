@@ -37,9 +37,9 @@ class VlmPluginBoundaryTest {
         assertFalse(vlmHandler.contains("OmniFlowRuntimeProvider"))
         assertTrue(catalog.contains("\"name\": \"OmniFlow\""))
         assertFalse(catalog.contains("\"name\": \"Android GUI\""))
-        assertTrue(host.contains("BuildConfig.DEFAULT_INSTALL_GUI_PLUGIN"))
-        assertTrue(host.contains("BuildConfig.DEFAULT_INSTALL_ALL_PLUGINS"))
-        assertTrue(host.contains("BuildConfig.OMNIBOT_PROFILE"))
+        assertFalse(host.contains("DEFAULT_INSTALL_GUI_PLUGIN"))
+        assertFalse(host.contains("DEFAULT_INSTALL_ALL_PLUGINS"))
+        assertTrue(catalog.contains("\"required\": true"))
         assertTrue(appBuild.contains("prop(\"OMNIBOT_PROFILE\").ifBlank { \"main\" }"))
         assertTrue(appBuild.contains("omnibotProfile == \"investor\""))
         assertTrue(
@@ -47,7 +47,8 @@ class VlmPluginBoundaryTest {
                 "exclude(\"omni-vlm-lite/**\", \"vibe-project/**\", \"omnilink-agent/**\")",
             ),
         )
-        assertTrue(appBuild.contains("DEFAULT_INSTALL_GUI_PLUGIN\", \"true\""))
+        assertFalse(appBuild.contains("DEFAULT_INSTALL_GUI_PLUGIN"))
+        assertFalse(appBuild.contains("DEFAULT_INSTALL_ALL_PLUGINS"))
         assertTrue(appBuild.contains("ALLOW_PACKAGED_PLUGIN_FALLBACK\", \"true\""))
         assertTrue(appBuild.contains("omniFlowPackagedArchivePath"))
         assertTrue(appBuild.contains("File(omniFlowPackagedArchivePath).name"))

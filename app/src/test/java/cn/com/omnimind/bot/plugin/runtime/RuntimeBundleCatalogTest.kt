@@ -8,10 +8,16 @@ import org.junit.Test
 class RuntimeBundleCatalogTest {
     @Test
     fun `catalog parses descriptor runtime skill and presentation`() {
-        val catalog = RuntimeBundleCatalog.parse(catalogJson())
+        val catalog = RuntimeBundleCatalog.parse(
+            catalogJson().replace(
+                "\"adapter\": \"omniflow_android_gui\",",
+                "\"adapter\": \"omniflow_android_gui\",\n              \"required\": true,",
+            )
+        )
 
         val bundle = catalog.require("com.omnimind.android-gui")
         assertEquals("Android GUI", bundle.descriptor.name)
+        assertTrue(bundle.descriptor.required)
         assertEquals("omniflow_android_gui", bundle.adapterId)
         assertEquals("omniflow-gui-runtime", bundle.runtimeSkill.id)
         assertEquals(

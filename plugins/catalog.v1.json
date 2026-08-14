@@ -10,6 +10,7 @@
       "publisher": "OmniMind",
       "kind": "runtime_bundle",
       "downloadSizeBytes": 941491,
+      "required": true,
       "capabilities": [
         "Manual recording",
         "Canonical RunLog",
@@ -30,16 +31,16 @@
       },
       "presentation": {
         "description": {
-          "zh": "OmniFlow 是可独立安装、更新和启停的 GUI/VLM runtime 插件；启用后可录制流程并在相似任务中复用。",
-          "en": "OmniFlow is an independently installable, updateable, and toggleable GUI/VLM runtime plugin for recording and reusing similar flows."
+          "zh": "OmniFlow 是随应用自动安装并启动的 GUI/VLM 系统组件；可录制流程并在相似任务中复用。",
+          "en": "OmniFlow is a GUI/VLM system component installed and started automatically with the app for recording and reusing similar flows."
         },
         "readiness": "vlm_provider",
         "usage": [
           {
             "icon": "power",
             "title": {
-              "zh": "按需准备 runtime",
-              "en": "Prepare the runtime on demand"
+              "zh": "自动准备 runtime",
+              "en": "Prepare the runtime automatically"
             },
             "description": {
               "zh": "插件包统一管理 OmniFlow、OmniTransfer、模型 checkpoint 和 Python 依赖，并在安装或更新阶段校验版本与契约。",
@@ -49,12 +50,12 @@
           {
             "icon": "touch",
             "title": {
-              "zh": "独立启停",
-              "en": "Independent lifecycle"
+              "zh": "开箱即用",
+              "en": "Ready out of the box"
             },
             "description": {
-              "zh": "插件可以独立安装、更新、启用、停用和卸载，不改变 OpenOmniBot 主应用的基础生命周期。",
-              "en": "The plugin can be installed, updated, enabled, disabled, and uninstalled without changing the host app lifecycle."
+              "zh": "首次启动会自动安装并启用，后续启动自动恢复；用户无需在插件市场手动操作。",
+              "en": "It installs and enables itself on first launch and restores automatically later, with no manual marketplace setup."
             }
           },
           {

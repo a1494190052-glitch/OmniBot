@@ -8,6 +8,8 @@ import cn.com.omnimind.baselib.llm.ChatCompletionRequest
 import cn.com.omnimind.bot.terminal.EmbeddedTerminalRuntime
 import cn.com.omnimind.bot.plugin.runtime.RuntimeSkillBundleManager
 import com.ai.assistance.operit.terminal.TerminalManager
+import com.rk.terminal.runtime.TerminalDistribution
+import com.rk.terminal.runtime.UbuntuRepositoryManager
 import java.util.UUID
 
 internal class OmniFlowAppPlatform(
@@ -24,7 +26,7 @@ internal class OmniFlowAppPlatform(
         command: String,
         environment: Map<String, String>,
     ): Process = TerminalManager.getInstance(context.applicationContext)
-        .startLongLivedAlpineProcess(
+        .startLongLivedProcess(
             command = command,
             executorKey = "omniflow-${UUID.randomUUID()}",
             redirectErrorStream = false,
@@ -43,14 +45,19 @@ internal class OmniFlowAppPlatform(
             terminalStatus.message.ifBlank { "omniflow_terminal_runtime_unavailable" }
         }
         val prefs = appContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-        val environmentVersion = "$expectedVersion+system-numpy-v2"
+        val distribution = TerminalDistribution.selected()
+        val environmentVersion = "$expectedVersion+system-numpy-v3+${distribution.id}"
         if (prefs.getString(READY_VERSION_KEY, null) == environmentVersion) {
             log("python_ready_cached version=$environmentVersion")
             return
         }
         val startedAt = System.currentTimeMillis()
         log("python_probe_start version=$expectedVersion")
-        val command = buildOmniFlowPythonPrepareCommand(expectedVersion)
+        val command = buildOmniFlowPythonPrepareCommand(
+            expectedVersion = expectedVersion,
+            distributionId = distribution.id,
+            ubuntuRepositorySetup = UbuntuRepositoryManager.buildSelectedRepositorySetupCommand(),
+        )
         val result = TerminalManager.getInstance(appContext).executeHiddenCommand(
             command = command,
             executorKey = "omniflow-python-runtime",
@@ -132,9 +139,25 @@ internal class OmniFlowAppPlatform(
 
 }
 
-internal fun buildOmniFlowPythonPrepareCommand(expectedVersion: String): String {
+internal fun buildOmniFlowPythonPrepareCommand(
+    expectedVersion: String,
+    distributionId: String = "alpine",
+    ubuntuRepositorySetup: String = ":",
+): String {
     require(Regex("""\d+\.\d+""").matches(expectedVersion)) {
         "invalid_python_version"
+    }
+    require(distributionId == "alpine" || distributionId == "ubuntu") {
+        "unsupported_terminal_distribution"
+    }
+    val repairCommand = if (distributionId == "ubuntu") {
+        """
+            $ubuntuRepositorySetup
+            apt-get update
+            DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends python3 python3-pip python3-numpy
+        """.trimIndent()
+    } else {
+        "apk --wait 300 add --no-cache python3 py3-pip py3-numpy"
     }
     return """
         set -e
@@ -147,8 +170,8 @@ internal fun buildOmniFlowPythonPrepareCommand(expectedVersion: String): String 
         }
         if ! base_packages_ready; then
           echo 'OMNIFLOW_PYTHON_STAGE=repair_start package=python-numpy'
-          apk --wait 300 add --no-cache python3 py3-pip py3-numpy
-          printf '%s\n' 'alpine-3.21-python3.12-numpy2.1.3-v3' > /etc/omnibot-python-environment
+          $repairCommand
+          printf '%s\n' '$distributionId-python$expectedVersion-numpy-v1' > /etc/omnibot-python-environment
           echo 'OMNIFLOW_PYTHON_STAGE=repair_ready package=python-numpy'
         else
           echo 'OMNIFLOW_PYTHON_STAGE=probe_ready source=environment'

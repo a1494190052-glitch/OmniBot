@@ -182,8 +182,6 @@ android {
         buildConfigField("String", "DEBUG_LLMTHU_MODEL", buildConfigString(""))
         buildConfigField("boolean", "ENABLE_LLMTHU_BOOTSTRAP", "false")
         buildConfigField("String", "OMNIBOT_PROFILE", buildConfigString(omnibotProfile))
-        buildConfigField("boolean", "DEFAULT_INSTALL_GUI_PLUGIN", "true")
-        buildConfigField("boolean", "DEFAULT_INSTALL_ALL_PLUGINS", isInvestorProfile.toString())
         buildConfigField("boolean", "ALLOW_PACKAGED_PLUGIN_FALLBACK", "true")
         buildConfigField(
             "boolean",

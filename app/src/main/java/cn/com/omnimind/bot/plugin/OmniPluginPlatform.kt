@@ -72,6 +72,9 @@ class OmniPluginPlatform(
         ensureInitialized()
         val provider = requireProvider(pluginId)
         requireCompatible(provider.descriptor)
+        require(enabled || !provider.descriptor.required) {
+            "Required plugin $pluginId cannot be disabled"
+        }
         val current = storedStates[pluginId]
             ?: throw IllegalArgumentException("Plugin $pluginId is not installed")
         if (current.enabled == enabled && !(enabled && current.installPending)) {
@@ -156,6 +159,9 @@ class OmniPluginPlatform(
     suspend fun uninstall(pluginId: String) = mutex.withLock {
         ensureInitialized()
         val provider = requireProvider(pluginId)
+        require(!provider.descriptor.required) {
+            "Required plugin $pluginId cannot be uninstalled"
+        }
         val current = storedStates[pluginId] ?: return@withLock
         val active = activePlugins[pluginId]
         active?.plugin?.onDisable()
@@ -174,6 +180,9 @@ class OmniPluginPlatform(
 
     suspend fun openSession(): OmniPluginSession = mutex.withLock {
         ensureInitialized()
+        val requiredPluginIds = providers().asSequence()
+            .filter { it.descriptor.required }
+            .mapTo(linkedSetOf()) { it.descriptor.id }
         val definitions = mutableListOf<OmniPluginToolDefinition>()
         val handlers = mutableListOf<ToolHandler>()
         val failedPluginIds = mutableListOf<String>()
@@ -204,7 +213,11 @@ class OmniPluginPlatform(
         failedPluginIds.forEach { pluginId ->
             val active = activePlugins.remove(pluginId) ?: return@forEach
             runCatching { active.plugin.onDisable() }
-            storedStates[pluginId]?.let { storedStates[pluginId] = it.copy(enabled = false) }
+            storedStates[pluginId]?.let { state ->
+                storedStates[pluginId] = state.copy(
+                    enabled = pluginId in requiredPluginIds,
+                )
+            }
         }
         if (failedPluginIds.isNotEmpty()) {
             runCatching { persist(storedStates.values) }
@@ -214,6 +227,10 @@ class OmniPluginPlatform(
 
     private suspend fun ensureInitialized() {
         if (initialized) return
+        val providerMap = providers().associateBy { it.descriptor.id }
+        val requiredPluginIds = providerMap.values.asSequence()
+            .filter { it.descriptor.required }
+            .mapTo(linkedSetOf()) { it.descriptor.id }
         val defaults = defaultEnabledPluginIds.map { pluginId ->
             OmniPluginStoredState(
                 pluginId = pluginId,
@@ -230,11 +247,20 @@ class OmniPluginPlatform(
             .map { it.pluginId }
             .filter { it in defaultEnabledPluginIds && it !in storedPluginIds }
             .toSet()
-        restored.forEach { state -> storedStates[state.pluginId] = state }
+        val reconciled = restored.associateByTo(linkedMapOf()) { it.pluginId }
+        requiredPluginIds.forEach { pluginId ->
+            val current = reconciled[pluginId]
+            reconciled[pluginId] = current?.copy(enabled = true)
+                ?: OmniPluginStoredState(
+                    pluginId = pluginId,
+                    enabled = true,
+                    installPending = true,
+                )
+        }
+        reconciled.values.forEach { state -> storedStates[state.pluginId] = state }
         initialized = true
 
-        val providerMap = providers().associateBy { it.descriptor.id }
-        restored.filter { it.enabled }.forEach { state ->
+        reconciled.values.filter { it.enabled }.forEach { state ->
             val provider = providerMap[state.pluginId]
             if (provider == null) {
                 storedStates[state.pluginId] = state.copy(enabled = false)
@@ -270,7 +296,9 @@ class OmniPluginPlatform(
                         installPending = true,
                     )
                 } else {
-                    storedStates[state.pluginId] = state.copy(enabled = false)
+                    storedStates[state.pluginId] = state.copy(
+                        enabled = state.pluginId in requiredPluginIds,
+                    )
                 }
             }
         }

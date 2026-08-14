@@ -9,6 +9,7 @@ class OmniPluginItem {
     required this.kind,
     required this.downloadSizeBytes,
     required this.capabilities,
+    required this.required,
     required this.settingsSchema,
     required this.presentation,
     required this.installed,
@@ -26,6 +27,7 @@ class OmniPluginItem {
   final String kind;
   final int downloadSizeBytes;
   final List<String> capabilities;
+  final bool required;
   final Map<String, dynamic> settingsSchema;
   final Map<String, dynamic> presentation;
   final bool installed;
@@ -57,6 +59,7 @@ class OmniPluginItem {
               ?.map((value) => value.toString())
               .toList(growable: false) ??
           const <String>[],
+      required: raw['required'] == true,
       settingsSchema: Map<String, dynamic>.from(
         (raw['settingsSchema'] as Map?) ?? const <String, dynamic>{},
       ),

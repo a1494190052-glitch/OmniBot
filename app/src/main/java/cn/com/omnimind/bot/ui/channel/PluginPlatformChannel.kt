@@ -135,6 +135,7 @@ class PluginPlatformChannel {
             "kind" to descriptor.kind.wireName,
             "downloadSizeBytes" to descriptor.downloadSizeBytes,
             "capabilities" to descriptor.capabilities,
+            "required" to descriptor.required,
             "settingsSchema" to descriptor.settingsSchema.toPlatformValue(),
             "presentation" to descriptor.presentation.toPlatformValue(),
             "installed" to state.installed,

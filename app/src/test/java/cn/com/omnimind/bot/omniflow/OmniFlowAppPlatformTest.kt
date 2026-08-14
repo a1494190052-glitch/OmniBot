@@ -20,13 +20,28 @@ class OmniFlowAppPlatformTest {
         assertTrue(command.contains("OMNIFLOW_PYTHON_STAGE=repair_start package=python-numpy"))
         assertTrue(command.contains("OMNIFLOW_PYTHON_STAGE=probe_ready source=environment"))
         assertTrue(command.contains("/etc/omnibot-python-environment"))
-        assertTrue(command.contains("alpine-3.21-python3.12-numpy2.1.3-v3"))
-        assertFalse(command.contains("grep -qx 'alpine-3.21-python3.12-numpy2.1.3-v3'"))
+        assertTrue(command.contains("alpine-python3.12-numpy-v1"))
+        assertFalse(command.contains("apt-get"))
         assertFalse(command.contains("printf '%s\\\\n'"))
         assertFalse(command.contains("command -v uv"))
         assertFalse(command.contains("uv sync"))
         assertTrue(command.trimEnd().endsWith("OMNIFLOW_PYTHON_STAGE=ready'"))
         assertFalse(command.contains("nodejs"))
+    }
+
+    @Test
+    fun `ubuntu python preparation repairs system numpy with apt`() {
+        val command = buildOmniFlowPythonPrepareCommand(
+            expectedVersion = "3.12",
+            distributionId = "ubuntu",
+            ubuntuRepositorySetup = "setup-ubuntu-repository",
+        )
+
+        assertTrue(command.contains("setup-ubuntu-repository"))
+        assertTrue(command.contains("apt-get update"))
+        assertTrue(command.contains("python3 python3-pip python3-numpy"))
+        assertTrue(command.contains("ubuntu-python3.12-numpy-v1"))
+        assertFalse(command.contains("apk --wait"))
     }
 
     @Test

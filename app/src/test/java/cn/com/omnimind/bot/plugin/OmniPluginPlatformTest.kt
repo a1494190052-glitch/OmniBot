@@ -239,6 +239,91 @@ class OmniPluginPlatformTest {
         assertEquals(1, provider.enableCount)
     }
 
+    @Test
+    fun `required plugin is reconciled after defaults were already seeded`() = runBlocking {
+        val provider = RecordingProvider(
+            pluginId = "com.omnimind.required",
+            toolName = "required_action",
+            required = true,
+        )
+        val store = OneShotDefaultStore().apply {
+            readWithDefaults(emptyList())
+        }
+
+        val platform = platform(provider, store = store)
+        val state = platform.list().single()
+
+        assertTrue(state.installed)
+        assertTrue(state.enabled)
+        assertEquals(listOf("install", "enable"), provider.lifecycleEvents)
+    }
+
+    @Test
+    fun `required plugin repairs a persisted disabled state`() = runBlocking {
+        val provider = RecordingProvider(
+            pluginId = "com.omnimind.required-disabled",
+            toolName = "required_disabled_action",
+            required = true,
+        )
+        val store = RecordingStore(
+            listOf(OmniPluginStoredState(provider.descriptor.id, enabled = false))
+        )
+
+        val state = platform(provider, store = store).list().single()
+
+        assertTrue(state.installed)
+        assertTrue(state.enabled)
+        assertEquals(0, provider.installCount)
+        assertEquals(1, provider.enableCount)
+    }
+
+    @Test
+    fun `required plugin install failure retries after restart`() = runBlocking {
+        val provider = RecordingProvider(
+            pluginId = "com.omnimind.required-retry",
+            toolName = "required_retry_action",
+            required = true,
+            installFailure = IllegalStateException("runtime unavailable"),
+        )
+        val store = RecordingStore()
+
+        val failed = platform(provider, store = store).list().single()
+        assertFalse(failed.installed)
+        assertFalse(failed.enabled)
+        assertEquals(1, provider.installCount)
+
+        provider.recoverInstall()
+        val recovered = platform(provider, store = store).list().single()
+
+        assertTrue(recovered.installed)
+        assertTrue(recovered.enabled)
+        assertEquals(2, provider.installCount)
+        assertEquals(1, provider.enableCount)
+    }
+
+    @Test
+    fun `required plugin cannot be disabled or uninstalled`() = runBlocking {
+        val provider = RecordingProvider(
+            pluginId = "com.omnimind.required-locked",
+            toolName = "required_locked_action",
+            required = true,
+        )
+        val platform = platform(provider)
+        assertTrue(platform.list().single().enabled)
+
+        assertFailsWithMessage("cannot be disabled") {
+            platform.setEnabled(provider.descriptor.id, false)
+        }
+        assertFailsWithMessage("cannot be uninstalled") {
+            platform.uninstall(provider.descriptor.id)
+        }
+
+        assertTrue(platform.list().single().installed)
+        assertTrue(platform.list().single().enabled)
+        assertEquals(0, provider.disableCount)
+        assertEquals(0, provider.uninstallCount)
+    }
+
     private fun platform(
         vararg providers: OmniPluginProvider,
         store: OmniPluginStateStore = RecordingStore(),
@@ -314,6 +399,7 @@ class OmniPluginPlatformTest {
         pluginId: String,
         private val toolName: String,
         interfaceVersion: Int = OmniPluginContract.CURRENT_INTERFACE_VERSION,
+        required: Boolean = false,
         private var installFailure: Throwable? = null,
     ) : OmniPluginProvider {
         var installCount = 0
@@ -334,7 +420,8 @@ class OmniPluginPlatformTest {
             version = "1.0.0",
             interfaceVersion = interfaceVersion,
             description = "test plugin",
-            publisher = "OmniMind"
+            publisher = "OmniMind",
+            required = required,
         )
 
         override suspend fun install() {
