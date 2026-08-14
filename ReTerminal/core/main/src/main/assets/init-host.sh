@@ -224,7 +224,10 @@ ARGS="$ARGS --link2symlink"
 ARGS="$ARGS --sysvipc"
 ARGS="$ARGS -L"
 
-run_child $LINKER "$PREFIX/local/bin/proot" $ARGS /bin/sh "$PREFIX/local/bin/init" "$@"
-exit_status=$?
+# The final runtime must stay attached to the caller's stdio.  In a
+# non-interactive shell an asynchronously executed command gets /dev/null as
+# stdin, which makes stdio services such as ACP observe EOF and exit before
+# initialization.  Replacing the host shell also lets Process.destroy() target
+# proot directly; --kill-on-exit remains responsible for its descendants.
 trap - HUP INT TERM
-exit "$exit_status"
+exec "$LINKER" "$PREFIX/local/bin/proot" $ARGS /bin/sh "$PREFIX/local/bin/init" "$@"
