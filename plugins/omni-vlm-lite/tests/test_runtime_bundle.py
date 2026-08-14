@@ -92,9 +92,11 @@ class RuntimeBundleTest(unittest.TestCase):
     def test_release_pins_canonical_omniflow(self) -> None:
         commit = self.properties["omniflow.commit"]
         for relative in (
-            "functions/compiler.py",
+            "functions/assets.py",
             "runtime/core.py",
             "runtime/execution.py",
+            "vlm/context.py",
+            "vlm/planner.py",
         ):
             self.assertEqual(
                 committed_file(OMNIFLOW_ROOT, commit, f"omniflow/{relative}"),
