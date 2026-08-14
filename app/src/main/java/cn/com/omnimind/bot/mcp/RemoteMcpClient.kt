@@ -19,7 +19,7 @@ import java.util.concurrent.TimeUnit
 
 object RemoteMcpClient {
     private const val TAG = "[RemoteMcpClient]"
-    private const val DEFAULT_PROTOCOL_VERSION = "2024-11-05"
+    internal const val DEFAULT_PROTOCOL_VERSION = "2025-11-25"
     private const val SESSION_ID_HEADER = "Mcp-Session-Id"
     private const val PROTOCOL_VERSION_HEADER = "MCP-Protocol-Version"
     private val gson = Gson()
