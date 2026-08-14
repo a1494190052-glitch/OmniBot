@@ -33,6 +33,7 @@ import java.io.File
 import java.io.IOException
 import java.io.InputStream
 import java.math.BigInteger
+import java.nio.file.Files
 import java.security.MessageDigest
 import java.util.concurrent.TimeUnit
 import kotlin.coroutines.coroutineContext
@@ -79,6 +80,8 @@ object EmbeddedRuntimeInstaller {
     private const val DISK_SAFETY_BYTES = 16 * 1024 * 1024L
     private const val LEGACY_EXPANDED_MIN_BYTES = 64 * 1024 * 1024L
     private const val MAX_REDIRECTS = 5
+    @VisibleForTesting
+    internal const val ROOTFS_READY_MARKER_NAME = ".omnibot-rootfs-ready"
     private const val LEGACY_UBUNTU_SHA256 =
         "04207713ece899c3740823d33690441ad3a7f0ded1101aca744e2b0f37ac7ff2"
     private const val OFFICIAL_UBUNTU_VERSION = "24.04.4"
@@ -219,7 +222,37 @@ object EmbeddedRuntimeInstaller {
     private fun isRootfsInstalled(context: Context, distribution: TerminalDistribution.Spec): Boolean {
         val parent = context.filesDir.parentFile ?: return false
         val rootfs = File(File(parent, "local"), distribution.rootfsDirectoryName)
-        return rootfs.isDirectory && rootfs.listFiles().orEmpty().any { it.name != "root" && it.name != "tmp" }
+        return isRootfsInstalled(rootfs, distribution)
+    }
+
+    @VisibleForTesting
+    internal fun isRootfsInstalled(
+        rootfs: File,
+        distribution: TerminalDistribution.Spec
+    ): Boolean {
+        if (!rootfs.isDirectory || !hasMinimumRootfsLayout(rootfs)) return false
+        if (File(rootfs, ROOTFS_READY_MARKER_NAME).isFile) return true
+
+        if (!rootfsEntryExists(rootfs, "usr/bin/env")) return false
+        return when (distribution.id) {
+            TerminalDistribution.ubuntu.id ->
+                rootfsEntryExists(rootfs, "usr/bin/apt-get") &&
+                    File(rootfs, "var/lib/dpkg/status").isFile
+            else ->
+                rootfsEntryExists(rootfs, "sbin/apk") &&
+                    File(rootfs, "lib/apk/db/installed").isFile &&
+                    File(rootfs, "etc/alpine-release").isFile
+        }
+    }
+
+    private fun hasMinimumRootfsLayout(rootfs: File): Boolean {
+        return rootfsEntryExists(rootfs, "bin/sh") &&
+            rootfsEntryExists(rootfs, "etc/os-release")
+    }
+
+    private fun rootfsEntryExists(rootfs: File, relativePath: String): Boolean {
+        val entry = File(rootfs, relativePath)
+        return entry.exists() || Files.isSymbolicLink(entry.toPath())
     }
 
     private fun isTrustedExistingUbuntuArchive(context: Context, archive: File): Boolean {

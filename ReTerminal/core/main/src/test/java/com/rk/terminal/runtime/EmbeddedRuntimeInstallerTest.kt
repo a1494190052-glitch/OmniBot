@@ -11,14 +11,77 @@ import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
 import okhttp3.mockwebserver.SocketPolicy
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Assert.assertThrows
 import org.junit.Test
 import java.io.ByteArrayInputStream
+import java.io.File
 import java.io.IOException
+import java.nio.file.Files
 import java.util.concurrent.TimeUnit
 
 class EmbeddedRuntimeInstallerTest {
+    @Test
+    fun rejectsNonEmptyPartialRootfs() = withTemporaryRootfs { rootfs ->
+        rootfs.resolve("usr/bin").mkdirs()
+
+        assertFalse(
+            EmbeddedRuntimeInstaller.isRootfsInstalled(rootfs, TerminalDistribution.alpine)
+        )
+    }
+
+    @Test
+    fun rejectsMarkerWithoutMinimumRootfsLayout() = withTemporaryRootfs { rootfs ->
+        touch(rootfs, EmbeddedRuntimeInstaller.ROOTFS_READY_MARKER_NAME)
+
+        assertFalse(
+            EmbeddedRuntimeInstaller.isRootfsInstalled(rootfs, TerminalDistribution.alpine)
+        )
+    }
+
+    @Test
+    fun acceptsMarkedRootfsWithMinimumLayout() = withTemporaryRootfs { rootfs ->
+        touch(rootfs, "bin/sh")
+        touch(rootfs, "etc/os-release")
+        touch(rootfs, EmbeddedRuntimeInstaller.ROOTFS_READY_MARKER_NAME)
+
+        assertTrue(
+            EmbeddedRuntimeInstaller.isRootfsInstalled(rootfs, TerminalDistribution.alpine)
+        )
+    }
+
+    @Test
+    fun acceptsCompleteLegacyAlpineRootfs() = withTemporaryRootfs { rootfs ->
+        listOf(
+            "bin/sh",
+            "etc/os-release",
+            "usr/bin/env",
+            "sbin/apk",
+            "lib/apk/db/installed",
+            "etc/alpine-release"
+        ).forEach { touch(rootfs, it) }
+
+        assertTrue(
+            EmbeddedRuntimeInstaller.isRootfsInstalled(rootfs, TerminalDistribution.alpine)
+        )
+    }
+
+    @Test
+    fun acceptsCompleteLegacyUbuntuRootfs() = withTemporaryRootfs { rootfs ->
+        listOf(
+            "bin/sh",
+            "etc/os-release",
+            "usr/bin/env",
+            "usr/bin/apt-get",
+            "var/lib/dpkg/status"
+        ).forEach { touch(rootfs, it) }
+
+        assertTrue(
+            EmbeddedRuntimeInstaller.isRootfsInstalled(rootfs, TerminalDistribution.ubuntu)
+        )
+    }
+
     @Test
     fun usesPinnedOfficialUbuntuRuntimeByDefault() {
         val entry = EmbeddedRuntimeInstaller.officialUbuntuRuntime()
@@ -154,6 +217,22 @@ class EmbeddedRuntimeInstallerTest {
             assertTrue(call.isCanceled())
         } finally {
             server.shutdown()
+        }
+    }
+
+    private fun withTemporaryRootfs(block: (File) -> Unit) {
+        val rootfs = Files.createTempDirectory("omnibot-rootfs-test").toFile()
+        try {
+            block(rootfs)
+        } finally {
+            rootfs.deleteRecursively()
+        }
+    }
+
+    private fun touch(rootfs: File, relativePath: String) {
+        rootfs.resolve(relativePath).apply {
+            parentFile?.mkdirs()
+            writeText("test")
         }
     }
 }

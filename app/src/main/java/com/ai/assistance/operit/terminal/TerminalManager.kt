@@ -28,9 +28,12 @@ import com.termux.terminal.TerminalSession
 import com.termux.terminal.TerminalSessionClient
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
@@ -270,59 +273,60 @@ class TerminalManager private constructor(
             }
             onProcessStarted?.invoke(process)
 
-            kotlinx.coroutines.coroutineScope {
-                val outputChannel = Channel<String>(Channel.UNLIMITED)
-                val outputBuffer = StringBuilder()
-                val reader = launch {
-                    try {
-                        process.inputStream.bufferedReader().useLines { lines ->
-                            lines.forEach { line ->
-                                val chunk = "$line\n"
-                                outputBuffer.append(chunk)
-                                outputChannel.trySend(chunk)
+            withCancellableHiddenExecProcess(process) {
+                coroutineScope {
+                    val outputChannel = Channel<String>(Channel.UNLIMITED)
+                    val outputBuffer = StringBuilder()
+                    val reader = launch {
+                        try {
+                            process.inputStream.bufferedReader().useLines { lines ->
+                                lines.forEach { line ->
+                                    val chunk = "$line\n"
+                                    outputBuffer.append(chunk)
+                                    outputChannel.trySend(chunk)
+                                }
                             }
+                        } catch (error: Throwable) {
+                            if (error is CancellationException) {
+                                throw error
+                            }
+                            if (!isExpectedHiddenExecReaderTermination(error)) {
+                                Log.w(TAG, "Hidden exec reader terminated unexpectedly", error)
+                            }
+                        } finally {
+                            outputChannel.close()
                         }
-                    } catch (error: Throwable) {
-                        if (error is CancellationException) {
-                            throw error
-                        }
-                        if (!isExpectedHiddenExecReaderTermination(error)) {
-                            Log.w(TAG, "Hidden exec reader terminated unexpectedly", error)
-                        }
-                    } finally {
-                        outputChannel.close()
                     }
-                }
 
-                val forwarder = launch {
-                    for (chunk in outputChannel) {
-                        onOutputChunk(chunk)
+                    val forwarder = launch {
+                        for (chunk in outputChannel) {
+                            onOutputChunk(chunk)
+                        }
                     }
-                }
 
-                val finished = process.waitFor(timeoutMs, TimeUnit.MILLISECONDS)
-                if (!finished) {
-                    runCatching { process.inputStream.close() }
-                    process.destroyForcibly()
+                    val finished = process.waitFor(timeoutMs, TimeUnit.MILLISECONDS)
+                    if (!finished) {
+                        terminateHiddenExecProcess(process)
+                        reader.join()
+                        forwarder.join()
+                        return@coroutineScope HiddenExecResult(
+                            output = outputBuffer.toString(),
+                            exitCode = -1,
+                            state = HiddenExecResult.State.TIMEOUT,
+                            error = "Command timed out after ${timeoutMs}ms",
+                            rawOutputPreview = outputBuffer.toString().takeLast(4000)
+                        )
+                    }
+
                     reader.join()
                     forwarder.join()
-                    return@coroutineScope HiddenExecResult(
+                    HiddenExecResult(
                         output = outputBuffer.toString(),
-                        exitCode = -1,
-                        state = HiddenExecResult.State.TIMEOUT,
-                        error = "Command timed out after ${timeoutMs}ms",
+                        exitCode = process.exitValue(),
+                        state = HiddenExecResult.State.OK,
                         rawOutputPreview = outputBuffer.toString().takeLast(4000)
                     )
                 }
-
-                reader.join()
-                forwarder.join()
-                HiddenExecResult(
-                    output = outputBuffer.toString(),
-                    exitCode = process.exitValue(),
-                    state = HiddenExecResult.State.OK,
-                    rawOutputPreview = outputBuffer.toString().takeLast(4000)
-                )
             }
         }
     }
@@ -594,6 +598,42 @@ class TerminalManager private constructor(
         }
     }
 }
+
+internal suspend fun <T> withCancellableHiddenExecProcess(
+    process: Process,
+    block: suspend () -> T
+): T = coroutineScope {
+    val cancellationWatcher = launch(start = CoroutineStart.UNDISPATCHED) {
+        try {
+            awaitCancellation()
+        } finally {
+            terminateHiddenExecProcess(process)
+        }
+    }
+    try {
+        block()
+    } finally {
+        cancellationWatcher.cancel()
+    }
+}
+
+internal fun terminateHiddenExecProcess(process: Process) {
+    runCatching { process.outputStream.close() }
+    runCatching { process.destroy() }
+    val exited = runCatching {
+        process.waitFor(HIDDEN_EXEC_TERMINATION_GRACE_MS, TimeUnit.MILLISECONDS)
+    }.getOrDefault(false)
+    if (!exited) {
+        runCatching { process.destroyForcibly() }
+        runCatching {
+            process.waitFor(HIDDEN_EXEC_TERMINATION_GRACE_MS, TimeUnit.MILLISECONDS)
+        }
+    }
+    runCatching { process.inputStream.close() }
+    runCatching { process.errorStream.close() }
+}
+
+private const val HIDDEN_EXEC_TERMINATION_GRACE_MS = 500L
 
 internal fun isExpectedHiddenExecReaderTermination(error: Throwable): Boolean {
     var current: Throwable? = error

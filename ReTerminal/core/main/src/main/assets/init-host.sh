@@ -6,13 +6,119 @@ esac
 
 ROOTFS_DIR=$PREFIX/local/$TERMINAL_DISTRIBUTION
 ROOTFS_ARCHIVE=$PREFIX/files/$TERMINAL_DISTRIBUTION.tar.gz
+ROOTFS_READY_MARKER=$ROOTFS_DIR/.omnibot-rootfs-ready
+ACTIVE_CHILD_PID=
 
 [ ! -f "$ROOTFS_ARCHIVE" ] && ROOTFS_ARCHIVE=$PREFIX/files/$TERMINAL_DISTRIBUTION.tar
 
 mkdir -p "$ROOTFS_DIR"
 
-if [ -z "$(ls -A "$ROOTFS_DIR" | grep -vE '^(root|tmp)$')" ]; then
-    tar -xf "$ROOTFS_ARCHIVE" -C "$ROOTFS_DIR"
+terminate_active_child() {
+    if [ -n "$ACTIVE_CHILD_PID" ]; then
+        kill "$ACTIVE_CHILD_PID" 2>/dev/null || true
+        wait "$ACTIVE_CHILD_PID" 2>/dev/null || true
+        ACTIVE_CHILD_PID=
+    fi
+}
+
+handle_termination() {
+    terminate_active_child
+    exit 130
+}
+
+run_child() {
+    "$@" &
+    ACTIVE_CHILD_PID=$!
+    wait "$ACTIVE_CHILD_PID"
+    child_status=$?
+    ACTIVE_CHILD_PID=
+    return "$child_status"
+}
+
+rootfs_entry_exists() {
+    [ -e "$1" ] || [ -L "$1" ]
+}
+
+rootfs_has_minimum_layout() {
+    rootfs_entry_exists "$ROOTFS_DIR/bin/sh" &&
+        rootfs_entry_exists "$ROOTFS_DIR/etc/os-release"
+}
+
+rootfs_has_legacy_layout() {
+    rootfs_has_minimum_layout || return 1
+    rootfs_entry_exists "$ROOTFS_DIR/usr/bin/env" || return 1
+    case "$TERMINAL_DISTRIBUTION" in
+        ubuntu)
+            rootfs_entry_exists "$ROOTFS_DIR/usr/bin/apt-get" &&
+                [ -f "$ROOTFS_DIR/var/lib/dpkg/status" ]
+            ;;
+        *)
+            rootfs_entry_exists "$ROOTFS_DIR/sbin/apk" &&
+                [ -f "$ROOTFS_DIR/lib/apk/db/installed" ] &&
+                [ -f "$ROOTFS_DIR/etc/alpine-release" ]
+            ;;
+    esac
+}
+
+clear_incomplete_rootfs() {
+    clear_status=0
+    for entry in "$ROOTFS_DIR"/* "$ROOTFS_DIR"/.[!.]* "$ROOTFS_DIR"/..?*; do
+        [ -e "$entry" ] || [ -L "$entry" ] || continue
+        name=${entry##*/}
+        case "$name" in
+            root|tmp) ;;
+            *) rm -rf "$entry" || clear_status=1 ;;
+        esac
+    done
+    return "$clear_status"
+}
+
+mark_rootfs_ready() {
+    marker_tmp="$ROOTFS_READY_MARKER.$$"
+    rm -f "$marker_tmp"
+    printf '%s\n' "$TERMINAL_DISTRIBUTION" > "$marker_tmp" &&
+        mv -f "$marker_tmp" "$ROOTFS_READY_MARKER"
+}
+
+trap handle_termination HUP INT TERM
+
+if [ -f "$ROOTFS_READY_MARKER" ]; then
+    if ! rootfs_has_minimum_layout; then
+        if ! clear_incomplete_rootfs; then
+            echo "Failed to reset incomplete $TERMINAL_DISTRIBUTION rootfs." >&2
+            exit 1
+        fi
+    fi
+elif rootfs_has_legacy_layout; then
+    if ! mark_rootfs_ready; then
+        echo "Failed to record completed $TERMINAL_DISTRIBUTION rootfs installation." >&2
+        exit 1
+    fi
+else
+    if ! clear_incomplete_rootfs; then
+        echo "Failed to reset incomplete $TERMINAL_DISTRIBUTION rootfs." >&2
+        exit 1
+    fi
+fi
+
+if [ ! -f "$ROOTFS_READY_MARKER" ]; then
+    if [ ! -f "$ROOTFS_ARCHIVE" ]; then
+        echo "Missing $TERMINAL_DISTRIBUTION rootfs archive: $ROOTFS_ARCHIVE" >&2
+        exit 1
+    fi
+    if ! run_child tar -xf "$ROOTFS_ARCHIVE" -C "$ROOTFS_DIR"; then
+        echo "Failed to extract $TERMINAL_DISTRIBUTION rootfs." >&2
+        exit 1
+    fi
+    if ! rootfs_has_legacy_layout; then
+        clear_incomplete_rootfs
+        echo "Extracted $TERMINAL_DISTRIBUTION rootfs is incomplete." >&2
+        exit 1
+    fi
+    if ! mark_rootfs_ready; then
+        echo "Failed to record completed $TERMINAL_DISTRIBUTION rootfs installation." >&2
+        exit 1
+    fi
 fi
 
 FIPS_COMPAT_FILE="$PREFIX/local/sysctl_crypto_fips_enabled"
@@ -118,4 +224,7 @@ ARGS="$ARGS --link2symlink"
 ARGS="$ARGS --sysvipc"
 ARGS="$ARGS -L"
 
-$LINKER $PREFIX/local/bin/proot $ARGS /bin/sh $PREFIX/local/bin/init "$@"
+run_child $LINKER "$PREFIX/local/bin/proot" $ARGS /bin/sh "$PREFIX/local/bin/init" "$@"
+exit_status=$?
+trap - HUP INT TERM
+exit "$exit_status"
