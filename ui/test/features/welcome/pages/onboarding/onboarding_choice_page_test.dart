@@ -729,14 +729,6 @@ void main() {
     await showFinder(tester, connect);
     await tester.tap(connect);
     await tester.pumpAndSettle();
-    expect(
-      find.byKey(const Key('data-destination-confirmation-dialog')),
-      findsOneWidget,
-    );
-    await tester.tap(find.byKey(const Key('data-destination-acknowledgement')));
-    await tester.pump();
-    await tester.tap(find.byKey(const Key('data-destination-confirm')));
-    await tester.pumpAndSettle();
 
     expect(find.text('已准备 2 个模型'), findsOneWidget);
     expect(find.text('确认可用模型'), findsOneWidget);

@@ -19,7 +19,6 @@ class ModelProviderConfig {
   final bool ready;
   final String statusText;
   final bool configured;
-  final bool destinationConsentValid;
   final String wireApi;
 
   const ModelProviderConfig({
@@ -36,7 +35,6 @@ class ModelProviderConfig {
     required this.ready,
     required this.statusText,
     required this.configured,
-    this.destinationConsentValid = false,
     required this.wireApi,
   });
 
@@ -55,7 +53,6 @@ class ModelProviderConfig {
       ready: false,
       statusText: '',
       configured: false,
-      destinationConsentValid: false,
       wireApi: 'chat_completions',
     );
   }
@@ -64,14 +61,14 @@ class ModelProviderConfig {
     if (map == null) {
       return ModelProviderConfig.empty();
     }
+    final apiKey = (map['apiKey'] ?? '').toString();
     return ModelProviderConfig(
       id: (map['id'] ?? '').toString(),
       name: (map['name'] ?? '').toString(),
       baseUrl: (map['baseUrl'] ?? '').toString(),
-      // BYOK secrets are write-only. Ignore legacy/native payload values.
-      apiKey: '',
+      apiKey: apiKey,
       customHeaders: const <String, String>{},
-      hasApiKey: map['hasApiKey'] == true,
+      hasApiKey: map['hasApiKey'] == true || apiKey.isNotEmpty,
       hasCustomHeaders: map['hasCustomHeaders'] == true,
       source: (map['source'] ?? 'none').toString(),
       providerType: (map['providerType'] ?? 'custom').toString(),
@@ -79,7 +76,6 @@ class ModelProviderConfig {
       ready: map['ready'] == true,
       statusText: (map['statusText'] ?? '').toString(),
       configured: map['configured'] == true,
-      destinationConsentValid: map['destinationConsentValid'] == true,
       wireApi: (map['wireApi'] ?? 'chat_completions').toString(),
     );
   }
@@ -99,7 +95,6 @@ class ModelProviderProfileSummary {
   final String statusText;
   final bool configured;
   final int revision;
-  final bool destinationConsentValid;
   final String protocolType;
   final String wireApi;
 
@@ -117,19 +112,19 @@ class ModelProviderProfileSummary {
     required this.statusText,
     required this.configured,
     this.revision = 0,
-    this.destinationConsentValid = false,
     this.protocolType = 'openai_compatible',
     this.wireApi = 'chat_completions',
   });
 
   factory ModelProviderProfileSummary.fromMap(Map<dynamic, dynamic>? map) {
+    final apiKey = (map?['apiKey'] ?? '').toString();
     return ModelProviderProfileSummary(
       id: (map?['id'] ?? '').toString(),
       name: (map?['name'] ?? '').toString(),
       baseUrl: (map?['baseUrl'] ?? '').toString(),
-      apiKey: '',
+      apiKey: apiKey,
       customHeaders: const <String, String>{},
-      hasApiKey: map?['hasApiKey'] == true,
+      hasApiKey: map?['hasApiKey'] == true || apiKey.isNotEmpty,
       hasCustomHeaders: map?['hasCustomHeaders'] == true,
       sourceType: (map?['sourceType'] ?? 'custom').toString(),
       readOnly: map?['readOnly'] == true,
@@ -137,7 +132,6 @@ class ModelProviderProfileSummary {
       statusText: (map?['statusText'] ?? '').toString(),
       configured: map?['configured'] == true,
       revision: (map?['revision'] as num?)?.toInt() ?? 0,
-      destinationConsentValid: map?['destinationConsentValid'] == true,
       protocolType: (map?['protocolType'] ?? 'openai_compatible').toString(),
       wireApi: (map?['wireApi'] ?? 'chat_completions').toString(),
     );
@@ -158,7 +152,6 @@ class ModelProviderProfileSummary {
       ready: ready,
       statusText: statusText,
       configured: configured,
-      destinationConsentValid: destinationConsentValid,
       wireApi: wireApi,
     );
   }
@@ -441,7 +434,6 @@ class ModelProviderConfigService {
     Map<String, String>? customHeaders,
     bool clearApiKey = false,
     bool clearCustomHeaders = false,
-    bool destinationConfirmed = false,
     String sourceType = 'custom',
     String protocolType = 'openai_compatible',
     String? wireApi,
@@ -466,7 +458,6 @@ class ModelProviderConfigService {
             'customHeaders': normalizedCustomHeaders,
           if (normalizedCustomHeaders != null) 'replaceCustomHeaders': true,
           if (clearCustomHeaders) 'clearCustomHeaders': true,
-          if (destinationConfirmed) 'destinationConfirmed': true,
           'sourceType': sourceType,
           'protocolType': protocolType,
           'wireApi': resolvedWireApi,
@@ -498,7 +489,6 @@ class ModelProviderConfigService {
     required String baseUrl,
     required String apiKey,
     Map<String, String> customHeaders = const <String, String>{},
-    bool destinationConfirmed = false,
   }) async {
     final result = await AssistsMessageService.assistCore
         .invokeMethod<Map<dynamic, dynamic>>('saveModelProviderConfig', {
@@ -507,7 +497,6 @@ class ModelProviderConfigService {
           'replaceApiKey': true,
           'customHeaders': normalizeCustomHeaders(customHeaders),
           'replaceCustomHeaders': true,
-          if (destinationConfirmed) 'destinationConfirmed': true,
         });
     return ModelProviderConfig.fromMap(result);
   }
@@ -624,7 +613,7 @@ class ModelProviderConfigService {
     Map<String, String>? customHeaders,
     String? profileId,
     String providerName = '',
-    bool destinationConfirmed = false,
+    String? capability,
   }) async {
     // Capture the persisted profile before starting the network request. A
     // response obtained for an older profile revision must never replace the
@@ -643,11 +632,12 @@ class ModelProviderConfigService {
           if (customHeaders != null) 'useProvidedCustomHeaders': true,
           if (profileId != null && profileId.trim().isNotEmpty)
             'profileId': profileId.trim(),
+          if (capability != null && capability.trim().isNotEmpty)
+            'capability': capability.trim(),
           if (profileSnapshot != null)
             'expectedProfileRevision': profileSnapshot.revision,
           if (profileSnapshot != null)
             'expectedProfileBaseUrl': profileSnapshot.baseUrl,
-          if (destinationConfirmed) 'destinationConfirmed': true,
         });
     final models = (result ?? const [])
         .map((item) => ProviderModelOption.fromMap(item as Map?))
@@ -672,7 +662,14 @@ class ModelProviderConfigService {
       apiBase: cacheBase,
       models: models,
     );
-    if (targetProfileId != null && profileSnapshot != null) {
+    final normalizedCapability = capability?.trim().toLowerCase() ?? '';
+    final isNonTextCapabilityScopedOfficialRequest =
+        profileSnapshot?.sourceType == 'omnibot_official' &&
+        normalizedCapability.isNotEmpty &&
+        normalizedCapability != 'text';
+    if (targetProfileId != null &&
+        profileSnapshot != null &&
+        !isNonTextCapabilityScopedOfficialRequest) {
       try {
         final latestProfile = await _findProfileById(targetProfileId);
         final requestedBase = normalizeApiBase(apiBase) ?? '';
@@ -916,10 +913,29 @@ class ModelProviderConfigService {
     final payload = await listProfiles();
     final groups = <ProviderModelGroup>[];
     for (final profile in payload.profiles) {
-      final models = await getChatModelOptionsForProfile(
-        profile.id,
-        profile: profile,
-      );
+      List<ProviderModelOption> models;
+      // The official runtime catalog is capability-scoped and is not managed
+      // by the BYOK visibility list. Refresh its full text catalog here so the
+      // chat selector does not degrade to only the scene-bound fallback model.
+      if (profile.sourceType == 'omnibot_official' && profile.configured) {
+        try {
+          models = await fetchModels(
+            profileId: profile.id,
+            providerName: profile.name,
+            capability: 'text',
+          );
+        } catch (_) {
+          models = await getChatModelOptionsForProfile(
+            profile.id,
+            profile: profile,
+          );
+        }
+      } else {
+        models = await getChatModelOptionsForProfile(
+          profile.id,
+          profile: profile,
+        );
+      }
       groups.add(ProviderModelGroup(profile: profile, models: models));
     }
     return groups;

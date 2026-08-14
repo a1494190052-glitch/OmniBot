@@ -2,7 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:ui/services/account_service.dart';
+import 'package:ui/services/model_vendor_catalog.dart';
 import 'package:ui/theme/theme_context.dart';
+import 'package:ui/widgets/provider_vendor_icon.dart';
 import 'package:ui/widgets/settings_detail_sheet.dart';
 
 class PlatformUsageSheet extends StatefulWidget {
@@ -62,16 +64,14 @@ class _PlatformUsageSheetState extends State<PlatformUsageSheet> {
         '仅显示最近 20 条，额度以服务器结算为准。',
         'Shows the latest 20 records. Server settlement is authoritative.',
       ),
+      fillAvailableHeight: true,
+      headerAction: TextButton(
+        key: const ValueKey('refresh-platform-usage'),
+        style: settingsDetailSheetActionStyle(context),
+        onPressed: _entries == null ? null : _load,
+        child: Text(_text('刷新', 'Refresh')),
+      ),
       body: _buildBody(),
-      actionsKey: const ValueKey('platform-usage-actions'),
-      actions: [
-        TextButton(
-          key: const ValueKey('refresh-platform-usage'),
-          style: settingsDetailSheetActionStyle(context),
-          onPressed: _entries == null ? null : _load,
-          child: Text(_text('刷新', 'Refresh')),
-        ),
-      ],
     );
   }
 
@@ -87,7 +87,7 @@ class _PlatformUsageSheetState extends State<PlatformUsageSheet> {
     }
     final entries = _entries;
     if (entries == null) {
-      return const Center(child: CircularProgressIndicator());
+      return const _SheetLoading();
     }
     if (entries.isEmpty) {
       return _SheetMessage(
@@ -107,24 +107,16 @@ class _PlatformUsageSheetState extends State<PlatformUsageSheet> {
         final model = entry.model.trim().isEmpty
             ? _text('官方模型', 'Official model')
             : entry.model;
-        return _SheetListRow(
+        return _PlatformUsageRow(
           key: ValueKey('platform-usage-$index'),
-          icon: LucideIcons.bot,
-          title: model,
-          details: [
-            formatAccountDate(entry.createdAt),
-            '${_text('输入', 'Input')} ${entry.promptTokens} · '
-                '${_text('输出', 'Output')} ${entry.completionTokens} · '
-                '${_text('总计', 'Total')} ${entry.totalTokens}',
-          ],
-          trailing: Text(
-            _text('消耗 ${entry.quotaUsed}', 'Used ${entry.quotaUsed}'),
-            style: TextStyle(
-              color: context.omniPalette.accentPrimary,
-              fontSize: 12,
-              fontWeight: FontWeight.w600,
-            ),
-          ),
+          index: index,
+          model: model,
+          createdAt: entry.createdAt,
+          promptTokens: entry.promptTokens,
+          completionTokens: entry.completionTokens,
+          totalTokens: entry.totalTokens,
+          quotaUsed: entry.quotaUsed,
+          english: widget.english,
         );
       }),
     );
@@ -323,6 +315,7 @@ class _SessionsSheetState extends State<SessionsSheet> {
         '服务目前仅记录登录时间，暂不读取设备名称。',
         'The service records sign-in times without reading device names.',
       ),
+      fillAvailableHeight: true,
       body: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
@@ -363,7 +356,7 @@ class _SessionsSheetState extends State<SessionsSheet> {
 
   Widget _buildBody() {
     if (_sessions == null && _error == null) {
-      return const Center(child: CircularProgressIndicator());
+      return const _SheetLoading();
     }
     if (_sessions == null) {
       return _SheetMessage(
@@ -422,6 +415,209 @@ class _SessionsSheetState extends State<SessionsSheet> {
                 ),
         );
       }),
+    );
+  }
+}
+
+class _PlatformUsageRow extends StatelessWidget {
+  const _PlatformUsageRow({
+    super.key,
+    required this.index,
+    required this.model,
+    required this.createdAt,
+    required this.promptTokens,
+    required this.completionTokens,
+    required this.totalTokens,
+    required this.quotaUsed,
+    required this.english,
+  });
+
+  final int index;
+  final String model;
+  final DateTime? createdAt;
+  final int promptTokens;
+  final int completionTokens;
+  final int totalTokens;
+  final int quotaUsed;
+  final bool english;
+
+  String _text(String zh, String en) => english ? en : zh;
+
+  @override
+  Widget build(BuildContext context) {
+    final palette = context.omniPalette;
+    final vendor = ModelVendorCatalog.resolve(model);
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 14),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            width: 34,
+            height: 34,
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              color: palette.surfaceSecondary,
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: ProviderVendorIcon(
+              key: ValueKey('platform-usage-model-icon-$index'),
+              vendor: vendor,
+              size: 20,
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            model,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              color: palette.textPrimary,
+                              fontSize: 14,
+                              height: 1.35,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                          const SizedBox(height: 3),
+                          Text(
+                            formatAccountDate(createdAt),
+                            style: TextStyle(
+                              color: palette.textTertiary,
+                              fontSize: 11,
+                              height: 1.4,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.center,
+                      children: [
+                        Icon(
+                          LucideIcons.coins,
+                          size: 14,
+                          color: palette.accentPrimary,
+                        ),
+                        const SizedBox(width: 5),
+                        Text.rich(
+                          key: ValueKey('platform-usage-quota-$index'),
+                          TextSpan(
+                            style: TextStyle(
+                              color: palette.accentPrimary,
+                              fontSize: 11,
+                              height: 1.2,
+                            ),
+                            children: [
+                              TextSpan(text: '${_text('消耗', 'Used')} '),
+                              TextSpan(
+                                text: '$quotaUsed',
+                                style: const TextStyle(
+                                  fontSize: 20,
+                                  fontWeight: FontWeight.w700,
+                                  height: 1,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                Wrap(
+                  spacing: 14,
+                  runSpacing: 8,
+                  children: [
+                    _UsageMetric(
+                      icon: LucideIcons.arrowDownToLine,
+                      label: _text('输入', 'Input'),
+                      value: promptTokens,
+                    ),
+                    _UsageMetric(
+                      icon: LucideIcons.arrowUpFromLine,
+                      label: _text('输出', 'Output'),
+                      value: completionTokens,
+                    ),
+                    _UsageMetric(
+                      icon: LucideIcons.sigma,
+                      label: _text('总计', 'Total'),
+                      value: totalTokens,
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _UsageMetric extends StatelessWidget {
+  const _UsageMetric({
+    required this.icon,
+    required this.label,
+    required this.value,
+  });
+
+  final IconData icon;
+  final String label;
+  final int value;
+
+  @override
+  Widget build(BuildContext context) {
+    final palette = context.omniPalette;
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(icon, size: 13, color: palette.textTertiary),
+        const SizedBox(width: 4),
+        Text.rich(
+          TextSpan(
+            style: TextStyle(
+              color: palette.textSecondary,
+              fontSize: 11,
+              height: 1.35,
+            ),
+            children: [
+              TextSpan(text: '$label '),
+              TextSpan(
+                text: '$value',
+                style: TextStyle(
+                  color: palette.textPrimary,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _SheetLoading extends StatelessWidget {
+  const _SheetLoading();
+
+  @override
+  Widget build(BuildContext context) {
+    return const SizedBox(
+      height: 280,
+      child: Center(child: CircularProgressIndicator()),
     );
   }
 }

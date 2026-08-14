@@ -5,6 +5,7 @@ import com.ai.assistance.operit.terminal.TerminalManager
 import com.ai.assistance.operit.terminal.provider.type.TerminalType
 import com.ai.assistance.operit.terminal.setup.EnvironmentSetupLogic
 import com.ai.assistance.operit.terminal.utils.SourceManager
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -206,6 +207,8 @@ class EmbeddedTerminalSetupManager(
                 message = "环境配置完成：${installIds.joinToString(", ")}",
                 output = output.toString().trim()
             )
+        } catch (error: CancellationException) {
+            throw error
         } catch (error: Exception) {
             onProgress("error", error.message ?: "环境配置失败，请稍后重试。")
             InstallResult(

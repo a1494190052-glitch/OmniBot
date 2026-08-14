@@ -1011,7 +1011,7 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
             "id" to id,
             "name" to name,
             "baseUrl" to if (official) "" else baseUrl,
-            "apiKey" to "",
+            "apiKey" to if (official) "" else apiKey,
             "customHeaders" to emptyMap<String, String>(),
             "hasApiKey" to (!official && apiKey.isNotBlank()),
             "hasCustomHeaders" to (!official && customHeaders.isNotEmpty()),
@@ -1022,7 +1022,6 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
             "statusText" to statusText,
             "configured" to isConfigured(),
             "wireApi" to wireApi,
-            "destinationConsentValid" to destinationConsentValid,
         )
     }
 
@@ -1032,7 +1031,7 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
             "id" to id,
             "name" to name,
             "baseUrl" to if (official) "" else baseUrl,
-            "apiKey" to "",
+            "apiKey" to if (official) "" else apiKey,
             "customHeaders" to emptyMap<String, String>(),
             "hasApiKey" to (!official && apiKey.isNotBlank()),
             "hasCustomHeaders" to (!official && customHeaders.isNotEmpty()),
@@ -1044,7 +1043,6 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
             "protocolType" to protocolType,
             "wireApi" to wireApi,
             "revision" to revision,
-            "destinationConsentValid" to destinationConsentValid,
         )
     }
 
@@ -2940,7 +2938,6 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
         val sourceType = call.argument<String>("sourceType")?.trim()
         val protocolType = call.argument<String>("protocolType")?.trim() ?: "openai_compatible"
         val wireApi = call.argument<String>("wireApi")?.trim().orEmpty()
-        val destinationConfirmed = call.argument<Boolean>("destinationConfirmed") == true
 
         workJob.launch {
             try {
@@ -2966,7 +2963,6 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
                     sourceType = sourceType,
                     protocolType = protocolType,
                     wireApi = wireApi,
-                    destinationConfirmed = destinationConfirmed,
                 )
                 withContext(Dispatchers.Main) {
                     result.success(saved.toMap())
@@ -3031,7 +3027,6 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
         val clearApiKey = call.argument<Boolean>("clearApiKey") == true
         val replaceCustomHeaders = call.argument<Boolean>("replaceCustomHeaders") == true
         val clearCustomHeaders = call.argument<Boolean>("clearCustomHeaders") == true
-        val destinationConfirmed = call.argument<Boolean>("destinationConfirmed") == true
 
         workJob.launch {
             try {
@@ -3050,7 +3045,6 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
                     baseUrl,
                     apiKey,
                     customHeaders,
-                    destinationConfirmed = destinationConfirmed,
                 )
                 val saved = ModelProviderConfigStore.getConfig()
                 withContext(Dispatchers.Main) {
@@ -3089,15 +3083,15 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
         )
         val useProvidedApiKey = call.argument<Boolean>("useProvidedApiKey") == true
         val useProvidedCustomHeaders = call.argument<Boolean>("useProvidedCustomHeaders") == true
-        val destinationConfirmed = call.argument<Boolean>("destinationConfirmed") == true
         val profileId = call.argument<String>("profileId")?.trim()
+        val capability = call.argument<String>("capability")?.trim()
         val expectedProfileRevision = call.argument<Number>("expectedProfileRevision")?.toLong()
         val expectedProfileBaseUrl = call.argument<String>("expectedProfileBaseUrl")?.trim().orEmpty()
 
         workJob.launch {
             try {
                 if (OmniOfficialProvider.isOfficialProfile(profileId)) {
-                    val models = PlatformAiProvisioner.ensureReadyAndGetModels()
+                    val models = PlatformAiProvisioner.ensureReadyAndGetModels(capability)
                     withContext(Dispatchers.Main) {
                         result.success(models.map { it.toMap() })
                     }
@@ -3119,15 +3113,6 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
                         )
                 ) { "provider profile changed" }
                 val apiBase = if (baseUrlArg.isNotEmpty()) baseUrlArg else profile.baseUrl
-                if (!destinationConfirmed) {
-                    require(
-                        ModelProviderConfigStore.sameCanonicalEndpoint(profile.baseUrl, apiBase)
-                    ) { "provider profile changed" }
-                }
-                check(
-                    destinationConfirmed ||
-                        ModelProviderConfigStore.hasCurrentDestinationConsent(profile, apiBase)
-                ) { "Provider destination confirmation is required" }
                 val apiKey = if (useProvidedApiKey) apiKeyArg else profile.apiKey
                 val customHeaders = if (useProvidedCustomHeaders) customHeadersArg else profile.customHeaders
                 val models = HttpController.fetchProviderModels(
@@ -3173,13 +3158,13 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
         )
         val useProvidedApiKey = call.argument<Boolean>("useProvidedApiKey") == true
         val useProvidedCustomHeaders = call.argument<Boolean>("useProvidedCustomHeaders") == true
-        val destinationConfirmed = call.argument<Boolean>("destinationConfirmed") == true
         val profileId = call.argument<String>("profileId")?.trim()
+        val capability = call.argument<String>("capability")?.trim()
 
         workJob.launch {
             try {
                 if (OmniOfficialProvider.isOfficialProfile(profileId)) {
-                    val available = PlatformAiProvisioner.ensureReadyAndGetModels()
+                    val available = PlatformAiProvisioner.ensureReadyAndGetModels(capability)
                         .any { it.id == model }
                     withContext(Dispatchers.Main) {
                         result.success(
@@ -3195,10 +3180,6 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
                 val profile = profileId?.let(ModelProviderConfigStore::getProfile)
                     ?: ModelProviderConfigStore.getEditingProfile()
                 val apiBase = if (baseUrlArg.isNotEmpty()) baseUrlArg else profile.baseUrl
-                check(
-                    destinationConfirmed ||
-                        ModelProviderConfigStore.hasCurrentDestinationConsent(profile, apiBase)
-                ) { "Provider destination confirmation is required" }
                 val apiKey = if (useProvidedApiKey) apiKeyArg else profile.apiKey
                 val customHeaders = if (useProvidedCustomHeaders) {
                     customHeadersArg
@@ -3716,7 +3697,8 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
                             "providerProfileName" to config.providerProfileName,
                             "modelId" to config.modelId,
                             "apiBase" to config.apiBase,
-                            "hasApiKey" to config.hasApiKey
+                            "hasApiKey" to config.hasApiKey,
+                            "usesPlatform" to config.usesPlatform
                         )
                     )
                 }
@@ -3749,7 +3731,8 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
                             "providerProfileName" to config.providerProfileName,
                             "modelId" to config.modelId,
                             "apiBase" to config.apiBase,
-                            "hasApiKey" to config.hasApiKey
+                            "hasApiKey" to config.hasApiKey,
+                            "usesPlatform" to config.usesPlatform
                         )
                     )
                 }

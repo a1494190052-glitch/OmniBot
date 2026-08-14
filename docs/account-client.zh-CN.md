@@ -72,4 +72,4 @@ Flutter 账号中心已经支持：
 - 登录后自动追加只读的“OmniBot 官方 AI”渠道；模型提供商设置页仍只管理本机 BYOK Provider
 - 自动同步官方文本模型，并把已验证的 `Qwen3.5-Plus` 设为首次使用的主文本模型
 
-主聊天文本、图片生成和语音播放按所选 Provider 或场景绑定路由：选择官方渠道时携带账号 Access Token 访问品牌网关，并只使用网关模型目录声明的能力；选择 BYOK 时继续使用设备上的模型提供商、图片生成与语音配置。登录和官方目录同步不会改写本地 BYOK Provider、Key 或场景选择。升级前已经配置的 BYOK Provider 会继续有效，新建或修改第三方地址时仍需要确认数据接收方。若 BYOK 图片 Provider 没有 Key，而构建时配置了 `OMNIBOT_IMAGE_API_KEY`，图片工具会继续使用小万内置图片服务作为回退。
+主聊天文本、图片生成和语音播放按所选 Provider 或场景绑定路由：选择官方渠道时携带账号 Access Token 访问品牌网关，并只使用网关模型目录声明的能力；选择 BYOK 时继续使用设备上的模型提供商、图片生成与语音配置。登录和官方目录同步不会改写本地 BYOK Provider、Key 或场景选择。若 BYOK 图片 Provider 没有 Key，而构建时配置了 `OMNIBOT_IMAGE_API_KEY`，图片工具会继续使用小万内置图片服务作为回退。

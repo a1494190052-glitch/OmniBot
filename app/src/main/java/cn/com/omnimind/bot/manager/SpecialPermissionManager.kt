@@ -558,6 +558,50 @@ class SpecialPermissionManager(private val context: Context) {
         }
     }
 
+    fun switchEmbeddedTerminalDistribution(call: MethodCall, result: MethodChannel.Result) {
+        CoroutineScope(Dispatchers.IO).launch {
+            try {
+                val rawId = call.argument<String>("distribution")?.trim()?.lowercase()
+                val distribution = TerminalDistribution.supported.firstOrNull { it.id == rawId }
+                    ?: throw IllegalArgumentException("Unsupported terminal distribution: $rawId")
+                val current = TerminalDistribution.selected()
+                if (current.id == distribution.id) {
+                    withContext(Dispatchers.Main) { result.success(distribution.id) }
+                    return@launch
+                }
+
+                val preparation = EmbeddedTerminalInitCoordinator.prepareDistribution(
+                    context = context,
+                    distribution = distribution
+                )
+                if (!preparation.success) {
+                    withContext(Dispatchers.Main) {
+                        result.error(
+                            "SWITCH_TERMINAL_DISTRIBUTION_FAILED",
+                            preparation.message,
+                            null
+                        )
+                    }
+                    return@launch
+                }
+
+                TerminalManager.getInstance(context).closeAllSessions()
+                com.rk.settings.Settings.terminal_distribution = distribution.workingMode
+                com.rk.settings.Settings.working_Mode = distribution.workingMode
+                withContext(Dispatchers.Main) { result.success(distribution.id) }
+            } catch (e: Exception) {
+                OmniLog.e(TAG, "Error switching terminal distribution", e)
+                withContext(Dispatchers.Main) {
+                    result.error(
+                        "SWITCH_TERMINAL_DISTRIBUTION_FAILED",
+                        e.message ?: "Failed to switch terminal distribution.",
+                        e.message
+                    )
+                }
+            }
+        }
+    }
+
     fun installEmbeddedTerminalPackages(call: MethodCall, result: MethodChannel.Result) {
         CoroutineScope(Dispatchers.IO).launch {
             try {
@@ -836,6 +880,10 @@ class SpecialPermissionManager(private val context: Context) {
                 e.message
             )
         }
+    }
+
+    fun cancelEmbeddedTerminalInit(result: MethodChannel.Result) {
+        result.success(EmbeddedTerminalInitCoordinator.cancelCurrent())
     }
 
     fun isUnknownAppInstallAllowed(result: MethodChannel.Result) {

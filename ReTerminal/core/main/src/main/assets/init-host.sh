@@ -6,87 +6,120 @@ esac
 
 ROOTFS_DIR=$PREFIX/local/$TERMINAL_DISTRIBUTION
 ROOTFS_ARCHIVE=$PREFIX/files/$TERMINAL_DISTRIBUTION.tar.gz
-ROOTFS_LOCK_DIR="${ROOTFS_DIR}.install-lock"
-ROOTFS_LOCK_PID_FILE="$ROOTFS_LOCK_DIR/pid"
-ROOTFS_STAGING_DIR="${ROOTFS_DIR}.new.$$"
-ROOTFS_PREVIOUS_DIR="${ROOTFS_DIR}.previous.$$"
-ROOTFS_LOCK_HELD=0
+ROOTFS_READY_MARKER=$ROOTFS_DIR/.omnibot-rootfs-ready
+ACTIVE_CHILD_PID=
 
 [ ! -f "$ROOTFS_ARCHIVE" ] && ROOTFS_ARCHIVE=$PREFIX/files/$TERMINAL_DISTRIBUTION.tar
 
-cleanup_rootfs_refresh() {
-    if [ -d "$ROOTFS_PREVIOUS_DIR" ] && [ ! -d "$ROOTFS_DIR" ]; then
-        mv "$ROOTFS_PREVIOUS_DIR" "$ROOTFS_DIR" 2>/dev/null || true
-    fi
-    rm -rf "$ROOTFS_STAGING_DIR"
-    [ -d "$ROOTFS_DIR" ] && rm -rf "$ROOTFS_PREVIOUS_DIR"
-    if [ "$ROOTFS_LOCK_HELD" = "1" ] &&
-       [ "$(cat "$ROOTFS_LOCK_PID_FILE" 2>/dev/null || true)" = "$$" ]; then
-        rm -rf "$ROOTFS_LOCK_DIR"
-    fi
-    ROOTFS_LOCK_HELD=0
-}
-
-mkdir -p "$(dirname "$ROOTFS_DIR")"
-ROOTFS_LOCK_WAIT_SECONDS=0
-ROOTFS_LOCK_EMPTY_WAITS=0
-while ! mkdir "$ROOTFS_LOCK_DIR" 2>/dev/null; do
-    ROOTFS_LOCK_OWNER=$(cat "$ROOTFS_LOCK_PID_FILE" 2>/dev/null || true)
-    if [ -n "$ROOTFS_LOCK_OWNER" ]; then
-        ROOTFS_LOCK_EMPTY_WAITS=0
-        if ! kill -0 "$ROOTFS_LOCK_OWNER" 2>/dev/null; then
-            rm -rf "$ROOTFS_LOCK_DIR"
-            continue
-        fi
-    else
-        ROOTFS_LOCK_EMPTY_WAITS=$((ROOTFS_LOCK_EMPTY_WAITS + 1))
-        if [ "$ROOTFS_LOCK_EMPTY_WAITS" -ge 2 ]; then
-            rm -rf "$ROOTFS_LOCK_DIR"
-            continue
-        fi
-    fi
-    if [ "$ROOTFS_LOCK_WAIT_SECONDS" -ge 120 ]; then
-        echo "rootfs install lock timed out" >&2
-        exit 75
-    fi
-    sleep 1
-    ROOTFS_LOCK_WAIT_SECONDS=$((ROOTFS_LOCK_WAIT_SECONDS + 1))
-done
-ROOTFS_LOCK_HELD=1
-printf '%s\n' "$$" > "$ROOTFS_LOCK_PID_FILE"
-trap cleanup_rootfs_refresh 0
-trap 'exit 1' 1 2 3 15
-
 mkdir -p "$ROOTFS_DIR"
 
-ROOTFS_NEEDS_REFRESH=0
-EXPECTED_ROOTFS_VERSION=""
-if [ "$TERMINAL_DISTRIBUTION" = "alpine" ] && [ -f "$PREFIX/files/runtime-manifest" ]; then
-    EXPECTED_ROOTFS_VERSION=$(sed -n 's/^version=//p' "$PREFIX/files/runtime-manifest" | head -n 1)
-fi
-if [ -z "$(ls -A "$ROOTFS_DIR" | grep -vE '^(root|tmp)$')" ]; then
-    ROOTFS_NEEDS_REFRESH=1
-elif [ -n "$EXPECTED_ROOTFS_VERSION" ]; then
-    INSTALLED_ROOTFS_VERSION=$(cat "$ROOTFS_DIR/etc/omnibot-python-environment" 2>/dev/null || true)
-    [ -n "$EXPECTED_ROOTFS_VERSION" ] && [ "$INSTALLED_ROOTFS_VERSION" != "$EXPECTED_ROOTFS_VERSION" ] && ROOTFS_NEEDS_REFRESH=1
-fi
-
-if [ "$ROOTFS_NEEDS_REFRESH" = "1" ]; then
-    rm -rf "$ROOTFS_STAGING_DIR"
-    mkdir -p "$ROOTFS_STAGING_DIR"
-    tar -xf "$ROOTFS_ARCHIVE" -C "$ROOTFS_STAGING_DIR" || exit $?
-    if [ "$TERMINAL_DISTRIBUTION" = "alpine" ] && [ -n "$EXPECTED_ROOTFS_VERSION" ]; then
-        EXTRACTED_ROOTFS_VERSION=$(cat "$ROOTFS_STAGING_DIR/etc/omnibot-python-environment" 2>/dev/null || true)
-        [ "$EXTRACTED_ROOTFS_VERSION" = "$EXPECTED_ROOTFS_VERSION" ] || exit 1
+terminate_active_child() {
+    if [ -n "$ACTIVE_CHILD_PID" ]; then
+        kill "$ACTIVE_CHILD_PID" 2>/dev/null || true
+        wait "$ACTIVE_CHILD_PID" 2>/dev/null || true
+        ACTIVE_CHILD_PID=
     fi
-    rm -rf "$ROOTFS_PREVIOUS_DIR"
-    mv "$ROOTFS_DIR" "$ROOTFS_PREVIOUS_DIR"
-    mv "$ROOTFS_STAGING_DIR" "$ROOTFS_DIR"
-    rm -rf "$ROOTFS_PREVIOUS_DIR"
+}
+
+handle_termination() {
+    terminate_active_child
+    exit 130
+}
+
+run_child() {
+    "$@" &
+    ACTIVE_CHILD_PID=$!
+    wait "$ACTIVE_CHILD_PID"
+    child_status=$?
+    ACTIVE_CHILD_PID=
+    return "$child_status"
+}
+
+rootfs_entry_exists() {
+    [ -e "$1" ] || [ -L "$1" ]
+}
+
+rootfs_has_minimum_layout() {
+    rootfs_entry_exists "$ROOTFS_DIR/bin/sh" &&
+        rootfs_entry_exists "$ROOTFS_DIR/etc/os-release"
+}
+
+rootfs_has_legacy_layout() {
+    rootfs_has_minimum_layout || return 1
+    rootfs_entry_exists "$ROOTFS_DIR/usr/bin/env" || return 1
+    case "$TERMINAL_DISTRIBUTION" in
+        ubuntu)
+            rootfs_entry_exists "$ROOTFS_DIR/usr/bin/apt-get" &&
+                [ -f "$ROOTFS_DIR/var/lib/dpkg/status" ]
+            ;;
+        *)
+            rootfs_entry_exists "$ROOTFS_DIR/sbin/apk" &&
+                [ -f "$ROOTFS_DIR/lib/apk/db/installed" ] &&
+                [ -f "$ROOTFS_DIR/etc/alpine-release" ]
+            ;;
+    esac
+}
+
+clear_incomplete_rootfs() {
+    clear_status=0
+    for entry in "$ROOTFS_DIR"/* "$ROOTFS_DIR"/.[!.]* "$ROOTFS_DIR"/..?*; do
+        [ -e "$entry" ] || [ -L "$entry" ] || continue
+        name=${entry##*/}
+        case "$name" in
+            root|tmp) ;;
+            *) rm -rf "$entry" || clear_status=1 ;;
+        esac
+    done
+    return "$clear_status"
+}
+
+mark_rootfs_ready() {
+    marker_tmp="$ROOTFS_READY_MARKER.$$"
+    rm -f "$marker_tmp"
+    printf '%s\n' "$TERMINAL_DISTRIBUTION" > "$marker_tmp" &&
+        mv -f "$marker_tmp" "$ROOTFS_READY_MARKER"
+}
+
+trap handle_termination HUP INT TERM
+
+if [ -f "$ROOTFS_READY_MARKER" ]; then
+    if ! rootfs_has_minimum_layout; then
+        if ! clear_incomplete_rootfs; then
+            echo "Failed to reset incomplete $TERMINAL_DISTRIBUTION rootfs." >&2
+            exit 1
+        fi
+    fi
+elif rootfs_has_legacy_layout; then
+    if ! mark_rootfs_ready; then
+        echo "Failed to record completed $TERMINAL_DISTRIBUTION rootfs installation." >&2
+        exit 1
+    fi
+else
+    if ! clear_incomplete_rootfs; then
+        echo "Failed to reset incomplete $TERMINAL_DISTRIBUTION rootfs." >&2
+        exit 1
+    fi
 fi
 
-cleanup_rootfs_refresh
-trap - 0 1 2 3 15
+if [ ! -f "$ROOTFS_READY_MARKER" ]; then
+    if [ ! -f "$ROOTFS_ARCHIVE" ]; then
+        echo "Missing $TERMINAL_DISTRIBUTION rootfs archive: $ROOTFS_ARCHIVE" >&2
+        exit 1
+    fi
+    if ! run_child tar -xf "$ROOTFS_ARCHIVE" -C "$ROOTFS_DIR"; then
+        echo "Failed to extract $TERMINAL_DISTRIBUTION rootfs." >&2
+        exit 1
+    fi
+    if ! rootfs_has_legacy_layout; then
+        clear_incomplete_rootfs
+        echo "Extracted $TERMINAL_DISTRIBUTION rootfs is incomplete." >&2
+        exit 1
+    fi
+    if ! mark_rootfs_ready; then
+        echo "Failed to record completed $TERMINAL_DISTRIBUTION rootfs installation." >&2
+        exit 1
+    fi
+fi
 
 FIPS_COMPAT_FILE="$PREFIX/local/sysctl_crypto_fips_enabled"
 [ ! -f "$FIPS_COMPAT_FILE" ] && {
@@ -159,27 +192,20 @@ if [ -n "$OMNIBOT_MT_STORAGE_HOST" ] && [ -d "$OMNIBOT_MT_STORAGE_HOST" ]; then
   ARGS="$ARGS -b $OMNIBOT_MT_STORAGE_HOST:/mt"
 fi
 
-if [ "${OMNIBOT_HEADLESS:-0}" != "1" ]; then
-  # Interactive PTYs keep these descriptors alive for the whole session. A
-  # ProcessBuilder-backed headless command does not: Android may close one of
-  # the probed /proc/self/fd entries before PRoot resolves its bind, which makes
-  # an otherwise valid runtime bootstrap fail. Headless commands already
-  # inherit their pipes through PRoot and the /dev + /proc mounts above.
-  if [ -e "/proc/self/fd" ]; then
-    ARGS="$ARGS -b /proc/self/fd:/dev/fd"
-  fi
+if [ -e "/proc/self/fd" ]; then
+  ARGS="$ARGS -b /proc/self/fd:/dev/fd"
+fi
 
-  if [ -e "/proc/self/fd/0" ]; then
-    ARGS="$ARGS -b /proc/self/fd/0:/dev/stdin"
-  fi
+if [ -e "/proc/self/fd/0" ]; then
+  ARGS="$ARGS -b /proc/self/fd/0:/dev/stdin"
+fi
 
-  if [ -e "/proc/self/fd/1" ]; then
-    ARGS="$ARGS -b /proc/self/fd/1:/dev/stdout"
-  fi
+if [ -e "/proc/self/fd/1" ]; then
+  ARGS="$ARGS -b /proc/self/fd/1:/dev/stdout"
+fi
 
-  if [ -e "/proc/self/fd/2" ]; then
-    ARGS="$ARGS -b /proc/self/fd/2:/dev/stderr"
-  fi
+if [ -e "/proc/self/fd/2" ]; then
+  ARGS="$ARGS -b /proc/self/fd/2:/dev/stderr"
 fi
 
 
@@ -198,4 +224,10 @@ ARGS="$ARGS --link2symlink"
 ARGS="$ARGS --sysvipc"
 ARGS="$ARGS -L"
 
-$LINKER $PREFIX/local/bin/proot $ARGS /bin/sh $PREFIX/local/bin/init "$@"
+# The final runtime must stay attached to the caller's stdio.  In a
+# non-interactive shell an asynchronously executed command gets /dev/null as
+# stdin, which makes stdio services such as ACP observe EOF and exit before
+# initialization.  Replacing the host shell also lets Process.destroy() target
+# proot directly; --kill-on-exit remains responsible for its descendants.
+trap - HUP INT TERM
+exec "$LINKER" "$PREFIX/local/bin/proot" $ARGS /bin/sh "$PREFIX/local/bin/init" "$@"

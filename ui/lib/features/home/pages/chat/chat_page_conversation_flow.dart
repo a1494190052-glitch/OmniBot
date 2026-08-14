@@ -30,7 +30,7 @@ mixin _ChatPageConversationFlowMixin on _ChatPageStateBase {
     List<ChatMessageModel>? messages,
     bool preserveLiveStreamingState = false,
   }) {
-    final conversationId = _currentConversationIdByMode[mode];
+    final conversationId = _modeState(mode).currentConversationId;
     if (conversationId == null) return;
     final runtime = _runtimeCoordinator.runtimeFor(
       conversationId: conversationId,
@@ -40,41 +40,41 @@ mixin _ChatPageConversationFlowMixin on _ChatPageStateBase {
       conversationId: conversationId,
       mode: _modeKey(mode),
       messages: List<ChatMessageModel>.from(
-        messages ?? runtime?.messages ?? _messagesByMode[mode]!,
+        messages ?? runtime?.messages ?? _modeState(mode).messages,
       ),
       conversation:
           conversation ??
           runtime?.conversation ??
-          _currentConversationByMode[mode],
+          _modeState(mode).currentConversation,
       isAiResponding:
-          runtime?.isAiResponding ?? (_isAiRespondingByMode[mode] ?? false),
+          runtime?.isAiResponding ?? (_modeState(mode).isAiResponding),
       isContextCompressing:
           runtime?.isContextCompressing ??
-          (_isContextCompressingByMode[mode] ?? false),
+          (_modeState(mode).isContextCompressing),
       isCheckingExecutableTask:
           runtime?.isCheckingExecutableTask ??
-          (_isCheckingExecutableTaskByMode[mode] ?? false),
+          (_modeState(mode).isCheckingExecutableTask),
       currentAiMessages: Map<String, String>.from(
-        runtime?.currentAiMessages ?? _currentAiMessagesByMode[mode]!,
+        runtime?.currentAiMessages ?? _modeState(mode).currentAiMessages,
       ),
       currentThinkingMessages: Map<String, String>.from(
         runtime?.currentThinkingMessages ?? const <String, String>{},
       ),
       deepThinkingContent:
           runtime?.deepThinkingContent ??
-          (_deepThinkingContentByMode[mode] ?? ''),
+          (_modeState(mode).deepThinkingContent),
       isDeepThinking:
-          runtime?.isDeepThinking ?? (_isDeepThinkingByMode[mode] ?? false),
+          runtime?.isDeepThinking ?? (_modeState(mode).isDeepThinking),
       currentDispatchTaskId:
-          runtime?.currentDispatchTaskId ?? _currentDispatchTaskIdByMode[mode],
+          runtime?.currentDispatchTaskId ??
+          _modeState(mode).currentDispatchTaskId,
       currentThinkingStage:
           runtime?.currentThinkingStage ??
-          (_currentThinkingStageByMode[mode] ?? 1),
+          (_modeState(mode).currentThinkingStage),
       isInputAreaVisible:
-          runtime?.isInputAreaVisible ??
-          (_isInputAreaVisibleByMode[mode] ?? true),
+          runtime?.isInputAreaVisible ?? (_modeState(mode).isInputAreaVisible),
       isExecutingTask:
-          runtime?.isExecutingTask ?? (_isExecutingTaskByMode[mode] ?? false),
+          runtime?.isExecutingTask ?? (_modeState(mode).isExecutingTask),
       lastAgentTaskId: runtime?.lastAgentTaskId,
       activeToolCardId: runtime?.activeToolCardId,
       activeThinkingCardId: runtime?.activeThinkingCardId,
@@ -85,12 +85,12 @@ mixin _ChatPageConversationFlowMixin on _ChatPageStateBase {
       thinkingRound: runtime?.thinkingRound ?? 0,
       chatIslandDisplayLayer:
           runtime?.chatIslandDisplayLayer ??
-          (_chatIslandDisplayLayerByMode[mode] ?? ChatIslandDisplayLayer.mode),
+          (_modeState(mode).chatIslandDisplayLayer),
       lastAgentToolType:
-          runtime?.lastAgentToolType ?? _lastAgentToolTypeByMode[mode],
+          runtime?.lastAgentToolType ?? _modeState(mode).lastAgentToolType,
       browserSessionSnapshot:
           runtime?.browserSessionSnapshot ??
-          _browserSessionSnapshotByMode[mode],
+          _modeState(mode).browserSessionSnapshot,
       preserveLiveStreamingState: preserveLiveStreamingState,
     );
     _rememberRuntimeUiSnapshot(mode);

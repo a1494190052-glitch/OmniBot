@@ -217,6 +217,69 @@ void main() {
     });
   });
 
+  group('resolveVisibleChatMessages', () {
+    final localUserMessage = ChatMessageModel.userMessage(
+      '刚刚发送的消息',
+      id: 'local-user',
+    );
+    final runtimeReply = ChatMessageModel.assistantMessage(
+      'runtime reply',
+      id: 'runtime-reply',
+    );
+
+    test('keeps the populated local list during an empty runtime hand-off', () {
+      final fallback = <ChatMessageModel>[localUserMessage];
+
+      expect(
+        resolveVisibleChatMessages(
+          runtimeMessages: <ChatMessageModel>[],
+          fallbackMessages: fallback,
+          preserveFallbackDuringHandoff: true,
+        ),
+        same(fallback),
+      );
+    });
+
+    test('uses runtime messages as soon as the runtime is populated', () {
+      final runtime = <ChatMessageModel>[runtimeReply];
+
+      expect(
+        resolveVisibleChatMessages(
+          runtimeMessages: runtime,
+          fallbackMessages: <ChatMessageModel>[localUserMessage],
+        ),
+        same(runtime),
+      );
+    });
+
+    test(
+      'preserves a deliberately empty runtime when both sources are empty',
+      () {
+        final runtime = <ChatMessageModel>[];
+
+        expect(
+          resolveVisibleChatMessages(
+            runtimeMessages: runtime,
+            fallbackMessages: <ChatMessageModel>[],
+          ),
+          same(runtime),
+        );
+      },
+    );
+
+    test('does not expose stale fallback messages outside a hand-off', () {
+      final runtime = <ChatMessageModel>[];
+
+      expect(
+        resolveVisibleChatMessages(
+          runtimeMessages: runtime,
+          fallbackMessages: <ChatMessageModel>[localUserMessage],
+        ),
+        same(runtime),
+      );
+    });
+  });
+
   group('retriedMessageRoundRemovalCount', () {
     final messages = <ChatMessageModel>[
       ChatMessageModel.assistantMessage('旧回复', id: 'assistant'),

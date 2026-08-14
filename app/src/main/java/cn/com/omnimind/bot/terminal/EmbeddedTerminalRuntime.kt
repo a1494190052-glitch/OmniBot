@@ -26,7 +26,13 @@ import java.util.concurrent.ConcurrentHashMap
 object EmbeddedTerminalRuntime {
     data class EnvironmentProgress(
         val kind: Kind,
-        val message: String
+        val message: String,
+        val phase: String? = null,
+        val distribution: String? = null,
+        val downloadedBytes: Long = 0L,
+        val totalBytes: Long = 0L,
+        val progress: Double? = null,
+        val error: String? = null
     ) {
         enum class Kind {
             STATUS,
@@ -388,29 +394,47 @@ object EmbeddedTerminalRuntime {
                 message = "正在初始化宿主终端运行时"
             )
         )
+        var runtimeFailureMessage: String? = null
         val initialized =
-            manager.initializeEnvironment { message ->
+            manager.initializeEnvironment { runtimeProgress ->
+                runtimeProgress.error?.takeIf { it.isNotBlank() }?.let { error ->
+                    runtimeFailureMessage = error
+                }
                 emitEnvironmentProgress(
                     onProgress,
                     EnvironmentProgress(
-                        kind = EnvironmentProgress.Kind.STATUS,
-                        message = message
+                        kind = if (runtimeProgress.error == null) {
+                            EnvironmentProgress.Kind.STATUS
+                        } else {
+                            EnvironmentProgress.Kind.ERROR
+                        },
+                        message = runtimeProgress.message,
+                        phase = runtimeProgress.phase,
+                        distribution = runtimeProgress.distribution,
+                        downloadedBytes = runtimeProgress.downloadedBytes,
+                        totalBytes = runtimeProgress.totalBytes,
+                        progress = runtimeProgress.progress,
+                        error = runtimeProgress.error
                     )
                 )
             }
         if (!initialized) {
+            val failureMessage = runtimeFailureMessage ?: "内嵌终端环境初始化失败。"
             emitEnvironmentProgress(
                 onProgress,
                 EnvironmentProgress(
                     kind = EnvironmentProgress.Kind.ERROR,
-                    message = "内嵌终端环境初始化失败。"
+                    message = failureMessage,
+                    phase = "error",
+                    distribution = TerminalDistribution.selected().id,
+                    error = failureMessage
                 )
             )
             return EnvironmentStatus(
                 success = false,
                 initialized = false,
                 basePackagesReady = isBasePackagesReady(context),
-                message = "内嵌终端环境初始化失败。"
+                message = failureMessage
             )
         }
 

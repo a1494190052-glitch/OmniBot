@@ -74,7 +74,7 @@ object EnvironmentSetupLogic {
             "build-base",
             "python3"
         ),
-        "python" to listOf("python3", "py3-numpy"),
+        "python" to listOf("python3"),
         "pip" to listOf("py3-pip"),
         "uv" to listOf("python3", "py3-pip"),
         "ssh_client" to listOf("openssh-client-default"),
@@ -103,7 +103,7 @@ object EnvironmentSetupLogic {
             "build-essential",
             "python3"
         ),
-        "python" to listOf("python3", "python3-numpy"),
+        "python" to listOf("python3"),
         "pip" to listOf("python3-pip"),
         "uv" to listOf("python3", "python3-pip"),
         "ssh_client" to listOf("openssh-client"),
@@ -157,7 +157,7 @@ object EnvironmentSetupLogic {
             commands += if (workingMode == WorkingMode.UBUNTU) {
                 "apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends ${systemPackages.joinToString(" ")}"
             } else {
-                "apk --wait 300 add --no-cache ${systemPackages.joinToString(" ")}"
+                buildAlpinePackageInstallCommand(systemPackages)
             }
         }
 
@@ -171,7 +171,7 @@ object EnvironmentSetupLogic {
             commands += if (workingMode == WorkingMode.UBUNTU) {
                 "python3 -m pip install --break-system-packages --upgrade uv"
             } else {
-                "if ! apk --wait 300 add --no-cache uv; then python3 -m pip install --break-system-packages --upgrade uv; fi"
+                "if ! apk add --no-cache uv; then python3 -m pip install --break-system-packages --upgrade uv; fi"
             }
         }
         if (requested.any { it in NPM_AGENT_PACKAGE_IDS }) {
@@ -287,7 +287,7 @@ object EnvironmentSetupLogic {
                 )
                 "python" -> buildProbeSnippet(
                     packageId = packageId,
-                    commandCheck = "command -v python3 >/dev/null 2>&1 && python3 -c 'import os, numpy; os.getcwd()' >/dev/null 2>&1",
+                    commandCheck = "command -v python3 >/dev/null 2>&1 && python3 -c 'import os; os.getcwd()' >/dev/null 2>&1",
                     versionCommand = "python3 --version"
                 )
                 "uv" -> buildProbeSnippet(
@@ -368,7 +368,7 @@ object EnvironmentSetupLogic {
             "git" -> "command -v git"
             "nodejs" -> "command -v node && node -e 'process.cwd()'"
             "npm" -> "command -v npm && npm --version"
-            "python" -> "command -v python3 && python3 -c 'import os, numpy; os.getcwd()'"
+            "python" -> "command -v python3 && python3 -c 'import os; os.getcwd()'"
             "pip" -> "command -v pip3 && pip3 --version"
             "uv" -> "command -v uv && uv --version"
             "codex" -> "PATH=\"/root/.npm-global/bin:${'$'}PATH\"; export PATH; command -v codex && codex --version"
@@ -444,9 +444,6 @@ object EnvironmentSetupLogic {
         }
         if (requested.any { it == "python" || it == "pip" || it == "uv" }) {
             add("Python cwd", "python3 -c 'import os; os.getcwd()' >/dev/null 2>&1")
-        }
-        if ("python" in requested) {
-            add("NumPy", "python3 -c 'import numpy' >/dev/null 2>&1")
         }
         if ("pip" in requested || "uv" in requested) {
             add("pip", "pip3 --version >/dev/null 2>&1")

@@ -18,10 +18,9 @@ class EnvironmentSetupLogicTest {
             repositorySetupCommand = ""
         )
 
-        val apkAdd = commands.first { it.startsWith("apk --wait 300 add ") }
+        val apkAdd = commands.first { it.contains("omnibot_apk_add") }
         assertTrue(apkAdd.contains("python3"))
         assertTrue(apkAdd.contains("py3-pip"))
-        assertTrue(apkAdd.contains("py3-numpy"))
         assertTrue(apkAdd.contains("nodejs"))
         assertTrue(apkAdd.contains("npm"))
         assertTrue(apkAdd.contains("openssh-client-default"))
@@ -30,7 +29,7 @@ class EnvironmentSetupLogicTest {
         assertTrue(commands.contains("ln -sf /usr/bin/pip3 /usr/local/bin/pip || true"))
         assertTrue(
             commands.contains(
-                "if ! apk --wait 300 add --no-cache uv; then python3 -m pip install --break-system-packages --upgrade uv; fi"
+                "if ! apk add --no-cache uv; then python3 -m pip install --break-system-packages --upgrade uv; fi"
             )
         )
     }
@@ -43,7 +42,7 @@ class EnvironmentSetupLogicTest {
         )
 
         assertEquals("echo mirror-ready", commands.first())
-        assertTrue(commands.any { it == "apk --wait 300 add --no-cache curl" })
+        assertTrue(commands.any { it.contains("omnibot_apk_add 'curl'") })
     }
 
     @Test
@@ -67,7 +66,6 @@ class EnvironmentSetupLogicTest {
 
         val aptInstall = commands.last { it.startsWith("apt-get update") }
         assertTrue(aptInstall.contains("python3"))
-        assertTrue(aptInstall.contains("python3-numpy"))
         assertTrue(aptInstall.contains("python3-pip"))
         assertTrue(aptInstall.contains("nodejs"))
         assertTrue(!aptInstall.split(Regex("\\s+")).contains("npm"))
@@ -83,7 +81,7 @@ class EnvironmentSetupLogicTest {
             repositorySetupCommand = ""
         )
 
-        val apkAdd = commands.first { it.startsWith("apk --wait 300 add ") }
+        val apkAdd = commands.first { it.contains("omnibot_apk_add") }
         assertTrue(apkAdd.contains("nodejs"))
         assertTrue(apkAdd.contains("npm"))
         assertTrue(apkAdd.contains("git"))
@@ -116,7 +114,7 @@ class EnvironmentSetupLogicTest {
             repositorySetupCommand = ""
         )
 
-        val apkAdd = commands.first { it.startsWith("apk --wait 300 add ") }
+        val apkAdd = commands.first { it.contains("omnibot_apk_add") }
         assertTrue(apkAdd.contains("nodejs"))
         assertTrue(apkAdd.contains("npm"))
         assertTrue(commands.count { it == "npm config set prefix /root/.npm-global" } == 1)
@@ -162,7 +160,7 @@ class EnvironmentSetupLogicTest {
             repositorySetupCommand = ""
         )
 
-        val apkAdd = commands.first { it.startsWith("apk --wait 300 add ") }
+        val apkAdd = commands.first { it.contains("omnibot_apk_add") }
         assertTrue(apkAdd.contains("nodejs"))
         assertTrue(apkAdd.contains("npm"))
         assertTrue(apkAdd.contains("build-base"))
@@ -195,6 +193,62 @@ class EnvironmentSetupLogicTest {
     }
 
     @Test
+    fun buildAlpinePackageInstallCommand_repairsAndRetriesOneInterruptedTransaction() {
+        val tempDir = Files.createTempDirectory("omnibot-apk-retry-test").toFile()
+        try {
+            val invocationLog = File(tempDir, "apk-invocations.log")
+            val fakeApk = File(tempDir, "apk").apply {
+                writeText(
+                    """
+                        #!/bin/sh
+                        printf '%s\n' "${'$'}*" >> "${'$'}OMNIBOT_TEST_APK_LOG"
+                        if [ "${'$'}1" = "fix" ]; then
+                          if [ "${'$'}3" = "--upgrade" ]; then
+                            exit 0
+                          fi
+                          exit 1
+                        fi
+                        add_attempts="${'$'}(grep -c '^add ' "${'$'}OMNIBOT_TEST_APK_LOG" 2>/dev/null || true)"
+                        if [ "${'$'}add_attempts" -eq 1 ]; then
+                          exit 5
+                        fi
+                        exit 0
+                    """.trimIndent()
+                )
+                setExecutable(true)
+            }
+            assertTrue(fakeApk.canExecute())
+
+            val command = buildAlpinePackageInstallCommand(
+                listOf("build-base", "python3")
+            )
+            val process = ProcessBuilder("/bin/sh", "-c", command)
+                .redirectErrorStream(true)
+                .apply {
+                    environment()["OMNIBOT_TEST_APK_LOG"] = invocationLog.absolutePath
+                    environment()["PATH"] =
+                        tempDir.absolutePath + File.pathSeparator + environment()["PATH"]
+                }
+                .start()
+            val output = process.inputStream.bufferedReader().use { it.readText() }
+            val exitCode = process.waitFor()
+
+            assertEquals(output, 0, exitCode)
+            assertEquals(
+                listOf(
+                    "add --no-cache build-base python3",
+                    "fix --no-cache",
+                    "fix --no-cache --upgrade",
+                    "add --no-cache build-base python3"
+                ),
+                invocationLog.readLines()
+            )
+        } finally {
+            tempDir.deleteRecursively()
+        }
+    }
+
+    @Test
     fun buildInstallCommands_installsUbuntuDeepSeekHarnessNativeBuildTools() {
         val commands = EnvironmentSetupLogic.buildInstallCommands(
             selectedPackageIds = listOf("deepseek_harness"),
@@ -213,7 +267,7 @@ class EnvironmentSetupLogicTest {
 
         assertTrue(command.contains("node -e 'process.cwd();"))
         assertTrue(command.contains("process.versions.node"))
-        assertTrue(command.contains("python3 -c 'import os, numpy; os.getcwd()'"))
+        assertTrue(command.contains("python3 -c 'import os; os.getcwd()'"))
         assertTrue(command.contains("pip3 --version"))
     }
 
@@ -232,7 +286,6 @@ class EnvironmentSetupLogicTest {
         assertTrue(script.contains("校验基础目录操作"))
         assertTrue(script.contains("node -e 'process.cwd();"))
         assertTrue(script.contains("python3 -c 'import os; os.getcwd()'"))
-        assertTrue(script.contains("python3 -c 'import numpy'"))
         assertTrue(script.contains("pip3 --version"))
         assertTrue(script.contains("setup_status=${'$'}?"))
         assertTrue(script.contains("|| return \"${'$'}setup_status\""))

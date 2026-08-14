@@ -5,6 +5,7 @@ import android.os.Handler
 import android.os.Looper
 import android.util.Log
 import com.ai.assistance.operit.terminal.TerminalManager
+import com.ai.assistance.operit.terminal.setup.buildAlpinePackageInstallCommand
 import cn.com.omnimind.baselib.database.DatabaseHelper
 import cn.com.omnimind.bot.BuildConfig
 import cn.com.omnimind.bot.agent.AgentAttachmentPromptSupport
@@ -1626,7 +1627,7 @@ internal val MANAGED_NATIVE_BUILD_PREREQUISITES_COMMAND = """
         return 0
       fi
       if command -v apk >/dev/null 2>&1; then
-        apk add --no-cache build-base python3
+        ${buildAlpinePackageInstallCommand(listOf("build-base", "python3"))}
       elif command -v apt-get >/dev/null 2>&1; then
         apt-get update
         DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends build-essential python3

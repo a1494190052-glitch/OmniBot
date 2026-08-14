@@ -1,10 +1,186 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:ui/l10n/legacy_text_localizer.dart';
 import 'package:ui/widgets/omnibot_markdown_body.dart';
 import 'package:ui/widgets/streaming_text.dart';
 import 'package:ui/widgets/typewriter_text.dart';
 
 void main() {
+  setUp(() {
+    LegacyTextLocalizer.setResolvedLocale(const Locale('zh'));
+  });
+
+  tearDown(() {
+    LegacyTextLocalizer.clearResolvedLocale();
+  });
+
+  test('detects prose versus structured Markdown', () {
+    expect(
+      omnibotTextRequiresStructuredMarkdown('在呢~ 😊 小万随时待命。\n今天有什么想让我帮忙的吗？'),
+      isFalse,
+    );
+    expect(omnibotTextRequiresStructuredMarkdown('## 标题'), isTrue);
+    expect(omnibotTextRequiresStructuredMarkdown('- 第一项'), isTrue);
+    expect(omnibotTextRequiresStructuredMarkdown('使用 `code`'), isTrue);
+    expect(omnibotTextRequiresStructuredMarkdown('这是 *强调* 内容'), isTrue);
+    expect(omnibotTextRequiresStructuredMarkdown('| 名称 | 状态 |'), isTrue);
+  });
+
+  test('limits stable bold streaming to real strong-emphasis prose', () {
+    expect(omnibotTextCanUseStableBoldStreaming('这是 **加粗** 内容'), isTrue);
+    expect(omnibotTextCanUseStableBoldStreaming('foo__bar'), isFalse);
+    expect(omnibotTextCanUseStableBoldStreaming(r'\**literal**'), isFalse);
+    expect(omnibotTextCanUseStableBoldStreaming('流式 **加粗'), isTrue);
+    expect(
+      omnibotTextCanUseStableBoldStreaming('最终 **未闭合', allowUnclosed: false),
+      isFalse,
+    );
+  });
+
+  testWidgets(
+    'plain streamed prose keeps one layout across Markdown flush markers',
+    (tester) async {
+      const text = '在呢~ 😊 小万随时待命。今天有什么想让我帮忙的吗？比如查点什么、整理文件、设个提醒。';
+
+      Widget build({
+        required int? markdownRenderedLength,
+        bool isFinal = false,
+      }) {
+        return MaterialApp(
+          home: Scaffold(
+            body: SizedBox(
+              width: 220,
+              child: StreamingText(
+                enableMarkdown: true,
+                markdownRenderedLength: markdownRenderedLength,
+                isFinal: isFinal,
+                fullText: text,
+                style: const TextStyle(fontSize: 16, height: 1.57),
+              ),
+            ),
+          ),
+        );
+      }
+
+      await tester.pumpWidget(build(markdownRenderedLength: 0));
+      await tester.pump(const Duration(seconds: 5));
+      final initialSize = tester.getSize(find.byType(StreamingText));
+      expect(find.byType(OmnibotMarkdownBody), findsNothing);
+      expect(
+        find.byKey(const ValueKey('omnibot-plain-reveal')),
+        findsOneWidget,
+      );
+
+      await tester.pumpWidget(build(markdownRenderedLength: null));
+      await tester.pump();
+      expect(tester.getSize(find.byType(StreamingText)), initialSize);
+      expect(find.byType(OmnibotMarkdownBody), findsNothing);
+
+      await tester.pumpWidget(build(markdownRenderedLength: text.length ~/ 2));
+      await tester.pump();
+      expect(tester.getSize(find.byType(StreamingText)), initialSize);
+      expect(find.byType(OmnibotMarkdownBody), findsNothing);
+
+      await tester.pumpWidget(
+        build(markdownRenderedLength: null, isFinal: true),
+      );
+      await tester.pump();
+      expect(tester.getSize(find.byType(StreamingText)), initialSize);
+      expect(find.byType(OmnibotMarkdownBody), findsNothing);
+    },
+  );
+
+  testWidgets(
+    'bold streamed prose keeps stable geometry across Markdown flush markers',
+    (tester) async {
+      const text =
+          '这是一段包含 **加粗内容** 的流式回复，后面还有足够多的正文，'
+          '用来验证窄宽度换行时整个段落的高度是否稳定。';
+
+      Widget build(int? markdownRenderedLength) {
+        return MaterialApp(
+          home: Scaffold(
+            body: SizedBox(
+              width: 220,
+              child: StreamingText(
+                enableMarkdown: true,
+                markdownRenderedLength: markdownRenderedLength,
+                isFinal: false,
+                fullText: text,
+                style: const TextStyle(fontSize: 16, height: 1.57),
+              ),
+            ),
+          ),
+        );
+      }
+
+      final heights = <double>[];
+      for (final marker in <int?>[0, 12, null, 28, text.length]) {
+        await tester.pumpWidget(build(marker));
+        await tester.pump(const Duration(seconds: 5));
+        heights.add(tester.getSize(find.byType(StreamingText)).height);
+      }
+
+      expect(heights.toSet(), hasLength(1), reason: 'heights=$heights');
+      final richText = tester
+          .widgetList<RichText>(
+            find.descendant(
+              of: find.byType(StreamingText),
+              matching: find.byType(RichText),
+            ),
+          )
+          .firstWhere((widget) => widget.text.toPlainText().contains('加粗内容'));
+      expect(richText.text.toPlainText(), text.replaceAll('**', ''));
+
+      bool containsBold(InlineSpan span) {
+        if (span is! TextSpan) return false;
+        if (span.style?.fontWeight == FontWeight.bold) return true;
+        return span.children?.any(containsBold) ?? false;
+      }
+
+      expect(containsBold(richText.text), isTrue);
+    },
+  );
+
+  testWidgets(
+    'structured streamed content keeps one coherent Markdown layout',
+    (tester) async {
+      const text = '## 标题\n\n- 第一项包含 **加粗** 内容\n- 第二项';
+
+      Widget build(int? markdownRenderedLength) {
+        return MaterialApp(
+          home: Scaffold(
+            body: SizedBox(
+              width: 220,
+              child: StreamingText(
+                enableMarkdown: true,
+                markdownRenderedLength: markdownRenderedLength,
+                isFinal: false,
+                fullText: text,
+                style: const TextStyle(fontSize: 16, height: 1.57),
+              ),
+            ),
+          ),
+        );
+      }
+
+      final heights = <double>[];
+      for (final marker in <int?>[0, text.length ~/ 2, null]) {
+        await tester.pumpWidget(build(marker));
+        await tester.pump();
+        heights.add(tester.getSize(find.byType(StreamingText)).height);
+        expect(find.byType(OmnibotMarkdownBody), findsOneWidget);
+        expect(
+          find.byKey(const ValueKey('omnibot-streaming-tail')),
+          findsNothing,
+        );
+      }
+
+      expect(heights.toSet(), hasLength(1), reason: 'heights=$heights');
+    },
+  );
+
   test('detects partial markdown table candidates', () {
     expect(omnibotMarkdownContainsTableCandidate('名称 | 状态'), isTrue);
     expect(omnibotMarkdownContainsTableCandidate('|:---'), isTrue);
@@ -128,7 +304,7 @@ void main() {
   );
 
   testWidgets(
-    'StreamingText renders markdown snapshots after replacement without exceptions',
+    'StreamingText renders bold snapshots after replacement without exceptions',
     (tester) async {
       await tester.pumpWidget(
         const MaterialApp(
@@ -157,10 +333,21 @@ void main() {
       await tester.pump();
 
       expect(tester.takeException(), isNull);
-      final markdownBody = tester.widget<OmnibotMarkdownBody>(
-        find.byType(OmnibotMarkdownBody),
+      final richText = tester.widget<RichText>(
+        find.byWidgetPredicate(
+          (widget) =>
+              widget is RichText && widget.text.toPlainText().contains('新内容'),
+        ),
       );
-      expect(markdownBody.data, '**新内容** 😀');
+      expect(richText.text.toPlainText(), '新内容 😀');
+
+      bool containsBold(InlineSpan span) {
+        if (span is! TextSpan) return false;
+        if (span.style?.fontWeight == FontWeight.bold) return true;
+        return span.children?.any(containsBold) ?? false;
+      }
+
+      expect(containsBold(richText.text), isTrue);
     },
   );
 
@@ -222,7 +409,7 @@ void main() {
 
       expect(tester.takeException(), isNull);
       expect(find.byType(Table), findsNothing);
-      expect(find.byType(SelectionArea), findsNothing);
+      expect(find.byType(SelectionArea), findsOneWidget);
       expect(find.byType(SelectionContainer), findsWidgets);
       expect(find.textContaining('| A | 通过 |'), findsOneWidget);
 
@@ -277,7 +464,7 @@ void main() {
     },
   );
 
-  testWidgets('StreamingText keeps markdown tables out of the selection tree', (
+  testWidgets('StreamingText keeps table and prose in one selection area', (
     tester,
   ) async {
     const tableText =
@@ -302,11 +489,12 @@ void main() {
     await tester.pump();
 
     expect(tester.takeException(), isNull);
+    expect(find.byType(SelectionArea), findsOneWidget);
     expect(
       tester
           .widgetList<SelectionContainer>(find.byType(SelectionContainer))
           .any((widget) => widget.delegate == null),
-      isTrue,
+      isFalse,
     );
 
     await tester.tap(find.text('A'));
@@ -332,7 +520,7 @@ void main() {
   });
 
   testWidgets(
-    'StreamingText renders table fast-path tails outside selectable markdown',
+    'StreamingText keeps table fast-path tails inside selectable markdown',
     (tester) async {
       const prefix = '表格如下：\n\n';
       const fullText =
@@ -356,7 +544,7 @@ void main() {
       await tester.pump();
 
       expect(tester.takeException(), isNull);
-      expect(find.byType(SelectionArea), findsNothing);
+      expect(find.byType(SelectionArea), findsOneWidget);
       expect(
         find.byKey(const ValueKey('omnibot-streaming-table-tail')),
         findsNothing,
@@ -422,9 +610,73 @@ void main() {
 
       expect(tester.takeException(), isNull);
       expect(find.byType(Table), findsOneWidget);
-      expect(find.byType(SelectionArea), findsNothing);
+      expect(find.byType(SelectionArea), findsOneWidget);
     },
   );
+
+  testWidgets('long press can copy table cells with surrounding prose', (
+    tester,
+  ) async {
+    const assistCoreChannel = MethodChannel(
+      'cn.com.omnimind.bot/AssistCoreEvent',
+    );
+    MethodCall? clipboardCall;
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    messenger.setMockMethodCallHandler(assistCoreChannel, (call) async {
+      if (call.method == 'copyToClipboard') {
+        clipboardCall = call;
+        return 'SUCCESS';
+      }
+      return null;
+    });
+    addTearDown(
+      () => messenger.setMockMethodCallHandler(assistCoreChannel, null),
+    );
+
+    const tableText =
+        '表格前说明\n\n'
+        '| 名称 | 状态 |\n'
+        '| --- | --- |\n'
+        '| A | 通过 |\n'
+        '| B | 待处理 |\n\n'
+        '表格后说明';
+    await tester.pumpWidget(
+      const MaterialApp(
+        home: Scaffold(
+          body: Padding(
+            padding: EdgeInsets.all(24),
+            child: StreamingText(
+              enableMarkdown: true,
+              selectable: true,
+              isFinal: true,
+              fullText: tableText,
+              style: TextStyle(fontSize: 14),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    await tester.longPress(find.text('A'));
+    await tester.pump();
+    expect(find.text('全选'), findsOneWidget);
+    expect(find.text('复制'), findsOneWidget);
+
+    await tester.tap(find.text('全选'));
+    await tester.pump();
+    await tester.tap(find.text('复制'));
+    await tester.pump();
+
+    expect(clipboardCall?.method, 'copyToClipboard');
+    final copiedText = (clipboardCall?.arguments as Map?)?['text'] as String?;
+    expect(copiedText, contains('表格前说明'));
+    expect(copiedText, contains('名称'));
+    expect(copiedText, contains('A'));
+    expect(copiedText, contains('通过'));
+    expect(copiedText, contains('表格后说明'));
+  });
 
   testWidgets(
     'StreamingText hides dangling duplicated table snapshots in full markdown path',
@@ -454,7 +706,7 @@ void main() {
 
       expect(tester.takeException(), isNull);
       expect(find.byType(Table), findsOneWidget);
-      expect(find.byType(SelectionArea), findsNothing);
+      expect(find.byType(SelectionArea), findsOneWidget);
       expect(find.textContaining('| 序号 |'), findsNothing);
       expect(find.textContaining('|:---'), findsNothing);
     },

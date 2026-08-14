@@ -51,7 +51,11 @@ class OnboardingEnvironmentProgressPage extends StatelessWidget {
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
                     Semantics(
-                      label: onbTr(context, '环境配置进度', 'Environment setup progress'),
+                      label: onbTr(
+                        context,
+                        '环境配置进度',
+                        'Environment setup progress',
+                      ),
                       value: progressLabel,
                       child: SizedBox(
                         width: 178,
@@ -146,6 +150,20 @@ class OnboardingEnvironmentProgressPage extends StatelessWidget {
                         icon: LucideIcons.rotateCw,
                         onPressed: onRetry,
                       ),
+                    ] else if (controller.isBusy) ...[
+                      const SizedBox(height: 28),
+                      TextButton.icon(
+                        key: const ValueKey('tutorial-environment-cancel'),
+                        onPressed: controller.cancelSetup,
+                        icon: const Icon(LucideIcons.x),
+                        label: Text(
+                          onbTr(
+                            context,
+                            '取消并保留下载进度',
+                            'Cancel and keep download progress',
+                          ),
+                        ),
+                      ),
                     ],
                     const SizedBox(height: 10),
                     _buildNavigation(context, success: success, failed: failed),
@@ -172,7 +190,11 @@ class OnboardingEnvironmentProgressPage extends StatelessWidget {
     }
     return switch (controller.phaseIndex(controller.stage)) {
       0 => onbTr(context, '正在保存配置', 'Saving your setup'),
-      1 => onbTr(context, '正在准备 $systemName 系统', 'Preparing the $systemName system'),
+      1 => onbTr(
+        context,
+        '正在准备 $systemName 系统',
+        'Preparing the $systemName system',
+      ),
       2 => onbTr(context, '正在安装开发工具', 'Installing development tools'),
       3 => onbTr(context, '正在验证安装结果', 'Verifying the installation'),
       _ => onbTr(context, '正在完成配置', 'Finishing setup'),
@@ -254,7 +276,9 @@ class _CrossFadeText extends StatelessWidget {
     final reduceMotion =
         MediaQuery.maybeOf(context)?.disableAnimations ?? false;
     return AnimatedSwitcher(
-      duration: reduceMotion ? Duration.zero : const Duration(milliseconds: 180),
+      duration: reduceMotion
+          ? Duration.zero
+          : const Duration(milliseconds: 180),
       child: Text(
         text,
         key: ValueKey<String>(text),
@@ -327,8 +351,7 @@ class _MilestoneStepper extends StatelessWidget {
               ),
               Row(
                 children: List<Widget>.generate(labels.length, (index) {
-                  final completed =
-                      index < currentPhase || controller.ready;
+                  final completed = index < currentPhase || controller.ready;
                   final active = !controller.ready && index == currentPhase;
                   final failed = controller.failed && active;
                   final color = failed
@@ -416,7 +439,9 @@ class _SetupDetails extends StatelessWidget {
     final palette = context.omniPalette;
     final extras = controller.selectedToolLabels;
     final preset = controller.selectedPreset;
-    final tools = extras.isEmpty ? preset.contents : '${preset.contents} · $extras';
+    final tools = extras.isEmpty
+        ? preset.contents
+        : '${preset.contents} · $extras';
 
     Widget detailRow({
       required IconData icon,

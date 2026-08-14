@@ -42,12 +42,14 @@ void main() {
   late String soulContent;
   late String chatContent;
   late String memoryContent;
+  late bool embeddingUsesPlatform;
   late List<MethodCall> recordedCalls;
 
   setUp(() {
     soulContent = '# SOUL\ninitial soul\n';
     chatContent = '# CHAT\ninitial chat prompt\n';
     memoryContent = '# MEMORY\ninitial memory\n';
+    embeddingUsesPlatform = false;
     recordedCalls = <MethodCall>[];
 
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
@@ -79,6 +81,7 @@ void main() {
                 'modelId': 'embedding-1',
                 'apiBase': 'https://example.com/v1',
                 'hasApiKey': true,
+                'usesPlatform': embeddingUsesPlatform,
               };
             case 'getWorkspaceMemoryRollupStatus':
               return <String, Object?>{
@@ -140,5 +143,25 @@ void main() {
       recordedCalls.where((call) => call.method == 'saveChatPromptSetting'),
       hasLength(1),
     );
+  });
+
+  testWidgets('BYOK embedding keeps the scene model config entry', (
+    tester,
+  ) async {
+    await tester.pumpWidget(buildTestApp(const WorkspaceMemorySettingPage()));
+    await tester.pumpAndSettle();
+
+    expect(find.text('去场景模型配置记忆嵌入模型'), findsOneWidget);
+  });
+
+  testWidgets('platform embedding hides the ineffective BYOK config entry', (
+    tester,
+  ) async {
+    embeddingUsesPlatform = true;
+
+    await tester.pumpWidget(buildTestApp(const WorkspaceMemorySettingPage()));
+    await tester.pumpAndSettle();
+
+    expect(find.text('去场景模型配置记忆嵌入模型'), findsNothing);
   });
 }

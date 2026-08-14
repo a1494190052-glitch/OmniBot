@@ -744,6 +744,139 @@ void main() {
     },
   );
 
+  testWidgets('shows only enabled online ACP Agents in the mode menu', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: DefaultAssetBundle(
+          bundle: _SvgTestAssetBundle(),
+          child: Scaffold(
+            body: ChatAppBar(
+              onMenuTap: () {},
+              onOmniAiTap: () {},
+              onPureChatToggleTap: () {},
+              onAcpAgentTap: (_) {},
+              acpAgentModes: const <ChatAcpAgentModeOption>[
+                ChatAcpAgentModeOption(id: 'codex-acp', name: 'Codex'),
+                ChatAcpAgentModeOption(
+                  id: 'disabled-agent',
+                  name: 'Disabled',
+                  enabled: false,
+                ),
+                ChatAcpAgentModeOption(
+                  id: 'unchecked-agent',
+                  name: 'Unchecked',
+                  status: 'unchecked',
+                ),
+                ChatAcpAgentModeOption(
+                  id: 'offline-agent',
+                  name: 'Offline',
+                  status: 'offline',
+                ),
+                ChatAcpAgentModeOption(
+                  id: 'missing-agent',
+                  name: 'Missing',
+                  status: 'missing',
+                ),
+                ChatAcpAgentModeOption(
+                  id: 'not-installed-agent',
+                  name: 'Not installed',
+                  installed: false,
+                ),
+                ChatAcpAgentModeOption(
+                  id: 'codex-remote',
+                  name: 'Agent Remote',
+                  enabled: false,
+                ),
+              ],
+              activeMode: ChatSurfaceMode.normal,
+              onModeChanged: (_) {},
+              onDisplayLayerChanged: (_) {},
+              onTerminalEnvironmentTap: (_) {},
+              onTerminalTap: () {},
+              onBrowserTap: () {},
+            ),
+          ),
+        ),
+      ),
+    );
+
+    await tester.tap(
+      find.byKey(const ValueKey('chat-app-bar-pure-chat-button')),
+    );
+    await tester.pumpAndSettle();
+
+    expect(
+      find.byKey(const ValueKey('chat-app-bar-mode-menu-acp-codex-acp')),
+      findsOneWidget,
+    );
+    for (final agentId in const <String>[
+      'disabled-agent',
+      'unchecked-agent',
+      'offline-agent',
+      'missing-agent',
+      'not-installed-agent',
+      'codex-remote',
+    ]) {
+      expect(
+        find.byKey(ValueKey('chat-app-bar-mode-menu-acp-$agentId')),
+        findsNothing,
+      );
+    }
+    expect(
+      find.byKey(const ValueKey('chat-app-bar-mode-menu-acp-generic-agent')),
+      findsNothing,
+    );
+  });
+
+  testWidgets('does not synthesize an Agent when none is available', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: DefaultAssetBundle(
+          bundle: _SvgTestAssetBundle(),
+          child: Scaffold(
+            body: ChatAppBar(
+              onMenuTap: () {},
+              onOmniAiTap: () {},
+              onAgentTap: () {},
+              onPureChatToggleTap: () {},
+              acpAgentModes: const <ChatAcpAgentModeOption>[
+                ChatAcpAgentModeOption(
+                  id: 'unchecked-agent',
+                  name: 'Unchecked',
+                  status: 'unchecked',
+                ),
+              ],
+              activeMode: ChatSurfaceMode.normal,
+              onModeChanged: (_) {},
+              onDisplayLayerChanged: (_) {},
+              onTerminalEnvironmentTap: (_) {},
+              onTerminalTap: () {},
+              onBrowserTap: () {},
+            ),
+          ),
+        ),
+      ),
+    );
+
+    await tester.tap(
+      find.byKey(const ValueKey('chat-app-bar-pure-chat-button')),
+    );
+    await tester.pumpAndSettle();
+
+    expect(
+      find.byKey(const ValueKey('chat-app-bar-mode-menu-acp-unchecked-agent')),
+      findsNothing,
+    );
+    expect(
+      find.byKey(const ValueKey('chat-app-bar-mode-menu-acp-generic-agent')),
+      findsNothing,
+    );
+  });
+
   testWidgets('shows every ACP Agent with its brand icon and selects it', (
     tester,
   ) async {

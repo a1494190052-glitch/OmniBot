@@ -137,6 +137,7 @@ class _TermuxSettingPageState extends State<TermuxSettingPage>
   bool _isDetecting = true;
   bool _isDistributionLoading = true;
   bool _isDistributionSwitching = false;
+  bool _isDistributionCancelling = false;
   bool _isAutoStartLoading = true;
   bool _isAutoStartBusy = false;
   bool _isMountsLoading = true;
@@ -153,6 +154,11 @@ class _TermuxSettingPageState extends State<TermuxSettingPage>
   Set<String> _selectedPackageIds = <String>{};
   EmbeddedTerminalDistribution _selectedDistribution =
       EmbeddedTerminalDistribution.alpine;
+  EmbeddedTerminalDistribution? _switchingDistribution;
+  StreamSubscription<EmbeddedTerminalInitProgress>?
+  _terminalInitProgressSubscription;
+  double? _distributionSwitchProgress;
+  String? _distributionSwitchStage;
 
   List<_EnvironmentViewModel> get _items {
     return _environmentDefinitions
@@ -268,6 +274,8 @@ class _TermuxSettingPageState extends State<TermuxSettingPage>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    _terminalInitProgressSubscription = embeddedTerminalInitProgressStream
+        .listen(_handleTerminalInitProgress);
     unawaited(_loadDistributionAndInventory(selectMissingByDefault: true));
     unawaited(_refreshAutoStartTasks());
     unawaited(_refreshWorkspaceMounts());
@@ -276,15 +284,52 @@ class _TermuxSettingPageState extends State<TermuxSettingPage>
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    unawaited(_terminalInitProgressSubscription?.cancel());
     super.dispose();
   }
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
-      unawaited(_loadDistributionAndInventory());
+      if (!_isDistributionSwitching) {
+        unawaited(_loadDistributionAndInventory());
+      }
       unawaited(_refreshAutoStartTasks());
       unawaited(_refreshWorkspaceMounts());
+    }
+  }
+
+  void _handleTerminalInitProgress(EmbeddedTerminalInitProgress progress) {
+    if (!mounted || !_isDistributionSwitching) return;
+    final switchingDistribution = _switchingDistribution;
+    if (progress.distribution != null &&
+        progress.distribution != switchingDistribution) {
+      return;
+    }
+    setState(() {
+      _distributionSwitchProgress = progress.progress;
+      if (progress.message.isNotEmpty) {
+        _distributionSwitchStage = progress.message;
+      }
+    });
+  }
+
+  Future<void> _cancelDistributionSwitch() async {
+    if (!_isDistributionSwitching || _isDistributionCancelling) return;
+    setState(() {
+      _isDistributionCancelling = true;
+      _distributionSwitchStage = _isEnglish
+          ? 'Cancelling download…'
+          : '正在取消下载…';
+    });
+    try {
+      await cancelEmbeddedTerminalInit();
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isDistributionCancelling = false;
+        });
+      }
     }
   }
 
@@ -325,12 +370,18 @@ class _TermuxSettingPageState extends State<TermuxSettingPage>
     setState(() {
       _selectedDistribution = distribution;
       _isDistributionSwitching = true;
+      _isDistributionCancelling = false;
+      _switchingDistribution = distribution;
+      _distributionSwitchProgress = null;
+      _distributionSwitchStage = _isEnglish
+          ? 'Preparing ${distribution == EmbeddedTerminalDistribution.ubuntu ? 'Ubuntu' : 'Alpine'}…'
+          : '正在准备 ${distribution == EmbeddedTerminalDistribution.ubuntu ? 'Ubuntu' : 'Alpine'}…';
       _hasInitializedSelection = false;
       _inventory = const <String, EmbeddedTerminalSetupInventoryItem>{};
       _selectedPackageIds = <String>{};
     });
     try {
-      final saved = await setEmbeddedTerminalDistribution(distribution);
+      final saved = await switchEmbeddedTerminalDistribution(distribution);
       if (!mounted) return;
       setState(() {
         _selectedDistribution = saved;
@@ -368,6 +419,10 @@ class _TermuxSettingPageState extends State<TermuxSettingPage>
       if (mounted) {
         setState(() {
           _isDistributionSwitching = false;
+          _isDistributionCancelling = false;
+          _switchingDistribution = null;
+          _distributionSwitchProgress = null;
+          _distributionSwitchStage = null;
         });
       }
     }
@@ -915,7 +970,40 @@ class _TermuxSettingPageState extends State<TermuxSettingPage>
           ),
           if (busy) ...[
             const SizedBox(height: 12),
-            const LinearProgressIndicator(minHeight: 2),
+            LinearProgressIndicator(
+              minHeight: 2,
+              value: _isDistributionSwitching
+                  ? _distributionSwitchProgress
+                  : null,
+            ),
+            if (_isDistributionSwitching) ...[
+              const SizedBox(height: 8),
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: [
+                  Expanded(
+                    child: Text(
+                      _distributionSwitchStage ??
+                          (_isEnglish
+                              ? 'Preparing terminal system…'
+                              : '正在准备终端系统…'),
+                      style: TextStyle(
+                        color: _secondaryTextColor,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  TextButton(
+                    onPressed: _isDistributionCancelling
+                        ? null
+                        : () => unawaited(_cancelDistributionSwitch()),
+                    child: Text(_isEnglish ? 'Cancel' : '取消下载'),
+                  ),
+                ],
+              ),
+            ],
           ],
         ],
       ),

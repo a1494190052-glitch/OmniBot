@@ -342,7 +342,7 @@ class OmnibotMarkdownBody extends StatelessWidget {
           children.add(
             OmnibotTableBuilder(
               baseStyle: baseStyle,
-              selectable: false,
+              selectable: selectable,
               inlineResourcePlainStyle: inlineResourcePlainStyle,
               onResourceOpen: onResourceOpen,
             )._buildTableFromRows(context, styleSheet, tableRows),
@@ -352,12 +352,17 @@ class OmnibotMarkdownBody extends StatelessWidget {
         if (segment.text.trim().isEmpty) {
           continue;
         }
-        children.add(_buildMarkdownBody(context, segment.text));
+        // The whole mixed prose/table column owns one SelectionArea below;
+        // nested MarkdownBody selection regions would stop drag selection at
+        // each segment boundary.
+        children.add(
+          _buildMarkdownBody(context, segment.text, selectableOverride: false),
+        );
       }
       if (children.isEmpty) {
         return const SizedBox.shrink();
       }
-      return KeyedSubtree(
+      final child = KeyedSubtree(
         key: const ValueKey('omnibot-markdown-table-root'),
         child: RepaintBoundary(
           child: Column(
@@ -367,6 +372,7 @@ class OmnibotMarkdownBody extends StatelessWidget {
           ),
         ),
       );
+      return selectable ? SelectionArea(child: child) : child;
     }
     return KeyedSubtree(
       key: const ValueKey('omnibot-markdown-plain-root'),
@@ -374,12 +380,17 @@ class OmnibotMarkdownBody extends StatelessWidget {
     );
   }
 
-  Widget _buildMarkdownBody(BuildContext context, String source) {
+  Widget _buildMarkdownBody(
+    BuildContext context,
+    String source, {
+    bool? selectableOverride,
+  }) {
     final styleSheet = _resolveMarkdownStyleSheet(context, baseStyle);
+    final resolvedSelectable = selectableOverride ?? selectable;
     return RepaintBoundary(
       child: MarkdownBody(
         data: _linkifyBareOmnibotUris(_withTrailingInlineToken(source)),
-        selectable: selectable,
+        selectable: resolvedSelectable,
         onTapLink: (text, href, title) {
           if (href == null) return;
           _handleMarkdownLinkTap(context, href, onResourceOpen);
@@ -390,7 +401,7 @@ class OmnibotMarkdownBody extends StatelessWidget {
             : _kInlineSyntaxesWithoutTrailing,
         builders: buildOmnibotMarkdownBuilders(
           baseStyle: baseStyle,
-          selectable: selectable,
+          selectable: resolvedSelectable,
           inlineResourcePlainStyle: inlineResourcePlainStyle,
           codeTapHandler: _kOmnibotCodeTapHandler,
           trailingInline: trailingInline,
@@ -1028,18 +1039,16 @@ class OmnibotTableBuilder extends MarkdownElementBuilder {
     if (tableRows.isEmpty) {
       return const SizedBox.shrink();
     }
-    return SelectionContainer.disabled(
-      child: Padding(
-        padding: styleSheet.tablePadding ?? EdgeInsets.zero,
-        child: _OmnibotTableScrollable(
-          thumbVisibility: styleSheet.tableScrollbarThumbVisibility ?? false,
-          child: Table(
-            border: styleSheet.tableBorder,
-            defaultColumnWidth:
-                styleSheet.tableColumnWidth ?? const IntrinsicColumnWidth(),
-            defaultVerticalAlignment: styleSheet.tableVerticalAlignment,
-            children: tableRows,
-          ),
+    return Padding(
+      padding: styleSheet.tablePadding ?? EdgeInsets.zero,
+      child: _OmnibotTableScrollable(
+        thumbVisibility: styleSheet.tableScrollbarThumbVisibility ?? false,
+        child: Table(
+          border: styleSheet.tableBorder,
+          defaultColumnWidth:
+              styleSheet.tableColumnWidth ?? const IntrinsicColumnWidth(),
+          defaultVerticalAlignment: styleSheet.tableVerticalAlignment,
+          children: tableRows,
         ),
       ),
     );

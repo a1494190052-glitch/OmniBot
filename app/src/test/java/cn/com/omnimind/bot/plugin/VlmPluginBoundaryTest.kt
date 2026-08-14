@@ -7,7 +7,7 @@ import org.junit.Test
 
 class VlmPluginBoundaryTest {
     @Test
-    fun `build profiles keep GUI plugin defaults in plugin host`() {
+    fun `build profiles keep required OmniFlow lifecycle in plugin host`() {
         val provider = projectSource(
             "app/src/main/java/cn/com/omnimind/bot/plugin/official/OmniVlmLiteProvider.kt",
         )
@@ -56,9 +56,9 @@ class VlmPluginBoundaryTest {
         assertTrue(appBuild.contains("into(\"runtime-components\")"))
         assertTrue(appBuild.contains("omnibotProfile in profiles"))
         assertTrue(mcpServerManager.indexOf("json(McpJson)") < mcpServerManager.indexOf("gson()"))
-        assertTrue(terminalBuild.contains("includeEmbeddedPythonEnvironment"))
-        assertTrue(terminalBuild.contains("includeEmbeddedUbuntuEnvironment"))
-        assertTrue(terminalBuild.contains("includeEmbeddedPythonEnvironment = providers.provider { true }"))
+        assertTrue(terminalBuild.contains("TERMINAL_RUNTIME_MANIFEST_URL"))
+        assertTrue(terminalBuild.contains("alpineMiniRootfsUrl"))
+        assertTrue(terminalBuild.contains("alpine.tar.gz"))
         assertTrue(terminalBuild.contains("root.deleteRecursively()"))
         assertFalse(
             Regex(

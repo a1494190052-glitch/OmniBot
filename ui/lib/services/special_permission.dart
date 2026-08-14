@@ -34,11 +34,23 @@ class EmbeddedTerminalInitProgress {
     required this.kind,
     required this.message,
     required this.timestamp,
+    required this.phase,
+    required this.distribution,
+    required this.downloadedBytes,
+    required this.totalBytes,
+    required this.progress,
+    required this.error,
   });
 
   final String kind;
   final String message;
   final DateTime timestamp;
+  final String? phase;
+  final EmbeddedTerminalDistribution? distribution;
+  final int downloadedBytes;
+  final int totalBytes;
+  final double? progress;
+  final String? error;
 
   factory EmbeddedTerminalInitProgress.fromMap(Map<dynamic, dynamic> map) {
     final timestampValue = map['timestamp'];
@@ -49,6 +61,16 @@ class EmbeddedTerminalInitProgress {
       kind: (map['kind'] as String? ?? 'status').trim(),
       message: (map['message'] as String? ?? '').trimRight(),
       timestamp: DateTime.fromMillisecondsSinceEpoch(millis),
+      phase: (map['phase'] as String?)?.trim(),
+      distribution: (map['distribution'] as String?)?.trim().isNotEmpty == true
+          ? EmbeddedTerminalDistribution.fromId(map['distribution'] as String?)
+          : null,
+      downloadedBytes: (map['downloadedBytes'] as num?)?.toInt() ?? 0,
+      totalBytes: (map['totalBytes'] as num?)?.toInt() ?? 0,
+      progress: map['progress'] is num
+          ? (map['progress'] as num).toDouble().clamp(0.0, 1.0).toDouble()
+          : null,
+      error: (map['error'] as String?)?.trim(),
     );
   }
 }
@@ -63,6 +85,11 @@ class EmbeddedTerminalInitSnapshot {
     required this.logLines,
     required this.startedAt,
     required this.completedAt,
+    required this.phase,
+    required this.distribution,
+    required this.downloadedBytes,
+    required this.totalBytes,
+    required this.error,
   });
 
   final bool running;
@@ -73,6 +100,11 @@ class EmbeddedTerminalInitSnapshot {
   final List<String> logLines;
   final DateTime? startedAt;
   final DateTime? completedAt;
+  final String? phase;
+  final EmbeddedTerminalDistribution? distribution;
+  final int downloadedBytes;
+  final int totalBytes;
+  final String? error;
 
   factory EmbeddedTerminalInitSnapshot.fromMap(Map<dynamic, dynamic> map) {
     final rawLogLines = map['logLines'];
@@ -87,6 +119,13 @@ class EmbeddedTerminalInitSnapshot {
           : const <String>[],
       startedAt: _parseEmbeddedTerminalInitTimestamp(map['startedAt']),
       completedAt: _parseEmbeddedTerminalInitTimestamp(map['completedAt']),
+      phase: (map['phase'] as String?)?.trim(),
+      distribution: (map['distribution'] as String?)?.trim().isNotEmpty == true
+          ? EmbeddedTerminalDistribution.fromId(map['distribution'] as String?)
+          : null,
+      downloadedBytes: (map['downloadedBytes'] as num?)?.toInt() ?? 0,
+      totalBytes: (map['totalBytes'] as num?)?.toInt() ?? 0,
+      error: (map['error'] as String?)?.trim(),
     );
   }
 }
@@ -370,6 +409,11 @@ Future<EmbeddedTerminalInitSnapshot> getEmbeddedTerminalInitSnapshot() async {
   return EmbeddedTerminalInitSnapshot.fromMap(result ?? const {});
 }
 
+Future<bool> cancelEmbeddedTerminalInit() async {
+  return await spePermission.invokeMethod<bool>('cancelEmbeddedTerminalInit') ??
+      false;
+}
+
 Future<EmbeddedTerminalRuntimeStatus> getEmbeddedTerminalRuntimeStatus() async {
   final result = await spePermission.invokeMethod<Map<dynamic, dynamic>>(
     'getEmbeddedTerminalRuntimeStatus',
@@ -404,6 +448,16 @@ Future<EmbeddedTerminalDistribution> setEmbeddedTerminalDistribution(
 ) async {
   final result = await spePermission.invokeMethod<String>(
     'setEmbeddedTerminalDistribution',
+    <String, dynamic>{'distribution': distribution.id},
+  );
+  return EmbeddedTerminalDistribution.fromId(result);
+}
+
+Future<EmbeddedTerminalDistribution> switchEmbeddedTerminalDistribution(
+  EmbeddedTerminalDistribution distribution,
+) async {
+  final result = await spePermission.invokeMethod<String>(
+    'switchEmbeddedTerminalDistribution',
     <String, dynamic>{'distribution': distribution.id},
   );
   return EmbeddedTerminalDistribution.fromId(result);

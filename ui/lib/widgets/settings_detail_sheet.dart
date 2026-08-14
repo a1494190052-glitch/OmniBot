@@ -21,7 +21,9 @@ class SettingsDetailSheet extends StatelessWidget {
     this.subtitle,
     this.actions = const <Widget>[],
     this.actionsKey,
+    this.headerAction,
     this.footer,
+    this.fillAvailableHeight = false,
   });
 
   final String title;
@@ -29,55 +31,82 @@ class SettingsDetailSheet extends StatelessWidget {
   final Widget body;
   final List<Widget> actions;
   final Key? actionsKey;
+  final Widget? headerAction;
   final Widget? footer;
+  final bool fillAvailableHeight;
 
   @override
   Widget build(BuildContext context) {
     final palette = context.omniPalette;
+    final heading = Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          title,
+          style: TextStyle(
+            fontSize: 16,
+            fontWeight: FontWeight.w600,
+            color: palette.textPrimary,
+          ),
+        ),
+        if (subtitle != null) ...[
+          const SizedBox(height: 4),
+          Text(
+            subtitle!,
+            style: TextStyle(
+              fontSize: 12,
+              height: 1.45,
+              color: palette.textSecondary,
+            ),
+          ),
+        ],
+      ],
+    );
     return SafeArea(
       top: false,
-      child: SingleChildScrollView(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              title,
-              style: TextStyle(
-                fontSize: 16,
-                fontWeight: FontWeight.w600,
-                color: palette.textPrimary,
-              ),
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final content = SingleChildScrollView(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                if (headerAction == null)
+                  heading
+                else
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Expanded(child: heading),
+                      const SizedBox(width: 8),
+                      headerAction!,
+                    ],
+                  ),
+                const SizedBox(height: 12),
+                body,
+                if (actions.isNotEmpty) ...[
+                  const SizedBox(height: 12),
+                  Wrap(
+                    key: actionsKey,
+                    spacing: 4,
+                    runSpacing: 4,
+                    alignment: WrapAlignment.start,
+                    crossAxisAlignment: WrapCrossAlignment.center,
+                    children: actions,
+                  ),
+                ],
+                if (footer != null) ...[const SizedBox(height: 8), footer!],
+                const SizedBox(height: 8),
+              ],
             ),
-            if (subtitle != null) ...[
-              const SizedBox(height: 4),
-              Text(
-                subtitle!,
-                style: TextStyle(
-                  fontSize: 12,
-                  height: 1.45,
-                  color: palette.textSecondary,
-                ),
-              ),
-            ],
-            const SizedBox(height: 12),
-            body,
-            if (actions.isNotEmpty) ...[
-              const SizedBox(height: 12),
-              Wrap(
-                key: actionsKey,
-                spacing: 4,
-                runSpacing: 4,
-                alignment: WrapAlignment.start,
-                crossAxisAlignment: WrapCrossAlignment.center,
-                children: actions,
-              ),
-            ],
-            if (footer != null) ...[const SizedBox(height: 8), footer!],
-            const SizedBox(height: 8),
-          ],
-        ),
+          );
+          if (!fillAvailableHeight || !constraints.hasBoundedHeight) {
+            return content;
+          }
+          return SizedBox(height: constraints.maxHeight, child: content);
+        },
       ),
     );
   }

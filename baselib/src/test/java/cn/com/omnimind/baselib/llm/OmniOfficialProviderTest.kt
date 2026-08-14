@@ -18,6 +18,7 @@ class OmniOfficialProviderTest {
                     PlatformModel("text-model"),
                     PlatformModel("vision-model"),
                     PlatformModel("image-model"),
+                    PlatformModel("embedding-model"),
                     PlatformModel("tts-model"),
                     PlatformModel("not-declared"),
                 ),
@@ -25,6 +26,7 @@ class OmniOfficialProviderTest {
                     text = "text-model",
                     vision = "vision-model",
                     image = "image-model",
+                    embedding = "embedding-model",
                     tts = "tts-model",
                     ttsVoice = "official-neutral",
                 ),
@@ -32,6 +34,7 @@ class OmniOfficialProviderTest {
                     text = listOf("text-model"),
                     vision = listOf("vision-model"),
                     image = listOf("image-model"),
+                    embedding = listOf("embedding-model"),
                     tts = listOf("tts-model"),
                     ttsVoices = listOf("official-neutral", "official-warm"),
                 ),
@@ -42,6 +45,7 @@ class OmniOfficialProviderTest {
         assertEquals("text-model", selection.defaultTextModel?.id)
         assertEquals("vision-model", selection.defaultVisionModel?.id)
         assertEquals("image-model", selection.defaultImageModel?.id)
+        assertEquals("embedding-model", selection.defaultEmbeddingModel?.id)
         assertEquals("tts-model", selection.defaultTtsModel?.id)
         assertEquals("official-neutral", selection.defaultTtsVoiceAlias)
         assertEquals(
@@ -84,6 +88,8 @@ class OmniOfficialProviderTest {
         assertEquals("Qwen3.5-Plus", selection.defaultTextModel?.id)
         assertTrue(selection.imageModels.isEmpty())
         assertNull(selection.defaultImageModel)
+        assertTrue(selection.embeddingModels.isEmpty())
+        assertNull(selection.defaultEmbeddingModel)
         assertEquals(SceneVoiceConfigStore.VOICE_DEFAULT_ZH, selection.defaultTtsVoiceAlias)
         assertEquals(OmniOfficialProvider.LEGACY_TTS_VOICE_ALIASES, selection.ttsVoiceAliases)
     }

@@ -41,7 +41,8 @@ fun Downloader(
         try {
             needsDownload = !Rootfs.isFilesDownloaded()
             val status = EmbeddedRuntimeInstaller.ensureRuntimeInstalled(context) { step ->
-                progressText = step
+                progressText = step.message
+                progress = step.progress?.toFloat()?.coerceIn(0f, 1f) ?: progress
             }
             if (!status.success) {
                 toast(setupFailedStr.format(status.message))

@@ -44,7 +44,6 @@ class SceneModelSettingPage extends StatefulWidget {
 class _SceneModelSettingPageState extends State<SceneModelSettingPage> {
   static const List<String> _sceneOrder = [
     'scene.dispatch.model',
-    'scene.vlm.operation.primary',
     'scene.voice',
     'scene.compactor.context.chat',
     'scene.memory.embedding',
@@ -53,7 +52,6 @@ class _SceneModelSettingPageState extends State<SceneModelSettingPage> {
 
   static const Map<String, String> _sceneDisplayNameMap = {
     'scene.dispatch.model': 'Agent',
-    'scene.vlm.operation.primary': 'GUI Agent',
     'scene.voice': 'Voice',
     'scene.compactor.context.chat': 'Chat Compactor',
     'scene.memory.embedding': 'Memory Embed',
@@ -62,27 +60,32 @@ class _SceneModelSettingPageState extends State<SceneModelSettingPage> {
 
   static const Map<String, String> _sceneTooltipMap = {
     'scene.dispatch.model': '负责任务理解与分流决策',
-    'scene.vlm.operation.primary': '负责 Android GUI 观察与动作决策',
     'scene.voice': '负责 AI 回复文本的语音合成与播放',
     'scene.compactor.context.chat': '负责聊天历史压缩总结',
     'scene.memory.embedding': '负责 workspace 记忆向量检索的嵌入模型',
     'scene.memory.rollup': '负责夜间记忆整理策略模型',
   };
+  static const String _officialSourceType = 'omnibot_official';
+  static const String _textCapability = 'text';
+  static const String _embeddingCapability = 'embedding';
+  static const String _ttsCapability = 'tts';
 
   bool _isLoading = true;
   bool _isRefreshingModels = false;
+  Completer<void>? _providerRefreshCompleter;
   int _providerRefreshGeneration = 0;
   bool _isSavingVoiceConfig = false;
-  bool _isSavingOperationConfig = false;
 
   List<SceneCatalogItem> _catalog = const [];
   List<SceneModelBindingEntry> _bindings = const [];
   List<ModelProviderProfileSummary> _profiles = const [];
   Map<String, List<ProviderModelOption>> _providerModelsByProfileId = {};
+  Map<String, Map<String, List<ProviderModelOption>>>
+  _officialProviderModelsByCapability = {};
   Set<String> _savingSceneIds = <String>{};
+  Set<String> _loadingSceneModelIds = <String>{};
   Set<String> _expandedSceneIds = <String>{};
   SceneVoiceConfig _voiceConfig = const SceneVoiceConfig();
-  SceneOperationConfig _operationConfig = const SceneOperationConfig();
   late final TextEditingController _voiceIdController;
   late final TextEditingController _voiceCustomStyleController;
   late final TextEditingController _voiceCurlController;
@@ -182,8 +185,52 @@ class _SceneModelSettingPageState extends State<SceneModelSettingPage> {
     return sceneId == 'scene.voice';
   }
 
-  bool _isOperationScene(String sceneId) {
-    return sceneId == 'scene.vlm.operation.primary';
+  String _modelCapabilityForScene(String sceneId) {
+    if (sceneId == 'scene.memory.embedding') {
+      return _embeddingCapability;
+    }
+    if (_isVoiceScene(sceneId)) {
+      return _ttsCapability;
+    }
+    return _textCapability;
+  }
+
+  Set<String> get _requiredOfficialCapabilities => {
+    for (final scene in _catalog) _modelCapabilityForScene(scene.sceneId),
+  };
+
+  bool _isOfficialProfile(ModelProviderProfileSummary profile) =>
+      profile.sourceType == _officialSourceType;
+
+  Map<String, List<ProviderModelOption>> _modelsForScene(
+    SceneCatalogItem scene,
+  ) {
+    final capability = _modelCapabilityForScene(scene.sceneId);
+    return {
+      for (final profile in _profiles)
+        profile.id: _isOfficialProfile(profile)
+            ? (_officialProviderModelsByCapability[capability]?[profile.id] ??
+                  const <ProviderModelOption>[])
+            : (_providerModelsByProfileId[profile.id] ??
+                  const <ProviderModelOption>[]),
+    };
+  }
+
+  bool _isOfficialCapabilityLoaded(String capability) {
+    final officialProfiles = _profiles.where(_isOfficialProfile).toList();
+    if (officialProfiles.isEmpty) {
+      return true;
+    }
+    final loaded = _officialProviderModelsByCapability[capability];
+    return loaded != null &&
+        officialProfiles.every((profile) => loaded.containsKey(profile.id));
+  }
+
+  Future<void> _ensureOfficialCapabilityLoaded(String capability) async {
+    if (_isOfficialCapabilityLoaded(capability)) {
+      return;
+    }
+    await _refreshProviderModelsInBackground();
   }
 
   void _syncVoiceControllers(SceneVoiceConfig config) {
@@ -237,7 +284,6 @@ class _SceneModelSettingPageState extends State<SceneModelSettingPage> {
         SceneModelConfigService.getSceneModelBindings(),
         ModelProviderConfigService.listProfiles(),
         SceneModelConfigService.getSceneVoiceConfig(),
-        SceneModelConfigService.getSceneOperationConfig(),
       ]);
       if (!mounted) return;
 
@@ -245,15 +291,15 @@ class _SceneModelSettingPageState extends State<SceneModelSettingPage> {
       final bindings = results[1] as List<SceneModelBindingEntry>;
       final profilesPayload = results[2] as ModelProviderProfilesPayload;
       final voiceConfig = results[3] as SceneVoiceConfig;
-      final operationConfig = results[4] as SceneOperationConfig;
       final providerModelsByProfileId = <String, List<ProviderModelOption>>{};
       for (final profile in profilesPayload.profiles) {
-        providerModelsByProfileId[profile.id] =
-            await ModelProviderConfigService.getStoredModelOptionsForProfile(
-              profile.id,
-              profile: profile,
-              enrichMetadata: false,
-            );
+        providerModelsByProfileId[profile.id] = _isOfficialProfile(profile)
+            ? const <ProviderModelOption>[]
+            : await ModelProviderConfigService.getStoredModelOptionsForProfile(
+                profile.id,
+                profile: profile,
+                enrichMetadata: false,
+              );
       }
 
       final enriched = _mergeBindingModels(
@@ -266,8 +312,8 @@ class _SceneModelSettingPageState extends State<SceneModelSettingPage> {
         _bindings = bindings;
         _profiles = profilesPayload.profiles;
         _providerModelsByProfileId = enriched;
+        _officialProviderModelsByCapability = {};
         _voiceConfig = voiceConfig;
-        _operationConfig = operationConfig;
       });
       _syncVoiceControllers(voiceConfig);
       _scheduleMetadataRefresh(
@@ -373,7 +419,12 @@ class _SceneModelSettingPageState extends State<SceneModelSettingPage> {
   }
 
   Future<void> _refreshProviderModelsInBackground() async {
-    if (_isRefreshingModels) return;
+    if (_isRefreshingModels) {
+      await _providerRefreshCompleter?.future;
+      return;
+    }
+    final refreshCompleter = Completer<void>();
+    _providerRefreshCompleter = refreshCompleter;
     final refreshGeneration = ++_providerRefreshGeneration;
     _isRefreshingModels = true;
     try {
@@ -382,25 +433,52 @@ class _SceneModelSettingPageState extends State<SceneModelSettingPage> {
         for (final entry in _providerModelsByProfileId.entries)
           entry.key: List<ProviderModelOption>.from(entry.value),
       };
+      final nextOfficialModels = {
+        for (final capabilityEntry
+            in _officialProviderModelsByCapability.entries)
+          capabilityEntry.key: {
+            for (final profileEntry in capabilityEntry.value.entries)
+              profileEntry.key: List<ProviderModelOption>.from(
+                profileEntry.value,
+              ),
+          },
+      };
       for (final profile in snapshots) {
         if (!_isProviderRefreshActive(refreshGeneration)) return;
-        final isOfficial = profile.sourceType == 'omnibot_official';
-        if (!isOfficial &&
-            (!profile.configured || !profile.destinationConsentValid)) {
+        final isOfficial = _isOfficialProfile(profile);
+        if (!isOfficial && !profile.configured) {
+          continue;
+        }
+        if (isOfficial) {
+          for (final capability in _requiredOfficialCapabilities) {
+            if (!_isProviderRefreshActive(refreshGeneration)) return;
+            try {
+              final remoteModels = await _fetchModelsForSnapshot(
+                profile,
+                refreshGeneration: refreshGeneration,
+                capability: capability,
+              );
+              if (!_isProviderRefreshActive(refreshGeneration)) return;
+              nextOfficialModels.putIfAbsent(
+                capability,
+                () => <String, List<ProviderModelOption>>{},
+              )[profile.id] = remoteModels;
+            } catch (_) {
+              // Preserve the last capability-specific official list.
+            }
+          }
           continue;
         }
         try {
           final remoteModels = await _fetchModelsForSnapshot(
             profile,
             refreshGeneration: refreshGeneration,
-            destinationConfirmed: false,
           );
           if (!_isProviderRefreshActive(refreshGeneration)) return;
-          final manualModelIds = isOfficial
-              ? const <String>[]
-              : await ModelProviderConfigService.getManualModelIds(
-                  profileId: profile.id,
-                );
+          final manualModelIds =
+              await ModelProviderConfigService.getManualModelIds(
+                profileId: profile.id,
+              );
           nextModels[profile.id] = ModelProviderConfigService.mergeModelOptions(
             remoteModels: remoteModels,
             manualModelIds: manualModelIds,
@@ -416,7 +494,10 @@ class _SceneModelSettingPageState extends State<SceneModelSettingPage> {
         providerModelsByProfileId: nextModels,
         bindings: _bindings,
       );
-      setState(() => _providerModelsByProfileId = merged);
+      setState(() {
+        _providerModelsByProfileId = merged;
+        _officialProviderModelsByCapability = nextOfficialModels;
+      });
       _scheduleMetadataRefresh(
         profiles: snapshots,
         providerModelsByProfileId: merged,
@@ -427,13 +508,19 @@ class _SceneModelSettingPageState extends State<SceneModelSettingPage> {
       if (refreshGeneration == _providerRefreshGeneration) {
         _isRefreshingModels = false;
       }
+      if (!refreshCompleter.isCompleted) {
+        refreshCompleter.complete();
+      }
+      if (identical(_providerRefreshCompleter, refreshCompleter)) {
+        _providerRefreshCompleter = null;
+      }
     }
   }
 
   Future<List<ProviderModelOption>> _fetchModelsForSnapshot(
     ModelProviderProfileSummary snapshot, {
     required int refreshGeneration,
-    required bool destinationConfirmed,
+    String? capability,
   }) async {
     if (!_isProviderRefreshActive(refreshGeneration)) return const [];
     final current = _findProfile(_profiles, snapshot.id);
@@ -444,7 +531,7 @@ class _SceneModelSettingPageState extends State<SceneModelSettingPage> {
       apiBase: snapshot.baseUrl,
       profileId: snapshot.id,
       providerName: snapshot.name,
-      destinationConfirmed: destinationConfirmed,
+      capability: capability,
     );
     if (!_isProviderRefreshActive(refreshGeneration)) return const [];
     final latestPayload = await ModelProviderConfigService.listProfiles();
@@ -639,48 +726,32 @@ class _SceneModelSettingPageState extends State<SceneModelSettingPage> {
     await _saveVoiceConfig(nextConfig);
   }
 
-  Future<void> _saveOperationConfig(SceneOperationConfig nextConfig) async {
-    if (_operationConfig == nextConfig || _isSavingOperationConfig) return;
-    final previous = _operationConfig;
-    setState(() {
-      _operationConfig = nextConfig;
-      _isSavingOperationConfig = true;
-    });
-    try {
-      final saved = await SceneModelConfigService.saveSceneOperationConfig(
-        nextConfig,
-      );
-      if (!mounted) return;
-      setState(() {
-        _operationConfig = saved;
-        if (saved.useOfficialService) {
-          _bindings = _bindings
-              .where((item) => !_isOperationScene(item.sceneId))
-              .toList(growable: false);
-        }
-      });
-      showToast(
-        context.trLegacy(
-          saved.useOfficialService ? '已启用小万官方内置模型' : '已切换为自定义 Provider',
-        ),
-        type: ToastType.success,
-      );
-    } catch (error) {
-      if (!mounted) return;
-      setState(() => _operationConfig = previous);
-      showToast(
-        context.trLegacy('保存 GUI Agent 配置失败：$error'),
-        type: ToastType.error,
-      );
-    } finally {
-      if (mounted) setState(() => _isSavingOperationConfig = false);
-    }
-  }
-
   Future<void> _openSceneSelector(
     SceneCatalogItem scene,
     BuildContext anchorContext,
   ) async {
+    final sceneId = scene.sceneId;
+    if (_loadingSceneModelIds.contains(sceneId)) {
+      return;
+    }
+    final capability = _modelCapabilityForScene(sceneId);
+    if (!_isOfficialCapabilityLoaded(capability)) {
+      setState(() {
+        _loadingSceneModelIds = {..._loadingSceneModelIds, sceneId};
+      });
+      try {
+        await _ensureOfficialCapabilityLoaded(capability);
+      } finally {
+        if (mounted) {
+          setState(() {
+            _loadingSceneModelIds = {..._loadingSceneModelIds}..remove(sceneId);
+          });
+        }
+      }
+      if (!mounted || !anchorContext.mounted) {
+        return;
+      }
+    }
     final binding = _bindingMap[scene.sceneId];
     final overlay =
         Overlay.of(context).context.findRenderObject() as RenderBox?;
@@ -720,7 +791,7 @@ class _SceneModelSettingPageState extends State<SceneModelSettingPage> {
           estimatedHeight: _kSceneSelectionPopupMaxHeight,
           scene: scene,
           profiles: _profiles,
-          providerModelsByProfileId: _providerModelsByProfileId,
+          providerModelsByProfileId: _modelsForScene(scene),
           currentBinding: binding,
         ),
       ],
@@ -1248,106 +1319,10 @@ class _SceneModelSettingPageState extends State<SceneModelSettingPage> {
     );
   }
 
-  Widget _buildOperationSceneRow(SceneCatalogItem scene) {
-    final isSaving = _isSavingScene(scene.sceneId);
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Padding(
-          padding: const EdgeInsets.symmetric(vertical: 6),
-          child: Row(
-            children: [
-              Expanded(flex: 4, child: _buildSceneLabel(scene)),
-              const SizedBox(width: 10),
-              Expanded(
-                flex: 6,
-                child: _operationConfig.useOfficialService
-                    ? _buildOfficialOperationServiceField()
-                    : _buildSceneSelectorField(scene, isSaving: isSaving),
-              ),
-              if (isSaving) ...[
-                const SizedBox(width: 8),
-                const SizedBox(
-                  width: 14,
-                  height: 14,
-                  child: CircularProgressIndicator(strokeWidth: 2),
-                ),
-              ],
-            ],
-          ),
-        ),
-        Container(
-          width: double.infinity,
-          margin: const EdgeInsets.only(top: 2, bottom: 6),
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
-          decoration: BoxDecoration(
-            color: _mutedSurfaceColor,
-            borderRadius: BorderRadius.circular(10),
-          ),
-          child: Row(
-            children: [
-              Expanded(
-                child: Text(
-                  context.trLegacy('默认使用：小万官方内置模型'),
-                  style: TextStyle(
-                    color: _primaryTextColor,
-                    fontSize: 12.5,
-                    fontWeight: FontWeight.w500,
-                  ),
-                ),
-              ),
-              KeyedSubtree(
-                key: const Key('operation-scene-official-toggle'),
-                child: _buildCompactSettingsSwitch(
-                  value: _operationConfig.useOfficialService,
-                  loading: _isSavingOperationConfig,
-                  semanticsLabel: context.trLegacy('使用小万官方内置模型'),
-                  onToggle: (value) {
-                    unawaited(
-                      _saveOperationConfig(
-                        _operationConfig.copyWith(useOfficialService: value),
-                      ),
-                    );
-                  },
-                ),
-              ),
-            ],
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildOfficialOperationServiceField() {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 11),
-      decoration: BoxDecoration(
-        color: _cardColor,
-        borderRadius: BorderRadius.circular(8),
-      ),
-      child: Row(
-        children: [
-          Icon(
-            Icons.verified_rounded,
-            size: 16,
-            color: Theme.of(context).colorScheme.primary,
-          ),
-          const SizedBox(width: 8),
-          Expanded(
-            child: Text(
-              context.trLegacy('小万官方内置模型'),
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(color: _primaryTextColor, fontSize: 13),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
   Widget _buildDefaultSceneRow(SceneCatalogItem scene) {
     final isSaving = _isSavingScene(scene.sceneId);
+    final isLoadingModels = _loadingSceneModelIds.contains(scene.sceneId);
+    final isBusy = isSaving || isLoadingModels;
 
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 6),
@@ -1357,9 +1332,9 @@ class _SceneModelSettingPageState extends State<SceneModelSettingPage> {
           const SizedBox(width: 10),
           Expanded(
             flex: 6,
-            child: _buildSceneSelectorField(scene, isSaving: isSaving),
+            child: _buildSceneSelectorField(scene, isSaving: isBusy),
           ),
-          if (isSaving) ...[
+          if (isBusy) ...[
             const SizedBox(width: 8),
             const SizedBox(
               width: 14,
@@ -1374,6 +1349,8 @@ class _SceneModelSettingPageState extends State<SceneModelSettingPage> {
 
   Widget _buildVoiceSceneRow(SceneCatalogItem scene) {
     final isSaving = _isSavingScene(scene.sceneId);
+    final isLoadingModels = _loadingSceneModelIds.contains(scene.sceneId);
+    final isBusy = isSaving || isLoadingModels;
     final isExpanded = _expandedSceneIds.contains(scene.sceneId);
 
     return Column(
@@ -1416,9 +1393,9 @@ class _SceneModelSettingPageState extends State<SceneModelSettingPage> {
               const SizedBox(width: 10),
               Expanded(
                 flex: 6,
-                child: _buildSceneSelectorField(scene, isSaving: isSaving),
+                child: _buildSceneSelectorField(scene, isSaving: isBusy),
               ),
-              if (isSaving) ...[
+              if (isBusy) ...[
                 const SizedBox(width: 8),
                 const SizedBox(
                   width: 14,
@@ -1521,9 +1498,6 @@ class _SceneModelSettingPageState extends State<SceneModelSettingPage> {
   }
 
   Widget _buildSceneRow(SceneCatalogItem scene) {
-    if (_isOperationScene(scene.sceneId)) {
-      return _buildOperationSceneRow(scene);
-    }
     if (_isVoiceScene(scene.sceneId)) {
       return _buildVoiceSceneRow(scene);
     }

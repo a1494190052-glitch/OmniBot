@@ -46,6 +46,11 @@ class OnboardingEnvironmentController extends ChangeNotifier {
   double get progress => _progress;
   String get stage => _stage;
 
+  Future<void> cancelSetup() async {
+    if (!_isBusy) return;
+    await cancelEmbeddedTerminalInit();
+  }
+
   EnvironmentPreset get selectedPreset =>
       environmentPresets.firstWhere((item) => item.id == _presetId);
 
@@ -291,7 +296,10 @@ class OnboardingEnvironmentController extends ChangeNotifier {
       _failed = !success;
       if (success) {
         _progress = 1;
-        _stage = t('系统与开发环境已准备完成', 'System and development environment are ready');
+        _stage = t(
+          '系统与开发环境已准备完成',
+          'System and development environment are ready',
+        );
       } else {
         _stage = (result['message'] ?? '').toString().trim().isNotEmpty
             ? (result['message'] ?? '').toString().trim()

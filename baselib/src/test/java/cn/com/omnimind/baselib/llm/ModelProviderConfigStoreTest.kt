@@ -116,67 +116,14 @@ class ModelProviderConfigStoreTest {
     }
 
     @Test
-    fun legacyProviderKeepsWorkingAfterConsentMetadataUpgrade() {
+    fun legacyProviderKeepsWorkingWithoutRevisionMetadata() {
         val profile = ModelProviderConfigStore.decodeProfilesJson(
             """[{"id":"legacy","name":"Legacy","baseUrl":"https://api.example.com/v1"}]"""
         ).single()
 
         assertEquals("https://api.example.com/v1", profile.baseUrl)
-        assertTrue(profile.destinationConsentValid)
         assertTrue(profile.isConfigured())
         assertEquals(1L, profile.revision)
-        assertEquals(1, profile.consentVersion)
-        assertEquals(1L, profile.consentRevision)
-    }
-
-    @Test
-    fun explicitlyUnconfirmedProviderRemainsInactive() {
-        val profile = ModelProviderConfigStore.decodeProfilesJson(
-            """[{"id":"pending","name":"Pending","baseUrl":"https://api.example.com/v1","revision":1,"consentVersion":0,"consentOrigin":"","consentRevision":0}]"""
-        ).single()
-
-        assertFalse(profile.destinationConsentValid)
-        assertFalse(profile.isConfigured())
-    }
-
-    @Test
-    fun consentRoundTripIsBoundToRevisionAndCanonicalOrigin() {
-        val encoded = ModelProviderConfigStore.encodeProfilesJson(
-            listOf(
-                ModelProviderProfile(
-                    id = "confirmed",
-                    name = "Confirmed",
-                    baseUrl = "https://api.example.com/v1",
-                    revision = 4L,
-                    consentVersion = 1,
-                    consentOrigin = "https://api.example.com:443",
-                    consentRevision = 4L,
-                    destinationConsentValid = true,
-                )
-            )
-        )
-        val profile = ModelProviderConfigStore.decodeProfilesJson(encoded).single()
-
-        assertTrue(profile.destinationConsentValid)
-        assertTrue(profile.isConfigured())
-        assertFalse(
-            ModelProviderConfigStore.hasCurrentDestinationConsent(
-                profile,
-                "https://api.example.com/another/path",
-            )
-        )
-        assertTrue(
-            ModelProviderConfigStore.hasCurrentDestinationConsent(
-                profile,
-                "https://api.example.com/v1",
-            )
-        )
-        assertFalse(
-            ModelProviderConfigStore.hasCurrentDestinationConsent(
-                profile,
-                "https://api.example.com:8443/v1",
-            )
-        )
     }
 
     @Test

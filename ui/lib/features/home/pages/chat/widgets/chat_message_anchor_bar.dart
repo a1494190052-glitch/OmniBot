@@ -10,6 +10,7 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:ui/l10n/legacy_text_localizer.dart';
 import 'package:ui/models/chat_message_model.dart';
 import 'package:ui/services/agent_avatar_service.dart';
+import 'package:ui/theme/app_theme.dart';
 import 'package:ui/theme/theme_context.dart';
 import 'package:ui/widgets/agent_avatar.dart';
 
@@ -107,6 +108,87 @@ String _firstPreviewLine(String? text) {
 
 const double _kAnchorButtonSize = 34.0;
 
+/// Stable test/accessibility hook for the modal spotlight behind the expanded
+/// message-anchor fan.
+const ValueKey<String> chatMessageAnchorScrimKey = ValueKey<String>(
+  'chat-message-anchor-scrim',
+);
+const ValueKey<String> chatMessageAnchorSystemBarsScrimKey = ValueKey<String>(
+  'chat-message-anchor-system-bars-scrim',
+);
+const ValueKey<String> chatMessageAnchorStatusBarScrimKey = ValueKey<String>(
+  'chat-message-anchor-status-bar-scrim',
+);
+const ValueKey<String> chatMessageAnchorNavigationBarScrimKey =
+    ValueKey<String>('chat-message-anchor-navigation-bar-scrim');
+
+Color chatMessageAnchorScrimColor(BuildContext context) {
+  return Colors.black.withValues(alpha: context.isDarkTheme ? 0.64 : 0.46);
+}
+
+/// Extends the anchor spotlight into the status-bar and gesture-navigation
+/// insets that sit outside the chat page's [SafeArea]. The annotation also
+/// switches system foregrounds to light while the dark scrim is visible.
+class ChatMessageAnchorSystemBarsScrim extends StatelessWidget {
+  const ChatMessageAnchorSystemBarsScrim({super.key, required this.expanded});
+
+  final bool expanded;
+
+  @override
+  Widget build(BuildContext context) {
+    final viewPadding = MediaQuery.viewPaddingOf(context);
+    final overlayStyle = AppTheme.overlayStyleForBrightness(
+      expanded ? Brightness.dark : Theme.of(context).brightness,
+    );
+    final duration = Duration(milliseconds: expanded ? 360 : 240);
+    // AnimatedOpacity's curve is evaluated on forward progress even while its
+    // target falls from 1 to 0. easeOut therefore matches the center scrim's
+    // reverse controller value transformed by reverseCurve=easeIn.
+    const curve = Curves.easeOutCubic;
+    final color = chatMessageAnchorScrimColor(context);
+
+    return AnnotatedRegion<SystemUiOverlayStyle>(
+      key: chatMessageAnchorSystemBarsScrimKey,
+      value: overlayStyle,
+      child: IgnorePointer(
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            if (viewPadding.top > 0)
+              Positioned(
+                left: 0,
+                top: 0,
+                right: 0,
+                height: viewPadding.top,
+                child: AnimatedOpacity(
+                  key: chatMessageAnchorStatusBarScrimKey,
+                  opacity: expanded ? 1 : 0,
+                  duration: duration,
+                  curve: curve,
+                  child: ColoredBox(color: color),
+                ),
+              ),
+            if (viewPadding.bottom > 0)
+              Positioned(
+                left: 0,
+                right: 0,
+                bottom: 0,
+                height: viewPadding.bottom,
+                child: AnimatedOpacity(
+                  key: chatMessageAnchorNavigationBarScrimKey,
+                  opacity: expanded ? 1 : 0,
+                  duration: duration,
+                  curve: curve,
+                  child: ColoredBox(color: color),
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 /// 圆环扇形布局：以按钮为圆心，锚点落在从正上方（-90°）到正左方（-180°）
 /// 的四分之一圆弧上，一屏 5 个槽位；更早的锚点通过旋转圆环露出。
 const double _kFanRadius = 132.0;
@@ -183,6 +265,11 @@ class _ChatMessageAnchorBarState extends State<ChatMessageAnchorBar>
     vsync: this,
     duration: const Duration(milliseconds: 360),
     reverseDuration: const Duration(milliseconds: 240),
+  );
+  late final Animation<double> _scrimOpacity = CurvedAnimation(
+    parent: _expandController,
+    curve: Curves.easeOutCubic,
+    reverseCurve: Curves.easeInCubic,
   );
   final GlobalKey _fanBoxKey = GlobalKey();
 
@@ -347,7 +434,9 @@ class _ChatMessageAnchorBarState extends State<ChatMessageAnchorBar>
   }
 
   void _clearDragState({bool notify = true}) {
-    if (!_dragSelecting && _dragSlotPosition == null && _activeDragIndex == null) {
+    if (!_dragSelecting &&
+        _dragSlotPosition == null &&
+        _activeDragIndex == null) {
       return;
     }
     void reset() {
@@ -495,7 +584,9 @@ class _ChatMessageAnchorBarState extends State<ChatMessageAnchorBar>
     if (fanBox == null || !fanBox.hasSize) {
       return;
     }
-    final ring = _fingerRingPosition(fanBox.globalToLocal(details.globalPosition));
+    final ring = _fingerRingPosition(
+      fanBox.globalToLocal(details.globalPosition),
+    );
     // 只有从环带上起手才旋转圆环，避免误吞面板附近的普通滑动。
     _panLastSlotPosition = _isWithinRingBand(ring.distance)
         ? ring.slotPosition
@@ -507,7 +598,9 @@ class _ChatMessageAnchorBarState extends State<ChatMessageAnchorBar>
     if (fanBox == null || !fanBox.hasSize) {
       return;
     }
-    final ring = _fingerRingPosition(fanBox.globalToLocal(details.globalPosition));
+    final ring = _fingerRingPosition(
+      fanBox.globalToLocal(details.globalPosition),
+    );
     final last = _panLastSlotPosition;
     if (last == null || _maxRingScroll <= 0) {
       return;
@@ -591,19 +684,26 @@ class _ChatMessageAnchorBarState extends State<ChatMessageAnchorBar>
     return Stack(
       children: [
         // 始终挂载，避免长按展开时插入前置 child 打断按钮的手势流。
+        // 遮罩位于扇形锚点和入口按钮之后，因此只有这两部分保持前景亮度。
         Positioned.fill(
           child: IgnorePointer(
             ignoring: !_expanded,
-            child: GestureDetector(
-              behavior: HitTestBehavior.translucent,
-              onTap: () => _setExpanded(false),
+            child: FadeTransition(
+              key: chatMessageAnchorScrimKey,
+              opacity: _scrimOpacity,
+              child: GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTap: () => _setExpanded(false),
+                child: ColoredBox(color: chatMessageAnchorScrimColor(context)),
+              ),
             ),
           ),
         ),
         // 圆环画布：右下角对齐按钮中心，覆盖按钮左上方的扇形区域。
         Positioned(
           right: 24 + _kAnchorButtonSize / 2 - _kFanCanvasExtent,
-          bottom: widget.bottomInset + _kAnchorButtonSize / 2 - _kFanCanvasExtent,
+          bottom:
+              widget.bottomInset + _kAnchorButtonSize / 2 - _kFanCanvasExtent,
           width: _kFanCanvasExtent * 2,
           height: _kFanCanvasExtent * 2,
           child: IgnorePointer(
@@ -638,8 +738,7 @@ class _ChatMessageAnchorBarState extends State<ChatMessageAnchorBar>
           for (var index = 0; index < anchors.length; index++) {
             final slotPosition = _slotPositionOf(index);
             // 只构建可见弧段附近的锚点。
-            if (slotPosition < -1.2 ||
-                slotPosition > _kFanVisibleSlots + 0.2) {
+            if (slotPosition < -1.2 || slotPosition > _kFanVisibleSlots + 0.2) {
               continue;
             }
             final item = _buildFanItem(index, anchors[index], slotPosition);
@@ -690,7 +789,9 @@ class _ChatMessageAnchorBarState extends State<ChatMessageAnchorBar>
     final centerX = _fanCenter.dx + radius * math.cos(angle);
     final centerY = _fanCenter.dy + radius * math.sin(angle);
     final opacity =
-        (reveal * _restingOpacity(index, slotPosition) * _edgeFade(slotPosition))
+        (reveal *
+                _restingOpacity(index, slotPosition) *
+                _edgeFade(slotPosition))
             .clamp(0.0, 1.0);
     if (opacity <= 0.004) {
       return const SizedBox.shrink();
@@ -831,13 +932,14 @@ class _ChatMessageAnchorBarState extends State<ChatMessageAnchorBar>
         scale: _buttonPressed ? 0.90 : 1,
         duration: const Duration(milliseconds: 140),
         curve: Curves.easeOutCubic,
-        child: _buildButtonGlassSurface(
-          child: Center(
-            child: AnimatedBuilder(
-              animation: _expandController,
-              builder: (context, _) {
-                final t = _expandController.value.clamp(0.0, 1.0);
-                return Icon(
+        child: AnimatedBuilder(
+          animation: _expandController,
+          builder: (context, _) {
+            final t = _expandController.value.clamp(0.0, 1.0);
+            return _buildButtonGlassSurface(
+              expansion: t,
+              child: Center(
+                child: Icon(
                   LucideIcons.galleryVerticalEnd,
                   size: 16,
                   color: Color.lerp(
@@ -845,10 +947,10 @@ class _ChatMessageAnchorBarState extends State<ChatMessageAnchorBar>
                     palette.accentPrimary,
                     t,
                   ),
-                );
-              },
-            ),
-          ),
+                ),
+              ),
+            );
+          },
         ),
       ),
     );
@@ -857,15 +959,37 @@ class _ChatMessageAnchorBarState extends State<ChatMessageAnchorBar>
   /// 小尺寸定制玻璃圆面。不用 OmniGlassPanel：它的顶部 1px 高光线在
   /// 圆形裁剪后只剩顶部中央一小段亮弧、向上的 accent 泛光也会在按钮
   /// 顶缘透出一点颜色，在 34px 的圆钮上都读作杂色。
-  Widget _buildButtonGlassSurface({required Widget child}) {
+  Widget _buildButtonGlassSurface({
+    required Widget child,
+    required double expansion,
+  }) {
     final palette = context.omniPalette;
     final isDark = context.isDarkTheme;
-    final topTint = isDark
+    final collapsedTopTint = isDark
         ? palette.surfacePrimary.withValues(alpha: 0.26)
         : Colors.white.withValues(alpha: 0.40);
-    final bottomTint = isDark
+    final collapsedBottomTint = isDark
         ? palette.surfaceSecondary.withValues(alpha: 0.12)
         : Colors.white.withValues(alpha: 0.18);
+    final expandedTopTint = Color.alphaBlend(
+      palette.accentPrimary.withValues(alpha: isDark ? 0.24 : 0.16),
+      palette.surfacePrimary.withValues(alpha: isDark ? 0.96 : 0.92),
+    );
+    final expandedBottomTint = Color.alphaBlend(
+      palette.accentPrimary.withValues(alpha: isDark ? 0.15 : 0.11),
+      palette.surfaceSecondary.withValues(alpha: isDark ? 0.88 : 0.82),
+    );
+    final topTint = Color.lerp(collapsedTopTint, expandedTopTint, expansion)!;
+    final bottomTint = Color.lerp(
+      collapsedBottomTint,
+      expandedBottomTint,
+      expansion,
+    )!;
+    final borderColor = Color.lerp(
+      palette.borderSubtle.withValues(alpha: isDark ? 0.18 : 0.28),
+      palette.accentPrimary.withValues(alpha: isDark ? 0.72 : 0.58),
+      expansion,
+    )!;
     return Container(
       width: _kAnchorButtonSize,
       height: _kAnchorButtonSize,
@@ -877,7 +1001,18 @@ class _ChatMessageAnchorBarState extends State<ChatMessageAnchorBar>
             blurRadius: 16,
             offset: const Offset(0, 6),
           ),
+          BoxShadow(
+            color: palette.accentPrimary.withValues(
+              alpha: expansion * (isDark ? 0.38 : 0.24),
+            ),
+            blurRadius: 18,
+            spreadRadius: expansion,
+          ),
         ],
+      ),
+      foregroundDecoration: BoxDecoration(
+        shape: BoxShape.circle,
+        border: Border.all(color: borderColor, width: 0.8),
       ),
       child: ClipOval(
         child: BackdropFilter(
