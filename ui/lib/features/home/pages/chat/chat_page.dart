@@ -368,9 +368,13 @@ abstract class _ChatPageStateBase extends State<ChatPage>
     if (rememberedAgentId.isNotEmpty) {
       return rememberedAgentId;
     }
-    final runtimeMessages =
-        _runtimeForMode(ChatPageMode.agent)?.messages ??
-        _modeState(ChatPageMode.agent).messages;
+    final runtimeMessages = resolveVisibleChatMessages(
+      runtimeMessages: _runtimeForMode(ChatPageMode.agent)?.messages,
+      fallbackMessages: _modeState(ChatPageMode.agent).messages,
+      preserveFallbackDuringHandoff: _modeState(
+        ChatPageMode.agent,
+      ).isAiResponding,
+    );
     for (final message in runtimeMessages.reversed) {
       final messageAgentId = message.agentId?.trim() ?? '';
       if (messageAgentId.isNotEmpty) {
@@ -730,8 +734,11 @@ abstract class _ChatPageStateBase extends State<ChatPage>
     _modeState(ChatPageMode.normal).currentConversationId,
   );
 
-  List<ChatMessageModel> get _messages =>
-      _activeRuntime?.messages ?? _modeState(_activeMode).messages;
+  List<ChatMessageModel> get _messages => resolveVisibleChatMessages(
+    runtimeMessages: _activeRuntime?.messages,
+    fallbackMessages: _modeState(_activeMode).messages,
+    preserveFallbackDuringHandoff: _modeState(_activeMode).isAiResponding,
+  );
   double get _toolActivityOccupiedHeight =>
       _modeState(_activeMode).toolActivityOccupiedHeight;
   double get _slashCommandPanelOccupiedHeight =>

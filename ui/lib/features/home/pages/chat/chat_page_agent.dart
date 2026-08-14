@@ -1625,7 +1625,13 @@ mixin _ChatPageAgentMixin on _ChatPageStateBase {
         : null;
     final hasTurns = _remoteCodexThreadResponseHasTurns(response);
     final existingMessages = List<ChatMessageModel>.from(
-      runtime?.messages ?? _modeState(ChatPageMode.agent).messages,
+      resolveVisibleChatMessages(
+        runtimeMessages: runtime?.messages,
+        fallbackMessages: _modeState(ChatPageMode.agent).messages,
+        preserveFallbackDuringHandoff: _modeState(
+          ChatPageMode.agent,
+        ).isAiResponding,
+      ),
     );
     final snapshotMessages = hasTurns
         ? _remoteCodexMessagesFromThreadResponse(

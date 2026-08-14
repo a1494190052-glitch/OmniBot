@@ -55,6 +55,27 @@ bool shouldPreferInMemoryForConversationListChanged({
   required bool hasRuntimeMessages,
 }) => hasInFlightTask || hasRuntimeMessages;
 
+/// Resolves the message source used by the visible chat surface.
+///
+/// A newly persisted conversation can briefly acquire an empty runtime before
+/// the already-visible draft messages are copied into it. Prefer the populated
+/// fallback during that hand-off so the chat never flashes back to its empty
+/// greeting after the user presses send. Once the runtime has any messages it
+/// remains the authoritative source, including when the fallback is stale.
+List<ChatMessageModel> resolveVisibleChatMessages({
+  required List<ChatMessageModel>? runtimeMessages,
+  required List<ChatMessageModel> fallbackMessages,
+  bool preserveFallbackDuringHandoff = false,
+}) {
+  if (runtimeMessages == null ||
+      (preserveFallbackDuringHandoff &&
+          runtimeMessages.isEmpty &&
+          fallbackMessages.isNotEmpty)) {
+    return fallbackMessages;
+  }
+  return runtimeMessages;
+}
+
 /// Number of newest-first entries to remove before retrying a user turn.
 ///
 /// A plain retry keeps the original user entry visible and only clears the

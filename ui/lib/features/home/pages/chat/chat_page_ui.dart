@@ -861,7 +861,11 @@ mixin _ChatPageUiMixin on _ChatPageStateBase {
     double bottomOverlayInset = 0,
   }) {
     final runtime = _runtimeForMode(mode);
-    final resolvedMessages = runtime?.messages ?? _modeState(mode).messages;
+    final resolvedMessages = resolveVisibleChatMessages(
+      runtimeMessages: runtime?.messages,
+      fallbackMessages: _modeState(mode).messages,
+      preserveFallbackDuringHandoff: _modeState(mode).isAiResponding,
+    );
     // `runtime.activeAgentTaskIds` is the single source of truth for which
     // turns are in flight. Only fall back to the page-level dispatch id when
     // there is no runtime yet to own it.
@@ -1530,7 +1534,11 @@ mixin _ChatPageUiMixin on _ChatPageStateBase {
   }) {
     final mode = _primaryChatMessagePageMode;
     final runtime = _runtimeForMode(mode);
-    final messages = runtime?.messages ?? _modeState(mode).messages;
+    final messages = resolveVisibleChatMessages(
+      runtimeMessages: runtime?.messages,
+      fallbackMessages: _modeState(mode).messages,
+      preserveFallbackDuringHandoff: _modeState(mode).isAiResponding,
+    );
     final activeTaskIds = runtime?.activeAgentTaskIds ?? const <String>{};
     // composerReservedInset 已含 composer 顶部上方 12px 的安全间距，
     // 回收 6px 让按钮更贴近输入框右上角。

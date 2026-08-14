@@ -5,6 +5,172 @@ import 'package:ui/widgets/streaming_text.dart';
 import 'package:ui/widgets/typewriter_text.dart';
 
 void main() {
+  test('detects prose versus structured Markdown', () {
+    expect(
+      omnibotTextRequiresStructuredMarkdown('在呢~ 😊 小万随时待命。\n今天有什么想让我帮忙的吗？'),
+      isFalse,
+    );
+    expect(omnibotTextRequiresStructuredMarkdown('## 标题'), isTrue);
+    expect(omnibotTextRequiresStructuredMarkdown('- 第一项'), isTrue);
+    expect(omnibotTextRequiresStructuredMarkdown('使用 `code`'), isTrue);
+    expect(omnibotTextRequiresStructuredMarkdown('这是 *强调* 内容'), isTrue);
+    expect(omnibotTextRequiresStructuredMarkdown('| 名称 | 状态 |'), isTrue);
+  });
+
+  test('limits stable bold streaming to real strong-emphasis prose', () {
+    expect(omnibotTextCanUseStableBoldStreaming('这是 **加粗** 内容'), isTrue);
+    expect(omnibotTextCanUseStableBoldStreaming('foo__bar'), isFalse);
+    expect(omnibotTextCanUseStableBoldStreaming(r'\**literal**'), isFalse);
+    expect(omnibotTextCanUseStableBoldStreaming('流式 **加粗'), isTrue);
+    expect(
+      omnibotTextCanUseStableBoldStreaming('最终 **未闭合', allowUnclosed: false),
+      isFalse,
+    );
+  });
+
+  testWidgets(
+    'plain streamed prose keeps one layout across Markdown flush markers',
+    (tester) async {
+      const text = '在呢~ 😊 小万随时待命。今天有什么想让我帮忙的吗？比如查点什么、整理文件、设个提醒。';
+
+      Widget build({
+        required int? markdownRenderedLength,
+        bool isFinal = false,
+      }) {
+        return MaterialApp(
+          home: Scaffold(
+            body: SizedBox(
+              width: 220,
+              child: StreamingText(
+                enableMarkdown: true,
+                markdownRenderedLength: markdownRenderedLength,
+                isFinal: isFinal,
+                fullText: text,
+                style: const TextStyle(fontSize: 16, height: 1.57),
+              ),
+            ),
+          ),
+        );
+      }
+
+      await tester.pumpWidget(build(markdownRenderedLength: 0));
+      await tester.pump(const Duration(seconds: 5));
+      final initialSize = tester.getSize(find.byType(StreamingText));
+      expect(find.byType(OmnibotMarkdownBody), findsNothing);
+      expect(
+        find.byKey(const ValueKey('omnibot-plain-reveal')),
+        findsOneWidget,
+      );
+
+      await tester.pumpWidget(build(markdownRenderedLength: null));
+      await tester.pump();
+      expect(tester.getSize(find.byType(StreamingText)), initialSize);
+      expect(find.byType(OmnibotMarkdownBody), findsNothing);
+
+      await tester.pumpWidget(build(markdownRenderedLength: text.length ~/ 2));
+      await tester.pump();
+      expect(tester.getSize(find.byType(StreamingText)), initialSize);
+      expect(find.byType(OmnibotMarkdownBody), findsNothing);
+
+      await tester.pumpWidget(
+        build(markdownRenderedLength: null, isFinal: true),
+      );
+      await tester.pump();
+      expect(tester.getSize(find.byType(StreamingText)), initialSize);
+      expect(find.byType(OmnibotMarkdownBody), findsNothing);
+    },
+  );
+
+  testWidgets(
+    'bold streamed prose keeps stable geometry across Markdown flush markers',
+    (tester) async {
+      const text =
+          '这是一段包含 **加粗内容** 的流式回复，后面还有足够多的正文，'
+          '用来验证窄宽度换行时整个段落的高度是否稳定。';
+
+      Widget build(int? markdownRenderedLength) {
+        return MaterialApp(
+          home: Scaffold(
+            body: SizedBox(
+              width: 220,
+              child: StreamingText(
+                enableMarkdown: true,
+                markdownRenderedLength: markdownRenderedLength,
+                isFinal: false,
+                fullText: text,
+                style: const TextStyle(fontSize: 16, height: 1.57),
+              ),
+            ),
+          ),
+        );
+      }
+
+      final heights = <double>[];
+      for (final marker in <int?>[0, 12, null, 28, text.length]) {
+        await tester.pumpWidget(build(marker));
+        await tester.pump(const Duration(seconds: 5));
+        heights.add(tester.getSize(find.byType(StreamingText)).height);
+      }
+
+      expect(heights.toSet(), hasLength(1), reason: 'heights=$heights');
+      final richText = tester
+          .widgetList<RichText>(
+            find.descendant(
+              of: find.byType(StreamingText),
+              matching: find.byType(RichText),
+            ),
+          )
+          .firstWhere((widget) => widget.text.toPlainText().contains('加粗内容'));
+      expect(richText.text.toPlainText(), text.replaceAll('**', ''));
+
+      bool containsBold(InlineSpan span) {
+        if (span is! TextSpan) return false;
+        if (span.style?.fontWeight == FontWeight.bold) return true;
+        return span.children?.any(containsBold) ?? false;
+      }
+
+      expect(containsBold(richText.text), isTrue);
+    },
+  );
+
+  testWidgets(
+    'structured streamed content keeps one coherent Markdown layout',
+    (tester) async {
+      const text = '## 标题\n\n- 第一项包含 **加粗** 内容\n- 第二项';
+
+      Widget build(int? markdownRenderedLength) {
+        return MaterialApp(
+          home: Scaffold(
+            body: SizedBox(
+              width: 220,
+              child: StreamingText(
+                enableMarkdown: true,
+                markdownRenderedLength: markdownRenderedLength,
+                isFinal: false,
+                fullText: text,
+                style: const TextStyle(fontSize: 16, height: 1.57),
+              ),
+            ),
+          ),
+        );
+      }
+
+      final heights = <double>[];
+      for (final marker in <int?>[0, text.length ~/ 2, null]) {
+        await tester.pumpWidget(build(marker));
+        await tester.pump();
+        heights.add(tester.getSize(find.byType(StreamingText)).height);
+        expect(find.byType(OmnibotMarkdownBody), findsOneWidget);
+        expect(
+          find.byKey(const ValueKey('omnibot-streaming-tail')),
+          findsNothing,
+        );
+      }
+
+      expect(heights.toSet(), hasLength(1), reason: 'heights=$heights');
+    },
+  );
+
   test('detects partial markdown table candidates', () {
     expect(omnibotMarkdownContainsTableCandidate('名称 | 状态'), isTrue);
     expect(omnibotMarkdownContainsTableCandidate('|:---'), isTrue);
@@ -128,7 +294,7 @@ void main() {
   );
 
   testWidgets(
-    'StreamingText renders markdown snapshots after replacement without exceptions',
+    'StreamingText renders bold snapshots after replacement without exceptions',
     (tester) async {
       await tester.pumpWidget(
         const MaterialApp(
@@ -157,10 +323,21 @@ void main() {
       await tester.pump();
 
       expect(tester.takeException(), isNull);
-      final markdownBody = tester.widget<OmnibotMarkdownBody>(
-        find.byType(OmnibotMarkdownBody),
+      final richText = tester.widget<RichText>(
+        find.byWidgetPredicate(
+          (widget) =>
+              widget is RichText && widget.text.toPlainText().contains('新内容'),
+        ),
       );
-      expect(markdownBody.data, '**新内容** 😀');
+      expect(richText.text.toPlainText(), '新内容 😀');
+
+      bool containsBold(InlineSpan span) {
+        if (span is! TextSpan) return false;
+        if (span.style?.fontWeight == FontWeight.bold) return true;
+        return span.children?.any(containsBold) ?? false;
+      }
+
+      expect(containsBold(richText.text), isTrue);
     },
   );
 

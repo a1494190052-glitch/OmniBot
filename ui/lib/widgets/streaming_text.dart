@@ -23,15 +23,62 @@ String get kSummarizingText => LegacyTextLocalizer.localize('总结中');
 /// 总结完成的提示文案（本地化显示用）
 String get kSummaryCompleteText => LegacyTextLocalizer.localize('总结如下');
 
+final RegExp _structuredMarkdownInlineLinkPattern = RegExp(
+  r'!?\[[^\]]+\]\([^\)]+\)',
+);
+final RegExp _structuredMarkdownReferenceLinkPattern = RegExp(
+  r'\[[^\]]+\]\[[^\]]*\]',
+);
+final RegExp _structuredMarkdownAsteriskEmphasisPattern = RegExp(
+  r'(^|[\s(\[])\*[^*\n]+\*(?=$|[\s).,!?:;\]])',
+);
+final RegExp _structuredMarkdownUnderscoreEmphasisPattern = RegExp(
+  r'(^|[\s(\[])_[^_\n]+_(?=$|[\s).,!?:;\]])',
+);
+final RegExp _structuredMarkdownAutolinkOrHtmlPattern = RegExp(
+  r'<(?:https?://|[A-Za-z][A-Za-z0-9-]*\b)[^>]*>',
+);
+final RegExp _structuredMarkdownMathPattern = RegExp(r'\$[^\n$]+\$');
+final RegExp _structuredMarkdownBlockPattern = RegExp(
+  r'^[ \t]{0,3}(?:#{1,6}[ \t]+|>[ \t]?|(?:[-+*]|\d+[.)])[ \t]+)',
+  multiLine: true,
+);
+final RegExp _structuredMarkdownRulePattern = RegExp(
+  r'^[ \t]{0,3}(?:-{3,}|\*{3,}|_{3,}|={3,})[ \t]*$',
+  multiLine: true,
+);
+final RegExp _structuredMarkdownIndentedCodePattern = RegExp(
+  r'^(?: {4}|\t)\S',
+  multiLine: true,
+);
+
+int _clampOmnibotTextToCodePointBoundary(String text, int requestedLength) {
+  var safeLength = requestedLength.clamp(0, text.length);
+  if (safeLength <= 0 || safeLength >= text.length) {
+    return safeLength;
+  }
+  final currentUnit = text.codeUnitAt(safeLength);
+  final previousUnit = text.codeUnitAt(safeLength - 1);
+  final isCurrentLowSurrogate = currentUnit >= 0xDC00 && currentUnit <= 0xDFFF;
+  final isPreviousHighSurrogate =
+      previousUnit >= 0xD800 && previousUnit <= 0xDBFF;
+  if (isCurrentLowSurrogate && isPreviousHighSurrogate) {
+    safeLength -= 1;
+  }
+  return safeLength;
+}
+
 /// 流式文本显示组件，支持平滑逐字透出效果
 ///
 /// 用于显示流式推送的文本内容
 ///
 /// **性能策略**：
-/// - 启用 Markdown 时，绝不在动画帧里重新解析 markdown。
-///   - 已有 [markdownRenderedLength]（>0 且 <fullText）时：走 fast-path，
-///     固化 markdown 前缀 + [OmnibotPacedRevealText] 纯文本尾部逐字透出。
-///   - 否则：一次性渲染最新 markdown，不做逐字动画。
+/// - 启用 Markdown 但内容仍是普通正文时，持续使用同一个
+///   [OmnibotPacedRevealText]，不随批次边界切换布局。
+/// - 只含加粗标记的正文使用同一个 RichText 逐字透出，不嵌套整段
+///   WidgetSpan。
+/// - 标题、列表、代码等复杂 Markdown 按最新快照整体渲染，不混合两套
+///   段落布局；表格仍使用专用预览路径。
 /// - 未启用 Markdown 时走 [OmnibotPacedRevealText] 做逐字透出（轻量）。
 class StreamingText extends StatefulWidget {
   /// 完整的文本内容（会随着流式推送逐渐增加）
@@ -91,6 +138,7 @@ class StreamingText extends StatefulWidget {
 class _StreamingTextState extends State<StreamingText> {
   String _previousFullText = '';
   bool _isFirstBuild = true;
+  late bool _requiresStructuredMarkdown;
   String? _lastSelectedContent; // 跟踪最后选中的内容
   int? _lastNotifiedDisplayLength;
 
@@ -100,8 +148,31 @@ class _StreamingTextState extends State<StreamingText> {
   int _totalRevealedChars = 0;
 
   @override
+  void initState() {
+    super.initState();
+    _requiresStructuredMarkdown =
+        widget.enableMarkdown &&
+        omnibotTextRequiresStructuredMarkdown(widget.fullText);
+  }
+
+  @override
   void didUpdateWidget(StreamingText oldWidget) {
     super.didUpdateWidget(oldWidget);
+    if (!widget.enableMarkdown) {
+      _requiresStructuredMarkdown = false;
+    } else if (!oldWidget.enableMarkdown ||
+        !widget.fullText.startsWith(oldWidget.fullText)) {
+      _requiresStructuredMarkdown = omnibotTextRequiresStructuredMarkdown(
+        widget.fullText,
+      );
+    } else if (oldWidget.fullText != widget.fullText) {
+      // Keep scanning while a plain paragraph grows because a later chunk can
+      // introduce a heading/list/code fence. Once structured syntax appears,
+      // keep the Markdown path stable for the remainder of this message.
+      _requiresStructuredMarkdown =
+          _requiresStructuredMarkdown ||
+          omnibotTextRequiresStructuredMarkdown(widget.fullText);
+    }
     if (oldWidget.fullText != widget.fullText) {
       _previousFullText = _resolveAnimationStartText(
         previousText: oldWidget.fullText,
@@ -146,6 +217,8 @@ class _StreamingTextState extends State<StreamingText> {
 
   @override
   Widget build(BuildContext context) {
+    final animateInitialStreamingText =
+        _isFirstBuild && !widget.isFinal && widget.fullText.isNotEmpty;
     // 第一次build时，初始化_previousFullText
     if (_isFirstBuild) {
       _previousFullText = widget.fullText;
@@ -167,11 +240,22 @@ class _StreamingTextState extends State<StreamingText> {
       return _wrapSelectable(child);
     }
 
-    if (widget.enableMarkdown) {
+    if (widget.enableMarkdown && _requiresStructuredMarkdown) {
+      if (omnibotTextCanUseStableBoldStreaming(
+        widget.fullText,
+        allowUnclosed: !widget.isFinal,
+      )) {
+        return _buildPlainAnimatedContent(
+          animateInitialStreamingText: animateInitialStreamingText,
+          renderBoldMarkdown: true,
+        );
+      }
       return _buildMarkdownContent();
     }
 
-    return _buildPlainAnimatedContent();
+    return _buildPlainAnimatedContent(
+      animateInitialStreamingText: animateInitialStreamingText,
+    );
   }
 
   // ── Markdown 路径 ──
@@ -189,7 +273,15 @@ class _StreamingTextState extends State<StreamingText> {
     if (streamingTableBlock != null) {
       return _buildMarkdownWithStreamingTableBlock(streamingTableBlock);
     }
-    if (mdLen != null && mdLen >= 0 && mdLen < widget.fullText.length) {
+    // A non-table Markdown tail used to be embedded as one WidgetSpan. The
+    // span is atomic, so every flush boundary gave the tail a different width
+    // and made the whole paragraph reflow vertically. Simple bold prose takes
+    // the stable RichText path above; other Markdown renders as one coherent
+    // snapshot instead of mixing block and inline layout systems.
+    if (containsTable &&
+        mdLen != null &&
+        mdLen >= 0 &&
+        mdLen < widget.fullText.length) {
       return _buildMarkdownFastPath(mdLen, containsTable: containsTable);
     }
     _notifyDisplayedTextChanged(widget.fullText.length);
@@ -249,7 +341,10 @@ class _StreamingTextState extends State<StreamingText> {
   }
 
   Widget _buildMarkdownFastPath(int mdLen, {required bool containsTable}) {
-    final safeMdLen = _clampToCodePointBoundary(widget.fullText, mdLen);
+    final safeMdLen = _clampOmnibotTextToCodePointBoundary(
+      widget.fullText,
+      mdLen,
+    );
     final mdText = widget.fullText.substring(0, safeMdLen);
     final plainTail = widget.fullText.substring(safeMdLen);
 
@@ -370,7 +465,10 @@ class _StreamingTextState extends State<StreamingText> {
 
   // ── 纯文本路径 ──
   // 使用与 markdown fast-path 尾部相同的逐字透出引擎。
-  Widget _buildPlainAnimatedContent() {
+  Widget _buildPlainAnimatedContent({
+    bool animateInitialStreamingText = false,
+    bool renderBoldMarkdown = false,
+  }) {
     // 从"思考中..."切换到实际内容时，强制重建 widget 从 0 开始动画。
     final isThinkingTransition = _previousFullText == kThinkingText;
     return _wrapSelectable(
@@ -381,7 +479,10 @@ class _StreamingTextState extends State<StreamingText> {
         text: widget.fullText,
         style: widget.style,
         trailing: widget.trailing,
-        initialVisibleLength: isThinkingTransition ? 0 : null,
+        initialVisibleLength:
+            isThinkingTransition || animateInitialStreamingText ? 0 : null,
+        onRevealedLengthChanged: _notifyDisplayedTextChanged,
+        spanBuilder: renderBoldMarkdown ? omnibotBuildStreamingBoldSpan : null,
       ),
     );
   }
@@ -399,23 +500,6 @@ class _StreamingTextState extends State<StreamingText> {
       },
       child: child,
     );
-  }
-
-  int _clampToCodePointBoundary(String text, int requestedLength) {
-    var safeLength = requestedLength.clamp(0, text.length);
-    if (safeLength <= 0 || safeLength >= text.length) {
-      return safeLength;
-    }
-    final currentUnit = text.codeUnitAt(safeLength);
-    final previousUnit = text.codeUnitAt(safeLength - 1);
-    final isCurrentLowSurrogate =
-        currentUnit >= 0xDC00 && currentUnit <= 0xDFFF;
-    final isPreviousHighSurrogate =
-        previousUnit >= 0xD800 && previousUnit <= 0xDBFF;
-    if (isCurrentLowSurrogate && isPreviousHighSurrogate) {
-      safeLength -= 1;
-    }
-    return safeLength;
   }
 
   /// 构建选择文本的上下文菜单（使用 AssistsMessageService 复制到剪贴板）
@@ -464,6 +548,208 @@ class _StreamingTextState extends State<StreamingText> {
       );
     }
   }
+}
+
+/// Whether [source] needs block/inline Markdown layout rather than the stable
+/// plain-paragraph streaming path.
+///
+/// Most assistant prose contains no Markdown structure. Rendering that prose
+/// as a Markdown prefix plus a WidgetSpan tail changes its line metrics whenever
+/// the parser flush boundary advances, which produces visible 1-2 px baseline
+/// jumps. This deliberately conservative detector keeps real Markdown features
+/// on the Markdown renderer while ordinary prose stays in one Text layout.
+bool omnibotTextRequiresStructuredMarkdown(String source) {
+  if (source.isEmpty) return false;
+  if (source.contains('omnibot://') ||
+      source.contains('```') ||
+      source.contains('~~~') ||
+      source.contains('**') ||
+      source.contains('__') ||
+      source.contains('~~') ||
+      source.contains('`')) {
+    return true;
+  }
+  if (_structuredMarkdownInlineLinkPattern.hasMatch(source) ||
+      _structuredMarkdownReferenceLinkPattern.hasMatch(source) ||
+      _structuredMarkdownAsteriskEmphasisPattern.hasMatch(source) ||
+      _structuredMarkdownUnderscoreEmphasisPattern.hasMatch(source) ||
+      _structuredMarkdownAutolinkOrHtmlPattern.hasMatch(source) ||
+      _structuredMarkdownMathPattern.hasMatch(source) ||
+      _structuredMarkdownBlockPattern.hasMatch(source) ||
+      _structuredMarkdownRulePattern.hasMatch(source) ||
+      _structuredMarkdownIndentedCodePattern.hasMatch(source) ||
+      omnibotMarkdownContainsTableCandidate(source)) {
+    return true;
+  }
+  return false;
+}
+
+/// Whether [source] contains only prose plus strong-emphasis markers.
+///
+/// This subset can stay in one paced [Text.rich] for its entire lifetime. More
+/// complex inline or block Markdown keeps using [OmnibotMarkdownBody].
+bool omnibotTextCanUseStableBoldStreaming(
+  String source, {
+  bool allowUnclosed = true,
+}) {
+  final hasBold = source.contains('**') || source.contains('__');
+  if (!hasBold || source.contains('***') || source.contains('___')) {
+    return false;
+  }
+  if (source.contains('omnibot://') ||
+      source.contains('```') ||
+      source.contains('~~~') ||
+      source.contains('~~') ||
+      source.contains('`') ||
+      source.contains(r'$')) {
+    return false;
+  }
+  final ranges = _streamingBoldRanges(source);
+  if (ranges.isEmpty ||
+      (!allowUnclosed && ranges.any((range) => !range.isClosed))) {
+    return false;
+  }
+  return !_structuredMarkdownInlineLinkPattern.hasMatch(source) &&
+      !_structuredMarkdownReferenceLinkPattern.hasMatch(source) &&
+      !_structuredMarkdownAsteriskEmphasisPattern.hasMatch(
+        source.replaceAll('**', ''),
+      ) &&
+      !_structuredMarkdownUnderscoreEmphasisPattern.hasMatch(
+        source.replaceAll('__', ''),
+      ) &&
+      !_structuredMarkdownAutolinkOrHtmlPattern.hasMatch(source) &&
+      !_structuredMarkdownBlockPattern.hasMatch(source) &&
+      !_structuredMarkdownRulePattern.hasMatch(source) &&
+      !_structuredMarkdownIndentedCodePattern.hasMatch(source) &&
+      !omnibotMarkdownContainsTableCandidate(source);
+}
+
+/// Builds the visible portion of strong-emphasis prose without exposing its
+/// Markdown delimiters. Unclosed markers are treated as an in-progress bold
+/// span so streaming does not flash raw `**` before the closing marker arrives.
+InlineSpan omnibotBuildStreamingBoldSpan(
+  String source,
+  int visibleSourceLength,
+  TextStyle style,
+) {
+  final visibleEnd = _clampOmnibotTextToCodePointBoundary(
+    source,
+    visibleSourceLength.clamp(0, source.length),
+  );
+  final ranges = _streamingBoldRanges(source);
+  final children = <InlineSpan>[];
+  var cursor = 0;
+
+  void append(String text, {required bool bold}) {
+    if (text.isEmpty) return;
+    children.add(
+      TextSpan(
+        text: text,
+        style: bold ? style.copyWith(fontWeight: FontWeight.bold) : style,
+      ),
+    );
+  }
+
+  for (final range in ranges) {
+    if (cursor >= visibleEnd) break;
+    final plainEnd = range.openStart.clamp(cursor, visibleEnd);
+    append(source.substring(cursor, plainEnd), bold: false);
+    if (visibleEnd <= range.openEnd) {
+      cursor = visibleEnd;
+      break;
+    }
+    final boldEnd = range.closeStart.clamp(range.openEnd, visibleEnd);
+    append(source.substring(range.openEnd, boldEnd), bold: true);
+    cursor = range.closeEnd.clamp(0, visibleEnd);
+  }
+  if (cursor < visibleEnd) {
+    append(source.substring(cursor, visibleEnd), bold: false);
+  }
+  return TextSpan(style: style, children: children);
+}
+
+List<_StreamingBoldRange> _streamingBoldRanges(String source) {
+  final ranges = <_StreamingBoldRange>[];
+  var cursor = 0;
+  while (cursor + 1 < source.length) {
+    final starIndex = source.indexOf('**', cursor);
+    final underscoreIndex = source.indexOf('__', cursor);
+    final openStart = switch ((starIndex, underscoreIndex)) {
+      (-1, -1) => -1,
+      (-1, _) => underscoreIndex,
+      (_, -1) => starIndex,
+      _ => starIndex < underscoreIndex ? starIndex : underscoreIndex,
+    };
+    if (openStart < 0) break;
+    final marker = source.substring(openStart, openStart + 2);
+    final contentStart = openStart + 2;
+    if (_isEscapedMarkdownMarker(source, openStart) ||
+        (marker == '__' &&
+            openStart > 0 &&
+            _isAsciiMarkdownWord(source.codeUnitAt(openStart - 1))) ||
+        contentStart >= source.length ||
+        _isMarkdownWhitespace(source.codeUnitAt(contentStart))) {
+      cursor = contentStart;
+      continue;
+    }
+
+    var closeStart = source.indexOf(marker, contentStart);
+    while (closeStart >= 0 &&
+        (_isEscapedMarkdownMarker(source, closeStart) ||
+            closeStart == contentStart ||
+            _isMarkdownWhitespace(source.codeUnitAt(closeStart - 1)) ||
+            (marker == '__' &&
+                closeStart + 2 < source.length &&
+                _isAsciiMarkdownWord(source.codeUnitAt(closeStart + 2))))) {
+      closeStart = source.indexOf(marker, closeStart + 2);
+    }
+    final hasClose = closeStart >= 0;
+    ranges.add(
+      _StreamingBoldRange(
+        openStart: openStart,
+        openEnd: contentStart,
+        closeStart: hasClose ? closeStart : source.length,
+        closeEnd: hasClose ? closeStart + 2 : source.length,
+      ),
+    );
+    cursor = hasClose ? closeStart + 2 : source.length;
+  }
+  return ranges;
+}
+
+bool _isEscapedMarkdownMarker(String source, int index) {
+  var slashCount = 0;
+  var cursor = index - 1;
+  while (cursor >= 0 && source.codeUnitAt(cursor) == 92) {
+    slashCount += 1;
+    cursor -= 1;
+  }
+  return slashCount.isOdd;
+}
+
+bool _isMarkdownWhitespace(int codeUnit) =>
+    codeUnit == 9 || codeUnit == 10 || codeUnit == 13 || codeUnit == 32;
+
+bool _isAsciiMarkdownWord(int codeUnit) =>
+    (codeUnit >= 48 && codeUnit <= 57) ||
+    (codeUnit >= 65 && codeUnit <= 90) ||
+    (codeUnit >= 97 && codeUnit <= 122) ||
+    codeUnit == 95;
+
+class _StreamingBoldRange {
+  const _StreamingBoldRange({
+    required this.openStart,
+    required this.openEnd,
+    required this.closeStart,
+    required this.closeEnd,
+  });
+
+  final int openStart;
+  final int openEnd;
+  final int closeStart;
+  final int closeEnd;
+
+  bool get isClosed => closeEnd > closeStart;
 }
 
 class _StreamingMarkdownTablePreview extends StatelessWidget {
@@ -721,6 +1007,7 @@ class OmnibotPacedRevealText extends StatefulWidget {
     this.trailing,
     this.initialVisibleLength,
     this.onRevealedLengthChanged,
+    this.spanBuilder,
   });
 
   final String text;
@@ -734,6 +1021,15 @@ class OmnibotPacedRevealText extends StatefulWidget {
 
   /// 每次透出长度变化时回调，用于父级跨 flush 追踪总可见字符数。
   final void Function(int revealedLength)? onRevealedLengthChanged;
+
+  /// Optional formatter for the visible source prefix. It must return inline
+  /// content with the same paragraph metrics as [style].
+  final InlineSpan Function(
+    String source,
+    int visibleSourceLength,
+    TextStyle style,
+  )?
+  spanBuilder;
 
   @override
   State<OmnibotPacedRevealText> createState() => _OmnibotPacedRevealTextState();
@@ -844,7 +1140,10 @@ class _OmnibotPacedRevealTextState extends State<OmnibotPacedRevealText>
   @override
   Widget build(BuildContext context) {
     final hasTrailing = widget.trailing != null;
-    final safeVisible = _visibleLength.clamp(0, widget.text.length);
+    final safeVisible = _clampOmnibotTextToCodePointBoundary(
+      widget.text,
+      _visibleLength.clamp(0, widget.text.length),
+    );
     final visibleText = safeVisible > 0
         ? widget.text.substring(0, safeVisible)
         : '';
@@ -856,7 +1155,13 @@ class _OmnibotPacedRevealTextState extends State<OmnibotPacedRevealText>
         TextSpan(
           style: widget.style,
           children: <InlineSpan>[
-            if (visibleText.isNotEmpty) TextSpan(text: visibleText),
+            if (visibleText.isNotEmpty)
+              widget.spanBuilder?.call(
+                    widget.text,
+                    safeVisible,
+                    widget.style,
+                  ) ??
+                  TextSpan(text: visibleText),
             if (hasTrailing)
               WidgetSpan(
                 alignment: PlaceholderAlignment.middle,
