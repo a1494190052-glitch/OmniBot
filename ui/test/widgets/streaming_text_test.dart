@@ -1,10 +1,20 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:ui/l10n/legacy_text_localizer.dart';
 import 'package:ui/widgets/omnibot_markdown_body.dart';
 import 'package:ui/widgets/streaming_text.dart';
 import 'package:ui/widgets/typewriter_text.dart';
 
 void main() {
+  setUp(() {
+    LegacyTextLocalizer.setResolvedLocale(const Locale('zh'));
+  });
+
+  tearDown(() {
+    LegacyTextLocalizer.clearResolvedLocale();
+  });
+
   test('detects prose versus structured Markdown', () {
     expect(
       omnibotTextRequiresStructuredMarkdown('在呢~ 😊 小万随时待命。\n今天有什么想让我帮忙的吗？'),
@@ -399,7 +409,7 @@ void main() {
 
       expect(tester.takeException(), isNull);
       expect(find.byType(Table), findsNothing);
-      expect(find.byType(SelectionArea), findsNothing);
+      expect(find.byType(SelectionArea), findsOneWidget);
       expect(find.byType(SelectionContainer), findsWidgets);
       expect(find.textContaining('| A | 通过 |'), findsOneWidget);
 
@@ -454,7 +464,7 @@ void main() {
     },
   );
 
-  testWidgets('StreamingText keeps markdown tables out of the selection tree', (
+  testWidgets('StreamingText keeps table and prose in one selection area', (
     tester,
   ) async {
     const tableText =
@@ -479,11 +489,12 @@ void main() {
     await tester.pump();
 
     expect(tester.takeException(), isNull);
+    expect(find.byType(SelectionArea), findsOneWidget);
     expect(
       tester
           .widgetList<SelectionContainer>(find.byType(SelectionContainer))
           .any((widget) => widget.delegate == null),
-      isTrue,
+      isFalse,
     );
 
     await tester.tap(find.text('A'));
@@ -509,7 +520,7 @@ void main() {
   });
 
   testWidgets(
-    'StreamingText renders table fast-path tails outside selectable markdown',
+    'StreamingText keeps table fast-path tails inside selectable markdown',
     (tester) async {
       const prefix = '表格如下：\n\n';
       const fullText =
@@ -533,7 +544,7 @@ void main() {
       await tester.pump();
 
       expect(tester.takeException(), isNull);
-      expect(find.byType(SelectionArea), findsNothing);
+      expect(find.byType(SelectionArea), findsOneWidget);
       expect(
         find.byKey(const ValueKey('omnibot-streaming-table-tail')),
         findsNothing,
@@ -599,9 +610,73 @@ void main() {
 
       expect(tester.takeException(), isNull);
       expect(find.byType(Table), findsOneWidget);
-      expect(find.byType(SelectionArea), findsNothing);
+      expect(find.byType(SelectionArea), findsOneWidget);
     },
   );
+
+  testWidgets('long press can copy table cells with surrounding prose', (
+    tester,
+  ) async {
+    const assistCoreChannel = MethodChannel(
+      'cn.com.omnimind.bot/AssistCoreEvent',
+    );
+    MethodCall? clipboardCall;
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    messenger.setMockMethodCallHandler(assistCoreChannel, (call) async {
+      if (call.method == 'copyToClipboard') {
+        clipboardCall = call;
+        return 'SUCCESS';
+      }
+      return null;
+    });
+    addTearDown(
+      () => messenger.setMockMethodCallHandler(assistCoreChannel, null),
+    );
+
+    const tableText =
+        '表格前说明\n\n'
+        '| 名称 | 状态 |\n'
+        '| --- | --- |\n'
+        '| A | 通过 |\n'
+        '| B | 待处理 |\n\n'
+        '表格后说明';
+    await tester.pumpWidget(
+      const MaterialApp(
+        home: Scaffold(
+          body: Padding(
+            padding: EdgeInsets.all(24),
+            child: StreamingText(
+              enableMarkdown: true,
+              selectable: true,
+              isFinal: true,
+              fullText: tableText,
+              style: TextStyle(fontSize: 14),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    await tester.longPress(find.text('A'));
+    await tester.pump();
+    expect(find.text('全选'), findsOneWidget);
+    expect(find.text('复制'), findsOneWidget);
+
+    await tester.tap(find.text('全选'));
+    await tester.pump();
+    await tester.tap(find.text('复制'));
+    await tester.pump();
+
+    expect(clipboardCall?.method, 'copyToClipboard');
+    final copiedText = (clipboardCall?.arguments as Map?)?['text'] as String?;
+    expect(copiedText, contains('表格前说明'));
+    expect(copiedText, contains('名称'));
+    expect(copiedText, contains('A'));
+    expect(copiedText, contains('通过'));
+    expect(copiedText, contains('表格后说明'));
+  });
 
   testWidgets(
     'StreamingText hides dangling duplicated table snapshots in full markdown path',
@@ -631,7 +706,7 @@ void main() {
 
       expect(tester.takeException(), isNull);
       expect(find.byType(Table), findsOneWidget);
-      expect(find.byType(SelectionArea), findsNothing);
+      expect(find.byType(SelectionArea), findsOneWidget);
       expect(find.textContaining('| 序号 |'), findsNothing);
       expect(find.textContaining('|:---'), findsNothing);
     },

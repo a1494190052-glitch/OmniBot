@@ -1512,6 +1512,9 @@ mixin _ChatPageUiMixin on _ChatPageStateBase {
                   const SizedBox.shrink(),
             ),
           ),
+        // Keep auxiliary browser content below the anchor spotlight so an
+        // expanded fan dims every non-anchor surface consistently.
+        _buildBrowserOverlay(constraints),
         Positioned.fill(
           child: _buildNormalSurfaceTransition(
             viewportWidth: constraints.maxWidth,
@@ -1521,7 +1524,6 @@ mixin _ChatPageUiMixin on _ChatPageStateBase {
             ),
           ),
         ),
-        _buildBrowserOverlay(constraints),
       ],
     );
   }
@@ -2066,6 +2068,9 @@ mixin _ChatPageUiMixin on _ChatPageStateBase {
                                 ),
                         ),
                       ),
+                    ),
+                    ChatMessageAnchorSystemBarsScrim(
+                      expanded: _messageAnchorExpanded,
                     ),
                   ],
                 ),

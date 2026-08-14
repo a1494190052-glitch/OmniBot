@@ -296,7 +296,6 @@ class _StreamingTextState extends State<StreamingText> {
         onResourceOpen: widget.onResourceOpen,
         trailingInline: widget.trailing,
       ),
-      enabled: !containsTable,
     );
   }
 
@@ -333,10 +332,12 @@ class _StreamingTextState extends State<StreamingText> {
     if (children.isEmpty) {
       return const SizedBox.shrink();
     }
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      mainAxisSize: MainAxisSize.min,
-      children: children,
+    return _wrapSelectable(
+      Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: children,
+      ),
     );
   }
 
@@ -405,24 +406,26 @@ class _StreamingTextState extends State<StreamingText> {
       plainTail: plainTail,
     );
     final hasTail = visibleTail.isNotEmpty || widget.trailing != null;
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        OmnibotMarkdownBody(
-          data: visibleMarkdown,
-          baseStyle: widget.style,
-          inlineResourcePlainStyle: true,
-          onResourceOpen: widget.onResourceOpen,
-        ),
-        if (hasTail)
-          OmnibotPacedRevealText(
-            key: const ValueKey('omnibot-streaming-table-tail'),
-            text: visibleTail,
-            style: widget.style,
-            trailing: widget.trailing,
+    return _wrapSelectable(
+      Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          OmnibotMarkdownBody(
+            data: visibleMarkdown,
+            baseStyle: widget.style,
+            inlineResourcePlainStyle: true,
+            onResourceOpen: widget.onResourceOpen,
           ),
-      ],
+          if (hasTail)
+            OmnibotPacedRevealText(
+              key: const ValueKey('omnibot-streaming-table-tail'),
+              text: visibleTail,
+              style: widget.style,
+              trailing: widget.trailing,
+            ),
+        ],
+      ),
     );
   }
 
@@ -487,8 +490,8 @@ class _StreamingTextState extends State<StreamingText> {
     );
   }
 
-  Widget _wrapSelectable(Widget child, {bool enabled = true}) {
-    if (!widget.selectable || !enabled) {
+  Widget _wrapSelectable(Widget child) {
+    if (!widget.selectable) {
       return child;
     }
     return SelectionArea(
@@ -779,29 +782,27 @@ class _StreamingMarkdownTablePreview extends StatelessWidget {
         child: Text(markdown, style: previewStyle, softWrap: false),
       ),
     );
-    return SelectionContainer.disabled(
-      child: RepaintBoundary(
-        child: DecoratedBox(
-          decoration: BoxDecoration(
-            color: theme.colorScheme.surfaceContainerHighest.withValues(
-              alpha: 0.48,
-            ),
-            borderRadius: BorderRadius.circular(10),
-            border: Border.all(
-              color: theme.colorScheme.outlineVariant.withValues(alpha: 0.45),
-              width: 0.8,
-            ),
+    return RepaintBoundary(
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          color: theme.colorScheme.surfaceContainerHighest.withValues(
+            alpha: 0.48,
           ),
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-            child: trailing == null
-                ? child
-                : Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    mainAxisSize: MainAxisSize.min,
-                    children: [child, const SizedBox(height: 6), trailing!],
-                  ),
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(
+            color: theme.colorScheme.outlineVariant.withValues(alpha: 0.45),
+            width: 0.8,
           ),
+        ),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+          child: trailing == null
+              ? child
+              : Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [child, const SizedBox(height: 6), trailing!],
+                ),
         ),
       ),
     );
