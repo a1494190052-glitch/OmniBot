@@ -82,7 +82,7 @@ mixin _ChatPageOpenClawMixin on _ChatPageStateBase {
         _showModelMentionPanel = false;
         _activeModelMentionToken = null;
         _openClawPanelExpanded = false;
-        _slashCommandExpandedByMode[_activeMode] = false;
+        _modeState(_activeMode).slashCommandExpanded = false;
       });
       return;
     }
@@ -116,7 +116,7 @@ mixin _ChatPageOpenClawMixin on _ChatPageStateBase {
       _showModelMentionPanel = shouldShowModelMention;
       _activeModelMentionToken = nextMentionToken;
       _openClawPanelExpanded = nextOpenClawPanelExpanded;
-      _slashCommandExpandedByMode[_activeMode] = false;
+      _modeState(_activeMode).slashCommandExpanded = false;
     });
   }
 
@@ -147,7 +147,7 @@ mixin _ChatPageOpenClawMixin on _ChatPageStateBase {
       _showSlashCommandPanel = false;
       _showModelMentionPanel = false;
       _openClawPanelExpanded = false;
-      _slashCommandExpandedByMode[_activeMode] = false;
+      _modeState(_activeMode).slashCommandExpanded = false;
     });
   }
 
@@ -198,7 +198,7 @@ mixin _ChatPageOpenClawMixin on _ChatPageStateBase {
     // 的两步流程)。strip 自己的命中区域不算 outside,避免 toggle 自己把自己关掉。
     if (_isToolActivityExpanded && !insideToolActivityStrip && mounted) {
       setState(() {
-        _toolActivityExpandedByMode[_activeMode] = false;
+        _modeState(_activeMode).toolActivityExpanded = false;
       });
     }
     if (!_showSlashCommandPanel &&

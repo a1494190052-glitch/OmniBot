@@ -234,8 +234,8 @@ mixin _ChatPageLifecycleMixin on _ChatPageStateBase {
     final targetMode = _pageModeForConversationMode(effectiveTarget.mode);
     _storeDraftForActiveConversationMode();
     if (effectiveTarget.isNewConversation) {
-      _draftMessageByMode[targetMode] = '';
-      _pendingAttachmentsByMode[targetMode]?.clear();
+      _modeState(targetMode).draftMessage = '';
+      _modeState(targetMode).pendingAttachments.clear();
     }
     if (isStaleRequest()) return;
     setState(() {
@@ -343,12 +343,14 @@ mixin _ChatPageLifecycleMixin on _ChatPageStateBase {
             agentSessionId: threadId.isEmpty ? null : threadId,
             agentRuntime: 'local',
           );
-          final conversation = _currentConversationByMode[ChatPageMode.agent];
+          final conversation = _modeState(
+            ChatPageMode.agent,
+          ).currentConversation;
           if (conversation?.id == conversationId) {
             final updatedConversation = conversation!.copyWith(
               agentId: resolvedAgentId,
             );
-            _currentConversationByMode[ChatPageMode.agent] =
+            _modeState(ChatPageMode.agent).currentConversation =
                 updatedConversation;
             final runtime = _runtimeForMode(ChatPageMode.agent);
             if (runtime?.conversation?.id == conversationId) {
@@ -386,13 +388,13 @@ mixin _ChatPageLifecycleMixin on _ChatPageStateBase {
 
   bool _hasPreparedConversationState(ChatPageMode mode) {
     final runtime = _runtimeForMode(mode);
-    final draft = _draftMessageByMode[mode] ?? '';
-    return _currentConversationIdByMode[mode] != null ||
-        _currentConversationByMode[mode] != null ||
-        _messagesByMode[mode]!.isNotEmpty ||
+    final draft = _modeState(mode).draftMessage;
+    return _modeState(mode).currentConversationId != null ||
+        _modeState(mode).currentConversation != null ||
+        _modeState(mode).messages.isNotEmpty ||
         (runtime?.messages.isNotEmpty ?? false) ||
         draft.isNotEmpty ||
-        _pendingAttachmentsByMode[mode]!.isNotEmpty;
+        _modeState(mode).pendingAttachments.isNotEmpty;
   }
 
   @override
@@ -448,9 +450,9 @@ mixin _ChatPageLifecycleMixin on _ChatPageStateBase {
       return;
     }
 
-    _currentConversationIdByMode[mode] = conversationId;
-    _currentConversationByMode[mode] = resolvedConversation;
-    _messagesByMode[mode]!
+    _modeState(mode).currentConversationId = conversationId;
+    _modeState(mode).currentConversation = resolvedConversation;
+    _modeState(mode).messages
       ..clear()
       ..addAll(resolvedMessages);
 
@@ -901,12 +903,12 @@ mixin _ChatPageLifecycleMixin on _ChatPageStateBase {
 
   @override
   void _storeDraftForActiveConversationMode() {
-    _draftMessageByMode[_activeConversationMode] = _messageController.text;
+    _modeState(_activeConversationMode).draftMessage = _messageController.text;
   }
 
   @override
   void _applyDraftForConversationMode(ChatPageMode mode) {
-    final draft = _draftMessageByMode[mode] ?? '';
+    final draft = _modeState(mode).draftMessage;
     _messageController.value = TextEditingValue(
       text: draft,
       selection: TextSelection.collapsed(offset: draft.length),
@@ -972,8 +974,8 @@ mixin _ChatPageLifecycleMixin on _ChatPageStateBase {
       return;
     }
     setState(() {
-      _draftMessageByMode[ChatPageMode.normal] = payload.text ?? '';
-      _pendingAttachmentsByMode[ChatPageMode.normal]!
+      _modeState(ChatPageMode.normal).draftMessage = payload.text ?? '';
+      _modeState(ChatPageMode.normal).pendingAttachments
         ..clear()
         ..addAll(attachments);
     });
