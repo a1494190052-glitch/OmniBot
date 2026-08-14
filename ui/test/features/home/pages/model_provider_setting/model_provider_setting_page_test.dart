@@ -660,6 +660,51 @@ void main() {
     expect(saveCalls, 1);
   });
 
+  testWidgets('provider page saves focused draft when leaving', (tester) async {
+    var saveCalls = 0;
+    Map<dynamic, dynamic>? savedArgs;
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    messenger.setMockMethodCallHandler(assistCoreChannel, (call) async {
+      switch (call.method) {
+        case 'listModelProviderProfiles':
+          return profilePayload();
+        case 'saveModelProviderProfile':
+          saveCalls += 1;
+          savedArgs = Map<dynamic, dynamic>.from(
+            (call.arguments as Map?) ?? const <String, dynamic>{},
+          );
+          return savedProfileResponse(savedArgs!);
+      }
+      return null;
+    });
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: AppTheme.lightTheme,
+        darkTheme: AppTheme.darkTheme,
+        home: const ModelProviderSettingPage(),
+      ),
+    );
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 50));
+
+    final apiKeyField = find.byWidgetPredicate(
+      (widget) =>
+          widget is TextField && widget.decoration?.labelText == 'API Key',
+    );
+    await tester.tap(apiKeyField);
+    await tester.enterText(apiKeyField, 'sk-updated');
+    await tester.pump(const Duration(milliseconds: 700));
+    expect(saveCalls, 0);
+
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pump();
+
+    expect(saveCalls, 1);
+    expect(savedArgs?['apiKey'], 'sk-updated');
+  });
+
   testWidgets('renders models.dev grouping, context, and input modalities', (
     tester,
   ) async {

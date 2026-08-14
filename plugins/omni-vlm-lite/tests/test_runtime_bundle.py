@@ -5,7 +5,6 @@ from io import BytesIO
 import json
 from pathlib import Path
 import subprocess
-from tempfile import TemporaryDirectory
 import unittest
 from zipfile import ZipFile
 
@@ -13,7 +12,7 @@ from zipfile import ZipFile
 COMPONENT_ROOT = Path(__file__).resolve().parents[1]
 REPOSITORY_ROOT = COMPONENT_ROOT.parents[1]
 CATALOG_PATH = REPOSITORY_ROOT / "plugins/catalog.v1.json"
-BUILD_SCRIPT = REPOSITORY_ROOT / "scripts/build-omniflow-component.py"
+ARCHIVE_PATH = REPOSITORY_ROOT / "artifacts/omniflow-gui-runtime-2.1.7.zip"
 OMNIFLOW_ROOT = REPOSITORY_ROOT.parent / "OmniFlow-exp"
 OMNITRANSFER_ROOT = REPOSITORY_ROOT.parent / "OmniTransfer"
 
@@ -37,15 +36,7 @@ def committed_file(repository: Path, revision: str, relative: str) -> bytes:
 class RuntimeBundleTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
-        cls.temporary = TemporaryDirectory(prefix="omniflow-component-test-")
-        cls.archive_path = Path(cls.temporary.name) / "omniflow-gui-runtime-2.1.7.zip"
-        subprocess.run(
-            ("python3", str(BUILD_SCRIPT), "--output", str(cls.archive_path)),
-            check=True,
-            cwd=REPOSITORY_ROOT,
-            capture_output=True,
-            text=True,
-        )
+        cls.archive_path = ARCHIVE_PATH
         with ZipFile(cls.archive_path) as archive:
             cls.names = set(archive.namelist())
             cls.files = {
@@ -56,10 +47,6 @@ class RuntimeBundleTest(unittest.TestCase):
         cls.properties = read_properties(
             cls.files["scripts/runtime/runtime.properties"].decode("utf-8")
         )
-
-    @classmethod
-    def tearDownClass(cls) -> None:
-        cls.temporary.cleanup()
 
     def test_release_asset_matches_catalog(self) -> None:
         catalog = json.loads(CATALOG_PATH.read_text(encoding="utf-8"))["plugins"][0]
