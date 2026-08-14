@@ -42,7 +42,7 @@ mixin _ChatPageAgentMixin on _ChatPageStateBase {
         _agentRuntimeStatus = status;
         _isAgentRuntimeStatusLoading = false;
       });
-      unawaited(_loadAgentCatalog());
+      unawaited(_loadAgentCatalog(force: true));
       if (_activeMode == ChatPageMode.agent) {
         unawaited(_loadAgentModelOptionsWhenReady());
       }

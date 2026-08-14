@@ -639,6 +639,7 @@ mixin _ChatPageLifecycleMixin on _ChatPageStateBase {
     unawaited(_handleDidPopNext());
     unawaited(_syncVisibleChatConversation());
     unawaited(_syncPetOverlayState());
+    unawaited(_refreshAgentRuntimeStatus());
   }
 
   @override

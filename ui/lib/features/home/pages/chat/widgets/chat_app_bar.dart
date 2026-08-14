@@ -43,10 +43,22 @@ double _chatAppBarModeMenuAgentIconSize(String agentId) {
 enum ChatSurfaceMode { workspace, normal, openclaw }
 
 class ChatAcpAgentModeOption {
-  const ChatAcpAgentModeOption({required this.id, required this.name});
+  const ChatAcpAgentModeOption({
+    required this.id,
+    required this.name,
+    this.enabled = true,
+    this.installed = true,
+    this.status = 'online',
+  });
 
   final String id;
   final String name;
+  final bool enabled;
+  final bool installed;
+  final String status;
+
+  bool get isAvailable =>
+      enabled && installed && status.trim().toLowerCase() == 'online';
 }
 
 const List<ChatSurfaceMode> kVisibleChatSurfaceModes = <ChatSurfaceMode>[
@@ -574,13 +586,9 @@ class _ChatAppBarModeShortcutButtonState
     final canSelectPureChat =
         widget.isAgentSelected ||
         (!widget.isPureChatToggleLocked && widget.onPureChatToggleTap != null);
-    final acpAgentModes = widget.acpAgentModes.isNotEmpty
-        ? widget.acpAgentModes
-        : widget.onAgentTap != null
-        ? const <ChatAcpAgentModeOption>[
-            ChatAcpAgentModeOption(id: 'generic-agent', name: 'Agent'),
-          ]
-        : const <ChatAcpAgentModeOption>[];
+    final acpAgentModes = widget.acpAgentModes
+        .where((agent) => agent.isAvailable)
+        .toList(growable: false);
     final popupAnchor = Rect.fromLTWH(anchor.left, anchor.top, anchor.width, 0);
 
     final action = await showGlassPopup<_ChatAppBarModeShortcutAction>(

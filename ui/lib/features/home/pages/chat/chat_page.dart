@@ -431,20 +431,21 @@ abstract class _ChatPageStateBase extends State<ChatPage>
     final profiles = _agentCatalog?.agents ?? const <AcpAgentProfile>[];
     final options = <ChatAcpAgentModeOption>[
       for (final profile in profiles)
-        if (profile.enabled)
-          ChatAcpAgentModeOption(id: profile.id, name: profile.name),
+        ChatAcpAgentModeOption(
+          id: profile.id,
+          name: profile.name,
+          enabled: profile.enabled,
+          installed: profile.installed == true,
+          status: profile.status,
+        ),
       if (_agentRuntimeStatus.remoteConfigured)
-        const ChatAcpAgentModeOption(
+        ChatAcpAgentModeOption(
           id: _kRemoteCodexModeAgentId,
           name: 'Agent Remote',
+          enabled: _agentRuntimeStatus.remoteEnabled,
+          status: _agentRuntimeStatus.ready ? 'online' : 'offline',
         ),
     ];
-    final activeId = _activeAcpAgentId;
-    if (options.isEmpty && activeId != null) {
-      options.add(
-        ChatAcpAgentModeOption(id: activeId, name: _activeAcpAgentDisplayName),
-      );
-    }
     return options;
   }
 
