@@ -57,8 +57,9 @@ mixin _ChatPageModelContextMixin on _ChatPageStateBase {
       return;
     }
 
-    final normalConversationId =
-        _currentConversationIdByMode[ChatPageMode.normal];
+    final normalConversationId = _modeState(
+      ChatPageMode.normal,
+    ).currentConversationId;
     if (shouldClearPersisted && normalConversationId != null) {
       await ConversationModelOverrideService.clearOverride(
         normalConversationId,
@@ -226,8 +227,9 @@ mixin _ChatPageModelContextMixin on _ChatPageStateBase {
       providerProfileId: providerProfileId,
       modelId: modelId,
     );
-    final normalConversationId =
-        _currentConversationIdByMode[ChatPageMode.normal];
+    final normalConversationId = _modeState(
+      ChatPageMode.normal,
+    ).currentConversationId;
 
     if (normalConversationId == null) {
       if (!mounted) return;
@@ -284,8 +286,9 @@ mixin _ChatPageModelContextMixin on _ChatPageStateBase {
     if (normalizedEffort == null || _activeMode != ChatPageMode.normal) {
       return;
     }
-    final normalConversationId =
-        _currentConversationIdByMode[ChatPageMode.normal];
+    final normalConversationId = _modeState(
+      ChatPageMode.normal,
+    ).currentConversationId;
     if (normalConversationId == null) {
       if (!mounted) return;
       setState(() {
@@ -317,8 +320,9 @@ mixin _ChatPageModelContextMixin on _ChatPageStateBase {
     if (!hasOverride) {
       return;
     }
-    final normalConversationId =
-        _currentConversationIdByMode[ChatPageMode.normal];
+    final normalConversationId = _modeState(
+      ChatPageMode.normal,
+    ).currentConversationId;
     if (normalConversationId != null) {
       await ConversationModelOverrideService.clearOverride(
         normalConversationId,
@@ -686,7 +690,7 @@ mixin _ChatPageModelContextMixin on _ChatPageStateBase {
     int? conversationId,
   }) async {
     final targetConversationId =
-        conversationId ?? _currentConversationIdByMode[ChatPageMode.normal];
+        conversationId ?? _modeState(ChatPageMode.normal).currentConversationId;
     if (targetConversationId == null || targetConversationId <= 0) {
       return;
     }
@@ -701,7 +705,7 @@ mixin _ChatPageModelContextMixin on _ChatPageStateBase {
     }
     final currentConversation =
         _runtimeForMode(ChatPageMode.normal)?.conversation ??
-        _currentConversationByMode[ChatPageMode.normal];
+        _modeState(ChatPageMode.normal).currentConversation;
     if (currentConversation?.promptTokenThreshold == contextLimit) {
       return;
     }
@@ -721,9 +725,9 @@ mixin _ChatPageModelContextMixin on _ChatPageStateBase {
       promptTokenThreshold: contextLimit,
     );
     setState(() {
-      if (_currentConversationByMode[ChatPageMode.normal]?.id ==
+      if (_modeState(ChatPageMode.normal).currentConversation?.id ==
           targetConversationId) {
-        _currentConversationByMode[ChatPageMode.normal] = nextConversation;
+        _modeState(ChatPageMode.normal).currentConversation = nextConversation;
       }
       final runtime = _runtimeForMode(ChatPageMode.normal);
       if (runtime?.conversation?.id == targetConversationId) {

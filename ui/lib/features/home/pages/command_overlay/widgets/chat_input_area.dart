@@ -7,6 +7,7 @@ import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
+import 'package:ui/features/home/pages/command_overlay/state/chat_composer_state_machine.dart';
 import 'package:ui/services/model_vendor_catalog.dart';
 import 'package:ui/services/special_permission.dart';
 import 'package:ui/services/storage_service.dart';
@@ -19,6 +20,12 @@ import 'package:ui/widgets/text_input_context_menu.dart';
 
 part 'chat_input_area_composer.dart';
 part 'chat_input_area_popup.dart';
+part 'chat_input_actions.dart';
+part 'chat_input_agent_controls.dart';
+part 'chat_input_agent_menus.dart';
+part 'chat_input_attachments.dart';
+part 'chat_input_context_usage.dart';
+part 'chat_input_flow_border.dart';
 
 const String _kInputTerminalIconAsset = 'assets/home/input_terminal_icon.svg';
 const String _kInputAttachmentIconAsset =
@@ -203,298 +210,42 @@ class ChatInputArea extends StatefulWidget {
   State<ChatInputArea> createState() => ChatInputAreaState();
 }
 
-class _ContextUsageRing extends StatelessWidget {
-  const _ContextUsageRing({required this.ratio});
-
-  final double ratio;
-
-  @override
-  Widget build(BuildContext context) {
-    final normalized = ratio.isFinite ? ratio : 0.0;
-    final progress = normalized.clamp(0.0, 1.0).toDouble();
-    final palette = context.omniPalette;
-    final color = context.isDarkTheme
-        ? normalized >= 1.0
-              ? const Color(0xFFB97862)
-              : normalized >= 0.85
-              ? const Color(0xFFB39B6B)
-              : palette.accentPrimary
-        : normalized >= 1.0
-        ? const Color(0xFFD65A3A)
-        : normalized >= 0.85
-        ? const Color(0xFFC69234)
-        : const Color(0xFF5A8DDE);
-    final trackColor = context.isDarkTheme
-        ? Color.lerp(
-            palette.surfaceElevated,
-            palette.borderStrong,
-            0.62,
-          )!.withValues(alpha: 0.92)
-        : const Color(0x18000000);
-
-    return SizedBox(
-      width: 18,
-      height: 18,
-      child: TweenAnimationBuilder<double>(
-        tween: Tween<double>(begin: 0, end: progress),
-        duration: const Duration(milliseconds: 220),
-        curve: Curves.easeOutCubic,
-        builder: (context, value, _) {
-          return CustomPaint(
-            painter: _ContextUsageRingPainter(
-              progress: value,
-              color: color,
-              trackColor: trackColor,
-            ),
-          );
-        },
-      ),
-    );
-  }
-}
-
-class _ContextUsageRingButton extends StatefulWidget {
-  const _ContextUsageRingButton({
-    required this.ratio,
-    this.tooltipMessage,
-    this.onLongPress,
-  });
-
-  final double ratio;
-  final String? tooltipMessage;
-  final VoidCallback? onLongPress;
-
-  @override
-  State<_ContextUsageRingButton> createState() =>
-      _ContextUsageRingButtonState();
-}
-
-class _ContextUsageRingButtonState extends State<_ContextUsageRingButton> {
-  // 走 [showOverlayGlassPopup] 而不是 [showGlassPopup] —— 后者 push Navigator
-  // route,ModalRoute.didPush 会调 setFirstFocus 把焦点从 TextField 抢到 popup
-  // 的 FocusScope,TextField 失焦 → 软键盘塌陷 → 输入栏下沉 → 已经算好的 popup
-  // 锚点还停在"键盘弹起时的高位置",视觉上就是 tooltip 飘在原地、输入栏掉到底。
-  // 详见 glass_popup.dart 里 [OverlayGlassPopupHandle] 的文档。
-  OverlayGlassPopupHandle<void>? _handle;
-  Timer? _autoDismissTimer;
-
-  @override
-  void dispose() {
-    _autoDismissTimer?.cancel();
-    unawaited(_handle?.dismiss());
-    _handle = null;
-    super.dispose();
-  }
-
-  void _showTooltip(BuildContext anchorContext, String message) {
-    if (_handle != null) {
-      // 二次点击当 toggle 关掉,免得反复点击堆叠多个 entry。
-      final h = _handle;
-      _handle = null;
-      _autoDismissTimer?.cancel();
-      _autoDismissTimer = null;
-      unawaited(h?.dismiss());
-      return;
-    }
-    final anchor = glassPopupAnchorFromContext(anchorContext);
-    if (anchor == null) return;
-
-    final handle = showOverlayGlassPopup<void>(
-      context: anchorContext,
-      anchor: anchor,
-      preferBelow: false,
-      verticalGap: 8,
-      horizontalPlacement: GlassPopupHorizontalPlacement.centerOnAnchor,
-      builder: (_) => _ContextUsageGlassTooltipBody(message: message),
-    );
-    _handle = handle;
-    // future resolve 后(任何一条 dismiss 路径触发,含 toggle / 自动 / tap-outside /
-    // back / 键盘塌陷)清空状态字段。
-    handle.future.whenComplete(() {
-      if (!mounted) return;
-      if (_handle == handle) {
-        _handle = null;
-      }
-      _autoDismissTimer?.cancel();
-      _autoDismissTimer = null;
-    });
-
-    _autoDismissTimer = Timer(const Duration(seconds: 3), () {
-      if (!mounted) return;
-      unawaited(handle.dismiss());
-    });
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final ring = SizedBox(
-      width: 22,
-      height: 22,
-      child: Center(child: _ContextUsageRing(ratio: widget.ratio)),
-    );
-    final tooltip = widget.tooltipMessage?.trim() ?? '';
-    final hasTooltip = tooltip.isEmpty == false;
-    if (!hasTooltip && widget.onLongPress == null) {
-      return ring;
-    }
-    return Builder(
-      builder: (anchorContext) {
-        return GestureDetector(
-          behavior: HitTestBehavior.opaque,
-          onTap: hasTooltip ? () => _showTooltip(anchorContext, tooltip) : null,
-          onLongPress: widget.onLongPress,
-          child: ring,
-        );
-      },
-    );
-  }
-}
-
-class _ContextUsageGlassTooltipBody extends StatelessWidget {
-  const _ContextUsageGlassTooltipBody({required this.message});
-
-  final String message;
-
-  @override
-  Widget build(BuildContext context) {
-    final palette = context.omniPalette;
-    final isDark = context.isDarkTheme;
-    final textColor = isDark ? palette.textPrimary : const Color(0xFF1F2937);
-    return ConstrainedBox(
-      constraints: const BoxConstraints(maxWidth: 280),
-      child: OmniGlassPanel(
-        borderRadius: const BorderRadius.all(Radius.circular(14)),
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-        child: Text(
-          message,
-          style: TextStyle(
-            color: textColor,
-            fontSize: 12,
-            height: 1.45,
-            fontWeight: FontWeight.w500,
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _ContextUsageRingPainter extends CustomPainter {
-  const _ContextUsageRingPainter({
-    required this.progress,
-    required this.color,
-    required this.trackColor,
-  });
-
-  final double progress;
-  final Color color;
-  final Color trackColor;
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    if (size.isEmpty) return;
-    final strokeWidth = 1.8;
-    final radius = (math.min(size.width, size.height) - strokeWidth) / 2;
-    final center = Offset(size.width / 2, size.height / 2);
-    final rect = Rect.fromCircle(center: center, radius: radius);
-
-    final trackPaint = Paint()
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = strokeWidth
-      ..strokeCap = StrokeCap.round
-      ..color = trackColor;
-    final progressPaint = Paint()
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = strokeWidth
-      ..strokeCap = StrokeCap.round
-      ..color = color;
-
-    canvas.drawArc(rect, 0, math.pi * 2, false, trackPaint);
-    if (progress <= 0) return;
-    canvas.drawArc(
-      rect,
-      -math.pi / 2,
-      math.pi * 2 * progress.clamp(0.0, 1.0),
-      false,
-      progressPaint,
-    );
-  }
-
-  @override
-  bool shouldRepaint(covariant _ContextUsageRingPainter oldDelegate) {
-    return oldDelegate.progress != progress ||
-        oldDelegate.color != color ||
-        oldDelegate.trackColor != trackColor;
-  }
-}
-
 class ChatInputAreaState extends _ChatInputAreaStateBase
     with _ChatInputAreaComposerMixin, _ChatInputAreaPopupMixin {}
 
-enum _ComposerKeyboardPhase { hidden, opening, visible, closing }
-
-extension on _ComposerKeyboardPhase {
-  bool get expandsEmptyTextField {
-    return switch (this) {
-      _ComposerKeyboardPhase.opening || _ComposerKeyboardPhase.visible => true,
-      _ComposerKeyboardPhase.hidden || _ComposerKeyboardPhase.closing => false,
-    };
-  }
-}
-
-class _ComposerInteractionState {
-  const _ComposerInteractionState({
-    required this.hasText,
-    required this.hasFocus,
-    required this.keyboardPhase,
-  });
-
-  final bool hasText;
-  final bool hasFocus;
-  final _ComposerKeyboardPhase keyboardPhase;
-
-  bool get expandsTextField =>
-      hasText || (hasFocus && keyboardPhase.expandsEmptyTextField);
-
-  _ComposerInteractionState copyWith({
-    bool? hasText,
-    bool? hasFocus,
-    _ComposerKeyboardPhase? keyboardPhase,
-  }) {
-    return _ComposerInteractionState(
-      hasText: hasText ?? this.hasText,
-      hasFocus: hasFocus ?? this.hasFocus,
-      keyboardPhase: keyboardPhase ?? this.keyboardPhase,
-    );
-  }
-
-  @override
-  bool operator ==(Object other) {
-    return other is _ComposerInteractionState &&
-        other.hasText == hasText &&
-        other.hasFocus == hasFocus &&
-        other.keyboardPhase == keyboardPhase;
-  }
-
-  @override
-  int get hashCode => Object.hash(hasText, hasFocus, keyboardPhase);
-}
-
 abstract class _ChatInputAreaStateBase extends State<ChatInputArea>
     with TickerProviderStateMixin, WidgetsBindingObserver {
-  static const double _keyboardVisibleInsetThreshold = 0.5;
-  static const double _keyboardMotionEpsilon = 1.0;
+  late ChatComposerStateMachine _composerStateMachine;
+  late bool _lastComposerExpansionState;
 
-  late ValueNotifier<_ComposerInteractionState> _composerStateNotifier;
-  bool _isPopupVisible = false;
-  double _lastKeyboardInset = 0;
+  final GlobalKey _agentRunSettingsButtonKey = GlobalKey(
+    debugLabel: 'agent-run-settings-button',
+  );
+  final GlobalKey _modelPickerButtonKey = GlobalKey(
+    debugLabel: 'chat-model-picker-button',
+  );
+  final GlobalKey _agentPermissionButtonKey = GlobalKey(
+    debugLabel: 'agent-permission-button',
+  );
+  OverlayGlassPopupHandle<_AgentRunSettingsMenuAction>?
+  _agentRunSettingsMenuHandle;
+  OverlayGlassPopupHandle<AgentPermissionMode>? _agentPermissionMenuHandle;
 
   final ScrollController _textFieldScrollController = ScrollController();
 
-  bool get isPopupVisible => _isPopupVisible;
+  bool get isPopupVisible =>
+      _composerStateMachine.value.isPopupOpen(ChatComposerPopup.legacyActions);
+
+  void _hideLegacyPopup({bool alwaysNotify = false}) {
+    final wasVisible = isPopupVisible;
+    _composerStateMachine.popupClosed(ChatComposerPopup.legacyActions);
+    if (wasVisible || alwaysNotify) {
+      widget.onPopupVisibilityChanged?.call(false);
+    }
+  }
+
   double _lastReportedInputHeight = 44;
   bool _inputHeightReportScheduled = false;
-  bool _isComposerHovered = false;
   late AnimationController _composerFlowController;
   late AnimationController _modelPickerSpinController;
 
@@ -511,13 +262,12 @@ abstract class _ChatInputAreaStateBase extends State<ChatInputArea>
   @override
   void initState() {
     super.initState();
-    _composerStateNotifier = ValueNotifier<_ComposerInteractionState>(
-      _ComposerInteractionState(
-        hasText: widget.controller.text.trim().isNotEmpty,
-        hasFocus: widget.focusNode.hasFocus,
-        keyboardPhase: _ComposerKeyboardPhase.hidden,
-      ),
+    _composerStateMachine = ChatComposerStateMachine(
+      hasText: widget.controller.text.trim().isNotEmpty,
+      hasFocus: widget.focusNode.hasFocus,
     );
+    _lastComposerExpansionState = _composerStateMachine.value.expandsTextField;
+    _composerStateMachine.addListener(_onComposerStateChanged);
     widget.controller.addListener(_onTextChanged);
     widget.focusNode.addListener(_onFocusChanged);
     WidgetsBinding.instance.addObserver(this);
@@ -674,11 +424,20 @@ abstract class _ChatInputAreaStateBase extends State<ChatInputArea>
   }
 
   void _onTextChanged() {
-    _updateComposerState(hasText: widget.controller.text.trim().isNotEmpty);
+    _composerStateMachine.textChanged(widget.controller.text.trim().isNotEmpty);
   }
 
   void _onFocusChanged() {
-    _updateComposerState(hasFocus: widget.focusNode.hasFocus);
+    _composerStateMachine.focusChanged(widget.focusNode.hasFocus);
+  }
+
+  void _onComposerStateChanged() {
+    final expandsTextField = _composerStateMachine.value.expandsTextField;
+    if (expandsTextField == _lastComposerExpansionState) {
+      return;
+    }
+    _lastComposerExpansionState = expandsTextField;
+    _reportInputHeightAfterBuild();
   }
 
   @override
@@ -691,52 +450,7 @@ abstract class _ChatInputAreaStateBase extends State<ChatInputArea>
     if (!mounted) return;
     final view = View.of(context);
     final bottomInset = view.viewInsets.bottom / view.devicePixelRatio;
-    final keyboardPhase = _resolveKeyboardPhase(bottomInset);
-    _updateComposerState(keyboardPhase: keyboardPhase);
-  }
-
-  _ComposerKeyboardPhase _resolveKeyboardPhase(double bottomInset) {
-    final normalizedInset = bottomInset.isFinite
-        ? math.max(0.0, bottomInset)
-        : 0.0;
-    final previousInset = _lastKeyboardInset;
-    _lastKeyboardInset = normalizedInset;
-
-    if (normalizedInset <= _keyboardVisibleInsetThreshold) {
-      return _ComposerKeyboardPhase.hidden;
-    }
-    if (previousInset <= _keyboardVisibleInsetThreshold ||
-        normalizedInset > previousInset + _keyboardMotionEpsilon) {
-      return _ComposerKeyboardPhase.opening;
-    }
-    if (normalizedInset < previousInset - _keyboardMotionEpsilon) {
-      return _ComposerKeyboardPhase.closing;
-    }
-
-    return switch (_composerStateNotifier.value.keyboardPhase) {
-      _ComposerKeyboardPhase.hidden ||
-      _ComposerKeyboardPhase.opening ||
-      _ComposerKeyboardPhase.visible => _ComposerKeyboardPhase.visible,
-      _ComposerKeyboardPhase.closing => _ComposerKeyboardPhase.closing,
-    };
-  }
-
-  void _updateComposerState({
-    bool? hasText,
-    bool? hasFocus,
-    _ComposerKeyboardPhase? keyboardPhase,
-  }) {
-    final current = _composerStateNotifier.value;
-    final next = current.copyWith(
-      hasText: hasText,
-      hasFocus: hasFocus,
-      keyboardPhase: keyboardPhase,
-    );
-    if (next == current) {
-      return;
-    }
-    _composerStateNotifier.value = next;
-    _reportInputHeightAfterBuild();
+    _composerStateMachine.keyboardInsetChanged(bottomInset);
   }
 
   @override
@@ -753,9 +467,15 @@ abstract class _ChatInputAreaStateBase extends State<ChatInputArea>
 
   @override
   void dispose() {
+    unawaited(_agentRunSettingsMenuHandle?.dismiss());
+    _agentRunSettingsMenuHandle = null;
+    unawaited(_agentPermissionMenuHandle?.dismiss());
+    _agentPermissionMenuHandle = null;
     WidgetsBinding.instance.removeObserver(this);
     _textFieldScrollController.dispose();
-    _composerStateNotifier.dispose();
+    _composerStateMachine
+      ..removeListener(_onComposerStateChanged)
+      ..dispose();
     _composerFlowController.dispose();
     _modelPickerSpinController.dispose();
     widget.controller.removeListener(_onTextChanged);
