@@ -6,6 +6,8 @@ import cn.com.omnimind.baselib.i18n.AppLocaleManager
 import cn.com.omnimind.baselib.i18n.PromptLocale
 import cn.com.omnimind.baselib.llm.ModelProviderConfigStore
 import cn.com.omnimind.baselib.llm.ModelSceneRegistry
+import cn.com.omnimind.baselib.llm.OmniOfficialProvider
+import cn.com.omnimind.baselib.llm.PlatformAiProvisioner
 import cn.com.omnimind.baselib.llm.ProviderCustomHeaderUtils
 import cn.com.omnimind.baselib.llm.SceneModelBindingStore
 import cn.com.omnimind.baselib.util.OmniLog
@@ -45,7 +47,8 @@ data class WorkspaceMemoryEmbeddingConfig(
     val providerProfileName: String?,
     val modelId: String?,
     val apiBase: String?,
-    val hasApiKey: Boolean
+    val hasApiKey: Boolean,
+    val usesPlatform: Boolean = false,
 )
 
 data class WorkspaceMemorySearchHit(
@@ -141,6 +144,7 @@ class WorkspaceMemoryService(
         .readTimeout(60, TimeUnit.SECONDS)
         .writeTimeout(30, TimeUnit.SECONDS)
         .build()
+    private val platformEmbeddingGateway = PlatformEmbeddingGateway()
 
     private fun currentLocale(): PromptLocale = AppLocaleManager.resolvePromptLocale(context)
 
@@ -1073,6 +1077,33 @@ class WorkspaceMemoryService(
 
     private fun resolveEmbeddingConfig(): WorkspaceMemoryEmbeddingConfig {
         val enabled = mmkv?.decodeBool(KEY_EMBEDDING_ENABLED, true) ?: true
+        if (OmniOfficialProvider.shouldExpose()) {
+            // A process can already be text-ready while still holding the
+            // catalog cached before embedding was published. Refresh that
+            // incomplete catalog before deciding to fall back to lexical
+            // retrieval.
+            val platformStatus = runBlocking {
+                PlatformAiProvisioner.ensureEmbeddingReadyStatus()
+            }
+            val platformProfile = PlatformAiProvisioner.officialProfileOrNull()
+            val platformModelId = platformStatus.defaultEmbeddingModelId
+            val declared = platformStatus.embeddingModels.any { it.id == platformModelId }
+            return WorkspaceMemoryEmbeddingConfig(
+                enabled = enabled,
+                configured = enabled &&
+                    platformStatus.ready &&
+                    platformProfile?.ready == true &&
+                    !platformModelId.isNullOrBlank() &&
+                    declared,
+                sceneId = SCENE_MEMORY_EMBEDDING,
+                providerProfileId = OmniOfficialProvider.PROFILE_ID,
+                providerProfileName = OmniOfficialProvider.PROFILE_NAME,
+                modelId = platformModelId,
+                apiBase = platformProfile?.baseUrl,
+                hasApiKey = false,
+                usesPlatform = true,
+            )
+        }
         val sceneProfile = ModelSceneRegistry.getRuntimeProfile(SCENE_MEMORY_EMBEDDING)
         val binding = SceneModelBindingStore.getBinding(SCENE_MEMORY_EMBEDDING)
         val profile = binding?.providerProfileId?.let { ModelProviderConfigStore.getProfile(it) }
@@ -1092,7 +1123,7 @@ class WorkspaceMemoryService(
                 providerProfileName = profile.name,
                 modelId = modelId,
                 apiBase = apiBase,
-                hasApiKey = apiKey.isNotEmpty()
+                hasApiKey = apiKey.isNotEmpty(),
             )
         }
         val configured = enabled &&
@@ -1107,7 +1138,7 @@ class WorkspaceMemoryService(
             providerProfileName = profile.name,
             modelId = modelId,
             apiBase = apiBase,
-            hasApiKey = apiKey.isNotEmpty()
+            hasApiKey = apiKey.isNotEmpty(),
         )
     }
 
@@ -1206,8 +1237,11 @@ class WorkspaceMemoryService(
         val next = mutableListOf<MemoryIndexEntry>()
         chunks.forEach { chunk ->
             val old = existing.remove(chunk.id)
-            if (old != null && old.text == chunk.text) {
-                next += old
+            val reusable = old != null &&
+                old.text == chunk.text &&
+                (!config.configured || old.embedding.isNotEmpty())
+            if (reusable) {
+                next += requireNotNull(old)
                 return@forEach
             }
             val embedding = if (config.configured) {
@@ -1252,6 +1286,11 @@ class WorkspaceMemoryService(
         text: String
     ): List<Double> {
         check(config.configured) { "embedding config not ready" }
+        if (config.usesPlatform) {
+            return runBlocking {
+                platformEmbeddingGateway.embed(config.modelId.orEmpty(), text)
+            }
+        }
         val apiBase = ModelProviderConfigStore.stripDirectRequestUrlMarker(config.apiBase!!)
         val modelId = config.modelId!!.trim()
         val profile = config.providerProfileId?.let { ModelProviderConfigStore.getProfile(it) }

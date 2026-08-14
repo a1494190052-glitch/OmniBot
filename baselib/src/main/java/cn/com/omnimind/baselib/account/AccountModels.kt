@@ -73,6 +73,7 @@ data class PlatformModelDefaults(
     val text: String? = null,
     val vision: String? = null,
     val image: String? = null,
+    val embedding: String? = null,
     val tts: String? = null,
     val ttsVoice: String? = null,
 )
@@ -81,6 +82,7 @@ data class PlatformModelCapabilities(
     val text: List<String> = emptyList(),
     val vision: List<String> = emptyList(),
     val image: List<String> = emptyList(),
+    val embedding: List<String> = emptyList(),
     val tts: List<String> = emptyList(),
     /** Null means the older catalog did not publish stable TTS voice aliases. */
     val ttsVoices: List<String>? = null,

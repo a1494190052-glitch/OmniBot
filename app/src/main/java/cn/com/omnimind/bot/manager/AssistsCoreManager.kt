@@ -3668,7 +3668,8 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
                             "providerProfileName" to config.providerProfileName,
                             "modelId" to config.modelId,
                             "apiBase" to config.apiBase,
-                            "hasApiKey" to config.hasApiKey
+                            "hasApiKey" to config.hasApiKey,
+                            "usesPlatform" to config.usesPlatform
                         )
                     )
                 }
@@ -3701,7 +3702,8 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
                             "providerProfileName" to config.providerProfileName,
                             "modelId" to config.modelId,
                             "apiBase" to config.apiBase,
-                            "hasApiKey" to config.hasApiKey
+                            "hasApiKey" to config.hasApiKey,
+                            "usesPlatform" to config.usesPlatform
                         )
                     )
                 }

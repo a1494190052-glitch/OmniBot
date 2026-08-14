@@ -39,6 +39,9 @@ class AccountApiClientTest {
                     "id":"image-model",
                     "supported_endpoint_types":["image-generation"]
                   },{
+                    "id":"embedding-model",
+                    "supported_endpoint_types":["embeddings"]
+                  },{
                     "id":"voice-model"
                   }],
                   "official_catalog":{
@@ -46,6 +49,7 @@ class AccountApiClientTest {
                     "defaults":{
                       "text":"Qwen3.5-Plus",
                       "image":"image-model",
+                      "embedding":"embedding-model",
                       "vision":"Qwen3.5-Plus",
                       "tts":"voice-model",
                       "tts_voice":"default_zh"
@@ -53,6 +57,7 @@ class AccountApiClientTest {
                     "capabilities":{
                       "text":["Qwen3.5-Plus"],
                       "image":["image-model"],
+                      "embedding":["embedding-model"],
                       "vision":["Qwen3.5-Plus"],
                       "tts":["voice-model"],
                       "tts_voices":["default_zh","default_en"]
@@ -72,16 +77,18 @@ class AccountApiClientTest {
         val models = catalog.models
 
         assertEquals(
-            listOf("Qwen3.5-Plus", "image-model", "voice-model"),
+            listOf("Qwen3.5-Plus", "image-model", "embedding-model", "voice-model"),
             models.map(PlatformModel::id),
         )
         assertEquals(listOf("openai"), models.first().supportedEndpointTypes)
         assertTrue(catalog.hasOfficialCatalog)
         assertEquals("2", catalog.version)
         assertEquals("image-model", catalog.defaults.image)
+        assertEquals("embedding-model", catalog.defaults.embedding)
         assertEquals("voice-model", catalog.defaults.tts)
         assertEquals("default_zh", catalog.defaults.ttsVoice)
         assertEquals(listOf("Qwen3.5-Plus"), catalog.capabilities.vision)
+        assertEquals(listOf("embedding-model"), catalog.capabilities.embedding)
         assertEquals(listOf("default_zh", "default_en"), catalog.capabilities.ttsVoices)
         val request = calls.requests.single()
         assertEquals("https://model.example.com/v1/models", request.url.toString())
