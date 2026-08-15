@@ -217,8 +217,90 @@ List<AgentRunTimelineEntry> buildAgentRunTimelineEntries(
     }
   }
 
-  return entries;
+  return _stabilizeLegacyTurnEntriesNewestFirst(entries);
 }
+
+/// Keeps the top-level timeline newest-first even if an asynchronously restored
+/// Xiaowan snapshot briefly arrives oldest-first.
+///
+/// Built-in turns have a shared millisecond prefix (`<timestamp>-user` and
+/// `<timestamp>-ai`). That gives us an exact turn boundary without guessing
+/// from nearby timestamps. Only entries with that legacy identity participate,
+/// so opaque ACP ids retain their reducer-defined arrival order.
+List<AgentRunTimelineEntry> _stabilizeLegacyTurnEntriesNewestFirst(
+  List<AgentRunTimelineEntry> entries,
+) {
+  final legacySlots = <int>[];
+  final legacyEntries =
+      <({AgentRunTimelineEntry entry, int anchor, int order})>[];
+  for (var index = 0; index < entries.length; index += 1) {
+    final entry = entries[index];
+    final anchor = _legacyTurnAnchor(entry);
+    if (anchor == null) {
+      continue;
+    }
+    legacySlots.add(index);
+    legacyEntries.add((entry: entry, anchor: anchor, order: index));
+  }
+  if (legacyEntries.length < 2) {
+    return entries;
+  }
+
+  legacyEntries.sort((left, right) {
+    final anchorCompare = right.anchor.compareTo(left.anchor);
+    if (anchorCompare != 0) {
+      return anchorCompare;
+    }
+    // `ChatMessageList` reverses this newest-first projection for display, so
+    // the run must precede its user prompt here to render prompt -> response.
+    final turnRankCompare = _legacyTurnNewestFirstRank(
+      left.entry,
+    ).compareTo(_legacyTurnNewestFirstRank(right.entry));
+    if (turnRankCompare != 0) {
+      return turnRankCompare;
+    }
+    return left.order.compareTo(right.order);
+  });
+
+  final normalized = List<AgentRunTimelineEntry>.from(entries);
+  for (var index = 0; index < legacySlots.length; index += 1) {
+    normalized[legacySlots[index]] = legacyEntries[index].entry;
+  }
+  return normalized;
+}
+
+int? _legacyTurnAnchor(AgentRunTimelineEntry entry) {
+  final groupTaskId = entry.group?.taskId;
+  if (groupTaskId != null) {
+    return _legacyTurnAnchorFromId(groupTaskId);
+  }
+  final message = entry.message;
+  if (message == null) {
+    return null;
+  }
+  return _legacyTurnAnchorFromId(message.id) ??
+      _legacyTurnAnchorFromId(message.contentId);
+}
+
+int _legacyTurnNewestFirstRank(AgentRunTimelineEntry entry) {
+  if (entry.group != null) {
+    return 0;
+  }
+  return entry.isUserMessage ? 1 : 0;
+}
+
+int? _legacyTurnAnchorFromId(String? raw) {
+  final id = raw?.trim() ?? '';
+  if (id.isEmpty) {
+    return null;
+  }
+  final match = _legacyTurnId.firstMatch(id);
+  return match == null ? null : int.tryParse(match.group(1)!);
+}
+
+final RegExp _legacyTurnId = RegExp(
+  r'^(\d{13})-(?:user|ai(?:-.+)?|assistant(?:-.+)?|clarify(?:-.+)?|permission(?:-.+)?|thinking(?:-.+)?|text(?:-.+)?|tool(?:-.+)?)$',
+);
 
 /// When a dispatched-but-silent turn started.
 ///
@@ -286,10 +368,12 @@ AgentRunTimelineGroup? _buildTimelineGroup(
   required bool isActive,
   String? conversationAgentId,
 }) {
-  final taskMessages = messages
-      .where((message) => agentRunParentTaskId(message) == taskId)
-      .where(_isAgentRunCandidateMessage)
-      .toList(growable: false);
+  final taskMessages = _stabilizeTaskMessagesNewestFirst(
+    messages
+        .where((message) => agentRunParentTaskId(message) == taskId)
+        .where(_isAgentRunCandidateMessage)
+        .toList(growable: false),
+  );
   if (taskMessages.isEmpty) {
     return null;
   }
@@ -317,6 +401,53 @@ AgentRunTimelineGroup? _buildTimelineGroup(
         : _boundaryTimestamp(taskMessages, earliest: false),
     segmentsOldestFirst: segments,
   );
+}
+
+/// `entrySeq` is allocated once when a streamed entry is created, unlike
+/// `seq`, which advances on every snapshot update. If every entry in a run has
+/// a unique stable sequence, use it to recover newest-first order after a
+/// snapshot replacement. Mixed/legacy ACP runs keep their list order so prose
+/// interleaving remains untouched.
+List<ChatMessageModel> _stabilizeTaskMessagesNewestFirst(
+  List<ChatMessageModel> messages,
+) {
+  if (messages.length < 2) {
+    return messages;
+  }
+  final indexed = <({ChatMessageModel message, int entrySeq, int order})>[];
+  final seenSequences = <int>{};
+  for (var index = 0; index < messages.length; index += 1) {
+    final message = messages[index];
+    final entrySeq = _wholeIntFromDynamic(message.streamMeta?['entrySeq']);
+    if (entrySeq == null || !seenSequences.add(entrySeq)) {
+      return messages;
+    }
+    indexed.add((message: message, entrySeq: entrySeq, order: index));
+  }
+  indexed.sort((left, right) {
+    final sequenceCompare = right.entrySeq.compareTo(left.entrySeq);
+    if (sequenceCompare != 0) {
+      return sequenceCompare;
+    }
+    return left.order.compareTo(right.order);
+  });
+  return indexed.map((item) => item.message).toList(growable: false);
+}
+
+int? _wholeIntFromDynamic(dynamic value) {
+  if (value is int) {
+    return value;
+  }
+  if (value is num) {
+    final asDouble = value.toDouble();
+    if (asDouble.isFinite && asDouble == asDouble.truncateToDouble()) {
+      return value.toInt();
+    }
+  }
+  if (value is String) {
+    return int.tryParse(value.trim());
+  }
+  return null;
 }
 
 /// Slices a turn into what stays in the conversation and what folds away.

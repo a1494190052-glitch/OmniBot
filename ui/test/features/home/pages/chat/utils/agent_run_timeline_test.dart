@@ -422,6 +422,107 @@ void main() {
     expect(entries.last.message?.id, 'user-6');
   });
 
+  test(
+    'restores Xiaowan prompt before its completed run from an oldest-first snapshot',
+    () {
+      const timestamp = '1786765190269';
+      const taskId = '$timestamp-ai';
+      final messages = <ChatMessageModel>[
+        ChatMessageModel(
+          id: '$timestamp-user',
+          type: 1,
+          user: 1,
+          content: const <String, dynamic>{
+            'id': '$timestamp-user',
+            'text': '怎么登录 GitHub？',
+          },
+        ),
+        _thinkingCard(
+          id: '$taskId-thinking',
+          taskId: taskId,
+          seq: 44,
+          entrySeq: 1,
+        ),
+        _cardMessage(
+          id: '$taskId-tool-1',
+          taskId: taskId,
+          kind: 'tool_completed',
+          seq: 47,
+          entrySeq: 2,
+          cardData: _toolCard('context_apps_query'),
+        ),
+        _thinkingCard(
+          id: '$taskId-thinking-2',
+          taskId: taskId,
+          seq: 52,
+          entrySeq: 3,
+        ),
+        _assistantMessage(
+          id: '$taskId-text',
+          text: '你手机上已经装了 GitHub 官方 App。',
+          taskId: taskId,
+          kind: 'text_snapshot',
+          seq: 252,
+          entrySeq: 4,
+          isFinal: true,
+        ),
+      ];
+
+      final entries = buildAgentRunTimelineEntries(messages);
+
+      expect(entries, hasLength(2));
+      expect(entries.first.group?.taskId, taskId);
+      expect(entries.last.message?.id, '$timestamp-user');
+      expect(
+        entries.first.group?.allMessagesOldestFirst.map(
+          (message) => message.id,
+        ),
+        <String>[
+          '$taskId-thinking',
+          '$taskId-tool-1',
+          '$taskId-thinking-2',
+          '$taskId-text',
+        ],
+      );
+    },
+  );
+
+  test('restores multiple legacy Xiaowan turns newest-first', () {
+    const firstTimestamp = '1786765116611';
+    const secondTimestamp = '1786765190269';
+    final messages = <ChatMessageModel>[
+      ChatMessageModel.userMessage('第一问', id: '$firstTimestamp-user'),
+      _assistantMessage(
+        id: '$firstTimestamp-ai-text',
+        text: '第一答',
+        taskId: '$firstTimestamp-ai',
+        kind: 'text_snapshot',
+        seq: 10,
+        entrySeq: 1,
+        isFinal: true,
+      ),
+      ChatMessageModel.userMessage('第二问', id: '$secondTimestamp-user'),
+      _assistantMessage(
+        id: '$secondTimestamp-ai-text',
+        text: '第二答',
+        taskId: '$secondTimestamp-ai',
+        kind: 'text_snapshot',
+        seq: 20,
+        entrySeq: 1,
+        isFinal: true,
+      ),
+    ];
+
+    final entries = buildAgentRunTimelineEntries(messages);
+
+    expect(entries.map((entry) => entry.key), <String>[
+      'agent-run-$secondTimestamp-ai',
+      '$secondTimestamp-user',
+      'agent-run-$firstTimestamp-ai',
+      '$firstTimestamp-user',
+    ]);
+  });
+
   test('interleaved tool batches stay separate around agent prose', () {
     // Regression for on-device conversation 60. codex-acp narrates, runs a
     // batch of tools, narrates again, runs more. Hoisting the newest prose
