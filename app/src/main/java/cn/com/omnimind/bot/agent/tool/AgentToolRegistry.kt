@@ -9,6 +9,7 @@ import cn.com.omnimind.baselib.shizuku.ShizukuCapabilityManager
 import cn.com.omnimind.baselib.util.OmniLog
 import cn.com.omnimind.bot.mcp.RemoteMcpDiscoveredServer
 import cn.com.omnimind.bot.mcp.RemoteMcpToolDescriptor
+import cn.com.omnimind.bot.root.RootShell
 import cn.com.omnimind.bot.plugin.OmniPluginToolDefinition
 import com.rk.terminal.runtime.TerminalDistribution
 import kotlinx.serialization.json.JsonArray
@@ -50,6 +51,10 @@ class AgentToolRegistry(
         val shizukuStatus = ShizukuCapabilityManager.get(context).getStatus()
         val runtimeDefinitions = mutableListOf<JsonObject>()
         runtimeDefinitions.addAll(AgentToolDefinitions.staticTools(locale, terminalDistribution))
+        runtimeDefinitions.addAll(EtaToolDefinitions.deviceToolDefinitions(locale))
+        if (RootShell.detect().available) {
+            runtimeDefinitions.addAll(EtaToolDefinitions.rootToolDefinitions(locale))
+        }
         if (shizukuStatus.isGranted()) {
             val privilegedVisibleActions = shizukuStatus.availableActions.ifEmpty {
                 PrivilegedActionPolicy.visibleAgentActions(

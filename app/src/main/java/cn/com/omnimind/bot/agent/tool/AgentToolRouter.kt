@@ -3,6 +3,8 @@ package cn.com.omnimind.bot.agent
 import android.content.Context
 import cn.com.omnimind.bot.agent.tool.handlers.BrowserToolHandler
 import cn.com.omnimind.bot.agent.tool.handlers.ContextToolHandler
+import cn.com.omnimind.bot.agent.tool.handlers.EtaDeviceToolHandler
+import cn.com.omnimind.bot.agent.tool.handlers.RootToolHandler
 import cn.com.omnimind.bot.agent.tool.handlers.FileToolHandler
 import cn.com.omnimind.bot.agent.tool.handlers.ImageGenerationToolHandler
 import cn.com.omnimind.bot.agent.tool.handlers.McpToolHandler
@@ -46,6 +48,8 @@ class AgentToolRouter(
 
     private val orderedHandlers: List<ToolHandler> = listOf(
         ContextToolHandler(helper),
+        EtaDeviceToolHandler(helper),
+        RootToolHandler(helper),
         VlmToolHandler(context),
         privilegedHandler,
         terminalHandler,
