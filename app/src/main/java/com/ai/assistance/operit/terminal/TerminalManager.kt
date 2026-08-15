@@ -331,7 +331,7 @@ class TerminalManager private constructor(
         }
     }
 
-    suspend fun startLongLivedAlpineProcess(
+    suspend fun startLongLivedProcess(
         command: String,
         executorKey: String,
         extraEnvironment: Map<String, String> = emptyMap(),
@@ -339,7 +339,7 @@ class TerminalManager private constructor(
     ): Process {
         check(initializeEnvironment()) { "Terminal environment is not ready." }
         return withContext(Dispatchers.IO) {
-            buildAlpineProcess(
+            buildDistributionProcess(
                 executorKey = executorKey,
                 command = command,
                 redirectErrorStream = redirectErrorStream,
@@ -347,6 +347,18 @@ class TerminalManager private constructor(
             ).start()
         }
     }
+
+    suspend fun startLongLivedAlpineProcess(
+        command: String,
+        executorKey: String,
+        extraEnvironment: Map<String, String> = emptyMap(),
+        redirectErrorStream: Boolean = false,
+    ): Process = startLongLivedProcess(
+        command = command,
+        executorKey = executorKey,
+        extraEnvironment = extraEnvironment,
+        redirectErrorStream = redirectErrorStream,
+    )
 
     fun saveScrollOffset(sessionId: String, scrollOffset: Float) {
         val handle = sessionsById[sessionId] ?: return
@@ -367,7 +379,7 @@ class TerminalManager private constructor(
         command: String,
         distribution: TerminalDistribution.Spec
     ): ProcessBuilder {
-        return buildAlpineProcess(
+        return buildDistributionProcess(
             executorKey = executorKey,
             command = command,
             redirectErrorStream = true,
@@ -376,7 +388,7 @@ class TerminalManager private constructor(
         )
     }
 
-    private fun buildAlpineProcess(
+    private fun buildDistributionProcess(
         executorKey: String,
         command: String,
         redirectErrorStream: Boolean,

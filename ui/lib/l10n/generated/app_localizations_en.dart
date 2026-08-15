@@ -581,6 +581,149 @@ class AppLocalizationsEn extends AppLocalizations {
   String get memoryNoMemoriesDesc => 'Start exploring and add content you like';
 
   @override
+  String get pluginMarketTitle => 'Plugin Market';
+
+  @override
+  String get pluginMarketEmpty => 'No plugins available';
+
+  @override
+  String get pluginMarketEmptyDesc =>
+      'Official plugins will appear here once connected';
+
+  @override
+  String get pluginInstall => 'Install';
+
+  @override
+  String get pluginUpdate => 'Update';
+
+  @override
+  String get pluginUninstall => 'Uninstall';
+
+  @override
+  String get pluginCancel => 'Cancel';
+
+  @override
+  String get pluginNoDescription => 'No description';
+
+  @override
+  String get pluginIncompatible =>
+      'This plugin is incompatible with the current version';
+
+  @override
+  String get pluginLoadFailed => 'Failed to load plugin market';
+
+  @override
+  String get pluginInstallFailed => 'Failed to install plugin';
+
+  @override
+  String get pluginUpdateFailed => 'Failed to update plugin';
+
+  @override
+  String get pluginToggleFailed => 'Failed to toggle plugin';
+
+  @override
+  String get pluginUninstallFailed => 'Failed to uninstall plugin';
+
+  @override
+  String get pluginUninstallTitle => 'Uninstall Plugin';
+
+  @override
+  String pluginUninstallConfirmMsg(Object name) {
+    return 'Uninstall \"$name\"?';
+  }
+
+  @override
+  String pluginInstalledMsg(Object name) {
+    return 'Installed $name';
+  }
+
+  @override
+  String pluginUpdatedMsg(Object name) {
+    return 'Updated $name';
+  }
+
+  @override
+  String pluginEnabledMsg(Object name) {
+    return 'Enabled $name';
+  }
+
+  @override
+  String pluginDisabledMsg(Object name) {
+    return 'Disabled $name';
+  }
+
+  @override
+  String pluginUninstalledMsg(Object name) {
+    return 'Uninstalled $name';
+  }
+
+  @override
+  String get pluginKindBundledModule => 'Bundled module';
+
+  @override
+  String get pluginKindRuntimeBundle => 'Runtime bundle';
+
+  @override
+  String get pluginKindCompanionApp => 'Companion app';
+
+  @override
+  String get pluginDetailTitle => 'Plugin Details';
+
+  @override
+  String get pluginSearchHint =>
+      'Search plugins, descriptions, or capabilities';
+
+  @override
+  String get pluginSearchEmpty => 'No matching plugins';
+
+  @override
+  String get pluginAboutTitle => 'About';
+
+  @override
+  String get pluginCapabilitiesTitle => 'Capabilities';
+
+  @override
+  String get pluginNoCapabilities =>
+      'This plugin declares no additional capabilities';
+
+  @override
+  String get pluginInformationTitle => 'Information';
+
+  @override
+  String get pluginPublisherLabel => 'Developer';
+
+  @override
+  String get pluginVersionLabel => 'Version';
+
+  @override
+  String get pluginTypeLabel => 'Type';
+
+  @override
+  String get pluginDownloadSizeLabel => 'Download size';
+
+  @override
+  String get pluginInterfaceVersionLabel => 'Interface version';
+
+  @override
+  String get pluginStatusInstalled => 'Installed';
+
+  @override
+  String get pluginStatusEnabled => 'Enabled';
+
+  @override
+  String get pluginStatusNotInstalled => 'Not installed';
+
+  @override
+  String get pluginEnableTitle => 'Enable plugin';
+
+  @override
+  String get pluginEnableDescription =>
+      'Allow the Agent to use capabilities from this plugin';
+
+  @override
+  String get pluginRetry => 'Retry';
+
+  @override
   String get skillStoreTitle => 'Skill Store';
 
   @override

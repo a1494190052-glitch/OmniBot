@@ -17,10 +17,13 @@ import cn.com.omnimind.bot.agent.WorkspaceScheduledTaskScheduler
 import cn.com.omnimind.bot.activity.StartupThemeResolver
 import cn.com.omnimind.bot.cleanup.LegacyLocalModelDataCleanup
 import cn.com.omnimind.bot.mcp.McpServerManager
+import cn.com.omnimind.bot.plugin.OmniPluginHost
+import cn.com.omnimind.bot.plugin.official.OfficialOmniPluginProviders
 import cn.com.omnimind.bot.quicklog.QuickLogWidgetUpdater
 import cn.com.omnimind.bot.terminal.EmbeddedTerminalRuntime
 import cn.com.omnimind.bot.update.AppUpdateManager
 import cn.com.omnimind.bot.util.NestedBackgroundStateUtil
+import cn.com.omnimind.bot.vlm.DebugOmniMindProviderBootstrap
 import cn.com.omnimind.baselib.shizuku.ShizukuCapabilityManager
 import com.rk.resources.Res
 import com.tencent.mmkv.MMKV
@@ -82,6 +85,8 @@ class App : BaseApplication() {
         CredentialEndpointSecurity.configureDebugLoopback(BuildConfig.DEBUG)
         AppSecretStore.initialize(this)
         ModelProviderConfigStore.initialize(this)
+        DebugOmniMindProviderBootstrap.install()
+        OfficialOmniPluginProviders.register()
         OmniAccount.initialize(
             context = this,
             baseUrl = BuildConfig.BASE_URL,
@@ -115,6 +120,10 @@ class App : BaseApplication() {
             workspaceManager.ensureRuntimeDirectories()
             SkillIndexService(this, workspaceManager).seedBuiltinSkillsIfNeeded()
         }
+        // Seed built-in skills before restoring enabled runtime-bundle plugins.
+        // Both paths materialize files under the same skills directory; starting
+        // plugin recovery first can race the seeder and leave the plugin disabled.
+        initializeOfficialPlugins()
         runCatching {
             WorkspaceMemoryRollupScheduler(this).ensureScheduledIfEnabled()
         }
@@ -159,6 +168,19 @@ class App : BaseApplication() {
                     android.os.Process.killProcess(android.os.Process.myPid())
                     kotlin.system.exitProcess(10)
                 }
+            }
+        }
+    }
+
+    private fun initializeOfficialPlugins() {
+        CoroutineScope(Dispatchers.IO).launch {
+            runCatching {
+                OmniPluginHost.get(this@App).list()
+            }.onFailure { error ->
+                OmniLog.w(
+                    "AppStartup",
+                    "Official plugin initialization failed: ${error.message}",
+                )
             }
         }
     }

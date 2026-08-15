@@ -2,6 +2,8 @@ package cn.com.omnimind.bot.util
 
 import android.content.Context
 import android.content.Intent
+import android.os.Handler
+import android.os.Looper
 import cn.com.omnimind.baselib.util.OmniLog
 import cn.com.omnimind.bot.App
 import cn.com.omnimind.bot.activity.MainActivity
@@ -64,6 +66,12 @@ object TaskCompletionNavigator {
     }
 
     private fun routeMainEngineFallback(route: String, needClear: Boolean) {
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            Handler(Looper.getMainLooper()).post {
+                routeMainEngineFallback(route, needClear)
+            }
+            return
+        }
         try {
             val routerChannel = MethodChannel(
                 App.getCachedMainEngine().dartExecutor.binaryMessenger,

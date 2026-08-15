@@ -13,6 +13,9 @@ const CLOUD_SERVICE_POLICY_OBJECT_KEY = "metadata/config/cloud-service-policy.js
 const DOWNLOAD_ROUTE_PREFIX = "/downloads/";
 const ADMIN_RELEASE_ROUTE_PREFIX = "/admin/releases/";
 const ADMIN_ANALYTICS_ROUTE_PREFIX = "/admin/analytics/";
+const VLM_RESPONSES_PATH = "/v1/responses";
+const VLM_CHAT_COMPLETIONS_PATH = "/v1/chat/completions";
+const MAX_VLM_REQUEST_BYTES = 8 * 1024 * 1024;
 const ANALYTICS_RETENTION_DAYS = 90;
 const JSON_HEADERS = {
   "content-type": "application/json; charset=utf-8",
@@ -48,6 +51,8 @@ const worker = {
           storage: "r2",
           routes: [
             "/updates",
+            VLM_RESPONSES_PATH,
+            VLM_CHAT_COMPLETIONS_PATH,
             MODELS_DEV_PUBLIC_PATH,
             "/downloads/:tag/:asset",
             "/admin",
@@ -64,6 +69,13 @@ const worker = {
 
       if (request.method === "GET" && pathname === "/updates") {
         return await handleUpdateCheck(request, url, env);
+      }
+
+      if (
+        request.method === "POST" &&
+        (pathname === VLM_RESPONSES_PATH || pathname === VLM_CHAT_COMPLETIONS_PATH)
+      ) {
+        return await handleOfficialVlmProxy(request, pathname, env);
       }
 
       if (
@@ -343,6 +355,7 @@ async function handleUpdateCheck(request, url, env) {
       edition,
       source,
       cloudServicePolicy,
+      officialVlmOperation: officialVlmOperationConfig(env, url),
     }));
   }
 
@@ -361,9 +374,90 @@ async function handleUpdateCheck(request, url, env) {
     apkDownloadUrl: asset ? assetDownloadUrl(asset, source, url, selected.tag) : "",
     edition,
     source,
+    officialVlmOperation: officialVlmOperationConfig(env, url),
     cloudServicePolicy,
     assets: (selected.assets || []).map((releaseAsset) => publicAsset(releaseAsset, url, selected.tag)),
   });
+}
+
+async function handleOfficialVlmProxy(request, pathname, env) {
+  const requestedWireApi = pathname === VLM_RESPONSES_PATH
+    ? "responses"
+    : "chat_completions";
+  const config = officialVlmUpstreamConfig(env, requestedWireApi);
+  if (!config.enabled) {
+    if (officialVlmUpstreamConfig(env).enabled) {
+      throw httpError(404, "Official VLM route is not enabled");
+    }
+    throw httpError(503, "Official VLM service is not configured");
+  }
+  if (config.wireApi !== requestedWireApi) {
+    throw httpError(404, "Official VLM route is not enabled");
+  }
+
+  const contentType = stringValue(request.headers.get("content-type")).toLowerCase();
+  if (!contentType.startsWith("application/json")) {
+    throw httpError(415, "Content-Type must be application/json");
+  }
+  const declaredSize = Number(request.headers.get("content-length"));
+  if (Number.isFinite(declaredSize) && declaredSize > MAX_VLM_REQUEST_BYTES) {
+    throw httpError(413, "VLM request body is too large");
+  }
+
+  const rawBody = await request.text();
+  if (new TextEncoder().encode(rawBody).byteLength > MAX_VLM_REQUEST_BYTES) {
+    throw httpError(413, "VLM request body is too large");
+  }
+  let payload;
+  try {
+    payload = JSON.parse(rawBody);
+  } catch {
+    throw httpError(400, "Invalid JSON body");
+  }
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+    throw httpError(400, "VLM request body must be a JSON object");
+  }
+  payload.model = config.model;
+
+  const upstreamUrl = buildOpenAiUpstreamUrl(config.apiBase, config.wireApi);
+  const clientApiKey = requestedWireApi === "responses"
+    ? bearerToken(request.headers.get("authorization"))
+    : "";
+  const upstreamHeaders = new Headers({
+    "authorization": `Bearer ${clientApiKey || config.apiKey}`,
+    "content-type": "application/json",
+    "accept": payload.stream === true ? "text/event-stream" : "application/json",
+  });
+  let upstreamResponse;
+  try {
+    upstreamResponse = await fetch(upstreamUrl, {
+      method: "POST",
+      headers: upstreamHeaders,
+      body: JSON.stringify(payload),
+    });
+  } catch {
+    throw httpError(502, "Official VLM upstream is unavailable");
+  }
+
+  const responseHeaders = new Headers({
+    "access-control-allow-origin": "*",
+    "cache-control": "no-store",
+  });
+  for (const name of ["content-type", "retry-after", "x-request-id"]) {
+    const value = upstreamResponse.headers.get(name);
+    if (value) responseHeaders.set(name, value);
+  }
+  return new Response(upstreamResponse.body, {
+    status: upstreamResponse.status,
+    statusText: upstreamResponse.statusText,
+    headers: responseHeaders,
+  });
+}
+
+function bearerToken(value) {
+  const normalized = stringValue(value);
+  const match = /^Bearer\s+(.+)$/i.exec(normalized);
+  return match ? match[1].trim() : "";
 }
 
 function buildCloudServicePolicy(currentVersion, config) {
@@ -1413,7 +1507,14 @@ function normalizeTimestamp(raw) {
   return Number.isNaN(parsed) ? 0 : parsed;
 }
 
-function emptyUpdateResponse({ currentVersion, checkedAt, edition, source, cloudServicePolicy }) {
+function emptyUpdateResponse({
+  currentVersion,
+  checkedAt,
+  edition,
+  source,
+  cloudServicePolicy,
+  officialVlmOperation,
+}) {
   return {
     ok: true,
     currentVersion,
@@ -1429,9 +1530,74 @@ function emptyUpdateResponse({ currentVersion, checkedAt, edition, source, cloud
     apkDownloadUrl: "",
     edition,
     source,
+    officialVlmOperation,
     cloudServicePolicy,
     assets: [],
   };
+}
+
+function officialVlmUpstreamConfig(env, requestedWireApi = "") {
+  const lunaConfig = {
+    apiBase: stringValue(env.CHATGPT_LUNA_VLM_API_BASE),
+    apiKey: stringValue(env.CHATGPT_LUNA_VLM_API_KEY),
+    model: stringValue(env.CHATGPT_LUNA_VLM_MODEL),
+    wireApi: "responses",
+    enabledValue: env.CHATGPT_LUNA_VLM_ENABLED,
+  };
+  const legacyConfig = {
+    apiBase: stringValue(env.OFFICIAL_VLM_OPERATION_API_BASE),
+    apiKey: stringValue(env.OFFICIAL_VLM_OPERATION_API_KEY),
+    model: stringValue(env.OFFICIAL_VLM_OPERATION_MODEL),
+    wireApi: "chat_completions",
+    enabledValue: env.OFFICIAL_VLM_OPERATION_ENABLED,
+  };
+  const selected = requestedWireApi === "responses"
+    ? lunaConfig
+    : requestedWireApi === "chat_completions"
+      ? legacyConfig
+      : isOfficialVlmConfigEnabled(legacyConfig)
+        ? legacyConfig
+        : lunaConfig;
+  const { apiBase, apiKey, model, wireApi, enabledValue } = selected;
+  const configured = Boolean(apiBase && apiKey && model);
+  const enabled = enabledValue === undefined
+    ? configured
+    : parseBoolean(enabledValue) && configured;
+  return { enabled, apiBase, apiKey, model, wireApi };
+}
+
+function isOfficialVlmConfigEnabled(config) {
+  const configured = Boolean(config.apiBase && config.apiKey && config.model);
+  return config.enabledValue === undefined
+    ? configured
+    : parseBoolean(config.enabledValue) && configured;
+}
+
+function officialVlmOperationConfig(env, requestUrl) {
+  const upstream = officialVlmUpstreamConfig(env);
+  return {
+    enabled: upstream.enabled,
+    apiBase: requestUrl.origin,
+    model: upstream.model,
+    wireApi: upstream.wireApi,
+  };
+}
+
+function buildOpenAiUpstreamUrl(apiBase, wireApi) {
+  let url;
+  try {
+    url = new URL(apiBase);
+  } catch {
+    throw httpError(500, "Official VLM upstream URL is invalid");
+  }
+  const suffix = wireApi === "responses" ? "/responses" : "/chat/completions";
+  const pathname = url.pathname.replace(/\/+$/, "");
+  if (!pathname.endsWith(suffix)) {
+    url.pathname = /\/v\d+(?:\.\d+)?$/i.test(pathname)
+      ? `${pathname}${suffix}`
+      : `${pathname}/v1${suffix}`;
+  }
+  return url.toString();
 }
 
 function stringValue(value) {

@@ -194,6 +194,12 @@ Flutter Web is not part of this workflow.
 
 ### Build and install
 
+Release APK builds use `OMNIBOT_UPDATE_WORKER_URL` as the default GUI VLM proxy
+and receive the Gelab route from the update Worker. The upstream Gelab key stays
+in the Worker. Debug APK builds use the OpenAI-compatible LLM API configured by
+`LLMTHU_API_BASE`, `LLMTHU_API_KEY`, and `LLMTHU_MODEL` for normal LLM requests,
+context compaction, and `scene.vlm.operation.primary`.
+
 ```bash
 cd ..
 

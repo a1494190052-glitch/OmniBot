@@ -9,6 +9,7 @@ import 'package:ui/services/screen_dialog_service.dart';
 import 'package:ui/services/storage_service.dart';
 import 'package:ui/constants/openclaw/openclaw_keys.dart';
 import 'package:ui/features/home/pages/common/openclaw_connection_checker.dart';
+import 'package:ui/features/home/pages/command_overlay/services/manual_recording_flow_controller.dart';
 import 'package:ui/theme/theme_context.dart';
 import 'package:ui/utils/ui.dart';
 
@@ -356,6 +357,19 @@ class _CommandOverlayState extends State<CommandOverlay> {
 
     final handledSlash = await _tryHandleSlashCommand(text);
     if (handledSlash) return;
+
+    if (!hasAttachments && ManualRecordingFlowController.isCommand(text)) {
+      if (!mounted) return;
+      _messageController.clear();
+      await ManualRecordingFlowController.startStandalone(
+        context: context,
+        inputFocusNode: _inputFocusNode,
+        userMessageText: text,
+        recordDebugScreenshots: true,
+        isMounted: () => mounted,
+      );
+      return;
+    }
 
     final attachments = _pendingAttachments
         .map((item) => item.toMap())
@@ -716,6 +730,14 @@ class _CommandOverlayState extends State<CommandOverlay> {
                       onToggleOpenClaw: _setOpenClawEnabled,
                       onLongPressOpenClaw: () =>
                           _showOpenClawCommandPanel(expand: true),
+                      onManualRecordingTap: () =>
+                          ManualRecordingFlowController.startStandalone(
+                            context: context,
+                            inputFocusNode: _inputFocusNode,
+                            userMessageText: '手动录制',
+                            recordDebugScreenshots: true,
+                            isMounted: () => mounted,
+                          ),
                       useLargeComposerStyle: true,
                       useFrostedGlass: true, // command_overlay 使用毛玻璃效果
                       useAttachmentPickerForPlus: true,

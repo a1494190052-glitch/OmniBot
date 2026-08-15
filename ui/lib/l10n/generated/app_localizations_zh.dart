@@ -545,6 +545,144 @@ class AppLocalizationsZh extends AppLocalizations {
   String get memoryNoMemoriesDesc => '快去探索，添加喜欢的内容吧';
 
   @override
+  String get pluginMarketTitle => '插件市场';
+
+  @override
+  String get pluginMarketEmpty => '暂无可用插件';
+
+  @override
+  String get pluginMarketEmptyDesc => '官方插件接入后会显示在这里';
+
+  @override
+  String get pluginInstall => '安装';
+
+  @override
+  String get pluginUpdate => '更新';
+
+  @override
+  String get pluginUninstall => '卸载';
+
+  @override
+  String get pluginCancel => '取消';
+
+  @override
+  String get pluginNoDescription => '暂无描述';
+
+  @override
+  String get pluginIncompatible => '此插件与当前版本不兼容';
+
+  @override
+  String get pluginLoadFailed => '加载插件市场失败';
+
+  @override
+  String get pluginInstallFailed => '插件安装失败';
+
+  @override
+  String get pluginUpdateFailed => '插件更新失败';
+
+  @override
+  String get pluginToggleFailed => '插件启停失败';
+
+  @override
+  String get pluginUninstallFailed => '插件卸载失败';
+
+  @override
+  String get pluginUninstallTitle => '卸载插件';
+
+  @override
+  String pluginUninstallConfirmMsg(Object name) {
+    return '确认卸载\"$name\"？';
+  }
+
+  @override
+  String pluginInstalledMsg(Object name) {
+    return '已安装 $name';
+  }
+
+  @override
+  String pluginUpdatedMsg(Object name) {
+    return '已更新 $name';
+  }
+
+  @override
+  String pluginEnabledMsg(Object name) {
+    return '已启用 $name';
+  }
+
+  @override
+  String pluginDisabledMsg(Object name) {
+    return '已停用 $name';
+  }
+
+  @override
+  String pluginUninstalledMsg(Object name) {
+    return '已卸载 $name';
+  }
+
+  @override
+  String get pluginKindBundledModule => '内置模块';
+
+  @override
+  String get pluginKindRuntimeBundle => '运行时包';
+
+  @override
+  String get pluginKindCompanionApp => '伴生应用';
+
+  @override
+  String get pluginDetailTitle => '插件详情';
+
+  @override
+  String get pluginSearchHint => '搜索插件名称、描述或能力';
+
+  @override
+  String get pluginSearchEmpty => '未找到匹配的插件';
+
+  @override
+  String get pluginAboutTitle => '关于';
+
+  @override
+  String get pluginCapabilitiesTitle => '能力';
+
+  @override
+  String get pluginNoCapabilities => '此插件未声明额外能力';
+
+  @override
+  String get pluginInformationTitle => '信息';
+
+  @override
+  String get pluginPublisherLabel => '开发者';
+
+  @override
+  String get pluginVersionLabel => '版本';
+
+  @override
+  String get pluginTypeLabel => '类型';
+
+  @override
+  String get pluginDownloadSizeLabel => '下载大小';
+
+  @override
+  String get pluginInterfaceVersionLabel => '接口版本';
+
+  @override
+  String get pluginStatusInstalled => '已安装';
+
+  @override
+  String get pluginStatusEnabled => '已启用';
+
+  @override
+  String get pluginStatusNotInstalled => '未安装';
+
+  @override
+  String get pluginEnableTitle => '启用插件';
+
+  @override
+  String get pluginEnableDescription => '允许 Agent 使用此插件提供的能力';
+
+  @override
+  String get pluginRetry => '重试';
+
+  @override
   String get skillStoreTitle => '技能仓库';
 
   @override

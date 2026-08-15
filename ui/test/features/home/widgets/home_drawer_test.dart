@@ -102,6 +102,11 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('暂无聊天记录'), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('home-drawer-omnibot-guide')),
+      findsNothing,
+    );
+    expect(find.text('小万指南'), findsNothing);
 
     await tester.tap(find.text('开始对话'));
     await tester.pumpAndSettle();
@@ -535,6 +540,7 @@ void main() {
     expect(find.text('Scheduled tasks'), findsOneWidget);
     expect(find.text('Pinned conversations'), findsOneWidget);
     expect(find.text('OmniAi'), findsOneWidget);
+    expect(find.text('Omnibot Guide'), findsNothing);
   });
 
   testWidgets('scrolls promoted sections together with history', (
@@ -1129,7 +1135,7 @@ void main() {
     expect(find.text('写周报脚本').hitTestable(), findsOneWidget);
     expect(find.text('优化首页响应式').hitTestable(), findsOneWidget);
     expect(find.text('Agent 会话').hitTestable(), findsOneWidget);
-    expect(find.text('闲聊会话').hitTestable(), findsOneWidget);
+    expect(find.text('闲聊会话'), findsOneWidget);
 
     // 日期分组下的会话标题不再缩进：与区块标题、日期分组行共用同一左缘。
     expect(

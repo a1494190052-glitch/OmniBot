@@ -64,6 +64,16 @@ const String _kDrawerSkillStoreIconSvg =
     '<path d="M18 17.5V9.4"/>'
     '</svg>';
 
+const String _kDrawerPluginMarketIconSvg =
+    '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" '
+    'viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" '
+    'stroke-linecap="round" stroke-linejoin="round">'
+    '<path d="M12 2v4"/><path d="M12 18v4"/><path d="M4.93 4.93l2.83 2.83"/>'
+    '<path d="M16.24 16.24l2.83 2.83"/><path d="M2 12h4"/><path d="M18 12h4"/>'
+    '<path d="M4.93 19.07l2.83-2.83"/><path d="M16.24 7.76l2.83-2.83"/>'
+    '<circle cx="12" cy="12" r="4"/>'
+    '</svg>';
+
 const String _kDrawerUsageStatisticsIconSvg =
     '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" '
     'xmlns="http://www.w3.org/2000/svg">'
@@ -245,7 +255,6 @@ class HomeDrawerState extends ConsumerState<HomeDrawer> {
           children: [
             const SizedBox(height: 16),
             Expanded(child: _buildConversationSection()),
-            const SizedBox(height: 12),
             _buildFooterShortcutBar(),
             // Aligns this row's bottom edge with the chat composer's bottom
             // edge (both sit this far above the shared SafeArea bottom).

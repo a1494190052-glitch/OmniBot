@@ -4,6 +4,7 @@ import 'dart:math' as math;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:ui/features/home/widgets/home_quick_prompt_icon.dart';
+import 'package:ui/l10n/l10n.dart';
 import 'package:ui/services/home_greeting_settings_service.dart';
 import 'package:ui/theme/theme_context.dart';
 
@@ -100,86 +101,98 @@ class ChatEmptyGreeting extends StatelessWidget {
       ],
     );
 
-    return Semantics(
-      label: useAgentWorkspaceGreeting
-          ? (isEnglish
-                ? '$headline\nWhat can we do in $workspaceName?'
-                : '$headline\n可以在$workspaceName中做点什么')
-          : (isEnglish
-                ? "$headline\nI can help you chat, execute, build, and explore."
-                : '$headline\n我可以帮助你聊天、执行、构建和探索。'),
-      child: ExcludeSemantics(
-        child: TweenAnimationBuilder<double>(
-          tween: Tween<double>(begin: 0, end: 1),
-          duration: disableAnimations
-              ? Duration.zero
-              : const Duration(milliseconds: 420),
-          curve: Curves.easeOutCubic,
-          builder: (context, value, child) {
-            if (disableAnimations) {
-              return child ?? const SizedBox.shrink();
-            }
-            final eased = Curves.easeOutCubic.transform(value);
-            return Opacity(
-              opacity: eased,
-              child: Transform.translate(
-                offset: Offset(0, 10 * (1 - eased)),
-                child: child,
-              ),
-            );
-          },
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 28),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(headline, textAlign: TextAlign.left, style: headlineStyle),
-                const SizedBox(height: 6),
-                if (useAgentWorkspaceGreeting)
-                  Wrap(
-                    alignment: WrapAlignment.start,
-                    crossAxisAlignment: WrapCrossAlignment.center,
-                    spacing: 5,
-                    runSpacing: 2,
-                    children: [
-                      Text(
-                        isEnglish ? 'What can we do in' : '可以在',
-                        style: helperStyle,
-                      ),
-                      _AgentWorkspaceNameButton(
-                        label: workspaceName,
-                        style: keywordStyle,
-                        onTap: onAgentWorkspaceTap,
-                      ),
-                      Text(isEnglish ? '?' : '中做点什么', style: helperStyle),
-                    ],
-                  )
-                else
-                  Wrap(
-                    alignment: WrapAlignment.start,
-                    crossAxisAlignment: WrapCrossAlignment.center,
-                    spacing: 5,
-                    runSpacing: 2,
-                    children: [
-                      Text(prefix, style: helperStyle),
-                      _SlotWordRotator(words: words, style: keywordStyle),
-                    ],
-                  ),
-                if (quickPrompts.isNotEmpty) ...[
-                  const SizedBox(height: 14),
-                  _RandomQuickPromptPills(
-                    quickPrompts: quickPrompts,
-                    pinnedQuickPromptIds: pinnedQuickPromptIds,
-                    textColor: primaryColor,
-                    accentColor: keywordColor,
-                    compact: compact,
-                    onQuickPromptSelected: onQuickPromptSelected,
-                  ),
-                ],
-              ],
-            ),
+    final greetingSemanticsLabel = useAgentWorkspaceGreeting
+        ? (isEnglish
+              ? '$headline\nWhat can we do in $workspaceName?'
+              : '$headline\n可以在$workspaceName中做点什么')
+        : (isEnglish
+              ? "$headline\nI can help you chat, execute, build, and explore."
+              : '$headline\n我可以帮助你聊天、执行、构建和探索。');
+
+    return TweenAnimationBuilder<double>(
+      tween: Tween<double>(begin: 0, end: 1),
+      duration: disableAnimations
+          ? Duration.zero
+          : const Duration(milliseconds: 420),
+      curve: Curves.easeOutCubic,
+      builder: (context, value, child) {
+        if (disableAnimations) {
+          return child ?? const SizedBox.shrink();
+        }
+        final eased = Curves.easeOutCubic.transform(value);
+        return Opacity(
+          opacity: eased,
+          child: Transform.translate(
+            offset: Offset(0, 10 * (1 - eased)),
+            child: child,
           ),
+        );
+      },
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 28),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Semantics(
+              label: greetingSemanticsLabel,
+              child: ExcludeSemantics(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      headline,
+                      textAlign: TextAlign.left,
+                      style: headlineStyle,
+                    ),
+                    const SizedBox(height: 6),
+                    if (useAgentWorkspaceGreeting)
+                      Wrap(
+                        alignment: WrapAlignment.start,
+                        crossAxisAlignment: WrapCrossAlignment.center,
+                        spacing: 5,
+                        runSpacing: 2,
+                        children: [
+                          Text(
+                            isEnglish ? 'What can we do in' : '可以在',
+                            style: helperStyle,
+                          ),
+                          _AgentWorkspaceNameButton(
+                            label: workspaceName,
+                            style: keywordStyle,
+                            onTap: onAgentWorkspaceTap,
+                          ),
+                          Text(isEnglish ? '?' : '中做点什么', style: helperStyle),
+                        ],
+                      )
+                    else
+                      Wrap(
+                        alignment: WrapAlignment.start,
+                        crossAxisAlignment: WrapCrossAlignment.center,
+                        spacing: 5,
+                        runSpacing: 2,
+                        children: [
+                          Text(prefix, style: helperStyle),
+                          _SlotWordRotator(words: words, style: keywordStyle),
+                        ],
+                      ),
+                    if (quickPrompts.isNotEmpty) ...[
+                      const SizedBox(height: 14),
+                      _RandomQuickPromptPills(
+                        quickPrompts: quickPrompts,
+                        pinnedQuickPromptIds: pinnedQuickPromptIds,
+                        textColor: primaryColor,
+                        accentColor: keywordColor,
+                        compact: compact,
+                        onQuickPromptSelected: onQuickPromptSelected,
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            ),
+          ],
         ),
       ),
     );

@@ -35,18 +35,6 @@ enum ThinkingStage {
 mixin AgentStreamHandler<T extends StatefulWidget> on State<T> {
   static const int _maxTerminalOutputChars = 64 * 1024;
   static const int _maxTerminalOutputLines = 600;
-  static const Map<String, String> _executionPermissionNameToId =
-      <String, String>{
-        '悬浮窗权限': kOverlayPermissionId,
-        'Overlay': kOverlayPermissionId,
-        '应用列表读取权限': kInstalledAppsPermissionId,
-        'Installed Apps Access': kInstalledAppsPermissionId,
-        'Shizuku 权限': kShizukuPermissionId,
-        'Shizuku Permission': kShizukuPermissionId,
-        '公共文件访问': kPublicStoragePermissionId,
-        'Public Storage Access': kPublicStoragePermissionId,
-      };
-
   String? _lastAgentTaskId;
   String? _activeToolCardId;
   String? _activeThinkingCardId;
@@ -105,6 +93,13 @@ mixin AgentStreamHandler<T extends StatefulWidget> on State<T> {
 
   // Agent 文本消息更新后交给具体页面决定是否补充额外结构化内容。
   void onAgentTextMessageUpdated(String messageId, {bool isFinal = true}) {}
+
+  /// Called when an Agent tool reports that Android automation permissions are
+  /// missing. Full-screen chat overrides this to open the scoped authorization
+  /// flow and retry the original request after the user grants access. Compact
+  /// surfaces may keep the existing permission card behavior by leaving the
+  /// hook as a no-op.
+  Future<void> onAgentPermissionRequired(List<String> permissionIds) async {}
 
   @protected
   Set<String> activeAgentStreamTaskIds() {
@@ -617,6 +612,9 @@ mixin AgentStreamHandler<T extends StatefulWidget> on State<T> {
     clearAgentStreamSessionState();
     resetDispatchState();
     _persistAgentConversationSafely();
+    if (executionPermissionIds.isNotEmpty && mounted) {
+      unawaited(onAgentPermissionRequired(executionPermissionIds));
+    }
   }
 
   Map<String, dynamic> _streamMetaFromEvent(AgentStreamEvent event) {
@@ -767,12 +765,7 @@ mixin AgentStreamHandler<T extends StatefulWidget> on State<T> {
   }
 
   List<String> _resolveExecutionPermissionIds(List<String> missing) {
-    return missing
-        .map((item) => item.trim())
-        .map((item) => _executionPermissionNameToId[item])
-        .whereType<String>()
-        .toSet()
-        .toList(growable: false);
+    return resolveExecutionPermissionIds(missing);
   }
 
   String _baseThinkingCardId(String taskId) => '$taskId-thinking';

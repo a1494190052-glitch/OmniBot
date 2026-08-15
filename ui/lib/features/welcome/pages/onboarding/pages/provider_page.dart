@@ -28,11 +28,11 @@ class OnboardingProviderPage extends StatelessWidget {
   Widget build(BuildContext context) {
     return OnboardingPageScaffold(
       icon: LucideIcons.brainCircuit,
-      title: onbTr(context, '选择模型提供商', 'Choose a model provider'),
+      title: onbTr(context, '模型配置（可选）', 'Model setup (optional)'),
       description: onbTr(
         context,
-        '选择你已有账号或 API Key 的服务，下一页再填写连接信息。',
-        'Choose a service for which you already have an account or API key. Connection details come next.',
+        '小万官方内置 VLM 默认关闭。GUI 任务使用当前已配置的模型；如果尚未配置，可以登录或在这里填写 API。',
+        'The built-in Omnibot VLM is disabled by default. GUI tasks use the currently configured model; sign in or configure an API here if needed.',
       ),
       scrollController: scrollController,
       children: [

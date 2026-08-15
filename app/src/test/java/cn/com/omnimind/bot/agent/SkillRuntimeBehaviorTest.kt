@@ -74,6 +74,21 @@ class SkillRuntimeBehaviorTest {
     }
 
     @Test
+    fun resolveMatchesSupportsExplicitWildcardTriggerPhrase() {
+        val matches = SkillTriggerMatcher.resolveMatches(
+            userMessage = "帮我做一个健身打卡工具",
+            entries = listOf(
+                entry(
+                    id = "vibe-project-builder",
+                    description = "Build Xiaowan projects. Use when the user asks \"做*工具\" or \"创建*应用\".",
+                ),
+            ),
+        )
+
+        assertEquals("vibe-project-builder", matches.single().entry.id)
+    }
+
+    @Test
     fun resolveMatchesInstallCodexPetFromCliRequest() {
         val matches = SkillTriggerMatcher.resolveMatches(
             userMessage = "帮我执行 npx codex-pets add claude-pixel 安装宠物",

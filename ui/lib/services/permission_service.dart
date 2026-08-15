@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:ui/features/home/pages/authorize/accessibility_permission_prompt.dart';
 import 'package:ui/features/home/pages/authorize/authorize_page_args.dart';
 import 'package:ui/features/home/pages/authorize/widgets/permission_section.dart';
 import 'package:ui/l10n/legacy_text_localizer.dart';
@@ -13,6 +14,18 @@ class PermissionService {
 
   static _PermissionDisplaySpec? _specialDisplaySpec(String id) {
     return switch (id) {
+      kAccessibilityPermissionId => _PermissionDisplaySpec(
+        id: kAccessibilityPermissionId,
+        iconPath: 'assets/welcome/permission_overlay.svg',
+        iconWidth: 32,
+        iconHeight: 32,
+        name: LegacyTextLocalizer.isEnglish
+            ? 'Accessibility Permission'
+            : '无障碍权限',
+        description: LegacyTextLocalizer.isEnglish
+            ? 'Observe the screen and perform taps, swipes, and text input'
+            : '读取页面并执行点击、滑动和输入等 GUI 操作',
+      ),
       kWorkspaceStoragePermissionId => _PermissionDisplaySpec(
         id: kWorkspaceStoragePermissionId,
         iconPath: 'assets/welcome/permission_installed_apps.svg',
@@ -238,6 +251,23 @@ class PermissionService {
       return null;
     }
     switch (id) {
+      case kAccessibilityPermissionId:
+        return _buildDisplayPermissionData(
+          spec,
+          onAuthorize: () async {
+            await showAccessibilityPermissionPrompt(context);
+          },
+          checkAuthorization: () async {
+            try {
+              return await spePermission.invokeMethod<bool>(
+                    'isAndroidGuiAccessibilityReady',
+                  ) ??
+                  false;
+            } catch (_) {
+              return false;
+            }
+          },
+        );
       case kWorkspaceStoragePermissionId:
         return _buildDisplayPermissionData(
           spec,

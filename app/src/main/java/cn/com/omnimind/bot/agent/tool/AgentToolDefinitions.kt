@@ -201,6 +201,7 @@ object AgentToolDefinitions {
     private val englishStringMap: Map<String, String> = mapOf(
         "查询已安装应用" to "Query Installed Apps",
         "视觉执行" to "Vision Task",
+        "操作 Android GUI" to "Operate Android GUI",
         "执行 {{OMNIBOT_TERMINAL_DISTRIBUTION}} 命令" to "Run {{OMNIBOT_TERMINAL_DISTRIBUTION}} Command",
         "启动 {{OMNIBOT_TERMINAL_DISTRIBUTION}} 会话" to "Start {{OMNIBOT_TERMINAL_DISTRIBUTION}} Session",
         "执行 {{OMNIBOT_TERMINAL_DISTRIBUTION}} 会话命令" to "Run {{OMNIBOT_TERMINAL_DISTRIBUTION}} Session Command",
@@ -236,6 +237,10 @@ object AgentToolDefinitions {
         "分派子任务" to "Dispatch Subtasks",
         "查询设备已安装应用列表。需要应用包名或确认应用是否已安装时优先调用。" to
             "Query the list of apps installed on the device. Prefer this when you need an app package name or need to confirm whether an app is installed.",
+        "通过 Android GUI 插件的 VLM 流程操作当前界面。只要用户要求操作手机或 App（例如下单咖啡、购物、联系人、设置、导航、打开应用），必须立即调用此工具，并把完整用户目标原样放入 goal；不要用 terminal/browser 代替，也不要直接回复已完成。Debug APK 已内置插件。" to
+            "Use this immediately whenever the user asks you to operate a phone or Android app (for example ordering coffee, shopping, contacts, settings, navigation, or opening an app). Pass the complete user goal in goal; do not use terminal/browser instead and do not claim completion in plain text. Debug APKs include the plugin.",
+        "要在 Android GUI 中完成的具体目标。" to
+            "The concrete goal to complete in the Android GUI.",
         "可选关键词，可匹配应用名或包名。" to
             "Optional keyword filter. Matches app names or package names.",
         "可选，返回数量上限，默认 20，范围 1-100。" to
@@ -546,13 +551,39 @@ object AgentToolDefinitions {
                 putJsonObject("properties") {
                     putJsonObject("query") {
                         put("type", "string")
-                        put("description", "可选关键词，可匹配应用名或包名。")
+                        put("description", "可选关键词，可匹配应用名或包名；查询多个应用时用空格或逗号分隔，结果按关键词输入顺序返回。")
                     }
                     putJsonObject("limit") {
                         put("type", "integer")
                         put("description", "可选，返回数量上限，默认 20，范围 1-100。")
                     }
                 }
+            }
+        }
+    }
+
+    val vlmTaskTool: JsonObject = buildJsonObject {
+        put("type", "function")
+        putJsonObject("function") {
+            put("name", "vlm_task")
+            put("displayName", "操作 Android GUI")
+            put("toolType", "builtin")
+            put(
+                "description",
+                "手机或 Android App 操作必须使用此工具：例如下单咖啡、购物、联系人、设置、导航、打开应用等。把用户完整目标放入 goal，立即调用并等待结果；不要用 terminal/browser 代替，也不要直接回复已完成。Debug APK 已内置并启用 GUI/VLM 插件。"
+            )
+            putJsonObject("parameters") {
+                put("type", "object")
+                putJsonObject("properties") {
+                    putJsonObject("goal") {
+                        put("type", "string")
+                        put("description", "要在 Android GUI 中完成的具体目标。")
+                    }
+                }
+                putJsonArray("required") {
+                    add("goal")
+                }
+                put("additionalProperties", false)
             }
         }
     }
@@ -2127,6 +2158,7 @@ object AgentToolDefinitions {
     private val builtinToolDefinitions: List<JsonObject> = listOf(
         contextTimeNowTool,
         contextAppsQueryTool,
+        vlmTaskTool,
         terminalExecuteTool,
         terminalSessionStartTool,
         terminalSessionExecTool,
@@ -2211,4 +2243,24 @@ object AgentToolDefinitions {
         terminalDistribution: TerminalDistribution.Spec = TerminalDistribution.alpine
     ): List<JsonObject> =
         builtinTools(locale, terminalDistribution) + scheduleTools(locale) + alarmTools(locale) + calendarTools(locale) + musicTools(locale)
+
+    fun reservedToolNames(): Set<String> {
+        val locale = PromptLocale.EN_US
+        val definitions = buildList {
+            addAll(staticTools(locale))
+            addAll(memoryTools(locale))
+            addAll(subagentTools(locale))
+            add(androidPrivilegedActionTool(emptyList(), ShizukuBackend.NONE, locale))
+            add(androidPrivilegedSessionStartTool(ShizukuBackend.NONE, locale))
+            add(androidPrivilegedSessionExecTool(ShizukuBackend.NONE, locale))
+            add(androidPrivilegedSessionReadTool(ShizukuBackend.NONE, locale))
+            add(androidPrivilegedSessionStopTool(ShizukuBackend.NONE, locale))
+        }
+        return definitions.mapNotNullTo(linkedSetOf()) { definition ->
+            (definition["function"] as? JsonObject)
+                ?.get("name")
+                ?.jsonPrimitive
+                ?.contentOrNull
+        }
+    }
 }

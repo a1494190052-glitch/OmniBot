@@ -423,6 +423,7 @@ class _ModelProviderSettingPageState extends State<ModelProviderSettingPage> {
   @override
   void dispose() {
     _autoSaveTimer?.cancel();
+    unawaited(_persistProfileDraft());
     unawaited(_persistManualModelIds());
     _nameFocusNode.removeListener(_onProfileFieldFocusChanged);
     _baseUrlFocusNode.removeListener(_onProfileFieldFocusChanged);

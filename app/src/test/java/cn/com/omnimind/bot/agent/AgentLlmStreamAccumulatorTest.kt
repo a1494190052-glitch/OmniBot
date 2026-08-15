@@ -15,6 +15,102 @@ class AgentLlmStreamAccumulatorTest {
     }
 
     @Test
+    fun `ignores empty tool call placeholder after valid streamed call`() {
+        val accumulator = AgentLlmStreamAccumulator(json = json)
+
+        accumulator.consume(
+            """{"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_1","type":"function","function":{"name":"get_time","arguments":"{}"}},{"index":1,"id":"","type":"","function":{"name":"","arguments":""}}]},"finish_reason":"tool_calls"}]}"""
+        )
+
+        val turn = accumulator.buildTurn()
+
+        val toolCalls = requireNotNull(turn.message.toolCalls)
+        assertEquals(1, toolCalls.size)
+        assertEquals("call_1", toolCalls.single().id)
+        assertEquals("get_time", toolCalls.single().function.name)
+    }
+
+    @Test
+    fun `rejects tool call with identity or arguments but no function name`() {
+        val accumulator = AgentLlmStreamAccumulator(json = json)
+
+        accumulator.consume(
+            """{"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_bad","type":"function","function":{"arguments":"{\"timezone\":\"UTC\"}"}}]},"finish_reason":"tool_calls"}]}"""
+        )
+
+        val error = runCatching { accumulator.buildTurn() }.exceptionOrNull()
+
+        requireNotNull(error)
+        assertEquals("tool_call[0] missing function.name", error.message)
+    }
+
+    @Test
+    fun `reconciles OmniMind arguments streamed under the next tool index`() {
+        val accumulator = AgentLlmStreamAccumulator(json = json)
+
+        accumulator.consume(
+            """{"choices":[{"delta":{"tool_calls":[{"function":{"arguments":"","name":"vlm_task"},"id":"call_vlm","index":0,"type":"function"}]}}]}"""
+        )
+        accumulator.consume(
+            """{"choices":[{"delta":{"tool_calls":[{"function":{"arguments":"{\"goal\":\"打开蓝牙\",\"tool_title\":\"打开蓝牙\"}"},"index":1}]},"finish_reason":"tool_calls"}]}"""
+        )
+
+        val toolCall = requireNotNull(accumulator.buildTurn().message.toolCalls).single()
+
+        assertEquals("call_vlm", toolCall.id)
+        assertEquals("vlm_task", toolCall.function.name)
+        assertEquals(
+            """{"goal":"打开蓝牙","tool_title":"打开蓝牙"}""",
+            toolCall.function.arguments,
+        )
+    }
+
+    @Test
+    fun `reconciles multiple OmniMind calls sharing the arguments index`() {
+        val accumulator = AgentLlmStreamAccumulator(json = json)
+
+        accumulator.consume(
+            """{"choices":[{"delta":{"tool_calls":[{"function":{"arguments":"","name":"file_list"},"id":"call_list","index":0,"type":"function"}]}}]}"""
+        )
+        accumulator.consume(
+            """{"choices":[{"delta":{"tool_calls":[{"function":{"arguments":"{\"path\":\"/workspace\"}"},"index":1}]}}]}"""
+        )
+        accumulator.consume(
+            """{"choices":[{"delta":{"tool_calls":[{"function":{"arguments":"","name":"skills_read"},"id":"call_skill","index":2,"type":"function"}]}}]}"""
+        )
+        accumulator.consume(
+            """{"choices":[{"delta":{"tool_calls":[{"function":{"arguments":"{\"skillId\":\"vibe-project-builder\"}"},"index":1}]}}]}"""
+        )
+        accumulator.consume("""{"choices":[{"delta":{},"finish_reason":"tool_calls"}]}""")
+
+        val toolCalls = requireNotNull(accumulator.buildTurn().message.toolCalls)
+
+        assertEquals(listOf("file_list", "skills_read"), toolCalls.map { it.function.name })
+        assertEquals("""{"path":"/workspace"}""", toolCalls[0].function.arguments)
+        assertEquals(
+            """{"skillId":"vibe-project-builder"}""",
+            toolCalls[1].function.arguments,
+        )
+    }
+
+    @Test
+    fun `blank continuation preserves existing streamed tool call identity and name`() {
+        val accumulator = AgentLlmStreamAccumulator(json = json)
+
+        accumulator.consume(
+            """{"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_1","type":"function","function":{"name":"get_time","arguments":"{}"}}]}}]}"""
+        )
+        accumulator.consume(
+            """{"choices":[{"delta":{"tool_calls":[{"index":0,"id":"","type":"","function":{"name":"","arguments":""}}]},"finish_reason":"tool_calls"}]}"""
+        )
+
+        val toolCall = requireNotNull(accumulator.buildTurn().message.toolCalls).single()
+
+        assertEquals("call_1", toolCall.id)
+        assertEquals("get_time", toolCall.function.name)
+    }
+
+    @Test
     fun `reads tokens per second from usage performance payload`() {
         val accumulator = AgentLlmStreamAccumulator(json = json)
 

@@ -7,6 +7,20 @@ void main() {
 
   const channel = MethodChannel('cn.com.omnimind.bot/AssistCoreEvent');
 
+  test('official GUI model is disabled by default', () {
+    expect(const SceneOperationConfig().useOfficialService, isFalse);
+    expect(SceneOperationConfig.fromMap(null).useOfficialService, isFalse);
+    expect(SceneOperationConfig.fromMap(const {}).useOfficialService, isFalse);
+  });
+
+  test('official GUI model remains available as explicit opt in', () {
+    final config = SceneOperationConfig.fromMap(const {
+      'useOfficialService': true,
+    });
+
+    expect(config.useOfficialService, isTrue);
+  });
+
   test('custom curl command is discarded from native payload', () {
     final config = SceneVoiceConfig.fromMap({
       'ttsMode': SceneVoiceConfig.ttsModeCustomCurl,

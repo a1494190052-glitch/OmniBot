@@ -15,6 +15,8 @@ import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.Cookie
 import io.ktor.serialization.gson.gson
+import io.ktor.serialization.kotlinx.json.json
+import io.ktor.server.application.ApplicationCallPipeline
 import io.ktor.server.application.call
 import io.ktor.server.application.install
 import io.ktor.server.auth.Authentication
@@ -27,6 +29,7 @@ import io.ktor.server.engine.embeddedServer
 import io.ktor.server.plugins.calllogging.CallLogging
 import io.ktor.server.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.server.request.host
+import io.ktor.server.request.path
 import io.ktor.server.request.receive
 import io.ktor.server.response.header
 import io.ktor.server.response.respond
@@ -35,6 +38,8 @@ import io.ktor.server.response.respondRedirect
 import io.ktor.server.routing.get
 import io.ktor.server.routing.post
 import io.ktor.server.routing.routing
+import io.modelcontextprotocol.kotlin.sdk.server.mcpStreamableHttp
+import io.modelcontextprotocol.kotlin.sdk.types.McpJson
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -307,7 +312,10 @@ object McpServerManager {
 
         return embeddedServer(CIO, host = "0.0.0.0", port = port) {
             install(CallLogging)
-            install(ContentNegotiation) { gson() }
+            install(ContentNegotiation) {
+                json(McpJson)
+                gson()
+            }
             install(Authentication) {
                 bearer("bearer-auth") {
                     authenticate { credential ->
@@ -316,6 +324,23 @@ object McpServerManager {
                         } else null
                     }
                 }
+            }
+            intercept(ApplicationCallPipeline.Plugins) {
+                if (call.request.path() == "/mcp") {
+                    val bearerToken = call.request.headers[HttpHeaders.Authorization]
+                        ?.removePrefix("Bearer ")
+                        ?.trim()
+                    if (bearerToken.isNullOrBlank() || !timingSafeEquals(bearerToken, token)) {
+                        call.respond(HttpStatusCode.Unauthorized, mapOf("error" to "Authentication required"))
+                        finish()
+                    }
+                }
+            }
+            mcpStreamableHttp(
+                path = "/mcp",
+                enableDnsRebindingProtection = false,
+            ) {
+                AndroidDeviceMcpServer.create(appContext, serverScope)
             }
             routing {
                 get("/") {
@@ -328,7 +353,7 @@ object McpServerManager {
 
                 // MCP 端点路由
                 with(McpRoutes) {
-                    registerMcpRoutes(context, serverScope)
+                    registerMcpRoutes(context)
                 }
 
                 // WebChat API 路由

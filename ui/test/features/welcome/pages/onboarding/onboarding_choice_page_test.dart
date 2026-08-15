@@ -246,6 +246,7 @@ void main() {
         find.byKey(const ValueKey('tutorial-environment-general')),
         findsOne,
       );
+      expect(find.text('聊天 Agent 助手'), findsOneWidget);
 
       final developmentNext = find.byKey(
         const ValueKey('tutorial-development-next'),
@@ -254,8 +255,12 @@ void main() {
       await tester.tap(developmentNext);
       await tester.pumpAndSettle();
 
-      expect(find.text('添加需要的开发工具'), findsOneWidget);
-      expect(find.text('Ubuntu · 通用开发'), findsOneWidget);
+      expect(find.text('配置 Agent 与连接工具'), findsOneWidget);
+      expect(find.text('Ubuntu · 聊天 Agent 助手'), findsOneWidget);
+      expect(find.text('Codex CLI'), findsOneWidget);
+      await tester.tap(find.byKey(const ValueKey('tutorial-tool-codex')));
+      await tester.pump();
+      expect(find.text('Agent / 工具: Codex CLI'), findsOneWidget);
 
       final startSetup = find.byKey(
         const ValueKey('tutorial-environment-primary'),
@@ -337,7 +342,7 @@ void main() {
       expect(savedDistribution, 'ubuntu');
       expect(
         requestedPackageIds,
-        containsAll(<String>['nodejs', 'python', 'git']),
+        containsAll(<String>['nodejs', 'python', 'git', 'codex']),
       );
       expect(
         find.byKey(const ValueKey('tutorial-environment-progress')),
@@ -458,7 +463,7 @@ void main() {
 
       await tester.tap(find.byKey(const ValueKey('tutorial-development-next')));
       await tester.pumpAndSettle();
-      expect(find.text('添加需要的开发工具'), findsOneWidget);
+      expect(find.text('配置 Agent 与连接工具'), findsOneWidget);
       expect(find.text('暂不配置，先设置模型'), findsNothing);
       final stickyAction = find.byKey(
         const ValueKey('tutorial-sticky-primary-action'),
@@ -525,7 +530,7 @@ void main() {
 
       await openProviderPage(tester);
 
-      expect(find.text('选择模型提供商'), findsOneWidget);
+      expect(find.text('模型配置（可选）'), findsOneWidget);
       final accountEntry = find.byKey(
         const ValueKey('tutorial-provider-account-auth'),
       );
@@ -563,13 +568,14 @@ void main() {
         ),
       ).pop();
       await tester.pumpAndSettle();
-      expect(find.text('选择模型提供商'), findsOneWidget);
+      expect(find.text('模型配置（可选）'), findsOneWidget);
       expect(find.byKey(const ValueKey('tutorial-back-button')), findsNothing);
       expect(
         find.byKey(const ValueKey('tutorial-bottom-back')),
         findsOneWidget,
       );
-      expect(find.text('暂不配置，先了解聊天界面'), findsNothing);
+      expect(find.text('跳过模型配置，查看聊天指南'), findsOneWidget);
+      expect(find.text('可选：配置自己的模型'), findsOneWidget);
       expect(
         tester
             .widget<IconButton>(
@@ -612,7 +618,7 @@ void main() {
       await tester.tap(find.byKey(const ValueKey('tutorial-bottom-back')));
       await tester.pumpAndSettle();
 
-      expect(find.text('添加需要的开发工具'), findsOneWidget);
+      expect(find.text('配置 Agent 与连接工具'), findsOneWidget);
       expect(find.byKey(const ValueKey('tutorial-back-button')), findsNothing);
       expect(
         find.byKey(const ValueKey('tutorial-bottom-back')),
@@ -667,7 +673,33 @@ void main() {
     await tester.tap(permissionsNext);
     await tester.pumpAndSettle();
 
-    expect(find.text('选择模型提供商'), findsOneWidget);
+    expect(find.text('模型配置（可选）'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('provider setup can be skipped without selecting a model', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(430, 900);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    await tester.pumpWidget(buildTestApp());
+    await tester.pump(const Duration(milliseconds: 50));
+
+    await openProviderPage(tester);
+    final skipModels = find.byKey(
+      const ValueKey('tutorial-skip-models-visible'),
+    );
+    await showFinder(tester, skipModels);
+    await tester.tap(skipModels);
+    for (var frame = 0; frame < 15; frame += 1) {
+      await tester.pump(const Duration(milliseconds: 100));
+    }
+
+    expect(find.byType(ChatPage), findsOneWidget);
+    expect(find.byKey(const ValueKey('chat-spotlight-tour')), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 

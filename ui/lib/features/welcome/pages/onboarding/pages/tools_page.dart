@@ -7,7 +7,7 @@ import '../onboarding_environment_controller.dart';
 import '../onboarding_l10n.dart';
 import '../widgets/onboarding_page_scaffold.dart';
 
-/// Step 3: pick optional tools and review what will be installed.
+/// Step 3: pick optional agents and connection tools, then review the setup.
 class OnboardingToolsPage extends StatelessWidget {
   const OnboardingToolsPage({
     super.key,
@@ -22,23 +22,60 @@ class OnboardingToolsPage extends StatelessWidget {
   Widget build(BuildContext context) {
     return OnboardingPageScaffold(
       icon: LucideIcons.packagePlus,
-      title: onbTr(context, '添加需要的开发工具', 'Add the tools you need'),
+      title: onbTr(
+        context,
+        '配置 Agent 与连接工具',
+        'Configure agents and connections',
+      ),
       description: onbTr(
         context,
-        '这些工具是可选项。编程 Agent 的账号登录可在安装完成后进行。',
-        'These tools are optional. Sign in to coding agents after installation.',
+        '可选安装 Codex、Claude Code、OpenCode 或 SSH；账号登录可在安装完成后进行。',
+        'Optionally install Codex, Claude Code, OpenCode, or SSH. Sign in after installation.',
       ),
       scrollController: scrollController,
       children: [
+        _OptionalCapabilitySummary(),
+        const SizedBox(height: 24),
         Wrap(
           spacing: 10,
           runSpacing: 10,
           children: optionalTools
-              .map((tool) => _OptionalToolChip(tool: tool, controller: controller))
+              .map(
+                (tool) => _OptionalToolChip(tool: tool, controller: controller),
+              )
               .toList(growable: false),
         ),
         const SizedBox(height: 26),
         _SetupSummary(controller: controller),
+      ],
+    );
+  }
+}
+
+class _OptionalCapabilitySummary extends StatelessWidget {
+  const _OptionalCapabilitySummary();
+
+  @override
+  Widget build(BuildContext context) {
+    final palette = context.omniPalette;
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Icon(LucideIcons.blocks, size: 18, color: palette.accentPrimary),
+        const SizedBox(width: 10),
+        Expanded(
+          child: Text(
+            onbTr(
+              context,
+              '基础配置完成后，可从插件市场按需安装 GUI 操作和 Vibe Builder；RunLog、复用指令、Memory 与 Skills 都可稍后使用，不影响先开始聊天。',
+              'After setup, install GUI automation and Vibe Builder from the plugin market when needed. RunLog, reusable functions, Memory, and Skills remain available later and never block starting chat.',
+            ),
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+              color: palette.textSecondary,
+              height: 1.55,
+            ),
+          ),
+        ),
       ],
     );
   }
@@ -57,7 +94,8 @@ class _OptionalToolChip extends StatelessWidget {
     return Semantics(
       button: true,
       selected: selected,
-      label: '${tool.label}, ${onbTr(context, tool.descriptionZh, tool.descriptionEn)}',
+      label:
+          '${tool.label}, ${onbTr(context, tool.descriptionZh, tool.descriptionEn)}',
       child: FilterChip(
         key: ValueKey<String>('tutorial-tool-${tool.id}'),
         selected: selected,
@@ -137,7 +175,11 @@ class _SetupSummary extends StatelessWidget {
       children: [
         Row(
           children: [
-            Icon(LucideIcons.listChecks, size: 17, color: palette.accentPrimary),
+            Icon(
+              LucideIcons.listChecks,
+              size: 17,
+              color: palette.accentPrimary,
+            ),
             const SizedBox(width: 8),
             Text(
               onbTr(context, '将要配置', 'Setup summary'),
@@ -159,7 +201,7 @@ class _SetupSummary extends StatelessWidget {
           hairline(),
           summaryRow(
             LucideIcons.packagePlus,
-            '${onbTr(context, '附加', 'Extras')}: $extras',
+            '${onbTr(context, 'Agent / 工具', 'Agents / tools')}: $extras',
           ),
         ],
       ],

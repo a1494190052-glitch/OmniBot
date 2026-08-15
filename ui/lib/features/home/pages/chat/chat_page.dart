@@ -19,6 +19,7 @@ import '../../../../services/assists_core_service.dart';
 import '../../widgets/home_drawer.dart';
 import '../authorize/authorize_page_args.dart';
 import '../command_overlay/widgets/chat_input_area.dart';
+import '../command_overlay/services/manual_recording_flow_controller.dart';
 import '../command_overlay/services/tool_card_detail_gesture_gate.dart';
 import '../common/openclaw_connection_checker.dart';
 import '../omnibot_workspace/widgets/omnibot_workspace_browser.dart';
@@ -33,6 +34,8 @@ import 'package:ui/services/app_background_service.dart';
 import 'package:ui/services/agent_browser_session_service.dart';
 import 'package:ui/services/chat_terminal_environment_service.dart';
 import 'package:ui/services/agent_runtime_service.dart';
+import 'package:ui/services/omnilink_plugin_service.dart';
+import 'package:ui/services/omnilink_event_formatter.dart';
 import 'package:ui/services/agent_diff_parser.dart';
 import 'package:ui/services/agent_tool_call_parser.dart';
 import 'package:ui/services/agent_message_kinds.dart';
@@ -241,6 +244,7 @@ abstract class _ChatPageStateBase extends State<ChatPage>
   StreamSubscription<Map<String, dynamic>>?
   _browserSessionSnapshotChangedSubscription;
   StreamSubscription<Map<String, dynamic>>? _agentEventSubscription;
+  StreamSubscription<Map<String, dynamic>>? _omniLinkEventSubscription;
   Timer? _remoteCodexSessionSyncTimer;
   bool _remoteCodexSessionSyncInFlight = false;
   String? _remoteCodexSessionSyncThreadId;
@@ -1881,6 +1885,8 @@ abstract class _ChatPageStateBase extends State<ChatPage>
   void _showSnackBar(String message);
 
   Future<bool> _ensureNormalChatModelConfigurationForSend();
+
+  Future<void> _startManualRecordingCommand(String messageText);
 
   Future<void> _sendMessage({String? text});
 

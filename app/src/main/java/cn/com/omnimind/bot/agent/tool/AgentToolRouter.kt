@@ -15,10 +15,12 @@ import cn.com.omnimind.bot.agent.tool.handlers.SubagentToolHandler
 import cn.com.omnimind.bot.agent.tool.handlers.SystemToolHandler
 import cn.com.omnimind.bot.agent.tool.handlers.TerminalToolHandler
 import cn.com.omnimind.bot.agent.tool.handlers.ToolHandler
+import cn.com.omnimind.bot.agent.tool.handlers.VlmToolHandler
 import com.rk.terminal.runtime.TerminalDistribution
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
+import java.util.concurrent.atomic.AtomicBoolean
 
 class AgentToolRouter(
     private val context: Context,
@@ -26,7 +28,8 @@ class AgentToolRouter(
     private val scheduleToolBridge: AgentScheduleToolBridge,
     private val workspaceManager: AgentWorkspaceManager,
     private val subagentDispatcher: SubagentDispatcher,
-    terminalDistribution: TerminalDistribution.Spec = TerminalDistribution.alpine
+    terminalDistribution: TerminalDistribution.Spec = TerminalDistribution.alpine,
+    pluginHandlers: List<ToolHandler> = emptyList()
 ) : AgentToolExecutor {
 
     private val json = Json {
@@ -43,6 +46,7 @@ class AgentToolRouter(
 
     private val orderedHandlers: List<ToolHandler> = listOf(
         ContextToolHandler(helper),
+        VlmToolHandler(context),
         privilegedHandler,
         terminalHandler,
         BrowserToolHandler(helper, workspaceManager),
@@ -56,10 +60,13 @@ class AgentToolRouter(
     )
 
     private val mcpFallback = McpToolHandler(helper)
+    private val allHandlers = orderedHandlers + pluginHandlers
+    private val disposed = AtomicBoolean(false)
 
     private val handlerMap: Map<String, ToolHandler> = buildMap {
-        for (handler in orderedHandlers) {
+        for (handler in allHandlers) {
             for (name in handler.toolNames) {
+                require(name !in this) { "Duplicate tool handler: $name" }
                 put(name, handler)
             }
         }
@@ -84,7 +91,8 @@ class AgentToolRouter(
     }
 
     override suspend fun dispose() {
-        for (handler in orderedHandlers) {
+        if (!disposed.compareAndSet(false, true)) return
+        for (handler in allHandlers) {
             runCatching { handler.dispose() }
         }
     }

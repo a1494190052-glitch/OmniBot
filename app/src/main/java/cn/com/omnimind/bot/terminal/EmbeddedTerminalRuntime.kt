@@ -142,6 +142,9 @@ object EmbeddedTerminalRuntime {
 
     private val sessionHandles = ConcurrentHashMap<String, SessionHandle>()
     private val packageInstallMutex = Mutex()
+    private val environmentWarmupMutex = Mutex()
+    @Volatile
+    private var environmentWarmupReady = false
     private val requiredCliCommands = listOf(
         "bash",
         "curl",
@@ -155,7 +158,6 @@ object EmbeddedTerminalRuntime {
         "pip3",
         "rg",
         "tmux",
-        "uv",
         "xz"
     )
 
@@ -181,6 +183,7 @@ object EmbeddedTerminalRuntime {
                   procps \
                   psmisc \
                   python3 \
+                  python3-numpy \
                   python3-pip \
                   python3-venv \
                   ripgrep \
@@ -203,6 +206,7 @@ object EmbeddedTerminalRuntime {
                   procps \
                   psmisc \
                   python3 \
+                  py3-numpy \
                   py3-pip \
                   py3-virtualenv \
                   ripgrep \
@@ -216,10 +220,7 @@ object EmbeddedTerminalRuntime {
             $packageBootstrap
             ln -sf /usr/bin/python3 /usr/local/bin/python || true
             python3 -m pip install --break-system-packages --upgrade pip >/dev/null 2>&1 || true
-            python3 -m pip install --break-system-packages --upgrade uv >/dev/null 2>&1 || true
             npm install -g pnpm --no-audit --no-fund >/dev/null 2>&1 || true
-            if [ -x "${'$'}HOME/.local/bin/uv" ]; then ln -sf "${'$'}HOME/.local/bin/uv" /usr/local/bin/uv; fi
-            if [ -x "${'$'}HOME/.local/bin/uvx" ]; then ln -sf "${'$'}HOME/.local/bin/uvx" /usr/local/bin/uvx; fi
         """.trimIndent()
     }
 
@@ -231,11 +232,33 @@ object EmbeddedTerminalRuntime {
         context: Context,
         onProgress: suspend (EnvironmentProgress) -> Unit = {}
     ): EnvironmentStatus {
-        return prepareEnvironment(
-            context = context,
-            installBasePackages = false,
-            onProgress = onProgress
-        )
+        if (environmentWarmupReady) {
+            return EnvironmentStatus(
+                success = true,
+                initialized = true,
+                basePackagesReady = isBasePackagesReady(context),
+                message = "内嵌终端环境已就绪。"
+            )
+        }
+        return environmentWarmupMutex.withLock {
+            if (environmentWarmupReady) {
+                return@withLock EnvironmentStatus(
+                    success = true,
+                    initialized = true,
+                    basePackagesReady = isBasePackagesReady(context),
+                    message = "内嵌终端环境已就绪。"
+                )
+            }
+            prepareEnvironment(
+                context = context,
+                installBasePackages = false,
+                onProgress = onProgress
+            ).also { status ->
+                if (status.success && status.initialized) {
+                    environmentWarmupReady = true
+                }
+            }
+        }
     }
 
     suspend fun inspectRuntimeReadiness(

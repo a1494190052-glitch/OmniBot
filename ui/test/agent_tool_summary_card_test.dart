@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:go_router/go_router.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:ui/features/home/pages/command_overlay/widgets/cards/agent_tool_summary_card.dart';
 import 'package:ui/features/home/pages/command_overlay/widgets/cards/agent_tool_transcript.dart';
@@ -89,6 +90,139 @@ void main() {
       find.descendant(of: leadingIcon, matching: find.byType(Icon)),
     );
     expect(icon.size, 18);
+  });
+
+  testWidgets('completed VLM tool renders inline result actions', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: AgentToolSummaryCard(
+            cardData: {
+              'status': 'success',
+              'toolName': 'vlm_task',
+              'displayName': 'VLM GUI',
+              'toolType': 'builtin',
+              'summary': '蓝牙已打开',
+              'resultPreviewJson': jsonEncode({
+                'run_id': 'gui-run-1',
+                'success': true,
+                'content': '蓝牙已打开',
+                'registration_available': true,
+                'registration_hint': '本次成功操作已保存为 RunLog，可注册为复用指令。',
+              }),
+            },
+          ),
+        ),
+      ),
+    );
+
+    expect(find.byKey(const ValueKey('vlm-task-result-card')), findsOneWidget);
+    expect(find.text('GUI 任务已完成'), findsOneWidget);
+    expect(find.text('蓝牙已打开'), findsOneWidget);
+    expect(find.textContaining('可注册为复用指令'), findsOneWidget);
+    expect(find.text('查看 RunLog'), findsOneWidget);
+    expect(find.text('注册为复用指令'), findsOneWidget);
+    expect(find.byKey(kAgentToolDetailSheetKey), findsNothing);
+  });
+
+  testWidgets('unfinished VLM tool still exposes its RunLog', (tester) async {
+    final router = GoRouter(
+      initialLocation: '/',
+      routes: [
+        GoRoute(
+          path: '/',
+          builder: (context, state) => Scaffold(
+            body: AgentToolSummaryCard(
+              cardData: {
+                'status': 'interrupted',
+                'toolName': 'vlm_task',
+                'displayName': 'VLM GUI',
+                'toolType': 'builtin',
+                'summary': '视觉任务已停止',
+                // A stop can arrive before the final result payload is built. The
+                // progress event still carries the run id at card level.
+                'run_id': 'gui-run-interrupted',
+                'resultPreviewJson': jsonEncode({
+                  'success': false,
+                  'done_reason': 'cancelled',
+                  'error': '视觉任务已停止',
+                }),
+              },
+            ),
+          ),
+        ),
+        GoRoute(
+          path: '/task/run_log/:runId',
+          builder: (context, state) =>
+              Scaffold(body: Text('runlog:${state.pathParameters['runId']}')),
+        ),
+      ],
+    );
+    addTearDown(router.dispose);
+
+    await tester.pumpWidget(MaterialApp.router(routerConfig: router));
+
+    expect(find.text('GUI 任务未完成'), findsOneWidget);
+    expect(find.byKey(const ValueKey('vlm-task-open-run-log')), findsOneWidget);
+    expect(find.text('复用指令'), findsNothing);
+
+    await tester.tap(find.byKey(const ValueKey('vlm-task-open-run-log')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('runlog:gui-run-interrupted'), findsOneWidget);
+  });
+
+  testWidgets('published Vibe project opens its dashboard directly', (
+    tester,
+  ) async {
+    final router = GoRouter(
+      initialLocation: '/',
+      routes: [
+        GoRoute(
+          path: '/',
+          builder: (context, state) => Scaffold(
+            body: AgentToolSummaryCard(
+              cardData: {
+                'status': 'success',
+                'toolName': 'project_publish',
+                'displayName': '发布项目',
+                'toolType': 'plugin',
+                'resultPreviewJson': jsonEncode({
+                  'name': '真实 NBA 赛程',
+                  'dashboardRoute':
+                      '/home/plugin_dashboard?pluginId=local.project.nba-live',
+                }),
+              },
+            ),
+          ),
+        ),
+        GoRoute(
+          path: '/home/plugin_dashboard',
+          builder: (context, state) => Scaffold(
+            body: Text('dashboard:${state.uri.queryParameters['pluginId']}'),
+          ),
+        ),
+      ],
+    );
+    addTearDown(router.dispose);
+
+    await tester.pumpWidget(MaterialApp.router(routerConfig: router));
+
+    expect(
+      find.byKey(const ValueKey('published-project-card')),
+      findsOneWidget,
+    );
+    expect(find.text('真实 NBA 赛程'), findsOneWidget);
+    expect(find.text('打开 Dashboard'), findsOneWidget);
+
+    await tester.tap(
+      find.byKey(const ValueKey('published-project-open-dashboard')),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('dashboard:local.project.nba-live'), findsOneWidget);
   });
 
   testWidgets('tool card opens detail sheet when tapped', (tester) async {

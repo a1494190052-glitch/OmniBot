@@ -23,6 +23,10 @@ class _AuthorizePageState extends State<AuthorizePage>
 
   List<PermissionData> items = <PermissionData>[];
   bool _isLoading = false;
+  bool _isCheckingPermissions = false;
+  bool _didFinish = false;
+  bool _autoAuthorizationEnabled = false;
+  String? _autoPermissionInFlightId;
 
   Set<String> get _requiredPermissionIds =>
       widget.args?.requiredPermissionIds.toSet() ?? const <String>{};
@@ -44,7 +48,11 @@ class _AuthorizePageState extends State<AuthorizePage>
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed && !_isLoading) {
-      _checkPermissions();
+      _checkPermissions().then((_) {
+        if (mounted) {
+          return _authorizeNextRequiredPermission();
+        }
+      });
     }
   }
 
@@ -78,6 +86,7 @@ class _AuthorizePageState extends State<AuthorizePage>
         items = loadedPermissions;
         _isLoading = false;
       });
+      await _startAutomaticRequiredAuthorization();
     } catch (e) {
       debugPrint('获取设备品牌失败: $e');
       if (!mounted) return;
@@ -101,16 +110,88 @@ class _AuthorizePageState extends State<AuthorizePage>
         items = fallbackPermissions;
         _isLoading = false;
       });
+      await _startAutomaticRequiredAuthorization();
     }
   }
 
   Future<void> _checkPermissions() async {
-    await PermissionService.checkPermissions(items);
-    if (!mounted) return;
-    _updateContinueState(items);
-    if (_canContinue.value) {
-      Navigator.of(context).pop(true);
+    if (_isCheckingPermissions || _didFinish || _isLoading) return;
+
+    _isCheckingPermissions = true;
+    try {
+      await PermissionService.checkPermissions(items);
+      if (!mounted || _didFinish) return;
+      _updateContinueState(items);
+      if (_canContinue.value) {
+        _finish(true);
+      }
+    } finally {
+      _isCheckingPermissions = false;
     }
+  }
+
+  /// Task-triggered authorization should only open the permissions explicitly
+  /// required by that task. The regular onboarding page passes no required
+  /// IDs, so its existing manual setup flow remains unchanged.
+  Future<void> _startAutomaticRequiredAuthorization() async {
+    if (_requiredPermissionIds.isEmpty || !mounted || _didFinish) return;
+    _autoAuthorizationEnabled = true;
+    await _checkPermissions();
+    if (!mounted || _didFinish) return;
+    await _authorizeNextRequiredPermission();
+  }
+
+  Future<void> _authorizeNextRequiredPermission() async {
+    if (!_autoAuthorizationEnabled ||
+        _isLoading ||
+        _isCheckingPermissions ||
+        !mounted ||
+        _didFinish) {
+      return;
+    }
+
+    final inFlightId = _autoPermissionInFlightId;
+    if (inFlightId != null) {
+      final inFlight = items.where((item) => item.id == inFlightId).firstOrNull;
+      if (inFlight == null || !inFlight.notifier.value) {
+        // Settings-based permissions return before the user changes the
+        // system toggle. Wait for the next resume rather than repeatedly
+        // opening the same settings page.
+        return;
+      }
+      _autoPermissionInFlightId = null;
+    }
+
+    final next = items
+        .where(
+          (item) =>
+              _requiredPermissionIds.contains(item.id) && !item.notifier.value,
+        )
+        .firstOrNull;
+    if (next == null) {
+      if (_canContinue.value) _finish(true);
+      return;
+    }
+
+    _autoPermissionInFlightId = next.id;
+    await next.authorize();
+    if (!mounted || _didFinish) return;
+    if (!next.notifier.value) return;
+
+    _autoPermissionInFlightId = null;
+    await _checkPermissions();
+    if (!mounted || _didFinish) return;
+    await _authorizeNextRequiredPermission();
+  }
+
+  void _finish(bool result) {
+    if (_didFinish || !mounted) return;
+
+    final navigator = Navigator.of(context);
+    if (!navigator.canPop()) return;
+
+    _didFinish = true;
+    navigator.pop(result);
   }
 
   void _updateContinueState(List<PermissionData> permissions) {
@@ -159,10 +240,7 @@ class _AuthorizePageState extends State<AuthorizePage>
 
     return Scaffold(
       backgroundColor: palette.pageBackground,
-      appBar: CommonAppBar(
-        primary: true,
-        onBackPressed: () => Navigator.of(context).pop(false),
-      ),
+      appBar: CommonAppBar(primary: true, onBackPressed: () => _finish(false)),
       body: SafeArea(
         top: false,
         bottom: false,
@@ -229,8 +307,7 @@ class _AuthorizePageState extends State<AuthorizePage>
                   return GestureDetector(
                     onTap: () async {
                       if (authorized) {
-                        if (!context.mounted) return;
-                        Navigator.of(context).pop(true);
+                        _finish(true);
                         return;
                       }
                       await _checkPermissions();

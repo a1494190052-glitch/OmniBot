@@ -118,7 +118,7 @@ if [ "$HEADLESS_MODE" != "1" ] && [ "$#" -eq 0 ]; then
         done
         if [ -n "$missing_packages" ]; then
             printf '\033[34;1m[*]\033[0m Installing important packages\n'
-            if apk add --no-cache $missing_packages; then
+            if apk --wait 300 add --no-cache $missing_packages; then
                 printf '\033[32;1m[+]\033[0m Successfully installed\n'
             else
                 printf '\033[31;1m[!]\033[0m Failed to install important packages automatically\n'

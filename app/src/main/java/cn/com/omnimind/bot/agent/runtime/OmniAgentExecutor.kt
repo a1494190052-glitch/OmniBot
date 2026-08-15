@@ -7,6 +7,8 @@ import cn.com.omnimind.baselib.llm.ChatCompletionMessage
 import cn.com.omnimind.bot.agent.workspace.memory.LongTermMemoryIndex
 import cn.com.omnimind.bot.agent.workspace.memory.TurnMemoryLoadTracker
 import cn.com.omnimind.bot.mcp.RemoteMcpDiscoveryRegistry
+import cn.com.omnimind.bot.plugin.OmniPluginHost
+import cn.com.omnimind.bot.plugin.OmniPluginSession
 import com.rk.terminal.runtime.TerminalDistribution
 import java.util.concurrent.atomic.AtomicReference
 import kotlinx.coroutines.CancellationException
@@ -161,6 +163,7 @@ class OmniAgentExecutor(
         continueMode: Boolean = false
     ): AgentResult {
         var toolRouter: AgentToolRouter? = null
+        var pluginSession: OmniPluginSession? = null
         return try {
             val agentRunId = UUID.randomUUID().toString()
             val promptCacheKey = cn.com.omnimind.baselib.llm.PromptCacheKeyStore.forConversation(
@@ -208,11 +211,18 @@ class OmniAgentExecutor(
             // leading message that invalidates the full conversation prefix.
             val resolvedSkills = emptyList<ResolvedSkillContext>()
             val discoveredServers = RemoteMcpDiscoveryRegistry.discoverEnabledServers()
+            val activePluginSession = OmniPluginHost.get(context).openSession()
+            pluginSession = activePluginSession
             val toolRegistry = AgentToolRegistry(
                 context = context,
                 discoveredServers = discoveredServers,
                 conversationMode = conversationMode,
-                terminalDistribution = terminalDistribution
+                terminalDistribution = terminalDistribution,
+                pluginToolDefinitions = activePluginSession.toolDefinitions,
+                userMessage = userMessage,
+                toolRoutingMode = AgentToolRoutingMode.fromSkillFrontmatter(
+                    resolvedSkills.map(ResolvedSkillContext::frontmatter),
+                ),
             )
             val initialMessages = buildInitialMessages(
                 promptSeed = historyRepository.buildPromptSeed(
@@ -282,8 +292,10 @@ class OmniAgentExecutor(
                 scheduleToolBridge = scheduleToolBridge,
                 workspaceManager = workspaceManager,
                 subagentDispatcher = subagentDispatcher,
-                terminalDistribution = terminalDistribution
+                terminalDistribution = terminalDistribution,
+                pluginHandlers = activePluginSession.toolHandlers
             )
+            pluginSession = null
             routerRef.set(toolRouter)
             val orchestrator = AgentOrchestrator(
                 llmClient = llmClient,
@@ -327,6 +339,7 @@ class OmniAgentExecutor(
             AgentResult.Error("Agent execution failed", e)
         } finally {
             runCatching { toolRouter?.dispose() }
+            runCatching { pluginSession?.closeSuspending() }
         }
     }
 

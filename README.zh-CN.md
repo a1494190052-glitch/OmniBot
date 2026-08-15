@@ -195,6 +195,14 @@ Android 构建会自动处理 WebUI：Gradle 使用锁文件安装依赖、执�
 
 ### 构建并安装
 
+Release APK 默认使用 `OMNIBOT_UPDATE_WORKER_URL` 作为 GUI VLM 代理地址，
+并从更新 Worker 获取 Gelab 线路；Gelab 的上游 Key 只保存在 Worker。
+Debug APK 统一使用 `LLMTHU_API_BASE`、`LLMTHU_API_KEY` 和
+`LLMTHU_MODEL` 配置的 OpenAI-compatible LLM API，覆盖普通 LLM、上下文压缩
+和 `scene.vlm.operation.primary`。
+本地验收 Release 可显式传入 `-POOB_BUNDLE_LLMTHU_PROVIDER=1`，使用同一组
+`LLMTHU_*` 配置完成开箱即用验收；普通 Release 和 CI 默认不内置该配置。
+
 ```bash
 cd ..
 

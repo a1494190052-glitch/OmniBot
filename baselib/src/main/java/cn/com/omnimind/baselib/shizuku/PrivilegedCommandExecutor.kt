@@ -272,7 +272,11 @@ internal object PrivilegedCommandExecutor {
                 }
             }
             PrivilegedActionPolicy.ACTION_PACKAGE_FORCE_STOP -> {
-                listOf("am", "force-stop", requirePackageName(arguments["packageName"]))
+                val packageName = requirePackageName(arguments["packageName"])
+                require(!PrivilegedActionPolicy.isHostPackage(packageName)) {
+                    "Force-stopping the host app is blocked."
+                }
+                listOf("am", "force-stop", packageName)
             }
             PrivilegedActionPolicy.ACTION_PACKAGE_GRANT_PERMISSION -> {
                 listOf(

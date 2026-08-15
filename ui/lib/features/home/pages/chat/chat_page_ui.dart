@@ -1327,6 +1327,9 @@ mixin _ChatPageUiMixin on _ChatPageStateBase {
                       onCancelTask: _onCancelTask,
                       onPopupVisibilityChanged: _onPopupVisibilityChanged,
                       onTerminalTap: _handleTerminalToolTap,
+                      onManualRecordingTap: _activeMode == ChatPageMode.normal
+                          ? () => _startManualRecordingCommand('手动录制')
+                          : null,
                       useLargeComposerStyle: true,
                       useAttachmentPickerForPlus: true,
                       onPickAttachment: _pickAttachments,

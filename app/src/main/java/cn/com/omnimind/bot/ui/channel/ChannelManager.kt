@@ -19,6 +19,7 @@ class ChannelManager {
     private var pdfPreviewChannel: PdfPreviewChannel = PdfPreviewChannel()
     private var hideFromRecentsChannel: HideFromRecentsChannel = HideFromRecentsChannel()
     private var appUpdateChannel: AppUpdateChannel = AppUpdateChannel()
+    private var screenDialogChannel: ScreenDialogChannel = ScreenDialogChannel()
 
     private var uiRouterChannel: UIRouterChannel = UIRouterChannel()
 
@@ -28,6 +29,8 @@ class ChannelManager {
     private var browserSessionChannel: BrowserSessionChannel = BrowserSessionChannel()
     private var storageUsageChannel: StorageUsageChannel = StorageUsageChannel()
     private var agentRuntimeChannel: AgentRuntimeChannel = AgentRuntimeChannel()
+    private var pluginPlatformChannel: PluginPlatformChannel = PluginPlatformChannel()
+    private var omniLinkPluginChannel: OmniLinkPluginChannel = OmniLinkPluginChannel()
     private var accountChannel: AccountChannel = AccountChannel()
     fun getUIRouterChannel(): UIRouterChannel {
         return uiRouterChannel
@@ -49,6 +52,7 @@ class ChannelManager {
         pdfPreviewChannel.setChannel(flutterEngine)
         hideFromRecentsChannel.setChannel(flutterEngine)
         appUpdateChannel.setChannel(flutterEngine)
+        screenDialogChannel.setChannel(flutterEngine)
         uiRouterChannel.setChannel(flutterEngine)
         mcpServerChannel.setChannel(flutterEngine)
         remoteMcpConfigChannel.setChannel(flutterEngine)
@@ -56,6 +60,8 @@ class ChannelManager {
         browserSessionChannel.setChannel(flutterEngine)
         storageUsageChannel.setChannel(flutterEngine)
         agentRuntimeChannel.setChannel(flutterEngine)
+        pluginPlatformChannel.setChannel(flutterEngine)
+        omniLinkPluginChannel.setChannel(flutterEngine)
         accountChannel.setChannel(flutterEngine)
     }
 
@@ -74,6 +80,8 @@ class ChannelManager {
         overlayChannel.onCreate(context)
         storageUsageChannel.onCreate(context)
         agentRuntimeChannel.onCreate(context)
+        pluginPlatformChannel.onCreate(context)
+        omniLinkPluginChannel.onCreate(context)
     }
 
     fun clearChannel() {
@@ -86,6 +94,7 @@ class ChannelManager {
         pdfPreviewChannel.clear()
         hideFromRecentsChannel.clear()
         appUpdateChannel.clear()
+        screenDialogChannel.clear()
         uiRouterChannel.clear()
         cacheChannel.clear()
         httpChannel.clear()
@@ -95,6 +104,8 @@ class ChannelManager {
         browserSessionChannel.clear()
         storageUsageChannel.clear()
         agentRuntimeChannel.clear()
+        pluginPlatformChannel.clear()
+        omniLinkPluginChannel.clear()
         accountChannel.clear()
     }
 

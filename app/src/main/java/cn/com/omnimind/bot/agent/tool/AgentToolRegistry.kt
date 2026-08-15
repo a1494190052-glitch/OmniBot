@@ -9,6 +9,7 @@ import cn.com.omnimind.baselib.shizuku.ShizukuCapabilityManager
 import cn.com.omnimind.baselib.util.OmniLog
 import cn.com.omnimind.bot.mcp.RemoteMcpDiscoveredServer
 import cn.com.omnimind.bot.mcp.RemoteMcpToolDescriptor
+import cn.com.omnimind.bot.plugin.OmniPluginToolDefinition
 import com.rk.terminal.runtime.TerminalDistribution
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
@@ -26,7 +27,10 @@ class AgentToolRegistry(
     private val context: Context,
     discoveredServers: List<RemoteMcpDiscoveredServer>,
     conversationMode: String = AgentConversationModePolicy.NORMAL_MODE,
-    terminalDistribution: TerminalDistribution.Spec = TerminalDistribution.alpine
+    terminalDistribution: TerminalDistribution.Spec = TerminalDistribution.alpine,
+    pluginToolDefinitions: List<OmniPluginToolDefinition> = emptyList(),
+    userMessage: String? = null,
+    toolRoutingMode: AgentToolRoutingMode = AgentToolRoutingMode.DEFAULT,
 ) : AgentToolCatalog {
     data class RuntimeToolDescriptor(
         val name: String,
@@ -90,6 +94,37 @@ class AgentToolRegistry(
         }
         runtimeDefinitions.addAll(AgentToolDefinitions.memoryTools(locale))
         runtimeDefinitions.addAll(AgentToolDefinitions.subagentTools(locale))
+        if (pluginToolDefinitions.isNotEmpty()) {
+            val occupiedNames = runtimeDefinitions.mapNotNullTo(linkedSetOf()) { definition ->
+                (definition["function"] as? JsonObject)
+                    ?.get("name")
+                    ?.jsonPrimitive
+                    ?.contentOrNull
+            }
+            pluginToolDefinitions.forEach { pluginTool ->
+                require(pluginTool.name !in occupiedNames) {
+                    "Plugin tool conflicts with an existing tool: ${pluginTool.name}"
+                }
+                occupiedNames += pluginTool.name
+                runtimeDefinitions += AgentToolDefinitions.decorateToolDefinition(
+                    buildJsonObject {
+                        put("type", JsonPrimitive("function"))
+                        put("function", buildJsonObject {
+                            put("name", JsonPrimitive(pluginTool.name))
+                            put("displayName", JsonPrimitive(pluginTool.displayName))
+                            put("toolType", JsonPrimitive("plugin"))
+                            pluginTool.ownerPluginId?.let {
+                                put("serverName", JsonPrimitive(it))
+                            }
+                            put("description", JsonPrimitive(pluginTool.description))
+                            put("parameters", pluginTool.parameters)
+                        })
+                    },
+                    locale,
+                    terminalDistribution
+                )
+            }
+        }
         discoveredServers
             .flatMap { it.tools }
             .sortedBy { it.encodedToolName.lowercase() }
@@ -97,7 +132,7 @@ class AgentToolRegistry(
             runtimeDefinitions.add(toDynamicMcpToolDefinition(tool, locale))
         }
 
-        val filteredDefinitions = AgentConversationModePolicy
+        val conversationDefinitions = AgentConversationModePolicy
             .filterToolDefinitionsForConversationMode(runtimeDefinitions, conversationMode)
             .sortedBy { definition ->
                 ((definition["function"] as? JsonObject)
@@ -106,6 +141,42 @@ class AgentToolRegistry(
                     ?.lowercase()
                     .orEmpty()
             }
+        val visibleToolNames = userMessage?.let { message ->
+            AgentToolVisibilitySelector.select(
+                userMessage = message,
+                routingMode = toolRoutingMode,
+                candidates = conversationDefinitions.mapNotNull { definition ->
+                    val function = definition["function"] as? JsonObject
+                        ?: return@mapNotNull null
+                    val name = function["name"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty()
+                    if (name.isBlank()) return@mapNotNull null
+                    val toolType = function["toolType"]?.jsonPrimitive?.contentOrNull?.trim()
+                        .orEmpty()
+                    AgentToolVisibilitySelector.ToolCandidate(
+                        name = name,
+                        displayName = function["displayName"]?.jsonPrimitive?.contentOrNull
+                            .orEmpty(),
+                        description = function["description"]?.jsonPrimitive?.contentOrNull
+                            .orEmpty(),
+                        owner = function["serverName"]?.jsonPrimitive?.contentOrNull,
+                        dynamic = toolType == "plugin" || toolType == "mcp",
+                    )
+                },
+            )
+        }
+        val filteredDefinitions = if (visibleToolNames == null) {
+            conversationDefinitions
+        } else {
+            conversationDefinitions.filter { definition ->
+                val toolName = (definition["function"] as? JsonObject)
+                    ?.get("name")
+                    ?.jsonPrimitive
+                    ?.contentOrNull
+                    ?.trim()
+                    .orEmpty()
+                toolName in visibleToolNames
+            }
+        }
 
         toolsForModel = filteredDefinitions.mapNotNull { definition ->
             val function = definition["function"] as? JsonObject ?: return@mapNotNull null
@@ -144,6 +215,7 @@ class AgentToolRegistry(
             tag,
             "registered_tools count=${toolsForModel.size} " +
                 "conversationMode=$conversationMode " +
+                "toolRoutingMode=$toolRoutingMode " +
                 "subagent_present=${"subagent_dispatch" in runtimeDescriptors.keys} " +
                 "memory_load_present=${"memory_load" in runtimeDescriptors.keys} " +
                 "names=[${runtimeDescriptors.keys.joinToString(",")}]"

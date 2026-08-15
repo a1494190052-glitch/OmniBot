@@ -441,6 +441,11 @@ mixin _ChatPageConversationFlowMixin on _ChatPageStateBase {
     final messageText = (text ?? _messageController.text).trim();
     final hasAttachments = _pendingAttachments.isNotEmpty;
     if ((messageText.isEmpty && !hasAttachments) || _isAiResponding) return;
+    if (!hasAttachments &&
+        ManualRecordingFlowController.isCommand(messageText)) {
+      await _startManualRecordingCommand(messageText);
+      return;
+    }
     if (!await _ensureNormalChatModelConfigurationForSend()) return;
 
     final attachments = _pendingAttachments
@@ -454,6 +459,43 @@ mixin _ChatPageConversationFlowMixin on _ChatPageStateBase {
       messageText,
       attachments: attachments,
       runSlashCommand: true,
+    );
+  }
+
+  @override
+  Future<void> _startManualRecordingCommand(String messageText) async {
+    await ManualRecordingFlowController.start(
+      context: context,
+      inputFocusNode: _inputFocusNode,
+      userMessageText: messageText,
+      recordDebugScreenshots: true,
+      isMounted: () => mounted,
+      addUserMessage: (text) {
+        final ids = addUserMessage(text);
+        return ManualRecordingFlowMessageIds(
+          userMessageId: ids.userMessageId,
+          aiMessageId: ids.aiMessageId,
+        );
+      },
+      afterUserMessageAdded: (_) => saveConversation(),
+      insertResultMessage: (messageId, result) {
+        if (!mounted) return;
+        final succeeded = result['success'] == true;
+        final text = succeeded
+            ? result['function'] is Map
+                  ? '手动录制完成，复用指令已保存'
+                  : '手动录制完成，RunLog 已保存；复用指令生成失败'
+            : ((result['error_message'] ?? '').toString().trim().isEmpty
+                  ? '手动录制失败'
+                  : '手动录制失败：${result['error_message']}');
+        updateOrAddAiMessage(messageId, text, !succeeded);
+        unawaited(saveConversation());
+      },
+      onFinally: () async {
+        if (!mounted) return;
+        setState(() => _isAiResponding = false);
+        await saveConversation();
+      },
     );
   }
 
@@ -1191,6 +1233,14 @@ mixin _ChatPageConversationFlowMixin on _ChatPageStateBase {
     setState(() {
       _isPopupVisible = visible;
     });
+  }
+
+  @override
+  Future<void> onAgentPermissionRequired(List<String> permissionIds) async {
+    if (!mounted || _activeConversationMode != ChatPageMode.normal) {
+      return;
+    }
+    await _requestAuthorizeForExecution(permissionIds);
   }
 
   @override

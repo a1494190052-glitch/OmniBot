@@ -32,6 +32,12 @@ class _SvgTestAssetBundle extends CachingAssetBundle {
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
+  test('HTML artifacts use a full page while other files keep the sheet', () {
+    expect(shouldOpenOmnibotArtifactInFullPage('html'), isTrue);
+    expect(shouldOpenOmnibotArtifactInFullPage('pdf'), isFalse);
+    expect(shouldOpenOmnibotArtifactInFullPage('code'), isFalse);
+  });
+
   late Directory tempDir;
   late File file;
   late File imageFile;

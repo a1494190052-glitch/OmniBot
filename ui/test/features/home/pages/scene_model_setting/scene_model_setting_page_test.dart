@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_switch/flutter_switch.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:ui/features/home/pages/agent/remote_codex_setting_page.dart';
 import 'package:ui/features/home/pages/scene_model_setting/scene_model_setting_page.dart';
 import 'package:ui/l10n/generated/app_localizations.dart';
 import 'package:ui/services/model_provider_config_service.dart';
@@ -54,6 +55,7 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
   const channel = MethodChannel('cn.com.omnimind.bot/AssistCoreEvent');
+  const agentRuntimeChannel = MethodChannel('cn.com.omnimind.bot/AgentRuntime');
   Widget buildTestApp(Widget child, {Locale locale = const Locale('zh')}) {
     return MaterialApp(
       theme: AppTheme.lightTheme,
@@ -76,6 +78,10 @@ void main() {
   }
 
   late Map<String, dynamic> savedVoiceConfig;
+  late Map<String, dynamic> savedOperationConfig;
+  late Map<String, dynamic> codexReadConfig;
+  late Map<String, dynamic>? savedCodexConfig;
+  late int codexWriteCount;
   late bool providerConfigured;
   late String providerBaseUrl;
   late int providerRevision;
@@ -99,6 +105,14 @@ void main() {
     SharedPreferences.setMockInitialValues(<String, Object>{});
     await StorageService.init();
     await VoicePlaybackCoordinator.instance.debugResetForTest();
+    codexWriteCount = 0;
+    savedCodexConfig = null;
+    codexReadConfig = <String, dynamic>{
+      'remoteEnabled': true,
+      'remoteBridgeUrl': 'ws://192.168.1.2:17321/codex',
+      'remoteBridgeToken': 'test-token',
+      'remoteCwd': '/Users/name/code/project',
+    };
     ModelsDevCatalogService.setCatalogForTesting(
       ModelsDevCatalogService.parseCatalog(_modelsDevCatalogJson),
     );
@@ -125,12 +139,30 @@ void main() {
       'stylePreset': '默认',
       'customStyle': '',
     };
+    savedOperationConfig = <String, dynamic>{'useOfficialService': true};
 
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(channel, (call) async {
           switch (call.method) {
             case 'getSceneModelCatalog':
               return <Map<String, dynamic>>[
+                <String, dynamic>{
+                  'sceneId': 'scene.vlm.operation.primary',
+                  'description': '负责 Android GUI 观察与动作决策',
+                  'defaultModel': 'qwen3-vl-plus',
+                  'effectiveModel': 'qwen3-vl-plus',
+                  'effectiveProviderProfileId': '',
+                  'effectiveProviderProfileName': '',
+                  'boundProviderProfileId': '',
+                  'boundProviderProfileName': '',
+                  'transport': 'openai_compatible',
+                  'configSource': 'builtin',
+                  'overrideApplied': false,
+                  'overrideModel': '',
+                  'providerConfigured': false,
+                  'bindingExists': false,
+                  'bindingProfileMissing': false,
+                },
                 <String, dynamic>{
                   'sceneId': 'scene.voice',
                   'description': '负责 AI 回复文本的语音合成与播放',
@@ -254,6 +286,28 @@ void main() {
                 (call.arguments as Map).cast<String, dynamic>(),
               );
               return savedVoiceConfig;
+            case 'getSceneOperationConfig':
+              return savedOperationConfig;
+            case 'saveSceneOperationConfig':
+              savedOperationConfig = Map<String, dynamic>.from(
+                (call.arguments as Map).cast<String, dynamic>(),
+              );
+              return savedOperationConfig;
+            default:
+              return null;
+          }
+        });
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(agentRuntimeChannel, (call) async {
+          switch (call.method) {
+            case 'config/remote/read':
+              return codexReadConfig;
+            case 'config/remote/write':
+              savedCodexConfig = Map<String, dynamic>.from(
+                (call.arguments as Map).cast<String, dynamic>(),
+              );
+              codexWriteCount += 1;
+              return <String, dynamic>{...savedCodexConfig!};
             default:
               return null;
           }
@@ -272,6 +326,8 @@ void main() {
     }
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(channel, null);
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(agentRuntimeChannel, null);
     ModelsDevCatalogService.resetForTesting();
     await VoicePlaybackCoordinator.instance.debugResetForTest();
   });
@@ -561,6 +617,20 @@ void main() {
     expect(find.textContaining('key=secret'), findsNothing);
   });
 
+  testWidgets('GUI scene is labeled GUI instead of VLM', (tester) async {
+    tester.view.physicalSize = const Size(1080, 2000);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    await tester.pumpWidget(buildTestApp(const SceneModelSettingPage()));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 50));
+
+    expect(find.text('GUI'), findsOneWidget);
+    expect(find.text('VLM'), findsNothing);
+  });
+
   testWidgets('voice scene expands and saves voice settings', (tester) async {
     tester.view.physicalSize = const Size(1080, 2000);
     tester.view.devicePixelRatio = 1.0;
@@ -572,6 +642,9 @@ void main() {
     await tester.pump(const Duration(milliseconds: 50));
 
     expect(find.text('Voice'), findsOneWidget);
+    expect(find.text('GUI'), findsOneWidget);
+    expect(find.text('VLM'), findsNothing);
+    expect(find.text('小万官方内置模型'), findsOneWidget);
     expect(find.text('Compactor'), findsNothing);
     expect(find.text('Chat Compactor'), findsOneWidget);
     expect(find.text('未绑定'), findsOneWidget);
@@ -582,7 +655,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('AI 响应完成后自动播放'), findsOneWidget);
-    expect(find.byType(FlutterSwitch), findsOneWidget);
+    expect(find.byType(FlutterSwitch), findsNWidgets(2));
     expect(find.byType(Switch), findsNothing);
     expect(find.byKey(const Key('voice-scene-voice-id-field')), findsOneWidget);
     expect(
@@ -610,5 +683,66 @@ void main() {
     expect(savedVoiceConfig['voiceId'], 'mimo_default');
     expect(savedVoiceConfig['stylePreset'], '温柔陪伴');
     expect(savedVoiceConfig['customStyle'], '更温柔一点');
+
+    expect(codexWriteCount, 0);
+  });
+
+  testWidgets(
+    'GUI can switch from explicit official model to custom provider',
+    (tester) async {
+      tester.view.physicalSize = const Size(1080, 2000);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      await tester.pumpWidget(buildTestApp(const SceneModelSettingPage()));
+      await tester.pumpAndSettle();
+
+      expect(find.text('小万官方内置模型'), findsOneWidget);
+      await tester.tap(
+        find.byKey(const Key('operation-scene-official-toggle')),
+      );
+      await tester.pumpAndSettle();
+
+      expect(savedOperationConfig['useOfficialService'], isFalse);
+      expect(find.text('小万官方内置模型'), findsNothing);
+    },
+  );
+
+  testWidgets('remote bridge setting autosaves only bridge fields', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(1080, 2200);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    await tester.pumpWidget(buildTestApp(const RemoteCodexSettingPage()));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 50));
+
+    expect(find.text('远程 PC Bridge'), findsWidgets);
+    expect(find.textContaining('本地终端环境 Codex'), findsNothing);
+    expect(find.textContaining('自定义 API'), findsNothing);
+
+    final urlField = find.byKey(
+      const Key('codex-config-remote-bridge-url-field'),
+    );
+    final cwdField = find.byKey(const Key('codex-config-remote-cwd-field'));
+    await tester.enterText(urlField, 'ws://10.0.0.2:17321/codex');
+    await tester.enterText(cwdField, '/Users/new/project');
+
+    expect(codexWriteCount, 0);
+    await tester.pump(const Duration(milliseconds: 750));
+    await tester.pump();
+
+    expect(codexWriteCount, 1);
+    expect(savedCodexConfig, <String, dynamic>{
+      'remoteEnabled': true,
+      'remoteBridgeUrl': 'ws://10.0.0.2:17321/codex',
+      'remoteBridgeToken': 'test-token',
+      'remoteCwd': '/Users/new/project',
+    });
+    expect(find.text('已自动保存。'), findsOneWidget);
   });
 }

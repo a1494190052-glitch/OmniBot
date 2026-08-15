@@ -78,5 +78,13 @@ class PrivilegedActionPolicyTest {
                 "mount -o rw,remount /system"
             ) != null
         )
+        assertTrue(
+            PrivilegedActionPolicy.blockedCommandReason(
+                "am force-stop cn.com.omnimind.bot.debug"
+            ) != null
+        )
+        assertTrue(PrivilegedActionPolicy.isHostPackage("cn.com.omnimind.bot"))
+        assertTrue(PrivilegedActionPolicy.isHostPackage("cn.com.omnimind.bot.debug"))
+        assertFalse(PrivilegedActionPolicy.isHostPackage("com.sankuai.meituan"))
     }
 }

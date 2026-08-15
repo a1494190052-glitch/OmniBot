@@ -37,6 +37,8 @@ import cn.com.omnimind.baselib.llm.SceneModelBindingEntry
 import cn.com.omnimind.baselib.llm.SceneModelBindingStore
 import cn.com.omnimind.baselib.llm.SceneModelOverrideEntry
 import cn.com.omnimind.baselib.llm.SceneModelOverrideStore
+import cn.com.omnimind.baselib.llm.SceneOperationConfig
+import cn.com.omnimind.baselib.llm.SceneOperationConfigStore
 import cn.com.omnimind.baselib.llm.SceneVoiceConfig
 import cn.com.omnimind.baselib.llm.SceneVoiceConfigStore
 import cn.com.omnimind.baselib.util.APPPackageUtil
@@ -1111,6 +1113,10 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
             "ttsMode" to ttsMode,
             "customCurlCommand" to customCurlCommand
         )
+    }
+
+    private fun SceneOperationConfig.toMap(): Map<String, Any?> {
+        return mapOf("useOfficialService" to useOfficialService)
     }
 
     fun setChannel(_channel: MethodChannel) {
@@ -3252,6 +3258,11 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
         workJob.launch {
             try {
                 SceneModelBindingStore.saveBinding(sceneId, providerProfileId, modelId)
+                if (sceneId == SceneOperationConfigStore.SCENE_ID) {
+                    SceneOperationConfigStore.saveConfig(
+                        SceneOperationConfig(useOfficialService = false)
+                    )
+                }
                 withContext(Dispatchers.Main) {
                     result.success(SceneModelBindingStore.getBindingEntries().map { it.toMap() })
                 }
@@ -3324,6 +3335,43 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
                 OmniLog.e(TAG, "saveSceneVoiceConfig error: ${e.message}")
                 withContext(Dispatchers.Main) {
                     result.error("SAVE_SCENE_VOICE_CONFIG_ERROR", e.message, null)
+                }
+            }
+        }
+    }
+
+    fun getSceneOperationConfig(call: MethodCall, result: MethodChannel.Result) {
+        workJob.launch {
+            try {
+                withContext(Dispatchers.Main) {
+                    result.success(SceneOperationConfigStore.getConfig().toMap())
+                }
+            } catch (e: Exception) {
+                OmniLog.e(TAG, "getSceneOperationConfig error: ${e.message}")
+                withContext(Dispatchers.Main) {
+                    result.error("GET_SCENE_OPERATION_CONFIG_ERROR", e.message, null)
+                }
+            }
+        }
+    }
+
+    fun saveSceneOperationConfig(call: MethodCall, result: MethodChannel.Result) {
+        val useOfficialService = call.argument<Boolean>("useOfficialService") == true
+        workJob.launch {
+            try {
+                if (useOfficialService) {
+                    SceneModelBindingStore.clearBinding(SceneOperationConfigStore.SCENE_ID)
+                }
+                val saved = SceneOperationConfigStore.saveConfig(
+                    SceneOperationConfig(useOfficialService = useOfficialService)
+                )
+                withContext(Dispatchers.Main) {
+                    result.success(saved.toMap())
+                }
+            } catch (e: Exception) {
+                OmniLog.e(TAG, "saveSceneOperationConfig error: ${e.message}")
+                withContext(Dispatchers.Main) {
+                    result.error("SAVE_SCENE_OPERATION_CONFIG_ERROR", e.message, null)
                 }
             }
         }

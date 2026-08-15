@@ -177,6 +177,33 @@ class SceneVoiceConfig {
   );
 }
 
+class SceneOperationConfig {
+  final bool useOfficialService;
+
+  const SceneOperationConfig({this.useOfficialService = false});
+
+  factory SceneOperationConfig.fromMap(Map<dynamic, dynamic>? map) {
+    return SceneOperationConfig(
+      useOfficialService: map?['useOfficialService'] == true,
+    );
+  }
+
+  SceneOperationConfig copyWith({bool? useOfficialService}) {
+    return SceneOperationConfig(
+      useOfficialService: useOfficialService ?? this.useOfficialService,
+    );
+  }
+
+  @override
+  bool operator ==(Object other) {
+    return other is SceneOperationConfig &&
+        other.useOfficialService == useOfficialService;
+  }
+
+  @override
+  int get hashCode => useOfficialService.hashCode;
+}
+
 class SceneModelConfigService {
   static Future<List<SceneCatalogItem>> getSceneCatalog() async {
     try {
@@ -319,6 +346,26 @@ class SceneModelConfigService {
           if (clearCustomCurlCommand) 'clearCustomCurlCommand': true,
         });
     return SceneVoiceConfig.fromMap(result);
+  }
+
+  static Future<SceneOperationConfig> getSceneOperationConfig() async {
+    try {
+      final result = await AssistsMessageService.assistCore
+          .invokeMethod<Map<dynamic, dynamic>>('getSceneOperationConfig');
+      return SceneOperationConfig.fromMap(result);
+    } on PlatformException {
+      return const SceneOperationConfig();
+    }
+  }
+
+  static Future<SceneOperationConfig> saveSceneOperationConfig(
+    SceneOperationConfig config,
+  ) async {
+    final result = await AssistsMessageService.assistCore
+        .invokeMethod<Map<dynamic, dynamic>>('saveSceneOperationConfig', {
+          'useOfficialService': config.useOfficialService,
+        });
+    return SceneOperationConfig.fromMap(result);
   }
 
   static bool isValidModelName(String value) {

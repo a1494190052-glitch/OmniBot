@@ -29,7 +29,10 @@ dependencyResolutionManagement {
 
 rootProject.name = "OmnibotApp"
 include(":app")
+include(":accessibility")
 include(":assists")
+include(":androidgui")
+include(":omniflow-android")
 val filePath = settingsDir.toString() + "/ui/.android/include_flutter.groovy"
 apply(from = File(filePath))
 

@@ -43,5 +43,7 @@ dependencies {
     implementation(libs.material)
     implementation(libs.glide)
     implementation(project(":baselib"))
+    implementation(project(":assists"))
+    implementation(project(":androidgui"))
     testImplementation(libs.junit)
 }

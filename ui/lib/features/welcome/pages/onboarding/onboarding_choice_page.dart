@@ -35,7 +35,9 @@ import 'widgets/onboarding_footer.dart';
 /// This widget is a thin orchestration layer — page content lives in
 /// `pages/`, reusable UI in `widgets/`, and state in the three controllers.
 class OnboardingChoicePage extends StatefulWidget {
-  const OnboardingChoicePage({super.key});
+  const OnboardingChoicePage({super.key, this.allowExit = false});
+
+  final bool allowExit;
 
   @override
   State<OnboardingChoicePage> createState() => _OnboardingChoicePageState();
@@ -60,11 +62,12 @@ class _OnboardingChoicePageState extends State<OnboardingChoicePage> {
   void initState() {
     super.initState();
     _isReplay =
-        StorageService.getBool(
-          StorageKeys.welcomeCompleted,
-          defaultValue: false,
-        ) ??
-        false;
+        widget.allowExit ||
+        (StorageService.getBool(
+              StorageKeys.welcomeCompleted,
+              defaultValue: false,
+            ) ??
+            false);
     _flow.addListener(_onControllerChanged);
     _environment.addListener(_onControllerChanged);
     _provider.addListener(_onControllerChanged);
@@ -226,8 +229,7 @@ class _OnboardingChoicePageState extends State<OnboardingChoicePage> {
     await _environment.runSetup(
       t: _t,
       reduceMotion: () =>
-          mounted &&
-          (MediaQuery.maybeOf(context)?.disableAnimations ?? false),
+          mounted && (MediaQuery.maybeOf(context)?.disableAnimations ?? false),
     );
   }
 
@@ -328,15 +330,16 @@ class _OnboardingChoicePageState extends State<OnboardingChoicePage> {
                     switchInCurve: Curves.easeOutCubic,
                     switchOutCurve: Curves.easeInCubic,
                     transitionBuilder: (child, animation) {
-                      final slide = Tween<Offset>(
-                        begin: Offset(0.06 * _flow.transitionDirection, 0),
-                        end: Offset.zero,
-                      ).animate(
-                        CurvedAnimation(
-                          parent: animation,
-                          curve: Curves.easeOutCubic,
-                        ),
-                      );
+                      final slide =
+                          Tween<Offset>(
+                            begin: Offset(0.06 * _flow.transitionDirection, 0),
+                            end: Offset.zero,
+                          ).animate(
+                            CurvedAnimation(
+                              parent: animation,
+                              curve: Curves.easeOutCubic,
+                            ),
+                          );
                       return FadeTransition(
                         opacity: animation,
                         child: SlideTransition(position: slide, child: child),
@@ -447,13 +450,25 @@ class _OnboardingChoicePageState extends State<OnboardingChoicePage> {
             ? null
             : _startEnvironmentSetup,
       ),
-      TutorialPage.provider => OnboardingPrimaryButton(
-        buttonKey: const ValueKey('tutorial-provider-next'),
-        label: _t('继续填写连接信息', 'Continue to connection details'),
-        icon: LucideIcons.arrowRight,
-        onPressed: _provider.loading
-            ? null
-            : () => _goToPage(TutorialPage.providerConnection),
+      TutorialPage.provider => Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          OnboardingPrimaryButton(
+            buttonKey: const ValueKey('tutorial-skip-models-visible'),
+            label: _t('跳过模型配置，查看聊天指南', 'Skip model setup and view chat guide'),
+            icon: LucideIcons.arrowRight,
+            onPressed: _provider.loading ? null : _openChatTour,
+          ),
+          const SizedBox(height: 2),
+          TextButton.icon(
+            key: const ValueKey('tutorial-provider-next'),
+            onPressed: _provider.loading
+                ? null
+                : () => _goToPage(TutorialPage.providerConnection),
+            icon: const Icon(LucideIcons.settings2, size: 17),
+            label: Text(_t('可选：配置自己的模型', 'Optional: configure your own model')),
+          ),
+        ],
       ),
       TutorialPage.providerConnection => OnboardingPrimaryButton(
         buttonKey: const ValueKey('tutorial-provider-connect'),

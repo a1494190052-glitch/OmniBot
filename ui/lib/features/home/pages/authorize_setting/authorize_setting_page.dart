@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_switch/flutter_switch.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
+import 'package:ui/features/home/pages/authorize/accessibility_permission_prompt.dart';
 import 'package:ui/l10n/l10n.dart';
 import 'package:ui/services/special_permission.dart';
 import 'package:ui/theme/theme_context.dart';
@@ -23,6 +24,7 @@ class _AuthorizeSettingPageState extends State<AuthorizeSettingPage>
 
   // 权限状态
   bool _backgroundRunning = false;
+  bool _accessibilityReady = false;
   bool _overlayPermission = false;
   bool _installedAppsPermission = false;
   bool _publicStoragePermission = false;
@@ -34,9 +36,10 @@ class _AuthorizeSettingPageState extends State<AuthorizeSettingPage>
   Color get _tertiaryTextColor => context.omniPalette.textTertiary;
   Color get _accentColor => context.omniPalette.accentPrimary;
   Color get _switchInactiveColor => context.omniPalette.borderStrong;
-  int get _corePermissionCount => 3;
+  int get _corePermissionCount => 4;
   int get _readyCorePermissionCount => <bool>[
     _backgroundRunning,
+    _accessibilityReady,
     _overlayPermission,
     _installedAppsPermission,
   ].where((value) => value).length;
@@ -118,10 +121,26 @@ class _AuthorizeSettingPageState extends State<AuthorizeSettingPage>
       _AuthorizeSettingSection(
         label: _localeText(zh: '核心权限', en: 'Core Permissions'),
         subtitle: _localeText(
-          zh: '这些授权用于悬浮显示、后台运行和识别已安装应用。',
-          en: 'These permissions support overlays, background operation, and installed-app discovery.',
+          zh: '这些授权用于操作界面、悬浮显示、后台运行和识别已安装应用。',
+          en: 'These permissions support GUI control, overlays, background operation, and installed-app discovery.',
         ),
         items: [
+          _AuthorizeSettingItem(
+            icon: LucideIcons.accessibility,
+            title: _localeText(zh: '无障碍权限', en: 'Accessibility Permission'),
+            subtitle: _localeText(
+              zh: '用于读取页面并执行点击、滑动和输入；可在系统设置的“无障碍”中开启。',
+              en: 'Observe the screen and perform taps, swipes, and text input. Enable it in system Accessibility settings.',
+            ),
+            trailing: _buildPermissionTrailing(
+              label: context.trLegacy(_accessibilityReady ? '已开启' : '去开启'),
+              color: _accessibilityReady ? _tertiaryTextColor : _accentColor,
+            ),
+            onTap: () async {
+              await showAccessibilityPermissionPrompt(context);
+              if (mounted) await _checkPermissions();
+            },
+          ),
           _AuthorizeSettingItem(
             icon: LucideIcons.batteryCharging,
             title: context.trLegacy('后台运行权限'),
@@ -220,6 +239,11 @@ class _AuthorizeSettingPageState extends State<AuthorizeSettingPage>
   Future<void> _checkPermissions() async {
     try {
       final backgroundRunning = await isBackgroundRunAllowed();
+      final accessibilityReady =
+          await spePermission.invokeMethod<bool>(
+            'isAndroidGuiAccessibilityReady',
+          ) ??
+          false;
       final overlayPermission =
           await spePermission.invokeMethod('isOverlayPermission') ?? false;
       final installedAppsPermission =
@@ -233,6 +257,7 @@ class _AuthorizeSettingPageState extends State<AuthorizeSettingPage>
       if (mounted) {
         setState(() {
           _backgroundRunning = backgroundRunning;
+          _accessibilityReady = accessibilityReady;
           _overlayPermission = overlayPermission;
           _installedAppsPermission = installedAppsPermission;
           _publicStoragePermission = publicStoragePermission;

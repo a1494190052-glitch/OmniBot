@@ -76,6 +76,7 @@
             <action android:name="android.intent.action.VIEW" />
             <data android:scheme="https" />
         </intent>
+        <package android:name="com.omni.omnilink" />
     </queries>
 
     <application
@@ -111,6 +112,15 @@
             android:screenOrientation="portrait"
             android:configChanges="uiMode|orientation|keyboardHidden|keyboard|screenSize|smallestScreenSize|screenLayout|locale|layoutDirection|fontScale|density"
             android:theme="@style/Theme.OmnibotApp.Splash"
+            android:windowSoftInputMode="adjustResize" />
+
+        <activity
+            android:name=".activity.PluginAppActivity"
+            android:documentLaunchMode="intoExisting"
+            android:exported="true"
+            android:launchMode="standard"
+            android:taskAffinity="cn.com.omnimind.bot.vibe"
+            android:theme="@style/Theme.OmnibotApp"
             android:windowSoftInputMode="adjustResize" />
 
         <activity

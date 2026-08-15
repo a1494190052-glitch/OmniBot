@@ -8,6 +8,7 @@ import android.net.Uri
 import android.os.Build
 import android.provider.Settings
 import androidx.core.content.ContextCompat
+import cn.com.omnimind.androidgui.AndroidGuiEnvironment
 import cn.com.omnimind.baselib.permission.PermissionRequest
 import cn.com.omnimind.baselib.shizuku.ShizukuCapabilityManager
 import cn.com.omnimind.baselib.util.OmniLog
@@ -101,6 +102,33 @@ class SpecialPermissionManager(private val context: Context) {
             )
         }
 
+    }
+
+    fun isAndroidGuiAccessibilityEnabled(result: MethodChannel.Result) {
+        runCatching { AndroidGuiEnvironment(context).isAccessibilityEnabled() }
+            .onSuccess(result::success)
+            .onFailure {
+                OmniLog.e(TAG, "Error checking Android GUI accessibility", it)
+                result.error("CHECK_FAILED", "Failed to check accessibility.", it.message)
+            }
+    }
+
+    fun isAndroidGuiAccessibilityReady(result: MethodChannel.Result) {
+        runCatching { AndroidGuiEnvironment(context).isReady() }
+            .onSuccess(result::success)
+            .onFailure {
+                OmniLog.e(TAG, "Error checking Android GUI accessibility readiness", it)
+                result.error("CHECK_FAILED", "Failed to check accessibility readiness.", it.message)
+            }
+    }
+
+    fun openAndroidGuiAccessibilitySettings(result: MethodChannel.Result) {
+        runCatching { AndroidGuiEnvironment(context).openAccessibilitySettings() }
+            .onSuccess { result.success(null) }
+            .onFailure {
+                OmniLog.e(TAG, "Error opening Android GUI accessibility settings", it)
+                result.error("INTENT_FAILED", "Failed to open accessibility settings.", it.message)
+            }
     }
 
     fun isInstalledAppsPermissionGranted(result: MethodChannel.Result) {

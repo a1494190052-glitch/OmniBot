@@ -102,3 +102,20 @@ data class SceneVoiceConfig(
     @field:SerializedName(value = "customCurlCommand", alternate = ["f"])
     val customCurlCommand: String = ""
 )
+
+data class SceneOperationConfig(
+    val useOfficialService: Boolean = false
+)
+
+data class OfficialVlmOperationConfig(
+    val enabled: Boolean = false,
+    val apiBase: String = "",
+    val model: String = "",
+    val wireApi: String = OpenAiWireApi.CHAT_COMPLETIONS
+) {
+    fun isConfigured(): Boolean {
+        return enabled &&
+            apiBase.trim().isNotEmpty() &&
+            model.trim().isNotEmpty()
+    }
+}

@@ -59,6 +59,9 @@ mixin _ChatPageLifecycleMixin on _ChatPageStateBase {
     _agentEventSubscription = AgentRuntimeService.events.listen(
       _handleAgentRuntimeEvent,
     );
+    _omniLinkEventSubscription = OmniLinkPluginService.events.listen(
+      _handleOmniLinkEvent,
+    );
     unawaited(_refreshAgentRuntimeStatus());
 
     _inputFocusNode.addListener(_onFocusChange);
@@ -631,7 +634,77 @@ mixin _ChatPageLifecycleMixin on _ChatPageStateBase {
     _openClawUserIdController.dispose();
     _stopRemoteCodexSessionSync();
     _agentEventSubscription?.cancel();
+    _omniLinkEventSubscription?.cancel();
     super.dispose();
+  }
+
+  void _handleOmniLinkEvent(Map<String, dynamic> event) {
+    if (!mounted) {
+      return;
+    }
+    final kind = event['kind']?.toString();
+    final eventId = kind == 'omnilink_agent_message'
+        ? event['messageId']?.toString().trim() ?? ''
+        : event['eventId']?.toString().trim() ?? '';
+    if (eventId.isEmpty) {
+      return;
+    }
+    final chatMessageId = 'omnilink:$eventId';
+    if (_messages.any((item) => item.id == chatMessageId)) {
+      return;
+    }
+    final sourceDeviceId = event['sourceDeviceId']?.toString().trim() ?? '';
+    String visibleText;
+    if (kind == 'omnilink_agent_message') {
+      final message = event['message']?.toString().trim() ?? '';
+      visibleText = message.isEmpty ? '' : '来自协作设备上的小万：\n$message';
+    } else if (kind == 'omnilink_device_notification') {
+      final applicationId = event['applicationId']?.toString().trim() ?? '';
+      final sourceLabel = applicationId.isEmpty ? '协作设备' : applicationId;
+      final postedAt = formatOmniLinkNotificationTime(event['postedAt']);
+      final timeLabel = postedAt.isEmpty ? '' : ' · $postedAt';
+      final removed = event['removed'] == true;
+      final sensitive = event['sensitive'] == true;
+      if (removed) {
+        visibleText = '协作设备通知已撤回：$sourceLabel$timeLabel';
+      } else if (sensitive) {
+        visibleText = '协作设备收到来自 $sourceLabel$timeLabel 的通知（内容已按隐私策略隐藏）。';
+      } else {
+        visibleText = '协作设备收到来自 $sourceLabel$timeLabel 的通知（仅显示安全摘要，正文未传输）。';
+      }
+    } else {
+      visibleText = '';
+    }
+    if (visibleText.isEmpty) {
+      return;
+    }
+    final chatMessage = ChatMessageModel(
+      id: chatMessageId,
+      type: 1,
+      user: 2,
+      content: {
+        'text': visibleText,
+        'id': chatMessageId,
+        'agentName': 'OmniLink 协作小万',
+        'source': 'omnilink',
+        'sourceDeviceId': sourceDeviceId,
+        'messageId': eventId,
+      },
+    );
+    setState(() {
+      _messages.insert(0, chatMessage);
+    });
+    final conversationId = _currentConversationId;
+    if (conversationId != null &&
+        !isEphemeralConversation(conversationId, activeConversationModeValue)) {
+      unawaited(
+        ConversationHistoryService.saveConversationMessages(
+          conversationId,
+          List<ChatMessageModel>.from(_messages),
+          mode: activeConversationModeValue,
+        ),
+      );
+    }
   }
 
   @override

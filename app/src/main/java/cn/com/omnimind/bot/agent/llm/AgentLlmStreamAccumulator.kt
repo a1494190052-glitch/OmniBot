@@ -59,6 +59,7 @@ class AgentLlmStreamAccumulator(
     private var leadingVisibleBufferChunks = 0
     private var leadingVisibleBufferReleased = false
     private var outOfBandReasoningObserved = false
+    private var lastNamedToolCallIndex: Int? = null
 
     private var chunkIndex = 0
 
@@ -246,6 +247,7 @@ class AgentLlmStreamAccumulator(
             throw IllegalStateException("chat completion stream ended without chunks")
         }
         flushInlineTextBuffer(final = true)
+        reconcileMisindexedToolCallArguments()
         val toolCalls = toolCallBuilders.entries.map { (index, builder) ->
             val name = builder.name?.trim().orEmpty()
             if (name.isBlank()) {
@@ -307,6 +309,31 @@ class AgentLlmStreamAccumulator(
         )
 
         return turn
+    }
+
+    private fun reconcileMisindexedToolCallArguments() {
+        val orphanedArguments = toolCallBuilders.entries.filter { (_, builder) ->
+            builder.id.isNullOrBlank() &&
+                builder.name.isNullOrBlank() &&
+                builder.arguments.isNotEmpty()
+        }
+        if (orphanedArguments.size != 1) return
+
+        val namedWithoutArguments = toolCallBuilders.entries.filter { (_, builder) ->
+            !builder.name.isNullOrBlank() && builder.arguments.isEmpty()
+        }
+        if (namedWithoutArguments.size != 1) return
+
+        val (orphanIndex, orphanBuilder) = orphanedArguments.single()
+        val (namedIndex, namedBuilder) = namedWithoutArguments.single()
+        if (orphanIndex <= namedIndex) return
+
+        namedBuilder.arguments.append(orphanBuilder.arguments)
+        toolCallBuilders.remove(orphanIndex)
+        OmniLog.w(
+            TAG,
+            "reconciled misindexed tool arguments from index=$orphanIndex to index=$namedIndex",
+        )
     }
 
     private data class MutableToolCallBuilder(
@@ -392,21 +419,54 @@ class AgentLlmStreamAccumulator(
     private fun mergeToolCalls(toolCalls: JsonArray, isDelta: Boolean) {
         toolCalls.forEachIndexed { arrayIndex, callElement ->
             val call = callElement as? JsonObject ?: return@forEachIndexed
-            val index = call["index"]?.jsonPrimitive?.intOrNull ?: arrayIndex
-            val builder = toolCallBuilders.getOrPut(index) { MutableToolCallBuilder() }
-
-            call["id"]?.jsonPrimitive?.contentOrNull?.let { builder.id = it }
-            call["type"]?.jsonPrimitive?.contentOrNull?.let { builder.type = it }
+            val declaredIndex = call["index"]?.jsonPrimitive?.intOrNull ?: arrayIndex
+            val idPiece = call["id"]?.jsonPrimitive?.contentOrNull
+            val typePiece = call["type"]?.jsonPrimitive?.contentOrNull
             val function = call["function"] as? JsonObject
-            function?.get("name")?.jsonPrimitive?.contentOrNull?.let { namePiece ->
-                mergeToolName(builder, namePiece, isDelta)
-            }
+            val namePiece = function?.get("name")?.jsonPrimitive?.contentOrNull
 
             val argumentsElement = function?.get("arguments")
             val argumentsPiece = when (argumentsElement) {
                 null, JsonNull -> null
                 is JsonPrimitive -> argumentsElement.contentOrNull
                 else -> json.encodeToString(JsonElement.serializer(), argumentsElement)
+            }
+
+            val declaredBuilder = toolCallBuilders[declaredIndex]
+            val index = if (
+                isDelta &&
+                idPiece.isNullOrBlank() &&
+                namePiece.isNullOrBlank() &&
+                !argumentsPiece.isNullOrBlank() &&
+                declaredBuilder?.name.isNullOrBlank()
+            ) {
+                lastNamedToolCallIndex ?: declaredIndex
+            } else {
+                declaredIndex
+            }
+            if (index != declaredIndex) {
+                OmniLog.w(
+                    TAG,
+                    "redirected misindexed tool arguments from index=$declaredIndex to index=$index",
+                )
+            }
+
+            val builder = toolCallBuilders[index]
+                ?: if (
+                    idPiece.isNullOrBlank() &&
+                    namePiece.isNullOrBlank() &&
+                    argumentsPiece.isNullOrBlank()
+                ) {
+                    return@forEachIndexed
+                } else {
+                    MutableToolCallBuilder().also { toolCallBuilders[index] = it }
+                }
+
+            idPiece?.takeIf { it.isNotBlank() }?.let { builder.id = it }
+            typePiece?.takeIf { it.isNotBlank() }?.let { builder.type = it }
+            namePiece?.let {
+                mergeToolName(builder, it, isDelta)
+                if (it.isNotBlank()) lastNamedToolCallIndex = index
             }
 
             if (!argumentsPiece.isNullOrEmpty()) {
