@@ -52,6 +52,7 @@ class _SceneModelSettingPageState extends State<SceneModelSettingPage> {
 
   static const Map<String, String> _sceneDisplayNameMap = {
     'scene.dispatch.model': 'Agent',
+    'scene.vlm.operation.primary': 'GUI',
     'scene.voice': 'Voice',
     'scene.compactor.context.chat': 'Chat Compactor',
     'scene.memory.embedding': 'Memory Embed',
@@ -60,6 +61,7 @@ class _SceneModelSettingPageState extends State<SceneModelSettingPage> {
 
   static const Map<String, String> _sceneTooltipMap = {
     'scene.dispatch.model': '负责任务理解与分流决策',
+    'scene.vlm.operation.primary': '负责 Android GUI 观察与动作决策',
     'scene.voice': '负责 AI 回复文本的语音合成与播放',
     'scene.compactor.context.chat': '负责聊天历史压缩总结',
     'scene.memory.embedding': '负责 workspace 记忆向量检索的嵌入模型',

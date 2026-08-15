@@ -108,6 +108,29 @@ void main() {
     expect(tapped, isTrue);
   });
 
+  testWidgets('manual recording icon invokes callback', (tester) async {
+    var tapped = false;
+    await tester.pumpWidget(
+      _buildTestApp(
+        contextUsageRatio: null,
+        useLargeComposerStyle: true,
+        onManualRecordingTap: () {
+          tapped = true;
+        },
+      ),
+    );
+    await tester.pump();
+
+    final button = find.byKey(
+      const ValueKey('chat-input-manual-recording-button'),
+    );
+    expect(button, findsOneWidget);
+    await tester.tap(button);
+    await tester.pump();
+
+    expect(tapped, isTrue);
+  });
+
   testWidgets('opens vlm-core RunLog recording menu', (tester) async {
     final inputKey = GlobalKey<ChatInputAreaState>();
     final controller = TextEditingController();
@@ -1150,6 +1173,7 @@ Widget _buildTestApp({
   FocusNode? focusNode,
   bool hasExternalSendPayload = false,
   VoidCallback? onSendMessage,
+  FutureOr<void> Function()? onManualRecordingTap,
 }) {
   return DefaultAssetBundle(
     bundle: _TestAssetBundle(),
@@ -1160,6 +1184,7 @@ Widget _buildTestApp({
           focusNode: focusNode ?? FocusNode(),
           isProcessing: false,
           onSendMessage: onSendMessage ?? () {},
+          onManualRecordingTap: onManualRecordingTap,
           onCancelTask: () {},
           useLargeComposerStyle: useLargeComposerStyle,
           hasExternalSendPayload: hasExternalSendPayload,

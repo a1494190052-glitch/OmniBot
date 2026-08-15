@@ -2636,6 +2636,7 @@ class _ChatBotSheetState extends State<ChatBotSheet>
         onInputHeightChanged: _onInputHeightChanged,
         openClawEnabled: _openClawEnabled,
         onToggleOpenClaw: _setOpenClawEnabled,
+        onManualRecordingTap: () => _startManualRecordingCommand('手动录制'),
         useLargeComposerStyle: true,
         useAttachmentPickerForPlus: true,
         onPickAttachment: _pickAttachments,

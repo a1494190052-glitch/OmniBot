@@ -141,6 +141,7 @@ class ChatInputArea extends StatefulWidget {
   final ValueChanged<bool>? onToggleOpenClaw;
   final VoidCallback? onLongPressOpenClaw;
   final FutureOr<void> Function()? onTerminalTap;
+  final FutureOr<void> Function()? onManualRecordingTap;
 
   /// 是否使用毛玻璃效果（command_overlay 使用毛玻璃，chatbotsheet 使用白色+阴影）
   final bool useFrostedGlass;
@@ -181,6 +182,7 @@ class ChatInputArea extends StatefulWidget {
     this.onToggleOpenClaw,
     this.onLongPressOpenClaw,
     this.onTerminalTap,
+    this.onManualRecordingTap,
     this.useFrostedGlass = false,
     this.useLargeComposerStyle = false,
     this.useAttachmentPickerForPlus = false,

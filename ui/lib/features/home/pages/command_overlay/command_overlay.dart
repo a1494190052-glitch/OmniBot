@@ -730,6 +730,14 @@ class _CommandOverlayState extends State<CommandOverlay> {
                       onToggleOpenClaw: _setOpenClawEnabled,
                       onLongPressOpenClaw: () =>
                           _showOpenClawCommandPanel(expand: true),
+                      onManualRecordingTap: () =>
+                          ManualRecordingFlowController.startStandalone(
+                            context: context,
+                            inputFocusNode: _inputFocusNode,
+                            userMessageText: '手动录制',
+                            recordDebugScreenshots: true,
+                            isMounted: () => mounted,
+                          ),
                       useLargeComposerStyle: true,
                       useFrostedGlass: true, // command_overlay 使用毛玻璃效果
                       useAttachmentPickerForPlus: true,

@@ -19,6 +19,7 @@ import '../../../../services/assists_core_service.dart';
 import '../../widgets/home_drawer.dart';
 import '../authorize/authorize_page_args.dart';
 import '../command_overlay/widgets/chat_input_area.dart';
+import '../command_overlay/services/manual_recording_flow_controller.dart';
 import '../command_overlay/services/tool_card_detail_gesture_gate.dart';
 import '../common/openclaw_connection_checker.dart';
 import '../omnibot_workspace/widgets/omnibot_workspace_browser.dart';
@@ -1884,6 +1885,8 @@ abstract class _ChatPageStateBase extends State<ChatPage>
   void _showSnackBar(String message);
 
   Future<bool> _ensureNormalChatModelConfigurationForSend();
+
+  Future<void> _startManualRecordingCommand(String messageText);
 
   Future<void> _sendMessage({String? text});
 

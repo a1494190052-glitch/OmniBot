@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:ui/features/home/pages/command_overlay/services/manual_recording_flow_controller.dart';
@@ -10,6 +12,22 @@ void main() {
       isTrue,
     );
     expect(ManualRecordingFlowController.isCommand('帮我录制一个流程'), isFalse);
+  });
+
+  test('main chat routes manual recording before model configuration', () {
+    final source = File(
+      'lib/features/home/pages/chat/chat_page_conversation_flow.dart',
+    ).readAsStringSync();
+    final manualRoute = source.indexOf(
+      'ManualRecordingFlowController.isCommand(messageText)',
+    );
+    final modelCheck = source.indexOf(
+      '_ensureNormalChatModelConfigurationForSend()',
+      manualRoute,
+    );
+
+    expect(manualRoute, greaterThanOrEqualTo(0));
+    expect(modelCheck, greaterThan(manualRoute));
   });
 
   testWidgets('keeps recording completion inline when conversion fails', (

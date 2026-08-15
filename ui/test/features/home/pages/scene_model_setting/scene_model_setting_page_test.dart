@@ -617,6 +617,20 @@ void main() {
     expect(find.textContaining('key=secret'), findsNothing);
   });
 
+  testWidgets('GUI scene is labeled GUI instead of VLM', (tester) async {
+    tester.view.physicalSize = const Size(1080, 2000);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    await tester.pumpWidget(buildTestApp(const SceneModelSettingPage()));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 50));
+
+    expect(find.text('GUI'), findsOneWidget);
+    expect(find.text('VLM'), findsNothing);
+  });
+
   testWidgets('voice scene expands and saves voice settings', (tester) async {
     tester.view.physicalSize = const Size(1080, 2000);
     tester.view.devicePixelRatio = 1.0;
@@ -628,7 +642,8 @@ void main() {
     await tester.pump(const Duration(milliseconds: 50));
 
     expect(find.text('Voice'), findsOneWidget);
-    expect(find.text('GUI Agent'), findsOneWidget);
+    expect(find.text('GUI'), findsOneWidget);
+    expect(find.text('VLM'), findsNothing);
     expect(find.text('小万官方内置模型'), findsOneWidget);
     expect(find.text('Compactor'), findsNothing);
     expect(find.text('Chat Compactor'), findsOneWidget);
@@ -673,7 +688,7 @@ void main() {
   });
 
   testWidgets(
-    'GUI Agent can switch from explicit official model to custom provider',
+    'GUI can switch from explicit official model to custom provider',
     (tester) async {
       tester.view.physicalSize = const Size(1080, 2000);
       tester.view.devicePixelRatio = 1.0;
