@@ -78,6 +78,7 @@ class HttpControllerResponsesTest {
                     {"role": "user", "content": "Weather in Shanghai?"},
                     {
                       "role": "assistant",
+                      "content": "It is sunny.",
                       "tool_calls": [
                         {
                           "id": "call_1",
@@ -109,10 +110,23 @@ class HttpControllerResponsesTest {
             "Weather in Shanghai?",
             input[0].jsonObject["content"]!!.jsonArray[0].jsonObject["text"]?.jsonPrimitive?.content
         )
-        assertEquals("function_call", input[1].jsonObject["type"]?.jsonPrimitive?.content)
-        assertEquals("call_1", input[1].jsonObject["call_id"]?.jsonPrimitive?.content)
-        assertEquals("function_call_output", input[2].jsonObject["type"]?.jsonPrimitive?.content)
-        assertEquals("{\"temp\":28}", input[2].jsonObject["output"]?.jsonPrimitive?.content)
+        assertEquals(
+            "input_text",
+            input[0].jsonObject["content"]!!.jsonArray[0].jsonObject["type"]?.jsonPrimitive?.content
+        )
+        assertEquals("assistant", input[1].jsonObject["role"]?.jsonPrimitive?.content)
+        assertEquals(
+            "output_text",
+            input[1].jsonObject["content"]!!.jsonArray[0].jsonObject["type"]?.jsonPrimitive?.content
+        )
+        assertEquals(
+            "It is sunny.",
+            input[1].jsonObject["content"]!!.jsonArray[0].jsonObject["text"]?.jsonPrimitive?.content
+        )
+        assertEquals("function_call", input[2].jsonObject["type"]?.jsonPrimitive?.content)
+        assertEquals("call_1", input[2].jsonObject["call_id"]?.jsonPrimitive?.content)
+        assertEquals("function_call_output", input[3].jsonObject["type"]?.jsonPrimitive?.content)
+        assertEquals("{\"temp\":28}", input[3].jsonObject["output"]?.jsonPrimitive?.content)
 
         val tools = root["tools"]!!.jsonArray
         assertEquals("function", tools[0].jsonObject["type"]?.jsonPrimitive?.content)
