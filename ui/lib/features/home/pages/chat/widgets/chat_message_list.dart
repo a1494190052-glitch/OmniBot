@@ -865,6 +865,22 @@ class _ChatMessageListState extends State<ChatMessageList> {
       clipBehavior: Clip.hardEdge,
       padding: const EdgeInsets.fromLTRB(16, 0, 16, 0),
       itemCount: timelineEntries.length,
+      findChildIndexCallback: (key) {
+        if (key is! GlobalKey) {
+          return null;
+        }
+        final entryKey = _entryRowKeys.entries
+            .where((item) => identical(item.value, key))
+            .map((item) => item.key)
+            .firstOrNull;
+        if (entryKey == null) {
+          return null;
+        }
+        final dataIndex = timelineEntries.indexWhere(
+          (entry) => entry.key == entryKey,
+        );
+        return dataIndex == -1 ? null : timelineEntries.length - 1 - dataIndex;
+      },
       itemBuilder: (context, index) {
         final dataIndex = timelineEntries.length - 1 - index;
         final entry = timelineEntries[dataIndex];

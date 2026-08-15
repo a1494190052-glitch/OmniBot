@@ -420,7 +420,7 @@ List<ChatMessageModel> _stabilizeTaskMessagesNewestFirst(
     final message = messages[index];
     final entrySeq = _wholeIntFromDynamic(message.streamMeta?['entrySeq']);
     if (entrySeq == null || !seenSequences.add(entrySeq)) {
-      return messages;
+      return _stabilizePartiallySequencedLegacyTaskNewestFirst(messages);
     }
     indexed.add((message: message, entrySeq: entrySeq, order: index));
   }
@@ -433,6 +433,42 @@ List<ChatMessageModel> _stabilizeTaskMessagesNewestFirst(
   });
   return indexed.map((item) => item.message).toList(growable: false);
 }
+
+/// Older Xiaowan snapshots can contain a partially sequenced run when a
+/// streaming batch flush preserved the text but lost its stream metadata.
+/// Timestamps are allocated when each entry is first created, so for this
+/// exact built-in task-id shape they remain a stable arrival-order fallback.
+/// Opaque ACP task ids deliberately keep their reducer-owned list order.
+List<ChatMessageModel> _stabilizePartiallySequencedLegacyTaskNewestFirst(
+  List<ChatMessageModel> messages,
+) {
+  final taskIds = messages
+      .map(agentRunParentTaskId)
+      .whereType<String>()
+      .toSet();
+  if (taskIds.length != 1 || !_legacyAgentTaskId.hasMatch(taskIds.single)) {
+    return messages;
+  }
+  final indexed = <({ChatMessageModel message, int createdAt, int order})>[];
+  for (var index = 0; index < messages.length; index += 1) {
+    final message = messages[index];
+    final createdAt = message.createAt.millisecondsSinceEpoch;
+    if (createdAt <= 0) {
+      return messages;
+    }
+    indexed.add((message: message, createdAt: createdAt, order: index));
+  }
+  indexed.sort((left, right) {
+    final createdAtCompare = right.createdAt.compareTo(left.createdAt);
+    if (createdAtCompare != 0) {
+      return createdAtCompare;
+    }
+    return left.order.compareTo(right.order);
+  });
+  return indexed.map((item) => item.message).toList(growable: false);
+}
+
+final RegExp _legacyAgentTaskId = RegExp(r'^\d{13}-ai$');
 
 int? _wholeIntFromDynamic(dynamic value) {
   if (value is int) {

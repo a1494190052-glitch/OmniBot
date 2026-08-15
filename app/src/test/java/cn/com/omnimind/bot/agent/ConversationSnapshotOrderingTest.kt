@@ -276,6 +276,73 @@ class ConversationSnapshotOrderingTest {
     }
 
     @Test
+    fun `prepareForStorage uses creation order when a Xiaowan run is partially sequenced`() {
+        val taskId = "1786765957366-ai"
+        val messages = listOf(
+            assistantMessage(
+                id = "$taskId-text-7",
+                createAt = "2026-08-15T11:55:14.292",
+                text = "诊断完成"
+            ),
+            assistantMessage(
+                id = "$taskId-text-8",
+                createAt = "2026-08-15T11:55:18.611",
+                text = "最终环境诊断结果",
+                streamSeq = 839L,
+                entrySeq = 25L,
+                roundIndex = 8,
+                kind = "text_snapshot"
+            ),
+            deepThinkingMessage(
+                id = "$taskId-thinking-9",
+                createAt = "2026-08-15T11:55:16.801",
+                taskId = taskId,
+                startTime = localMillis("2026-08-15T11:55:16.801"),
+                thinking = "最终整理",
+                streamSeq = 444L,
+                entrySeq = 24L,
+                roundIndex = 9,
+                kind = "thinking_snapshot"
+            ),
+            toolMessage(
+                id = "$taskId-tool-8",
+                createAt = "2026-08-15T11:55:16.580",
+                taskId = taskId,
+                summary = "写入记忆",
+                streamSeq = 441L,
+                entrySeq = 23L,
+                roundIndex = 8,
+                kind = "tool_completed"
+            ),
+            deepThinkingMessage(
+                id = "$taskId-thinking-8",
+                createAt = "2026-08-15T11:55:07.772",
+                taskId = taskId,
+                startTime = localMillis("2026-08-15T11:55:07.772"),
+                thinking = "检查 SSH",
+                streamSeq = 422L,
+                entrySeq = 21L,
+                roundIndex = 8,
+                kind = "thinking_snapshot"
+            )
+        )
+
+        val orderedIds = ConversationSnapshotOrdering.prepareForStorage(messages)
+            .map { it.payload["id"] }
+
+        assertEquals(
+            listOf(
+                "$taskId-thinking-8",
+                "$taskId-text-7",
+                "$taskId-tool-8",
+                "$taskId-thinking-9",
+                "$taskId-text-8"
+            ),
+            orderedIds
+        )
+    }
+
+    @Test
     fun `prepareForStorage keeps continued agent run after previous reset stream sequence`() {
         val messages = listOf(
             deepThinkingMessage(

@@ -59,6 +59,10 @@ class MessageBubble extends StatelessWidget {
   /// 强制覆盖深度思考卡片的头像显示
   final bool? showThinkingAvatarOverride;
 
+  /// Treat persisted text in a completed run as fully rendered even when an
+  /// old intermediate snapshot still carries `isFinal:false`.
+  final bool forceTextFinal;
+
   /// 外层消息列表滚动控制器，用于卡片内嵌滚动与父列表联动
   final ScrollController? parentScrollController;
   final VoidCallback? onParentScrollHandoff;
@@ -81,6 +85,7 @@ class MessageBubble extends StatelessWidget {
     this.thinkingAutoCollapseOnComplete = true,
     this.useAgentToolPresentation = true,
     this.showThinkingAvatarOverride,
+    this.forceTextFinal = false,
     this.parentScrollController,
     this.onParentScrollHandoff,
     this.onRequestAuthorize,
@@ -1076,6 +1081,9 @@ class MessageBubble extends StatelessWidget {
   }
 
   bool _isStreamingMarkdown() {
+    if (forceTextFinal) {
+      return false;
+    }
     if (message.content?['isStreamingMarkdown'] == true) {
       return true;
     }

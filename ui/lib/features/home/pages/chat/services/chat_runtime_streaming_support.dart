@@ -323,13 +323,16 @@ extension _ChatRuntimeStreamingSupport on ChatConversationRuntimeCoordinator {
     double? decodeTokensPerSecond,
     String? reasoningContent,
   }) {
-    final resolvedStreamMeta = ensureAgentStreamMessageMeta(
-      streamMeta,
-      entryId: messageId,
-      isFinal: isFinal,
-    );
     final index = runtime.messages.indexWhere(
       (message) => message.id == messageId,
+    );
+    final existingStreamMeta = index == -1
+        ? null
+        : runtime.messages[index].streamMeta;
+    final resolvedStreamMeta = ensureAgentStreamMessageMeta(
+      <String, dynamic>{...?existingStreamMeta, ...?streamMeta},
+      entryId: messageId,
+      isFinal: isFinal,
     );
     if (index == -1) {
       final content = <String, dynamic>{
@@ -431,6 +434,10 @@ extension _ChatRuntimeStreamingSupport on ChatConversationRuntimeCoordinator {
         text,
         renderMarkdown: true,
         isFinal: isFinal,
+        streamMeta: <String, dynamic>{
+          'kind': 'text_snapshot',
+          'parentTaskId': taskId,
+        },
         prefillTokensPerSecond: prefillTokensPerSecond,
         decodeTokensPerSecond: decodeTokensPerSecond,
         reasoningContent: runtime.currentThinkingMessages[taskId],

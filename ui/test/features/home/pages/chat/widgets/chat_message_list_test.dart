@@ -721,6 +721,159 @@ void main() {
     expect(find.byType(AgentAvatarButton), findsNothing);
   });
 
+  testWidgets('collapsed Xiaowan run shows only its final prose segment', (
+    tester,
+  ) async {
+    final controller = ScrollController();
+
+    await tester.pumpWidget(
+      _buildLocalizedApp(
+        child: SizedBox(
+          width: 400,
+          height: 520,
+          child: ChatMessageList(
+            messages: _buildCompletedInterleavedXiaowanRunMessages(),
+            scrollController: controller,
+            onBeforeTaskExecute: () async {},
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('第一段过程正文'), findsNothing);
+    expect(find.text('第二段过程正文'), findsNothing);
+    expect(find.text('读取项目状态'), findsNothing);
+    expect(find.text('最终结论'), findsOneWidget);
+
+    await tester.tap(find.byKey(const ValueKey('agent-run-summary-task-fold')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('第一段过程正文'), findsOneWidget);
+    expect(find.text('第二段过程正文'), findsOneWidget);
+    expect(find.text('读取项目状态'), findsOneWidget);
+    expect(find.text('最后整理思路'), findsNothing);
+    expect(find.text('最终结论'), findsOneWidget);
+    expect(
+      tester.getTopLeft(find.text('第一段过程正文')).dy,
+      lessThan(tester.getTopLeft(find.text('读取项目状态')).dy),
+    );
+    expect(
+      tester.getTopLeft(find.text('读取项目状态')).dy,
+      lessThan(tester.getTopLeft(find.text('第二段过程正文')).dy),
+    );
+    expect(
+      tester.getTopLeft(find.text('第二段过程正文')).dy,
+      lessThan(tester.getTopLeft(find.text('最终结论')).dy),
+    );
+  });
+
+  testWidgets('text-only Xiaowan history can reopen its folded prose', (
+    tester,
+  ) async {
+    final controller = ScrollController();
+    final messages = _buildCompletedInterleavedXiaowanRunMessages()
+        .where((message) => message.cardData == null)
+        .toList(growable: false);
+
+    await tester.pumpWidget(
+      _buildLocalizedApp(
+        child: SizedBox(
+          width: 400,
+          height: 520,
+          child: ChatMessageList(
+            messages: messages,
+            scrollController: controller,
+            onBeforeTaskExecute: () async {},
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final summary = find.byKey(const ValueKey('agent-run-summary-task-fold'));
+    expect(summary, findsOneWidget);
+    expect(find.text('第一段过程正文'), findsNothing);
+    expect(find.text('第二段过程正文'), findsNothing);
+    expect(find.text('最终结论'), findsOneWidget);
+
+    await tester.tap(summary);
+    await tester.pumpAndSettle();
+
+    expect(find.text('第一段过程正文'), findsOneWidget);
+    expect(find.text('第二段过程正文'), findsOneWidget);
+    expect(find.text('最终结论'), findsOneWidget);
+  });
+
+  testWidgets('completed run does not replay unfinished historical prose', (
+    tester,
+  ) async {
+    final controller = ScrollController();
+
+    await tester.pumpWidget(
+      _buildLocalizedApp(
+        child: SizedBox(
+          width: 400,
+          height: 520,
+          child: ChatMessageList(
+            messages: _buildCompletedAgentRunMessages(isFinal: false),
+            scrollController: controller,
+            onBeforeTaskExecute: () async {},
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    final streamingText = tester.widget<StreamingText>(
+      find.byType(StreamingText),
+    );
+    expect(streamingText.fullText, '最终回答');
+    expect(streamingText.isFinal, isTrue);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('timeline row keys survive an asynchronous snapshot reorder', (
+    tester,
+  ) async {
+    final controller = ScrollController();
+    var messages = _buildSimpleAssistantMessages(8, prefix: '快照消息');
+    late StateSetter setState;
+
+    await tester.pumpWidget(
+      _buildLocalizedApp(
+        child: StatefulBuilder(
+          builder: (context, stateSetter) {
+            setState = stateSetter;
+            return SizedBox(
+              width: 400,
+              height: 520,
+              child: ChatMessageList(
+                messages: messages,
+                scrollController: controller,
+                onBeforeTaskExecute: () async {},
+              ),
+            );
+          },
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.textContaining('快照消息'), findsWidgets);
+    expect(tester.takeException(), isNull);
+
+    setState(() {
+      messages = messages.reversed.toList(growable: false);
+    });
+    await tester.pump();
+    await tester.pumpAndSettle();
+
+    // ListView only builds the rows inside its viewport. The regression here
+    // is the GlobalKey collision raised while those mounted rows are reordered.
+    expect(find.textContaining('快照消息'), findsWidgets);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('ACP Agent run shows its own brand avatar and processed label', (
     tester,
   ) async {
@@ -1493,6 +1646,23 @@ void main() {
       expect(processOpacity.opacity, greaterThan(0));
       expect(processOpacity.opacity, lessThan(1));
       expect(find.text('读取 README.md'), findsOneWidget);
+      expect(find.text('我先检查工作区。'), findsOneWidget);
+      final historicalTextOpacity = tester.widget<Opacity>(
+        find
+            .ancestor(
+              of: find.byKey(
+                const ValueKey(
+                  'agent-run-history-dsh-turn-1-dsh-message-step-1',
+                ),
+              ),
+              matching: find.byType(Opacity),
+            )
+            .first,
+      );
+      expect(
+        historicalTextOpacity.opacity,
+        closeTo(processOpacity.opacity, 0.001),
+      );
 
       await tester.pumpAndSettle();
 
@@ -1501,7 +1671,7 @@ void main() {
         findsOneWidget,
       );
       expect(find.text('读取 README.md'), findsNothing);
-      expect(find.text('我先检查工作区。'), findsOneWidget);
+      expect(find.text('我先检查工作区。'), findsNothing);
       expect(find.text('检查完成，这是最终回答。'), findsOneWidget);
 
       await tester.tap(
@@ -1511,6 +1681,7 @@ void main() {
 
       expect(find.byType(DeepThinkingCard), findsNWidgets(2));
       expect(find.text('读取 README.md'), findsOneWidget);
+      expect(find.text('我先检查工作区。'), findsOneWidget);
       expect(
         tester.getTopLeft(find.text('我先检查工作区。')).dy,
         lessThan(tester.getTopLeft(find.text('读取 README.md')).dy),
@@ -1767,6 +1938,101 @@ List<ChatMessageModel> _buildCompletedAgentRunMessages({bool isFinal = true}) {
       },
     ),
     ChatMessageModel.userMessage('用户问题', id: 'task-1-user'),
+  ];
+}
+
+List<ChatMessageModel> _buildCompletedInterleavedXiaowanRunMessages() {
+  const taskId = 'task-fold';
+  return <ChatMessageModel>[
+    ChatMessageModel(
+      id: '$taskId-text-final',
+      type: 1,
+      user: 2,
+      content: const <String, dynamic>{
+        'text': '最终结论',
+        'id': '$taskId-text-final',
+      },
+      streamMeta: const <String, dynamic>{
+        'parentTaskId': taskId,
+        'kind': 'text_snapshot',
+        'seq': 50,
+        'entrySeq': 5,
+        'entryId': '$taskId-text-final',
+        'isFinal': true,
+      },
+    ),
+    ChatMessageModel.cardMessage(
+      const <String, dynamic>{
+        'type': 'deep_thinking',
+        'thinkingContent': '最后整理思路',
+        'stage': 4,
+        'isLoading': false,
+        'taskID': taskId,
+        'cardId': '$taskId-thinking',
+      },
+      id: '$taskId-thinking',
+      streamMeta: const <String, dynamic>{
+        'parentTaskId': taskId,
+        'kind': 'thinking_snapshot',
+        'seq': 40,
+        'entrySeq': 4,
+        'entryId': '$taskId-thinking',
+        'isFinal': true,
+      },
+    ),
+    ChatMessageModel(
+      id: '$taskId-text-second',
+      type: 1,
+      user: 2,
+      content: const <String, dynamic>{
+        'text': '第二段过程正文',
+        'id': '$taskId-text-second',
+      },
+      streamMeta: const <String, dynamic>{
+        'parentTaskId': taskId,
+        'kind': 'text_snapshot',
+        'seq': 30,
+        'entrySeq': 3,
+        'entryId': '$taskId-text-second',
+        'isFinal': false,
+      },
+    ),
+    ChatMessageModel.cardMessage(
+      const <String, dynamic>{
+        'type': 'agent_tool_summary',
+        'status': 'success',
+        'toolType': 'workspace',
+        'toolTitle': '读取项目状态',
+        'summary': '读取完成',
+      },
+      id: '$taskId-tool',
+      streamMeta: const <String, dynamic>{
+        'parentTaskId': taskId,
+        'kind': 'tool_completed',
+        'seq': 20,
+        'entrySeq': 2,
+        'entryId': '$taskId-tool',
+        'isFinal': true,
+      },
+    ),
+    ChatMessageModel(
+      id: '$taskId-text-first',
+      type: 1,
+      user: 2,
+      content: const <String, dynamic>{
+        'text': '第一段过程正文',
+        'id': '$taskId-text-first',
+      },
+      streamMeta: const <String, dynamic>{
+        'parentTaskId': taskId,
+        'kind': 'text_snapshot',
+        'seq': 10,
+        'entrySeq': 1,
+        'entryId': '$taskId-text-first',
+        'isFinal': false,
+      },
+    ),
+    ChatMessageModel.userMessage('用户问题', id: '$taskId-user'),
   ];
 }
 

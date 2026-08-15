@@ -35,14 +35,14 @@ internal object ConversationSnapshotOrdering {
                 originalIndex = index
             )
         }
-        val tasksWithResetStreamSeq = prepared.groupBy { it.taskKey }
+        val tasksRequiringCreatedAtOrdering = prepared.groupBy { it.taskKey }
             .filterValues { entries ->
                 val seqs = entries.mapNotNull { it.streamSeq }
-                seqs.size != seqs.toSet().size
+                seqs.size != entries.size || seqs.size != seqs.toSet().size
             }
             .keys
         return prepared.sortedWith { left, right ->
-            comparePreparedMessages(left, right, tasksWithResetStreamSeq)
+            comparePreparedMessages(left, right, tasksRequiringCreatedAtOrdering)
         }
     }
 
@@ -213,7 +213,7 @@ internal object ConversationSnapshotOrdering {
     private fun comparePreparedMessages(
         left: PreparedMessage,
         right: PreparedMessage,
-        tasksWithResetStreamSeq: Set<String>
+        tasksRequiringCreatedAtOrdering: Set<String>
     ): Int {
         compareValues(left.taskAnchor, right.taskAnchor).takeIf { it != 0 }?.let {
             return it
@@ -222,9 +222,9 @@ internal object ConversationSnapshotOrdering {
             .takeIf { it != 0 }
             ?.let { return it }
 
-        val sameResetTask = left.taskKey == right.taskKey &&
-            tasksWithResetStreamSeq.contains(left.taskKey)
-        if (sameResetTask) {
+        val sameFallbackTask = left.taskKey == right.taskKey &&
+            tasksRequiringCreatedAtOrdering.contains(left.taskKey)
+        if (sameFallbackTask) {
             compareValues(left.createdAt, right.createdAt).takeIf { it != 0 }?.let {
                 return it
             }

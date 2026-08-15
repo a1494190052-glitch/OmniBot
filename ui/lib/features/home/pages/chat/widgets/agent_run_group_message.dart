@@ -150,7 +150,12 @@ class _AgentRunGroupMessageState extends State<AgentRunGroupMessage>
 
   @override
   Widget build(BuildContext context) {
-    final hasProcess = widget.group.hasProcessMessages;
+    final primaryVisibleMessageId =
+        widget.group.visibleMessagesOldestFirst.lastOrNull?.id;
+    final hasFoldableHistory = widget.group.segmentsOldestFirst.any(
+      (segment) =>
+          segment.isProcess || segment.message.id != primaryVisibleMessageId,
+    );
     // Resolved across the whole turn, not per fold. The first thinking card
     // only drops its avatar while a separate run header is actually visible.
     // Xiaowan has no running header, so its thinking card owns the avatar
@@ -174,14 +179,14 @@ class _AgentRunGroupMessageState extends State<AgentRunGroupMessage>
             startedAt: widget.group.startedAt,
             finishedAt: widget.group.finishedAt,
             expanded: _effectiveExpanded,
-            onToggleExpanded: widget.group.isRunning || !hasProcess
+            onToggleExpanded: widget.group.isRunning || !hasFoldableHistory
                 ? null
                 : widget.onToggleExpanded,
           )
         // The built-in assistant's header has no in-flight state, so while its
         // run is streaming there is simply no header — the process section is
         // force-expanded and reads exactly as it did before grouping.
-        else if (hasProcess && !widget.group.isRunning)
+        else if (hasFoldableHistory && !widget.group.isRunning)
           _LegacyAgentRunSummaryHeader(
             key: ValueKey('agent-run-summary-${widget.group.taskId}'),
             group: widget.group,
@@ -189,37 +194,50 @@ class _AgentRunGroupMessageState extends State<AgentRunGroupMessage>
             expanded: _effectiveExpanded,
             onTap: widget.onToggleExpanded,
           ),
-        // Arrival order. Each run of process cards folds where it happened, so
-        // prose the agent wrote between two tool batches keeps them apart
-        // instead of letting them merge into one card.
+        // Arrival order. Every process segment and every prose segment except
+        // the final one shares the outer fold controller. Keeping the segments
+        // separate preserves prose between tool batches when the run reopens.
         for (final segment in widget.group.segmentsOldestFirst)
           if (segment.isProcess)
             _buildAnimatedProcessSection(
               segment.messages,
               firstThinkingMessageId,
             )
+          else if (segment.message.id != primaryVisibleMessageId)
+            _buildAnimatedHistoricalTextSection(segment.message)
           else
-            MessageBubble(
-              key: ValueKey(
-                'agent-run-${widget.group.taskId}-${segment.message.id}',
-              ),
-              message: segment.message,
-              onBeforeTaskExecute: widget.onBeforeTaskExecute,
-              onCancelTask: widget.onCancelTask,
-              onRetryAgentMessage: () =>
-                  widget.onRetryAgentMessage?.call(segment.message),
-              onContinueAgentMessage: () =>
-                  widget.onContinueAgentMessage?.call(segment.message),
-              enableThinkingCollapse: false,
-              useAgentToolPresentation: widget.useAcpPresentation,
-              parentScrollController: widget.parentScrollController,
-              onParentScrollHandoff: widget.onParentScrollHandoff,
-              onRequestAuthorize: widget.onRequestAuthorize,
-              onStreamingTextLayoutChanged: widget.onStreamingTextLayoutChanged,
-              visualProfile: widget.visualProfile,
-              appearanceConfig: widget.appearanceConfig,
-            ),
+            _buildVisibleMessageBubble(segment.message),
       ],
+    );
+  }
+
+  Widget _buildVisibleMessageBubble(ChatMessageModel message) {
+    return MessageBubble(
+      key: ValueKey('agent-run-${widget.group.taskId}-${message.id}'),
+      message: message,
+      forceTextFinal: !widget.group.isRunning,
+      onBeforeTaskExecute: widget.onBeforeTaskExecute,
+      onCancelTask: widget.onCancelTask,
+      onRetryAgentMessage: () => widget.onRetryAgentMessage?.call(message),
+      onContinueAgentMessage: () =>
+          widget.onContinueAgentMessage?.call(message),
+      enableThinkingCollapse: false,
+      useAgentToolPresentation: widget.useAcpPresentation,
+      parentScrollController: widget.parentScrollController,
+      onParentScrollHandoff: widget.onParentScrollHandoff,
+      onRequestAuthorize: widget.onRequestAuthorize,
+      onStreamingTextLayoutChanged: widget.onStreamingTextLayoutChanged,
+      visualProfile: widget.visualProfile,
+      appearanceConfig: widget.appearanceConfig,
+    );
+  }
+
+  Widget _buildAnimatedHistoricalTextSection(ChatMessageModel message) {
+    return _buildAnimatedFoldSection(
+      child: KeyedSubtree(
+        key: ValueKey('agent-run-history-${widget.group.taskId}-${message.id}'),
+        child: _buildVisibleMessageBubble(message),
+      ),
     );
   }
 
@@ -231,6 +249,23 @@ class _AgentRunGroupMessageState extends State<AgentRunGroupMessage>
       return const SizedBox.shrink();
     }
 
+    return _buildAnimatedFoldSection(
+      padding: const EdgeInsets.only(top: 2, bottom: 6),
+      child: Column(
+        key: ValueKey(
+          'agent-run-process-${widget.group.taskId}-'
+          '${processMessages.first.id}',
+        ),
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: _buildProcessWidgets(processMessages, firstThinkingMessageId),
+      ),
+    );
+  }
+
+  Widget _buildAnimatedFoldSection({
+    required Widget child,
+    EdgeInsets padding = EdgeInsets.zero,
+  }) {
     final shouldShow =
         _effectiveExpanded ||
         _expandController.isAnimating ||
@@ -241,19 +276,12 @@ class _AgentRunGroupMessageState extends State<AgentRunGroupMessage>
 
     return AnimatedBuilder(
       animation: _expandController,
-      child: Column(
-        key: ValueKey(
-          'agent-run-process-${widget.group.taskId}-'
-          '${processMessages.first.id}',
-        ),
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: _buildProcessWidgets(processMessages, firstThinkingMessageId),
-      ),
+      child: child,
       builder: (context, child) {
         final sizeFactor = _sizeFactor.value.clamp(0.0, 1.0);
         final opacity = _opacity.value.clamp(0.0, 1.0);
         return Padding(
-          padding: const EdgeInsets.only(top: 2, bottom: 6),
+          padding: padding,
           child: ClipRect(
             child: Align(
               alignment: Alignment.topCenter,
@@ -336,6 +364,7 @@ class _AgentRunGroupMessageState extends State<AgentRunGroupMessage>
     return MessageBubble(
       key: ValueKey('agent-run-${widget.group.taskId}-${message.id}'),
       message: message,
+      forceTextFinal: !widget.group.isRunning,
       onBeforeTaskExecute: widget.onBeforeTaskExecute,
       onCancelTask: widget.onCancelTask,
       onRetryAgentMessage: () => widget.onRetryAgentMessage?.call(message),

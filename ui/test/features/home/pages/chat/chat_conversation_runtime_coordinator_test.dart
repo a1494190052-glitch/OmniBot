@@ -1905,6 +1905,14 @@ void main() {
 
       expect(firstRoundMessage.text, '第一轮：先检查仓库状态。');
       expect(secondRoundMessage.text, '第二轮：继续等待克隆完成，然后再次检查。');
+      for (final message in <ChatMessageModel>[
+        firstRoundMessage,
+        secondRoundMessage,
+      ]) {
+        expect(message.streamMeta?['parentTaskId'], taskId);
+        expect(message.streamMeta?['kind'], 'text_snapshot');
+        expect(message.streamMeta?['seq'], isNotNull);
+      }
       expect(runtime.pendingAgentTextTaskId, taskId);
     },
   );

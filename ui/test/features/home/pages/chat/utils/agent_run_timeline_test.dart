@@ -136,8 +136,9 @@ void main() {
     final group = entries.first.group;
     expect(group?.taskId, 'dc8c5328');
     expect(group?.status, AgentRunStatus.finished);
-    // The answer is every prose message the agent wrote, not just the last
-    // one. Only the tool card folds.
+    // Keep every prose message in the group so expanding the completed run
+    // can restore the full trace; the widget's collapsed projection shows
+    // only the final prose message.
     expect(group?.visibleMessagesOldestFirst.map((m) => m.id), <String>[
       'msg-c-agent-message',
       'msg-d-agent-message',
@@ -487,6 +488,114 @@ void main() {
     },
   );
 
+  test(
+    'restores partially sequenced Xiaowan prose inside its chronological tool rounds',
+    () {
+      const timestamp = '1786765957366';
+      const taskId = '$timestamp-ai';
+      final base = DateTime.fromMillisecondsSinceEpoch(1786765957000);
+      DateTime at(int milliseconds) =>
+          base.add(Duration(milliseconds: milliseconds));
+
+      ChatMessageModel missingMetaText(String id, String text, int createdAt) {
+        return ChatMessageModel(
+          id: id,
+          type: 1,
+          user: 2,
+          content: <String, dynamic>{'id': id, 'text': text},
+          streamMeta: <String, dynamic>{'entryId': id, 'isFinal': false},
+          createAt: at(createdAt),
+        );
+      }
+
+      // This is the bad display shape returned by the installed debug build:
+      // the three entries whose stable metadata was stripped are placed ahead
+      // of every sequenced entry, even though their creation times belong in
+      // the middle of the run.
+      final messages = <ChatMessageModel>[
+        missingMetaText('$taskId-text-7', '诊断完成', 700),
+        missingMetaText('$taskId-text-6', '安装 ssh 客户端', 500),
+        missingMetaText('$taskId-text-5', '验证 SSH 握手', 300),
+        _assistantMessage(
+          id: '$taskId-text-8',
+          text: '最终环境诊断结果',
+          taskId: taskId,
+          kind: 'text_snapshot',
+          seq: 839,
+          entrySeq: 11,
+          isFinal: true,
+        ).copyWith(createAt: at(900)),
+        _thinkingCard(
+          id: '$taskId-thinking-9',
+          taskId: taskId,
+          seq: 444,
+          entrySeq: 10,
+        ).copyWith(createAt: at(800)),
+        _cardMessage(
+          id: '$taskId-tool-8',
+          taskId: taskId,
+          kind: 'tool_completed',
+          seq: 441,
+          entrySeq: 9,
+          cardData: _toolCard('memory_write_daily'),
+        ).copyWith(createAt: at(750)),
+        _thinkingCard(
+          id: '$taskId-thinking-8',
+          taskId: taskId,
+          seq: 422,
+          entrySeq: 8,
+        ).copyWith(createAt: at(600)),
+        _cardMessage(
+          id: '$taskId-tool-6',
+          taskId: taskId,
+          kind: 'tool_completed',
+          seq: 383,
+          entrySeq: 7,
+          cardData: _toolCard('terminal_execute'),
+        ).copyWith(createAt: at(550)),
+        _thinkingCard(
+          id: '$taskId-thinking-6',
+          taskId: taskId,
+          seq: 357,
+          entrySeq: 6,
+        ).copyWith(createAt: at(400)),
+        _cardMessage(
+          id: '$taskId-tool-5',
+          taskId: taskId,
+          kind: 'tool_completed',
+          seq: 352,
+          entrySeq: 5,
+          cardData: _toolCard('terminal_execute'),
+        ).copyWith(createAt: at(350)),
+        _thinkingCard(
+          id: '$taskId-thinking-5',
+          taskId: taskId,
+          seq: 307,
+          entrySeq: 4,
+        ).copyWith(createAt: at(200)),
+      ];
+
+      final group = buildAgentRunTimelineEntries(messages).single.group!;
+
+      expect(
+        group.allMessagesOldestFirst.map((message) => message.id),
+        <String>[
+          '$taskId-thinking-5',
+          '$taskId-text-5',
+          '$taskId-tool-5',
+          '$taskId-thinking-6',
+          '$taskId-text-6',
+          '$taskId-tool-6',
+          '$taskId-thinking-8',
+          '$taskId-text-7',
+          '$taskId-tool-8',
+          '$taskId-thinking-9',
+          '$taskId-text-8',
+        ],
+      );
+    },
+  );
+
   test('restores multiple legacy Xiaowan turns newest-first', () {
     const firstTimestamp = '1786765116611';
     const secondTimestamp = '1786765190269';
@@ -526,10 +635,10 @@ void main() {
   test('interleaved tool batches stay separate around agent prose', () {
     // Regression for on-device conversation 60. codex-acp narrates, runs a
     // batch of tools, narrates again, runs more. Hoisting the newest prose
-    // message to the bottom of the group did three things at once: it showed
-    // the first paragraph *below* the tools it preceded, it left the two tool
-    // batches adjacent so they merged into one card, and it buried every
-    // earlier paragraph in the fold so the answer read as a fragment.
+    // message to the bottom of the group showed the first paragraph *below*
+    // the tools it preceded and left the two tool batches adjacent so they
+    // merged into one card. The complete trace must keep its arrival order
+    // when the user expands the finished run.
     final messages = <ChatMessageModel>[
       _cardMessage(
         id: 'exec-4-agent-command',
