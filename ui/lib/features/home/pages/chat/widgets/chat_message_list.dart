@@ -306,6 +306,17 @@ class _ChatMessageListState extends State<ChatMessageList> {
     // 全部可见行的 itemBuilder）。结构变化仍走完整重建。
     if (_observableMessages?.lastMutationKind ==
         ChatMessageListMutationKind.content) {
+      // Content-only rows rebuild through their item notifier, so
+      // didUpdateWidget never gets a chance to restore latest-edge following.
+      // This matters when an async link preview grows after the usage footer
+      // was already visible: a list that is exactly back at the latest edge
+      // must reattach before the new layout pushes that footer out of view.
+      if (!_autoStickToLatest &&
+          !_isAutoStickTemporarilySuppressed &&
+          _isNearLatest(null, _manualLatestAttachTolerance)) {
+        _autoStickToLatest = true;
+      }
+      _scheduleStickToLatest();
       return;
     }
     setState(() {});

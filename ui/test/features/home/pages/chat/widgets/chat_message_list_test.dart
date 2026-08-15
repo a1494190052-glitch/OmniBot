@@ -608,6 +608,102 @@ void main() {
   });
 
   testWidgets(
+    'resolved link previews keep the turn usage footer pinned to latest',
+    (tester) async {
+      final controller = ScrollController();
+      final messages = ObservableChatMessageList()
+        ..replaceAllMessages(<ChatMessageModel>[
+          ChatMessageModel(
+            id: 'preview-task-text',
+            type: 1,
+            user: 2,
+            content: const <String, dynamic>{
+              'text': '请访问 https://github.com 并继续。',
+              'id': 'preview-task-text',
+              'linkPreviews': <Map<String, dynamic>>[
+                <String, dynamic>{
+                  'url': 'https://github.com',
+                  'domain': 'github.com',
+                  'siteName': 'github.com',
+                  'status': 'loading',
+                },
+              ],
+            },
+            turnUsage: const <String, dynamic>{
+              'ctx': 33600,
+              'in': 33600,
+              'out': 348,
+              'cache': 32300,
+            },
+          ),
+          ..._buildSimpleAssistantMessages(18, prefix: '较早消息'),
+        ]);
+
+      await tester.pumpWidget(
+        _buildLocalizedApp(
+          child: SizedBox(
+            width: 480,
+            height: 520,
+            child: ChatMessageList(
+              messages: messages,
+              scrollController: controller,
+              onBeforeTaskExecute: () async {},
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 16));
+
+      expect(
+        controller.offset,
+        closeTo(controller.position.maxScrollExtent, 0.5),
+      );
+      expect(find.text('ctx:33.6k'), findsOneWidget);
+
+      // A short user scroll disables automatic following. A subsequent
+      // layout/programmatic correction can put the list exactly back on the
+      // latest edge without changing that flag; preview resolution must still
+      // recognize that the footer is currently anchored there.
+      await tester.drag(find.byType(ListView), const Offset(0, 36));
+      await tester.pumpAndSettle();
+      expect(controller.offset, lessThan(controller.position.maxScrollExtent));
+      controller.jumpTo(controller.position.maxScrollExtent);
+      await tester.pump();
+      expect(
+        controller.offset,
+        closeTo(controller.position.maxScrollExtent, 0.5),
+      );
+
+      final existing = messages[0];
+      final content = Map<String, dynamic>.from(existing.content ?? const {});
+      content['linkPreviews'] = const <Map<String, dynamic>>[
+        <String, dynamic>{
+          'url': 'https://github.com',
+          'domain': 'github.com',
+          'siteName': 'GitHub',
+          'title': 'GitHub - Change is constant. GitHub keeps you ahead.',
+          'description':
+              'Join the world most widely adopted AI-powered developer platform.',
+          'imageUrl': '',
+          'status': 'ready',
+        },
+      ];
+      messages[0] = existing.copyWith(content: content);
+
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 16));
+
+      expect(
+        controller.offset,
+        closeTo(controller.position.maxScrollExtent, 0.5),
+      );
+      expect(find.text('ctx:33.6k'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets(
     'expanding an older thinking card does not snap the list back to latest',
     (tester) async {
       final controller = ScrollController();
@@ -830,6 +926,47 @@ void main() {
     );
     expect(streamingText.fullText, '最终回答');
     expect(streamingText.isFinal, isTrue);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('running Xiaowan run finalizes every historical prose segment', (
+    tester,
+  ) async {
+    final controller = ScrollController();
+    final messages = _buildCompletedInterleavedXiaowanRunMessages();
+    final latest = messages.first;
+    messages[0] = latest.copyWith(
+      streamMeta: <String, dynamic>{...?latest.streamMeta, 'isFinal': false},
+    );
+
+    await tester.pumpWidget(
+      _buildLocalizedApp(
+        child: SizedBox(
+          width: 400,
+          height: 520,
+          child: ChatMessageList(
+            messages: messages,
+            scrollController: controller,
+            activeAgentTaskIds: const <String>{'task-fold'},
+            onBeforeTaskExecute: () async {},
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    final streamingTexts = tester
+        .widgetList<StreamingText>(find.byType(StreamingText))
+        .toList(growable: false);
+    final historical = streamingTexts.singleWhere(
+      (text) => text.fullText == '第一段过程正文',
+    );
+    final latestText = streamingTexts.singleWhere(
+      (text) => text.fullText == '最终结论',
+    );
+
+    expect(historical.isFinal, isTrue);
+    expect(latestText.isFinal, isFalse);
     expect(tester.takeException(), isNull);
   });
 

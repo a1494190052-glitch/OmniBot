@@ -211,11 +211,18 @@ class _AgentRunGroupMessageState extends State<AgentRunGroupMessage>
     );
   }
 
-  Widget _buildVisibleMessageBubble(ChatMessageModel message) {
+  Widget _buildVisibleMessageBubble(
+    ChatMessageModel message, {
+    bool forceTextFinal = false,
+  }) {
     return MessageBubble(
       key: ValueKey('agent-run-${widget.group.taskId}-${message.id}'),
       message: message,
-      forceTextFinal: !widget.group.isRunning,
+      // Only the newest prose entry can still be receiving chunks. Older
+      // prose entries are historical even while the outer run continues; if
+      // their source snapshot lacks an explicit terminal frame, rebuilding
+      // them inside the fold must not replay the typewriter animation.
+      forceTextFinal: forceTextFinal || !widget.group.isRunning,
       onBeforeTaskExecute: widget.onBeforeTaskExecute,
       onCancelTask: widget.onCancelTask,
       onRetryAgentMessage: () => widget.onRetryAgentMessage?.call(message),
@@ -236,7 +243,7 @@ class _AgentRunGroupMessageState extends State<AgentRunGroupMessage>
     return _buildAnimatedFoldSection(
       child: KeyedSubtree(
         key: ValueKey('agent-run-history-${widget.group.taskId}-${message.id}'),
-        child: _buildVisibleMessageBubble(message),
+        child: _buildVisibleMessageBubble(message, forceTextFinal: true),
       ),
     );
   }
