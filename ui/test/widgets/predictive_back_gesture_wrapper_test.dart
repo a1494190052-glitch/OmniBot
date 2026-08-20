@@ -192,12 +192,13 @@ void main() {
     'commit settles forward from the drag position without bouncing back',
     (tester) async {
       final route = await bootstrap(tester);
+      final navigator = route!.navigator!;
 
       await _startBackGesture(tester, 0.0);
       await tester.pump();
       await _updateBackGesture(tester, 0.8);
       await tester.pump();
-      expect(route!.animation!.value, closeTo(0.2, 0.001));
+      expect(route.animation!.value, closeTo(0.2, 0.001));
 
       await _sendBackGesture(tester, 'commitBackGesture');
       // 收尾期间控制器只能从松手位置(0.2)向 0 前进,不得向 1.0 回跳
@@ -216,6 +217,12 @@ void main() {
 
       expect(find.text('second'), findsNothing);
       expect(route.isCurrent, isFalse);
+      expect(navigator.userGestureInProgress, isFalse);
+
+      // 返回完成后不能残留 IgnorePointer，底层页面应立即恢复交互。
+      await tester.tap(find.text('push'));
+      await tester.pumpAndSettle();
+      expect(find.text('second'), findsOneWidget);
     },
     variant: TargetPlatformVariant.only(TargetPlatform.android),
   );
@@ -242,6 +249,27 @@ void main() {
       await _sendBackGesture(tester, 'commitBackGesture');
       await tester.pumpAndSettle();
       expect(find.text('second'), findsNothing);
+    },
+    variant: TargetPlatformVariant.only(TargetPlatform.android),
+  );
+
+  testWidgets(
+    'disposing an active route releases the navigator gesture lock',
+    (tester) async {
+      final route = await bootstrap(tester);
+      final navigator = route!.navigator!;
+
+      await _startBackGesture(tester, 0.0);
+      await tester.pump();
+      expect(navigator.userGestureInProgress, isTrue);
+
+      navigator.removeRoute(route);
+      await tester.pumpAndSettle();
+
+      expect(navigator.userGestureInProgress, isFalse);
+      await tester.tap(find.text('push'));
+      await tester.pumpAndSettle();
+      expect(find.text('second'), findsOneWidget);
     },
     variant: TargetPlatformVariant.only(TargetPlatform.android),
   );
@@ -278,7 +306,7 @@ void main() {
     expect(snapToPhysicalPixel(10.2, 0), 10.2);
   });
 
-  testWidgets('covered page uses quarter-width parallax and light alpha loss', (
+  testWidgets('covered page uses quarter-width parallax and a light scrim', (
     tester,
   ) async {
     await tester.pumpWidget(
@@ -293,7 +321,6 @@ void main() {
               animation: const AlwaysStoppedAnimation(1),
               secondaryAnimation: const AlwaysStoppedAnimation(0.5),
               isGestureDriven: () => true,
-              hasPreviousRoute: false,
               screenCorners: const ScreenCornerRadii.zero(),
               child: const Text('page'),
             ),
@@ -306,6 +333,10 @@ void main() {
       find.byKey(const ValueKey('predictive_back_covered_transform')),
     );
     expect(coveredTransform.transform.storage[12], closeTo(-100, 0.001));
-    expect(tester.widget<Opacity>(find.byType(Opacity)).opacity, 0.95);
+    expect(find.byType(Opacity), findsNothing);
+    final scrim = tester.widget<ColoredBox>(
+      find.byKey(const ValueKey('predictive_back_covered_scrim')),
+    );
+    expect(scrim.color.a, closeTo(0.05, 0.001));
   });
 }

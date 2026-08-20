@@ -19,7 +19,7 @@ typedef PredictiveBackTransitionBuilder =
 /// 将 Android 预测性返回进度接入应用页面转场。
 ///
 /// 页面位置始终是路由动画值的纯函数：顶层页面全宽滑出，下一层页面以
-/// 四分之一屏宽做视差，并由同一个进度控制透明度和背景遮罩。手势移动时
+/// 四分之一屏宽做视差，并由同一个进度控制背景遮罩。手势移动时
 /// 不使用额外缓动；松手后从当前位置和当前速度继续运行临界阻尼弹簧。
 class PredictiveBackGestureWrapper extends StatefulWidget {
   const PredictiveBackGestureWrapper({
@@ -57,6 +57,8 @@ class _PredictiveBackGestureWrapperState
   double _lastProgress = 0;
   int _lastSampleMicros = 0;
   double _progressVelocity = 0;
+  NavigatorState? _gestureNavigator;
+  bool _routeGestureActive = false;
 
   ScreenCornerRadii _screenCorners = const ScreenCornerRadii.zero();
   int _geometryRequest = 0;
@@ -92,6 +94,7 @@ class _PredictiveBackGestureWrapperState
     WidgetsBinding.instance.removeObserver(this);
     _settleOutcome = null;
     _settleController.dispose();
+    _releaseRouteGestureAfterDispose();
     super.dispose();
   }
 
@@ -135,6 +138,8 @@ class _PredictiveBackGestureWrapperState
 
     // 从控制器的当前值接管，避免在尚未完全静止的转场上产生首帧跳变。
     route.handleStartBackGesture(progress: routeValue);
+    _gestureNavigator = route.navigator;
+    _routeGestureActive = true;
     _applyGestureProgress(event.progress);
     setState(() {});
     return true;
@@ -256,16 +261,49 @@ class _PredictiveBackGestureWrapperState
     final route = _route;
     _gestureClock?.stop();
     _gestureClock = null;
-    if (route == null) return;
-
-    if (outcome == _SettleOutcome.commit) {
-      route.handleUpdateBackGestureProgress(progress: 0);
-      route.handleCommitBackGesture();
-    } else {
-      route.handleUpdateBackGestureProgress(progress: 1);
-      route.handleCancelBackGesture();
-      if (mounted) setState(() {});
+    try {
+      if (route == null) return;
+      if (outcome == _SettleOutcome.commit) {
+        route.handleUpdateBackGestureProgress(progress: 0);
+        route.handleCommitBackGesture();
+      } else {
+        route.handleUpdateBackGestureProgress(progress: 1);
+        route.handleCancelBackGesture();
+        if (mounted) setState(() {});
+      }
+    } finally {
+      // 路由位于终点时可能被同步销毁，届时 route.navigator 已经为空，
+      // 框架无法自行结束手势。保留开始时的 Navigator，幂等补齐生命周期。
+      _releaseRouteGesture();
     }
+  }
+
+  void _releaseRouteGesture() {
+    final navigator = _takeGestureNavigator();
+    if (navigator?.userGestureInProgress ?? false) {
+      navigator!.didStopUserGesture();
+    }
+  }
+
+  void _releaseRouteGestureAfterDispose() {
+    final navigator = _takeGestureNavigator();
+    if (navigator == null) return;
+
+    // dispose 发生在 Flutter 锁定组件树期间，直接通知 Navigator 会触发
+    // markNeedsBuild 异常。当前帧结束后再做幂等兜底，避免残留 IgnorePointer。
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (navigator.mounted && navigator.userGestureInProgress) {
+        navigator.didStopUserGesture();
+      }
+    });
+  }
+
+  NavigatorState? _takeGestureNavigator() {
+    if (!_routeGestureActive) return null;
+    final navigator = _gestureNavigator;
+    _routeGestureActive = false;
+    _gestureNavigator = null;
+    return navigator;
   }
 
   @override
@@ -284,7 +322,6 @@ class _PredictiveBackGestureWrapperState
       animation: widget.animation,
       secondaryAnimation: widget.secondaryAnimation,
       isGestureDriven: () => route?.popGestureInProgress ?? false,
-      hasPreviousRoute: route?.isFirst == false,
       screenCorners: _screenCorners,
       child: RepaintBoundary(child: widget.child),
     );
@@ -298,20 +335,17 @@ class PredictiveBackPageTransition extends StatelessWidget {
     required this.animation,
     required this.secondaryAnimation,
     required this.isGestureDriven,
-    required this.hasPreviousRoute,
     required this.screenCorners,
     required this.child,
   });
 
   static const double _coveredParallax = 0.25;
-  static const double _coveredAlphaLoss = 0.1;
-  static const double _maximumScrimAlpha = 0.5;
+  static const double _maximumCoveredScrimAlpha = 0.1;
   static const Curve _programmaticCurve = _DampedSettleCurve();
 
   final Animation<double> animation;
   final Animation<double> secondaryAnimation;
   final ValueGetter<bool> isGestureDriven;
-  final bool hasPreviousRoute;
   final ScreenCornerRadii screenCorners;
   final Widget child;
 
@@ -341,7 +375,7 @@ class PredictiveBackPageTransition extends StatelessWidget {
             );
             final coveredOffset =
                 -direction * covered * width * _coveredParallax;
-            final coveredAlpha = 1 - covered * _coveredAlphaLoss;
+            final coveredScrimAlpha = covered * _maximumCoveredScrimAlpha;
             final clipActive =
                 animation.value > 0 &&
                 animation.value < 1 &&
@@ -358,26 +392,28 @@ class PredictiveBackPageTransition extends StatelessWidget {
               child: page,
             );
 
-            Widget layer = Stack(
-              fit: StackFit.expand,
-              children: [
-                if (hasPreviousRoute)
-                  ColoredBox(
-                    color: const Color(
-                      0xFF000000,
-                    ).withValues(alpha: primary * _maximumScrimAlpha),
+            Widget layer = page;
+            if (coveredScrimAlpha > 0) {
+              layer = Stack(
+                fit: StackFit.expand,
+                children: [
+                  page,
+                  IgnorePointer(
+                    child: ColoredBox(
+                      key: const ValueKey('predictive_back_covered_scrim'),
+                      color: const Color(
+                        0xFF000000,
+                      ).withValues(alpha: coveredScrimAlpha),
+                    ),
                   ),
-                page,
-              ],
-            );
+                ],
+              );
+            }
             layer = Transform.translate(
               key: const ValueKey('predictive_back_covered_transform'),
               offset: Offset(coveredOffset, 0),
               child: layer,
             );
-            if (coveredAlpha < 1) {
-              layer = Opacity(opacity: coveredAlpha, child: layer);
-            }
             return layer;
           },
         );
