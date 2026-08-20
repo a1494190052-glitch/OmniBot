@@ -32,6 +32,7 @@ double _chatAppBarModeMenuAgentIconSize(String agentId) {
   // Claude Code 横向较宽，OpenCode 则有较多留白。这里按轮廓做光学尺寸
   // 校正，让它们在 40px 菜单行内看起来接近同一大小。
   return switch (agentId.trim()) {
+    'xiaowan-acp' => 23,
     'codex-acp' || 'codex-remote' => 19,
     'claude-code-acp' => 21,
     'opencode-acp' => 22,
@@ -397,13 +398,16 @@ class ChatAppBar extends StatelessWidget {
   }
 }
 
-enum _ChatAppBarModeShortcutKind { omniAi, acpAgent, pureChat }
+enum _ChatAppBarModeShortcutKind { omniAi, xiaowanAcp, acpAgent, pureChat }
 
 class _ChatAppBarModeShortcutAction {
   const _ChatAppBarModeShortcutAction._(this.kind, [this.agentId]);
 
   static const omniAi = _ChatAppBarModeShortcutAction._(
     _ChatAppBarModeShortcutKind.omniAi,
+  );
+  static const xiaowanAcp = _ChatAppBarModeShortcutAction._(
+    _ChatAppBarModeShortcutKind.xiaowanAcp,
   );
   static const pureChat = _ChatAppBarModeShortcutAction._(
     _ChatAppBarModeShortcutKind.pureChat,
@@ -586,8 +590,21 @@ class _ChatAppBarModeShortcutButtonState
     final canSelectPureChat =
         widget.isAgentSelected ||
         (!widget.isPureChatToggleLocked && widget.onPureChatToggleTap != null);
+    // Keep every enabled managed Agent visible. Installation/configuration is
+    // part of selecting the Agent, so hiding missing or unchecked entries
+    // makes DSH impossible to start and gives the user no recovery action.
     final acpAgentModes = widget.acpAgentModes
-        .where((agent) => agent.isAvailable)
+        .where((agent) => agent.enabled)
+        .toList(growable: false);
+    ChatAcpAgentModeOption? xiaowan;
+    for (final agent in acpAgentModes) {
+      if (agent.id == 'xiaowan-acp') {
+        xiaowan = agent;
+        break;
+      }
+    }
+    final otherAgents = acpAgentModes
+        .where((agent) => agent.id != 'xiaowan-acp')
         .toList(growable: false);
     final popupAnchor = Rect.fromLTWH(anchor.left, anchor.top, anchor.width, 0);
 
@@ -602,50 +619,69 @@ class _ChatAppBarModeShortcutButtonState
       unfoldAlignment: Alignment.topCenter,
       child: ValueListenableBuilder<bool>(
         valueListenable: _isAgentLoadingNotifier,
-        builder: (context, isAgentLoading, _) =>
-            _ChatAppBarModeShortcutMenuContent(
-              width: _kChatAppBarAccessoryButtonSize,
-              closeTooltip: isEnglish ? 'Close mode menu' : '收起模式菜单',
-              headerIcon: _buildOpenIcon(selectedColor),
-              items: [
-                _ChatAppBarModeShortcutMenuItemData(
+        builder: (context, isAgentLoading, _) {
+          final xiaowanItem = xiaowan == null
+              ? _ChatAppBarModeShortcutMenuItemData(
                   action: _ChatAppBarModeShortcutAction.omniAi,
                   iconAsset: _kChatAppBarAgentIconAsset,
                   tooltip: isEnglish ? 'OmniAi' : '小万',
                   selected: widget.isOmniAiSelected,
-                  enabled: widget.onOmniAiTap != null,
+                  // Xiaowan is the built-in Agent and is always a valid
+                  // selection. The parent keeps the legacy callback as a
+                  // compatibility fallback when ACP is not supplied.
+                  enabled: true,
                   iconSize: _kChatAppBarModeMenuOmniAiIconSize,
                   iconOffset: _kChatAppBarModeMenuOmniAiIconOffset,
-                ),
-                for (final agent in acpAgentModes)
-                  _ChatAppBarModeShortcutMenuItemData(
-                    action: _ChatAppBarModeShortcutAction.acpAgent(agent.id),
-                    agentId: agent.id,
-                    tooltip: agent.name,
-                    selected:
-                        widget.isAgentSelected &&
-                        agent.id == widget.activeAcpAgentId,
-                    enabled:
-                        !isAgentLoading &&
-                        (widget.onAcpAgentTap != null ||
-                            widget.onAgentTap != null),
-                    iconSize: _chatAppBarModeMenuAgentIconSize(agent.id),
-                  ),
+                )
+              : _ChatAppBarModeShortcutMenuItemData(
+                  action: _ChatAppBarModeShortcutAction.xiaowanAcp,
+                  iconAsset: _kChatAppBarAgentIconAsset,
+                  tooltip: xiaowan.name,
+                  selected:
+                      widget.isOmniAiSelected ||
+                      (widget.isAgentSelected &&
+                          xiaowan.id == widget.activeAcpAgentId),
+                  // Do not make the built-in Agent depend on asynchronous
+                  // callback/catalog refresh state. Selection is handled by
+                  // the common action-return path below.
+                  enabled: true,
+                  iconSize: _chatAppBarModeMenuAgentIconSize(xiaowan.id),
+                );
+          return _ChatAppBarModeShortcutMenuContent(
+            width: _kChatAppBarAccessoryButtonSize,
+            closeTooltip: isEnglish ? 'Close mode menu' : '收起模式菜单',
+            headerIcon: _buildOpenIcon(selectedColor),
+            items: [
+              xiaowanItem,
+              for (final agent in otherAgents)
                 _ChatAppBarModeShortcutMenuItemData(
-                  action: _ChatAppBarModeShortcutAction.pureChat,
-                  iconAsset: _kChatAppBarPureChatIconAsset,
-                  tooltip: isEnglish ? 'Pure chat' : '纯聊天模式',
-                  selected: widget.isPureChatSelected,
-                  enabled: canSelectPureChat,
-                  iconSize: _kChatAppBarModeMenuPureChatIconSize,
+                  action: _ChatAppBarModeShortcutAction.acpAgent(agent.id),
+                  agentId: agent.id,
+                  tooltip: agent.name,
+                  selected:
+                      widget.isAgentSelected &&
+                      agent.id == widget.activeAcpAgentId,
+                  enabled:
+                      (widget.onAcpAgentTap != null ||
+                          widget.onAgentTap != null),
+                  iconSize: _chatAppBarModeMenuAgentIconSize(agent.id),
                 ),
-              ],
-              selectedColor: selectedColor,
-              // popup 有自己的不透明 surface，不能复用为聊天壁纸适配的 AppBar
-              // iconTint；后者在浅色主题 + 深色壁纸时可能接近白色。
-              iconTint: palette.textSecondary,
-              disabledTint: palette.textTertiary,
-            ),
+              _ChatAppBarModeShortcutMenuItemData(
+                action: _ChatAppBarModeShortcutAction.pureChat,
+                iconAsset: _kChatAppBarPureChatIconAsset,
+                tooltip: isEnglish ? 'Pure chat' : '纯聊天模式',
+                selected: widget.isPureChatSelected,
+                enabled: canSelectPureChat,
+                iconSize: _kChatAppBarModeMenuPureChatIconSize,
+              ),
+            ],
+            selectedColor: selectedColor,
+            // popup 有自己的不透明 surface，不能复用为聊天壁纸适配的 AppBar
+            // iconTint；后者在浅色主题 + 深色壁纸时可能接近白色。
+            iconTint: palette.textSecondary,
+            disabledTint: palette.textTertiary,
+          );
+        },
       ),
     );
     if (mounted) {
@@ -653,7 +689,21 @@ class _ChatAppBarModeShortcutButtonState
     }
     switch (action?.kind) {
       case _ChatAppBarModeShortcutKind.omniAi:
-        widget.onOmniAiTap?.call();
+        // The single Xiaowan shortcut is backed by the official ACP profile
+        // whenever the ACP callback is available. Keep the old callback only
+        // for callers that do not provide the ACP surface yet.
+        if (widget.onAcpAgentTap != null) {
+          widget.onAcpAgentTap!('xiaowan-acp');
+        } else {
+          widget.onOmniAiTap?.call();
+        }
+        break;
+      case _ChatAppBarModeShortcutKind.xiaowanAcp:
+        if (widget.onAcpAgentTap != null) {
+          widget.onAcpAgentTap!('xiaowan-acp');
+        } else {
+          widget.onOmniAiTap?.call();
+        }
         break;
       case _ChatAppBarModeShortcutKind.acpAgent:
         final agentId = action?.agentId?.trim() ?? '';
@@ -806,62 +856,76 @@ class _ChatAppBarModeShortcutMenuContent extends StatelessWidget {
         mediaQuery.padding.vertical -
         mediaQuery.viewInsets.vertical -
         16;
+    final panel = OmniGlassPanel(
+      key: const ValueKey('chat-app-bar-mode-menu-capsule'),
+      borderRadius: BorderRadius.circular(width / 2),
+      // 40px 宽、20px 顶部圆角时，top: 0 的 1px 高光会被圆弧裁成
+      // 顶部中央的一颗亮点；此处关闭局部高光，保留完整边框与阴影。
+      showTopHighlight: false,
+      surfaceColor: palette.surfaceElevated,
+      child: Material(
+        color: Colors.transparent,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Tooltip(
+              message: closeTooltip,
+              child: InkWell(
+                key: const ValueKey('chat-app-bar-mode-menu-close'),
+                onTap: () => Navigator.of(context).pop(),
+                borderRadius: BorderRadius.vertical(
+                  top: Radius.circular(width / 2),
+                ),
+                child: SizedBox(
+                  height: _kChatAppBarAccessoryButtonSize,
+                  child: Center(child: headerIcon),
+                ),
+              ),
+            ),
+            const SizedBox(height: 6),
+            Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                for (final item in items)
+                  _ChatAppBarModeShortcutMenuRow(
+                    key: ValueKey(
+                      'chat-app-bar-mode-menu-${_chatModeShortcutActionSlug(item.action)}',
+                    ),
+                    item: item,
+                    selectedColor: selectedColor,
+                    iconTint: iconTint,
+                    disabledTint: disabledTint,
+                  ),
+              ],
+            ),
+            const SizedBox(height: 6),
+          ],
+        ),
+      ),
+    );
     return SizedBox(
       width: width,
       child: ConstrainedBox(
         constraints: BoxConstraints(
           maxHeight: maxHeight.clamp(120.0, 720.0).toDouble(),
         ),
-        child: OmniGlassPanel(
-          key: const ValueKey('chat-app-bar-mode-menu-capsule'),
-          borderRadius: BorderRadius.circular(width / 2),
-          // 40px 宽、20px 顶部圆角时，top: 0 的 1px 高光会被圆弧裁成
-          // 顶部中央的一颗亮点；此处关闭局部高光，保留完整边框与阴影。
-          showTopHighlight: false,
-          surfaceColor: palette.surfaceElevated,
-          child: Material(
-            color: Colors.transparent,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Tooltip(
-                  message: closeTooltip,
-                  child: InkWell(
-                    key: const ValueKey('chat-app-bar-mode-menu-close'),
-                    onTap: () => Navigator.of(context).pop(),
-                    borderRadius: BorderRadius.vertical(
-                      top: Radius.circular(width / 2),
-                    ),
-                    child: SizedBox(
-                      height: _kChatAppBarAccessoryButtonSize,
-                      child: Center(child: headerIcon),
-                    ),
-                  ),
+        child: Stack(
+          clipBehavior: Clip.none,
+          children: [
+            panel,
+            if (items.isNotEmpty)
+              Positioned(
+                top: _kChatAppBarAccessoryButtonSize + 6,
+                left: 0,
+                right: 0,
+                height: _kChatAppBarAccessoryButtonSize,
+                child: GestureDetector(
+                  behavior: HitTestBehavior.opaque,
+                  onTap: () => Navigator.of(context).pop(items.first.action),
+                  child: const SizedBox.expand(),
                 ),
-                const SizedBox(height: 6),
-                Flexible(
-                  child: SingleChildScrollView(
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        for (final item in items)
-                          _ChatAppBarModeShortcutMenuRow(
-                            key: ValueKey(
-                              'chat-app-bar-mode-menu-${_chatModeShortcutActionSlug(item.action)}',
-                            ),
-                            item: item,
-                            selectedColor: selectedColor,
-                            iconTint: iconTint,
-                            disabledTint: disabledTint,
-                          ),
-                      ],
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 6),
-              ],
-            ),
-          ),
+              ),
+          ],
         ),
       ),
     );
@@ -871,6 +935,7 @@ class _ChatAppBarModeShortcutMenuContent extends StatelessWidget {
 String _chatModeShortcutActionSlug(_ChatAppBarModeShortcutAction action) {
   return switch (action.kind) {
     _ChatAppBarModeShortcutKind.omniAi => 'omni-ai',
+    _ChatAppBarModeShortcutKind.xiaowanAcp => 'xiaowan-acp',
     _ChatAppBarModeShortcutKind.acpAgent => 'acp-${action.agentId ?? 'agent'}',
     _ChatAppBarModeShortcutKind.pureChat => 'pure-chat',
   };
@@ -897,11 +962,13 @@ class _ChatAppBarModeShortcutMenuRow extends StatelessWidget {
         : (item.selected ? selectedColor : iconTint);
     return Tooltip(
       message: item.tooltip,
-      child: InkWell(
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
         onTap: item.enabled
-            ? () => Navigator.of(context).pop(item.action)
+            ? () {
+                Navigator.of(context).pop(item.action);
+              }
             : null,
-        borderRadius: BorderRadius.circular(12),
         child: SizedBox(
           height: 40,
           child: Center(

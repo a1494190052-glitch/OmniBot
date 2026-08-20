@@ -120,12 +120,12 @@ class EnvironmentSetupLogicTest {
         assertTrue(commands.count { it == "npm config set prefix /root/.npm-global" } == 1)
         assertTrue(
             commands.contains(
-                "npm install -g --no-audit --no-fund @anthropic-ai/claude-code@latest"
+                "npm install -g --no-audit --no-fund @agentclientprotocol/claude-agent-acp@latest"
             )
         )
         assertTrue(
             commands.contains(
-                "ln -sf /root/.npm-global/bin/claude /usr/local/bin/claude || true"
+                "ln -sf /root/.npm-global/bin/claude-agent-acp /usr/local/bin/claude-agent-acp || true"
             )
         )
         assertTrue(
@@ -147,8 +147,8 @@ class EnvironmentSetupLogicTest {
         )
 
         assertTrue(command.contains("/root/.npm-global/bin"))
-        assertTrue(command.contains("command -v claude"))
-        assertTrue(command.contains("claude --version"))
+        assertTrue(command.contains("command -v claude-agent-acp"))
+        assertTrue(command.contains("claude-agent-acp --version"))
         assertTrue(command.contains("command -v opencode"))
         assertTrue(command.contains("opencode --version"))
     }
@@ -166,11 +166,17 @@ class EnvironmentSetupLogicTest {
         assertTrue(apkAdd.contains("build-base"))
         assertTrue(apkAdd.contains("python3"))
         val npmInstall = commands.first { it.contains("install_deepseek_harness_packages") }
+        assertTrue(npmInstall.contains("@deepseek-ai/dsh@next"))
         assertTrue(npmInstall.contains("@deepseek-ai/dsh-acp-demo@next"))
         assertTrue(npmInstall.contains("@deepseek-ai/dsh-llm-deepseek@next"))
         assertTrue(!npmInstall.contains("0.1.0-rc.6"))
         assertTrue(npmInstall.contains("omnibot-node-gyp-copy"))
         assertTrue(npmInstall.contains("exec /bin/ln"))
+        assertTrue(
+            commands.contains(
+                "ln -sf /root/.npm-global/bin/dsh /usr/local/bin/dsh || true"
+            )
+        )
         assertTrue(
             commands.contains(
                 "ln -sf /root/.npm-global/bin/dsh-acp-demo /usr/local/bin/dsh-acp-demo || true"
@@ -184,7 +190,9 @@ class EnvironmentSetupLogicTest {
             listOf("deepseek_harness")
         )
 
+        assertTrue(command.contains("command -v dsh"))
         assertTrue(command.contains("command -v dsh-acp-demo"))
+        assertTrue(command.contains("@deepseek-ai/dsh/package.json"))
         assertTrue(command.contains("@deepseek-ai/dsh-acp-demo/package.json"))
         assertTrue(command.contains("@deepseek-ai/dsh-user-approval/package.json"))
         assertTrue(command.contains("node-pty"))

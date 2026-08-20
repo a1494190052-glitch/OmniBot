@@ -1,6 +1,5 @@
 package cn.com.omnimind.assists.controller.http
 
-import cn.com.omnimind.assists.api.bean.TaskParams
 import cn.com.omnimind.assists.api.bean.ResultBean
 import cn.com.omnimind.baselib.account.AiRequestTransportPolicy
 import cn.com.omnimind.baselib.account.AiTransportRoute
@@ -21,8 +20,6 @@ import cn.com.omnimind.baselib.util.OmniLog
 import cn.com.omnimind.baselib.llm.ModelSceneRegistry
 import cn.com.omnimind.baselib.llm.OpenAiWireApi
 import cn.com.omnimind.baselib.llm.OpenAIResponsesRequest
-import cn.com.omnimind.baselib.llm.OfficialVlmOperationConfigStore
-import cn.com.omnimind.baselib.llm.OfficialVlmOperationRouteResolver
 import cn.com.omnimind.baselib.llm.OmniOfficialProvider
 import cn.com.omnimind.baselib.llm.PlatformAiProvisioner
 import cn.com.omnimind.baselib.llm.ProviderModelOption
@@ -218,12 +215,22 @@ object HttpController {
         ).toRouteInfo()
     }
 
-    private val openClawStreamClient: OkHttpClient by lazy {
-        OkHttpClient.Builder()
-            .connectTimeout(60, java.util.concurrent.TimeUnit.SECONDS)
-            .readTimeout(0, java.util.concurrent.TimeUnit.SECONDS)
-            .writeTimeout(60, java.util.concurrent.TimeUnit.SECONDS)
-            .build()
+    /**
+     * The GUI/VLM tool is invoked by an Agent, so it must use the same model
+     * route as that Agent unless the user explicitly configured a dedicated
+     * VLM binding.  Falling back to the built-in VLM model here used to make
+     * ACP calls silently jumped to a built-in VLM model even when the active
+     * Agent had a completely different, configured Provider/model.
+     */
+    internal fun resolveSceneDefaultModel(
+        sceneId: String,
+        sceneDefaultModel: String?,
+        sharedAgentModel: String?
+    ): String? {
+        if (sceneId != SceneOperationConfigStore.SCENE_ID) {
+            return sceneDefaultModel?.trim()?.takeIf { it.isNotEmpty() }
+        }
+        return sharedAgentModel?.trim()?.takeIf { it.isNotEmpty() }
     }
 
     private val sceneCompletionClient: OkHttpClient by lazy {
@@ -830,12 +837,6 @@ object HttpController {
         } else {
             null
         }
-        val defaultResolvedModel = when {
-            sceneProfile != null -> sceneProfile.model
-            requestedModel.startsWith("scene.") -> ModelSceneRegistry.resolveModel(requestedModel)
-            else -> requestedModel
-        }
-
         val explicitBase = explicitApiBase?.let(::normalizeApiBase)
         val explicitKey = explicitApiKey?.trim()?.takeIf { it.isNotEmpty() }
         val explicitHeaders = ProviderCustomHeaderUtils.sanitizeCustomHeaders(explicitCustomHeaders)
@@ -853,25 +854,56 @@ object HttpController {
                 source = "explicit"
             )
         }
-        val sceneBinding = sceneProfile?.sceneId?.let(SceneModelBindingStore::getBinding)
-        val boundProfile = sceneBinding?.providerProfileId?.let { profileId ->
-            ModelProviderConfigStore.getProfile(profileId)
-                ?: PlatformAiProvisioner.officialProfileOrNull()
-                    ?.takeIf { OmniOfficialProvider.isOfficialProfile(profileId) }
-        }
-        val officialVlmConfig = if (sceneProfile?.sceneId == SceneOperationConfigStore.SCENE_ID) {
-            OfficialVlmOperationRouteResolver.resolve(
-                sceneId = sceneProfile.sceneId,
-                hasExplicitRoute = explicitBase != null || explicitResolvedModel != null,
-                hasEffectiveSceneBinding =
-                    sceneBinding != null && boundProfile?.isConfigured() == true,
-                sceneConfig = SceneOperationConfigStore.getConfig(),
-                officialConfig = OfficialVlmOperationConfigStore.getConfig()
-            )
+        val directSceneBinding = sceneProfile?.sceneId?.let(SceneModelBindingStore::getBinding)
+        val sharedAgentBinding = if (
+            sceneProfile?.sceneId == SceneOperationConfigStore.SCENE_ID
+        ) {
+            SceneModelBindingStore.getBinding("scene.dispatch.model")
         } else {
             null
         }
-        val officialVlmApplied = officialVlmConfig != null
+        fun resolveBindingProfile(binding: cn.com.omnimind.baselib.llm.SceneModelBindingEntry?) =
+            binding?.providerProfileId?.let { profileId ->
+            ModelProviderConfigStore.getProfile(profileId)
+                ?: PlatformAiProvisioner.officialProfileOrNull()
+                    ?.takeIf { OmniOfficialProvider.isOfficialProfile(profileId) }
+            }
+        val directBoundProfile = resolveBindingProfile(directSceneBinding)
+        val sharedAgentBoundProfile = resolveBindingProfile(sharedAgentBinding)
+        val sharedAgentModel = sharedAgentBinding
+            ?.takeIf { sharedAgentBoundProfile?.isConfigured() == true }
+            ?.modelId
+            ?: ModelSceneRegistry.getRuntimeProfile("scene.dispatch.model")?.model
+        val defaultResolvedModel = when {
+            sceneProfile != null -> resolveSceneDefaultModel(
+                sceneId = sceneProfile.sceneId,
+                sceneDefaultModel = sceneProfile.model,
+                sharedAgentModel = if (
+                    sceneProfile.sceneId == SceneOperationConfigStore.SCENE_ID
+                ) {
+                    sharedAgentModel
+                } else {
+                    null
+                }
+            )
+            requestedModel.startsWith("scene.") -> ModelSceneRegistry.resolveModel(requestedModel)
+            else -> requestedModel
+        }
+        // A dedicated VLM binding wins. If it is absent or stale, inherit the
+        // active Agent binding so every Agent capability uses one Provider.
+        val sceneBinding = when {
+            directSceneBinding != null && directBoundProfile?.isConfigured() == true ->
+                directSceneBinding
+            sceneProfile?.sceneId == SceneOperationConfigStore.SCENE_ID &&
+                sharedAgentBinding != null && sharedAgentBoundProfile?.isConfigured() == true ->
+                sharedAgentBinding
+            else -> directSceneBinding
+        }
+        val boundProfile = resolveBindingProfile(sceneBinding)
+        // VLM is an Agent capability, not a second model route. Do not use the
+        // legacy official VLM service as an implicit fallback: when the Agent
+        // Provider/model is missing, the caller must receive a clear config
+        // error instead of silently selecting a second VLM model.
         val bindingApplied =
             explicitBase == null &&
                 explicitResolvedModel == null &&
@@ -885,33 +917,28 @@ object HttpController {
         val overrideModel = when {
             explicitResolvedModel != null -> explicitResolvedModel
             bindingApplied -> sceneBinding?.modelId
-            officialVlmApplied -> officialVlmConfig?.model
             else -> null
         }
         val overrideApplied =
             explicitBase != null ||
                 explicitResolvedModel != null ||
-                bindingApplied ||
-                officialVlmApplied
+                bindingApplied
 
         val providerBase = when {
             explicitBase != null -> explicitBase
             bindingApplied -> boundProfile?.baseUrl
-            officialVlmApplied -> officialVlmConfig?.apiBase
             providerConfig.isConfigured() -> providerConfig.baseUrl
             else -> null
         }
         val providerKey = when {
             explicitBase != null -> explicitKey
             bindingApplied -> boundProfile?.apiKey?.takeIf { it.isNotBlank() }
-            officialVlmApplied -> null
             providerBase != null -> providerConfig.apiKey.takeIf { it.isNotBlank() }
             else -> null
         }
         val providerHeaders = when {
             explicitBase != null -> explicitHeaders
             bindingApplied -> ProviderCustomHeaderUtils.sanitizeCustomHeaders(boundProfile?.customHeaders)
-            officialVlmApplied -> emptyMap()
             providerBase != null -> ProviderCustomHeaderUtils.sanitizeCustomHeaders(
                 providerConfig.customHeaders
             )
@@ -921,13 +948,11 @@ object HttpController {
             explicitProtocol != null -> explicitProtocol
             explicitBase != null -> DeepSeekProvider.normalizeProtocolType(null)
             bindingApplied -> boundProfile?.protocolType?.ifEmpty { "openai_compatible" } ?: "openai_compatible"
-            officialVlmApplied -> "openai_compatible"
             else -> ModelProviderConfigStore.getEditingProfile().protocolType.ifEmpty { "openai_compatible" }
         }
         val wireApi = when {
             explicitWire != null -> explicitWire
             bindingApplied -> boundProfile?.wireApi ?: OpenAiWireApi.CHAT_COMPLETIONS
-            officialVlmApplied -> officialVlmConfig.wireApi
             providerBase != null -> providerConfig.wireApi
             else -> ModelProviderConfigStore.getEditingProfile().wireApi
         }
@@ -946,7 +971,6 @@ object HttpController {
             (bindingApplied && OmniOfficialProvider.isOfficialProfile(boundProfile?.id)) ||
                 explicitOfficialProvider
         val routeTag = when {
-            officialVlmApplied -> OfficialVlmOperationRouteResolver.ROUTE_TAG
             officialProviderSelected -> AiRequestTransportPolicy.PLATFORM_ROUTE_TAG
             overrideApplied -> ROUTE_CUSTOM_OPENAI_COMPAT
             effectiveTransport == ModelSceneRegistry.SceneTransport.OPENAI_COMPATIBLE -> "openai_compatible"
@@ -974,8 +998,7 @@ object HttpController {
             resolvedModel = when {
                 explicitResolvedModel != null -> explicitResolvedModel
                 bindingApplied -> sceneBinding?.modelId.orEmpty()
-                officialVlmApplied -> officialVlmConfig?.model.orEmpty()
-                else -> defaultResolvedModel
+                else -> defaultResolvedModel.orEmpty()
             },
             sceneProfile = sceneProfile,
             effectiveTransport = effectiveTransport,
@@ -985,12 +1008,10 @@ object HttpController {
             customHeaders = transportRoute.customHeaders,
             providerProfileId = when {
                 bindingApplied -> boundProfile?.id
-                officialVlmApplied -> OfficialVlmOperationRouteResolver.PROFILE_ID
                 else -> null
             },
             providerProfileName = when {
                 bindingApplied -> boundProfile?.name
-                officialVlmApplied -> OfficialVlmOperationRouteResolver.PROFILE_NAME
                 else -> null
             },
             routeTag = transportRoute.routeTag,
@@ -3128,85 +3149,6 @@ object HttpController {
             forceHttp1 = forceHttp1
         )
     }
-
-    /**
-     * 发送 OpenClaw 的 OpenAI 兼容流式请求（/v1/chat/completions）
-     *
-     * @param openClawConfig OpenClaw 配置（baseUrl/token/userId/sessionKey）
-     * @param messages 对话消息列表
-     * @param event 事件监听器
-     * @return EventSource 事件源
-     */
-    suspend fun postOpenClawChatCompletionsStream(
-        openClawConfig: TaskParams.OpenClawConfig,
-        messages: List<Map<String, Any>>,
-        event: EventSourceListener
-    ): EventSource {
-        val baseUrl = openClawConfig.baseUrl.trim().trimEnd('/')
-        val url = "$baseUrl/v1/chat/completions"
-        val authToken = openClawConfig.token?.trim()
-
-        OmniLog.i(
-            "HttpController",
-            "OpenClaw stream url=$url messages=${messages.size} user=${openClawConfig.userId?.trim()} auth=${!authToken.isNullOrBlank()} sessionKey=${!openClawConfig.sessionKey.isNullOrBlank()}"
-        )
-
-        val jsonObject = JSONObject()
-        val messagesArray = JSONArray()
-        for (message in messages) {
-            val messageObject = JSONObject()
-            for ((key, value) in message) {
-                messageObject.put(key, value)
-            }
-            messagesArray.put(messageObject)
-        }
-        jsonObject.put("model", "openclaw")
-        jsonObject.put("stream", true)
-        jsonObject.put("messages", messagesArray)
-        val userId = openClawConfig.userId?.trim()
-        if (!userId.isNullOrEmpty()) {
-            jsonObject.put("user", userId)
-        }
-
-        val requestBody = jsonObject.toString().toRequestBody("application/json".toMediaType())
-        val requestBuilder = Request.Builder()
-            .url(url)
-            .addHeader("Accept", "text/event-stream")
-            .addHeader("Content-Type", "application/json")
-
-        if (!authToken.isNullOrEmpty()) {
-            requestBuilder.addHeader("Authorization", "Bearer $authToken")
-        }
-
-        val sessionKey = openClawConfig.sessionKey?.trim()
-        if (!sessionKey.isNullOrEmpty()) {
-            requestBuilder.addHeader("X-OpenClaw-Session-Key", sessionKey)
-        }
-
-        val request = requestBuilder.post(requestBody).build()
-        OmniLog.i(
-            "HttpController",
-            "OpenClaw request ready bodyBytes=${jsonObject.toString().length}"
-        )
-
-        return EventSources.createFactory(openClawStreamClient)
-            .newEventSource(
-                request,
-                createLoggingEventListener(
-                    "[openclaw/v1/chat/completions]",
-                    event,
-                    requestLogSeed = AiRequestLogSeed(
-                        label = "openclaw/chat.completions.stream",
-                        model = "openclaw",
-                        protocolType = "openai_compatible",
-                        url = url,
-                        stream = true,
-                        requestJson = jsonObject.toString()
-                    )
-                )
-            )
-    }
-
 
     /**
      * 发送 LLM 请求并获取响应（普通返回）

@@ -6,7 +6,7 @@ import cn.com.omnimind.baselib.i18n.AppLocaleManager
 import cn.com.omnimind.baselib.llm.ChatCompletionMessage
 import cn.com.omnimind.bot.agent.workspace.memory.LongTermMemoryIndex
 import cn.com.omnimind.bot.agent.workspace.memory.TurnMemoryLoadTracker
-import cn.com.omnimind.bot.mcp.RemoteMcpDiscoveryRegistry
+import cn.com.omnimind.bot.agent.tool.AgentToolHandlerModule
 import cn.com.omnimind.bot.plugin.OmniPluginHost
 import cn.com.omnimind.bot.plugin.OmniPluginSession
 import com.rk.terminal.runtime.TerminalDistribution
@@ -38,6 +38,11 @@ class OmniAgentExecutor(
     )
 
     companion object {
+        /**
+         * Keep a clean native-tool baseline while MCP/plugin discovery is
+         * being measured. The capability implementations remain installed;
+         * this switch only prevents them from entering a normal Agent turn.
+         */
         private const val EPHEMERAL_CACHE_TYPE = "ephemeral"
         internal const val TIME_CONTEXT_MIN_REFRESH_MILLIS = 60 * 60 * 1000L
         private val timeContextCacheLock = Any()
@@ -160,7 +165,8 @@ class OmniAgentExecutor(
         terminalEnvironment: Map<String, String>,
         callback: AgentCallback,
         runControl: AgentRunControl = NoOpAgentRunControl,
-        continueMode: Boolean = false
+        continueMode: Boolean = false,
+        historyMessagesOverride: List<ChatCompletionMessage>? = null
     ): AgentResult {
         var toolRouter: AgentToolRouter? = null
         var pluginSession: OmniPluginSession? = null
@@ -210,15 +216,17 @@ class OmniAgentExecutor(
             // skills_read and become replayable tool results instead of a volatile
             // leading message that invalidates the full conversation prefix.
             val resolvedSkills = emptyList<ResolvedSkillContext>()
-            val discoveredServers = RemoteMcpDiscoveryRegistry.discoverEnabledServers()
-            val activePluginSession = OmniPluginHost.get(context).openSession()
+            val activePluginSession = if (AgentRuntimeFeatureFlags.ENABLE_PLUGIN_RUNTIME) {
+                OmniPluginHost.get(context).openSession()
+            } else {
+                null
+            }
             pluginSession = activePluginSession
             val toolRegistry = AgentToolRegistry(
                 context = context,
-                discoveredServers = discoveredServers,
                 conversationMode = conversationMode,
                 terminalDistribution = terminalDistribution,
-                pluginToolDefinitions = activePluginSession.toolDefinitions,
+                pluginToolDefinitions = activePluginSession?.toolDefinitions.orEmpty(),
                 userMessage = userMessage,
                 toolRoutingMode = AgentToolRoutingMode.fromSkillFrontmatter(
                     resolvedSkills.map(ResolvedSkillContext::frontmatter),
@@ -239,7 +247,8 @@ class OmniAgentExecutor(
                 skillsRootAndroidPath = workspaceManager.skillsRoot().absolutePath,
                 resolvedSkills = resolvedSkills,
                 memoryContext = promptIdentityContext,
-                terminalDistribution = terminalDistribution
+                terminalDistribution = terminalDistribution,
+                historyMessagesOverride = historyMessagesOverride
             )
 
             val llmClient = HttpAgentLlmClient(
@@ -292,8 +301,13 @@ class OmniAgentExecutor(
                 scheduleToolBridge = scheduleToolBridge,
                 workspaceManager = workspaceManager,
                 subagentDispatcher = subagentDispatcher,
+                toolCatalog = toolRegistry,
                 terminalDistribution = terminalDistribution,
-                pluginHandlers = activePluginSession.toolHandlers
+                capabilityModules = if (activePluginSession != null) {
+                    listOf(AgentToolHandlerModule(activePluginSession.toolHandlers))
+                } else {
+                    emptyList()
+                }
             )
             pluginSession = null
             routerRef.set(toolRouter)
@@ -354,7 +368,8 @@ class OmniAgentExecutor(
         skillsRootAndroidPath: String,
         resolvedSkills: List<ResolvedSkillContext>,
         memoryContext: WorkspaceMemoryPromptContext?,
-        terminalDistribution: TerminalDistribution.Spec = TerminalDistribution.alpine
+        terminalDistribution: TerminalDistribution.Spec = TerminalDistribution.alpine,
+        historyMessagesOverride: List<ChatCompletionMessage>? = null
     ): List<ChatCompletionMessage> {
         val systemPrompt = AgentSystemPrompt.build(
             workspace = workspaceDescriptor,
@@ -375,7 +390,7 @@ class OmniAgentExecutor(
                 ))
                 add(buildCachedTimeContextMessage(locale))
             },
-            historyMessages = promptSeed.historyMessages,
+            historyMessages = historyMessagesOverride ?: promptSeed.historyMessages,
             currentUserMessage = buildCurrentUserMessage(userMessage, attachments),
             continueMode = continueMode
         )

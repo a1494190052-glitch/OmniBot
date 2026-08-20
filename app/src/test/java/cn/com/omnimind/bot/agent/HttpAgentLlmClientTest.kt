@@ -558,7 +558,7 @@ class HttpAgentLlmClientTest {
     }
 
     @Test
-    fun `closed stream without completion signal fails instead of silently succeeding`() = runBlocking {
+    fun `closed stream with assistant payload completes without terminal marker`() = runBlocking {
         val scope = CoroutineScope(Job() + Dispatchers.Default)
         try {
             val client = HttpAgentLlmClient(
@@ -580,14 +580,9 @@ class HttpAgentLlmClientTest {
                 json = json
             )
 
-            val error = runCatching {
-                client.streamTurn(request = simpleRequest())
-            }.exceptionOrNull()
+            val turn = client.streamTurn(request = simpleRequest())
 
-            requireNotNull(error)
-            assertTrue(
-                error.message.orEmpty().contains("closed before completion signal")
-            )
+            assertEquals("还没输出完", turn.message.contentText())
         } finally {
             scope.cancel()
         }
@@ -667,7 +662,7 @@ class HttpAgentLlmClientTest {
                 resolveRouteInfoOp = { model, _, _, _, _, protocolType, _ ->
                     routeInfo(
                         requestedModel = model,
-                        resolvedModel = "qwen3-vl-plus",
+                        resolvedModel = "configured-vlm-model",
                         protocolType = protocolType ?: "openai_compatible",
                         requiresReasoningEcho = false,
                     )
@@ -692,7 +687,7 @@ class HttpAgentLlmClientTest {
                 request = simpleRequest().copy(model = "scene.vlm.operation.primary"),
             )
 
-            assertEquals("qwen3-vl-plus", turn.resolvedModel)
+            assertEquals("configured-vlm-model", turn.resolvedModel)
         } finally {
             scope.cancel()
         }

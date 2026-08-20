@@ -55,6 +55,7 @@ mixin _ChatPageUiMixin on _ChatPageStateBase {
     if (isOpen) {
       _dismissChatInputFocus();
       _composerLiftIntentTracker.reset();
+      _embeddedDrawerKey.currentState?.reloadConversations();
       _drawerKey.currentState?.reloadConversations();
     } else {
       _isHomeDrawerSearchFocused = false;
@@ -866,21 +867,21 @@ mixin _ChatPageUiMixin on _ChatPageStateBase {
       fallbackMessages: _modeState(mode).messages,
       preserveFallbackDuringHandoff: _modeState(mode).isAiResponding,
     );
-    // `runtime.activeAgentTaskIds` is the single source of truth for which
+    // `runtime.activeAgentTurnIds` is the single source of truth for which
     // turns are in flight. Only fall back to the page-level dispatch id when
     // there is no runtime yet to own it.
-    final activeAgentTaskIds = <String>{...?runtime?.activeAgentTaskIds};
+    final activeAgentTurnIds = <String>{...?runtime?.activeAgentTurnIds};
     if (runtime == null && mode == ChatPageMode.agent) {
       final isAwaitingAgent = _modeState(mode).isAiResponding;
       final pendingDispatchTaskId =
-          _modeState(mode).currentDispatchTaskId?.trim() ?? '';
+          _modeState(mode).currentDispatchTurnId?.trim() ?? '';
       if (isAwaitingAgent && pendingDispatchTaskId.isNotEmpty) {
-        activeAgentTaskIds.add(pendingDispatchTaskId);
+        activeAgentTurnIds.add(pendingDispatchTaskId);
       }
     }
     final toolActivitySnapshot = resolveAgentToolActivitySnapshot(
       List<ChatMessageModel>.from(resolvedMessages),
-      activeTaskIds: activeAgentTaskIds,
+      activeTaskIds: activeAgentTurnIds,
       preferredCompletedTaskId: _latestExpandedAgentRunTaskIdForMode(mode),
     );
     final showToolActivityStrip = _shouldShowToolActivityStripForMode(
@@ -902,7 +903,7 @@ mixin _ChatPageUiMixin on _ChatPageStateBase {
     final homeGreetingSettings = HomeGreetingSettingsService.notifier.value;
     return ChatMessageList(
       messages: resolvedMessages,
-      activeAgentTaskIds: activeAgentTaskIds,
+      activeAgentTurnIds: activeAgentTurnIds,
       useAcpPresentation: mode == ChatPageMode.agent,
       activeAcpAgentId: mode == ChatPageMode.agent ? _activeAcpAgentId : null,
       onRetryAgentMessage: _retryFailedAgentTurn,
@@ -1152,7 +1153,7 @@ mixin _ChatPageUiMixin on _ChatPageStateBase {
   }) {
     final toolActivitySnapshot = resolveAgentToolActivitySnapshot(
       List<ChatMessageModel>.from(_messages),
-      activeTaskIds: _activeRuntime?.activeAgentTaskIds ?? const <String>{},
+      activeTaskIds: _activeRuntime?.activeAgentTurnIds ?? const <String>{},
       preferredCompletedTaskId: _latestExpandedAgentRunTaskIdForMode(
         _activeMode,
       ),
@@ -1240,7 +1241,10 @@ mixin _ChatPageUiMixin on _ChatPageStateBase {
               isPetOpening: _isPetOverlayOpening,
               isPetShowing: _isPetOverlayShowing,
               onOmniAiTap: () {
-                unawaited(_handleAgentModeShortcutTap());
+                // Xiaowan and the built-in Xiaowan ACP profile are one
+                // visible Agent. Keep the old shortcut callback only as the
+                // UI compatibility boundary and route it through ACP.
+                unawaited(_handleAcpAgentModeShortcutTap('xiaowan-acp'));
               },
               onPureChatToggleTap: () {
                 unawaited(_handlePureChatModeShortcutTap());
@@ -1327,9 +1331,8 @@ mixin _ChatPageUiMixin on _ChatPageStateBase {
                       onCancelTask: _onCancelTask,
                       onPopupVisibilityChanged: _onPopupVisibilityChanged,
                       onTerminalTap: _handleTerminalToolTap,
-                      onManualRecordingTap: _activeMode == ChatPageMode.normal
-                          ? () => _startManualRecordingCommand('手动录制')
-                          : null,
+                      onManualRecordingTap: () =>
+                          _startManualRecordingCommand('手动录制'),
                       useLargeComposerStyle: true,
                       useAttachmentPickerForPlus: true,
                       onPickAttachment: _pickAttachments,
@@ -1355,57 +1358,19 @@ mixin _ChatPageUiMixin on _ChatPageStateBase {
                           _activeMode == ChatPageMode.normal
                           ? _handleContextUsageRingLongPress
                           : null,
-                      modelPickerSettings: _activeMode == ChatPageMode.normal
-                          ? ChatModelPickerSettings(
-                              modelId: _activeNormalChatModelId ?? '',
-                              hasSelectableModels:
-                                  _hasSelectableNormalChatModels,
-                              anchorKey: _firstUseTourModelAnchorKey,
-                              onPointerDown: () {
-                                _suppressNextOutsideTapKeyboardHide = true;
-                              },
-                              onOpen: (anchorContext) =>
-                                  _openConversationModelSelector(anchorContext),
-                            )
-                          : null,
-                      agentRunSettings: _activeMode == ChatPageMode.agent
-                          ? AgentRunSettings(
-                              agentName:
-                                  _agentRuntimeStatus.activeAgentName ??
-                                  _agentCatalog?.selectedAgent?.name ??
-                                  '',
-                              modelId: _activeAgentModelId ?? '',
-                              reasoningEffort:
-                                  _activeAgentReasoningEffort ?? '',
-                              modelOptions: _agentModelOptions,
-                              reasoningEffortOptions:
-                                  _agentReasoningEffortOptions,
-                              isLoadingModels: _isAgentModelListLoading,
-                              modelListError: _agentModelListError,
-                            )
-                          : null,
-                      onAgentRunSettingsOpened:
-                          _activeMode == ChatPageMode.agent
-                          ? _loadAgentModelOptionsWhenReady
-                          : null,
-                      onAgentRunSettingsChanged:
-                          _activeMode == ChatPageMode.agent
-                          ? ({String? modelId, String? reasoningEffort}) {
-                              if (modelId != null) {
-                                unawaited(
-                                  _selectAgentModel(
-                                    modelId,
-                                    clearComposer: false,
-                                  ),
-                                );
-                              }
-                              if (reasoningEffort != null) {
-                                unawaited(
-                                  _selectAgentReasoningEffort(reasoningEffort),
-                                );
-                              }
-                            }
-                          : null,
+                      modelPickerSettings: ChatModelPickerSettings(
+                        modelId: _activeDispatchSceneSelection?.modelId ?? '',
+                        hasSelectableModels: _hasSelectableProviderModels,
+                        anchorKey: _firstUseTourModelAnchorKey,
+                        onPointerDown: () {
+                          _suppressNextOutsideTapKeyboardHide = true;
+                        },
+                        onOpen: (anchorContext) =>
+                            _openConversationModelSelector(anchorContext),
+                      ),
+                      agentRunSettings: null,
+                      onAgentRunSettingsOpened: null,
+                      onAgentRunSettingsChanged: null,
                       agentPermissionMode: _activeMode == ChatPageMode.agent
                           ? _agentPermissionMode
                           : null,
@@ -1421,11 +1386,7 @@ mixin _ChatPageUiMixin on _ChatPageStateBase {
                           : AgentPermissionMode.values,
                       onAgentPermissionModeChanged:
                           _activeMode == ChatPageMode.agent
-                          ? (mode) {
-                              setState(() {
-                                _agentPermissionMode = mode;
-                              });
-                            }
+                          ? _selectAgentPermissionMode
                           : null,
                       onInputHeightChanged: _handleInputAreaHeightChanged,
                       onClearSelectedModelOverride:
@@ -1544,7 +1505,7 @@ mixin _ChatPageUiMixin on _ChatPageStateBase {
       fallbackMessages: _modeState(mode).messages,
       preserveFallbackDuringHandoff: _modeState(mode).isAiResponding,
     );
-    final activeTaskIds = runtime?.activeAgentTaskIds ?? const <String>{};
+    final activeTaskIds = runtime?.activeAgentTurnIds ?? const <String>{};
     // composerReservedInset 已含 composer 顶部上方 12px 的安全间距，
     // 回收 6px 让按钮更贴近输入框右上角。
     final bottomInset = math.max(
@@ -1562,7 +1523,7 @@ mixin _ChatPageUiMixin on _ChatPageStateBase {
         !_isPopupVisible;
     return ChatMessageAnchorBar(
       messages: messages,
-      activeAgentTaskIds: activeTaskIds,
+      activeAgentTurnIds: activeTaskIds,
       conversationSignature:
           '${mode.name}:${_modeState(mode).currentConversationId ?? ''}',
       bottomInset: bottomInset,
@@ -1691,12 +1652,12 @@ mixin _ChatPageUiMixin on _ChatPageStateBase {
                             translucent: backgroundActive,
                             visualProfile: visualProfile,
                             child: HomeDrawer(
-                              key: _drawerKey,
+                              key: _embeddedDrawerKey,
                               embedded: true,
                               closeOnNavigate: false,
                               onSearchFocusChanged:
                                   _handleHomeDrawerSearchFocusChanged,
-                              searchFieldKey: _drawerSearchFieldKey,
+                              searchFieldKey: _embeddedDrawerSearchFieldKey,
                               newConversationMode: _conversationModeForPageMode(
                                 _activeMode,
                               ),
@@ -2531,7 +2492,15 @@ mixin _ChatPageUiMixin on _ChatPageStateBase {
       });
     }
 
-    final success = await AssistsMessageService.retryAgentTask(taskId: taskId);
+    final userMessage = _agentPromptForFailedTurn(message);
+    final success = await _tryAgentFlow(
+      taskId,
+      '',
+      promptText: userMessage?.text,
+      attachmentsOverride: userMessage == null
+          ? const []
+          : _extractRetryAttachments(userMessage),
+    );
     _pendingManualAgentRetryTaskIds.remove(taskId);
     if (!mounted) {
       return;
@@ -2617,8 +2586,16 @@ mixin _ChatPageUiMixin on _ChatPageStateBase {
       });
     }
 
-    final success = await AssistsMessageService.continueAgentTask(
-      taskId: taskId,
+    final userMessage = _agentPromptForFailedTurn(message);
+    final success = await _tryAgentFlow(
+      taskId,
+      '',
+      promptText: userMessage == null
+          ? null
+          : '请继续完成上一个任务。保留已有上下文，只处理尚未完成的部分。\n\n${userMessage.text ?? ''}',
+      attachmentsOverride: userMessage == null
+          ? const []
+          : _extractRetryAttachments(userMessage),
     );
     _pendingManualAgentContinueTaskIds.remove(taskId);
     if (!mounted) {
@@ -2661,6 +2638,16 @@ mixin _ChatPageUiMixin on _ChatPageStateBase {
         .whereType<Map>()
         .map((item) => item.map((k, v) => MapEntry(k.toString(), v)))
         .toList();
+  }
+
+  ChatMessageModel? _agentPromptForFailedTurn(ChatMessageModel message) {
+    final messageIndex = _messages.indexWhere((item) => item.id == message.id);
+    if (messageIndex < 0) return null;
+    for (var index = messageIndex - 1; index >= 0; index--) {
+      final candidate = _messages[index];
+      if (candidate.user == 1) return candidate;
+    }
+    return null;
   }
 
   String? _resolveRetryableAgentTaskId(ChatMessageModel message) {

@@ -7,6 +7,7 @@ import 'package:ui/models/chat_message_model.dart';
 import 'package:ui/models/conversation_model.dart';
 import 'package:ui/models/conversation_thread_target.dart';
 import 'package:ui/services/agent_message_kinds.dart';
+import 'package:ui/services/omnibot_resource_service.dart';
 
 /// 对话历史持久化服务
 class ConversationHistoryService {
@@ -21,6 +22,8 @@ class ConversationHistoryService {
       'last_visible_conversation_target';
   static const String _conversationMessagesKey = 'conversation_messages_';
   static const String conversationMessagesKeyPrefix = _conversationMessagesKey;
+  static final Map<String, Future<void>> _conversationMessageWriteQueues =
+      <String, Future<void>>{};
 
   static String _conversationIdKeyForMode(ConversationMode mode) {
     return '$_conversationIdKeyPrefix${mode.storageValue}';
@@ -189,6 +192,22 @@ class ConversationHistoryService {
     return '$_conversationMessagesKey${mode.storageValue}_$conversationId';
   }
 
+  /// Exports the durable conversation snapshot through the app's existing
+  /// share boundary. Native Room remains the source of truth; this is only a
+  /// user-visible copy and never becomes a second history protocol.
+  static Future<bool> exportConversation(
+    int conversationId, {
+    ConversationMode mode = ConversationMode.normal,
+  }) async {
+    final messages = await getConversationMessages(conversationId, mode: mode);
+    final payload = const JsonEncoder.withIndent('  ').convert({
+      'conversationId': conversationId,
+      'mode': mode.storageValue,
+      'messages': messages.map((message) => message.toJson()).toList(),
+    });
+    return OmnibotResourceService.shareText(payload);
+  }
+
   static String _legacyConversationMessagesKey(int conversationId) {
     return '$_conversationMessagesKey$conversationId';
   }
@@ -200,6 +219,14 @@ class ConversationHistoryService {
     final keys = <String>[conversationMessagesKey(conversationId, mode: mode)];
     if (mode == ConversationMode.normal) {
       keys.add(_legacyConversationMessagesKey(conversationId));
+    }
+    if (mode == ConversationMode.agent) {
+      // Read both the canonical generic Agent key and the old Codex-named
+      // key. Codex is a Harness, not the conversation domain mode.
+      keys.add(
+        '$_conversationMessagesKey${ConversationMode.agent.name}_$conversationId',
+      );
+      keys.add('${_conversationMessagesKey}codex_$conversationId');
     }
     return keys;
   }
@@ -236,11 +263,49 @@ class ConversationHistoryService {
     );
   }
 
-  /// 保存对话消息列表
+  /// 保存对话消息列表。
+  ///
+  /// Native replacement is a destructive delete-and-rebuild operation. Keep
+  /// writes for one logical conversation ordered so an older stream snapshot
+  /// cannot finish after a newer one and roll the thread back.
   static Future<void> saveConversationMessages(
     int conversationId,
     List<ChatMessageModel> messages, {
     ConversationMode mode = ConversationMode.normal,
+  }) {
+    final key = '${mode.storageValue}:$conversationId';
+    final snapshot = List<ChatMessageModel>.from(messages);
+    final previous =
+        _conversationMessageWriteQueues[key] ?? Future<void>.value();
+    final next = _runConversationMessageWrite(
+      previous,
+      () => _saveConversationMessages(conversationId, snapshot, mode: mode),
+    );
+    _conversationMessageWriteQueues[key] = next;
+    return next.whenComplete(() {
+      if (identical(_conversationMessageWriteQueues[key], next)) {
+        _conversationMessageWriteQueues.remove(key);
+      }
+    });
+  }
+
+  static Future<void> _runConversationMessageWrite(
+    Future<void> previous,
+    Future<void> Function() write,
+  ) async {
+    try {
+      await previous;
+    } catch (_) {
+      // A failed snapshot must not permanently block later snapshots for the
+      // same conversation.
+    }
+    await write();
+  }
+
+  static Future<void> _saveConversationMessages(
+    int conversationId,
+    List<ChatMessageModel> messages, {
+    required ConversationMode mode,
   }) async {
     final jsonList = messages.map((m) => m.toJson()).toList();
     final stored = await _replaceNativeConversationMessages(
@@ -283,6 +348,25 @@ class ConversationHistoryService {
 
   /// 获取对话消息列表
   static Future<List<ChatMessageModel>> getConversationMessages(
+    int conversationId, {
+    ConversationMode mode = ConversationMode.normal,
+    int? expectedMessageCount,
+  }) => readConversationHistory(
+    conversationId,
+    mode: mode,
+    expectedMessageCount: expectedMessageCount,
+  );
+
+  /// Compatibility reader for every supported history generation.
+  ///
+  /// Native ACP history is authoritative when complete. If it is unavailable
+  /// or empty, this reader checks the old local snapshot keys, normalizes old
+  /// Agent/tool payloads, merges both sources by stable message identity, and
+  /// only then performs a forward migration. A stale `messageCount == 0` must
+  /// never erase a non-empty legacy snapshot: an explicit clear removes both
+  /// native and legacy stores, so an existing legacy snapshot is recoverable
+  /// history rather than proof of an intentional clear.
+  static Future<List<ChatMessageModel>> readConversationHistory(
     int conversationId, {
     ConversationMode mode = ConversationMode.normal,
     int? expectedMessageCount,
@@ -438,12 +522,6 @@ class ConversationHistoryService {
     if (legacyMessages.isEmpty) {
       return nativeMessages;
     }
-    if (expectedMessageCount != null &&
-        expectedMessageCount <= nativeMessages.length) {
-      await _clearLegacyConversationMessages(conversationId, mode: mode);
-      return nativeMessages;
-    }
-
     final recoveredMessages = nativeMessages.isEmpty
         ? legacyMessages
         : _mergeMessageSnapshots(

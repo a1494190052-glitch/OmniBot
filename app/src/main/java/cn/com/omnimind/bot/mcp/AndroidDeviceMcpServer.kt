@@ -1,6 +1,26 @@
 package cn.com.omnimind.bot.mcp
 
 import android.content.Context
+import cn.com.omnimind.baselib.llm.AssistantToolCall
+import cn.com.omnimind.baselib.llm.AssistantToolCallFunction
+import cn.com.omnimind.bot.agent.AgentCallback
+import cn.com.omnimind.bot.agent.AgentEventAdapter
+import cn.com.omnimind.bot.agent.AgentRuntimeContextRepository
+import cn.com.omnimind.bot.agent.AgentAlarmCreateRequest
+import cn.com.omnimind.bot.agent.AgentAlarmToolService
+import cn.com.omnimind.bot.agent.AgentToolCatalog
+import cn.com.omnimind.bot.agent.AgentToolDefinitions
+import cn.com.omnimind.bot.agent.AgentToolExecutor
+import cn.com.omnimind.bot.agent.AgentToolRegistry
+import cn.com.omnimind.bot.agent.AgentToolRouter
+import cn.com.omnimind.bot.agent.AgentWorkspaceManager
+import cn.com.omnimind.bot.agent.DefaultAgentExecutionEnvironment
+import cn.com.omnimind.bot.agent.NoOpAgentRunControl
+import cn.com.omnimind.bot.agent.SubagentDispatcher
+import cn.com.omnimind.bot.agent.ToolExecutionResult
+import cn.com.omnimind.bot.agent.WorkspaceMemoryService
+import cn.com.omnimind.bot.agent.workspace.memory.LongTermMemoryIndex
+import cn.com.omnimind.bot.agent.WorkspaceScheduledTaskScheduler
 import cn.com.omnimind.bot.agent.HttpAgentLlmClient
 import cn.com.omnimind.bot.omniflow.OmniFlow
 import cn.com.omnimind.bot.omniflow.OmniFlowFunctionRegistration
@@ -19,6 +39,7 @@ import io.modelcontextprotocol.kotlin.sdk.types.TextContent
 import io.modelcontextprotocol.kotlin.sdk.types.ToolSchema
 import io.modelcontextprotocol.kotlin.sdk.types.toJson
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
@@ -28,16 +49,24 @@ import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.doubleOrNull
 import kotlinx.serialization.json.longOrNull
+import java.util.UUID
+import java.util.concurrent.atomic.AtomicReference
+import com.rk.terminal.runtime.TerminalDistribution
 
 internal object AndroidDeviceMcpServer {
-    private data class DeviceTool(
+    internal data class DeviceTool(
         val name: String,
         val operation: String,
         val description: String,
         val properties: Map<String, JsonObject> = emptyMap(),
         val required: List<String> = emptyList(),
+        /** Restore the optional OmniFlow provider only for explicit OmniFlow calls. */
+        val requiresOmniFlowPlugin: Boolean = false,
     )
 
+    // Keep the ACP-facing MCP surface limited to official device capabilities.
+    // The app's private plugin-project protocol is intentionally not advertised
+    // here: DSH and other ACP Agents must use their own native plugin schema.
     private val omniFlowTools = listOf(
         DeviceTool(
             name = "run_gui",
@@ -50,6 +79,7 @@ internal object AndroidDeviceMcpServer {
                 "step_skill_guidance" to schema("string", "Optional step guidance."),
             ),
             required = listOf("goal"),
+            requiresOmniFlowPlugin = true,
         ),
         DeviceTool(
             name = "run_function",
@@ -61,6 +91,7 @@ internal object AndroidDeviceMcpServer {
                 "goal" to schema("string", "Optional display goal."),
             ),
             required = listOf("function_id"),
+            requiresOmniFlowPlugin = true,
         ),
         DeviceTool(
             name = "list_functions",
@@ -71,6 +102,7 @@ internal object AndroidDeviceMcpServer {
                 "offset" to schema("integer", "Pagination offset."),
                 "include_hidden" to schema("boolean", "Include hidden Functions."),
             ),
+            requiresOmniFlowPlugin = true,
         ),
         DeviceTool(
             name = "register_function",
@@ -80,28 +112,197 @@ internal object AndroidDeviceMcpServer {
                 "run_id" to schema("string", "Successful RunLog id returned by run_gui."),
             ),
             required = listOf("run_id"),
+            requiresOmniFlowPlugin = true,
+        ),
+        DeviceTool(
+            name = "context_apps_query",
+            operation = "context_apps_query",
+            description = "Query launchable apps installed on the Android device.",
+            properties = mapOf(
+                "query" to schema("string", "App name or package substring."),
+                "limit" to schema("integer", "Maximum number of results."),
+            ),
+        ),
+        DeviceTool(
+            name = "file_transfer",
+            operation = "file_transfer",
+            description = "List or retrieve files shared to the OpenOmniBot device inbox.",
+            properties = mapOf(
+                "action" to schema("string", "latest | wait | list | get | clear."),
+                "fileId" to schema("string", "File id for get or clear."),
+                "afterFileId" to schema("string", "For wait, return a newer file."),
+                "timeoutMs" to schema("integer", "Wait timeout in milliseconds."),
+                "limit" to schema("integer", "Maximum number of files."),
+            ),
+        ),
+        DeviceTool(
+            name = "schedule_task_create",
+            operation = "schedule_task_create",
+            description = "Create a persistent scheduled Agent task on this device.",
+            properties = mapOf(
+                "taskId" to schema("string", "Stable task id."),
+                "title" to schema("string", "Task title."),
+                "scheduleType" to schema("string", "fixed_time or countdown."),
+                "fixedTime" to schema("string", "ISO local date-time for fixed_time."),
+                "countdownMinutes" to schema("integer", "Delay in minutes for countdown."),
+                "repeatDaily" to schema("boolean", "Repeat every day."),
+                "enabled" to schema("boolean", "Whether the task is enabled."),
+                "subagentPrompt" to schema("string", "Prompt executed when triggered."),
+                "notificationEnabled" to schema("boolean", "Show completion notification."),
+            ),
+            required = listOf("taskId", "title", "subagentPrompt"),
+        ),
+        DeviceTool(
+            name = "schedule_task_list",
+            operation = "schedule_task_list",
+            description = "List persistent scheduled Agent tasks on this device.",
+            properties = mapOf("limit" to schema("integer", "Maximum number of tasks.")),
+        ),
+        DeviceTool(
+            name = "schedule_task_update",
+            operation = "schedule_task_update",
+            description = "Update a persistent scheduled Agent task.",
+            properties = mapOf(
+                "taskId" to schema("string", "Stable task id."),
+                "title" to schema("string", "Task title."),
+                "scheduleType" to schema("string", "fixed_time or countdown."),
+                "fixedTime" to schema("string", "ISO local date-time for fixed_time."),
+                "countdownMinutes" to schema("integer", "Delay in minutes for countdown."),
+                "repeatDaily" to schema("boolean", "Repeat every day."),
+                "enabled" to schema("boolean", "Whether the task is enabled."),
+                "subagentPrompt" to schema("string", "Prompt executed when triggered."),
+                "notificationEnabled" to schema("boolean", "Show completion notification."),
+            ),
+            required = listOf("taskId"),
+        ),
+        DeviceTool(
+            name = "schedule_task_delete",
+            operation = "schedule_task_delete",
+            description = "Delete a persistent scheduled Agent task.",
+            properties = mapOf("taskId" to schema("string", "Stable task id.")),
+            required = listOf("taskId"),
+        ),
+        DeviceTool(
+            name = "alarm_reminder_create",
+            operation = "alarm_reminder_create",
+            description = "Create a persistent reminder alarm on this device.",
+            properties = mapOf(
+                "mode" to schema("string", "exact_alarm or clock_app."),
+                "title" to schema("string", "Reminder title."),
+                "triggerAt" to schema("string", "ISO timestamp or local date-time."),
+                "message" to schema("string", "Optional reminder message."),
+                "timezone" to schema("string", "Optional IANA timezone."),
+                "allowWhileIdle" to schema("boolean", "Allow delivery while idle."),
+                "skipUi" to schema("boolean", "Do not open the system clock UI."),
+            ),
+            required = listOf("mode", "title", "triggerAt"),
+        ),
+        DeviceTool(
+            name = "alarm_reminder_list",
+            operation = "alarm_reminder_list",
+            description = "List persistent reminder alarms on this device.",
+        ),
+        DeviceTool(
+            name = "alarm_reminder_delete",
+            operation = "alarm_reminder_delete",
+            description = "Delete a reminder alarm on this device.",
+            properties = mapOf("alarmId" to schema("string", "Reminder alarm id.")),
+            required = listOf("alarmId"),
         ),
     )
 
-    internal val publicToolNames: Set<String> = omniFlowTools.mapTo(linkedSetOf()) { it.name }
+    /**
+     * These are the native Agent capabilities, not Provider or Harness tools.
+     * Keep the schemas sourced from AgentToolDefinitions and the execution
+     * routed through AgentToolRouter so ACP/MCP and the in-app Agent cannot
+     * drift into two different implementations.
+     */
+    private val nativeAgentToolNames: Set<String> = buildSet {
+        val definitions = AgentToolDefinitions.staticTools(includeVlmTool = false) +
+            AgentToolDefinitions.memoryTools() +
+            AgentToolDefinitions.subagentTools()
+        definitions.forEach { definition ->
+            ((definition["function"] as? JsonObject)?.get("name") as? JsonPrimitive)
+                ?.contentOrNull
+                ?.takeIf { it.isNotBlank() }
+                ?.let(::add)
+        }
+    }
+
+    internal val publicToolNames: Set<String> = linkedSetOf<String>().apply {
+        addAll(omniFlowTools.map { it.name })
+        addAll(nativeAgentToolNames)
+    }
+
+    internal fun modernToolDescriptors(
+        context: Context,
+        scope: CoroutineScope,
+    ): List<DeviceTool> {
+        val nativeRuntime = NativeAgentMcpRuntime(context, scope)
+        return allTools(nativeRuntime)
+    }
+
+    internal suspend fun modernCallTool(
+        context: Context,
+        scope: CoroutineScope,
+        name: String,
+        arguments: Map<String, JsonElement>,
+    ): CallToolResult {
+        val modelClient = HttpAgentLlmClient(scope).asOmniFlowModelClient()
+        val nativeRuntime = NativeAgentMcpRuntime(context, scope)
+        val tool = allTools(nativeRuntime).firstOrNull { it.name == name }
+            ?: return errorResult(IllegalArgumentException("Unknown MCP tool: $name"))
+        return runCatching {
+            if (tool.requiresOmniFlowPlugin) {
+                ensureOmniFlowReady(context)
+            }
+            if (tool in omniFlowTools) {
+                callOmniFlowTool(
+                    context = context,
+                    tool = tool,
+                    arguments = arguments.toKotlinMap(),
+                    modelClient = modelClient,
+                )
+            } else {
+                nativeRuntime.execute(name = name, arguments = arguments)
+            }
+        }.fold(
+            onSuccess = { result ->
+                if (result is ToolExecutionResult) nativeSuccessResult(result)
+                else successResult(result as Map<String, Any?>)
+            },
+            onFailure = ::errorResult,
+        )
+    }
+
+    private fun allTools(nativeRuntime: NativeAgentMcpRuntime): List<DeviceTool> =
+        buildList {
+            addAll(omniFlowTools)
+            nativeRuntime.tools.forEach { tool ->
+                if (none { it.name == tool.name }) add(tool)
+            }
+        }
 
     fun create(
         context: Context,
         scope: CoroutineScope,
     ): Server {
         val modelClient = HttpAgentLlmClient(scope).asOmniFlowModelClient()
+        val nativeRuntime = NativeAgentMcpRuntime(context, scope)
         return Server(
             serverInfo = Implementation(
-                name = "openomnibot-android-device",
+                // Keep the MCP server identity identical across ACP adapters,
+                // the phone endpoint, and the official DSH MCP client.
+                name = "omnibot",
                 version = "1.0.0",
-                title = "OpenOmniBot Android Device",
+                title = "OmniBot",
             ),
             options = ServerOptions(
                 capabilities = ServerCapabilities(
                     tools = ServerCapabilities.Tools(listChanged = false),
                 ),
             ),
-            instructions = "Run Android GUI tasks, replay registered Functions, or register a successful run.",
+            instructions = "Use the official OmniBot MCP server to access OmniBot-native browser/internet, files, skills, memory, terminal, calendar, reminders, schedules, music, Android GUI, and Functions.",
         ).apply {
             omniFlowTools.forEach { tool ->
                 addTool(
@@ -113,7 +314,9 @@ internal object AndroidDeviceMcpServer {
                     ),
                 ) { request ->
                     runCatching {
-                        ensureOmniFlowReady(context)
+                        if (tool.requiresOmniFlowPlugin) {
+                            ensureOmniFlowReady(context)
+                        }
                         callOmniFlowTool(
                             context = context,
                             tool = tool,
@@ -126,20 +329,195 @@ internal object AndroidDeviceMcpServer {
                     )
                 }
             }
+            nativeRuntime.tools.forEach { tool ->
+                if (tool.name in omniFlowTools.map { it.name }) return@forEach
+                addTool(
+                    name = tool.name,
+                    description = tool.description,
+                    inputSchema = ToolSchema(
+                        properties = JsonObject(tool.properties),
+                        required = tool.required.takeIf(List<String>::isNotEmpty),
+                    ),
+                ) { request ->
+                    runCatching {
+                        nativeRuntime.execute(
+                            name = tool.name,
+                            arguments = request.params.arguments.orEmpty(),
+                        )
+                    }.fold(
+                        onSuccess = ::nativeSuccessResult,
+                        onFailure = ::errorResult,
+                    )
+                }
+            }
         }
+    }
+
+    private fun nativeSuccessResult(result: ToolExecutionResult): CallToolResult {
+        val (success, text) = when (result) {
+            is ToolExecutionResult.Error -> false to result.message
+            is ToolExecutionResult.PermissionRequired -> false to "需要权限：${result.missing.joinToString("、")}"
+            is ToolExecutionResult.Clarify -> false to result.question
+            is ToolExecutionResult.ChatMessage -> true to result.message
+            is ToolExecutionResult.ScheduleResult -> result.success to result.previewJson
+            is ToolExecutionResult.McpResult -> result.success to result.rawResultJson
+            is ToolExecutionResult.MemoryResult -> result.success to result.rawResultJson
+            is ToolExecutionResult.TerminalResult -> result.success to result.rawResultJson
+            is ToolExecutionResult.Interrupted -> false to result.rawResultJson
+            is ToolExecutionResult.ContextResult -> result.success to result.rawResultJson
+        }
+        return CallToolResult(
+            content = listOf(TextContent(text)),
+            isError = !success,
+        )
+    }
+
+    /**
+     * Adapter around the existing native Agent runtime. It deliberately owns
+     * no Provider model catalog or Harness identity; it only executes
+     * OmniBot capabilities. Any subagent call still resolves its model through
+     * the normal scene binding used by the native Agent runtime.
+     */
+    private class NativeAgentMcpRuntime(
+        context: Context,
+        scope: CoroutineScope,
+    ) {
+        private val appContext = context.applicationContext
+        private val workspaceManager = AgentWorkspaceManager(appContext)
+        private val terminalDistribution = TerminalDistribution.selected()
+        private val catalog = AgentToolRegistry(
+            context = appContext,
+            conversationMode = cn.com.omnimind.bot.agent.AgentConversationModePolicy.NORMAL_MODE,
+            terminalDistribution = terminalDistribution,
+            includeVlmTool = false,
+        )
+        private val routerRef = AtomicReference<AgentToolExecutor?>()
+        private val catalogRef = AtomicReference<AgentToolCatalog?>(catalog)
+        private val json = Json {
+            ignoreUnknownKeys = true
+            isLenient = true
+            encodeDefaults = true
+        }
+        private val subagentDispatcher = SubagentDispatcher(
+            llmClient = HttpAgentLlmClient(scope),
+            toolExecutorProvider = {
+                routerRef.get() ?: error("native MCP router is not ready")
+            },
+            parentCatalogProvider = {
+                catalogRef.get() ?: error("native MCP catalog is not ready")
+            },
+            eventAdapter = AgentEventAdapter(json),
+            model = "scene.dispatch.model",
+        )
+        private val scheduleBridge = object : cn.com.omnimind.bot.agent.AgentScheduleToolBridge {
+            private val scheduler = WorkspaceScheduledTaskScheduler(appContext)
+
+            override suspend fun createTask(arguments: Map<String, Any?>): Map<String, Any?> =
+                scheduler.upsertTask(arguments)
+
+            override suspend fun listTasks(): List<Map<String, Any?>> = scheduler.listTasks()
+
+            override suspend fun updateTask(arguments: Map<String, Any?>): Map<String, Any?> =
+                scheduler.updateTask(arguments)
+
+            override suspend fun deleteTask(arguments: Map<String, Any?>): Map<String, Any?> = mapOf(
+                "deleted" to scheduler.deleteTask(
+                    arguments["taskId"]?.toString()
+                        ?: arguments["id"]?.toString().orEmpty(),
+                ),
+            )
+        }
+        private val router = AgentToolRouter(
+            context = appContext,
+            scope = scope,
+            scheduleToolBridge = scheduleBridge,
+            workspaceManager = workspaceManager,
+            subagentDispatcher = subagentDispatcher,
+            terminalDistribution = terminalDistribution,
+            includeVlmTool = false,
+        ).also { routerRef.set(it) }
+        private val runId = "mcp-${UUID.randomUUID()}"
+        private val workspace = workspaceManager.buildWorkspaceDescriptor(
+            conversationId = null,
+            agentRunId = runId,
+        )
+        private val environment = DefaultAgentExecutionEnvironment(
+            agentRunId = runId,
+            userMessage = "MCP capability call",
+            runtimeContextRepository = AgentRuntimeContextRepository(appContext),
+            workspaceDescriptor = workspace,
+            resolvedSkills = emptyList(),
+            workspaceManager = workspaceManager,
+            workspaceMemoryService = WorkspaceMemoryService(appContext, workspaceManager),
+            conversationMode = cn.com.omnimind.bot.agent.AgentConversationModePolicy.NORMAL_MODE,
+            terminalEnvironment = emptyMap(),
+            runControl = NoOpAgentRunControl,
+            longTermMemoryIndex = LongTermMemoryIndex(workspaceManager),
+        )
+
+        internal val tools: List<DeviceTool> = catalog.toolsForModel.map { tool ->
+            val parameters = tool.function.parameters
+            val properties = (parameters["properties"] as? JsonObject)
+                .orEmpty()
+                .mapNotNull { (name, schema) ->
+                    (schema as? JsonObject)?.let { name to it }
+                }
+                .toMap()
+            val required = (parameters["required"] as? JsonArray)
+                ?.mapNotNull { (it as? JsonPrimitive)?.contentOrNull }
+                .orEmpty()
+            DeviceTool(
+                name = tool.function.name,
+                operation = tool.function.name,
+                description = tool.function.description,
+                properties = properties,
+                required = required,
+            )
+        }
+
+        suspend fun execute(name: String, arguments: Map<String, JsonElement>): ToolExecutionResult {
+            val args = JsonObject(arguments)
+            val toolCall = AssistantToolCall(
+                id = "mcp-${UUID.randomUUID()}",
+                function = AssistantToolCallFunction(
+                    name = name,
+                    arguments = args.toString(),
+                ),
+            )
+            val handle = environment.runControl.beginToolExecution(name, toolCall.id)
+            return router.execute(
+                toolCall = toolCall,
+                args = args,
+                runtimeDescriptor = catalog.runtimeDescriptor(name),
+                env = environment,
+                callback = NoOpAgentCallback,
+                toolHandle = handle,
+            )
+        }
+    }
+
+    private object NoOpAgentCallback : AgentCallback {
+        override suspend fun onThinkingStart() = Unit
+        override suspend fun onThinkingUpdate(thinking: String) = Unit
+        override suspend fun onToolCallStart(toolName: String, arguments: JsonObject) = Unit
+        override suspend fun onToolCallProgress(toolName: String, progress: String, extras: Map<String, Any?>) = Unit
+        override suspend fun onToolCallComplete(toolName: String, result: ToolExecutionResult) = Unit
+        override suspend fun onChatMessage(message: String) = Unit
+        override suspend fun onClarifyRequired(question: String, missingFields: List<String>?) = Unit
+        override suspend fun onComplete(result: cn.com.omnimind.bot.agent.AgentResult) = Unit
+        override suspend fun onError(error: String) = Unit
+        override suspend fun onPermissionRequired(missing: List<String>) = Unit
     }
 
     private suspend fun ensureOmniFlowReady(context: Context) {
         val host = OmniPluginHost.get(context)
-        ensureDefaultPluginEnabled(
+        requireDefaultPluginEnabled(
             isEnabled = OmniFlowPluginRuntime::isEnabled,
             inspect = {
                 host.list()
                     .firstOrNull { it.descriptor.id == OmniVlmLiteProvider.ID }
                     ?.let { DefaultPluginStatus(installed = it.installed, enabled = it.enabled) }
             },
-            install = { host.install(OmniVlmLiteProvider.ID) },
-            enable = { host.setEnabled(OmniVlmLiteProvider.ID, true) },
         )
     }
 
@@ -148,20 +526,18 @@ internal object AndroidDeviceMcpServer {
         val enabled: Boolean,
     )
 
-    internal suspend fun ensureDefaultPluginEnabled(
+    internal suspend fun requireDefaultPluginEnabled(
         isEnabled: () -> Boolean,
         inspect: suspend () -> DefaultPluginStatus?,
-        install: suspend () -> Unit,
-        enable: suspend () -> Unit,
     ) {
         if (isEnabled()) return
         val status = inspect()
-        when {
-            status?.enabled == true -> Unit
-            status?.installed == true -> enable()
-            else -> install()
+        val guidance = if (status?.installed == true) {
+            "手机操作未启用。请打开插件市场 → OmniFlow → 启用插件，确认无障碍服务已开启，并在模型场景中配置 Agent Provider/模型后重试。"
+        } else {
+            "手机操作未启用。请打开插件市场 → OmniFlow → 安装并启用插件，确认无障碍服务已开启，并在模型场景中配置 Agent Provider/模型后重试。"
         }
-        require(isEnabled()) { "omniflow_plugin_not_enabled" }
+        throw IllegalStateException(guidance)
     }
 
     private suspend fun callOmniFlowTool(
@@ -212,6 +588,54 @@ internal object AndroidDeviceMcpServer {
                 modelClient = modelClient,
             )
         }
+        "context_apps_query" -> {
+            val query = arguments["query"]?.toString()?.trim().orEmpty()
+            val limit = (arguments["limit"] as? Number)?.toInt()?.coerceIn(1, 100) ?: 20
+            val items = AgentRuntimeContextRepository(context).queryInstalledApps(
+                query = query.ifBlank { null },
+                limit = limit,
+            )
+            mapOf(
+                "query" to query,
+                "limit" to limit,
+                "count" to items.size,
+                "items" to items.map { item ->
+                    mapOf("appName" to item.appName, "packageName" to item.packageName)
+                },
+            )
+        }
+        "file_transfer" -> McpToolExecutors.executeFileTransfer(arguments)
+        "schedule_task_create" -> WorkspaceScheduledTaskScheduler(context).upsertTask(arguments)
+        "schedule_task_list" -> {
+            val tasks = WorkspaceScheduledTaskScheduler(context).listTasks()
+            val limit = (arguments["limit"] as? Number)?.toInt()?.coerceIn(1, 100) ?: 100
+            mapOf("count" to minOf(limit, tasks.size), "items" to tasks.take(limit))
+        }
+        "schedule_task_update" -> WorkspaceScheduledTaskScheduler(context).updateTask(arguments)
+        "schedule_task_delete" -> mapOf(
+            "taskId" to arguments["taskId"].toString(),
+            "deleted" to WorkspaceScheduledTaskScheduler(context).deleteTask(
+                arguments["taskId"]?.toString().orEmpty()
+            ),
+        )
+        "alarm_reminder_create" -> AgentAlarmToolService(context).createReminder(
+            AgentAlarmCreateRequest(
+                mode = arguments["mode"]?.toString().orEmpty(),
+                title = arguments["title"]?.toString().orEmpty(),
+                triggerAt = arguments["triggerAt"]?.toString().orEmpty(),
+                message = arguments["message"]?.toString(),
+                timezone = arguments["timezone"]?.toString(),
+                allowWhileIdle = arguments["allowWhileIdle"] as? Boolean ?: true,
+                skipUi = arguments["skipUi"] as? Boolean ?: false,
+            )
+        )
+        "alarm_reminder_list" -> {
+            val items = AgentAlarmToolService(context).listExactReminders()
+            mapOf("count" to items.size, "items" to items)
+        }
+        "alarm_reminder_delete" -> AgentAlarmToolService(context).deleteExactReminder(
+            arguments["alarmId"]?.toString().orEmpty()
+        )
         else -> OmniFlow.callTool(
             context = context,
             toolCall = OmniFlow.ToolCall(tool.operation, arguments),

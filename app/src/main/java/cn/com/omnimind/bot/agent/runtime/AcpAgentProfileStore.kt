@@ -71,13 +71,46 @@ internal data class AcpOfficialRuntime(
 
 internal const val DEEPSEEK_HARNESS_NPM_CHANNEL = "next"
 internal val DEEPSEEK_HARNESS_NPM_PACKAGE_NAMES = listOf(
+    // Install the complete official DSH CLI at runtime. The APK only carries
+    // the installer and ACP bridge; the full Harness remains user-managed in
+    // the terminal environment and provides `dsh plugin`/profile support.
+    "@deepseek-ai/dsh",
     "@deepseek-ai/dsh-acp-demo",
     "@deepseek-ai/dsh-llm-deepseek",
-    "@deepseek-ai/dsh-sandbox-local",
-    "@deepseek-ai/dsh-sandbox-policy",
+    "@deepseek-ai/dsh-llm-pi-ai",
     "@deepseek-ai/dsh-subprocess-local",
-    "@deepseek-ai/dsh-bash-sandbox",
-    "@deepseek-ai/dsh-user-approval"
+    "@deepseek-ai/dsh-user-approval",
+    "@deepseek-ai/dsh-mcp-client",
+    "@deepseek-ai/dsh-fs",
+    // Official mobile-safe filesystem stack. dsh-fs-sandbox is the
+    // in-process workspace fence; dsh-sandbox-policy owns the shared policy
+    // vocabulary and dsh-fs-observation-policy owns read-before-write/edit.
+    "@deepseek-ai/dsh-sandbox-policy",
+    "@deepseek-ai/dsh-fs-sandbox",
+    "@deepseek-ai/dsh-fs-observation-policy",
+    // Official ACP example composition: preserve the Harness capability
+    // surface instead of shipping a reduced host-owned tool loop.
+    "@deepseek-ai/dsh-token-meter",
+    "@deepseek-ai/dsh-compaction-basic",
+    "@deepseek-ai/dsh-session-projection",
+    "@deepseek-ai/dsh-subagent",
+    "@deepseek-ai/dsh-subagent-spawn-in-process",
+    "@deepseek-ai/dsh-subagent-fork-in-process",
+    "@deepseek-ai/dsh-tool-subagent-control",
+    "@deepseek-ai/dsh-tool-subagent-report",
+    "@deepseek-ai/dsh-tool-subagent",
+    "@deepseek-ai/dsh-workflow-worker-thread",
+    "@deepseek-ai/dsh-tool-workflow",
+    "@deepseek-ai/dsh-tool-ralph",
+    "@deepseek-ai/dsh-tool-todo",
+    "@deepseek-ai/dsh-repeat-tool-reminder",
+    "@deepseek-ai/dsh-tool-fs",
+    // Official Harness skill registry and filesystem-backed skill provider.
+    // These are DSH's native reusable-extension surface; they are not the
+    // app's private plugin-project protocol.
+    "@deepseek-ai/dsh-skill",
+    "@deepseek-ai/dsh-skill-filesystem",
+    "@deepseek-ai/dsh-tool-skill",
 )
 internal val DEEPSEEK_HARNESS_NPM_PACKAGE_SPECS =
     DEEPSEEK_HARNESS_NPM_PACKAGE_NAMES.map { packageName ->
@@ -118,8 +151,10 @@ internal val DEEPSEEK_HARNESS_NPM_INSTALL_COMMAND = """
       rm -rf "${'$'}hardlink_helper"
       return "${'$'}install_status"
     }
-    repair_deepseek_harness_node_pty
     install_deepseek_harness_packages
+    # npm may replace node-pty during the install above, so the native repair
+    # must run after package publication as well as on later health checks.
+    repair_deepseek_harness_node_pty
     $DEEPSEEK_HARNESS_NATIVE_HEALTH_COMMAND
 """.trimIndent()
 
@@ -137,6 +172,7 @@ internal class AcpAgentProfileStore(context: Context) {
 
     @Synchronized
     fun list(): List<AcpAgentProfile> {
+        migrateLegacyXiaowanAliases()
         val stored = readStoredProfiles()
             .mapNotNull(::normalize)
             .filterNot { it.id in RETIRED_AGENT_IDS }
@@ -175,6 +211,7 @@ internal class AcpAgentProfileStore(context: Context) {
     }
 
     fun agentIdForSession(sessionId: String): String? {
+        migrateLegacyXiaowanAliases()
         return sessionBindings()[sessionId.trim()]
             ?.takeIf(String::isNotBlank)
             ?.takeUnless { it in RETIRED_AGENT_IDS }
@@ -192,6 +229,7 @@ internal class AcpAgentProfileStore(context: Context) {
 
     fun agentIdForConversation(conversationId: Long): String? {
         if (conversationId <= 0L) return null
+        migrateLegacyXiaowanAliases()
         return conversationBindings()[conversationId.toString()]
             ?.takeIf(String::isNotBlank)
             ?.takeUnless { it in RETIRED_AGENT_IDS }
@@ -272,7 +310,9 @@ internal class AcpAgentProfileStore(context: Context) {
             .apply()
         clearHealth(normalizedId)
         if (preferences.getString(KEY_SELECTED_PROFILE_ID, null) == normalizedId) {
-            preferences.edit().putString(KEY_SELECTED_PROFILE_ID, DEFAULT_CODEX_AGENT_ID).apply()
+            // Xiaowan is the single built-in default entry.  Deleting a
+            // custom profile must not silently switch the user to Codex.
+            preferences.edit().putString(KEY_SELECTED_PROFILE_ID, XIAOWAN_AGENT_ID).apply()
         }
     }
 
@@ -303,6 +343,38 @@ internal class AcpAgentProfileStore(context: Context) {
             object : TypeToken<List<AcpAgentProfile>>() {}.type
         )
     }.getOrNull().orEmpty()
+
+    /**
+     * Older builds could persist the built-in Xiaowan command as a custom
+     * profile named "小万 Bot". Keep the official id as the only identity and
+     * migrate all persisted references to it during the first catalog read.
+     */
+    @Synchronized
+    private fun migrateLegacyXiaowanAliases() {
+        val stored = readStoredProfiles()
+        val aliases = stored.filter(::isLegacyXiaowanAlias)
+        if (aliases.isEmpty()) return
+        val aliasIds = aliases.mapTo(linkedSetOf()) { it.id }
+        writeProfiles(stored.filterNot { it.id in aliasIds })
+
+        val selectedId = preferences.getString(KEY_SELECTED_PROFILE_ID, null)
+        val sessionBindings = sessionBindings().mapValues { (_, agentId) ->
+            if (agentId in aliasIds) XIAOWAN_AGENT_ID else agentId
+        }
+        val conversationBindings = conversationBindings().mapValues { (_, agentId) ->
+            if (agentId in aliasIds) XIAOWAN_AGENT_ID else agentId
+        }
+        val health = readHealth().filterKeys { it !in aliasIds }
+        preferences.edit().apply {
+            if (selectedId in aliasIds) {
+                putString(KEY_SELECTED_PROFILE_ID, XIAOWAN_AGENT_ID)
+            }
+            putString(KEY_SESSION_BINDINGS, gson.toJson(sessionBindings))
+            putString(KEY_CONVERSATION_BINDINGS, gson.toJson(conversationBindings))
+            putString(KEY_HEALTH, gson.toJson(health))
+            apply()
+        }
+    }
 
     private fun writeProfiles(profiles: List<AcpAgentProfile>) {
         val persistable = profiles.filter { !it.builtIn || hasOfficialOverride(it) }
@@ -371,8 +443,16 @@ internal class AcpAgentProfileStore(context: Context) {
     companion object {
         const val DEFAULT_CODEX_AGENT_ID = "codex-acp"
         const val DEEPSEEK_HARNESS_AGENT_ID = "deepseek-harness-acp"
+        const val XIAOWAN_AGENT_ID = "xiaowan-acp"
 
         val OFFICIAL_AGENTS = listOf(
+            AcpAgentProfile(
+                id = XIAOWAN_AGENT_ID,
+                name = "小万",
+                description = "小万内置能力通过官方 ACP Agent 接口提供",
+                command = "omnibot-xiaowan-acp",
+                builtIn = true
+            ),
             AcpAgentProfile(
                 id = DEFAULT_CODEX_AGENT_ID,
                 name = "Codex",
@@ -404,26 +484,38 @@ internal class AcpAgentProfileStore(context: Context) {
                 builtIn = true
             )
         )
-        val DEFAULT_CODEX_AGENT = OFFICIAL_AGENTS.first()
+        val DEFAULT_CODEX_AGENT = OFFICIAL_AGENTS.first { it.id == DEFAULT_CODEX_AGENT_ID }
         private val OFFICIAL_AGENT_IDS = OFFICIAL_AGENTS.mapTo(linkedSetOf()) { it.id }
         private val RETIRED_AGENT_IDS = setOf("gemini-cli-acp")
         private val OFFICIAL_RUNTIMES = mapOf(
             DEFAULT_CODEX_AGENT_ID to AcpOfficialRuntime(
                 discoveryCommand = "codex",
-                managedAdapterPackage = "@agentclientprotocol/codex-acp@1.1.7"
+                managedAdapterPackage = "@openai/codex@latest",
+                managedAdapterPackages = listOf(
+                    "@openai/codex@latest",
+                    "@agentclientprotocol/codex-acp@1.1.7"
+                )
             ),
             "claude-code-acp" to AcpOfficialRuntime(
                 discoveryCommand = "claude",
-                managedAdapterPackage = "@agentclientprotocol/claude-agent-acp@0.61.0"
+                managedAdapterPackage = "@anthropic-ai/claude-code@latest",
+                managedAdapterPackages = listOf(
+                    "@anthropic-ai/claude-code@latest",
+                    "@agentclientprotocol/claude-agent-acp@0.61.0"
+                )
             ),
-            "opencode-acp" to AcpOfficialRuntime(discoveryCommand = "opencode"),
+            "opencode-acp" to AcpOfficialRuntime(
+                discoveryCommand = "opencode",
+                managedAdapterPackage = "opencode-ai@latest"
+            ),
             DEEPSEEK_HARNESS_AGENT_ID to AcpOfficialRuntime(
                 discoveryCommand = "node",
                 managedAdapterPackage = DEEPSEEK_HARNESS_NPM_PACKAGE_SPECS.first(),
                 managedAdapterPackages = DEEPSEEK_HARNESS_NPM_PACKAGE_SPECS,
                 requiresNativeBuildTools = true,
                 managedAdapterHealthCommand = DEEPSEEK_HARNESS_NATIVE_HEALTH_COMMAND
-            )
+            ),
+            XIAOWAN_AGENT_ID to AcpOfficialRuntime(discoveryCommand = "omnibot-xiaowan-acp")
         )
 
         fun officialRuntime(profile: AcpAgentProfile): AcpOfficialRuntime? {
@@ -436,6 +528,20 @@ internal class AcpAgentProfileStore(context: Context) {
                 return null
             }
             return OFFICIAL_RUNTIMES[profile.id]
+        }
+
+        internal fun isLegacyXiaowanAlias(profile: AcpAgentProfile): Boolean {
+            if (profile.id == XIAOWAN_AGENT_ID) return false
+            val normalizedName = profile.name
+                .trim()
+                .lowercase()
+                .replace(Regex("[\\s_-]+"), "")
+            return profile.id.equals("legacy-xiaowan-bot", ignoreCase = true) ||
+                profile.command.equals("omnibot-xiaowan-acp", ignoreCase = true) ||
+                profile.command.contains("xiaowan", ignoreCase = true) ||
+                normalizedName == "小万" ||
+                normalizedName == "小万bot" ||
+                normalizedName == "xiaowanbot"
         }
 
         private const val PREFERENCES_NAME = "acp_agent_profiles"

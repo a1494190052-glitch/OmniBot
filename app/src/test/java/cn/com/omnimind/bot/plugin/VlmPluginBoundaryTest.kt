@@ -7,7 +7,7 @@ import org.junit.Test
 
 class VlmPluginBoundaryTest {
     @Test
-    fun `build profiles keep required OmniFlow lifecycle in plugin host`() {
+    fun `build profiles keep opt in OmniFlow lifecycle in plugin host`() {
         val provider = projectSource(
             "app/src/main/java/cn/com/omnimind/bot/plugin/official/OmniVlmLiteProvider.kt",
         )
@@ -29,7 +29,8 @@ class VlmPluginBoundaryTest {
         assertFalse(provider.contains("OmniFlow.prepareAndStart(appContext)"))
         assertFalse(provider.contains("RuntimeBundlePrepareMode.INSTALL -> Unit"))
         assertTrue(provider.contains("OmniFlowPluginRuntime.enable(appContext)"))
-        assertTrue(provider.contains("McpServerManager.setEnabled(appContext, true)"))
+        assertTrue(provider.contains("MCP is started lazily"))
+        assertFalse(provider.contains("McpServerManager.setEnabled(appContext, true)"))
         assertFalse(provider.contains("finally"))
         assertFalse(provider.contains("vlm_task"))
         assertFalse(provider.contains("VlmToolHandler"))
@@ -39,7 +40,9 @@ class VlmPluginBoundaryTest {
         assertFalse(catalog.contains("\"name\": \"Android GUI\""))
         assertFalse(host.contains("DEFAULT_INSTALL_GUI_PLUGIN"))
         assertFalse(host.contains("DEFAULT_INSTALL_ALL_PLUGINS"))
-        assertTrue(catalog.contains("\"required\": true"))
+        assertTrue(host.contains("defaultEnabledPluginIds = setOf(OmniVlmLiteProvider.ID)"))
+        assertTrue(catalog.contains("\"required\": false"))
+        assertTrue(catalog.contains("\"installByDefault\": true"))
         assertTrue(appBuild.contains("prop(\"OMNIBOT_PROFILE\").ifBlank { \"main\" }"))
         assertTrue(appBuild.contains("omnibotProfile == \"investor\""))
         assertTrue(

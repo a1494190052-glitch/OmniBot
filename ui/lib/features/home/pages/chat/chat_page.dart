@@ -71,10 +71,7 @@ import 'package:ui/features/home/pages/agent/codex_remote_workspace_browser.dart
 import 'package:ui/widgets/chat_drawer_gesture_guard.dart';
 
 // 导入 Mixins
-import 'mixins/chat_message_handler.dart';
-import 'mixins/dispatch_stream_handler.dart';
-import 'mixins/agent_stream_handler.dart';
-import 'mixins/task_execution_handler.dart';
+import 'mixins/chat_dispatch_support.dart';
 import 'mixins/conversation_manager.dart';
 
 // 导入 Widgets
@@ -124,14 +121,14 @@ class ChatPage extends StatefulWidget {
 }
 
 abstract class _ChatPageStateBase extends State<ChatPage>
-    with
-        WidgetsBindingObserver,
-        ChatMessageHandler,
-        DispatchStreamHandler,
-        AgentStreamHandler,
-        TaskExecutionHandler,
-        ConversationManager
+    with WidgetsBindingObserver, ChatDispatchSupport, ConversationManager
     implements RouteAware {
+  void removeLatestLoadingIfExists() {
+    if (_messages.isNotEmpty && _messages.first.isLoading) {
+      setState(() => _messages.removeAt(0));
+    }
+  }
+
   // ===================== Controllers =====================
   final TextEditingController _messageController = TextEditingController();
   final ScrollController _normalMessageScrollController = ScrollController();
@@ -149,7 +146,13 @@ abstract class _ChatPageStateBase extends State<ChatPage>
   final GlobalKey<ChatInputAreaState> _chatInputAreaKey =
       GlobalKey<ChatInputAreaState>();
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
+  // These drawers are mutually exclusive subtrees. They must not share a
+  // GlobalKey, otherwise Flutter reparents one keyed subtree between two
+  // trees during layout changes and can invalidate inherited dependents.
+  final GlobalKey<HomeDrawerState> _embeddedDrawerKey =
+      GlobalKey<HomeDrawerState>();
   final GlobalKey<HomeDrawerState> _drawerKey = GlobalKey<HomeDrawerState>();
+  final GlobalKey _embeddedDrawerSearchFieldKey = GlobalKey();
   final GlobalKey _drawerSearchFieldKey = GlobalKey();
   final GlobalKey _browserOverlayKey = GlobalKey();
   final GlobalKey _slashCommandStripKey = GlobalKey();
@@ -181,6 +184,15 @@ abstract class _ChatPageStateBase extends State<ChatPage>
   SharedOpenDraftPayload? _stagedSharedOpenDraft;
   int? _stagedSharedOpenDraftExpiresAt;
   int _conversationTargetRequestId = 0;
+  // Conversation bootstrap restores the last target asynchronously. Keep the
+  // future so a send started from the first rendered frame cannot race that
+  // restore and get cleared by _resetLocalConversationState().
+  Future<void>? _conversationBootstrapFuture;
+  // A send can be triggered by both the keyboard submit callback and the
+  // composer button before the asynchronous conversation bootstrap returns.
+  // Keep this synchronous entry guard separate from isAiResponding: the
+  // latter is set only after the optimistic user message is inserted.
+  bool _sendMessageInFlight = false;
   final Set<String> _consumedInitialMessageRequests = <String>{};
 
   // OpenClaw 配置与开关
@@ -200,6 +212,7 @@ abstract class _ChatPageStateBase extends State<ChatPage>
   List<ModelProviderProfileSummary> _modelProviderProfiles = const [];
   Map<String, List<ProviderModelOption>> _modelOptionsByProfileId = const {};
   List<SceneCatalogItem> _sceneCatalog = const [];
+  int _chatModelCatalogRefreshSerial = 0;
   int _dispatchSceneModelSelectionSerial = 0;
   ConversationModelOverride? _conversationModelOverride;
   _ChatModelOverrideSelection? _pendingConversationModelOverride;
@@ -264,6 +277,9 @@ abstract class _ChatPageStateBase extends State<ChatPage>
   int? _activeRemoteCodexRuntimeId;
   String? _activeAgentThreadId;
   String? _activeAgentTurnId;
+  String? _normalAcpSessionId;
+  int? _normalAcpSessionConversationId;
+  String? _normalAcpTurnId;
   String? _activeAgentModelId;
   String? _activeAgentReasoningEffort;
   String? _activeAgentCollaborationMode;
@@ -275,6 +291,7 @@ abstract class _ChatPageStateBase extends State<ChatPage>
   String? _loadedAgentModelSourceKey;
   String? _loadingAgentModelSourceKey;
   int _agentModelListRequestId = 0;
+  bool _agentModelConfigSupported = false;
   List<String> _agentModelOptions = const <String>[];
   List<String> _agentReasoningEffortOptions = const <String>[];
   List<String> _agentCollaborationModes = const <String>[];
@@ -395,6 +412,10 @@ abstract class _ChatPageStateBase extends State<ChatPage>
     if (optimisticAgentId.isNotEmpty) {
       return optimisticAgentId;
     }
+    final targetAgentId = _resolvedThreadTarget?.agentId?.trim() ?? '';
+    if (targetAgentId.isNotEmpty) {
+      return targetAgentId;
+    }
     final boundAgentId = _conversationBoundAcpAgentId;
     if (boundAgentId != null) {
       return boundAgentId;
@@ -435,8 +456,30 @@ abstract class _ChatPageStateBase extends State<ChatPage>
 
   List<ChatAcpAgentModeOption> get _chatAcpAgentModeOptions {
     final profiles = _agentCatalog?.agents ?? const <AcpAgentProfile>[];
+    final hasXiaowan = profiles.any((profile) => profile.id == 'xiaowan-acp');
+    final orderedProfiles = profiles.toList(growable: false)
+      ..sort((left, right) {
+        final leftIsXiaowan = left.id == 'xiaowan-acp';
+        final rightIsXiaowan = right.id == 'xiaowan-acp';
+        if (leftIsXiaowan == rightIsXiaowan) {
+          return 0;
+        }
+        return leftIsXiaowan ? -1 : 1;
+      });
     final options = <ChatAcpAgentModeOption>[
-      for (final profile in profiles)
+      // Xiaowan is an in-process built-in ACP Agent. Keep its public entry
+      // available even while the asynchronous native catalog is refreshing;
+      // otherwise the UI falls back to the legacy OmniAi row and that row
+      // cannot carry the ACP profile action.
+      if (!hasXiaowan)
+        const ChatAcpAgentModeOption(
+          id: 'xiaowan-acp',
+          name: '小万',
+          enabled: true,
+          installed: true,
+          status: 'online',
+        ),
+      for (final profile in orderedProfiles)
         ChatAcpAgentModeOption(
           id: profile.id,
           name: profile.name,
@@ -551,7 +594,7 @@ abstract class _ChatPageStateBase extends State<ChatPage>
       runtime.isAiResponding ? '1' : '0',
       runtime.isContextCompressing ? '1' : '0',
       runtime.isCheckingExecutableTask ? '1' : '0',
-      runtime.currentDispatchTaskId ?? '',
+      runtime.currentDispatchTurnId ?? '',
       runtime.currentThinkingStage.toString(),
       runtime.isInputAreaVisible ? '1' : '0',
       runtime.isExecutingTask ? '1' : '0',
@@ -828,16 +871,16 @@ abstract class _ChatPageStateBase extends State<ChatPage>
     _modeState(_activeMode).isDeepThinking = value;
   }
 
-  String? get _currentDispatchTaskId =>
-      _activeRuntime?.currentDispatchTaskId ??
-      _modeState(_activeMode).currentDispatchTaskId;
-  set _currentDispatchTaskId(String? value) {
+  String? get _currentDispatchTurnId =>
+      _activeRuntime?.currentDispatchTurnId ??
+      _modeState(_activeMode).currentDispatchTurnId;
+  set _currentDispatchTurnId(String? value) {
     final runtime = _activeRuntime;
     if (runtime != null) {
-      runtime.currentDispatchTaskId = value;
+      runtime.currentDispatchTurnId = value;
       return;
     }
-    _modeState(_activeMode).currentDispatchTaskId = value;
+    _modeState(_activeMode).currentDispatchTurnId = value;
   }
 
   int get _currentThinkingStage =>
@@ -1112,17 +1155,18 @@ abstract class _ChatPageStateBase extends State<ChatPage>
   String? get _activeNormalChatModelId {
     final dispatchScene = _dispatchSceneCatalogItem;
     final effectiveModel = dispatchScene?.effectiveModel.trim() ?? '';
-    if (effectiveModel.isNotEmpty) {
+    if (dispatchScene?.effectiveProviderProfileId.trim().isNotEmpty == true &&
+        effectiveModel.isNotEmpty) {
       return effectiveModel;
-    }
-    final defaultModel = dispatchScene?.defaultModel.trim() ?? '';
-    if (defaultModel.isNotEmpty) {
-      return defaultModel;
     }
     return null;
   }
 
   bool get _hasSelectableNormalChatModels {
+    return _hasSelectableProviderModels;
+  }
+
+  bool get _hasSelectableProviderModels {
     return _modelProviderProfiles.any((profile) {
       if (!profile.configured) {
         return false;
@@ -1151,7 +1195,7 @@ abstract class _ChatPageStateBase extends State<ChatPage>
 
   // ===================== Mixin 接口实现 =====================
 
-  // ChatMessageHandler
+  // Chat dispatch state
   @override
   List<ChatMessageModel> get messages => _messages;
   @override
@@ -1160,7 +1204,7 @@ abstract class _ChatPageStateBase extends State<ChatPage>
   set isAiResponding(bool value) => _isAiResponding = value;
   @override
   Map<String, String> get currentAiMessages => _currentAiMessages;
-  // DispatchStreamHandler
+  // Agent stream state
   @override
   String get deepThinkingContent => _deepThinkingContent;
   @override
@@ -1170,15 +1214,15 @@ abstract class _ChatPageStateBase extends State<ChatPage>
   @override
   set isDeepThinking(bool value) => _isDeepThinking = value;
   @override
-  String? get currentDispatchTaskId => _currentDispatchTaskId;
+  String? get currentDispatchTurnId => _currentDispatchTurnId;
   @override
-  set currentDispatchTaskId(String? value) => _currentDispatchTaskId = value;
+  set currentDispatchTurnId(String? value) => _currentDispatchTurnId = value;
   @override
   int get currentThinkingStage => _currentThinkingStage;
   @override
   set currentThinkingStage(int value) => _currentThinkingStage = value;
 
-  // TaskExecutionHandler
+  // ChatDispatchSupport
   @override
   TextEditingController get messageController => _messageController;
   @override
@@ -1264,9 +1308,6 @@ abstract class _ChatPageStateBase extends State<ChatPage>
   }
 
   @override
-  Future<void> persistAgentConversation() => saveConversation();
-
-  @override
   void onConversationReset(ConversationMode mode) {
     _resetLocalConversationState(_pageModeForConversationMode(mode));
   }
@@ -1349,6 +1390,7 @@ abstract class _ChatPageStateBase extends State<ChatPage>
     // Reload the embedded drawer's conversation list so newly persisted
     // conversations appear immediately, matching phone-mode behaviour where
     // the drawer reloads every time it is opened.
+    _embeddedDrawerKey.currentState?.reloadConversations();
     _drawerKey.currentState?.reloadConversations();
   }
 
@@ -1359,44 +1401,19 @@ abstract class _ChatPageStateBase extends State<ChatPage>
   void updateThinkingCard(String taskID) => _updateThinkingCard(taskID);
 
   @override
-  void createThinkingCardForAgent(
-    String taskID, {
-    String? cardId,
-    String? thinkingContent,
-    bool? isLoading,
-    int? stage,
-    Map<String, dynamic>? streamMeta,
-  }) => _createThinkingCard(
-    taskID,
-    cardId: cardId,
-    thinkingContent: thinkingContent,
-    isLoading: isLoading,
-    stage: stage,
-    streamMeta: streamMeta,
-  );
+  void handleValidationError(String taskID, String debugMessage) {
+    handleAgentError(debugMessage);
+  }
 
   @override
-  void updateThinkingCardForAgent(
-    String taskID, {
-    String? cardId,
-    String? thinkingContent,
-    bool? isLoading,
-    int? stage,
-    Map<String, dynamic>? streamMeta,
-    bool lockCompleted = true,
-  }) => _updateThinkingCard(
-    taskID,
-    cardId: cardId,
-    thinkingContent: thinkingContent,
-    isLoading: isLoading,
-    stage: stage,
-    streamMeta: streamMeta,
-    lockCompleted: lockCompleted,
-  );
+  void resetDispatchState() {
+    _currentDispatchTurnId = null;
+    _deepThinkingContent = '';
+    _isDeepThinking = false;
+    clearAgentStreamSessionState();
+  }
 
-  @override
   void clearAgentStreamSessionState() {
-    super.clearAgentStreamSessionState();
     final conversationId = _currentConversationId;
     if (conversationId == null) return;
     _runtimeCoordinator.clearConversationRuntimeSession(
@@ -1405,7 +1422,36 @@ abstract class _ChatPageStateBase extends State<ChatPage>
     );
   }
 
-  @override
+  void handleAgentError(String error) {
+    final runtime = _runtimeForMode(_activeMode);
+    final taskId = runtime?.currentDispatchTurnId;
+    if (runtime == null || taskId == null || taskId.trim().isEmpty) {
+      return;
+    }
+    final messageId = '$taskId-error';
+    final message = ChatMessageModel(
+      id: messageId,
+      type: 1,
+      user: 2,
+      content: <String, dynamic>{'text': error, 'id': messageId},
+      isError: true,
+    );
+    final index = runtime.messages.indexWhere((item) => item.id == messageId);
+    if (index == -1) {
+      runtime.messages.insert(0, message);
+    } else {
+      runtime.messages[index] = message;
+    }
+    runtime.isAiResponding = false;
+    runtime.isCheckingExecutableTask = false;
+    runtime.isExecutingTask = false;
+    clearAgentStreamSessionState();
+    if (mounted) {
+      setState(() {});
+    }
+    unawaited(saveConversation());
+  }
+
   void interruptActiveToolCard({String? summary}) {
     final conversationId = _currentConversationId;
     if (conversationId == null) return;
@@ -1420,10 +1466,16 @@ abstract class _ChatPageStateBase extends State<ChatPage>
     String taskId,
     String cardId,
   ) async {
-    return AssistsMessageService.stopAgentToolCall(
-      taskId: taskId,
-      cardId: cardId,
+    final activeMode = _activeConversationMode;
+    final isNormalAcp =
+        activeMode == ChatPageMode.normal &&
+        activeConversationModeValue != ConversationMode.chatOnly;
+    final response = await AgentRuntimeService.cancelPrompt(
+      conversationId: _currentConversationId,
+      sessionId: isNormalAcp ? _normalAcpSessionId : _activeAgentThreadId,
+      promptId: isNormalAcp ? _normalAcpTurnId : _activeAgentTurnId,
     );
+    return response['cancelled'] == true || response['status'] == 'cancelled';
   }
 
   String _buildOpenClawSessionKey(int conversationId) {
@@ -1510,6 +1562,13 @@ abstract class _ChatPageStateBase extends State<ChatPage>
       _activeAgentTurnId = null;
     }
     if (mode == ChatPageMode.normal) {
+      // ACP sessions are bound to a conversation. Never carry the previous
+      // conversation's session id into the next prompt, otherwise the local
+      // runtime correctly reuses the explicit old session and the user sees
+      // repeated or cross-conversation context.
+      _normalAcpSessionId = null;
+      _normalAcpSessionConversationId = null;
+      _normalAcpTurnId = null;
       _conversationModelOverride = null;
       _pendingConversationModelOverride = null;
       _showConversationModelMentionChip = false;
@@ -1532,55 +1591,6 @@ abstract class _ChatPageStateBase extends State<ChatPage>
       for (final entry in source.entries)
         entry.key: List<ProviderModelOption>.from(entry.value),
     };
-    final knownProfileIds = profiles.map((item) => item.id).toSet();
-
-    void ensureOption(String profileId, String modelId, String ownedBy) {
-      final normalizedProfileId = profileId.trim();
-      final normalizedModelId = modelId.trim();
-      if (normalizedProfileId.isEmpty || normalizedModelId.isEmpty) {
-        return;
-      }
-      if (!knownProfileIds.contains(normalizedProfileId)) {
-        return;
-      }
-      final bucket = result.putIfAbsent(
-        normalizedProfileId,
-        () => <ProviderModelOption>[],
-      );
-      final exists = bucket.any((item) => item.id == normalizedModelId);
-      if (!exists) {
-        bucket.insert(
-          0,
-          ProviderModelOption(
-            id: normalizedModelId,
-            displayName: normalizedModelId,
-            ownedBy: ownedBy,
-          ),
-        );
-      }
-    }
-
-    if (overrideSelection != null) {
-      ensureOption(
-        overrideSelection.providerProfileId,
-        overrideSelection.modelId,
-        'override',
-      );
-    }
-
-    final dispatchScene = sceneCatalog.where(
-      (item) => item.sceneId == 'scene.dispatch.model',
-    );
-    if (dispatchScene.isNotEmpty) {
-      final scene = dispatchScene.first;
-      ensureOption(
-        scene.effectiveProviderProfileId,
-        scene.effectiveModel,
-        'scene',
-      );
-      ensureOption(scene.boundProviderProfileId, scene.overrideModel, 'scene');
-    }
-
     return result;
   }
 
@@ -1655,6 +1665,8 @@ abstract class _ChatPageStateBase extends State<ChatPage>
 
   Future<void> _selectAgentReasoningEffort(String effort);
 
+  Future<void> _selectAgentPermissionMode(AgentPermissionMode mode);
+
   Future<void> _activateAgentPlanMode({
     bool persistOnly = false,
     bool dismissPanel = true,
@@ -1698,6 +1710,8 @@ abstract class _ChatPageStateBase extends State<ChatPage>
   });
 
   Future<void> _interruptAgentTurn();
+
+  Future<AgentRuntimeStatus> _refreshConnectedAgentRuntimeStatus();
 
   Future<void> _loadOpenClawConfig();
 
@@ -1907,7 +1921,12 @@ abstract class _ChatPageStateBase extends State<ChatPage>
     String userMessageId,
   );
 
-  Future<bool> _tryAgentFlow(String aiMessageId, String userMessageId);
+  Future<bool> _tryAgentFlow(
+    String aiMessageId,
+    String userMessageId, {
+    String? promptText,
+    List<Map<String, dynamic>>? attachmentsOverride,
+  });
 
   Future<List<Map<String, dynamic>>> _latestUserAttachments();
 

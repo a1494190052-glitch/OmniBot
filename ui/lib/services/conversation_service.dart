@@ -147,6 +147,7 @@ class ConversationService {
     int? parentConversationId,
     ConversationMode? parentConversationMode,
     String? scheduledTaskId,
+    bool rethrowOnError = false,
   }) async {
     try {
       final result = await _assistCore
@@ -166,9 +167,11 @@ class ConversationService {
       return null;
     } on PlatformException catch (e) {
       debugPrint('创建对话失败: ${e.message}');
+      if (rethrowOnError) rethrow;
       return null;
     } catch (e) {
       debugPrint('创建对话失败: $e');
+      if (rethrowOnError) rethrow;
       return null;
     }
   }
@@ -366,9 +369,11 @@ class ConversationService {
   }) async {
     try {
       if (archived) {
-        await AgentRuntimeService.archiveThread(conversationId: conversationId);
+        await AgentRuntimeService.archiveSession(
+          conversationId: conversationId,
+        );
       } else {
-        await AgentRuntimeService.unarchiveThread(
+        await AgentRuntimeService.unarchiveSession(
           conversationId: conversationId,
         );
       }
@@ -448,7 +453,7 @@ class ConversationService {
   }) async {
     if (mode == ConversationMode.agent) {
       try {
-        await AgentRuntimeService.setThreadName(
+        await AgentRuntimeService.setSessionName(
           conversationId: conversationId,
           name: newTitle,
         );

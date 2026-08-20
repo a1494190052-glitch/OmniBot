@@ -329,7 +329,10 @@ object TaskRuntimeSettings {
             if (current?.isHeld == true) return
             val powerManager = context.getSystemService(Context.POWER_SERVICE) as PowerManager
             wakeLock = powerManager.newWakeLock(
-                PowerManager.SCREEN_DIM_WAKE_LOCK or PowerManager.ACQUIRE_CAUSES_WAKEUP,
+                // Keep only the CPU available for non-GUI Agent work. The
+                // Activity's FLAG_KEEP_SCREEN_ON remains the independent UI
+                // policy, and a user-initiated screen-off is never reversed.
+                PowerManager.PARTIAL_WAKE_LOCK,
                 "Omnibot:TaskRuntime"
             ).apply {
                 setReferenceCounted(false)
@@ -442,7 +445,12 @@ object TaskRuntimeSettings {
     }
 
     private fun normalizeConversationMode(mode: String?): String {
-        return mode?.trim()?.ifEmpty { "normal" } ?: "normal"
+        return when (mode?.trim()?.lowercase()) {
+            null, "", "normal" -> "normal"
+            "agent", "codex", "acp", "coding" -> "agent"
+            "chat", "chatonly", "chat-only" -> "chat_only"
+            else -> mode.trim().lowercase()
+        }
     }
 
     private fun sameConversationTarget(

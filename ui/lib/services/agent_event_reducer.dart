@@ -1,14 +1,12 @@
 import 'dart:convert';
 
-import 'package:ui/features/home/pages/chat/mixins/agent_stream_handler.dart';
+import 'package:ui/features/home/pages/chat/chat_page_models.dart';
 import 'package:ui/features/home/pages/chat/services/chat_conversation_runtime_coordinator.dart';
 import 'package:ui/models/chat_message_model.dart';
 import 'package:ui/services/agent_stream_meta.dart';
 import 'package:ui/services/agent_diff_parser.dart';
 import 'package:ui/services/agent_message_kinds.dart';
 import 'package:ui/services/agent_tool_call_parser.dart';
-
-part 'agent_event_reducer_legacy_codex.dart';
 
 class AgentReduceResult {
   const AgentReduceResult({
@@ -42,6 +40,37 @@ class AgentEventReducer {
     }
 
     final params = _eventParams(event: event, message: message, method: method);
+
+    // ACP agents speak the official session/update notification. The reducer
+    // projects that protocol object into UI state without introducing a
+    // second host-owned event protocol.
+    if (method == 'session/update') {
+      final update = _asStringMap(params['update']);
+      final sessionUpdate = _string(update?['sessionUpdate']);
+      final scopedUpdate = sessionUpdate != null &&
+          sessionUpdate != 'current_mode_update' &&
+          sessionUpdate != 'config_option_update';
+      final updateTurnId = _firstString([
+        event['turnId'],
+        event['turn_id'],
+        params['turnId'],
+        params['turn_id'],
+      ]);
+      if (scopedUpdate && updateTurnId == null) {
+        // ACP updates are streamed inside a prompt turn. Never manufacture a
+        // local owner from sessionId or messageId: that reattaches late data
+        // to the next prompt and recreates the duplicate-conversation bug.
+        return AgentReduceResult(handled: true, method: method);
+      }
+      // A turn-scoped ACP update without a turn id is not attributable. Do
+      // not guess from itemId or threadId: doing so is how late tool output
+      // gets attached to the next prompt.
+      final projected = _projectAcpSessionUpdate(event: event, params: params);
+      if (projected == null) {
+        return AgentReduceResult(handled: true, method: method);
+      }
+      return reduce(runtime: runtime, event: projected);
+    }
     final threadId = _firstString([
       event['threadId'],
       params['threadId'],
@@ -66,27 +95,72 @@ class AgentEventReducer {
       params['processHandle'],
       params['id'],
     ]);
+
+    // One conversation has one active turn. A delayed update from an older
+    // turn must never call _touchActiveTurn and replace the current owner of
+    // the shared streaming state. Terminal events are still allowed through
+    // so that the old turn's cards can be finalized independently.
+    final admittedAcpTurnId = runtime.activeAcpTurnId?.trim();
+    final currentTurnId =
+        admittedAcpTurnId ?? runtime.currentDispatchTurnId?.trim();
+    // Before ACP admits a prompt, currentDispatchTurnId is only the local
+    // request/render key. A real `turn/started` is the event that binds the
+    // official ACP turn id; rejecting it here leaves every following update
+    // looking stale and strands the UI in "processing" forever.
+    // ACP adapters are not required to emit a synthetic `turn/started`
+    // notification. OpenCode, for example, begins with `session/update` and
+    // carries the official turn id on that update. When the UI has exactly
+    // one local request placeholder and no official turn has been admitted,
+    // the first turn-scoped non-terminal event is therefore the admission
+    // boundary. Without this, all OpenCode deltas look stale and the later
+    // terminal event cannot clear the local "processing" state.
+    final isTurnAdmission =
+        method == 'turn/started' ||
+        (turnId != null &&
+            admittedAcpTurnId == null &&
+            runtime.isAiResponding &&
+            runtime.currentDispatchTurnId != null &&
+            runtime.currentDispatchTurnId != turnId &&
+            !_isTerminalAgentEventMethod(method));
+    if (isTurnAdmission && method != 'turn/started') {
+      runtime.activeAcpTurnId = turnId;
+    }
+    if (turnId != null &&
+        currentTurnId != null &&
+        currentTurnId.isNotEmpty &&
+        currentTurnId != turnId &&
+        !isTurnAdmission &&
+        !_isTerminalAgentEventMethod(method)) {
+      return AgentReduceResult(
+        handled: true,
+        method: method,
+        threadId: threadId,
+        turnId: turnId,
+      );
+    }
     final parentTaskId =
-        _firstString([turnId, itemId, threadId]) ??
+        _firstString([
+          turnId,
+          if (method.startsWith('item/')) runtime.activeAcpTurnId,
+          if (method.startsWith('item/')) runtime.currentDispatchTurnId,
+          itemId,
+          threadId,
+        ]) ??
         'agent-${runtime.conversationId}';
 
-    if (method == 'codex/event') {
-      final protocolResult = reduceLegacyCodexProtocolEvent(
-        this,
-        runtime: runtime,
-        event: event,
-        message: message,
-        params: params,
-        fallbackParentTaskId: parentTaskId,
-        fallbackThreadId: threadId,
-        fallbackTurnId: turnId,
+    if (turnId != null &&
+        method != 'turn/started' &&
+        runtime.completedAgentTurnIds.contains(turnId)) {
+      return AgentReduceResult(
+        handled: true,
+        method: method,
+        threadId: threadId,
+        turnId: turnId,
       );
-      if (protocolResult != null) {
-        return protocolResult;
-      }
     }
 
     if (method == 'turn/started') {
+      runtime.activeAcpTurnId = turnId ?? parentTaskId;
       _touchActiveTurn(runtime, parentTaskId);
       return AgentReduceResult(
         handled: true,
@@ -129,13 +203,24 @@ class AgentEventReducer {
           _statusIsInactive(status)) {
         final taskId =
             turnId ??
-            runtime.currentDispatchTaskId ??
-            runtime.lastAgentTaskId ??
+            runtime.currentDispatchTurnId ??
+            runtime.lastAgentTurnId ??
             parentTaskId;
+        final statusDetail = _turnFailureDetail(params);
+        final statusIsFailure =
+            status == 'failed' || status == 'systemerror' || status == 'error';
+        if (statusIsFailure && statusDetail != null) {
+          _recordTurnFailure(
+            runtime,
+            taskId: taskId,
+            detail: statusDetail,
+            params: params,
+          );
+        }
         _completeTurn(
           runtime,
           taskId,
-          appendCancelIfEmpty: _statusIsCancelled(status),
+          appendCancelIfEmpty: !statusIsFailure && _statusIsCancelled(status),
         );
       }
       return AgentReduceResult(
@@ -295,7 +380,9 @@ class AgentEventReducer {
           '';
       if (delta.isNotEmpty) {
         _finalizeActiveThinkingCardForTask(runtime, parentTaskId);
-        final entryId = '${itemId ?? parentTaskId}-agent-message';
+        final entryId =
+            _string(params['entryId']) ??
+            '${itemId ?? parentTaskId}-agent-message';
         _appendAssistantText(
           runtime,
           parentTaskId: parentTaskId,
@@ -320,7 +407,9 @@ class AgentEventReducer {
           _extractText(params['part']) ??
           '';
       if (text.isNotEmpty) {
-        final entryId = '${itemId ?? parentTaskId}-agent-thinking';
+        final entryId =
+            _string(params['entryId']) ??
+            '${itemId ?? parentTaskId}-agent-thinking';
         _appendThinking(
           runtime,
           parentTaskId: parentTaskId,
@@ -485,7 +574,8 @@ class AgentEventReducer {
       );
     }
 
-    if (method.endsWith('requestApproval')) {
+    if (method == 'session/request_permission' ||
+        method.endsWith('requestApproval')) {
       final requestId = message['id'];
       final cardId = '${requestId ?? itemId ?? parentTaskId}-agent-approval';
       _upsertAgentRequestCard(
@@ -635,35 +725,16 @@ class AgentEventReducer {
     }
 
     if (method == 'turn/failed') {
-      final detail =
-          _extractText(_asStringMap(params['error'])?['message']) ??
-          _extractText(params['message']) ??
-          _extractText(params['error']) ??
-          _safeJson(params);
-      final cardId = '$parentTaskId-agent-status';
-      _upsertToolCard(
+      _recordTurnFailure(
         runtime,
-        cardId: cardId,
         taskId: parentTaskId,
-        toolType: 'status',
-        title: method,
-        status: 'error',
-        summary: detail,
-        progress: detail,
-        raw: params,
-        streamMeta: _streamMeta(
-          runtime,
-          parentTaskId: parentTaskId,
-          entryId: cardId,
-          kind: 'error',
-          isFinal: true,
-        ),
-        touchTurn: false,
+        detail: _turnFailureDetail(params, fallbackToPayload: true)!,
+        params: params,
       );
       final completionTaskId =
           turnId ??
-          runtime.currentDispatchTaskId ??
-          runtime.lastAgentTaskId ??
+          runtime.currentDispatchTurnId ??
+          runtime.lastAgentTurnId ??
           parentTaskId;
       _completeTurn(runtime, completionTaskId, appendCancelIfEmpty: false);
       return AgentReduceResult(
@@ -741,8 +812,8 @@ class AgentEventReducer {
         ),
         touchTurn: false,
       );
-      // codex app-server emits the top-level `error` notification when a
-      // turn fails terminally (network, rate-limit, server error). When
+      // ACP emits the top-level `error` notification when a turn fails
+      // terminally (network, rate-limit, server error). When
       // willRetry=false the server will NOT follow up with turn/completed,
       // so we must finalize the turn ourselves — otherwise runtime stays
       // isAiResponding=true forever.
@@ -750,8 +821,8 @@ class AgentEventReducer {
       if (!willRetry) {
         final completionTaskId =
             turnId ??
-            runtime.currentDispatchTaskId ??
-            runtime.lastAgentTaskId ??
+            runtime.currentDispatchTurnId ??
+            runtime.lastAgentTurnId ??
             parentTaskId;
         _completeTurn(runtime, completionTaskId, appendCancelIfEmpty: false);
       }
@@ -775,9 +846,15 @@ class AgentEventReducer {
     ChatConversationRuntimeState runtime,
     String parentTaskId,
   ) {
+    runtime.completedAgentTurnIds.remove(parentTaskId);
     runtime.isAiResponding = true;
-    runtime.currentDispatchTaskId = parentTaskId;
-    runtime.lastAgentTaskId = parentTaskId;
+    if (runtime.activeAcpTurnId == null && parentTaskId.trim().isNotEmpty) {
+      // The first official session/update can be the admission boundary for
+      // adapters that do not expose a separate turn/started notification.
+      runtime.activeAcpTurnId = parentTaskId;
+    }
+    runtime.currentDispatchTurnId = parentTaskId;
+    runtime.lastAgentTurnId = parentTaskId;
     runtime.currentThinkingStage = ThinkingStage.thinking.value;
   }
 
@@ -1137,6 +1214,9 @@ class AgentEventReducer {
       );
     }
     runtime.lastAgentToolType = effectiveToolType;
+    if (effectiveToolType == 'terminal' || effectiveToolType == 'browser') {
+      runtime.chatIslandDisplayLayer = ChatIslandDisplayLayer.tools;
+    }
   }
 
   void _upsertAgentRequestCard(
@@ -1303,7 +1383,22 @@ class AgentEventReducer {
     required String delta,
     required bool hasLiveCache,
   }) {
-    if (delta.isEmpty || hasLiveCache || existingText.isEmpty) {
+    if (delta.isEmpty || existingText.isEmpty) {
+      runtime.agentReplayDeltaOffsets.remove(entryId);
+      return delta;
+    }
+    if (hasLiveCache) {
+      // Official DSH ACP emits committed assistant message blocks rather than
+      // token deltas. A reconnect/retry can deliver the same committed block
+      // again, or a provider can send a cumulative block for the same
+      // messageId. Keep the live stream idempotent without changing the ACP
+      // envelope or inventing a second event protocol.
+      if (delta == existingText) {
+        return null;
+      }
+      if (delta.startsWith(existingText)) {
+        return delta.substring(existingText.length);
+      }
       runtime.agentReplayDeltaOffsets.remove(entryId);
       return delta;
     }
@@ -1337,7 +1432,8 @@ class AgentEventReducer {
         _extractText(item['content']) ??
         '';
     if (itemType == 'agentMessage') {
-      final messageId = '${itemId ?? taskId}-agent-message';
+      final messageId =
+          _string(item['entryId']) ?? '${itemId ?? taskId}-agent-message';
       final existingText = _assistantTextForEntry(runtime, messageId);
       if (text.isNotEmpty && existingText.isEmpty) {
         _appendAssistantText(
@@ -1375,7 +1471,8 @@ class AgentEventReducer {
       // Keep the thinking card streaming until the entire turn ends.
       // _completeTurn() will call _finalizeThinkingCardsForTask() once
       // turn/completed (or thread/closed/inactive) arrives.
-      final cardId = '${itemId ?? taskId}-agent-thinking';
+      final cardId =
+          _string(item['entryId']) ?? '${itemId ?? taskId}-agent-thinking';
       _markThinkingItemCompleted(runtime, taskId, cardId);
       runtime.agentReplayDeltaOffsets.remove(cardId);
     }
@@ -1644,11 +1741,32 @@ class AgentEventReducer {
   void _completeTurn(
     ChatConversationRuntimeState runtime,
     String taskId, {
-    bool appendCancelIfEmpty = true,
+    // A normal ACP turn/completed is successful even when the turn only
+    // produced reasoning or tool activity. Cancellation is represented by an
+    // explicit cancelled thread status, not by an empty assistant message.
+    bool appendCancelIfEmpty = false,
   }) {
+    final wasActive = runtime.activeAgentTurnIds.contains(taskId);
+    final isCurrentTurn =
+        runtime.currentDispatchTurnId == taskId ||
+        runtime.lastAgentTurnId == taskId ||
+        runtime.activeAcpTurnId == taskId;
+    // A terminal notification for turn N can arrive after turn N+1 has
+    // already started. Finalize only N's cards/messages in that case; never
+    // clear the shared runtime flags or text cache owned by N+1.
+    if (!isCurrentTurn && runtime.currentDispatchTurnId != null) {
+      _markAssistantMessagesFinalForTask(runtime, taskId);
+      _finalizeThinkingCardsForTask(runtime, taskId);
+      _markToolCardsCompleteForTask(runtime, taskId);
+      runtime.currentThinkingMessages.remove(taskId);
+      if (wasActive) {
+        runtime.completedAgentTurnIds.add(taskId);
+      }
+      return;
+    }
     final isManualCancel =
         appendCancelIfEmpty &&
-        taskId == runtime.currentDispatchTaskId &&
+        taskId == runtime.currentDispatchTurnId &&
         !_hasVisibleAssistantTextForTask(runtime, taskId) &&
         !_hasCompletedAgentOutputForTask(runtime, taskId);
     if (isManualCancel) {
@@ -1665,9 +1783,15 @@ class AgentEventReducer {
     runtime.isAiResponding = false;
     runtime.isExecutingTask = false;
     runtime.isCheckingExecutableTask = false;
-    runtime.currentDispatchTaskId = null;
+    runtime.currentDispatchTurnId = null;
+    if (runtime.activeAcpTurnId == taskId) {
+      runtime.activeAcpTurnId = null;
+    }
+    runtime.lastAgentTurnId = null;
     runtime.currentAiMessages.clear();
     runtime.currentThinkingMessages.remove(taskId);
+    runtime.pendingAgentTextTaskId = null;
+    runtime.activeToolCardId = null;
     runtime.deepThinkingContent = '';
     runtime.isDeepThinking = false;
     runtime.activeThinkingCardId = null;
@@ -1677,6 +1801,57 @@ class AgentEventReducer {
       _finalizeThinkingCardsForTask(runtime, taskId);
     }
     _markToolCardsCompleteForTask(runtime, taskId);
+    if (wasActive) {
+      runtime.completedAgentTurnIds.add(taskId);
+      if (runtime.completedAgentTurnIds.length > 128) {
+        runtime.completedAgentTurnIds.remove(
+          runtime.completedAgentTurnIds.first,
+        );
+      }
+    }
+  }
+
+  void _recordTurnFailure(
+    ChatConversationRuntimeState runtime, {
+    required String taskId,
+    required String detail,
+    required Map<String, dynamic> params,
+  }) {
+    final cardId = '$taskId-agent-status';
+    _upsertToolCard(
+      runtime,
+      cardId: cardId,
+      taskId: taskId,
+      toolType: 'status',
+      title: 'turn/failed',
+      status: 'error',
+      summary: detail,
+      progress: detail,
+      raw: params,
+      streamMeta: _streamMeta(
+        runtime,
+        parentTaskId: taskId,
+        entryId: cardId,
+        kind: 'error',
+        isFinal: true,
+      ),
+      touchTurn: false,
+    );
+  }
+
+  String? _turnFailureDetail(
+    Map<String, dynamic> params, {
+    bool fallbackToPayload = false,
+  }) {
+    final detail =
+        _extractText(_asStringMap(params['error'])?['message']) ??
+        _extractText(params['message']) ??
+        _extractText(params['reason']) ??
+        _extractText(params['error']);
+    if (detail != null && detail.trim().isNotEmpty) {
+      return detail.trim();
+    }
+    return fallbackToPayload ? _safeJson(params) : null;
   }
 
   bool _hasVisibleAssistantTextForTask(
@@ -2564,6 +2739,153 @@ class _AgentQuestion {
   final String id;
   final String title;
   final String detail;
+}
+
+Map<String, dynamic>? _projectAcpSessionUpdate({
+  required Map<String, dynamic> event,
+  required Map<String, dynamic> params,
+}) {
+  final update = _asStringMap(params['update']);
+  if (update == null) return null;
+  final sessionId = _firstString([
+    params['sessionId'],
+    params['session_id'],
+    event['threadId'],
+  ]);
+  final turnId = _firstString([
+    event['turnId'],
+    event['turn_id'],
+    params['turnId'],
+    params['turn_id'],
+  ]);
+  final sessionUpdate = _string(update['sessionUpdate']);
+  if (sessionUpdate == null || sessionUpdate.isEmpty) return null;
+
+  Map<String, dynamic> projectedParams(Map<String, dynamic> values) {
+    return <String, dynamic>{
+      ...values,
+      if (sessionId != null) 'threadId': sessionId,
+      if (turnId != null) 'turnId': turnId,
+    };
+  }
+
+  switch (sessionUpdate) {
+    case 'agent_message_chunk':
+      return <String, dynamic>{
+        'method': 'item/agentMessage/delta',
+        'params': projectedParams(<String, dynamic>{
+          // DSH's official update may omit messageId. A turn-scoped fallback
+          // prevents the next turn from appending to the previous message.
+          'itemId': update['messageId'] ?? turnId,
+          if (update['entryId'] != null) 'entryId': update['entryId'],
+          'delta': _extractText(update['content']) ?? '',
+        }),
+      };
+    case 'agent_thought_chunk':
+      return <String, dynamic>{
+        'method': 'item/reasoning/delta',
+        'params': projectedParams(<String, dynamic>{
+          'itemId': update['messageId'] ?? turnId,
+          if (update['entryId'] != null) 'entryId': update['entryId'],
+          'delta': _extractText(update['content']) ?? '',
+        }),
+      };
+    case 'tool_call':
+      return <String, dynamic>{
+        'method': 'item/started',
+        'params': projectedParams(<String, dynamic>{
+          'item': _projectAcpToolCall(update),
+        }),
+      };
+    case 'tool_call_update':
+      final item = _projectAcpToolCall(update);
+      final status = _string(item['status'])?.toLowerCase();
+      return <String, dynamic>{
+        'method':
+            status == 'completed' || status == 'failed' || status == 'cancelled'
+            ? 'item/completed'
+            : 'item/updated',
+        'params': projectedParams(<String, dynamic>{'item': item}),
+      };
+    case 'plan':
+      final entries = (update['entries'] as List?)
+          ?.whereType<Map>()
+          .map((entry) => Map<String, dynamic>.from(entry))
+          .toList();
+      return <String, dynamic>{
+        'method': 'turn/plan/updated',
+        'params': projectedParams(<String, dynamic>{
+          'entries': entries ?? const <Map<String, dynamic>>[],
+          'plan':
+              entries
+                  ?.map(
+                    (entry) =>
+                        '- [${entry['status'] ?? 'pending'}] ${entry['content'] ?? ''}',
+                  )
+                  .join('\n') ??
+              '',
+        }),
+      };
+    case 'current_mode_update':
+      return <String, dynamic>{
+        'method': 'thread/settings/updated',
+        'params': projectedParams(<String, dynamic>{
+          'collaborationMode': update['currentModeId'],
+        }),
+      };
+    case 'config_option_update':
+      // Configuration metadata is consumed directly by the ACP-facing
+      // settings UI. It is not converted into an app-owned event name.
+      return null;
+    case 'session_info_update':
+      return <String, dynamic>{
+        'method': 'thread/name/updated',
+        'params': projectedParams(<String, dynamic>{'name': update['title']}),
+      };
+    default:
+      // Usage, commands, and future ACP update kinds do not affect the chat
+      // cards yet. They remain valid ACP notifications and are safely ignored
+      // by this ACP-to-UI projection.
+      return null;
+  }
+}
+
+bool _isTerminalAgentEventMethod(String method) {
+  return method == 'turn/completed' ||
+      method == 'turn/failed' ||
+      method == 'thread/closed' ||
+      method == 'error';
+}
+
+Map<String, dynamic> _projectAcpToolCall(Map<String, dynamic> update) {
+  return <String, dynamic>{
+    'id': update['toolCallId'],
+    'type': _acpToolUiType(_string(update['kind'])),
+    'title': update['title'],
+    'status': update['status'],
+    'content': update['content'],
+    'locations': update['locations'],
+    'rawInput': update['rawInput'],
+    'rawOutput': update['rawOutput'],
+  };
+}
+
+String _acpToolUiType(String? kind) {
+  switch (kind?.toLowerCase()) {
+    case 'execute':
+      return 'commandExecution';
+    case 'edit':
+    case 'delete':
+    case 'move':
+      return 'fileChange';
+    case 'search':
+    case 'fetch':
+      return 'webSearch';
+    case 'think':
+      return 'plan';
+    default:
+      return 'tool';
+  }
 }
 
 bool _isReasoningMethod(String method) {
