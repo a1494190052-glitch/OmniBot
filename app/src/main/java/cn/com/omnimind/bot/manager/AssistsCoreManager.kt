@@ -3091,7 +3091,7 @@ class AssistsCoreManager(private val context: Context) : OnMessagePushListener {
         workJob.launch {
             try {
                 if (OmniOfficialProvider.isOfficialProfile(profileId)) {
-                    val models = PlatformAiProvisioner.ensureReadyAndGetModels(capability)
+                    val models = PlatformAiProvisioner.refreshAndGetModels(capability)
                     withContext(Dispatchers.Main) {
                         result.success(models.map { it.toMap() })
                     }
