@@ -683,6 +683,52 @@ object AgentToolDefinitions {
         }
     }
 
+    val terminalChrootTool: JsonObject = buildJsonObject {
+        put("type", "function")
+        putJsonObject("function") {
+            put("name", "terminal_chroot")
+            put("displayName", "Chroot 执行")
+            put("toolType", "terminal")
+            put(
+                "description",
+                "在指定的 rootfs 目录内执行一次性非交互命令。优先使用手机真实 root（root 后端/Sui 提权后调用内核 chroot）；若未获得真实 root，则自动降级为内嵌 {{OMNIBOT_TERMINAL_DISTRIBUTION}} 环境内的 proot 模拟 chroot。适合在 Alpine/Debian/Ubuntu 等独立 rootfs 中执行隔离的命令行任务。"
+            )
+            put(
+                "postToolRule",
+                "terminal_chroot 应单独占据当前 tool_calls。rootfsPath 必须是已存在的 rootfs 目录绝对路径（可用 scripts/chroot-setup.sh 生成）；command 在 chroot 内执行，rootfs 内需包含 /bin/sh。若执行失败，可在下一轮基于 stdout/stderr/errorMessage 决定是否再次显式调用；不要在同一个 tool_calls 中串联其他结果依赖型工具。"
+            )
+            putJsonObject("parameters") {
+                put("type", "object")
+                putJsonObject("properties") {
+                    putJsonObject("rootfsPath") {
+                        put("type", "string")
+                        put("description", "rootfs 根目录的绝对路径（如 /workspace/rootfs/alpine 或 /data/local/tmp/rootfs）。目录内需包含可执行的 /bin/sh 及依赖库。")
+                    }
+                    putJsonObject("command") {
+                        put("type", "string")
+                        put("description", "要在 chroot 内执行的单次 shell 命令，必须非交互。")
+                    }
+                    putJsonObject("workingDirectory") {
+                        put("type", "string")
+                        put("description", "可选。chroot 内的工作目录（相对 rootfs），默认 /。")
+                    }
+                    putJsonObject("timeoutSeconds") {
+                        put("type", "integer")
+                        put("description", "可选。等待结果的超时时间，默认 60 秒，范围 5-300。")
+                    }
+                    putJsonObject("preferRealRoot") {
+                        put("type", "boolean")
+                        put("description", "可选。是否优先尝试真实 root（root 后端/Sui）执行内核 chroot，默认 true；设为 false 则始终使用 proot 模拟 chroot。")
+                    }
+                }
+                putJsonArray("required") {
+                    add("rootfsPath")
+                    add("command")
+                }
+            }
+        }
+    }
+
     fun androidPrivilegedActionTool(
         visibleActions: List<String>,
         backend: ShizukuBackend,
@@ -2207,6 +2253,7 @@ object AgentToolDefinitions {
         contextAppsQueryTool,
         vlmTaskTool,
         terminalExecuteTool,
+        terminalChrootTool,
         terminalSessionStartTool,
         terminalSessionExecTool,
         terminalSessionReadTool,

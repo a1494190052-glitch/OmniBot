@@ -10,9 +10,11 @@ import cn.com.omnimind.bot.agent.AgentWorkspaceManager
 import cn.com.omnimind.bot.agent.ToolExecutionResult
 import cn.com.omnimind.bot.terminal.EmbeddedTerminalRuntime
 import cn.com.omnimind.bot.terminal.EmbeddedTerminalSessionRegistry
+import cn.com.omnimind.bot.termux.RootShellUtil
 import cn.com.omnimind.bot.termux.TermuxCommandResult
 import cn.com.omnimind.bot.termux.TermuxCommandSpec
 import cn.com.omnimind.bot.termux.TermuxCommandRunner
+import cn.com.omnimind.baselib.shizuku.ShizukuCapabilityManager
 import com.ai.assistance.operit.terminal.TerminalManager
 import com.ai.assistance.operit.terminal.data.TerminalSessionData
 import com.ai.assistance.operit.terminal.provider.type.TerminalType
@@ -38,8 +40,8 @@ class TerminalToolHandler(
     private val scope: kotlinx.coroutines.CoroutineScope
 ) : ToolHandler {
     override val toolNames: Set<String> = setOf(
-        "terminal_execute", "bash", "terminal_session_start", "terminal_session_exec",
-        "terminal_session_read", "terminal_session_stop"
+        "terminal_execute", "bash", "terminal_chroot", "terminal_session_start",
+        "terminal_session_exec", "terminal_session_read", "terminal_session_stop"
     )
 
     private val terminalSessionRegistry = EmbeddedTerminalSessionRegistry(helper.context)
@@ -51,6 +53,14 @@ class TerminalToolHandler(
         val prootDistro: String?,
         val workingDirectory: String?,
         val timeoutSeconds: Int
+    )
+
+    data class ChrootExecuteArgs(
+        val rootfsPath: String,
+        val command: String,
+        val workingDirectory: String?,
+        val timeoutSeconds: Int,
+        val preferRealRoot: Boolean
     )
 
     data class TerminalSessionStartArgs(
@@ -98,6 +108,7 @@ class TerminalToolHandler(
     ): ToolExecutionResult {
         return when (toolCall.function.name) {
             "terminal_execute", "bash" -> executeTerminalTool(args, env.workspaceDescriptor, env.terminalEnvironment, callback, toolHandle)
+            "terminal_chroot" -> executeChrootTool(args, env.workspaceDescriptor, env.terminalEnvironment, callback, toolHandle)
             "terminal_session_start" -> executeTerminalSessionStart(args, env.workspaceDescriptor, env.terminalEnvironment, callback)
             "terminal_session_exec" -> executeTerminalSessionExec(args, env.workspaceDescriptor, env.terminalEnvironment, callback, toolHandle)
             "terminal_session_read" -> executeTerminalSessionRead(args, env.workspaceDescriptor, callback)
@@ -203,6 +214,233 @@ class TerminalToolHandler(
                 terminalStreamState = "error",
                 workspaceId = workspace.id
             )
+        }
+    }
+
+    private suspend fun executeChrootTool(
+        args: JsonObject,
+        workspace: AgentWorkspaceDescriptor,
+        terminalEnvironment: Map<String, String>,
+        callback: AgentCallback,
+        toolHandle: AgentToolExecutionHandle
+    ): ToolExecutionResult {
+        val toolName = "terminal_chroot"
+        return try {
+            helper.reportToolProgress(
+                callback,
+                toolName,
+                "正在 chroot 中执行命令",
+                mapOf(
+                    "summary" to "正在 chroot 中执行命令",
+                    "terminalStreamState" to "starting"
+                ),
+                toolHandle = toolHandle
+            )
+            val parsedArgs = parseChrootExecuteArgs(args)
+            val rootfsShellPath = workspaceManager.resolveShellPath(
+                parsedArgs.rootfsPath,
+                workspace,
+                allowRootDirectories = true
+            )
+            val useRealRoot = parsedArgs.preferRealRoot &&
+                RootShellUtil.isRealRootAvailable(helper.context)
+            if (useRealRoot) {
+                executeChrootRealRoot(
+                    parsedArgs = parsedArgs,
+                    rootfsShellPath = rootfsShellPath,
+                    workspace = workspace,
+                    toolName = toolName
+                )
+            } else {
+                executeChrootProotFallback(
+                    parsedArgs = parsedArgs,
+                    rootfsShellPath = rootfsShellPath,
+                    workspace = workspace,
+                    terminalEnvironment = terminalEnvironment,
+                    toolName = toolName,
+                    callback = callback,
+                    toolHandle = toolHandle
+                )
+            }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            val errorMessage = helper.localized(e.message ?: "chroot 命令执行失败")
+            ToolExecutionResult.TerminalResult(
+                toolName = toolName,
+                summaryText = errorMessage,
+                previewJson = helper.encodeLocalizedPayload(mapOf("error" to errorMessage)),
+                rawResultJson = helper.encodeLocalizedPayload(mapOf("error" to errorMessage)),
+                success = false,
+                timedOut = false,
+                terminalOutput = errorMessage,
+                terminalStreamState = "error",
+                workspaceId = workspace.id
+            )
+        }
+    }
+
+    /**
+     * 真实 root 路径：通过 Shizuku/Sui root 后端直接执行内核 chroot。
+     * rootfs 路径需映射为 Android 侧绝对路径。
+     */
+    private suspend fun executeChrootRealRoot(
+        parsedArgs: ChrootExecuteArgs,
+        rootfsShellPath: String,
+        workspace: AgentWorkspaceDescriptor,
+        toolName: String
+    ): ToolExecutionResult {
+        val rootfsAndroidPath = resolveAndroidRootfsPath(rootfsShellPath, workspace)
+        val chrootCommand = RootShellUtil.buildRealChrootCommand(
+            rootfsAndroidPath = rootfsAndroidPath,
+            command = parsedArgs.command,
+            workdir = parsedArgs.workingDirectory
+        )
+        val result = ShizukuCapabilityManager.get(helper.context).executeRawShell(
+            command = chrootCommand,
+            timeoutSeconds = parsedArgs.timeoutSeconds,
+            workingDirectory = workspace.androidCurrentCwd,
+            confirmed = true
+        )
+        if (result.requiresConfirmation && !result.success) {
+            return ToolExecutionResult.TerminalResult(
+                toolName = toolName,
+                summaryText = helper.localized("chroot 命令需要用户确认"),
+                previewJson = helper.encodeLocalizedPayload(
+                    mapOf(
+                        "requiresConfirmation" to true,
+                        "command" to chrootCommand,
+                        "message" to result.message
+                    )
+                ),
+                rawResultJson = helper.encodeLocalizedPayload(
+                    mapOf(
+                        "requiresConfirmation" to true,
+                        "command" to chrootCommand,
+                        "message" to result.message
+                    )
+                ),
+                success = false,
+                timedOut = false,
+                terminalOutput = result.message,
+                terminalStreamState = "confirming",
+                workspaceId = workspace.id
+            )
+        }
+        val output = result.output.ifBlank { result.stdout + result.stderr }
+        val payload = linkedMapOf<String, Any?>(
+            "mode" to "real_root",
+            "backend" to result.backend.name,
+            "command" to chrootCommand,
+            "rootfsPath" to rootfsAndroidPath,
+            "success" to result.success,
+            "exitCode" to result.exitCode,
+            "output" to output,
+            "errorMessage" to result.message
+        )
+        return ToolExecutionResult.TerminalResult(
+            toolName = toolName,
+            summaryText = helper.localized(
+                if (result.success) "chroot 命令执行成功（真实 root）" else "chroot 命令执行失败：${result.message}"
+            ),
+            previewJson = helper.encodeLocalizedPayload(payload),
+            rawResultJson = helper.encodeLocalizedPayload(payload),
+            success = result.success,
+            timedOut = false,
+            terminalOutput = output,
+            terminalStreamState = if (result.success) "completed" else "error",
+            workspaceId = workspace.id
+        )
+    }
+
+    /** proot 兜底路径：在既有内嵌 proot 环境内执行模拟 chroot。 */
+    private suspend fun executeChrootProotFallback(
+        parsedArgs: ChrootExecuteArgs,
+        rootfsShellPath: String,
+        workspace: AgentWorkspaceDescriptor,
+        terminalEnvironment: Map<String, String>,
+        toolName: String,
+        callback: AgentCallback,
+        toolHandle: AgentToolExecutionHandle
+    ): ToolExecutionResult {
+        var runningProcess: Process? = null
+        toolHandle.bindStopAction {
+            runCatching { runningProcess?.destroyForcibly() }
+        }
+        val chrootCommand = RootShellUtil.buildProotChrootCommand(
+            rootfsShellPath = rootfsShellPath,
+            command = parsedArgs.command,
+            workdir = parsedArgs.workingDirectory
+        )
+        val commandResult = TermuxCommandRunner.execute(
+            context = helper.context,
+            spec = TermuxCommandSpec(
+                command = chrootCommand,
+                executionMode = TermuxCommandSpec.EXECUTION_MODE_PROOT,
+                prootDistro = null,
+                workingDirectory = workspace.currentCwd,
+                timeoutSeconds = parsedArgs.timeoutSeconds,
+                environment = terminalEnvironment
+            ),
+            onProcessStarted = { process ->
+                runningProcess = process
+                if (toolHandle.isManualStopRequested()) {
+                    runCatching { process.destroyForcibly() }
+                }
+            },
+            onLiveUpdate = { update ->
+                helper.reportToolProgress(
+                    callback,
+                    toolName,
+                    if (update.outputDelta.isBlank()) {
+                        "正在 chroot 中执行命令"
+                    } else {
+                        "chroot 输出更新中"
+                    },
+                    mapOf<String, Any?>(
+                        "summary" to if (update.outputDelta.isBlank()) {
+                            "正在 chroot 中执行命令"
+                        } else {
+                            "chroot 输出更新中"
+                        },
+                        "terminalSessionId" to update.sessionId,
+                        "terminalOutputDelta" to update.outputDelta,
+                        "terminalStreamState" to update.streamState
+                    ),
+                    toolHandle = toolHandle
+                )
+            }
+        )
+        return buildTerminalToolResult(
+            toolName = toolName,
+            args = TerminalExecuteArgs(
+                command = chrootCommand,
+                executionMode = TermuxCommandSpec.EXECUTION_MODE_PROOT,
+                prootDistro = null,
+                workingDirectory = workspace.currentCwd,
+                timeoutSeconds = parsedArgs.timeoutSeconds
+            ),
+            result = commandResult,
+            workspace = workspace,
+            sourceTool = toolName
+        )
+    }
+
+    /** 把 proot 命名空间路径映射为 Android 侧绝对路径（供真实 root chroot 使用）。 */
+    private fun resolveAndroidRootfsPath(
+        shellPath: String,
+        workspace: AgentWorkspaceDescriptor
+    ): String {
+        val shellRoot = workspace.shellRootPath
+        val androidRoot = workspace.androidRootPath
+        return if (
+            shellRoot.isNotBlank() &&
+            androidRoot.isNotBlank() &&
+            shellPath.startsWith(shellRoot)
+        ) {
+            androidRoot + shellPath.removePrefix(shellRoot)
+        } else {
+            shellPath
         }
     }
 
@@ -996,6 +1234,25 @@ class TerminalToolHandler(
         val workingDirectory = args["workingDirectory"]?.jsonPrimitive?.contentOrNull?.trim()?.takeIf { it.isNotEmpty() }
         val timeoutSeconds = args["timeoutSeconds"]?.jsonPrimitive?.intOrNull?.coerceIn(5, 300) ?: TermuxCommandSpec.DEFAULT_TIMEOUT_SECONDS
         return TerminalExecuteArgs(command = command, executionMode = executionMode, prootDistro = prootDistro, workingDirectory = workingDirectory, timeoutSeconds = timeoutSeconds)
+    }
+
+    private fun parseChrootExecuteArgs(args: JsonObject): ChrootExecuteArgs {
+        val rootfsPath = args["rootfsPath"]?.jsonPrimitive?.content?.trim().orEmpty()
+        val command = args["command"]?.jsonPrimitive?.content?.trim().orEmpty()
+        require(rootfsPath.isNotEmpty()) { "terminal_chroot 缺少 rootfsPath" }
+        require(command.isNotEmpty()) { "terminal_chroot 缺少 command" }
+        val workingDirectory = args["workingDirectory"]?.jsonPrimitive?.contentOrNull?.trim()?.takeIf { it.isNotEmpty() }
+        val timeoutSeconds = args["timeoutSeconds"]?.jsonPrimitive?.intOrNull?.coerceIn(5, 300)
+            ?: TermuxCommandSpec.DEFAULT_TIMEOUT_SECONDS
+        val preferRealRoot = args["preferRealRoot"]?.jsonPrimitive?.contentOrNull
+            ?.toBooleanStrictOrNull() ?: true
+        return ChrootExecuteArgs(
+            rootfsPath = rootfsPath,
+            command = command,
+            workingDirectory = workingDirectory,
+            timeoutSeconds = timeoutSeconds,
+            preferRealRoot = preferRealRoot
+        )
     }
 
     private fun parseTerminalSessionStartArgs(args: JsonObject): TerminalSessionStartArgs {
