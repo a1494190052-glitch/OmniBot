@@ -605,7 +605,9 @@ mixin _ChatPageModelContextMixin on _ChatPageStateBase {
         onSelect: (selection) => unawaited(handle.dismiss(selection)),
       ),
     );
-    _conversationModelSelectorHandle = handle;
+    setState(() {
+      _conversationModelSelectorHandle = handle;
+    });
 
     try {
       final selected = await handle.future;
@@ -618,7 +620,13 @@ mixin _ChatPageModelContextMixin on _ChatPageStateBase {
       );
     } finally {
       if (_conversationModelSelectorHandle == handle) {
-        _conversationModelSelectorHandle = null;
+        if (mounted) {
+          setState(() {
+            _conversationModelSelectorHandle = null;
+          });
+        } else {
+          _conversationModelSelectorHandle = null;
+        }
       }
     }
   }
