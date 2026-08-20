@@ -89,50 +89,53 @@ class SettingsDetailSheet extends StatelessWidget {
         ],
       ],
     );
-    final sheet = SafeArea(
-      top: false,
-      child: LayoutBuilder(
-        builder: (context, constraints) {
-          final content = SingleChildScrollView(
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                if (headerAction == null)
-                  heading
-                else
-                  Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Expanded(child: heading),
-                      const SizedBox(width: 8),
-                      headerAction!,
-                    ],
-                  ),
-                const SizedBox(height: 12),
-                body,
-                if (actions.isNotEmpty) ...[
+    final sheet = SizedBox(
+      width: double.infinity,
+      child: SafeArea(
+        top: false,
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            final content = SingleChildScrollView(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  if (headerAction == null)
+                    heading
+                  else
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Expanded(child: heading),
+                        const SizedBox(width: 8),
+                        headerAction!,
+                      ],
+                    ),
                   const SizedBox(height: 12),
-                  Wrap(
-                    key: actionsKey,
-                    spacing: 4,
-                    runSpacing: 4,
-                    alignment: WrapAlignment.start,
-                    crossAxisAlignment: WrapCrossAlignment.center,
-                    children: actions,
-                  ),
+                  body,
+                  if (actions.isNotEmpty) ...[
+                    const SizedBox(height: 12),
+                    Wrap(
+                      key: actionsKey,
+                      spacing: 4,
+                      runSpacing: 4,
+                      alignment: WrapAlignment.start,
+                      crossAxisAlignment: WrapCrossAlignment.center,
+                      children: actions,
+                    ),
+                  ],
+                  if (footer != null) ...[const SizedBox(height: 8), footer!],
+                  const SizedBox(height: 8),
                 ],
-                if (footer != null) ...[const SizedBox(height: 8), footer!],
-                const SizedBox(height: 8),
-              ],
-            ),
-          );
-          if (!fillAvailableHeight || !constraints.hasBoundedHeight) {
-            return content;
-          }
-          return SizedBox(height: constraints.maxHeight, child: content);
-        },
+              ),
+            );
+            if (!fillAvailableHeight || !constraints.hasBoundedHeight) {
+              return content;
+            }
+            return SizedBox(height: constraints.maxHeight, child: content);
+          },
+        ),
       ),
     );
     if (!avoidKeyboard) return sheet;

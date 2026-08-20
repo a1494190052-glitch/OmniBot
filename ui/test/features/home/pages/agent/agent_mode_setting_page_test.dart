@@ -169,9 +169,10 @@ void main() {
     expect(find.text('Agent 检测成功'), findsOneWidget);
     expect(find.textContaining('prompt: true'), findsOneWidget);
     expect(find.textContaining('read'), findsOneWidget);
-    expect(find.text('完成'), findsOneWidget);
+    expect(find.text('完成'), findsNothing);
+    expect(tester.getSize(resultSheet).width, 640);
 
-    await tester.tap(find.text('完成'));
+    await tester.tapAt(const Offset(20, 20));
     await tester.pumpAndSettle();
     expect(resultSheet, findsNothing);
   });
