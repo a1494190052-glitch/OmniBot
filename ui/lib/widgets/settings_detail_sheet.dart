@@ -1,6 +1,30 @@
 import 'package:flutter/material.dart';
 import 'package:ui/theme/theme_context.dart';
 
+/// Presents a settings detail card using the app-wide bottom-sheet treatment.
+///
+/// Keeping the route configuration here ensures settings surfaces share the
+/// same background, dismissal behavior, and transition instead of rebuilding
+/// those details at every call site.
+Future<T?> showSettingsDetailSheet<T>({
+  required BuildContext context,
+  required WidgetBuilder builder,
+  bool isScrollControlled = false,
+  bool isDismissible = true,
+  bool enableDrag = true,
+  bool useRootNavigator = false,
+}) {
+  return showModalBottomSheet<T>(
+    context: context,
+    backgroundColor: context.omniPalette.surfacePrimary,
+    isScrollControlled: isScrollControlled,
+    isDismissible: isDismissible,
+    enableDrag: enableDrag,
+    useRootNavigator: useRootNavigator,
+    builder: builder,
+  );
+}
+
 ButtonStyle settingsDetailSheetActionStyle(
   BuildContext context, {
   Color? foregroundColor,
@@ -24,6 +48,7 @@ class SettingsDetailSheet extends StatelessWidget {
     this.headerAction,
     this.footer,
     this.fillAvailableHeight = false,
+    this.avoidKeyboard = false,
   });
 
   final String title;
@@ -34,6 +59,7 @@ class SettingsDetailSheet extends StatelessWidget {
   final Widget? headerAction;
   final Widget? footer;
   final bool fillAvailableHeight;
+  final bool avoidKeyboard;
 
   @override
   Widget build(BuildContext context) {
@@ -63,7 +89,7 @@ class SettingsDetailSheet extends StatelessWidget {
         ],
       ],
     );
-    return SafeArea(
+    final sheet = SafeArea(
       top: false,
       child: LayoutBuilder(
         builder: (context, constraints) {
@@ -108,6 +134,13 @@ class SettingsDetailSheet extends StatelessWidget {
           return SizedBox(height: constraints.maxHeight, child: content);
         },
       ),
+    );
+    if (!avoidKeyboard) return sheet;
+    return AnimatedPadding(
+      duration: const Duration(milliseconds: 180),
+      curve: Curves.easeOutCubic,
+      padding: EdgeInsets.only(bottom: MediaQuery.viewInsetsOf(context).bottom),
+      child: sheet,
     );
   }
 }
