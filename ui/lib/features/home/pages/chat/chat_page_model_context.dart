@@ -2,7 +2,10 @@ part of 'chat_page.dart';
 
 mixin _ChatPageModelContextMixin on _ChatPageStateBase {
   @override
-  Future<void> _loadNormalChatModelContext() async {
+  Future<void> _loadNormalChatModelContext() =>
+      _loadNormalChatModelContextInternal();
+
+  Future<void> _loadNormalChatModelContextInternal() async {
     try {
       final results = await Future.wait<dynamic>([
         ModelProviderConfigService.loadChatModelGroups(),
@@ -454,7 +457,22 @@ mixin _ChatPageModelContextMixin on _ChatPageStateBase {
         _openClawPanelExpanded = false;
       });
     }
-    if (!_hasSelectableNormalChatModels) {
+    // Refresh the scene binding and Provider catalog at the point of use.
+    // ACP runtime startup can finish before the Flutter scene snapshot does;
+    // relying on the initial snapshot can therefore show the Provider's
+    // default model even after a different Provider model was selected.
+    await _loadNormalChatModelContextInternal();
+    final selectorProfiles = _modelProviderProfiles;
+    final selectorOptions = _modelOptionsByProfileId;
+    final hasSelectorModels = selectorProfiles.any((profile) {
+      return profile.configured &&
+          (selectorOptions[profile.id] ?? const <ProviderModelOption>[])
+              .isNotEmpty;
+    });
+    if (!hasSelectorModels) {
+      return;
+    }
+    if (!mounted || !anchorContext.mounted) {
       return;
     }
     // 关键：不能调 `_inputFocusNode.unfocus()`，也不能用 `showGlassPopup`
@@ -492,8 +510,8 @@ mixin _ChatPageModelContextMixin on _ChatPageStateBase {
       builder: (handle) => ConversationModelSelectorContent(
         width: popupWidth,
         maxHeight: popupMaxHeight,
-        profiles: _modelProviderProfiles,
-        providerModelsByProfileId: _modelOptionsByProfileId,
+        profiles: selectorProfiles,
+        providerModelsByProfileId: selectorOptions,
         currentSelection: currentSelection,
         // 软键盘"确定"提交搜索时:先打开 popup 的"一次性键盘隐藏豁免",再 unfocus
         // —— 这样 IME 塌陷不会被 DismissOverlayOnKeyboardHide 当作"用户想关 popup"
