@@ -65,16 +65,21 @@ object RootShellUtil {
      * 构造真实 root chroot 命令（在 root 后端 shell 中直接执行，无需 su 前缀）：
      * `chroot <rootfs> /bin/sh -c "<cmd>"`。
      * rootfsAndroidPath 必须是 Android 侧绝对路径（如 /data/user/0/... 或 /data/local/tmp/...）。
+     *
+     * 注意：外层 shell 的 PATH 是 Android 的（/system/bin 等），chroot 后这些目录不存在，
+     * 因此在内层 sh 中显式注入 Alpine 默认 PATH，否则 cat/ls 等 busybox applet 会报 not found。
      */
     fun buildRealChrootCommand(
         rootfsAndroidPath: String,
         command: String,
         workdir: String?
     ): String {
-        val inner = if (workdir.isNullOrBlank()) {
-            command
-        } else {
-            "cd '${escapeSingleQuoted(workdir)}' && $command"
+        val inner = withChrootEnvironment {
+            if (workdir.isNullOrBlank()) {
+                command
+            } else {
+                "cd '${escapeSingleQuoted(workdir)}' && $command"
+            }
         }
         val escaped = escapeDoubleQuoted(inner)
         return "chroot $rootfsAndroidPath /bin/sh -c \"$escaped\""
@@ -86,13 +91,21 @@ object RootShellUtil {
         command: String,
         workdir: String?
     ): String {
-        val inner = if (workdir.isNullOrBlank()) {
-            command
-        } else {
-            "cd '${escapeSingleQuoted(workdir)}' && $command"
+        val inner = withChrootEnvironment {
+            if (workdir.isNullOrBlank()) {
+                command
+            } else {
+                "cd '${escapeSingleQuoted(workdir)}' && $command"
+            }
         }
         val escaped = escapeSingleQuoted(inner)
         return "chroot '$rootfsShellPath' /bin/sh -c '$escaped'"
+    }
+
+    /** 在 chroot 内执行的 shell 片段前缀：注入常见 Linux 发行版默认 PATH。 */
+    private inline fun withChrootEnvironment(block: () -> String): String {
+        val pathExport = "export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+        return "$pathExport; ${block()}"
     }
 
     /** 单引号包裹的 shell 片段转义（用于外层单引号内）。 */
