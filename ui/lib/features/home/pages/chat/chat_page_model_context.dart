@@ -2,7 +2,12 @@ part of 'chat_page.dart';
 
 mixin _ChatPageModelContextMixin on _ChatPageStateBase {
   @override
-  Future<void> _loadNormalChatModelContext() async {
+  Future<void> _loadNormalChatModelContext() =>
+      _loadNormalChatModelContextInternal();
+
+  Future<void> _loadNormalChatModelContextInternal({
+    bool awaitOfficialCatalogRefresh = false,
+  }) async {
     try {
       final results = await Future.wait<dynamic>([
         ModelProviderConfigService.loadChatModelGroups(refresh: false),
@@ -28,10 +33,26 @@ mixin _ChatPageModelContextMixin on _ChatPageStateBase {
           overrideSelection: _activeConversationModelOverrideSelection,
         );
       });
-      // The first frame must use the Provider cache. Refresh only the active
-      // Provider in the background so an 88-model /models response (or an
-      // unrelated configured Provider) cannot block the chat page.
-      unawaited(_refreshActiveChatProviderModelsInBackground());
+      final activeSelection = _activeDispatchSceneSelection;
+      final activeProfile = activeSelection == null
+          ? null
+          : profiles
+                .where(
+                  (profile) => profile.id == activeSelection.providerProfileId,
+                )
+                .firstOrNull;
+      final shouldAwaitOfficialRefresh =
+          awaitOfficialCatalogRefresh &&
+          activeProfile?.sourceType == 'omnibot_official';
+      // Normal page loading must paint from cache immediately. The explicit
+      // model picker is the exception: its small official catalog is awaited
+      // once so newly published display names appear on the first opening.
+      // Large/custom Provider catalogs still refresh in the background.
+      if (shouldAwaitOfficialRefresh) {
+        await _refreshActiveChatProviderModelsInBackground();
+      } else {
+        unawaited(_refreshActiveChatProviderModelsInBackground());
+      }
       await _syncInvalidNormalConversationOverrideIfNeeded();
       await _syncActiveNormalConversationPromptTokenThreshold();
     } catch (e) {
@@ -536,7 +557,9 @@ mixin _ChatPageModelContextMixin on _ChatPageStateBase {
     // ACP runtime startup can finish before the Flutter scene snapshot does;
     // relying on the initial snapshot can therefore show the Provider's
     // default model even after a different Provider model was selected.
-    await _loadNormalChatModelContext();
+    await _loadNormalChatModelContextInternal(
+      awaitOfficialCatalogRefresh: true,
+    );
     final refreshedSelection = _activeDispatchSceneSelection ?? activeSelection;
     final refreshedProviderModels = refreshedSelection == null
         ? const <ProviderModelOption>[]
@@ -553,6 +576,9 @@ mixin _ChatPageModelContextMixin on _ChatPageStateBase {
               .isNotEmpty;
     });
     if (!hasSelectorModels) {
+      return;
+    }
+    if (!mounted || !anchorContext.mounted) {
       return;
     }
     // 关键：不能调 `_inputFocusNode.unfocus()`，也不能用 `showGlassPopup`
