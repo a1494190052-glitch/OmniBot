@@ -154,13 +154,6 @@ class _AgentModeSettingPageState extends State<AgentModeSettingPage> {
                         _text('未知错误', 'Unknown error')),
             ),
           ),
-          actions: [
-            TextButton(
-              style: settingsDetailSheetActionStyle(sheetContext),
-              onPressed: () => Navigator.of(sheetContext).pop(),
-              child: Text(_text('完成', 'Done')),
-            ),
-          ],
         ),
       );
     } catch (error) {
