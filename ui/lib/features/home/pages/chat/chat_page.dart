@@ -169,6 +169,9 @@ abstract class _ChatPageStateBase extends State<ChatPage>
   /// 用 Overlay 直接挂面板可以彻底跳过这条路径。
   OverlayGlassPopupHandle<ConversationModelSelection>?
   _conversationModelSelectorHandle;
+  final ConversationModelSelectorOpeningGuard
+  _conversationModelSelectorOpeningGuard =
+      ConversationModelSelectorOpeningGuard();
 
   // ===================== State =====================
   bool _isPopupVisible = false;
