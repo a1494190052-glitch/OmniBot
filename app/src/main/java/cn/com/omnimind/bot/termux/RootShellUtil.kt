@@ -113,9 +113,14 @@ object RootShellUtil {
             "$workspaceAndroidRoot/rootfs",
             "$workspaceAndroidRoot/alpine"
         )
+        // 注意：rootfs 内的 /bin/sh 通常是指向 /bin/busybox 的绝对符号链接，而 busybox 只存在于
+        // chroot 内（Android 宿主侧无 /bin/busybox），因此 File.exists()/canExecute() 都会返回
+        // false（符号链接目标在宿主侧不存在）。改为检查 bin/ 目录存在且非空即可判定为 rootfs。
         return candidates.firstOrNull { path ->
-            val sh = File(path, "bin/sh")
-            sh.exists() && sh.canExecute()
+            val root = File(path)
+            val binDir = File(root, "bin")
+            root.isDirectory && binDir.isDirectory &&
+                (binDir.listFiles()?.isNotEmpty() == true)
         }
     }
 
