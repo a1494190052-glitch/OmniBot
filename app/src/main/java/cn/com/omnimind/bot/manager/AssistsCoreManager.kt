@@ -54,6 +54,7 @@ import cn.com.omnimind.bot.agent.AgentImageAttachmentSupport
 import cn.com.omnimind.bot.agent.AgentWorkspaceAttachmentSupport
 import cn.com.omnimind.bot.agent.AgentTextSanitizer
 import cn.com.omnimind.bot.agent.AgentModelOverride
+import cn.com.omnimind.bot.agent.AgentRuntimeErrorSupport
 import cn.com.omnimind.bot.agent.AgentConversationHistoryRepository
 import cn.com.omnimind.bot.agent.AgentConversationHistorySupport
 import cn.com.omnimind.bot.agent.AgentRuntimeContextRepository
@@ -1617,13 +1618,18 @@ class AssistsCoreManager(private val context: Context) {
         val useProvidedCustomHeaders = call.argument<Boolean>("useProvidedCustomHeaders") == true
         val profileId = call.argument<String>("profileId")?.trim()
         val capability = call.argument<String>("capability")?.trim()
+        val forceRefresh = call.argument<Boolean>("forceRefresh") == true
         val expectedProfileRevision = call.argument<Number>("expectedProfileRevision")?.toLong()
         val expectedProfileBaseUrl = call.argument<String>("expectedProfileBaseUrl")?.trim().orEmpty()
 
         workJob.launch {
             try {
                 if (OmniOfficialProvider.isOfficialProfile(profileId)) {
-                    val models = PlatformAiProvisioner.ensureReadyAndGetModels(capability)
+                    val models = if (forceRefresh) {
+                        PlatformAiProvisioner.refreshAndGetModels(capability)
+                    } else {
+                        PlatformAiProvisioner.ensureReadyAndGetModels(capability)
+                    }
                     withContext(Dispatchers.Main) {
                         result.success(models.map { it.toMap() })
                     }
@@ -1681,8 +1687,11 @@ class AssistsCoreManager(private val context: Context) {
                 withContext(Dispatchers.Main) {
                     result.error(
                         "FETCH_PROVIDER_MODELS_ERROR",
-                        "Provider model fetch failed.",
-                        null
+                        AgentRuntimeErrorSupport.userFacingMessage(e)
+                            ?: "Provider model fetch failed.",
+                        AgentRuntimeErrorSupport.failureKind(e)?.let {
+                            mapOf("failureKind" to it)
+                        }
                     )
                 }
             }

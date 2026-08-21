@@ -312,8 +312,6 @@ object OmniFlow {
     private val NON_INTERACTIVE_TOOL_NAMES = setOf(
         "list_functions",
         "get_function",
-        "create_function",
-        "update_function",
         "delete_function",
         "clear_functions",
         "list_run_logs",
@@ -469,11 +467,7 @@ class OmniFlowDeviceDispatcher internal constructor(
             ).also {
                 currentStateId = it.state.stateId
                 currentState = it.state
-            }.let {
-                it.state.asHostMap(includeImage = captureScreenshot) + mapOf(
-                    "stabilization" to it.stabilization,
-                )
-            }
+            }.state.asHostMap(includeImage = captureScreenshot)
         } finally {
             if (suppressOverlay) afterScreenshot()
         }
