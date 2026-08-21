@@ -153,14 +153,61 @@ class TerminalToolHandler(
                     ?.let { workspaceManager.resolveShellPath(it, workspace, allowRootDirectories = true) }
                     ?: workspace.currentCwd
             )
+            // 自动升级：真 root + 默认 rootfs 可用时，默认终端直接跑真实内核 chroot；
+            // 用户显式传 executionMode=chroot 时强制 chroot，显式 proot/termux 时强制 proot。
+            val requestedMode = parsedArgs.executionMode
+            val defaultRootfs = RootShellUtil.findDefaultRootfsAndroidPath(workspace.androidRootPath)
+            val realRootReady = RootShellUtil.isRealRootAvailable(helper.context)
+            val wantChroot = requestedMode == "chroot" ||
+                (requestedMode == "auto" && defaultRootfs != null && realRootReady)
+            if (wantChroot) {
+                helper.reportToolProgress(
+                    callback,
+                    toolName,
+                    "正在真实 chroot 环境中执行命令",
+                    mapOf(
+                        "summary" to "正在真实 chroot 环境中执行命令",
+                        "terminalStreamState" to "starting"
+                    ),
+                    toolHandle = toolHandle
+                )
+                val rootfs = defaultRootfs ?: return ToolExecutionResult.TerminalResult(
+                    toolName = toolName,
+                    summaryText = helper.localized("未找到可用的默认 rootfs，请先用 scripts/chroot-setup.sh 引导"),
+                    previewJson = helper.encodeLocalizedPayload(mapOf("error" to "default rootfs not found")),
+                    rawResultJson = helper.encodeLocalizedPayload(mapOf("error" to "default rootfs not found")),
+                    success = false,
+                    timedOut = false,
+                    terminalOutput = "default rootfs not found",
+                    terminalStreamState = "error",
+                    workspaceId = workspace.id
+                )
+                return executeTerminalToolRealChroot(
+                    parsedArgs = parsedArgs,
+                    rootfsAndroidPath = rootfs,
+                    workspace = workspace,
+                    toolName = toolName
+                )
+            }
+            // 回退 proot：auto/chroot 模式在此归一化为 proot（chroot 仅在真实 root 可用时走上面分支）。
+            val prootArgs = parsedArgs.copy(
+                executionMode = if (
+                    parsedArgs.executionMode == "auto" ||
+                    parsedArgs.executionMode == "chroot"
+                ) {
+                    TermuxCommandSpec.EXECUTION_MODE_PROOT
+                } else {
+                    parsedArgs.executionMode
+                }
+            )
             val commandResult = TermuxCommandRunner.execute(
                 context = helper.context,
                 spec = TermuxCommandSpec(
-                    command = parsedArgs.command,
-                    executionMode = parsedArgs.executionMode,
-                    prootDistro = parsedArgs.prootDistro,
-                    workingDirectory = parsedArgs.workingDirectory,
-                    timeoutSeconds = parsedArgs.timeoutSeconds,
+                    command = prootArgs.command,
+                    executionMode = prootArgs.executionMode,
+                    prootDistro = prootArgs.prootDistro,
+                    workingDirectory = prootArgs.workingDirectory,
+                    timeoutSeconds = prootArgs.timeoutSeconds,
                     environment = terminalEnvironment
                 ),
                 onProcessStarted = { process ->
@@ -194,7 +241,7 @@ class TerminalToolHandler(
             )
             buildTerminalToolResult(
                 toolName = toolName,
-                args = parsedArgs,
+                args = prootArgs,
                 result = commandResult,
                 workspace = workspace,
                 sourceTool = toolName
@@ -215,6 +262,80 @@ class TerminalToolHandler(
                 workspaceId = workspace.id
             )
         }
+    }
+
+    /**
+     * 默认终端的真实 chroot 路径：把 workspace bind mount 进 rootfs 的 /workspace，
+     * 再通过 root 后端执行内核 chroot，保证 /workspace 可见且 cwd 语义一致。
+     */
+    private suspend fun executeTerminalToolRealChroot(
+        parsedArgs: TerminalExecuteArgs,
+        rootfsAndroidPath: String,
+        workspace: AgentWorkspaceDescriptor,
+        toolName: String
+    ): ToolExecutionResult {
+        val workspaceAndroidRoot = workspace.androidRootPath
+        val chrootCommand = RootShellUtil.buildWorkspaceChrootCommand(
+            rootfsAndroidPath = rootfsAndroidPath,
+            workspaceAndroidPath = workspaceAndroidRoot,
+            command = parsedArgs.command,
+            workdir = parsedArgs.workingDirectory
+        )
+        val result = ShizukuCapabilityManager.get(helper.context).executeRawShell(
+            command = chrootCommand,
+            timeoutSeconds = parsedArgs.timeoutSeconds,
+            workingDirectory = workspace.androidCurrentCwd,
+            confirmed = true
+        )
+        if (result.requiresConfirmation && !result.success) {
+            return ToolExecutionResult.TerminalResult(
+                toolName = toolName,
+                summaryText = helper.localized("终端命令需要用户确认"),
+                previewJson = helper.encodeLocalizedPayload(
+                    mapOf(
+                        "requiresConfirmation" to true,
+                        "command" to chrootCommand,
+                        "message" to result.message
+                    )
+                ),
+                rawResultJson = helper.encodeLocalizedPayload(
+                    mapOf(
+                        "requiresConfirmation" to true,
+                        "command" to chrootCommand,
+                        "message" to result.message
+                    )
+                ),
+                success = false,
+                timedOut = false,
+                terminalOutput = result.message,
+                terminalStreamState = "confirming",
+                workspaceId = workspace.id
+            )
+        }
+        val output = result.output.ifBlank { result.stdout + result.stderr }
+        val payload = linkedMapOf<String, Any?>(
+            "mode" to "real_root",
+            "backend" to result.backend.name,
+            "rootfsPath" to rootfsAndroidPath,
+            "command" to chrootCommand,
+            "success" to result.success,
+            "exitCode" to result.exitCode,
+            "output" to output,
+            "errorMessage" to result.message
+        )
+        return ToolExecutionResult.TerminalResult(
+            toolName = toolName,
+            summaryText = helper.localized(
+                if (result.success) "终端命令执行成功（真实 chroot）" else "终端命令执行失败：${result.message}"
+            ),
+            previewJson = helper.encodeLocalizedPayload(payload),
+            rawResultJson = helper.encodeLocalizedPayload(payload),
+            success = result.success,
+            timedOut = false,
+            terminalOutput = output,
+            terminalStreamState = if (result.success) "completed" else "error",
+            workspaceId = workspace.id
+        )
     }
 
     private suspend fun executeChrootTool(
@@ -1225,11 +1346,17 @@ class TerminalToolHandler(
         require(command.isNotEmpty()) { "terminal_execute 缺少 command" }
         val requestedMode = args["executionMode"]?.jsonPrimitive?.contentOrNull?.trim()?.lowercase()?.takeIf { it.isNotEmpty() }
         if (requestedMode != null) {
-            require(requestedMode == TermuxCommandSpec.EXECUTION_MODE_TERMUX || requestedMode == TermuxCommandSpec.EXECUTION_MODE_PROOT) {
-                "executionMode 仅支持 termux 或 proot"
+            require(
+                requestedMode == TermuxCommandSpec.EXECUTION_MODE_TERMUX ||
+                    requestedMode == TermuxCommandSpec.EXECUTION_MODE_PROOT ||
+                    requestedMode == "chroot" ||
+                    requestedMode == "auto"
+            ) {
+                "executionMode 仅支持 termux、proot、chroot 或 auto"
             }
         }
-        val executionMode = TermuxCommandSpec.EXECUTION_MODE_PROOT
+        // 默认 auto：有真 root + 默认 rootfs 时自动升级为真实 chroot，否则回退 proot。
+        val executionMode = requestedMode ?: "auto"
         val prootDistro = helper.terminalDistribution.id
         val workingDirectory = args["workingDirectory"]?.jsonPrimitive?.contentOrNull?.trim()?.takeIf { it.isNotEmpty() }
         val timeoutSeconds = args["timeoutSeconds"]?.jsonPrimitive?.intOrNull?.coerceIn(5, 300) ?: TermuxCommandSpec.DEFAULT_TIMEOUT_SECONDS

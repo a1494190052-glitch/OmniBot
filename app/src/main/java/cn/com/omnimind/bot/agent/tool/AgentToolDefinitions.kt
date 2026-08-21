@@ -642,11 +642,11 @@ object AgentToolDefinitions {
             put("toolType", "terminal")
             put(
                 "description",
-                "通过应用内置的 {{OMNIBOT_TERMINAL_DISTRIBUTION}}（proot）环境执行一次性的非交互命令。这是默认首选的 {{OMNIBOT_TERMINAL_DISTRIBUTION}} 工具，适合文件处理、脚本、网络诊断、git、python、包管理等绝大多数 CLI 任务；不用于手机界面操作，也不用于交互式 TUI。只有明确需要跨多轮保留 cwd、环境或后台进程时，才改用 terminal_session_*。"
+                "执行一次性的非交互命令。默认（executionMode=auto）优先使用手机真实 root 在内核 chroot（默认 rootfs，如 workspace/rootfs/alpine）中执行，并把 workspace 映射到 chroot 内 /workspace；若没有真实 root 或默认 rootfs，则自动回退为应用内置的 {{OMNIBOT_TERMINAL_DISTRIBUTION}}（proot）环境。适合文件处理、脚本、网络诊断、git、python、包管理等绝大多数 CLI 任务；不用于手机界面操作，也不用于交互式 TUI。只有明确需要跨多轮保留 cwd、环境或后台进程时，才改用 terminal_session_*。"
             )
             put(
                 "postToolRule",
-                "terminal_execute 应单独占据当前 tool_calls。该工具会固定在 {{OMNIBOT_TERMINAL_DISTRIBUTION}} 中以 executionMode=proot（prootDistro={{OMNIBOT_TERMINAL_DISTRIBUTION_ID}}）执行，传入其他 executionMode 或 distro 会被忽略。若执行失败，可在下一轮基于 stdout/stderr/errorMessage 自行决定是否再次显式调用 terminal_execute；不要在同一个 tool_calls 中串联其他结果依赖型工具。"
+                "terminal_execute 应单独占据当前 tool_calls。executionMode 支持 auto（默认，真 root+rootfs 时自动真实 chroot）、chroot（强制真实 chroot）、proot/termux（强制 {{OMNIBOT_TERMINAL_DISTRIBUTION}} 内嵌环境）。若执行失败，可在下一轮基于 stdout/stderr/errorMessage 自行决定是否再次显式调用 terminal_execute；不要在同一个 tool_calls 中串联其他结果依赖型工具。"
             )
             putJsonObject("parameters") {
                 put("type", "object")
@@ -657,8 +657,10 @@ object AgentToolDefinitions {
                     }
                     putJsonObject("executionMode") {
                         put("type", "string")
-                        put("description", "可选。兼容字段，当前固定在 proot {{OMNIBOT_TERMINAL_DISTRIBUTION}} 执行，传入 termux 也会被自动忽略。")
+                        put("description", "可选。auto（默认）：真 root + 默认 rootfs 存在时自动使用真实内核 chroot，否则回退 proot；chroot：强制真实内核 chroot；proot/termux：强制使用内嵌 {{OMNIBOT_TERMINAL_DISTRIBUTION}} 环境。")
                         putJsonArray("enum") {
+                            add("auto")
+                            add("chroot")
                             add("proot")
                             add("termux")
                         }

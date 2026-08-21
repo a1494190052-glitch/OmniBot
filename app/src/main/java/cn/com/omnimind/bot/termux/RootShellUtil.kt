@@ -102,6 +102,61 @@ object RootShellUtil {
         return "chroot '$rootfsShellPath' /bin/sh -c '$escaped'"
     }
 
+    /**
+     * 探测默认 rootfs（Android 侧绝对路径）：优先 workspace 下 rootfs/alpine，
+     * 其次 rootfs/debian、rootfs、workspace/alpine。rootfs 内需包含可执行的 /bin/sh。
+     */
+    fun findDefaultRootfsAndroidPath(workspaceAndroidRoot: String): String? {
+        val candidates = listOf(
+            "$workspaceAndroidRoot/rootfs/alpine",
+            "$workspaceAndroidRoot/rootfs/debian",
+            "$workspaceAndroidRoot/rootfs",
+            "$workspaceAndroidRoot/alpine"
+        )
+        return candidates.firstOrNull { path ->
+            val sh = File(path, "bin/sh")
+            sh.exists() && sh.canExecute()
+        }
+    }
+
+    /**
+     * 构造默认终端使用的真实 chroot 命令：先把 Android workspace bind mount 到
+     * rootfs 内的 /workspace（保证 chroot 内 /workspace 与 Agent workspace 一致），
+     * 再执行内核 chroot。命令结束后卸载 bind 挂载点。
+     *
+     * 由于 workspace 被 bind 到 rootfs 的 /workspace，chroot 内的 cwd 语义与
+     * proot 命名空间一致（/workspace 即 workspace 根），因此 workdir 直接使用
+     * shell 侧路径即可。
+     */
+    fun buildWorkspaceChrootCommand(
+        rootfsAndroidPath: String,
+        workspaceAndroidPath: String,
+        command: String,
+        workdir: String?
+    ): String {
+        val workspaceMount = "$rootfsAndroidPath/workspace"
+        val inner = withChrootEnvironment {
+            if (workdir.isNullOrBlank()) {
+                command
+            } else {
+                "cd '${escapeSingleQuoted(workdir)}' && $command"
+            }
+        }
+        val escaped = escapeDoubleQuoted(inner)
+        val qRootfs = escapeSingleQuoted(rootfsAndroidPath)
+        val qWorkspace = escapeSingleQuoted(workspaceAndroidPath)
+        val qMount = escapeSingleQuoted(workspaceMount)
+        return (
+            "mkdir -p '$qRootfs/workspace' 2>/dev/null || true; " +
+                "umount '$qMount' 2>/dev/null || true; " +
+                "mount --bind '$qWorkspace' '$qMount' 2>/dev/null || true; " +
+                "chroot '$qRootfs' /bin/sh -c \"$escaped\"; " +
+                "rc=\$?; " +
+                "umount '$qMount' 2>/dev/null || true; " +
+                "exit \$rc"
+            )
+    }
+
     /** 在 chroot 内执行的 shell 片段前缀：注入常见 Linux 发行版默认 PATH。 */
     private inline fun withChrootEnvironment(block: () -> String): String {
         val pathExport = "export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
