@@ -78,7 +78,7 @@ jobs:
 
       - name: Generate Android host project
         working-directory: ui
-        run: flutter create --platforms android .
+        run: flutter create .
 
       - name: Generate release keystore
         run: |
