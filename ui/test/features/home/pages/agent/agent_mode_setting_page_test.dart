@@ -40,7 +40,7 @@ void main() {
               _agent(
                 'deepseek-harness-acp',
                 'DeepSeek Harness',
-                'dsh-acp-demo',
+                'dsh-acp',
                 'unchecked',
                 managedAdapter: true,
                 lastCheckError:
@@ -91,7 +91,7 @@ void main() {
     expect(find.byType(PopupMenuButton<String>), findsNothing);
     expect(find.text('初始化检测'), findsNothing);
     expect(find.text('重新检测'), findsNWidgets(2));
-    expect(find.text('准备并初始化'), findsOneWidget);
+    expect(find.text('安装官方 Harness'), findsOneWidget);
     expect(find.text('配置'), findsNWidgets(3));
     expect(find.text('安装'), findsOneWidget);
     // 3 Agent 配置入口 + 1 安装入口 + 1 远程 PC Bridge 入口。

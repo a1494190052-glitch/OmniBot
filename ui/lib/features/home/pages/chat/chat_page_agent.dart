@@ -6,7 +6,6 @@ const String _kAgentCollaborationModePreferenceKey = 'collaboration_mode';
 const String _kAgentPreferenceStoragePrefix = 'chat_agent_command_preference';
 const String _kLegacyAgentPreferenceStoragePrefix =
     'chat_codex_command_preference';
-const String _kDeepSeekHarnessAgentId = 'deepseek-harness-acp';
 const Duration _remoteCodexExternalActiveGrace = Duration(seconds: 6);
 const List<String> _kAgentModelListResponseKeys = <String>[
   'models',
@@ -37,8 +36,8 @@ mixin _ChatPageAgentMixin on _ChatPageStateBase {
       return false;
     }
     // Every local ACP Agent consumes the app's configured Provider catalog.
-    // The Harness is an execution runtime, not a model authority. Keeping an
-    // allow-list here caused newly installed Harnesses (and legacy DSH IDs)
+    // The Harness is an execution runtime, not a model authority. An allow-list
+    // here caused newly installed Harnesses (and legacy IDs)
     // to fall back to their own one-model catalog.
     return true;
   }
@@ -57,9 +56,7 @@ mixin _ChatPageAgentMixin on _ChatPageStateBase {
             modelId: binding.modelId,
           );
         }
-      } catch (_) {
-        // The normal chat context may still be loading.
-      }
+      } catch (_) {}
     }
     final resolvedSelection = selection;
     if (resolvedSelection == null) return const <String>[];
@@ -141,6 +138,21 @@ mixin _ChatPageAgentMixin on _ChatPageStateBase {
     AgentRuntimeStatus status;
     try {
       status = await AgentRuntimeService.status();
+      if (!status.ready && !status.remoteEnabled) {
+        final catalog = await AgentRuntimeService.listAgents();
+        final selected = catalog.selectedAgent;
+        if (selected?.managedAdapter == true) {
+          final prepared = await AgentRuntimeService.testAgent(selected!.id);
+          if (prepared['ok'] == true) {
+            status = await AgentRuntimeService.status();
+          } else {
+            throw StateError(
+              prepared['error']?.toString() ??
+                  'Failed to prepare the selected ACP Agent.',
+            );
+          }
+        }
+      }
       if (status.ready && !status.connected) {
         status = await AgentRuntimeService.connect();
         unawaited(AgentRuntimeService.listSessions());
@@ -169,8 +181,12 @@ mixin _ChatPageAgentMixin on _ChatPageStateBase {
       }
       _showSnackBar(
         LegacyTextLocalizer.isEnglish
-            ? 'The selected ACP Agent is unavailable'
-            : '所选 ACP Agent 当前不可用',
+            ? (status.error?.trim().isNotEmpty == true
+                  ? status.error!.trim()
+                  : 'The selected ACP Agent is unavailable')
+            : (status.error?.trim().isNotEmpty == true
+                  ? status.error!.trim()
+                  : '所选 ACP Agent 当前不可用'),
       );
       GoRouterManager.push('/home/agent_mode_setting');
       return;
@@ -196,7 +212,7 @@ mixin _ChatPageAgentMixin on _ChatPageStateBase {
       return;
     }
     // Agent selection may take several seconds while the ACP process starts.
-    // A user-initiated switch owns the next conversation lifecycle request:
+    // A user-initiated switch owns the next lifecycle request:
     // invalidate the bootstrap/old navigation request immediately, then use
     // this same id when applying the new target. Previously we only captured
     // the old id. Any still-running bootstrap could therefore make the switch
@@ -209,8 +225,7 @@ mixin _ChatPageAgentMixin on _ChatPageStateBase {
         !await _ensureSharedProviderModelReadyForSwitch()) {
       return;
     }
-    // A conversation binding describes which Agent owns the visible history;
-    // it is not proof that the native ACP runtime is currently selected. On
+    // A conversation binding is not proof that the native ACP runtime is selected. On
     // restart the binding can still point at Xiaowan while the persisted ACP
     // profile is Codex (or another Agent). Always reconcile that mismatch
     // instead of treating the shortcut tap as a no-op.
@@ -218,8 +233,11 @@ mixin _ChatPageAgentMixin on _ChatPageStateBase {
         _agentRuntimeStatus.activeAgentId?.trim() ?? '';
     final sameVisibleAgent =
         _activeMode == ChatPageMode.agent && normalized == _activeAcpAgentId;
-    final sameRuntimeAgent =
-        runtimeActiveAgentId.isEmpty || runtimeActiveAgentId == normalized;
+    final sameRuntimeAgent = selectsRemote
+        ? _agentRuntimeStatus.connected &&
+              (_agentRuntimeStatus.runtime == 'remote' ||
+                  _agentRuntimeStatus.remoteEnabled)
+        : _agentRuntimeStatus.connected && runtimeActiveAgentId == normalized;
     if (sameVisibleAgent && sameRuntimeAgent) {
       return;
     }
@@ -276,13 +294,52 @@ mixin _ChatPageAgentMixin on _ChatPageStateBase {
     }
 
     try {
-      final catalog = await SceneModelConfigService.getSceneCatalog();
+      final results = await Future.wait<dynamic>([
+        SceneModelConfigService.getSceneCatalog(),
+        SceneModelConfigService.getSceneModelBindings(),
+      ]);
+      final catalog = results[0] as List<SceneCatalogItem>;
+      final bindings = results[1] as List<SceneModelBindingEntry>;
       final dispatchScene = catalog
           .where((item) => item.sceneId == 'scene.dispatch.model')
           .firstOrNull;
-      final providerId = dispatchScene?.effectiveProviderProfileId.trim() ?? '';
-      final modelId = dispatchScene?.effectiveModel.trim() ?? '';
-      if (providerId.isNotEmpty && modelId.isNotEmpty) {
+      final effectiveSelection = resolveSharedAgentProviderSelection(
+        effectiveProviderProfileId: dispatchScene?.effectiveProviderProfileId,
+        effectiveModel: dispatchScene?.effectiveModel,
+        boundProviderProfileId: null,
+        boundModel: null,
+      );
+      if (effectiveSelection != null) {
+        return true;
+      }
+      final persistedBinding = bindings
+          .where((item) => item.sceneId == 'scene.dispatch.model')
+          .firstOrNull;
+      final selection = resolveSharedAgentProviderSelection(
+        effectiveProviderProfileId: null,
+        effectiveModel: null,
+        boundProviderProfileId:
+            persistedBinding?.providerProfileId ??
+            dispatchScene?.boundProviderProfileId,
+        boundModel: persistedBinding?.modelId ?? dispatchScene?.overrideModel,
+      );
+      final providerId = selection?['providerProfileId'] ?? '';
+      final modelId = selection?['modelId'] ?? '';
+      final profiles = await ModelProviderConfigService.listProfiles();
+      final provider = profiles.profiles
+          .where((item) => item.id == providerId)
+          .firstOrNull;
+      if (providerId.isNotEmpty &&
+          modelId.isNotEmpty &&
+          provider?.configured == true) {
+        return true;
+      }
+      // A configured Provider may not have an explicit Agent scene binding
+      // yet. The native Xiaowan ACP boundary can verify /models, choose the
+      // first valid model, and persist the binding atomically while it starts.
+      // Do not reject the Harness switch before that authoritative step runs.
+      if (selection == null &&
+          profiles.profiles.any((item) => item.configured)) {
         return true;
       }
     } catch (error) {
@@ -577,9 +634,10 @@ mixin _ChatPageAgentMixin on _ChatPageStateBase {
     });
     try {
       final sharedAgent = _usesSharedProviderModel(_activeAcpAgentId);
-      final configSettings = sharedAgent
-          ? await _readSharedAgentRunSettings()
-          : await _readAgentRunSettingsFromServerConfig();
+      // Every local ACP Agent exposes the same session/config boundary. Do
+      // not branch on a vendor or Harness id here: the visible model,
+      // reasoning and permission cards must follow the active ACP session.
+      final configSettings = await _readAgentRunSettingsFromServerConfig();
       final response = sharedAgent
           ? const <String, dynamic>{}
           : await AgentRuntimeService.listModelsForStatus(statusForRequest);
@@ -716,24 +774,6 @@ mixin _ChatPageAgentMixin on _ChatPageStateBase {
     }
   }
 
-  Future<_AgentRunSettingsSnapshot> _readSharedAgentRunSettings() async {
-    final agentId = _activeAcpAgentId?.trim() ?? '';
-    if (agentId.isEmpty || agentId != _kDeepSeekHarnessAgentId) {
-      return const _AgentRunSettingsSnapshot();
-    }
-    try {
-      final response = await AgentRuntimeService.readAgentConfig(agentId);
-      return _AgentRunSettingsSnapshot(
-        modelId: _extractAgentConfigModelId(response),
-        reasoningEffort: _extractAgentConfigReasoningEffort(response),
-        permissionMode: _extractAgentConfigPermissionMode(response),
-      );
-    } catch (error) {
-      debugPrint('Read shared Agent adapter settings failed: $error');
-      return const _AgentRunSettingsSnapshot();
-    }
-  }
-
   @override
   Future<void> _loadAgentCollaborationModes({bool force = false}) async {
     if (_isAgentCollaborationModeListLoading) {
@@ -790,8 +830,6 @@ mixin _ChatPageAgentMixin on _ChatPageStateBase {
     );
     var selectedModelId = normalized;
     try {
-      final activeAgentId =
-          (_agentRuntimeStatus.activeAgentId ?? _activeAcpAgentId)?.trim();
       if (sharedAgent) {
         if (sharedSelection == null) {
           throw StateError('Agent Provider / model has not been selected.');
@@ -809,11 +847,6 @@ mixin _ChatPageAgentMixin on _ChatPageStateBase {
         );
         await AgentRuntimeService.disconnect();
         unawaited(_loadNormalChatModelContext());
-      } else if (activeAgentId == _kDeepSeekHarnessAgentId) {
-        await AgentRuntimeService.writeAgentConfig(
-          activeAgentId!,
-          model: normalized,
-        );
       } else {
         await _setAgentConfigOption(configId: 'model', value: normalized);
       }
@@ -966,19 +999,10 @@ mixin _ChatPageAgentMixin on _ChatPageStateBase {
       return;
     }
     try {
-      final activeAgentId =
-          (_agentRuntimeStatus.activeAgentId ?? _activeAcpAgentId)?.trim();
-      if (activeAgentId == _kDeepSeekHarnessAgentId) {
-        await AgentRuntimeService.writeAgentConfig(
-          activeAgentId!,
-          reasoningEffort: normalized,
-        );
-      } else {
-        await _setAgentConfigOption(
-          configId: 'reasoning_effort',
-          value: normalized,
-        );
-      }
+      await _setAgentConfigOption(
+        configId: 'reasoning_effort',
+        value: normalized,
+      );
     } catch (error) {
       if (mounted) {
         showToast(
@@ -1013,22 +1037,7 @@ mixin _ChatPageAgentMixin on _ChatPageStateBase {
       AgentPermissionMode.fullAccess => 'agent-full-access',
     };
     try {
-      final activeAgentId =
-          (_agentRuntimeStatus.activeAgentId ?? _activeAcpAgentId)?.trim();
-      if (activeAgentId == _kDeepSeekHarnessAgentId) {
-        final deepSeekPermissionMode = switch (mode) {
-          AgentPermissionMode.readOnly => 'read-only',
-          AgentPermissionMode.defaultMode ||
-          AgentPermissionMode.autoReview => 'workspace-write',
-          AgentPermissionMode.fullAccess => 'danger-full-access',
-        };
-        await AgentRuntimeService.writeAgentConfig(
-          activeAgentId!,
-          permissionMode: deepSeekPermissionMode,
-        );
-      } else {
-        await _setAgentConfigOption(configId: 'mode', value: value);
-      }
+      await _setAgentConfigOption(configId: 'mode', value: value);
     } catch (error) {
       if (mounted) {
         showToast(
@@ -1051,8 +1060,8 @@ mixin _ChatPageAgentMixin on _ChatPageStateBase {
     required dynamic value,
   }) async {
     // Remote ACP keeps its own connection configuration path. Its turn
-    // request still carries the selected legacy fields, while config/set is
-    // reserved for local ACP sessions that expose ACP configOptions.
+    // The request uses the official ACP session/set_config_option method.
+    // Remote ACP keeps its own connection configuration path.
     if (_agentRuntimeStatus.runtime == 'remote' ||
         _agentRuntimeStatus.remoteEnabled) {
       return;
@@ -1622,6 +1631,25 @@ mixin _ChatPageAgentMixin on _ChatPageStateBase {
         }
       });
     }
+    // Prime against the already visible local conversation before asking the
+    // native runtime for status. DSH preparation/provider probes may take
+    // several seconds; the selected ACP run must be visible during that
+    // interval rather than looking idle or getting stuck on an old turn.
+    final preflightConversationId = _currentConversationId;
+    if (preflightConversationId != null) {
+      _syncRuntimeSnapshotForMode(_activeMode);
+      _runtimeCoordinator.registerTask(
+        taskId: aiMessageId,
+        conversationId: preflightConversationId,
+        mode: _modeKey(_activeMode),
+      );
+      _runtimeCoordinator.primeAcpThinking(
+        taskId: aiMessageId,
+        conversationId: preflightConversationId,
+        mode: _modeKey(_activeMode),
+      );
+    }
+
     late AgentRuntimeStatus status;
     try {
       status = await _refreshConnectedAgentRuntimeStatus();
@@ -1629,6 +1657,9 @@ mixin _ChatPageAgentMixin on _ChatPageStateBase {
       if (mounted) {
         _currentDispatchTurnId = aiMessageId;
         handleAgentError('Agent 连接失败: $error');
+      }
+      if (preflightConversationId != null) {
+        _runtimeCoordinator.unregisterTask(aiMessageId);
       }
       return;
     }
@@ -1644,6 +1675,9 @@ mixin _ChatPageAgentMixin on _ChatPageStateBase {
           _currentDispatchTurnId = aiMessageId;
           handleAgentError('Conversation setup failed. Please retry. $error');
         }
+        if (preflightConversationId != null) {
+          _runtimeCoordinator.unregisterTask(aiMessageId);
+        }
         return;
       }
       conversationId = _currentConversationId;
@@ -1651,6 +1685,9 @@ mixin _ChatPageAgentMixin on _ChatPageStateBase {
         if (mounted) {
           _currentDispatchTurnId = aiMessageId;
           handleAgentError('Conversation setup failed. Please retry.');
+        }
+        if (preflightConversationId != null) {
+          _runtimeCoordinator.unregisterTask(aiMessageId);
         }
         return;
       }
@@ -1660,6 +1697,11 @@ mixin _ChatPageAgentMixin on _ChatPageStateBase {
     _syncRuntimeSnapshotForMode(_activeMode);
     _currentDispatchTurnId = aiMessageId;
     _runtimeCoordinator.registerTask(
+      taskId: aiMessageId,
+      conversationId: resolvedConversationId,
+      mode: _modeKey(_activeMode),
+    );
+    _runtimeCoordinator.primeAcpThinking(
       taskId: aiMessageId,
       conversationId: resolvedConversationId,
       mode: _modeKey(_activeMode),
@@ -1734,8 +1776,10 @@ mixin _ChatPageAgentMixin on _ChatPageStateBase {
       }
       await _writeAgentCommandPreferencesForCurrentConversation();
     } catch (error) {
-      if (!mounted) return;
-      handleAgentError('$_activeAcpAgentDisplayName 启动失败: $error');
+      if (mounted) {
+        handleAgentError('$_activeAcpAgentDisplayName 启动失败: $error');
+      }
+      _runtimeCoordinator.unregisterTask(aiMessageId);
     }
   }
 
