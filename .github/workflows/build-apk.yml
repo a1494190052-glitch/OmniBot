@@ -76,6 +76,10 @@ jobs:
         working-directory: ui
         run: flutter pub get --enforce-lockfile
 
+      - name: Generate Android host project
+        working-directory: ui
+        run: flutter create --platforms android .
+
       - name: Generate release keystore
         run: |
           keytool -genkeypair -v \
