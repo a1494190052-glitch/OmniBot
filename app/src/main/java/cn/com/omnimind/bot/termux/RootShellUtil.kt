@@ -151,15 +151,30 @@ object RootShellUtil {
         val qRootfs = escapeSingleQuoted(rootfsAndroidPath)
         val qWorkspace = escapeSingleQuoted(workspaceAndroidPath)
         val qMount = escapeSingleQuoted(workspaceMount)
+        val qProc = escapeSingleQuoted("$rootfsAndroidPath/proc")
+        val qDev = escapeSingleQuoted("$rootfsAndroidPath/dev")
+        val qSys = escapeSingleQuoted("$rootfsAndroidPath/sys")
+        val setup =
+            "mkdir -p '$qProc' '$qDev' '$qSys' '$qMount' 2>/dev/null || true; " +
+                "umount '$qProc' 2>/dev/null || true; " +
+                "umount '$qSys' 2>/dev/null || true; " +
+                "umount '$qDev' 2>/dev/null || true; " +
+                "mount -t proc proc '$qProc' 2>/dev/null || true; " +
+                "mount --bind /dev '$qDev' 2>/dev/null || true; " +
+                "mount -t sysfs sysfs '$qSys' 2>/dev/null || true; " +
+                "mount --bind '$qWorkspace' '$qMount' 2>/dev/null || true; "
+        val teardown =
+            "umount '$qProc' 2>/dev/null || true; " +
+                "umount '$qSys' 2>/dev/null || true; " +
+                "umount '$qDev' 2>/dev/null || true; " +
+                "umount '$qMount' 2>/dev/null || true; "
         return (
-            "mkdir -p '$qRootfs/workspace' 2>/dev/null || true; " +
-                "umount '$qMount' 2>/dev/null || true; " +
-                "mount --bind '$qWorkspace' '$qMount' 2>/dev/null || true; " +
+            setup +
                 "chroot '$qRootfs' /bin/sh -c \"$escaped\"; " +
                 "rc=\$?; " +
-                "umount '$qMount' 2>/dev/null || true; " +
+                teardown +
                 "exit \$rc"
-            )
+        )
     }
 
     /** 在 chroot 内执行的 shell 片段前缀：注入常见 Linux 发行版默认 PATH。 */
