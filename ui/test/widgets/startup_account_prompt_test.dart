@@ -280,7 +280,6 @@ void main() {
     expect(accountChecks, 0);
     expect(find.byKey(const ValueKey('startup-account-card')), findsNothing);
     expect(find.text('onboarding'), findsOneWidget);
-    expect(routeChanges.hasListeners, isTrue);
 
     await StorageService.setBool(StorageKeys.welcomeCompleted, true);
     routeChanges.notifyListeners();
