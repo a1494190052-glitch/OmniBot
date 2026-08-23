@@ -1,11 +1,9 @@
 package com.rk.terminal.ui.navHosts
 
 
-import android.app.Activity
 import android.content.res.Configuration
 import android.os.Build
 import android.view.Window
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -14,10 +12,8 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.unit.dp
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.lifecycle.Lifecycle
@@ -29,9 +25,8 @@ import androidx.navigation.compose.composable
 import com.rk.settings.Settings
 import com.rk.terminal.ui.activities.terminal.MainActivity
 import com.rk.terminal.ui.animations.NavigationAnimationTransitions
-import com.rk.terminal.ui.components.NavTransitionTracker
-import com.rk.terminal.ui.components.TrackNavTransition
-import com.rk.terminal.ui.components.rememberScreenCornerRadius
+import com.rk.terminal.ui.components.PhysicalScreenCornerClip
+import com.rk.terminal.ui.components.rememberScreenCornerRadii
 import com.rk.terminal.ui.routes.MainActivityRoutes
 import com.rk.terminal.ui.screens.customization.Customization
 import com.rk.terminal.ui.screens.downloader.Downloader
@@ -105,17 +100,11 @@ fun UpdateStatusBar(mainActivityActivity: MainActivity,show: Boolean = true){
 @Composable
 fun MainActivityNavHost(modifier: Modifier = Modifier,navController: NavHostController,mainActivity: MainActivity) {
     val predictiveBack = rememberPredictiveBackEnabled()
-    val transitionTracker = remember { NavTransitionTracker() }
-    val screenCornerRadius = rememberScreenCornerRadius()
+    val screenCornerRadii = rememberScreenCornerRadii()
     NavHost(
         navController = navController,
         startDestination = MainActivityRoutes.MainScreen.route,
-        // Clip to the device's physical screen corners while a page transition
-        // (or predictive-back seek) is in progress, like the main app does.
-        modifier = modifier.graphicsLayer {
-            clip = transitionTracker.running && screenCornerRadius > 0.dp
-            shape = RoundedCornerShape(screenCornerRadius)
-        },
+        modifier = modifier,
         enterTransition = { NavigationAnimationTransitions.enterTransition(predictiveBack) },
         exitTransition = { NavigationAnimationTransitions.exitTransition(predictiveBack) },
         popEnterTransition = { NavigationAnimationTransitions.popEnterTransition(predictiveBack) },
@@ -123,29 +112,41 @@ fun MainActivityNavHost(modifier: Modifier = Modifier,navController: NavHostCont
     ) {
 
         composable(MainActivityRoutes.MainScreen.route) {
-            TrackNavTransition(transitionTracker)
-            if (Rootfs.isDownloaded.value){
-                val config = LocalConfiguration.current
-                if (Configuration.ORIENTATION_LANDSCAPE == config.orientation){
-                    UpdateStatusBar(mainActivity, show = horizontal_statusBar.value)
-                }else{
-                    UpdateStatusBar(mainActivity, show = showStatusBar.value)
-                }
+            PhysicalScreenCornerClip(
+                enabled = predictiveBack,
+                screenCorners = screenCornerRadii,
+            ) {
+                if (Rootfs.isDownloaded.value){
+                    val config = LocalConfiguration.current
+                    if (Configuration.ORIENTATION_LANDSCAPE == config.orientation){
+                        UpdateStatusBar(mainActivity, show = horizontal_statusBar.value)
+                    }else{
+                        UpdateStatusBar(mainActivity, show = showStatusBar.value)
+                    }
 
-                TerminalScreen(mainActivityActivity = mainActivity, navController = navController)
-            }else{
-                Downloader(mainActivity = mainActivity, navController = navController)
+                    TerminalScreen(mainActivityActivity = mainActivity, navController = navController)
+                }else{
+                    Downloader(mainActivity = mainActivity, navController = navController)
+                }
             }
         }
         composable(MainActivityRoutes.Settings.route) {
-            TrackNavTransition(transitionTracker)
-            UpdateStatusBar(mainActivity,show = true)
-            Settings(navController = navController, mainActivity = mainActivity)
+            PhysicalScreenCornerClip(
+                enabled = predictiveBack,
+                screenCorners = screenCornerRadii,
+            ) {
+                UpdateStatusBar(mainActivity,show = true)
+                Settings(navController = navController, mainActivity = mainActivity)
+            }
         }
         composable(MainActivityRoutes.Customization.route){
-            TrackNavTransition(transitionTracker)
-            UpdateStatusBar(mainActivity,show = true)
-            Customization()
+            PhysicalScreenCornerClip(
+                enabled = predictiveBack,
+                screenCorners = screenCornerRadii,
+            ) {
+                UpdateStatusBar(mainActivity,show = true)
+                Customization()
+            }
         }
     }
 }

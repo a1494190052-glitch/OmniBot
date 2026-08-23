@@ -1563,6 +1563,9 @@ mixin _ChatPageUiMixin on _ChatPageStateBase {
     return ChatMessageAnchorBar(
       messages: messages,
       activeAgentTaskIds: activeTaskIds,
+      conversationAgentId: mode == ChatPageMode.agent
+          ? _activeAcpAgentId
+          : null,
       conversationSignature:
           '${mode.name}:${_modeState(mode).currentConversationId ?? ''}',
       bottomInset: bottomInset,
