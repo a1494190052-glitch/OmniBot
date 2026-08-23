@@ -404,7 +404,11 @@ class _AgentModeSettingPageState extends State<AgentModeSettingPage> {
         hintStyle: TextStyle(color: palette.textTertiary, fontSize: 13.5),
         prefixIcon: Padding(
           padding: const EdgeInsets.only(left: 14, right: 8),
-          child: Icon(LucideIcons.search, size: 18, color: palette.textTertiary),
+          child: Icon(
+            LucideIcons.search,
+            size: 18,
+            color: palette.textTertiary,
+          ),
         ),
         prefixIconConstraints: const BoxConstraints(),
         filled: true,
@@ -461,9 +465,7 @@ class _AgentModeSettingPageState extends State<AgentModeSettingPage> {
   Widget _buildAgentTile(AcpAgentProfile agent) {
     final palette = context.omniPalette;
     final status = _statusPresentation(agent.status, _english);
-    final statusColor = agent.enabled
-        ? status.color
-        : const Color(0xFF98A2B3);
+    final statusColor = agent.enabled ? status.color : const Color(0xFF98A2B3);
     final hasError =
         (agent.lastCheckError ?? '').isNotEmpty && agent.status != 'online';
     final canTest = agent.enabled && agent.status != 'missing';
@@ -486,9 +488,7 @@ class _AgentModeSettingPageState extends State<AgentModeSettingPage> {
       ),
       title: agent.name,
       statusColor: statusColor,
-      statusLabel: !agent.enabled
-          ? _text('已停用', 'Disabled')
-          : status.label,
+      statusLabel: !agent.enabled ? _text('已停用', 'Disabled') : status.label,
       subtitle: agent.description.isNotEmpty
           ? agent.description
           : ([agent.command, ...agent.arguments]).join(' '),
@@ -662,11 +662,7 @@ class _FlatTile extends StatelessWidget {
           padding: const EdgeInsets.fromLTRB(4, 13, 2, 13),
           child: Row(
             children: [
-              SizedBox(
-                width: 18,
-                height: 18,
-                child: Center(child: leading),
-              ),
+              SizedBox(width: 18, height: 18, child: Center(child: leading)),
               const SizedBox(width: 10),
               Expanded(
                 child: Column(

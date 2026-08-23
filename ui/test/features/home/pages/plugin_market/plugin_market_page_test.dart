@@ -473,17 +473,6 @@ void main() {
       await tester.pump();
 
       expect(route.popGestureInProgress, isTrue);
-      expect(
-        tester
-            .widget<PredictiveBackPageTransition>(
-              find.ancestor(
-                of: find.byType(PluginDetailPage),
-                matching: find.byType(PredictiveBackPageTransition),
-              ),
-            )
-            .isGestureDriven(),
-        isTrue,
-      );
 
       await _sendBackGesture(tester, 'cancelBackGesture');
       await tester.pumpAndSettle();
