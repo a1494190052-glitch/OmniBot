@@ -562,6 +562,47 @@ void main() {
     },
   );
 
+  testWidgets('text selector does not wait for a pending embedding catalog', (
+    tester,
+  ) async {
+    includeOfficialProvider = true;
+    providerFetchResponse = <Map<String, dynamic>>[
+      <String, dynamic>{'id': 'byok-model'},
+    ];
+    officialFetchResponsesByCapability = <String, List<Map<String, dynamic>>>{
+      'text': <Map<String, dynamic>>[
+        <String, dynamic>{'id': 'official-text-model'},
+      ],
+      'tts': <Map<String, dynamic>>[
+        <String, dynamic>{'id': 'official-tts-model'},
+      ],
+    };
+    final embeddingPending = Completer<List<Map<String, dynamic>>>();
+    officialFetchCompletersByCapability['embedding'] = embeddingPending;
+
+    await pumpSceneSettings(tester);
+    expect(providerFetchCount, 4);
+
+    await tester.tap(
+      find.byKey(
+        const Key('scene-model-selector-scene.compactor.context.chat'),
+      ),
+    );
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+
+    expect(find.byType(CircularProgressIndicator), findsNothing);
+    expect(find.text('OmniBot 官方 AI'), findsOneWidget);
+    await tester.tap(find.text('OmniBot 官方 AI'));
+    await tester.pumpAndSettle();
+    expect(find.text('official-text-model'), findsOneWidget);
+
+    embeddingPending.complete(<Map<String, dynamic>>[
+      <String, dynamic>{'id': 'official-embedding-model'},
+    ]);
+    await tester.pumpAndSettle();
+  });
+
   testWidgets('first embedding selector tap waits for official models', (
     tester,
   ) async {
