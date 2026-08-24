@@ -3,6 +3,7 @@ import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
 import 'package:ui/features/home/pages/chat/chat_page_models.dart';
+import 'package:ui/features/home/pages/chat/utils/chat_message_identity.dart';
 import 'package:ui/features/home/pages/authorize/authorize_page_args.dart';
 import 'package:ui/features/home/pages/chat/utils/stream_text_merge.dart';
 import 'package:ui/features/home/pages/command_overlay/constants/messages.dart';
@@ -307,7 +308,9 @@ class ChatConversationRuntimeCoordinator extends ChangeNotifier {
     }
     if (runtime.messages.isEmpty && initialMessages != null) {
       runtime.messages.addAll(
-        _dedupeEquivalentAgentUserMessages(initialMessages),
+        canonicalizeChatMessagesById(
+          _dedupeEquivalentAgentUserMessages(initialMessages),
+        ),
       );
     }
     if (conversation != null) {
@@ -371,7 +374,9 @@ class ChatConversationRuntimeCoordinator extends ChangeNotifier {
     ChatBrowserSessionSnapshot? browserSessionSnapshot,
     bool preserveLiveStreamingState = false,
   }) {
-    final normalizedMessages = _dedupeEquivalentAgentUserMessages(messages);
+    final normalizedMessages = canonicalizeChatMessagesById(
+      _dedupeEquivalentAgentUserMessages(messages),
+    );
     final runtime = ensureRuntime(
       conversationId: conversationId,
       mode: mode,
