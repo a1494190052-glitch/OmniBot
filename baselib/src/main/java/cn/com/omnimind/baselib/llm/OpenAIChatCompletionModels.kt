@@ -63,8 +63,35 @@ data class ChatCompletionMessage(
     val reasoningContent: String? = null,
     @SerialName("tool_call_id")
     val toolCallId: String? = null,
-    val name: String? = null
+    val name: String? = null,
+    @SerialName(ChatCompletionProtocolMetadata.STATE_FIELD)
+    val protocolState: ChatCompletionProtocolState? = null
 )
+
+/**
+ * Provider-owned state that must survive the agent tool loop but must never be
+ * emitted as part of an OpenAI wire request. Each protocol adapter is solely
+ * responsible for reading its own state at the final serialization boundary.
+ */
+@Serializable
+data class ChatCompletionProtocolState(
+    val anthropic: AnthropicMessageProtocolState? = null
+)
+
+@Serializable
+data class AnthropicMessageProtocolState(
+    @SerialName("source_model")
+    val sourceModel: String? = null,
+    @SerialName("content_blocks")
+    val contentBlocks: JsonArray? = null,
+    @SerialName("tool_result_is_error")
+    val toolResultIsError: Boolean? = null
+)
+
+object ChatCompletionProtocolMetadata {
+    const val STATE_FIELD = "_omnibot_protocol_state"
+    const val ANTHROPIC_STREAM_BLOCK_FIELD = "_omnibot_anthropic_content_block"
+}
 
 @Serializable
 data class ChatCompletionTool(
