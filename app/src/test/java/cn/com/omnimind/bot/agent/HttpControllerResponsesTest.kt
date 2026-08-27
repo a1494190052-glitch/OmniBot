@@ -181,6 +181,118 @@ class HttpControllerResponsesTest {
     }
 
     @Test
+    fun `responses request backfills missing function call output before sending history`() {
+        val method = HttpController::class.java.getDeclaredMethod(
+            "buildOpenAIResponsesRequestBody",
+            String::class.java,
+            String::class.java,
+        )
+        method.isAccessible = true
+        val payload = method.invoke(
+            HttpController,
+            """
+                {
+                  "model": "gpt-4.1",
+                  "messages": [
+                    {"role": "user", "content": "检查项目"},
+                    {
+                      "role": "assistant",
+                      "tool_calls": [
+                        {
+                          "id": "call_ptpAmLkngkIT9h4H4fb1D2mj",
+                          "type": "function",
+                          "function": {"name": "file_list", "arguments": "{}"}
+                        }
+                      ]
+                    },
+                    {"role": "user", "content": "继续"}
+                  ]
+                }
+            """.trimIndent(),
+            "gpt-4.1",
+        ) as String
+
+        val input = json.parseToJsonElement(payload).jsonObject["input"]!!.jsonArray
+        val functionCallIndex = input.indexOfFirst {
+            it.jsonObject["type"]?.jsonPrimitive?.content == "function_call"
+        }
+        val functionOutputIndex = input.indexOfFirst {
+            it.jsonObject["type"]?.jsonPrimitive?.content == "function_call_output"
+        }
+
+        assertTrue(functionCallIndex >= 0)
+        assertTrue(functionOutputIndex > functionCallIndex)
+        assertEquals(
+            "call_ptpAmLkngkIT9h4H4fb1D2mj",
+            input[functionOutputIndex].jsonObject["call_id"]?.jsonPrimitive?.content,
+        )
+        assertTrue(
+            input[functionOutputIndex].jsonObject["output"]?.jsonPrimitive?.content
+                ?.contains("missing", ignoreCase = true) == true
+        )
+    }
+
+    @Test
+    fun `responses request normalizes ACP tool names consistently across history catalog and choice`() {
+        val method = HttpController::class.java.getDeclaredMethod(
+            "buildOpenAIResponsesRequestBody",
+            String::class.java,
+            String::class.java,
+        )
+        method.isAccessible = true
+        val payload = method.invoke(
+            HttpController,
+            """
+                {
+                  "model": "gpt-5.6-sol",
+                  "tool_choice": {
+                    "type": "function",
+                    "function": {"name": "agent.status"}
+                  },
+                  "tools": [
+                    {
+                      "type": "function",
+                      "function": {
+                        "name": "agent.status",
+                        "description": "Read agent status",
+                        "parameters": {"type":"object","properties":{}}
+                      }
+                    }
+                  ],
+                  "messages": [
+                    {"role": "user", "content": "first"},
+                    {"role": "assistant", "content": "second"},
+                    {"role": "user", "content": "third"},
+                    {
+                      "role": "assistant",
+                      "content": "fourth",
+                      "tool_calls": [
+                        {
+                          "id": "call_legacy",
+                          "type": "function",
+                          "function": {"name": "agent.status", "arguments": "{}"}
+                        }
+                      ]
+                    }
+                  ]
+                }
+            """.trimIndent(),
+            "gpt-5.6-sol",
+        ) as String
+
+        val root = json.parseToJsonElement(payload).jsonObject
+        val historyName = root["input"]!!.jsonArray[4]
+            .jsonObject["name"]!!.jsonPrimitive.content
+        val catalogName = root["tools"]!!.jsonArray[0]
+            .jsonObject["name"]!!.jsonPrimitive.content
+        val choiceName = root["tool_choice"]!!.jsonObject["name"]!!.jsonPrimitive.content
+
+        assertTrue(historyName.matches(Regex("^[a-zA-Z0-9_-]+$")))
+        assertEquals(historyName, catalogName)
+        assertEquals(historyName, choiceName)
+    }
+
+    @Test
     fun `responses request uses output text for assistant history`() {
         val method = HttpController::class.java.getDeclaredMethod(
             "buildOpenAIResponsesRequestBody",
