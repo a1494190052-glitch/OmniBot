@@ -5604,6 +5604,7 @@ diff --git a/lib/main.dart b/lib/main.dart
     reducer.reduce(
       runtime: runtime,
       event: {
+        'sessionId': 'session-top-level',
         'message': {
           'id': 'request-1',
           'method': 'item/tool/requestUserInput',
@@ -5623,6 +5624,7 @@ diff --git a/lib/main.dart b/lib/main.dart
     expect(cardData['rawParamsJson'], contains('Choose one'));
     expect(cardData['status'], 'pending');
     expect(cardData['conversationId'], 42);
+    expect(cardData['sessionId'], 'session-top-level');
   });
 
   test('preserves request id when ACP places it inside params', () {

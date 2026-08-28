@@ -678,6 +678,7 @@ class AgentEventReducer {
           title: _approvalTitle(itemType, item),
           detail: _approvalDetail(item),
           params: item,
+          sessionId: sessionId,
           toolCallId: startedItemId,
           streamMeta: _streamMeta(
             runtime,
@@ -704,6 +705,7 @@ class AgentEventReducer {
           detail: question.detail,
           questionId: question.id,
           params: item,
+          sessionId: sessionId,
           toolCallId: startedItemId,
           streamMeta: _streamMeta(
             runtime,
@@ -1134,6 +1136,7 @@ class AgentEventReducer {
         title: _approvalTitle(method, params),
         detail: _approvalDetail(params),
         params: params,
+        sessionId: sessionId,
         toolCallId: _firstString([
           params['toolCallId'],
           params['tool_call_id'],
@@ -1198,6 +1201,7 @@ class AgentEventReducer {
         title: title,
         detail: detail,
         params: params,
+        sessionId: sessionId,
         structuredElicitation: true,
         streamMeta: _streamMeta(
           runtime,
@@ -1229,6 +1233,7 @@ class AgentEventReducer {
         detail: question.detail,
         questionId: question.id,
         params: params,
+        sessionId: sessionId,
         toolCallId: _firstString([
           params['toolCallId'],
           params['tool_call_id'],
@@ -2837,6 +2842,7 @@ class AgentEventReducer {
     required String detail,
     required Map<String, dynamic> params,
     required Map<String, dynamic> streamMeta,
+    String? sessionId,
     String? toolCallId,
     String? questionId,
     bool structuredElicitation = false,
@@ -2859,6 +2865,7 @@ class AgentEventReducer {
         existingRequestId == nextRequestId;
     final existingCardData = existing?.cardData ?? const <String, dynamic>{};
     final requestSessionId = _firstString([
+      sessionId,
       params['sessionId'],
       params['session_id'],
     ]);

@@ -1363,6 +1363,7 @@ class ChatConversationRuntimeCoordinator extends ChangeNotifier {
           ...cardData,
           'agentId': agentId,
           if (agentName != null) 'agentName': agentName,
+          if (protocolSessionId != null) 'sessionId': protocolSessionId,
         };
       }
       runtime.messages[index] = message.copyWith(content: content);
