@@ -595,6 +595,40 @@ void main() {
     expect(runtime.messages.single.cardData?['requestId'], 'elicitation-1');
   });
 
+  test('preserves request ownership when a later ACP update omits it', () {
+    reducer.reduce(
+      runtime: runtime,
+      event: {
+        'agentId': 'xiaowan-acp',
+        'agentName': '小万',
+        'message': {
+          'id': 'elicitation-owner-1',
+          'method': 'elicitation/create',
+          'params': {
+            'sessionId': 'session-owner-1',
+            'title': '需要确认',
+          },
+        },
+      },
+    );
+
+    reducer.reduce(
+      runtime: runtime,
+      event: {
+        'message': {
+          'id': 'elicitation-owner-1',
+          'method': 'elicitation/create',
+          'params': {'title': '需要确认（更新）'},
+        },
+      },
+    );
+
+    final card = runtime.messages.single.cardData!;
+    expect(card['agentId'], 'xiaowan-acp');
+    expect(card['agentName'], '小万');
+    expect(card['sessionId'], 'session-owner-1');
+  });
+
   test('uses the ACP elicitation schema instead of a generic input title', () {
     reducer.reduce(
       runtime: runtime,

@@ -2896,10 +2896,26 @@ class AgentEventReducer {
         nextRequestId.isNotEmpty &&
         existingRequestId == nextRequestId;
     final existingCardData = existing?.cardData ?? const <String, dynamic>{};
+    final requestAgentId = _firstString([
+      agentId,
+      params['agentId'],
+      params['agent_id'],
+      existingCardData['agentId'],
+      existingCardData['agent_id'],
+    ]);
+    final requestAgentName = _firstString([
+      agentName,
+      params['agentName'],
+      params['agent_name'],
+      existingCardData['agentName'],
+      existingCardData['agent_name'],
+    ]);
     final requestSessionId = _firstString([
       sessionId,
       params['sessionId'],
       params['session_id'],
+      existingCardData['sessionId'],
+      existingCardData['session_id'],
     ]);
     final status = _resolveRequestStatus(
       requestKind: requestKind,
@@ -2914,8 +2930,8 @@ class AgentEventReducer {
       'runId': taskId,
       'requestId': requestId,
       if (requestId == null) 'interactionUnavailable': true,
-      if (agentId != null) 'agentId': agentId,
-      if (agentName != null) 'agentName': agentName,
+      if (requestAgentId != null) 'agentId': requestAgentId,
+      if (requestAgentName != null) 'agentName': requestAgentName,
       if (requestSessionId != null) 'sessionId': requestSessionId,
       if (toolCallId != null && toolCallId.trim().isNotEmpty)
         'toolCallId': toolCallId.trim(),
