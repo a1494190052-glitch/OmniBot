@@ -579,13 +579,23 @@ class _AgentRequestCardState extends State<AgentRequestCard> {
     });
     try {
       await action();
-      await _persistResponseStatus(successStatus, answers);
       if (!mounted) return;
       setState(() {
         _localStatus = successStatus;
         _localAnswers = answers;
         _isSubmitting = false;
       });
+      // ACP acknowledgement is the protocol lifecycle boundary. Persisting
+      // the UI card is a local best-effort side effect and must not turn a
+      // successfully consumed request into a false "reply not sent" error.
+      try {
+        await _persistResponseStatus(successStatus, answers);
+      } catch (_) {
+        // The live card already reflects the acknowledged ACP response. A
+        // later conversation refresh may simply reconstruct it from ACP
+        // history; retrying the request here would be unsafe because the
+        // Harness has already consumed the one-shot response.
+      }
     } catch (_) {
       if (!mounted) return;
       setState(() {

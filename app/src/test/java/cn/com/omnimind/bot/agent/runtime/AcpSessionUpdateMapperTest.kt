@@ -233,12 +233,17 @@ class AcpSessionUpdateMapperTest {
     }
 
     @Test
-    fun userMessageChunkProducesNothing() {
-        // The client authored the user's message; replaying it back adds nothing
-        // to the timeline.
-        assertNull(
-            SessionUpdate.UserMessageChunk(content = ContentBlock.Text("hi"))
-                .toAcpSessionNotification("thread-1")
+    fun userMessageChunkStaysInTheOfficialSessionUpdateEnvelope() {
+        // The ACP transport keeps the official echo. The Conversation reducer
+        // owns idempotent merge with the locally committed user message.
+        val event = SessionUpdate.UserMessageChunk(content = ContentBlock.Text("hi"))
+            .toAcpSessionNotification("thread-1")
+
+        assertEquals("thread-1", event?.sessionId)
+        assertEquals("user_message_chunk", event?.update?.get("sessionUpdate"))
+        assertEquals(
+            mapOf("type" to "text", "text" to "hi"),
+            event?.update?.get("content"),
         )
     }
 

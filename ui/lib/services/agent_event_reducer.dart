@@ -60,6 +60,26 @@ class AgentEventReducer {
     }
 
     final params = _eventParams(event: event, message: message, method: method);
+    // An actionable request card must carry its owner at creation time. The
+    // coordinator still annotates older messages, but response routing cannot
+    // depend on that later pass when local ACP processes run in parallel or a
+    // conversation is switched while an event is being delivered.
+    final eventAgentId = _firstString([
+      event['agentId'],
+      event['agent_id'],
+      message['agentId'],
+      message['agent_id'],
+      params['agentId'],
+      params['agent_id'],
+    ]);
+    final eventAgentName = _firstString([
+      event['agentName'],
+      event['agent_name'],
+      message['agentName'],
+      message['agent_name'],
+      params['agentName'],
+      params['agent_name'],
+    ]);
 
     // ACP implementation extensions are valid Agent->Client traffic, not
     // unknown failures. Keep their original namespace and payload in the
@@ -678,6 +698,8 @@ class AgentEventReducer {
           title: _approvalTitle(itemType, item),
           detail: _approvalDetail(item),
           params: item,
+          agentId: eventAgentId,
+          agentName: eventAgentName,
           sessionId: sessionId,
           toolCallId: startedItemId,
           streamMeta: _streamMeta(
@@ -705,6 +727,8 @@ class AgentEventReducer {
           detail: question.detail,
           questionId: question.id,
           params: item,
+          agentId: eventAgentId,
+          agentName: eventAgentName,
           sessionId: sessionId,
           toolCallId: startedItemId,
           streamMeta: _streamMeta(
@@ -1136,6 +1160,8 @@ class AgentEventReducer {
         title: _approvalTitle(method, params),
         detail: _approvalDetail(params),
         params: params,
+        agentId: eventAgentId,
+        agentName: eventAgentName,
         sessionId: sessionId,
         toolCallId: _firstString([
           params['toolCallId'],
@@ -1201,6 +1227,8 @@ class AgentEventReducer {
         title: title,
         detail: detail,
         params: params,
+        agentId: eventAgentId,
+        agentName: eventAgentName,
         sessionId: sessionId,
         structuredElicitation: true,
         streamMeta: _streamMeta(
@@ -1233,6 +1261,8 @@ class AgentEventReducer {
         detail: question.detail,
         questionId: question.id,
         params: params,
+        agentId: eventAgentId,
+        agentName: eventAgentName,
         sessionId: sessionId,
         toolCallId: _firstString([
           params['toolCallId'],
@@ -2842,6 +2872,8 @@ class AgentEventReducer {
     required String detail,
     required Map<String, dynamic> params,
     required Map<String, dynamic> streamMeta,
+    String? agentId,
+    String? agentName,
     String? sessionId,
     String? toolCallId,
     String? questionId,
@@ -2882,6 +2914,8 @@ class AgentEventReducer {
       'runId': taskId,
       'requestId': requestId,
       if (requestId == null) 'interactionUnavailable': true,
+      if (agentId != null) 'agentId': agentId,
+      if (agentName != null) 'agentName': agentName,
       if (requestSessionId != null) 'sessionId': requestSessionId,
       if (toolCallId != null && toolCallId.trim().isNotEmpty)
         'toolCallId': toolCallId.trim(),
