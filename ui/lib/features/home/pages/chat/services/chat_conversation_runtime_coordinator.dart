@@ -253,7 +253,8 @@ class ChatConversationRuntimeState {
       isCheckingExecutableTask ||
       isExecutingTask ||
       currentDispatchTurnId != null ||
-      currentAiMessages.isNotEmpty;
+      currentAiMessages.isNotEmpty ||
+      currentThinkingMessages.isNotEmpty;
 
   bool get shouldSuppressLocalMessageSnapshotEcho =>
       DateTime.now().millisecondsSinceEpoch <
@@ -597,6 +598,28 @@ class ChatConversationRuntimeCoordinator extends ChangeNotifier {
     return _runtimes[_runtimeKey(conversationId: conversationId, mode: mode)];
   }
 
+  /// Conversation ids with live work in the shared ACP projection.
+  ///
+  /// The drawer must read this from the same runtime/reducer that renders the
+  /// chat. A second event subscription in the drawer would create another
+  /// lifecycle interpretation and can disagree during a session switch.
+  Set<int> get activeAgentConversationIds => Set.unmodifiable(
+    _runtimes.values
+        .where(
+          (runtime) =>
+              runtime.mode == kChatRuntimeModeAgent && runtime.hasInFlightTask,
+        )
+        .map((runtime) => runtime.conversationId),
+  );
+
+  bool isAgentConversationActive(int conversationId) {
+    final runtime = runtimeFor(
+      conversationId: conversationId,
+      mode: kChatRuntimeModeAgent,
+    );
+    return runtime?.hasInFlightTask ?? false;
+  }
+
   /// Resolves an incoming ACP event to the runtime that admitted its official
   /// turn. Conversation mode is UI metadata and can be stale during a mode
   /// handoff; the `(conversationId, turnId)` binding is the authoritative
@@ -762,8 +785,12 @@ class ChatConversationRuntimeCoordinator extends ChangeNotifier {
     ChatBrowserSessionSnapshot? browserSessionSnapshot,
     bool preserveLiveStreamingState = false,
   }) {
-    final normalizedMessages = _normalizeIdleThinkingCards(
-      _dedupeEquivalentAgentUserMessages(messages),
+    final normalizedMessages = _normalizeIdleAgentRequestCards(
+      _normalizeIdleThinkingCards(
+        _dedupeEquivalentAgentUserMessages(messages),
+        isAiResponding: isAiResponding,
+        preserveLiveStreamingState: preserveLiveStreamingState,
+      ),
       isAiResponding: isAiResponding,
       preserveLiveStreamingState: preserveLiveStreamingState,
     );
@@ -879,6 +906,42 @@ class ChatConversationRuntimeCoordinator extends ChangeNotifier {
           cardData['stage'] = ThinkingStage.complete.value;
           cardData['endTime'] ??= now;
           cardData['isCollapsible'] = true;
+          return message.copyWith(
+            content: <String, dynamic>{'cardData': cardData, 'id': message.id},
+          );
+        })
+        .toList(growable: false);
+  }
+
+  /// A server request is a live ACP JSON-RPC request. Its id is not a
+  /// resumable conversation item: after the process/session ends there is no
+  /// transport request left for the UI to answer. Persisting it as `pending`
+  /// makes the composer offer a response that can only fail with "unknown
+  /// request". Keep the history item for auditability, but make the lifecycle
+  /// terminal when restoring an idle snapshot.
+  List<ChatMessageModel> _normalizeIdleAgentRequestCards(
+    List<ChatMessageModel> messages, {
+    required bool isAiResponding,
+    required bool preserveLiveStreamingState,
+  }) {
+    if (isAiResponding || preserveLiveStreamingState) {
+      return messages;
+    }
+    return messages
+        .map((message) {
+          final existingCardData = message.cardData;
+          if (message.type != 2 ||
+              existingCardData?['type'] != 'agent_request' ||
+              existingCardData?['status']?.toString().trim().toLowerCase() !=
+                  'pending' ||
+              existingCardData?['requestId'] == null ||
+              existingCardData?['interactionUnavailable'] == true) {
+            return message;
+          }
+          final cardData = Map<String, dynamic>.from(existingCardData!);
+          cardData['status'] = 'expired';
+          cardData['interactionUnavailable'] = true;
+          cardData['interactionUnavailableReason'] = 'session_ended';
           return message.copyWith(
             content: <String, dynamic>{'cardData': cardData, 'id': message.id},
           );
@@ -1340,6 +1403,7 @@ class ChatConversationRuntimeCoordinator extends ChangeNotifier {
           ...cardData,
           'agentId': agentId,
           if (agentName != null) 'agentName': agentName,
+          if (protocolSessionId != null) 'sessionId': protocolSessionId,
         };
       }
       runtime.messages[index] = message.copyWith(content: content);

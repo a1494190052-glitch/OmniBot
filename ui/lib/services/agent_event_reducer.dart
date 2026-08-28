@@ -60,6 +60,26 @@ class AgentEventReducer {
     }
 
     final params = _eventParams(event: event, message: message, method: method);
+    // An actionable request card must carry its owner at creation time. The
+    // coordinator still annotates older messages, but response routing cannot
+    // depend on that later pass when local ACP processes run in parallel or a
+    // conversation is switched while an event is being delivered.
+    final eventAgentId = _firstString([
+      event['agentId'],
+      event['agent_id'],
+      message['agentId'],
+      message['agent_id'],
+      params['agentId'],
+      params['agent_id'],
+    ]);
+    final eventAgentName = _firstString([
+      event['agentName'],
+      event['agent_name'],
+      message['agentName'],
+      message['agent_name'],
+      params['agentName'],
+      params['agent_name'],
+    ]);
 
     // ACP implementation extensions are valid Agent->Client traffic, not
     // unknown failures. Keep their original namespace and payload in the
@@ -678,6 +698,9 @@ class AgentEventReducer {
           title: _approvalTitle(itemType, item),
           detail: _approvalDetail(item),
           params: item,
+          agentId: eventAgentId,
+          agentName: eventAgentName,
+          sessionId: sessionId,
           toolCallId: startedItemId,
           streamMeta: _streamMeta(
             runtime,
@@ -704,6 +727,9 @@ class AgentEventReducer {
           detail: question.detail,
           questionId: question.id,
           params: item,
+          agentId: eventAgentId,
+          agentName: eventAgentName,
+          sessionId: sessionId,
           toolCallId: startedItemId,
           streamMeta: _streamMeta(
             runtime,
@@ -723,14 +749,7 @@ class AgentEventReducer {
     }
 
     if (method == 'item/userMessage/delta') {
-      if (params['replay'] != true) {
-        return AgentReduceResult(
-          handled: true,
-          method: method,
-          threadId: threadId,
-          turnId: turnId,
-        );
-      }
+      final isReplay = params['replay'] == true;
       final delta =
           _extractText(params['delta']) ??
           _extractText(params['text']) ??
@@ -743,6 +762,45 @@ class AgentEventReducer {
         final text = (runtime.currentAcpUserMessages[entryId] ?? '') + delta;
         runtime.currentAcpUserMessages[entryId] = text;
         final messageId = '$entryId-agent-user';
+
+        // ChatPage inserts the user bubble before opening ACP. Live ACP user
+        // echoes must converge on that bubble, not create a second one. The
+        // local dispatch id is the only reliable bridge between the host
+        // message and the official ACP turn; never deduplicate historical
+        // prompts by text alone.
+        if (!isReplay) {
+          final dispatchIds = <String>{
+            if (runtime.currentDispatchTurnId?.trim().isNotEmpty == true)
+              runtime.currentDispatchTurnId!.trim(),
+            if (runtime.activeRunId?.trim().isNotEmpty == true)
+              runtime.activeRunId!.trim(),
+          };
+          final expectedHostUserIds = dispatchIds
+              .where((id) => id.endsWith('-ai'))
+              .map((id) => '${id.substring(0, id.length - 3)}-user')
+              .toSet();
+          final hostIndex = runtime.messages.indexWhere(
+            (message) =>
+                message.user == 1 && expectedHostUserIds.contains(message.id),
+          );
+          if (hostIndex >= 0) {
+            // A provider may have emitted one echo before the host snapshot
+            // was installed. Remove only the generated fallback for this
+            // event; unrelated user history must remain untouched.
+            final fallbackIndex = runtime.messages.indexWhere(
+              (message) => message.id == messageId && message.user == 1,
+            );
+            if (fallbackIndex >= 0 && fallbackIndex != hostIndex) {
+              runtime.messages.removeAt(fallbackIndex);
+            }
+            return AgentReduceResult(
+              handled: true,
+              method: method,
+              threadId: threadId,
+              turnId: turnId,
+            );
+          }
+        }
         final existingIndex = runtime.messages.indexWhere(
           (message) => message.id == messageId,
         );
@@ -1102,6 +1160,9 @@ class AgentEventReducer {
         title: _approvalTitle(method, params),
         detail: _approvalDetail(params),
         params: params,
+        agentId: eventAgentId,
+        agentName: eventAgentName,
+        sessionId: sessionId,
         toolCallId: _firstString([
           params['toolCallId'],
           params['tool_call_id'],
@@ -1166,6 +1227,9 @@ class AgentEventReducer {
         title: title,
         detail: detail,
         params: params,
+        agentId: eventAgentId,
+        agentName: eventAgentName,
+        sessionId: sessionId,
         structuredElicitation: true,
         streamMeta: _streamMeta(
           runtime,
@@ -1197,6 +1261,9 @@ class AgentEventReducer {
         detail: question.detail,
         questionId: question.id,
         params: params,
+        agentId: eventAgentId,
+        agentName: eventAgentName,
+        sessionId: sessionId,
         toolCallId: _firstString([
           params['toolCallId'],
           params['tool_call_id'],
@@ -2805,6 +2872,9 @@ class AgentEventReducer {
     required String detail,
     required Map<String, dynamic> params,
     required Map<String, dynamic> streamMeta,
+    String? agentId,
+    String? agentName,
+    String? sessionId,
     String? toolCallId,
     String? questionId,
     bool structuredElicitation = false,
@@ -2826,9 +2896,26 @@ class AgentEventReducer {
         nextRequestId.isNotEmpty &&
         existingRequestId == nextRequestId;
     final existingCardData = existing?.cardData ?? const <String, dynamic>{};
+    final requestAgentId = _firstString([
+      agentId,
+      params['agentId'],
+      params['agent_id'],
+      existingCardData['agentId'],
+      existingCardData['agent_id'],
+    ]);
+    final requestAgentName = _firstString([
+      agentName,
+      params['agentName'],
+      params['agent_name'],
+      existingCardData['agentName'],
+      existingCardData['agent_name'],
+    ]);
     final requestSessionId = _firstString([
+      sessionId,
       params['sessionId'],
       params['session_id'],
+      existingCardData['sessionId'],
+      existingCardData['session_id'],
     ]);
     final status = _resolveRequestStatus(
       requestKind: requestKind,
@@ -2843,6 +2930,8 @@ class AgentEventReducer {
       'runId': taskId,
       'requestId': requestId,
       if (requestId == null) 'interactionUnavailable': true,
+      if (requestAgentId != null) 'agentId': requestAgentId,
+      if (requestAgentName != null) 'agentName': requestAgentName,
       if (requestSessionId != null) 'sessionId': requestSessionId,
       if (toolCallId != null && toolCallId.trim().isNotEmpty)
         'toolCallId': toolCallId.trim(),
@@ -3171,10 +3260,10 @@ class AgentEventReducer {
           runtime,
           parentTaskId: taskId,
           entryId: cardId,
-          kind: toolInfo.status == 'running'
+          kind: _isActiveAgentToolStatus(toolInfo.status)
               ? 'tool_progress'
               : 'tool_completed',
-          isFinal: toolInfo.status != 'running',
+          isFinal: !_isActiveAgentToolStatus(toolInfo.status),
           existingMessage: existingMessage,
         ),
         touchTurn: false,
@@ -3238,8 +3327,10 @@ class AgentEventReducer {
         runtime,
         parentTaskId: taskId,
         entryId: cardId,
-        kind: toolInfo.status == 'running' ? 'tool_progress' : 'tool_completed',
-        isFinal: toolInfo.status != 'running',
+        kind: _isActiveAgentToolStatus(toolInfo.status)
+            ? 'tool_progress'
+            : 'tool_completed',
+        isFinal: !_isActiveAgentToolStatus(toolInfo.status),
       ),
       touchTurn: false,
     );
@@ -4131,6 +4222,14 @@ class AgentEventReducer {
     }.contains(status.trim().toLowerCase());
   }
 
+  bool _isActiveAgentToolStatus(String status) {
+    return const <String>{
+      'running',
+      'pending',
+      'progress',
+    }.contains(status.trim().toLowerCase());
+  }
+
   String? _findToolCardIdForCallId(
     ChatConversationRuntimeState runtime,
     String callId, {
@@ -4535,6 +4634,9 @@ class AgentEventReducer {
       params['prompt'],
       toolCall?['reason'],
       toolCall?['description'],
+      toolCall?['detail'],
+      _extractText(toolCall?['content']),
+      input['detail'],
     ]);
     if (reason != null && !_isGenericApprovalLabel(reason)) {
       parts.add(reason);
@@ -5151,21 +5253,21 @@ Map<String, dynamic>? _projectAcpSessionUpdate({
         }),
       };
     case 'user_message_chunk':
-      // The host owns live user-message persistence. Only an explicit
-      // session/load replay may project ACP user history into the timeline;
-      // otherwise the normal prompt would be duplicated.
+      // ACP session/load replays and live turn echoes share one projection
+      // seam. A live echo is safe only with an official turn identity; the
+      // reducer then deduplicates it against the host's optimistic message.
       final isReplay =
           update['replay'] == true ||
           params['replay'] == true ||
           event['replay'] == true;
-      if (!isReplay) return null;
+      if (!isReplay && turnId == null) return null;
       return <String, dynamic>{
         'method': 'item/userMessage/delta',
         'params': projectedParams(<String, dynamic>{
           'itemId': scopedMessageId,
           if (scopedEntryId != null) 'entryId': scopedEntryId,
           'delta': _extractStreamingText(update['content']) ?? '',
-          'replay': true,
+          'replay': isReplay,
         }),
       };
     case 'tool_call':
@@ -5350,7 +5452,9 @@ Map<String, dynamic>? _projectAcpSessionUpdate({
       );
       final status = switch (state) {
         'running' || 'active' || 'busy' => 'running',
-        'requiresaction' => 'requires_action',
+        // ACP has no extra lifecycle state here. A provider-specific
+        // requires-action alias is only an in-progress interaction.
+        'requiresaction' => 'running',
         'idle' || 'complete' || 'completed' => switch (stopReason) {
           'cancelled' ||
           'canceled' ||

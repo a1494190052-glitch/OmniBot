@@ -333,6 +333,74 @@ void main() {
     expect(runtime.activeAcpSessionId, isNull);
   });
 
+  test('expires persisted ACP request cards when restoring an idle session', () {
+    const conversationId = 2006;
+    final runtime = coordinator.ensureRuntime(
+      conversationId: conversationId,
+      mode: kChatRuntimeModeAgent,
+    );
+
+    coordinator.replaceConversationSnapshot(
+      conversationId: conversationId,
+      mode: kChatRuntimeModeAgent,
+      messages: <ChatMessageModel>[
+        ChatMessageModel(
+          id: 'request-card-1',
+          type: 2,
+          user: 3,
+          content: <String, dynamic>{
+            'cardData': <String, dynamic>{
+              'type': 'agent_request',
+              'requestId': 'request-1',
+              'status': 'pending',
+              'requestKind': 'user_input',
+            },
+          },
+        ),
+      ],
+      isAiResponding: false,
+      isExecutingTask: false,
+    );
+
+    final card = runtime.messages.single.cardData!;
+    expect(card['status'], 'expired');
+    expect(card['interactionUnavailable'], isTrue);
+    expect(card['interactionUnavailableReason'], 'session_ended');
+  });
+
+  test('keeps a live ACP request card pending during an active snapshot', () {
+    const conversationId = 2007;
+    final runtime = coordinator.ensureRuntime(
+      conversationId: conversationId,
+      mode: kChatRuntimeModeAgent,
+    );
+
+    coordinator.replaceConversationSnapshot(
+      conversationId: conversationId,
+      mode: kChatRuntimeModeAgent,
+      messages: <ChatMessageModel>[
+        ChatMessageModel(
+          id: 'request-card-live',
+          type: 2,
+          user: 3,
+          content: <String, dynamic>{
+            'cardData': <String, dynamic>{
+              'type': 'agent_request',
+              'requestId': 'request-live',
+              'status': 'pending',
+              'requestKind': 'user_input',
+            },
+          },
+        ),
+      ],
+      isAiResponding: true,
+      isExecutingTask: true,
+    );
+
+    expect(runtime.messages.single.cardData?['status'], 'pending');
+    expect(runtime.messages.single.cardData?['interactionUnavailable'], isNull);
+  });
+
   test('binds ACP events to one session as well as one turn', () {
     const conversationId = 43;
     applyAcp(
@@ -835,6 +903,27 @@ void main() {
       );
     },
   );
+
+  test('projects active Xiaowan conversations for the drawer', () {
+    const conversationId = 2010;
+    const taskId = 'drawer-running-task';
+
+    coordinator.beginAcpTurn(
+      taskId: taskId,
+      conversationId: conversationId,
+      mode: kChatRuntimeModeAgent,
+    );
+
+    expect(coordinator.activeAgentConversationIds, contains(conversationId));
+    expect(coordinator.isAgentConversationActive(conversationId), isTrue);
+
+    coordinator.unregisterTask(taskId);
+    expect(
+      coordinator.activeAgentConversationIds,
+      isNot(contains(conversationId)),
+    );
+    expect(coordinator.isAgentConversationActive(conversationId), isFalse);
+  });
 
   test('maps ACP tool updates to the tools island', () {
     const conversationId = 2501;

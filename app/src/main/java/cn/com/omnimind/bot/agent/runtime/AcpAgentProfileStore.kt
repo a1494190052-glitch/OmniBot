@@ -141,7 +141,7 @@ private val DEEPSEEK_HARNESS_DECLARED_CAPABILITIES: Map<String, Any?> = mapOf(
 internal const val DEEPSEEK_HARNESS_NPM_CHANNEL = "next"
 internal const val DEEPSEEK_HARNESS_PNPM_VERSION = "11.22.0"
 internal const val DEEPSEEK_HARNESS_PREPARATION_REVISION =
-    "deepseek-dsh-pnpm-copy-v6"
+    "deepseek-dsh-pnpm-copy-v8"
 private const val DEEPSEEK_HARNESS_NPM_PRIMARY_REGISTRY =
     "https://registry.npmmirror.com"
 private const val DEEPSEEK_HARNESS_NPM_FALLBACK_REGISTRY =
@@ -342,6 +342,12 @@ internal val DEEPSEEK_HARNESS_NPM_INSTALL_COMMAND = """
         @deepseek-ai/dsh@$DEEPSEEK_HARNESS_NPM_CHANNEL
       dsh plugin --profile acp add @openma/deepseek-harness-acp@latest
     fi
+    # The ACP profile is persistent Harness state, not session state. Never
+    # remove dependencies from it during a reconnect or a normal Agent switch:
+    # user-installed DSH plugins, skills and commands must remain available to
+    # every later ACP session that uses this same profile. A broken or
+    # incompatible plugin must be reported by ACP initialize/health instead of
+    # being silently destroyed by the host.
     # Android proot's link2symlink layer can turn pnpm's hard links inside the
     # official profile into a two-hop absolute link chain:
     # module.js -> .../.l2s.<hash>0001 -> .../.l2s.<hash>0001.0002

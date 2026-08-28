@@ -32,6 +32,40 @@ void main() {
     );
   });
 
+  test('initialize stays on the shared ACP boundary', () async {
+    MethodCall? capturedCall;
+    messenger.setMockMethodCallHandler(channel, (call) async {
+      capturedCall = call;
+      return <String, dynamic>{'protocolVersion': 1};
+    });
+
+    await AgentRuntimeService.initialize(agentId: 'xiaowan-acp');
+
+    expect(capturedCall?.method, 'initialize');
+    expect(capturedCall?.arguments, {'agentId': 'xiaowan-acp'});
+  });
+
+  test('request cancellation is not encoded as session cancellation', () async {
+    MethodCall? capturedCall;
+    messenger.setMockMethodCallHandler(channel, (call) async {
+      capturedCall = call;
+      return <String, dynamic>{'ok': true, 'cancelled': true};
+    });
+
+    await AgentRuntimeService.cancelRequest(
+      requestId: 'request-1',
+      sessionId: 'session-1',
+      agentId: 'xiaowan-acp',
+    );
+
+    expect(capturedCall?.method, '\$/cancel_request');
+    expect(capturedCall?.arguments, {
+      'requestId': 'request-1',
+      'sessionId': 'session-1',
+      'agentId': 'xiaowan-acp',
+    });
+  });
+
   test('parses the live status bundled with an agent switch response', () {
     final catalog = AcpAgentCatalog.fromMap(<String, dynamic>{
       'selectedAgentId': 'claude-code',
@@ -488,6 +522,52 @@ void main() {
       'requestId': 'elicitation-1',
       'response': {'action': 'cancel'},
     });
+  });
+
+  test('user input response carries its host routing identity', () async {
+    MethodCall? capturedCall;
+    messenger.setMockMethodCallHandler(channel, (call) async {
+      capturedCall = call;
+      return <String, dynamic>{'ok': true};
+    });
+
+    await AgentRuntimeService.respondToUserInput(
+      requestId: 'request-1',
+      questionId: 'answer',
+      answers: <String>['继续'],
+      sessionId: 'dsh-session-1',
+      agentId: 'deepseek-harness-acp',
+      conversationId: 42,
+    );
+
+    expect(capturedCall?.arguments, {
+      'requestId': 'request-1',
+      'agentId': 'deepseek-harness-acp',
+      'conversationId': 42,
+      'sessionId': 'dsh-session-1',
+      'response': {
+        'answers': {
+          'answer': {
+            'answers': <String>['继续'],
+          },
+        },
+      },
+    });
+  });
+
+  test('server response is not considered submitted without an ACP ACK', () {
+    messenger.setMockMethodCallHandler(channel, (call) async {
+      return <String, dynamic>{};
+    });
+
+    expect(
+      AgentRuntimeService.respondToUserInput(
+        requestId: 'request-1',
+        questionId: 'answer',
+        answers: <String>['继续'],
+      ),
+      throwsStateError,
+    );
   });
 
   test('readSession requests history by default', () async {

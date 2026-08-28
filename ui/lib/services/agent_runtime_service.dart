@@ -795,6 +795,16 @@ class AgentRuntimeService {
     return AgentRuntimeStatus.fromMap(result);
   }
 
+  /// Returns the already negotiated ACP AgentInfo. The native host performs
+  /// the wire handshake once per transport; callers must not create a second
+  /// session just to initialize a shared ACP client.
+  static Future<Map<String, dynamic>> initialize({String? agentId}) {
+    return _invokeMap('initialize', {
+      if (agentId != null && agentId.trim().isNotEmpty)
+        'agentId': agentId.trim(),
+    });
+  }
+
   static Future<AcpAgentCatalog> listAgents() async {
     return AcpAgentCatalog.fromMap(await _invokeMap('agent/list'));
   }
@@ -1211,6 +1221,22 @@ class AgentRuntimeService {
     });
   }
 
+  /// Cancels one JSON-RPC request. This is deliberately separate from
+  /// session/cancel, which cancels the active ACP turn/session lifecycle.
+  static Future<Map<String, dynamic>> cancelRequest({
+    required Object requestId,
+    String? sessionId,
+    String? agentId,
+  }) {
+    return _invokeMap('\$/cancel_request', {
+      'requestId': requestId,
+      if (sessionId != null && sessionId.trim().isNotEmpty)
+        'sessionId': sessionId.trim(),
+      if (agentId != null && agentId.trim().isNotEmpty)
+        'agentId': agentId.trim(),
+    });
+  }
+
   static Future<Map<String, dynamic>> reviewSession({
     String? sessionId,
     int? conversationId,
@@ -1486,9 +1512,17 @@ class AgentRuntimeService {
   static Future<Map<String, dynamic>> respondToApproval({
     required Object requestId,
     required bool accepted,
+    String? sessionId,
+    String? agentId,
+    int? conversationId,
   }) {
-    return _invokeMap('respondToServerRequest', {
+    return _invokeServerResponse({
       'requestId': requestId,
+      if (agentId != null && agentId.trim().isNotEmpty)
+        'agentId': agentId.trim(),
+      if (conversationId != null) 'conversationId': conversationId,
+      if (sessionId != null && sessionId.trim().isNotEmpty)
+        'sessionId': sessionId.trim(),
       'response': {'decision': accepted ? 'accept' : 'decline'},
     });
   }
@@ -1497,9 +1531,17 @@ class AgentRuntimeService {
     required Object requestId,
     required String questionId,
     required List<String> answers,
+    String? sessionId,
+    String? agentId,
+    int? conversationId,
   }) {
-    return _invokeMap('respondToServerRequest', {
+    return _invokeServerResponse({
       'requestId': requestId,
+      if (agentId != null && agentId.trim().isNotEmpty)
+        'agentId': agentId.trim(),
+      if (conversationId != null) 'conversationId': conversationId,
+      if (sessionId != null && sessionId.trim().isNotEmpty)
+        'sessionId': sessionId.trim(),
       'response': {
         'answers': {
           questionId: {'answers': answers},
@@ -1514,27 +1556,51 @@ class AgentRuntimeService {
   static Future<Map<String, dynamic>> respondToElicitation({
     required Object requestId,
     required Map<String, dynamic> content,
+    String? sessionId,
+    String? agentId,
+    int? conversationId,
   }) {
-    return _invokeMap('respondToServerRequest', {
+    return _invokeServerResponse({
       'requestId': requestId,
+      if (agentId != null && agentId.trim().isNotEmpty)
+        'agentId': agentId.trim(),
+      if (conversationId != null) 'conversationId': conversationId,
+      if (sessionId != null && sessionId.trim().isNotEmpty)
+        'sessionId': sessionId.trim(),
       'response': {'action': 'accept', 'content': content},
     });
   }
 
   static Future<Map<String, dynamic>> cancelElicitation({
     required Object requestId,
+    String? sessionId,
+    String? agentId,
+    int? conversationId,
   }) {
-    return _invokeMap('respondToServerRequest', {
+    return _invokeServerResponse({
       'requestId': requestId,
+      if (agentId != null && agentId.trim().isNotEmpty)
+        'agentId': agentId.trim(),
+      if (conversationId != null) 'conversationId': conversationId,
+      if (sessionId != null && sessionId.trim().isNotEmpty)
+        'sessionId': sessionId.trim(),
       'response': {'action': 'cancel'},
     });
   }
 
   static Future<Map<String, dynamic>> ignoreUserInput({
     required Object requestId,
+    String? sessionId,
+    String? agentId,
+    int? conversationId,
   }) {
-    return _invokeMap('respondToServerRequest', {
+    return _invokeServerResponse({
       'requestId': requestId,
+      if (agentId != null && agentId.trim().isNotEmpty)
+        'agentId': agentId.trim(),
+      if (conversationId != null) 'conversationId': conversationId,
+      if (sessionId != null && sessionId.trim().isNotEmpty)
+        'sessionId': sessionId.trim(),
       'response': {'answers': <String, dynamic>{}},
     });
   }
@@ -1566,6 +1632,16 @@ class AgentRuntimeService {
   ]) async {
     final result = await _methodChannel.invokeMethod<dynamic>(method, args);
     return _normalizeMap(result) ?? <String, dynamic>{};
+  }
+
+  static Future<Map<String, dynamic>> _invokeServerResponse(
+    Map<String, dynamic> args,
+  ) async {
+    final result = await _invokeMap('respondToServerRequest', args);
+    if (result['ok'] != true) {
+      throw StateError('ACP server request was not acknowledged');
+    }
+    return result;
   }
 
   static Future<dynamic> _invokeValue(
