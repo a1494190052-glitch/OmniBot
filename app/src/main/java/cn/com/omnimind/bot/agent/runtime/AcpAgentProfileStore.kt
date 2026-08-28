@@ -141,7 +141,7 @@ private val DEEPSEEK_HARNESS_DECLARED_CAPABILITIES: Map<String, Any?> = mapOf(
 internal const val DEEPSEEK_HARNESS_NPM_CHANNEL = "next"
 internal const val DEEPSEEK_HARNESS_PNPM_VERSION = "11.22.0"
 internal const val DEEPSEEK_HARNESS_PREPARATION_REVISION =
-    "deepseek-dsh-pnpm-copy-v8"
+    "deepseek-dsh-pnpm-copy-v11"
 private const val DEEPSEEK_HARNESS_NPM_PRIMARY_REGISTRY =
     "https://registry.npmmirror.com"
 private const val DEEPSEEK_HARNESS_NPM_FALLBACK_REGISTRY =
@@ -158,6 +158,8 @@ internal val DEEPSEEK_HARNESS_NPM_PACKAGE_SPECS = listOf(
 )
 internal const val DEEPSEEK_HARNESS_INSTALL_SCRIPT_PATH =
     "/root/.dsh/omnibot-acp/install-dsh-runtime.sh"
+internal const val DEEPSEEK_HARNESS_ACP_PATCH_PATH =
+    "/root/.dsh/omnibot-acp/omnibot-acp-headless.patch.yml"
 internal const val DEEPSEEK_HARNESS_NATIVE_HEALTH_COMMAND =
         "DSH_HOME=/root/.dsh/omnibot-acp " +
         "PATH=/root/.npm-global/bin:${'$'}PATH " +
@@ -295,8 +297,20 @@ internal val DEEPSEEK_HARNESS_NPM_INSTALL_COMMAND = """
     # DSH's HMR plugin requires a Node internal flag. NODE_OPTIONS rejects
     # this flag, so publish a tiny launcher that passes it as a CLI argument
     # while still executing the vendor's official lib/bin.js entrypoint.
+    # The ACP transport is headless. Keep the Web-only plugins installed in
+    # the shared DSH profile, but do not activate them in this process: they
+    # wait for webServer/webRuntime and make the ACP tree fail after a slow
+    # initialize. This overlay is launch-scoped and never deletes user data.
+    printf '%s\n' '# OmniBot ACP headless overlay' \
+      '- id: dsh-plugin-mgr' \
+      '  disabled: true' \
+      '- id: dsh-plugin-studio' \
+      '  disabled: true' \
+      '- id: uisfx' \
+      '  disabled: true' \
+      > "$DEEPSEEK_HARNESS_ACP_PATCH_PATH"
     printf '%s\n' '#!/bin/sh' \
-      'exec node --expose-internals /root/.npm-global/lib/node_modules/@deepseek-ai/dsh/lib/bin.js "${'$'}{@}"' \
+      'exec node --expose-internals /root/.npm-global/lib/node_modules/@deepseek-ai/dsh/lib/bin.js --patch "$DEEPSEEK_HARNESS_ACP_PATCH_PATH" "${'$'}@"' \
       > /root/.npm-global/bin/dsh-acp-android
     chmod 755 /root/.npm-global/bin/dsh-acp-android
     test -x /root/.npm-global/bin/dsh-acp-android

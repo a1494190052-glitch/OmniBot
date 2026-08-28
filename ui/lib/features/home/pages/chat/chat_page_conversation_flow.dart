@@ -399,7 +399,10 @@ mixin _ChatPageConversationFlowMixin on _ChatPageStateBase {
     _isCheckingSendModelConfiguration = true;
     try {
       final results = await Future.wait<dynamic>([
-        ModelProviderConfigService.loadChatModelGroups(),
+        // Sending must validate the already persisted Provider document. It
+        // is not a model-catalog refresh action; /models is requested only
+        // from Provider configuration or an explicit refresh control.
+        ModelProviderConfigService.loadChatModelGroups(refresh: false),
         SceneModelConfigService.getSceneCatalog(),
       ]);
       if (!mounted) {

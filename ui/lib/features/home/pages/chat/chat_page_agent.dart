@@ -104,16 +104,17 @@ mixin _ChatPageAgentMixin on _ChatPageStateBase {
       return const <String>[];
     }
 
-    // The normal chat model context already owns the Provider catalog. Keep
-    // this path cache-only: fetching /models here duplicated the normal chat
-    // refresh and made entering Agent mode wait on the same Provider again.
-    // The active Provider is refreshed by the shared chat model context.
+    // The Provider settings surface owns catalog discovery. Keep Agent entry
+    // cache-only: fetching /models here duplicated configuration work and
+    // made entering Agent mode wait on the Provider again.
     final providerOptions = <ProviderModelOption>[
       ...?_modelOptionsByProfileId[profile.id],
     ];
     final cachedOptions =
         await ModelProviderConfigService.getCachedFetchedModels(
           profileId: profile.id,
+          apiBase: profile.baseUrl,
+          profileRevision: profile.revision,
         );
     providerOptions.addAll(cachedOptions);
     final storedOptions =
@@ -128,41 +129,11 @@ mixin _ChatPageAgentMixin on _ChatPageStateBase {
         .where((item) => item.isNotEmpty)
         .toSet()
         .toList(growable: false);
-    if (modelIds.isEmpty) {
-      // A first Agent launch may have no warm cache. Do one explicit catalog
-      // refresh for the migration path; after the binding is persisted normal
-      // Harness switching remains cache/binding-only.
-      try {
-        final fetched = await ModelProviderConfigService.fetchModels(
-          profileId: profile.id,
-          providerName: profile.name,
-          capability: 'text',
-        );
-        modelIds = fetched
-            .map((item) => item.id.trim())
-            .where((item) => item.isNotEmpty)
-            .toSet()
-            .toList(growable: false);
-      } catch (_) {
-        modelIds = const <String>[];
-      }
-    }
-    if (resolvedSelection == null && modelIds.isNotEmpty) {
-      resolvedSelection = _ChatModelOverrideSelection(
-        providerProfileId: profile.id,
-        modelId: modelIds.first,
-      );
-      try {
-        await SceneModelConfigService.saveSceneModelBinding(
-          sceneId: 'scene.dispatch.model',
-          providerProfileId: resolvedSelection.providerProfileId,
-          modelId: resolvedSelection.modelId,
-        );
-        unawaited(_loadNormalChatModelContext());
-      } catch (_) {
-        // The caller still gets the model list; ACP will report the binding
-        // failure only if persistence itself is unavailable.
-      }
+    final boundModelId = resolvedSelection?.modelId.trim() ?? '';
+    if (modelIds.isEmpty && boundModelId.isNotEmpty) {
+      // A durable ACP binding is usable even when the catalog document is
+      // cold. Keep the selected model visible immediately.
+      modelIds = <String>[boundModelId];
     }
     return modelIds;
   }
@@ -744,7 +715,14 @@ mixin _ChatPageAgentMixin on _ChatPageStateBase {
       // Every local ACP Agent exposes the same session/config boundary. Do
       // not branch on a vendor or Harness id here: the visible model,
       // reasoning and permission cards must follow the active ACP session.
-      final configSettings = await _readAgentRunSettingsFromServerConfig();
+      // Shared-provider ACP Agents take model/reasoning identity from the
+      // canonical Dispatch binding. Reading the Harness config here is a
+      // terminal IPC round-trip and cannot change that result; doing it
+      // before the shared-provider branch made the model card wait for the
+      // same slow startup path that it was meant to describe.
+      final configSettings = sharedAgent
+          ? const _AgentRunSettingsSnapshot()
+          : await _readAgentRunSettingsFromServerConfig();
       final response = sharedAgent
           ? const <String, dynamic>{}
           : await AgentRuntimeService.listModelsForStatus(statusForRequest);
