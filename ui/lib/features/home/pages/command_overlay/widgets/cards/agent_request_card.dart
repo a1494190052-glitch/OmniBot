@@ -362,6 +362,8 @@ class _AgentRequestCardState extends State<AgentRequestCard> {
         : (_localStatus ?? cardStatus);
     final interactionUnavailable =
         widget.cardData['interactionUnavailable'] == true;
+    final interactionUnavailableReason =
+        widget.cardData['interactionUnavailableReason']?.toString().trim();
     final isPending =
         status == 'pending' && !_isSubmitting && !interactionUnavailable;
     final options = _resolveRequestOptions(widget.cardData);
@@ -446,7 +448,11 @@ class _AgentRequestCardState extends State<AgentRequestCard> {
           if (interactionUnavailable) ...[
             const SizedBox(height: 8),
             Text(
-              'This request cannot be answered because ACP omitted its request id.',
+              interactionUnavailableReason == 'session_ended'
+                  ? (Localizations.maybeLocaleOf(context)?.languageCode == 'en'
+                        ? 'This request expired with the ACP session. Start a new prompt to continue.'
+                        : 'ACP 会话已结束，该请求已过期。请发起新的请求继续。')
+                  : 'This request cannot be answered because ACP omitted its request id.',
               style: TextStyle(
                 fontSize: 12,
                 color: palette.textSecondary,
