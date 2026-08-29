@@ -463,6 +463,7 @@ class AgentRuntimeManager private constructor(
     }
 
     suspend fun status(): Map<String, Any?> {
+        val statusStartedAt = System.nanoTime()
         val runtime = resolveRuntime()
         val selectedLocalRuntime = if (runtime.kind == AgentRuntimeKind.LOCAL) {
             selectedLocalRuntime()
@@ -495,6 +496,12 @@ class AgentRuntimeManager private constructor(
                 probeLocalAcpAgentCached()
             }
         }
+        Log.i(
+            "AgentRuntimeManager",
+            "ACP timing agent=${selectedLocalRuntime?.activeAgentId() ?: "remote"} " +
+                "stage=status_probe source=${probe.details["source"] ?: "shell_or_remote"} " +
+                "elapsedMs=${(System.nanoTime() - statusStartedAt) / 1_000_000L}"
+        )
         return linkedMapOf<String, Any?>(
             "connected" to connected,
             "ready" to probe.ready,
@@ -1968,23 +1975,13 @@ class AgentRuntimeManager private constructor(
                     "Check the default Provider configuration before starting Harness."
             }
         }
-        val providerModelResolution = if (
-            usesSharedProvider && boundModel.isNullOrBlank()
-        ) {
-            // A persisted Agent binding is enough to launch ACP. Only fall
-            // back to /models when the binding is incomplete; a normal
-            // Harness switch must not wait on a slow/offline catalog endpoint.
-            resolveCurrentProviderModelIds(
-                profile = sharedProviderProfile,
-                timeoutMs = AGENT_PROVIDER_MODEL_LOOKUP_TIMEOUT_MS,
-            )
-        } else {
-            null
-        }
-        val providerModels = providerModelResolution
-            ?.takeIf { it.authoritative }
-            ?.models
-            .orEmpty()
+        // Provider /models is catalog metadata, not an ACP launch
+        // prerequisite. A shared-provider Harness can launch from the
+        // durable scene binding; when that binding is absent, fail clearly
+        // and let the Provider settings/scene selector create it through an
+        // explicit user action. Never turn Agent startup into a network
+        // discovery request.
+        val providerModels = emptyList<ProviderModelOption>()
         val resolvedModel = if (usesSharedProvider) {
             val model = resolveAcpLaunchModelForDispatch(
                 providerModelIds = providerModels.map(ProviderModelOption::id),
@@ -2004,14 +2001,14 @@ class AgentRuntimeManager private constructor(
             )
         }
         val providerModelsForAdapter = if (usesSharedProvider && providerModels.isEmpty()) {
-            // A persisted binding is an explicit user choice. If /models is
-            // temporarily unavailable (or unsupported), keep the ACP launch
-            // usable and give adapters the minimum catalog entry they need.
+            // A persisted binding is an explicit user choice. The adapter
+            // still needs a one-item config document, but that document is
+            // derived locally and does not imply a Provider catalog request.
             val fallbackModel = requireNotNull(resolvedModel)
-            Log.w(
+            Log.i(
                 "AgentRuntimeManager",
-                "Provider /models unavailable for profile=${sharedProviderProfile?.id}; " +
-                    "using the persisted Agent model=$fallbackModel",
+                "Using persisted Agent model=$fallbackModel for ACP adapter config; " +
+                    "Provider catalog discovery remains an explicit settings action",
             )
             listOf(ProviderModelOption(id = fallbackModel, displayName = fallbackModel))
         } else {
@@ -2113,10 +2110,9 @@ class AgentRuntimeManager private constructor(
     }
 
     /**
-     * Migrate old installs whose Provider/model was configured in normal chat
-     * but never written to the canonical Agent scene binding. This runs only
-     * when the binding is absent/incomplete; ordinary Harness switches remain
-     * a local binding lookup and do not call /models.
+     * Read the canonical Provider/model document for Agent dispatch.
+     * Provider/model selection is a user-owned configuration action; Agent
+     * startup must not silently migrate or select a remote model.
      */
     private suspend fun ensureSharedAgentProviderBinding(): SceneModelBindingEntry? {
         val current = SceneModelBindingStore.getBinding("scene.dispatch.model")
@@ -2127,31 +2123,11 @@ class AgentRuntimeManager private constructor(
             }
         if (current != null) return current
 
-        val editingProfile = runCatching {
-            ModelProviderConfigStore.getEditingProfile()
-        }.getOrNull()?.takeIf {
-            it.baseUrl.isNotBlank() && it.apiKey.isNotBlank()
-        } ?: return null
-        val models = resolveCurrentProviderModelIds(
-            profile = editingProfile,
-            timeoutMs = AGENT_PROVIDER_MODEL_LOOKUP_TIMEOUT_MS,
-        )?.models.orEmpty()
-        val migrated = resolveSharedAgentProviderBinding(
-            currentBinding = current,
-            editingProfile = editingProfile,
-            availableModels = models,
-        ) ?: return null
-        SceneModelBindingStore.saveBinding(
-            sceneId = migrated.sceneId,
-            providerProfileId = migrated.providerProfileId,
-            modelId = migrated.modelId,
-        )
-        Log.i(
-            "AgentRuntimeManager",
-            "Migrated Agent Provider binding profile=${migrated.providerProfileId} " +
-                "model=${migrated.modelId}",
-        )
-        return migrated
+        // There is no model authority in this native layer. The model catalog
+        // is persisted by the Provider configuration surface, and the scene
+        // binding is written only after the user chooses a model. Do not
+        // silently select the first remote model during ACP initialization.
+        return null
     }
 
     private suspend fun prepareSharedProviderBinding() {
@@ -2245,18 +2221,12 @@ class AgentRuntimeManager private constructor(
     }
 
     private suspend fun listAuthoritativeProviderModels(): Map<String, Any?> {
-        val provider = currentAgentProviderProfile()
-        // The ACP model/list surface is also queried during app/bootstrap
-        // refreshes. Keep it bounded like launch preparation so an offline or
-        // partial-connectivity device never leaves the chat waiting on /models.
-        val modelResolution = resolveCurrentProviderModelIds(
-            profile = provider,
-            timeoutMs = AGENT_PROVIDER_MODEL_LOOKUP_TIMEOUT_MS,
-        )
+        // The ACP model/list surface is a projection of the active Dispatch
+        // document. It must not become a hidden Provider /models refresh:
+        // catalog discovery is owned by Provider settings and explicit
+        // refresh actions, while ACP startup only needs the selected model.
         return buildAuthoritativeProviderModelPayload(
-            providerModelIds = modelResolution
-                ?.takeIf { it.authoritative }
-                ?.modelIds,
+            providerModelIds = null,
             boundModel = currentAgentBoundModel(),
         )
     }
@@ -2384,6 +2354,8 @@ class AgentRuntimeManager private constructor(
                 commandAvailable = commandAvailable,
                 allPackagesReady = allPackagesReady,
                 adapterHealthy = adapterHealthy,
+                preparationRevision = previousHealth.preparationRevision,
+                requiredRevision = runtime.preparationRevision,
             )
         ) {
             return
@@ -3128,6 +3100,29 @@ class AgentRuntimeManager private constructor(
                 error = null
             )
         }
+        // A successful managed-adapter preparation or ACP initialize is
+        // already an authoritative launch-readiness result. Re-running a
+        // shell command probe after every app/process restart turns the
+        // foreground Agent entry into a 15s timeout when the terminal is
+        // merely waking up. The real connect path still validates the actual
+        // ACP process and will invalidate this health on a genuine failure.
+        val runtime = AcpAgentProfileStore.officialRuntime(profile)
+        val persistedHealth = acpAgentProfileStore.health(profile.id)
+        if (runtime?.managedAdapterPackage != null &&
+            shouldReuseManagedAcpPreparation(
+                healthStatus = persistedHealth.status,
+                installed = persistedHealth.installed,
+                preparationRevision = persistedHealth.preparationRevision,
+                requiredRevision = runtime.preparationRevision,
+            )
+        ) {
+            return AgentRuntimeProbe(
+                ready = true,
+                version = null,
+                error = null,
+                details = mapOf("source" to "persisted_health"),
+            )
+        }
         return runCatching {
             val environmentPrefix = profile.environment.entries.joinToString(" ") {
                 "${it.key}=${shellQuote(it.value)}"
@@ -3494,11 +3489,15 @@ internal fun shouldPrepareManagedAcpAdapter(
     commandAvailable: Boolean,
     allPackagesReady: Boolean,
     adapterHealthy: Boolean,
+    preparationRevision: String? = null,
+    requiredRevision: String? = null,
 ): Boolean {
     // Keep the agent id in the decision signature because preparation is
     // agent-specific, but reuse the same readiness contract for all managed
     // adapters. Updating DSH is not part of every foreground switch.
-    return !(commandAvailable && allPackagesReady && adapterHealthy)
+    val revisionCurrent = requiredRevision == null ||
+        preparationRevision == requiredRevision
+    return !(commandAvailable && allPackagesReady && adapterHealthy && revisionCurrent)
 }
 
 internal fun shouldReuseManagedAcpPreparation(
@@ -3510,6 +3509,26 @@ internal fun shouldReuseManagedAcpPreparation(
     return healthStatus == AcpAgentHealth.STATUS_ONLINE &&
         installed == true &&
         (requiredRevision == null || preparationRevision == requiredRevision)
+}
+
+/**
+ * A managed ACP adapter that has already passed preparation does not need a
+ * second shell `command -v` probe on the normal connect path. Custom agents
+ * and stale/unchecked health records still take the defensive probe path.
+ */
+internal fun shouldProbeManagedAcpLaunchCommand(
+    managedAdapter: Boolean,
+    healthStatus: String,
+    installed: Boolean?,
+    preparationRevision: String? = null,
+    requiredRevision: String? = null,
+): Boolean {
+    return !managedAdapter || !shouldReuseManagedAcpPreparation(
+        healthStatus = healthStatus,
+        installed = installed,
+        preparationRevision = preparationRevision,
+        requiredRevision = requiredRevision,
+    )
 }
 
 private const val MANAGED_NPM_PATH_PREFIX =

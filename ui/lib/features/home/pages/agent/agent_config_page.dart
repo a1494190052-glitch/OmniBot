@@ -153,19 +153,15 @@ class _AgentConfigPageState extends State<AgentConfigPage> {
       final bindings = await SceneModelConfigService.getSceneModelBindings();
       final models = <String, List<ProviderModelOption>>{};
       for (final profile in profilesPayload.profiles) {
-        var options = <ProviderModelOption>[];
-        if (profile.configured) {
-          try {
-            options = await ModelProviderConfigService.fetchModels(
-              profileId: profile.id,
-              providerName: profile.name,
-              capability: 'text',
-            );
-          } catch (_) {
-            // Agent selection only accepts models verified by this Provider.
-          }
-        }
-        models[profile.id] = options;
+        // This page reads the persisted Provider document. It must not turn
+        // merely opening Agent settings into a serialized /models sweep.
+        models[profile.id] = profile.configured
+            ? await ModelProviderConfigService.getStoredModelOptionsForProfile(
+                profile.id,
+                profile: profile,
+                enrichMetadata: false,
+              )
+            : const <ProviderModelOption>[];
       }
       final persistedBinding = bindings
           .where((item) => item.sceneId == 'scene.dispatch.model')

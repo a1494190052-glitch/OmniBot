@@ -240,6 +240,12 @@ internal class LocalAcpRuntime(
     @Volatile
     private var connection: AcpRuntimeConnection? = null
 
+    // A process can pass ACP initialize and then fail while its Harness
+    // plugin tree finishes booting. Keep that process lifecycle joined to the
+    // runtime lifecycle; otherwise status() sees stale `online` health and
+    // the UI immediately starts another doomed connect attempt.
+    private var processExitWatcher: Job? = null
+
     @Volatile
     private var protocol: Protocol? = null
 
@@ -300,6 +306,7 @@ internal class LocalAcpRuntime(
     ) {
         val callerJob = coroutineContext[Job]
         callerJob?.let(pendingConnectJobs::add)
+        val connectStartedAt = System.nanoTime()
         try {
             connectMutex.withLock {
         Log.i(TAG, "Connecting ACP agent id=${profile.id} command=${profile.command}")
@@ -315,7 +322,23 @@ internal class LocalAcpRuntime(
                 emptyMap()
             } else {
                 prepareLaunchEnvironment(profile).also {
-                    requireLaunchCommand(profile)
+                    val officialRuntime = AcpAgentProfileStore.officialRuntime(profile)
+                    val health = profileStore.health(profile.id)
+                    if (shouldProbeManagedAcpLaunchCommand(
+                            managedAdapter = officialRuntime?.managedAdapterPackage != null,
+                            healthStatus = health.status,
+                            installed = health.installed,
+                            preparationRevision = health.preparationRevision,
+                            requiredRevision = officialRuntime?.preparationRevision,
+                        )
+                    ) {
+                        requireLaunchCommand(profile)
+                    } else {
+                        Log.i(
+                            TAG,
+                            "Reusing persisted ACP launch readiness for ${profile.id}",
+                        )
+                    }
                     sessionMcpEnabled = resolveSessionMcpEnabled(profile)
                 }
             }
@@ -326,6 +349,11 @@ internal class LocalAcpRuntime(
             profileStore.saveHealth(profile.id, failedAgentHealth(wrapped))
             throw wrapped
         }
+        Log.i(
+            TAG,
+            "ACP timing agent=${profile.id} stage=launch_prepared " +
+                "elapsedMs=${elapsedMillis(connectStartedAt)}"
+        )
         val nextConnection: AcpRuntimeConnection = if (
         profile.id == AcpAgentProfileStore.XIAOWAN_AGENT_ID
     ) {
@@ -395,7 +423,11 @@ internal class LocalAcpRuntime(
         try {
             Log.i(TAG, "Starting ACP process for ${profile.id}")
             nextConnection.start()
-            Log.i(TAG, "ACP process started for ${profile.id}")
+            Log.i(
+                TAG,
+                "ACP timing agent=${profile.id} stage=process_started " +
+                    "elapsedMs=${elapsedMillis(connectStartedAt)}"
+            )
             nextProtocol.start()
             Log.i(TAG, "ACP protocol started for ${profile.id}; initializing")
             val initialized = initializeAgent(
@@ -433,6 +465,11 @@ internal class LocalAcpRuntime(
                     "implementation=${initialized.implementation?.name} " +
                     "version=${initialized.implementation?.version}"
             )
+            Log.i(
+                TAG,
+                "ACP timing agent=${profile.id} stage=initialized " +
+                    "elapsedMs=${elapsedMillis(connectStartedAt)}"
+            )
             connection = nextConnection
             protocol = nextProtocol
             client = nextClient
@@ -450,6 +487,38 @@ internal class LocalAcpRuntime(
                             ?.preparationRevision
                 )
             )
+            processExitWatcher?.cancel()
+            processExitWatcher = scope.launch {
+                val exitCode = nextConnection.exitSignal.await()
+                if (connection !== nextConnection) return@launch
+                val diagnostic = nextConnection.diagnosticSummary()
+                val message = buildString {
+                    append("ACP process exited after initialize")
+                    if (exitCode != null) {
+                        append(" with code ")
+                        append(exitCode)
+                    }
+                    if (diagnostic.isNotBlank()) {
+                        append(". ")
+                        append(diagnostic)
+                    }
+                }
+                Log.e(TAG, "$message profile=${profile.id}")
+                profileStore.saveHealth(
+                    profile.id,
+                    failedAgentHealth(IllegalStateException(message))
+                )
+                // Let the watcher finish before cleanup cancels it. The
+                // identity check prevents this stale process from tearing
+                // down a newer connection created by a user switch.
+                scope.launch {
+                    connectMutex.withLock {
+                        if (connection === nextConnection) {
+                            disconnectLocked()
+                        }
+                    }
+                }
+            }
         } catch (error: Throwable) {
             if (error is CancellationException) throw error
             nextProtocol.close()
@@ -574,6 +643,8 @@ internal class LocalAcpRuntime(
 
     private suspend fun disconnectLocked() {
         Log.i(TAG, "Disconnecting ACP runtime profile=${activeProfile?.id ?: "none"}")
+        processExitWatcher?.cancel()
+        processExitWatcher = null
         // Session MCP capability belongs to one Harness launch. A custom
         // Responses-backed Codex launch can disable it, but the next Harness
         // (including in-process Xiaowan, which has no external preparation

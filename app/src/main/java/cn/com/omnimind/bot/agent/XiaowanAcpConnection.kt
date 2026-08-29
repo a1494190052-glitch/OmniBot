@@ -75,7 +75,6 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.channelFlow
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
-import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.JsonElement
@@ -446,51 +445,48 @@ private class XiaowanAgentSupport(
         var existingBinding = SceneModelBindingStore.getBinding("scene.dispatch.model")
         if (!hasUsableSharedProviderBinding(existingBinding)) {
             // The in-process Xiaowan adapter does not run the external
-            // Harness preparation callback. Reconcile the shared binding at
-            // the model boundary as well, so an existing ACP connection can
-            // recover after Provider edits or old installs with no binding.
+            // Harness preparation callback. Re-read the persisted binding at
+            // the model boundary, but never discover a model here.
             ensureSharedProviderBinding()
             existingBinding = SceneModelBindingStore.getBinding("scene.dispatch.model")
         }
         val usableBinding = existingBinding?.takeIf(::hasUsableSharedProviderBinding)
+            ?: throw IllegalStateException(
+                "Dispatch Model has no selected Provider/model. " +
+                    "Open Provider settings and choose a model before starting ACP."
+            )
         val profile = resolveDispatchAgentProviderProfile(
-            boundProviderProfileId = usableBinding?.providerProfileId,
-            configuredProfile = usableBinding
-                ?.providerProfileId
-                ?.let(ModelProviderConfigStore::getProfile),
+            boundProviderProfileId = usableBinding.providerProfileId,
+            configuredProfile = usableBinding.providerProfileId
+                .let(ModelProviderConfigStore::getProfile),
             editingProfile = ModelProviderConfigStore.getEditingProfile(),
             officialProfile = PlatformAiProvisioner.officialProfileOrNull(),
         ) ?: throw IllegalStateException(
             "Dispatch Model Provider is not configured. Configure the default Provider and retry."
         )
         cachedModels?.let { cached ->
-            if (canReuseXiaowanModels(usableBinding, profile, cached) ||
-                (usableBinding == null &&
-                    cached.providerProfileId == profile.id &&
-                    cached.providerProfile == profile.toSessionSnapshot())
-            ) {
+            if (canReuseXiaowanModels(usableBinding, profile, cached)) {
                 Log.i(TAG, "ACP timing agent=xiaowan stage=model_ready source=connection_cache")
                 return cached
             }
             cachedModels = null
         }
         val startedAtNanos = System.nanoTime()
-        // availableModels is part of the ACP session contract and is
-        // immutable for the lifetime of this session. Discover the catalog
-        // once here so a bound model does not accidentally hide the other
-        // models or force the no-binding path to call /models twice.
-        val catalog = runCatching {
-            withTimeoutOrNull(AGENT_PROVIDER_MODEL_LOOKUP_TIMEOUT_MS) {
-                fetchAgentProviderModels(profile)
-            }.orEmpty()
-        }.onFailure { error ->
-            Log.w(TAG, "Provider /models failed for Xiaowan ACP: " +
-                (error.message ?: error.javaClass.simpleName))
-        }.getOrDefault(emptyList())
+        // A durable Dispatch binding is already the user's selected model
+        // and is sufficient to complete ACP initialize. /models is catalog
+        // metadata, not a session prerequisite; querying it here made every
+        // Xiaowan launch wait on a slow or unavailable Provider even though
+        // the selected model was known.
+        Log.i(
+            TAG,
+            "ACP timing agent=xiaowan stage=model_catalog " +
+                "source=durable_binding elapsedMs=${elapsedMillis(startedAtNanos)}"
+        )
+        val catalog = emptyList<ProviderModelOption>()
         val boundModels = buildXiaowanModelsFromBinding(usableBinding, catalog)
-        // Keep the bound model first so existing sessions remain stable, then
-        // append the provider's verified catalog. If discovery is unavailable
-        // the adapter still has a safe single-model fallback.
+        // The bound model is the complete ACP startup document. The full
+        // Provider catalog remains available in the Provider editor and can
+        // be refreshed there without delaying this session handshake.
         boundModels?.let {
             val resolved = it.copy(providerProfile = profile.toSessionSnapshot())
             cachedModels = resolved
@@ -501,27 +497,9 @@ private class XiaowanAgentSupport(
             )
             return resolved
         }
-        // There is no persisted scene binding yet. Use the current Dispatch
-        // Provider catalog for an ephemeral default; do not write a binding
-        // merely to make ACP startup succeed.
-        val availableModels = catalog
-        val fallbackBinding = resolveSharedAgentProviderBinding(
-            currentBinding = null,
-            editingProfile = profile,
-            availableModels = availableModels,
+        throw IllegalStateException(
+            "Dispatch Model has no usable model. Choose a model in Provider settings first."
         )
-        val resolved = buildXiaowanModelsFromBinding(fallbackBinding)
-            ?: throw IllegalStateException(
-                "Dispatch Model has no usable model. Refresh the current Provider model list and retry."
-            )
-        val resolvedWithProvider = resolved.copy(providerProfile = profile.toSessionSnapshot())
-        cachedModels = resolvedWithProvider
-        Log.i(
-            TAG,
-            "ACP timing agent=xiaowan stage=model_ready source=dispatch_catalog " +
-                "elapsedMs=${elapsedMillis(startedAtNanos)}"
-        )
-        return resolvedWithProvider
     }
 }
 
