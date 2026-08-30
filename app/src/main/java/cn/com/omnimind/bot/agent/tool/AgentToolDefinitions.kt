@@ -736,6 +736,106 @@ object AgentToolDefinitions {
                         }
                         putJsonObject("arguments") {
                             put("type", "object")
+                            // Keep the nested action arguments explicit. The
+                            // handler already consumes this stable contract;
+                            // leaving the object without properties forces the
+                            // model to guess that launch_activity needs
+                            // packageName/activityName rather than command.
+                            putJsonObject("properties") {
+                                putJsonObject("packageName") {
+                                    put("type", "string")
+                                    put(
+                                        "description",
+                                        text("目标应用包名，例如 com.example.app。", "Target application package name, for example com.example.app.")
+                                    )
+                                }
+                                putJsonObject("activityName") {
+                                    put("type", "string")
+                                    put(
+                                        "description",
+                                        text("可选的完整 Activity 组件名；不传则启动应用的 Launcher。", "Optional fully-qualified Activity component; omit it to launch the app's Launcher activity.")
+                                    )
+                                }
+                                putJsonObject("permission") {
+                                    put("type", "string")
+                                    put("description", text("要授予或撤销的 Android 权限名。", "Android permission name to grant or revoke."))
+                                }
+                                putJsonObject("mode") {
+                                    put("type", "string")
+                                    put("description", text("AppOps 模式。", "AppOps mode."))
+                                }
+                                putJsonObject("op") {
+                                    put("type", "string")
+                                    put("description", text("AppOps 操作名。", "AppOps operation name."))
+                                }
+                                putJsonObject("namespace") {
+                                    put("type", "string")
+                                    put("description", text("允许的 Android settings 命名空间。", "Allowed Android settings namespace."))
+                                }
+                                putJsonObject("key") {
+                                    put("type", "string")
+                                    put("description", text("settings key 或设备按键名。", "Settings key or device key name."))
+                                }
+                                putJsonObject("value") {
+                                    put("type", "string")
+                                    put("description", text("要写入 settings 的值。", "Value to write to settings."))
+                                }
+                                putJsonObject("enabled") {
+                                    put("type", "boolean")
+                                    put("description", text("是否启用该设备功能。", "Whether to enable the device feature."))
+                                }
+                                putJsonObject("text") {
+                                    put("type", "string")
+                                    put("description", text("要输入到设备的文本。", "Text to input on the device."))
+                                }
+                                putJsonObject("name") {
+                                    put("type", "string")
+                                    put("description", text("要读取的属性名。", "Property name to read."))
+                                }
+                                putJsonObject("prop") {
+                                    put("type", "string")
+                                    put("description", text("兼容的属性名字段。", "Compatibility property-name field."))
+                                }
+                                putJsonObject("service") {
+                                    put("type", "string")
+                                    put("description", text("要读取的 dumpsys 服务名。", "dumpsys service name to read."))
+                                }
+                                putJsonObject("buffer") {
+                                    put("type", "string")
+                                    put("description", text("logcat 缓冲区，默认 main。", "logcat buffer, default main."))
+                                }
+                                putJsonObject("lines") {
+                                    put("type", "integer")
+                                    put("description", text("返回的日志行数。", "Number of log lines to return."))
+                                }
+                                putJsonObject("command") {
+                                    put("type", "string")
+                                    put(
+                                        "description",
+                                        text("仅当 action=shell.exec 时填写；launch_activity 不使用 command。", "Use only when action=shell.exec; launch_activity does not use command.")
+                                    )
+                                }
+                                putJsonObject("timeoutSeconds") {
+                                    put("type", "integer")
+                                    put("description", text("shell.exec 超时秒数，范围 5-600。", "shell.exec timeout in seconds, from 5 to 600."))
+                                }
+                                putJsonObject("workingDirectory") {
+                                    put("type", "string")
+                                    put("description", text("shell.exec 的工作目录。", "Working directory for shell.exec."))
+                                }
+                                putJsonObject("environment") {
+                                    put("type", "object")
+                                    put("description", text("shell.exec 的环境变量。", "Environment variables for shell.exec."))
+                                    putJsonObject("additionalProperties") {
+                                        put("type", "string")
+                                    }
+                                }
+                                putJsonObject("confirmed") {
+                                    put("type", "boolean")
+                                    put("description", text("仅用于已完成用户确认的高风险动作。", "Use only after the user has confirmed a high-risk action."))
+                                }
+                            }
+                            put("additionalProperties", false)
                             put(
                                 "description",
                                 text(
@@ -2311,22 +2411,52 @@ object AgentToolDefinitions {
                 // model catalog.
                 return@map definition
             }
-            JsonObject(
-                definition.mapValues { (key, value) ->
-                    if (key != "function") {
-                        value
+            val modelFunction = JsonObject(
+                function.mapValues { (functionKey, functionValue) ->
+                    if (functionKey == "name") {
+                        JsonPrimitive(modelName)
                     } else {
-                        JsonObject(
-                            function.mapValues { (functionKey, functionValue) ->
-                                if (functionKey == "name") {
-                                    JsonPrimitive(modelName)
-                                } else {
-                                    functionValue
-                                }
-                            }
-                        )
+                        rewriteModelToolDescriptions(functionValue)
                     }
                 }
+            )
+            JsonObject(
+                definition.mapValues { (key, value) ->
+                    if (key == "function") modelFunction else value
+                }
+            )
+        }
+    }
+
+    /**
+     * Keep the schema vocabulary coherent after a model-facing rename. A
+     * renamed function whose description still says `terminal_execute` or
+     * `file_read` teaches the model to emit a name that is absent from the
+     * catalog, which is exactly the kind of stale-tool failure this layer is
+     * meant to prevent. Only description fields are rewritten; enum values,
+     * paths, and arbitrary user/plugin data are left untouched.
+     */
+    private fun rewriteModelToolDescriptions(value: JsonElement): JsonElement {
+        return when (value) {
+            is JsonObject -> JsonObject(
+                value.mapValues { (key, child) ->
+                    if (key == "description" && child is JsonPrimitive && child.isString) {
+                        JsonPrimitive(rewriteModelToolDescription(child.content))
+                    } else {
+                        rewriteModelToolDescriptions(child)
+                    }
+                }
+            )
+            is JsonArray -> JsonArray(value.map(::rewriteModelToolDescriptions))
+            else -> value
+        }
+    }
+
+    private fun rewriteModelToolDescription(text: String): String {
+        return nativeModelToolAliases.entries.fold(text) { current, (nativeName, modelName) ->
+            current.replace(
+                Regex("(?<![A-Za-z0-9_])${Regex.escape(nativeName)}(?![A-Za-z0-9_])"),
+                modelName,
             )
         }
     }

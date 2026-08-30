@@ -2,6 +2,7 @@
 
 package cn.com.omnimind.bot.agent.runtime
 
+import cn.com.omnimind.bot.agent.AgentWorkspaceAttachmentSupport
 import android.util.Log
 import android.content.Context
 import cn.com.omnimind.baselib.llm.ChatCompletionMessage
@@ -102,6 +103,8 @@ internal class XiaowanAcpConnection(
     private val isXiaowanSession: suspend (String) -> Boolean = { true },
     private val deleteSession: suspend (String) -> Unit = {},
 ) : AcpRuntimeConnection {
+    override val materializesPromptAttachments: Boolean = true
+
     private lateinit var clientTransport: LoopbackTransport
     private lateinit var serverTransport: LoopbackTransport
     private lateinit var serverProtocol: Protocol
@@ -670,7 +673,19 @@ private class XiaowanAgentSession(
         // queued second prompt overwrite the first prompt's handle; a stop
         // request would then cancel the waiter instead of the running turn.
         activePromptJob = promptJob
-        val promptParts = buildXiaowanPromptParts(content)
+        val rawPromptParts = buildXiaowanPromptParts(content)
+        // ACP owns the prompt boundary. Materialize image content here so the
+        // Agent always has a stable workspace path, while the provider policy
+        // can still receive the inline image when the route supports it. The
+        // shared HTTP client removes an unsupported image only on a definitive
+        // pre-output 400, preserving the same turn for workspace fallback.
+        val promptParts = rawPromptParts.copy(
+            attachments = AgentWorkspaceAttachmentSupport.prepareAttachmentsForRuntime(
+                context = context,
+                taskId = "acp-${sessionId.value}-${UUID.randomUUID()}",
+                rawAttachments = rawPromptParts.attachments,
+            )
+        )
         val text = promptParts.text
         require(text.isNotEmpty() || promptParts.attachments.isNotEmpty()) {
             "Xiaowan ACP prompt is empty"
@@ -904,9 +919,20 @@ internal fun buildXiaowanPromptParts(content: List<ContentBlock>): XiaowanPrompt
                     put("fileName", "image")
                     put("mimeType", mimeType)
                     put("isImage", true)
+                    // All image forms are materialized by the ACP prompt
+                    // boundary before the provider request. This includes
+                    // data-only images: AgentWorkspaceAttachmentSupport can
+                    // persist their dataUrl and expose a stable read path.
+                    // Keep the inline visual input enabled because the ACP
+                    // capability advertised by Xiaowan is image=true.
                     put("sendToModel", true)
                     if (data.isNotEmpty()) put("dataUrl", dataUrl)
-                    if (uri.isNotEmpty()) put("url", uri)
+                    if (uri.isNotEmpty()) {
+                        put("url", uri)
+                        // Let AgentWorkspaceAttachmentSupport resolve both
+                        // file:// and content:// URIs into the app workspace.
+                        put("path", uri)
+                    }
                 }
             }
             is ContentBlock.Audio -> {
@@ -930,11 +956,26 @@ internal fun buildXiaowanPromptParts(content: List<ContentBlock>): XiaowanPrompt
                     put("fileName", block.name)
                     put("mimeType", block.mimeType ?: "application/octet-stream")
                     put("isImage", isImage)
-                    put("sendToModel", isImage)
-                    put("path", if (uri.startsWith("file://")) localPath else uri)
-                    put("promptPath", uri)
-                    put("workspacePath", uri)
-                    if (!uri.startsWith("file://")) put("url", uri)
+                    if (isImage) {
+                        // Resource links follow the same provider-independent
+                        // image path as ContentBlock.Image. Do not pre-fill
+                        // promptPath/workspacePath, otherwise the runtime
+                        // preparation step would return before copying a
+                        // content:// or file:// source into workspace.
+                        put("sendToModel", true)
+                        put("path", if (uri.startsWith("file://")) localPath else uri)
+                        if (!uri.startsWith("file://")) put("url", uri)
+                    } else {
+                        // Keep the official resource reference as the source
+                        // of truth. Do not mark it as an already prepared
+                        // prompt/workspace path: those fields bypass the
+                        // single Android resource materialization boundary
+                        // and leave content:// attachments unreadable by the
+                        // terminal.
+                        put("sendToModel", false)
+                        put("path", if (uri.startsWith("file://")) localPath else uri)
+                        if (!uri.startsWith("file://")) put("url", uri)
+                    }
                     block.size?.let { put("size", it) }
                 }
             }
@@ -955,7 +996,7 @@ internal fun buildXiaowanPromptParts(content: List<ContentBlock>): XiaowanPrompt
                             put("isImage", true)
                             put("sendToModel", true)
                             put("dataUrl", "data:$mimeType;base64,${resource.blob}")
-                            put("promptPath", uri)
+                            if (uri.isNotBlank()) put("path", uri)
                         }
                     } else {
                         // ACP embeddedContext is not image-only. Preserve
@@ -986,7 +1027,11 @@ internal fun buildXiaowanPromptParts(content: List<ContentBlock>): XiaowanPrompt
                                 put("isImage", false)
                                 put("sendToModel", false)
                                 put("dataUrl", "data:$mimeType;base64,${resource.blob}")
-                                put("promptPath", uri.ifBlank { "embedded:$mimeType" })
+                                // Do not expose a synthetic path. The ACP
+                                // attachment preparation boundary must
+                                // materialize this blob into workspace first;
+                                // `embedded:<mime>` is not readable by a
+                                // provider or a tool.
                             }
                         }
                     }

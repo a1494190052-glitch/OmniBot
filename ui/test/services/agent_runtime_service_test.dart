@@ -45,6 +45,44 @@ void main() {
     expect(capturedCall?.arguments, {'agentId': 'xiaowan-acp'});
   });
 
+  test('ensureSession reserves a session before a new prompt', () async {
+    final calls = <MethodCall>[];
+    messenger.setMockMethodCallHandler(channel, (call) async {
+      calls.add(call);
+      return <String, dynamic>{'sessionId': 'session-created'};
+    });
+
+    final sessionId = await AgentRuntimeService.ensureSession(
+      conversationId: 42,
+      model: 'model-1',
+      conversationMode: 'agent',
+    );
+
+    expect(sessionId, 'session-created');
+    expect(calls.map((call) => call.method), ['session/new']);
+    expect((calls.single.arguments as Map)['conversationId'], 42);
+    expect((calls.single.arguments as Map)['model'], 'model-1');
+  });
+
+  test(
+    'ensureSession reuses an existing official session without a call',
+    () async {
+      var callCount = 0;
+      messenger.setMockMethodCallHandler(channel, (call) async {
+        callCount += 1;
+        return <String, dynamic>{'sessionId': 'unexpected'};
+      });
+
+      final sessionId = await AgentRuntimeService.ensureSession(
+        sessionId: '  session-existing  ',
+        conversationId: 42,
+      );
+
+      expect(sessionId, 'session-existing');
+      expect(callCount, 0);
+    },
+  );
+
   test('request cancellation is not encoded as session cancellation', () async {
     MethodCall? capturedCall;
     messenger.setMockMethodCallHandler(channel, (call) async {
@@ -842,6 +880,24 @@ void main() {
     expect(message, contains('不完整的工具调用'));
     expect(message, isNot(contains('missing function.name')));
   });
+
+  test(
+    'provider stream idle timeout is mapped to an actionable user error',
+    () {
+      final message = formatAgentRuntimeErrorForUser(
+        PlatformException(
+          code: 'AGENT_RUNTIME_CALL_FAILED',
+          message: 'chat completion stream idle timeout after 90000ms',
+          details: <String, dynamic>{
+            'failureKind': 'provider_stream_idle_timeout',
+          },
+        ),
+      );
+
+      expect(message, contains('长时间没有返回新的流式更新'));
+      expect(message, isNot(contains('90000ms')));
+    },
+  );
 
   test('Harness preparation contention is actionable and non-blocking', () {
     final message = formatAgentRuntimeErrorForUser(

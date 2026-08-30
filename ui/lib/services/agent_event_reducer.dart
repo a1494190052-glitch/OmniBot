@@ -21,6 +21,7 @@ class AgentReduceResult {
     this.requestId,
     this.collaborationMode,
     this.compatibilityWarning,
+    this.affectsActiveTurn = true,
   });
 
   final bool handled;
@@ -30,6 +31,26 @@ class AgentReduceResult {
   final Object? requestId;
   final String? collaborationMode;
   final String? compatibilityWarning;
+
+  /// Whether the event was allowed to mutate the currently active local turn.
+  ///
+  /// A stale event can still be [handled] so the shared reducer consumes it
+  /// without noisy logging, while being unrelated to the turn the page may
+  /// cancel or display. Keep that distinction explicit at the reducer seam.
+  final bool affectsActiveTurn;
+
+  AgentReduceResult copyWith({bool? affectsActiveTurn}) {
+    return AgentReduceResult(
+      handled: handled,
+      method: method,
+      threadId: threadId,
+      turnId: turnId,
+      requestId: requestId,
+      collaborationMode: collaborationMode,
+      compatibilityWarning: compatibilityWarning,
+      affectsActiveTurn: affectsActiveTurn ?? this.affectsActiveTurn,
+    );
+  }
 }
 
 class AgentEventReducer {
@@ -44,8 +65,7 @@ class AgentEventReducer {
     // reintroduce the removed private stream or a second reducer.
     event = _normalizeLegacyAgentEvent(event);
     final hostEventId = _firstString([event['eventId'], event['hostEventId']]);
-    if (hostEventId != null &&
-        !runtime.rememberProcessedAcpEventId(hostEventId)) {
+    if (hostEventId != null && runtime.hasProcessedAcpEventId(hostEventId)) {
       return AgentReduceResult(
         handled: true,
         method: _resolveAgentEventMethod(event: event, message: event),
@@ -53,6 +73,22 @@ class AgentEventReducer {
         turnId: acpEventTurnId(event),
       );
     }
+
+    // Do not mark an event processed until the complete projection returns.
+    // If a listener fails halfway through reduction, the runtime can replay
+    // the event instead of either duplicating a partial side effect or losing
+    // it behind an eagerly consumed id.
+    final result = _reduceNormalized(runtime: runtime, event: event);
+    if (hostEventId != null) {
+      runtime.rememberProcessedAcpEventId(hostEventId);
+    }
+    return result;
+  }
+
+  AgentReduceResult _reduceNormalized({
+    required ChatConversationRuntimeState runtime,
+    required Map<String, dynamic> event,
+  }) {
     final message = _asStringMap(event['message']) ?? event;
     final method = _resolveAgentEventMethod(event: event, message: message);
     if (method.isEmpty) {
@@ -157,6 +193,12 @@ class AgentEventReducer {
         event['task_id'],
         event['runId'],
         event['run_id'],
+        message['turnId'],
+        message['turn_id'],
+        message['taskId'],
+        message['task_id'],
+        message['runId'],
+        message['run_id'],
         params['turnId'],
         params['turn_id'],
         params['taskId'],
@@ -168,7 +210,9 @@ class AgentEventReducer {
         update?['taskId'],
         update?['task_id'],
       ]);
-      if (scopedUpdate && updateTurnId == null) {
+      final hasHostTurnReservation =
+          updateTurnId == null && _canUseHostTurnReservation(runtime, event);
+      if (scopedUpdate && updateTurnId == null && !hasHostTurnReservation) {
         // ACP updates are streamed inside a prompt turn. Never manufacture a
         // local owner from sessionId or messageId: that reattaches late data
         // to the next prompt and recreates the duplicate-conversation bug.
@@ -305,6 +349,12 @@ class AgentEventReducer {
       event['task_id'],
       event['runId'],
       event['run_id'],
+      message['turnId'],
+      message['turn_id'],
+      message['taskId'],
+      message['task_id'],
+      message['runId'],
+      message['run_id'],
       params['turnId'],
       params['turn_id'],
       params['taskId'],
@@ -329,9 +379,12 @@ class AgentEventReducer {
     final canSafelyFinalizeUnidentifiedTurn =
         turnId == null &&
         _canSafelyFinalizeUnidentifiedTurn(runtime, method, params);
+    final hasHostTurnReservation =
+        turnId == null && _canUseHostTurnReservation(runtime, event);
     if (_requiresAcpTurnIdentity(method, params) &&
         turnId == null &&
-        !canSafelyFinalizeUnidentifiedTurn) {
+        !canSafelyFinalizeUnidentifiedTurn &&
+        !hasHostTurnReservation) {
       final shouldWarnUser = runtime.rememberAcpCompatibilityDiagnostic(
         reason: 'turn_id_missing',
         method: method,
@@ -374,6 +427,7 @@ class AgentEventReducer {
     final isTurnAdmission =
         method == 'turn/started' ||
         (turnId != null &&
+            acpEventAllowsImplicitTurnAdmission(event) &&
             admittedAcpTurnId == null &&
             runtime.isAiResponding &&
             runtime.currentDispatchTurnId != null &&
@@ -400,7 +454,7 @@ class AgentEventReducer {
     // streamMeta/cardData for protocol correlation. This prevents a provider
     // turn id arriving after the prompt from renaming the visible run.
     final parentTaskId =
-        runtime.resolveRunId(
+        runtime.resolveAcpEventRunId(
           sessionId: sessionId,
           turnId: turnId,
           fallback: _firstString([
@@ -435,7 +489,12 @@ class AgentEventReducer {
     }
 
     if (method == 'turn/started') {
-      runtime.activeAcpTurnId = turnId ?? parentTaskId;
+      // A missing wire turn id is a compatibility shape, not permission to
+      // promote the local render/run id into ACP identity space. Keep the
+      // local reservation active and wait for an official id-bearing event.
+      if (turnId != null) {
+        runtime.activeAcpTurnId = turnId;
+      }
       _touchActiveTurn(runtime, parentTaskId);
       return AgentReduceResult(
         handled: true,
@@ -474,7 +533,14 @@ class AgentEventReducer {
     }
 
     if (method == 'turn/completed' || method == 'thread/closed') {
-      _completeTurn(runtime, parentTaskId, acpTurnId: turnId);
+      final terminalStatus = _acpTerminalStatus(params);
+      _completeTurn(
+        runtime,
+        parentTaskId,
+        acpTurnId: turnId,
+        appendCancelIfEmpty: terminalStatus == 'cancelled',
+        cancelled: terminalStatus == 'cancelled',
+      );
       return AgentReduceResult(
         handled: true,
         method: method,
@@ -1398,7 +1464,12 @@ class AgentEventReducer {
           runtime.currentDispatchTurnId ??
           runtime.lastAgentTurnId ??
           parentTaskId;
-      _completeTurn(runtime, completionTaskId, appendCancelIfEmpty: false);
+      _completeTurn(
+        runtime,
+        completionTaskId,
+        acpTurnId: turnId,
+        appendCancelIfEmpty: false,
+      );
       return AgentReduceResult(
         handled: true,
         method: method,
@@ -1513,7 +1584,12 @@ class AgentEventReducer {
             runtime.currentDispatchTurnId ??
             runtime.lastAgentTurnId ??
             parentTaskId;
-        _completeTurn(runtime, completionTaskId, appendCancelIfEmpty: false);
+        _completeTurn(
+          runtime,
+          completionTaskId,
+          acpTurnId: turnId,
+          appendCancelIfEmpty: false,
+        );
       }
       return AgentReduceResult(
         handled: true,
@@ -1946,22 +2022,9 @@ class AgentEventReducer {
   ) {
     runtime.completedAgentTurnIds.remove(parentTaskId);
     runtime.isAiResponding = true;
-    if (runtime.activeAcpTurnId == null && parentTaskId.trim().isNotEmpty) {
-      // The first official session/update can be the admission boundary for
-      // adapters that do not expose a separate turn/started notification.
-      runtime.activeAcpTurnId = parentTaskId;
-    }
     runtime.activeRunId ??= parentTaskId;
-    // currentDispatchTurnId/lastAgentTurnId are compatibility names used by
-    // older page state. Their value is now always the stable run id, never an
-    // ACP turn id.
-    runtime.currentDispatchTurnId ??= runtime.activeRunId;
-    // Keep the old field observable for native/page compatibility. The UI
-    // active-id getter above uses activeRunId, so this protocol alias cannot
-    // create a second visible run.
-    if (runtime.activeAcpTurnId != null) {
-      runtime.currentDispatchTurnId = runtime.activeAcpTurnId;
-    }
+    // currentDispatchTurnId is now only a compatibility alias for activeRunId
+    // and therefore must not be overwritten with the official ACP turn id.
     runtime.lastAgentTurnId = runtime.activeRunId;
     runtime.currentThinkingStage = ThinkingStage.thinking.value;
   }
@@ -3522,6 +3585,7 @@ class AgentEventReducer {
     // produced reasoning or tool activity. Cancellation is represented by an
     // explicit cancelled thread status, not by an empty assistant message.
     bool appendCancelIfEmpty = false,
+    bool cancelled = false,
   }) {
     final wasActive = runtime.activeAgentTurnIds.contains(taskId);
     // The UI primes a local render task before ACP has emitted its official
@@ -3601,7 +3665,9 @@ class AgentEventReducer {
     runtime.deepThinkingContent = '';
     runtime.isDeepThinking = false;
     runtime.activeThinkingCardId = null;
-    runtime.currentThinkingStage = ThinkingStage.complete.value;
+    runtime.currentThinkingStage = cancelled
+        ? ThinkingStage.cancelled.value
+        : ThinkingStage.complete.value;
     _markAssistantMessagesFinalForTask(runtime, ownerTaskId);
     _clearAcpRetryPresentationForTask(runtime, ownerTaskId);
     if (!isManualCancel) {
@@ -5065,6 +5131,20 @@ class AgentEventReducer {
   }
 }
 
+String _acpTerminalStatus(Map<String, dynamic> params) {
+  final status = _normalizeStatus(
+    _firstString([
+          params['stopReason'],
+          params['stop_reason'],
+          params['status'],
+          params['state'],
+        ]) ??
+        '',
+  );
+  if (_statusIsCancelled(status) || status == 'aborted') return 'cancelled';
+  return status;
+}
+
 class _AgentQuestion {
   const _AgentQuestion({
     required this.id,
@@ -5128,9 +5208,14 @@ Map<String, dynamic>? _projectAcpSessionUpdate({
 }) {
   final update = _asStringMap(params['update']);
   if (update == null) return null;
+  final message = _asStringMap(event['message']);
   final sessionId = _firstString([
     event['sessionId'],
     event['session_id'],
+    message?['sessionId'],
+    message?['session_id'],
+    message?['threadId'],
+    message?['thread_id'],
     params['sessionId'],
     params['session_id'],
     event['threadId'],
@@ -5143,6 +5228,12 @@ Map<String, dynamic>? _projectAcpSessionUpdate({
   final turnId = _firstString([
     event['turnId'],
     event['turn_id'],
+    message?['turnId'],
+    message?['turn_id'],
+    message?['taskId'],
+    message?['task_id'],
+    message?['runId'],
+    message?['run_id'],
     params['turnId'],
     params['turn_id'],
     update['turnId'],
@@ -5202,6 +5293,8 @@ Map<String, dynamic>? _projectAcpSessionUpdate({
       if (sessionId != null) 'sessionId': sessionId,
       if (sessionId != null) 'threadId': sessionId,
       if (turnId != null) 'turnId': turnId,
+      if (acpEventAllowsImplicitTurnAdmission(event))
+        'allowImplicitTurnAdmission': true,
     };
   }
 
@@ -6483,6 +6576,19 @@ bool _isLegacyAgentEvent(Map<String, dynamic> event) {
       event.containsKey('eventKind') ||
       event.containsKey('kind') &&
           _resolveAgentEventMethod(event: event, message: event).isEmpty;
+}
+
+bool _canUseHostTurnReservation(
+  ChatConversationRuntimeState runtime,
+  Map<String, dynamic> event,
+) {
+  // ACP v1 session/update is session-scoped and may have no wire turn id.
+  // Only the host's active prompt reservation can attribute that update; an
+  // arbitrary provider id or a stale text snapshot is not sufficient.
+  return acpEventAllowsImplicitTurnAdmission(event) &&
+      runtime.isAiResponding &&
+      runtime.activeAcpTurnId == null &&
+      runtime.currentDispatchTurnId?.trim().isNotEmpty == true;
 }
 
 /// Converts the removed `AgentStreamEvent` data shape into official ACP item

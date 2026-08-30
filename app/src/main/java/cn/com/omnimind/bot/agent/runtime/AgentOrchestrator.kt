@@ -91,6 +91,13 @@ internal fun isLengthStopAtContextCapacity(
     return prompt.toLong() * 100L >= capacity.toLong() * 99L
 }
 
+/**
+ * Backstop for a model that keeps emitting tool calls without reaching a
+ * user-visible terminal answer. Callers can still choose a smaller budget for
+ * constrained flows, but a normal Agent turn must never be unbounded.
+ */
+internal const val DEFAULT_AGENT_MAX_MODEL_ROUNDS = 16
+
 class AgentOrchestrator(
     private val llmClient: AgentLlmClient,
     private val toolRegistry: AgentToolCatalog,
@@ -98,7 +105,12 @@ class AgentOrchestrator(
     private val eventAdapter: AgentEventAdapter,
     private val model: String,
     private val toolImageContinuationPolicy: AgentToolImageContinuationPolicy =
-        AgentToolImageContinuationPolicy.DEFAULT
+        AgentToolImageContinuationPolicy.DEFAULT,
+    /**
+     * A child orchestrator may borrow a parent's router. Only the owner may
+     * release the handlers and their process/session resources.
+     */
+    private val ownsToolRouter: Boolean = true
 ) {
     private data class RetryDecision(
         val retryable: Boolean,
@@ -141,7 +153,7 @@ class AgentOrchestrator(
         val conversationId: Long? = null,
         val promptCacheKey: String? = null,
         val contextCompactor: AgentContextCompactionController? = null,
-        val maxModelRounds: Int? = null,
+        val maxModelRounds: Int = DEFAULT_AGENT_MAX_MODEL_ROUNDS,
         val maxCompletionTokens: Int = 16384
     )
 
@@ -265,8 +277,8 @@ class AgentOrchestrator(
 
         try {
             roundLoop@ while (true) {
-                val maxModelRounds = input.maxModelRounds?.coerceAtLeast(1)
-                if (maxModelRounds != null && completedModelRounds >= maxModelRounds) {
+                val maxModelRounds = input.maxModelRounds.coerceAtLeast(1)
+                if (completedModelRounds >= maxModelRounds) {
                     val message = t(
                         "Agent 已达到 $maxModelRounds 轮模型调用上限。",
                         "Agent reached the $maxModelRounds-round model-call limit."
@@ -895,7 +907,7 @@ class AgentOrchestrator(
                             if (
                                 !terminated &&
                                 !advanceToNextRound &&
-                                isExclusiveTurnBoundaryTool(call.function.name)
+                                AgentToolConcurrencyPolicy.isTurnBoundary(call.function.name)
                             ) {
                                 advanceToNextRound = true
                                 breakBatchLoopAfterPost = true
@@ -954,7 +966,9 @@ class AgentOrchestrator(
             callback.onError(message, decision.retryable)
             return AgentResult.Error(message, e)
         } finally {
-            runCatching { toolRouter.dispose() }
+            if (ownsToolRouter) {
+                runCatching { toolRouter.dispose() }
+            }
         }
 
         terminalError?.let { return it }
@@ -1269,16 +1283,6 @@ class AgentOrchestrator(
         )
     }
 
-    private fun isExclusiveTurnBoundaryTool(toolName: String): Boolean {
-        return toolName == "terminal_execute" ||
-            toolName == "bash" ||
-            toolName == "android_privileged_action" ||
-            toolName == "android_privileged_session_start" ||
-            toolName == "android_privileged_session_exec" ||
-            toolName == "android_privileged_session_read" ||
-            toolName == "android_privileged_session_stop"
-    }
-
     private fun isUserStoppedVlmTask(
         toolName: String,
         result: ToolExecutionResult
@@ -1457,10 +1461,13 @@ class AgentOrchestrator(
         // exact request from the orchestrator only multiplies a dead-provider
         // wait (45s x 3 previously) and leaves ACP/UI stuck on "thinking".
         // Surface the failure so the user can retry explicitly.
-        if (error.message.orEmpty().contains("chat completion stream idle timeout")) {
+        if (AgentRuntimeErrorSupport.failureKind(error) ==
+            AgentRuntimeErrorSupport.PROVIDER_STREAM_IDLE_TIMEOUT
+        ) {
             return RetryDecision(
                 retryable = false,
-                reason = error.message.orEmpty()
+                reason = AgentRuntimeErrorSupport.userFacingMessage(error)
+                    ?: error.message.orEmpty()
             )
         }
         if (error is AgentStreamRequestException) {

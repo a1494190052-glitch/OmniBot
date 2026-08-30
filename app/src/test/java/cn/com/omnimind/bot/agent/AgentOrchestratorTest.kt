@@ -120,6 +120,45 @@ class AgentOrchestratorTest {
     }
 
     @Test
+    fun repeatedFailedToolRoundsDoNotRunUnboundedByDefault() = runBlocking {
+        val llmClient = FakeLlmClient(
+            turns = List(20) { index ->
+                assistantTurn(
+                    toolCalls = listOf(
+                        toolCall(
+                            name = "file_read",
+                            arguments = "{\"path\":\"/workspace/missing.txt\"}",
+                            id = "call-file-read-$index"
+                        )
+                    )
+                )
+            }
+        )
+        val toolExecutor = FakeToolExecutor(
+            results = mapOf(
+                "file_read" to List(20) {
+                    ToolExecutionResult.Error("file_read", "文件不存在")
+                }
+            )
+        )
+        val callback = RecordingCallback()
+
+        val result = createOrchestrator(llmClient, toolExecutor).run(
+            AgentOrchestrator.Input(
+                callback = callback,
+                initialMessages = initialMessages("读取文件"),
+                executionEnv = FakeExecutionEnvironment("读取文件")
+            )
+        )
+
+        assertTrue(result is AgentResult.Error)
+        assertEquals(DEFAULT_AGENT_MAX_MODEL_ROUNDS, toolExecutor.executeCalls.size)
+        assertTrue(
+            callback.errors.last().contains("$DEFAULT_AGENT_MAX_MODEL_ROUNDS 轮模型调用上限")
+        )
+    }
+
+    @Test
     fun promptCacheKeyIsStableAcrossAgentModelRounds() = runBlocking {
         val llmClient = FakeLlmClient(
             turns = listOf(
@@ -958,6 +997,29 @@ class AgentOrchestratorTest {
     }
 
     @Test
+    fun borrowedToolExecutorIsNotDisposedByChildOrchestrator() = runBlocking {
+        val toolExecutor = FakeToolExecutor()
+        val orchestrator = AgentOrchestrator(
+            llmClient = FakeLlmClient(listOf(assistantTurn(content = "子任务完成"))),
+            toolRegistry = FakeToolCatalog(),
+            toolRouter = toolExecutor,
+            eventAdapter = AgentEventAdapter(eventJson),
+            model = "test-model",
+            ownsToolRouter = false
+        )
+
+        orchestrator.run(
+            AgentOrchestrator.Input(
+                callback = RecordingCallback(),
+                initialMessages = initialMessages("执行子任务"),
+                executionEnv = FakeExecutionEnvironment("执行子任务")
+            )
+        )
+
+        assertEquals(0, toolExecutor.disposeCalls)
+    }
+
+    @Test
     fun exclusiveToolBackfillsRemainingToolCallIds() = runBlocking {
         val llmClient = FakeLlmClient(
             turns = listOf(
@@ -1703,6 +1765,7 @@ class AgentOrchestratorTest {
     ) : AgentToolExecutor {
         private val queuedResults = results.mapValues { (_, value) -> ArrayDeque(value) }
         val executeCalls = mutableListOf<String>()
+        var disposeCalls: Int = 0
 
         override suspend fun execute(
             toolCall: AssistantToolCall,
@@ -1719,6 +1782,10 @@ class AgentOrchestratorTest {
             } else {
                 ToolExecutionResult.Error(toolCall.function.name, "missing fake result")
             }
+        }
+
+        override suspend fun dispose() {
+            disposeCalls += 1
         }
     }
 

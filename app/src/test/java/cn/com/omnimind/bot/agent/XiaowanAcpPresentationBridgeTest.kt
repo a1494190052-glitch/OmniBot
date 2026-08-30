@@ -5,9 +5,11 @@ import cn.com.omnimind.baselib.llm.SceneModelBindingEntry
 import cn.com.omnimind.bot.agent.ToolExecutionResult
 import cn.com.omnimind.bot.agent.AgentFinalResponse
 import cn.com.omnimind.bot.agent.AgentResult
+import cn.com.omnimind.bot.agent.runtime.buildXiaowanPromptParts
 import com.agentclientprotocol.model.MessageId
 import com.agentclientprotocol.model.PromptResponse
 import com.agentclientprotocol.model.ContentBlock
+import com.agentclientprotocol.model.EmbeddedResourceResource
 import com.agentclientprotocol.model.SessionUpdate
 import com.agentclientprotocol.model.StopReason
 import com.agentclientprotocol.model.ToolKind
@@ -26,6 +28,82 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
 
 class XiaowanAcpPresentationBridgeTest {
+    @Test
+    fun `image prompt keeps a readable path and enables inline provider input`() {
+        val prompt = buildXiaowanPromptParts(
+            listOf(
+                ContentBlock.Image(
+                    data = "AAAA",
+                    mimeType = "image/png",
+                    uri = "file:///workspace/.omnibot/attachments/task/image.png",
+                )
+            )
+        )
+
+        assertEquals(
+            "file:///workspace/.omnibot/attachments/task/image.png",
+            prompt.attachments.single()["url"],
+        )
+        assertEquals(
+            "file:///workspace/.omnibot/attachments/task/image.png",
+            prompt.attachments.single()["path"],
+        )
+        assertEquals(true, prompt.attachments.single()["sendToModel"])
+    }
+
+    @Test
+    fun `resource link image enables inline provider input`() {
+        val prompt = buildXiaowanPromptParts(
+            listOf(
+                ContentBlock.ResourceLink(
+                    name = "photo.png",
+                    uri = "content://com.example.provider/photo",
+                    mimeType = "image/png",
+                    size = 12,
+                )
+            )
+        )
+
+        assertEquals(true, prompt.attachments.single()["sendToModel"])
+        assertEquals("content://com.example.provider/photo", prompt.attachments.single()["path"])
+    }
+
+    @Test
+    fun `embedded image enables inline provider input`() {
+        val prompt = buildXiaowanPromptParts(
+            listOf(
+                ContentBlock.Resource(
+                    EmbeddedResourceResource.BlobResourceContents(
+                        uri = "embedded://photo",
+                        mimeType = "image/png",
+                        blob = "AAAA",
+                    )
+                )
+            )
+        )
+
+        assertEquals(true, prompt.attachments.single()["sendToModel"])
+    }
+
+    @Test
+    fun `resource link remains raw until the single workspace adapter`() {
+        val prompt = buildXiaowanPromptParts(
+            listOf(
+                ContentBlock.ResourceLink(
+                    name = "notes.txt",
+                    uri = "content://com.example.provider/notes",
+                    mimeType = "text/plain",
+                    size = 12,
+                )
+            )
+        )
+
+        val attachment = prompt.attachments.single()
+        assertEquals("content://com.example.provider/notes", attachment["path"])
+        assertFalse(attachment.containsKey("promptPath"))
+        assertFalse(attachment.containsKey("workspacePath"))
+    }
+
     @Test
     fun `permission outcome requires an explicit allow option`() {
         val json = Json { ignoreUnknownKeys = true }

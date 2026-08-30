@@ -138,6 +138,8 @@ String formatAgentRuntimeErrorForUser(Object? error) {
       return '统一 Agent 模型当前不可用，请刷新模型列表后重新选择。';
     case 'provider_tls_certificate_failure':
       return 'Provider HTTPS 证书校验失败，请检查设备时间和证书链。';
+    case 'provider_stream_idle_timeout':
+      return 'Provider 长时间没有返回新的流式更新，请检查接口地址、模型和网络后重试。';
     case 'provider_tool_call_incomplete':
       return 'Provider 返回了不完整的工具调用，缺少工具名称。已自动重试；请重试本轮，或检查 Provider 是否完整转发 tool_calls/function.name。';
     case 'harness_preparation_in_progress':
@@ -921,6 +923,44 @@ class AgentRuntimeService {
       if (additionalDirectories.isNotEmpty)
         'additionalDirectories': additionalDirectories,
     });
+  }
+
+  /// Resolves the ACP session identity required by a prompt.
+  ///
+  /// A missing session is an application-level bootstrap case, not a second
+  /// protocol. Keep the bootstrap on the official `session/new` operation and
+  /// return only the stable identity that the caller must use for
+  /// `session/prompt`. Legacy callers may still call `promptSession` without
+  /// an id; new lifecycle code should resolve it here first.
+  static Future<String> ensureSession({
+    String? sessionId,
+    int? conversationId,
+    String? cwd,
+    String? model,
+    String? effort,
+    String? collaborationMode,
+    String? conversationMode,
+    List<String> additionalDirectories = const <String>[],
+  }) async {
+    final existing = sessionId?.trim() ?? '';
+    if (existing.isNotEmpty) return existing;
+
+    final response = await newSession(
+      conversationId: conversationId,
+      cwd: cwd,
+      model: model,
+      effort: effort,
+      collaborationMode: collaborationMode,
+      conversationMode: conversationMode,
+      additionalDirectories: additionalDirectories,
+    );
+    final resolved = (response['sessionId'] ?? response['threadId'])
+        ?.toString()
+        .trim();
+    if (resolved == null || resolved.isEmpty) {
+      throw StateError('ACP session/new did not return a session id');
+    }
+    return resolved;
   }
 
   static Future<Map<String, dynamic>> loadSession({

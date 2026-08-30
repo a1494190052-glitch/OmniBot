@@ -43,7 +43,13 @@ class AgentToolRegistry(
     private val runtimeDescriptors = linkedMapOf<String, RuntimeToolDescriptor>()
     private val allToolsByName = linkedMapOf<String, ChatCompletionTool>()
     private val exposedToolNames = linkedSetOf<String>()
-    override val usesProgressiveDiscovery: Boolean = userMessage != null
+    // The direct Agent catalog is eagerly populated by
+    // AgentToolVisibilitySelector. Keeping this flag tied to userMessage
+    // incorrectly makes aliases such as `file_read` fail the stale
+    // "call tools_search first" guard even though FileToolHandler supports
+    // them. Progressive discovery remains an explicit catalog capability;
+    // this registry no longer claims to use it.
+    override val usesProgressiveDiscovery: Boolean = false
     override val toolsForModel: List<ChatCompletionTool>
         get() = exposedToolNames.mapNotNull { allToolsByName[it] }
 

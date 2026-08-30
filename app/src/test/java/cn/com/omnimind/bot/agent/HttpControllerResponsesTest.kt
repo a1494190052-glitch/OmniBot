@@ -10,10 +10,12 @@ import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import okhttp3.Request
+import okhttp3.Response
 import okhttp3.sse.EventSource
 import okhttp3.sse.EventSourceListener
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -800,6 +802,42 @@ class HttpControllerResponsesTest {
         assertEquals("Hello world", turn.message.contentText())
         assertEquals("stop", turn.finishReason)
         assertEquals(2, turn.usage?.completionTokens)
+    }
+
+    @Test
+    fun `responses stream adapter surfaces incomplete response as terminal failure`() {
+        var failure: Throwable? = null
+        var failureResponse: Response? = null
+        val wrapped = HttpController.wrapResponsesListener(
+            object : EventSourceListener() {
+                override fun onFailure(
+                    eventSource: EventSource,
+                    t: Throwable?,
+                    response: Response?,
+                ) {
+                    failure = t
+                    failureResponse = response
+                }
+            },
+        )
+
+        val source = dummyEventSource()
+        wrapped.onEvent(
+            source,
+            null,
+            "response.output_text.delta",
+            """{"type":"response.output_text.delta","delta":"准备调用工具"}""",
+        )
+        wrapped.onEvent(
+            source,
+            null,
+            "response.incomplete",
+            """{"type":"response.incomplete","response":{"status":"incomplete","incomplete_details":{"reason":"max_output_tokens"}}}""",
+        )
+
+        assertNotNull(failure)
+        assertEquals(422, failureResponse?.code)
+        assertTrue(failureResponse?.body?.string()?.contains("max_output_tokens") == true)
     }
 
     private fun dummyEventSource(): EventSource {
