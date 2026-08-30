@@ -1,11 +1,61 @@
 package cn.com.omnimind.bot.agent.runtime
 
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
+import java.util.ArrayDeque
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class LocalAcpRuntimeTest {
+    @Test
+    fun `pending event buffer keeps terminal boundaries when saturated`() {
+        val events = ArrayDeque<Map<String, Any?>>()
+        repeat(1024) { index ->
+            enqueuePendingAgentEvent(
+                events,
+                mapOf("method" to "session/update", "sequence" to index),
+            )
+        }
+
+        val terminal = mapOf(
+            "method" to "turn/failed",
+            "sessionId" to "session-buffer",
+            "turnId" to "turn-buffer",
+        )
+        enqueuePendingAgentEvent(events, terminal)
+
+        assertTrue(events.contains(terminal))
+        assertEquals(1024, events.size)
+    }
+
+    @Test
+    fun `pending event buffer does not evict unique terminal boundaries`() {
+        val events = ArrayDeque<Map<String, Any?>>()
+        repeat(1024) { index ->
+            enqueuePendingAgentEvent(
+                events,
+                mapOf(
+                    "method" to "turn/completed",
+                    "sessionId" to "session-$index",
+                    "turnId" to "turn-$index",
+                ),
+            )
+        }
+
+        val extraTerminal = mapOf(
+            "method" to "turn/failed",
+            "sessionId" to "session-extra",
+            "turnId" to "turn-extra",
+        )
+        enqueuePendingAgentEvent(events, extraTerminal)
+
+        assertTrue(events.size > 1024)
+        assertTrue(events.first()["sessionId"] == "session-0")
+        assertTrue(events.contains(extraTerminal))
+    }
+
     @Test
     fun `managed Harness preparation preserves another live ACP runtime`() {
         assertTrue(
@@ -27,15 +77,36 @@ class LocalAcpRuntimeTest {
     }
 
     @Test
-    fun `turn lifecycle admits independent sessions without a global serial gate`() {
-        val lifecycle = AcpTurnLifecycleRegistry()
+    fun `turn ownership admits independent sessions without a global serial gate`() {
+        val ownership = AcpTurnOwnershipRegistry()
         assertTrue(
-            lifecycle.reserve("session-a", "turn-a", null)
+            ownership.reserve("session-a", "turn-a", null)
                 is AcpTurnReservation.Started
         )
         assertTrue(
-            lifecycle.reserve("session-b", "turn-b", null)
+            ownership.reserve("session-b", "turn-b", null)
                 is AcpTurnReservation.Started
+        )
+    }
+
+    @Test
+    fun `shared turn store isolates equal session ids by transport scope`() {
+        val store = AcpTurnOwnershipStore()
+        val local = AcpTurnOwnershipRegistry(store, "local:xiaowan")
+        val remote = AcpTurnOwnershipRegistry(store, "remote:codex")
+
+        assertTrue(local.reserve("same-session", "local-turn", "local-request") is AcpTurnReservation.Started)
+        assertTrue(remote.reserve("same-session", "remote-turn", "remote-request") is AcpTurnReservation.Started)
+
+        assertEquals("local-turn", local.activeTurnId("same-session"))
+        assertEquals("remote-turn", remote.activeTurnId("same-session"))
+
+        assertTrue(local.finish("same-session", "local-turn", "completed") != null)
+        assertEquals(null, local.activeTurnId("same-session"))
+        assertEquals("remote-turn", remote.activeTurnId("same-session"))
+        assertEquals(
+            "remote-turn",
+            remote.requestRecord("same-session", "remote-request")?.turnId,
         )
     }
 
@@ -49,22 +120,104 @@ class LocalAcpRuntimeTest {
 
     @Test
     fun `same session has one turn and request retry is idempotent`() {
-        val lifecycle = AcpTurnLifecycleRegistry()
-        val started = lifecycle.reserve("session", "turn-1", "request-1")
+        val ownership = AcpTurnOwnershipRegistry()
+        val started = ownership.reserve("session", "turn-1", "request-1")
         assertTrue(started is AcpTurnReservation.Started)
         assertTrue(
-            lifecycle.reserve("session", "turn-1-retry", "request-1")
+            ownership.reserve("session", "turn-1-retry", "request-1")
                 is AcpTurnReservation.InFlight
         )
         assertTrue(
-            lifecycle.reserve("session", "turn-2", "request-2")
+            ownership.reserve("session", "turn-2", "request-2")
                 is AcpTurnReservation.Busy
         )
-        lifecycle.finish("session", "turn-1", "error", "failed")
+        ownership.finish("session", "turn-1", "error", "failed")
         assertTrue(
-            lifecycle.reserve("session", "turn-1-retry", "request-1")
+            ownership.reserve("session", "turn-1-retry", "request-1")
                 is AcpTurnReservation.Completed
         )
+    }
+
+    @Test
+    fun `legacy start event can attach request identity to the existing turn`() {
+        val ownership = AcpTurnOwnershipRegistry()
+        ownership.reserve("session", "turn-1", null)
+
+        assertTrue(ownership.attachRequestId("session", "turn-1", "request-1"))
+        ownership.finish("session", "turn-1", "completed")
+
+        assertTrue(
+            ownership.reserve("session", "turn-2", "request-1")
+                is AcpTurnReservation.Completed
+        )
+    }
+
+    @Test
+    fun `official prompt response is required for a successful end turn`() {
+        assertEquals(
+            "end_turn",
+            resolveTurnTerminalStatus(
+                stopReason = "end_turn",
+                promptResponseReceived = true,
+                cancelled = false,
+                error = null,
+            )
+        )
+        assertEquals(
+            "error",
+            resolveTurnTerminalStatus(
+                stopReason = null,
+                promptResponseReceived = false,
+                cancelled = false,
+                error = null,
+            )
+        )
+    }
+
+    @Test
+    fun `official cancellation reason wins over collector cancellation`() {
+        assertEquals(
+            "cancelled",
+            resolveTurnTerminalStatus(
+                stopReason = "cancelled",
+                promptResponseReceived = true,
+                cancelled = false,
+                error = null,
+            )
+        )
+    }
+
+    @Test
+    fun `cancel before prompt admission cannot leave a prompt behind`() {
+        val preparation = Job()
+        val prompt = Job()
+        val execution = AcpPromptExecution(preparation)
+        execution.attachPromptJob(prompt)
+
+        assertFalse(
+            execution.requestCancellation(
+                CancellationException("user stopped preparation")
+            )
+        )
+        assertFalse(execution.tryStartPrompt())
+        assertTrue(preparation.isCancelled)
+        assertTrue(prompt.isCancelled)
+    }
+
+    @Test
+    fun `cancel after prompt admission is delegated without cancelling prompt collector`() {
+        val prompt = Job()
+        val execution = AcpPromptExecution(prompt)
+        execution.attachPromptJob(prompt)
+        assertTrue(execution.tryStartPrompt())
+
+        assertTrue(
+            execution.requestCancellation(
+                CancellationException("user stopped prompt")
+            )
+        )
+        assertFalse(prompt.isCancelled)
+        prompt.cancel()
     }
 
     @Test
@@ -235,13 +388,48 @@ class LocalAcpRuntimeTest {
 
     @Test
     fun `only current owner can finish and terminal transition is single shot`() {
-        val lifecycle = AcpTurnLifecycleRegistry()
-        lifecycle.reserve("session", "turn-1", "request-1")
-        assertTrue(lifecycle.finish("session", "other", "completed") == null)
-        assertTrue(lifecycle.finish("session", "turn-1", "timeout") != null)
-        assertTrue(lifecycle.finish("session", "turn-1", "completed") == null)
-        val retry = lifecycle.reserve("session", "turn-2", "request-1")
+        val ownership = AcpTurnOwnershipRegistry()
+        ownership.reserve("session", "turn-1", "request-1")
+        assertTrue(ownership.finish("session", "other", "completed") == null)
+        assertTrue(ownership.finish("session", "turn-1", "timeout") != null)
+        assertTrue(ownership.finish("session", "turn-1", "completed") == null)
+        val retry = ownership.reserve("session", "turn-2", "request-1")
         assertTrue(retry is AcpTurnReservation.Completed)
+    }
+
+    @Test
+    fun `transport termination finishes every parallel session atomically`() {
+        val ownership = AcpTurnOwnershipRegistry()
+        ownership.reserve("session-a", "turn-a", "request-a")
+        ownership.reserve("session-b", "turn-b", "request-b")
+
+        val finished = ownership.finishAll("error", "bridge disconnected")
+
+        assertEquals(
+            setOf("session-a" to "turn-a", "session-b" to "turn-b"),
+            finished.map { it.sessionId to it.turnId }.toSet(),
+        )
+        assertTrue(finished.all { it.terminal?.status == "error" })
+        assertTrue(ownership.activeRecords().isEmpty())
+        assertTrue(
+            ownership.reserve("session-a", "new-turn", "request-a")
+                is AcpTurnReservation.Completed
+        )
+    }
+
+    @Test
+    fun `remote cancellation projects a completed cancelled turn`() {
+        assertEquals("turn/completed", remoteTerminalMethod("cancelled"))
+        assertEquals("turn/failed", remoteTerminalMethod("timeout"))
+        assertEquals("turn/failed", remoteTerminalMethod("error"))
+    }
+
+    @Test
+    fun `stale ACP updates are rejected after a terminal transition`() {
+        assertTrue(shouldProjectAcpTurnUpdate("turn-1", "turn-1", replay = false))
+        assertFalse(shouldProjectAcpTurnUpdate(null, "turn-1", replay = false))
+        assertFalse(shouldProjectAcpTurnUpdate("turn-2", "turn-1", replay = false))
+        assertTrue(shouldProjectAcpTurnUpdate(null, "replay", replay = true))
     }
 
     @Test

@@ -203,6 +203,41 @@ class AgentRuntimeProtocolPayloadTest {
     }
 
     @Test
+    fun explicitEventTurnIdWinsOverTheCurrentlyActiveHostTurn() {
+        assertEquals(
+            "late-old-turn",
+            resolveObservedTurnId(
+                explicitTurnId = " late-old-turn ",
+                activeEventTurnId = null,
+                hostActiveTurnId = "new-current-turn",
+                disconnectedTurnId = null,
+                implicitTurnId = null,
+            )
+        )
+        assertEquals(
+            "new-current-turn",
+            resolveObservedTurnId(
+                explicitTurnId = null,
+                activeEventTurnId = null,
+                hostActiveTurnId = "new-current-turn",
+                disconnectedTurnId = null,
+                implicitTurnId = "compat-turn",
+            )
+        )
+        assertEquals(
+            "new-current-turn",
+            resolveObservedTurnId(
+                explicitTurnId = "provider-turn",
+                activeEventTurnId = null,
+                hostActiveTurnId = "new-current-turn",
+                disconnectedTurnId = null,
+                implicitTurnId = null,
+                preferHostActiveTurn = true,
+            )
+        )
+    }
+
+    @Test
     fun legacyTaskAndRunIdsAreAcceptedOnlyAsTurnCompatibilityAliases() {
         assertEquals(
             "legacy-task-1",
@@ -1256,21 +1291,21 @@ class AgentRuntimeProtocolPayloadTest {
     fun turnTerminalStatusPrefersTheAcpStopReason() {
         assertEquals(
             "end_turn",
-            resolveTurnTerminalStatus("END_TURN", cancelled = false, error = null)
+            resolveTurnTerminalStatus("END_TURN", promptResponseReceived = true, cancelled = false, error = null)
         )
         assertEquals(
             "max_tokens",
-            resolveTurnTerminalStatus("max_tokens", cancelled = false, error = null)
+            resolveTurnTerminalStatus("max_tokens", promptResponseReceived = true, cancelled = false, error = null)
         )
         assertEquals(
             "refusal",
-            resolveTurnTerminalStatus("REFUSAL", cancelled = false, error = null)
+            resolveTurnTerminalStatus("REFUSAL", promptResponseReceived = true, cancelled = false, error = null)
         )
         // A stop reason still wins once the agent has reported one, even if the
         // surrounding coroutine was torn down afterwards.
         assertEquals(
             "end_turn",
-            resolveTurnTerminalStatus("end_turn", cancelled = true, error = RuntimeException())
+            resolveTurnTerminalStatus("end_turn", promptResponseReceived = true, cancelled = true, error = RuntimeException())
         )
     }
 
@@ -1280,22 +1315,54 @@ class AgentRuntimeProtocolPayloadTest {
         // so cancellation has to outrank failure.
         assertEquals(
             "cancelled",
-            resolveTurnTerminalStatus(null, cancelled = true, error = RuntimeException("boom"))
+            resolveTurnTerminalStatus(null, promptResponseReceived = false, cancelled = true, error = RuntimeException("boom"))
         )
         assertEquals(
             "error",
-            resolveTurnTerminalStatus(null, cancelled = false, error = IllegalStateException())
+            resolveTurnTerminalStatus(null, promptResponseReceived = false, cancelled = false, error = IllegalStateException())
         )
         // The regression that stranded every codex-acp conversation: a prompt
         // flow that completes without ever emitting a prompt response must
         // still terminate the turn rather than leave it running forever.
         assertEquals(
-            "end_turn",
-            resolveTurnTerminalStatus(null, cancelled = false, error = null)
+            "error",
+            resolveTurnTerminalStatus(null, promptResponseReceived = false, cancelled = false, error = null)
         )
         assertEquals(
-            "end_turn",
-            resolveTurnTerminalStatus("   ", cancelled = false, error = null)
+            "error",
+            resolveTurnTerminalStatus("   ", promptResponseReceived = false, cancelled = false, error = null)
+        )
+    }
+
+    @Test
+    fun remotePromptUsesOfficialStopReasonForTerminalProjection() {
+        assertEquals(
+            "cancelled",
+            terminalStatusFromAcpParams(mapOf("stopReason" to "cancelled"))
+        )
+        assertEquals(
+            "error",
+            terminalStatusFromAcpParams(mapOf("status" to "failed"))
+        )
+        assertEquals(
+            "completed",
+            terminalStatusFromAcpParams(mapOf("stopReason" to "end_turn"))
+        )
+        assertEquals(
+            "cancelled",
+            terminalStatusFromAcpParams(emptyMap(), fallback = "cancelled")
+        )
+    }
+
+    @Test
+    fun remoteEventUsesTheHostSessionConversationBinding() {
+        assertEquals(
+            42L,
+            resolveAcpEventConversationId(
+                remoteEvent = true,
+                sessionConversationId = 42L,
+                projectedConversationId = null,
+            )
         )
     }
 

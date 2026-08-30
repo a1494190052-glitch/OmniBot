@@ -604,10 +604,7 @@ void main() {
         'message': {
           'id': 'elicitation-owner-1',
           'method': 'elicitation/create',
-          'params': {
-            'sessionId': 'session-owner-1',
-            'title': '需要确认',
-          },
+          'params': {'sessionId': 'session-owner-1', 'title': '需要确认'},
         },
       },
     );
@@ -1162,7 +1159,7 @@ void main() {
 
     expect(started.handled, isTrue);
     expect(runtime.activeAcpTurnId, 'acp-turn-1');
-    expect(runtime.currentDispatchTurnId, 'acp-turn-1');
+    expect(runtime.currentDispatchTurnId, 'request-1-ai');
 
     reducer.reduce(
       runtime: runtime,
@@ -1223,6 +1220,7 @@ void main() {
         runtime: runtime,
         event: {
           'method': 'session/update',
+          'allowImplicitTurnAdmission': true,
           'params': {
             'sessionId': 'session-1',
             'turnId': 'acp-turn-1',
@@ -1251,6 +1249,34 @@ void main() {
       expect(runtime.activeAcpTurnId, isNull);
     },
   );
+
+  test('does not admit an untrusted first event as the active turn', () {
+    runtime
+      ..currentDispatchTurnId = 'request-1-ai'
+      ..lastAgentTurnId = 'request-1-ai'
+      ..isAiResponding = true;
+
+    final result = reducer.reduce(
+      runtime: runtime,
+      event: {
+        'method': 'session/update',
+        'params': {
+          'sessionId': 'session-1',
+          'turnId': 'late-old-turn',
+          'update': {
+            'sessionUpdate': 'agent_message_chunk',
+            'messageId': 'message-old',
+            'content': {'text': '迟到的旧输出'},
+          },
+        },
+      },
+    );
+
+    expect(result.handled, isTrue);
+    expect(runtime.activeAcpTurnId, isNull);
+    expect(runtime.messages, isEmpty);
+    expect(runtime.currentDispatchTurnId, 'request-1-ai');
+  });
 
   test('late output from an older turn cannot reclaim the active turn', () {
     reducer.reduce(
@@ -1287,6 +1313,23 @@ void main() {
     expect(runtime.messages, isEmpty);
   });
 
+  test('turn started without an id does not invent an ACP turn identity', () {
+    runtime.activeRunId = 'local-run-without-wire-id';
+    runtime.currentDispatchTurnId = 'local-run-without-wire-id';
+    runtime.isAiResponding = true;
+
+    final result = reducer.reduce(
+      runtime: runtime,
+      event: {'method': 'turn/started', 'params': <String, dynamic>{}},
+    );
+
+    expect(result.handled, isTrue);
+    expect(runtime.activeAcpTurnId, isNull);
+    expect(runtime.activeRunId, 'local-run-without-wire-id');
+    expect(runtime.currentDispatchTurnId, 'local-run-without-wire-id');
+    expect(runtime.isAiResponding, isTrue);
+  });
+
   test('turn-scoped ACP update without a turn id is ignored', () {
     runtime.currentDispatchTurnId = 'turn-active';
     runtime.lastAgentTurnId = 'turn-active';
@@ -1310,6 +1353,35 @@ void main() {
     expect(runtime.messages, isEmpty);
     expect(runtime.currentDispatchTurnId, 'turn-active');
   });
+
+  test(
+    'uses the host prompt reservation for an ACP update without turn id',
+    () {
+      runtime.currentDispatchTurnId = 'local-reserved-turn';
+      runtime.lastAgentTurnId = 'local-reserved-turn';
+      runtime.isAiResponding = true;
+      final result = reducer.reduce(
+        runtime: runtime,
+        event: {
+          'method': 'session/update',
+          'allowImplicitTurnAdmission': true,
+          'params': {
+            'sessionId': 'session-1',
+            'update': {
+              'sessionUpdate': 'agent_message_chunk',
+              'messageId': 'message-1',
+              'content': {'type': 'text', 'text': '通过宿主 reservation 归属'},
+            },
+          },
+        },
+      );
+
+      expect(result.handled, isTrue);
+      expect(runtime.messages.single.text, '通过宿主 reservation 归属');
+      expect(runtime.currentDispatchTurnId, 'local-reserved-turn');
+      expect(runtime.activeAcpTurnId, isNull);
+    },
+  );
 
   test('late completion from an older turn does not clear the newer turn', () {
     reducer.reduce(
@@ -2676,8 +2748,14 @@ void main() {
       conversationId: 8102,
       mode: kChatRuntimeModeAgent,
     );
-    first.acceptsAcpEvent(sessionId: 'session-background-1');
-    second.acceptsAcpEvent(sessionId: 'session-background-2');
+    first.acceptsAcpEvent(
+      sessionId: 'session-background-1',
+      allowSessionAdmission: true,
+    );
+    second.acceptsAcpEvent(
+      sessionId: 'session-background-2',
+      allowSessionAdmission: true,
+    );
 
     expect(
       coordinator.conversationIdForAcpEvent(sessionId: 'session-background-2'),
@@ -6244,6 +6322,109 @@ diff --git a/lib/main.dart b/lib/main.dart
         .cardData!;
     expect(thinking['isLoading'], isFalse);
     expect(thinking['stage'], ThinkingStage.complete.value);
+  });
+
+  test(
+    'turn/failed finalizes a local run when the official turn id differs',
+    () {
+      runtime
+        ..isAiResponding = true
+        ..activeRunId = 'local-run-1'
+        ..currentDispatchTurnId = 'local-run-1'
+        ..lastAgentTurnId = 'local-run-1'
+        ..activeAcpTurnId = 'official-turn-1';
+
+      reducer.reduce(
+        runtime: runtime,
+        event: {
+          'method': 'turn/failed',
+          'turnId': 'official-turn-1',
+          'params': {
+            'threadId': 'session-1',
+            'turnId': 'official-turn-1',
+            'error': {'message': 'provider failed'},
+          },
+        },
+      );
+
+      expect(runtime.isAiResponding, isFalse);
+      expect(runtime.currentDispatchTurnId, isNull);
+      expect(runtime.activeAcpTurnId, isNull);
+    },
+  );
+
+  test(
+    'terminal error finalizes a local run when the official turn id differs',
+    () {
+      runtime
+        ..isAiResponding = true
+        ..activeRunId = 'local-run-2'
+        ..currentDispatchTurnId = 'local-run-2'
+        ..lastAgentTurnId = 'local-run-2'
+        ..activeAcpTurnId = 'official-turn-2';
+
+      reducer.reduce(
+        runtime: runtime,
+        event: {
+          'method': 'error',
+          'turnId': 'official-turn-2',
+          'params': {
+            'threadId': 'session-2',
+            'turnId': 'official-turn-2',
+            'willRetry': false,
+            'message': 'connection lost',
+          },
+        },
+      );
+
+      expect(runtime.isAiResponding, isFalse);
+      expect(runtime.currentDispatchTurnId, isNull);
+      expect(runtime.activeAcpTurnId, isNull);
+    },
+  );
+
+  test('turn completed with a cancelled stop reason stays cancelled', () {
+    reducer.reduce(
+      runtime: runtime,
+      event: {
+        'method': 'turn/started',
+        'turnId': 'cancelled-turn',
+        'params': {'turnId': 'cancelled-turn'},
+      },
+    );
+    reducer.reduce(
+      runtime: runtime,
+      event: {
+        'method': 'session/update',
+        'turnId': 'cancelled-turn',
+        'params': {
+          'update': {
+            'sessionUpdate': 'agent_thought_chunk',
+            'messageId': 'cancelled-thought',
+            'content': {'text': '处理中'},
+          },
+        },
+      },
+    );
+
+    reducer.reduce(
+      runtime: runtime,
+      event: {
+        'method': 'turn/completed',
+        'turnId': 'cancelled-turn',
+        'params': {
+          'turnId': 'cancelled-turn',
+          'status': 'completed',
+          'stopReason': 'cancelled',
+        },
+      },
+    );
+
+    expect(runtime.isAiResponding, isFalse);
+    final thinking = runtime.messages.firstWhere(
+      (message) => message.cardData?['type'] == 'deep_thinking',
+    );
+    expect(thinking.cardData?['stage'], ThinkingStage.cancelled.value);
   });
 
   test('top-level nested Provider error is rendered as a concise message', () {

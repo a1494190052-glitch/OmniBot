@@ -354,7 +354,15 @@ class EnvironmentSetupLogicTest {
     @Test
     fun buildSetupScript_isShellSafeForEveryPackageCombination() {
         val packageIds = EnvironmentSetupLogic.packageDefinitions.map { it.id }
-        val tempDir = Files.createTempDirectory("omni-setup-script-test").toFile()
+        val workingModes = listOf(WorkingMode.ALPINE, WorkingMode.UBUNTU)
+        val processes = workingModes.associateWith { workingMode ->
+            ProcessBuilder("/bin/sh", "-n")
+                .redirectErrorStream(true)
+                .start()
+        }
+        val writers = processes.mapValues { (_, process) ->
+            process.outputStream.bufferedWriter()
+        }
 
         try {
             val total = 1 shl packageIds.size
@@ -362,7 +370,7 @@ class EnvironmentSetupLogicTest {
                 val selectedPackageIds = packageIds.filterIndexed { index, _ ->
                     mask and (1 shl index) != 0
                 }
-                listOf(WorkingMode.ALPINE, WorkingMode.UBUNTU).forEach { workingMode ->
+                workingModes.forEach { workingMode ->
                     val repositorySetupCommand = if (workingMode == WorkingMode.UBUNTU) {
                         UbuntuRepositoryManager.buildRepositorySetupCommand(
                             UbuntuPackageMirror.TSINGHUA
@@ -375,30 +383,32 @@ class EnvironmentSetupLogicTest {
                         repositorySetupCommand = repositorySetupCommand,
                         workingMode = workingMode
                     )
-                    val scriptFile = File(tempDir, "setup-$workingMode-$mask.sh")
-                    scriptFile.writeText(
-                        EnvironmentSetupLogic.buildSetupScript(
-                            commands = distroCommands,
-                            selectedPackageIds = selectedPackageIds,
-                            workingMode = workingMode
-                        )
+                    val script = EnvironmentSetupLogic.buildSetupScript(
+                        commands = distroCommands,
+                        selectedPackageIds = selectedPackageIds,
+                        workingMode = workingMode
                     )
-
-                    val process = ProcessBuilder("/bin/sh", "-n", scriptFile.absolutePath)
-                        .redirectErrorStream(true)
-                        .start()
-                    val output = process.inputStream.bufferedReader().use { it.readText() }.trim()
-                    val exitCode = process.waitFor()
-
-                    assertEquals(
-                        "Shell syntax check failed for mode=$workingMode $selectedPackageIds: $output",
-                        0,
-                        exitCode
-                    )
+                    val writer = writers.getValue(workingMode)
+                    writer.write("# combination mask=$mask\n")
+                    writer.write(script)
+                    writer.write("\n")
                 }
             }
         } finally {
-            tempDir.deleteRecursively()
+            writers.values.forEach { writer ->
+                runCatching { writer.close() }
+            }
+        }
+
+        processes.forEach { (workingMode, process) ->
+            val output = process.inputStream.bufferedReader().use { it.readText() }.trim()
+            val exitCode = process.waitFor()
+
+            assertEquals(
+                "Shell syntax check failed for mode=$workingMode: $output",
+                0,
+                exitCode
+            )
         }
     }
 }

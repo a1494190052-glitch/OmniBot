@@ -13,6 +13,7 @@ import cn.com.omnimind.baselib.llm.ChatCompletionProtocolMetadata
 import cn.com.omnimind.baselib.llm.ChatCompletionRequest
 import cn.com.omnimind.baselib.llm.ChatCompletionStreamOptions
 import cn.com.omnimind.baselib.llm.DeepSeekProvider
+import cn.com.omnimind.baselib.llm.ProviderRequestCapabilities
 import cn.com.omnimind.baselib.database.DatabaseHelper
 import cn.com.omnimind.baselib.database.TokenUsageRecord
 import cn.com.omnimind.baselib.llm.ModelProviderConfig
@@ -52,6 +53,7 @@ import okhttp3.OkHttpClient
 import okhttp3.Protocol
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
+import okhttp3.ResponseBody.Companion.toResponseBody
 import okhttp3.sse.EventSource
 import okhttp3.sse.EventSourceListener
 import okhttp3.sse.EventSources
@@ -81,8 +83,7 @@ object HttpController {
         val overrideApplied: Boolean,
         val protocolType: String = "openai_compatible",
         val wireApi: String = OpenAiWireApi.CHAT_COMPLETIONS,
-        val requiresReasoningEcho: Boolean = false,
-        val requiresAnthropicThinkingReplay: Boolean = false
+        val providerCapabilities: ProviderRequestCapabilities = ProviderRequestCapabilities(),
     )
 
     private data class ResolvedSceneRequest(
@@ -621,6 +622,11 @@ object HttpController {
     }
 
     private fun ResolvedSceneRequest.toRouteInfo(): ChatCompletionRouteInfo {
+        val providerCapabilities = DeepSeekProvider.requestCapabilities(
+            protocolType = protocolType,
+            apiBase = apiBase,
+            model = resolvedModel,
+        )
         return ChatCompletionRouteInfo(
             requestedModel = requestedModel,
             resolvedModel = resolvedModel,
@@ -633,11 +639,7 @@ object HttpController {
             overrideApplied = overrideApplied,
             protocolType = protocolType,
             wireApi = wireApi,
-            requiresReasoningEcho = DeepSeekProvider.shouldUseOfficialAdapter(
-                protocolType = protocolType,
-                apiBase = apiBase
-            ),
-            requiresAnthropicThinkingReplay = DeepSeekProvider.normalizeProtocolType(protocolType) == "anthropic"
+            providerCapabilities = providerCapabilities,
         )
     }
 
@@ -1717,6 +1719,7 @@ object HttpController {
             private val assistantText = StringBuilder()
             private var nextToolIndex = 0
             private var sawToolCall = false
+            private var terminalFailureSignaled = false
 
             override fun onOpen(eventSource: EventSource, response: okhttp3.Response) {
                 outer.onOpen(eventSource, response)
@@ -1860,6 +1863,42 @@ object HttpController {
                             )
                         )
                         outer.onEvent(eventSource, id, type, "[DONE]")
+                    }
+                    "response.incomplete",
+                    "response.failed" -> {
+                        if (terminalFailureSignaled) return
+                        terminalFailureSignaled = true
+                        val responseObj = json.obj("response") ?: json
+                        val detail = responseObj.obj("incomplete_details")
+                            ?.string("reason")
+                            ?.takeIf(String::isNotBlank)
+                            ?: responseObj.obj("error")
+                                ?.string("message")
+                                ?.takeIf(String::isNotBlank)
+                            ?: eventType
+                        val message = "DeepSeek Responses $eventType: $detail"
+                        val failureBody = buildJsonObject {
+                            put("error", buildJsonObject {
+                                put("type", eventType)
+                                put("message", message)
+                                put("raw_event", json.toString())
+                            })
+                        }.toString()
+                        // Responses has semantic terminal events instead of the
+                        // Chat Completions [DONE] marker. Do not drop an
+                        // incomplete/failed response and let onClosed turn a
+                        // partial text/tool-call into a successful ACP turn.
+                        outer.onFailure(
+                            eventSource,
+                            IllegalStateException(message),
+                            okhttp3.Response.Builder()
+                                .request(eventSource.request())
+                                .protocol(Protocol.HTTP_1_1)
+                                .code(422)
+                                .message(message)
+                                .body(failureBody.toResponseBody("application/json".toMediaType()))
+                                .build(),
+                        )
                     }
                     else -> {
                         if (json.containsKey("error")) {

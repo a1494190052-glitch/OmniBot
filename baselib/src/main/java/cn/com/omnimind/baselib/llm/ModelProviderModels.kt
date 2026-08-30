@@ -35,6 +35,17 @@ data class ModelProviderProfile(
     fun isConfigured(): Boolean = baseUrl.isNotBlank()
 }
 
+/**
+ * Wire capabilities owned by the resolved Provider route. These are not ACP
+ * session capabilities: they describe the request/response contract between
+ * the shared Agent client and one upstream model endpoint.
+ */
+data class ProviderRequestCapabilities(
+    val supportsExplicitAutoToolChoice: Boolean = true,
+    val requiresReasoningContentForToolCalls: Boolean = false,
+    val requiresAnthropicThinkingReplay: Boolean = false,
+)
+
 data class ProviderModelOption(
     val id: String,
     val displayName: String = id,

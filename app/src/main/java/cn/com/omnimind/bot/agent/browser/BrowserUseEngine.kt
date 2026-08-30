@@ -309,6 +309,23 @@ object BrowserUseSupport {
         }.sortedBy { it.lowercase(Locale.ROOT) }
     }
 
+    /**
+     * Select only explicitly requested cookies. A non-empty filter that
+     * matches nothing is a safe failure, never permission to broaden the
+     * export to every cookie in the current browser session.
+     */
+    fun selectCookieNames(
+        names: Collection<String>,
+        keywords: List<String>,
+        fuzzy: Boolean
+    ): List<String> {
+        val selected = filterCookieNames(names, keywords, fuzzy)
+        require(keywords.isEmpty() || selected.isNotEmpty() || names.isEmpty()) {
+            "没有匹配的 Cookie，已拒绝扩大导出范围"
+        }
+        return selected
+    }
+
     fun sanitizeCookieEnvName(cookieName: String): String {
         val normalized = cookieName.uppercase(Locale.ROOT)
             .replace(Regex("[^A-Z0-9_]"), "_")
@@ -1916,18 +1933,12 @@ class BrowserUseEngine(
         val currentUrl = tab.currentUrl?.takeIf { it.isNotBlank() && it != "about:blank" }
             ?: throw IllegalStateException("当前标签页没有可用页面，无法读取 cookies")
         val cookiePairs = collectCookiesForUrl(currentUrl).toList()
-        val matchedNames = BrowserUseSupport.filterCookieNames(
+        val matchedNames = BrowserUseSupport.selectCookieNames(
             names = cookiePairs.map { it.first },
             keywords = request.keywords,
             fuzzy = request.fuzzy
         )
-        val fallbackToAllCookies =
-            matchedNames.isEmpty() && request.keywords.isNotEmpty() && cookiePairs.isNotEmpty()
-        val exportedPairs = if (fallbackToAllCookies) {
-            cookiePairs
-        } else {
-            cookiePairs.filter { (name, _) -> matchedNames.contains(name) }
-        }
+        val exportedPairs = cookiePairs.filter { (name, _) -> matchedNames.contains(name) }
         val exportedNames = exportedPairs.map { it.first }
         val envFile = workspaceManager.newOffloadFile(
             agentRunId = currentAgentRunId,
@@ -1961,7 +1972,6 @@ class BrowserUseEngine(
                     "envShellPath" to envShellPath,
                     "envAndroidPath" to envFile.absolutePath,
                     "cookieLookupUrls" to buildCookieLookupUrls(currentUrl),
-                    "keywordFallbackToAll" to fallbackToAllCookies,
                     "fuzzy" to request.fuzzy,
                     "keywords" to request.keywords
                 )
