@@ -476,7 +476,6 @@ abstract class _ChatPageStateBase extends State<ChatPage>
 
   List<ChatAcpAgentModeOption> get _chatAcpAgentModeOptions {
     final profiles = _agentCatalog?.agents ?? const <AcpAgentProfile>[];
-    final optimisticAgentId = _optimisticAcpAgentId?.trim() ?? '';
     final hasXiaowan = profiles.any((profile) => profile.id == 'xiaowan-acp');
     final orderedProfiles = profiles.toList(growable: false)
       ..sort((left, right) {
@@ -505,29 +504,12 @@ abstract class _ChatPageStateBase extends State<ChatPage>
           id: profile.id,
           name: profile.name,
           enabled: profile.enabled,
-          // The embedded non-managed Agent is part of the APK and has no
-          // download state. Managed Harnesses must report installed=true
-          // before they can enter the top-right runtime switcher.
-          installed:
-              profile.installed == true ||
-              (profile.builtIn && !profile.managedAdapter) ||
-              // During a switch the selected target must remain visible in
-              // the live selector even before the native catalog publishes
-              // its final installed/online snapshot. A failed switch clears
-              // the optimistic id and restores the previous target.
-              (_isAcpAgentSwitching && profile.id == optimisticAgentId),
-          status: _isAcpAgentSwitching && profile.id == optimisticAgentId
-              ? 'connecting'
-              : profile.builtIn && !profile.managedAdapter
-              ? 'online'
-              : profile.status,
-        ),
-      if (_agentRuntimeStatus.remoteConfigured)
-        ChatAcpAgentModeOption(
-          id: _kRemoteCodexModeAgentId,
-          name: 'Agent Remote',
-          enabled: _agentRuntimeStatus.remoteEnabled,
-          status: _agentRuntimeStatus.ready ? 'online' : 'offline',
+          // The top-right switcher is an installed-Agent surface, not the
+          // profile/configuration catalog. The native ACP catalog reports
+          // `installed` from its health probe; null and false must remain
+          // unavailable until that fact is established.
+          installed: profile.installed == true,
+          status: profile.status,
         ),
     ];
     return options;
