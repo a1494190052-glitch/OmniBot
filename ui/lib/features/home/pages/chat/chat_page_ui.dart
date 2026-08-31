@@ -279,6 +279,18 @@ mixin _ChatPageUiMixin on _ChatPageStateBase {
     if (route == _SlashCommandPanelRoute.agentModel) {
       return _buildAgentModelCards();
     }
+    if (route == _SlashCommandPanelRoute.effort) {
+      final query = _slashCommandRouteQuery(route).toLowerCase();
+      final card = _buildAgentReasoningEffortCommandCard();
+      final options =
+          (card['effortOptions'] as List<dynamic>? ?? const <dynamic>[]).map(
+            (option) => option.toString().toLowerCase(),
+          );
+      if (query.isEmpty || options.any((option) => option.startsWith(query))) {
+        return <Map<String, dynamic>>[card];
+      }
+      return const <Map<String, dynamic>>[];
+    }
     return _buildAgentRootCommandCards();
   }
 
@@ -373,6 +385,17 @@ mixin _ChatPageUiMixin on _ChatPageStateBase {
         toggleValue: planModeEnabled,
       ),
     ];
+    // Xiaowan's original /effort control belongs to the Agent conversation
+    // now, but it must remain visible when the built-in ACP profile is active.
+    // External Harnesses advertise their own effort options; only show this
+    // card for them after those options have been negotiated.
+    final showAgentReasoningEffort =
+        _activeAcpAgentId == _kXiaowanAcpAgentId ||
+        _agentRuntimeStatus.activeAgentId == _kXiaowanAcpAgentId ||
+        _agentReasoningEffortOptions.isNotEmpty;
+    if (showAgentReasoningEffort) {
+      commands.insert(1, _buildAgentReasoningEffortCommandCard());
+    }
     commands.addAll(_buildAgentAcpCommandCards());
     if (query.isEmpty) {
       return commands;
@@ -385,11 +408,40 @@ mixin _ChatPageUiMixin on _ChatPageStateBase {
         .toList(growable: false);
   }
 
+  Map<String, dynamic> _buildAgentReasoningEffortCommandCard() {
+    final options = _agentReasoningEffortOptions.isNotEmpty
+        ? _agentReasoningEffortOptions
+        : _kAgentReasoningEffortOptions;
+    final activeEffort = _activeAgentReasoningEffort;
+    final selectedEffort = activeEffort == 'none' && options.contains('no')
+        ? 'no'
+        : activeEffort;
+    return <String, dynamic>{
+      'cardId': 'slash-command-agent-effort',
+      'toolName': '/effort',
+      'toolTitle': '/effort',
+      'displayName': '/effort',
+      'toolType': 'command',
+      'toolTypeLabel': LegacyTextLocalizer.isEnglish ? 'Thinking' : '思考',
+      'status': activeEffort == null ? 'running' : 'success',
+      'statusLabel':
+          activeEffort ?? (LegacyTextLocalizer.isEnglish ? 'Default' : '默认'),
+      'summary': LegacyTextLocalizer.isEnglish
+          ? 'Choose the thinking effort for the active Agent'
+          : '设置当前 Agent 的思考强度',
+      'progress': '',
+      'controlType': 'effortSlider',
+      'effortOptions': options,
+      if (selectedEffort != null && options.contains(selectedEffort))
+        'selectedEffort': selectedEffort,
+    };
+  }
+
   List<Map<String, dynamic>> _buildAgentAcpCommandCards() {
     final runtime = _runtimeForMode(ChatPageMode.agent);
     final commands =
         runtime?.availableAcpCommands ?? const <Map<String, dynamic>>[];
-    final seen = <String>{'/model', '/review', '/init', '/plan'};
+    final seen = <String>{'/model', '/review', '/init', '/plan', '/effort'};
     return commands
         .map((command) {
           final name = (command['name'] ?? '').toString().trim();

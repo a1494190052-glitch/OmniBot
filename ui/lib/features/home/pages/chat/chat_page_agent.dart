@@ -1187,25 +1187,41 @@ mixin _ChatPageAgentMixin on _ChatPageStateBase {
   @override
   Future<void> _selectAgentReasoningEffort(String effort) async {
     final normalized = _normalizeAgentReasoningEffort(effort);
-    if (normalized == null ||
-        !_agentReasoningEffortOptions.contains(normalized)) {
+    final isBuiltInXiaowan =
+        _activeAcpAgentId == _kXiaowanAcpAgentId ||
+        _agentRuntimeStatus.activeAgentId == _kXiaowanAcpAgentId;
+    final advertisedOptions = _agentReasoningEffortOptions.isNotEmpty
+        ? _agentReasoningEffortOptions
+        : (isBuiltInXiaowan ? _kAgentReasoningEffortOptions : const <String>[]);
+    final normalizedOptions = advertisedOptions
+        .map(_normalizeAgentReasoningEffort)
+        .whereType<String>()
+        .toSet();
+    if (normalized == null || !normalizedOptions.contains(normalized)) {
       return;
     }
-    try {
-      await _setAgentConfigOption(
-        configId: 'reasoning_effort',
-        value: normalized,
-      );
-    } catch (error) {
-      if (mounted) {
-        showToast(
-          LegacyTextLocalizer.isEnglish
-              ? 'Failed to change reasoning effort: $error'
-              : '修改思考强度失败：$error',
-          type: ToastType.error,
+    // Xiaowan receives the selected effort through the canonical ACP prompt
+    // metadata. It has no mutable Harness-side `reasoning_effort` option, so
+    // attempting session/set_config_option here would make a valid local
+    // selection look like a failed request. Other Harnesses can still apply
+    // their advertised ACP config option immediately.
+    if (!isBuiltInXiaowan) {
+      try {
+        await _setAgentConfigOption(
+          configId: 'reasoning_effort',
+          value: normalized,
         );
+      } catch (error) {
+        if (mounted) {
+          showToast(
+            LegacyTextLocalizer.isEnglish
+                ? 'Failed to change reasoning effort: $error'
+                : '修改思考强度失败：$error',
+            type: ToastType.error,
+          );
+        }
+        return;
       }
-      return;
     }
     if (!mounted) return;
     setState(() {
@@ -1365,6 +1381,19 @@ mixin _ChatPageAgentMixin on _ChatPageStateBase {
     if (command.isEmpty) {
       return;
     }
+    if ((cardData['controlType'] ?? '').toString() == 'effortSlider') {
+      if (command.startsWith('/')) {
+        _messageController.value = const TextEditingValue(
+          text: '/effort ',
+          selection: TextSelection.collapsed(offset: 8),
+        );
+        _requestComposerFocus();
+        _handleSlashCommandInput();
+      } else {
+        await _selectAgentReasoningEffort(command);
+      }
+      return;
+    }
     if (cardData['acpCommand'] == true) {
       final value = command.endsWith(' ') ? command : '$command ';
       _messageController.value = TextEditingValue(
@@ -1430,6 +1459,14 @@ mixin _ChatPageAgentMixin on _ChatPageStateBase {
         return true;
       case AgentSlashSubmitKind.selectModel:
         await _selectAgentModel(intent.value ?? '');
+        return true;
+      case AgentSlashSubmitKind.openReasoningEffortPicker:
+        _triggerSlashCommandPanel();
+        return true;
+      case AgentSlashSubmitKind.selectReasoningEffort:
+        await _selectAgentReasoningEffort(intent.value ?? '');
+        _messageController.clear();
+        _hideSlashCommandPanel();
         return true;
       case AgentSlashSubmitKind.startReview:
         _messageController.clear();
