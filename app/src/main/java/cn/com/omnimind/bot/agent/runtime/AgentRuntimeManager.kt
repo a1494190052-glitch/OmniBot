@@ -1783,8 +1783,33 @@ class AgentRuntimeManager private constructor(
                 packageId = service.packageId,
                 error = "Select a shared Dispatch model first.",
             ).toPayload()
+        val requestedReasoningEffort = args.stringValue("effort")
+            ?: args.stringValue("reasoningEffort")
         val environment = when (service) {
-            AgentWebService.KIMI -> buildKimiCodeModelEnvironment(provider, model)
+            AgentWebService.KIMI -> {
+                if (!requestedReasoningEffort.isNullOrBlank()) {
+                    val existingConfig = readTerminalTextFile(
+                        path = KIMI_CODE_CONFIG_PATH,
+                        executorKey = "kimi-code-config-read",
+                    )
+                    val updatedConfig = buildKimiCodeThinkingConfigToml(
+                        existingConfig = existingConfig,
+                        reasoningEffort = requestedReasoningEffort,
+                    )
+                    if (updatedConfig != existingConfig) {
+                        writeTerminalTextFile(
+                            path = KIMI_CODE_CONFIG_PATH,
+                            content = updatedConfig,
+                            executorKey = "kimi-code-config-write",
+                        )
+                    }
+                }
+                buildKimiCodeModelEnvironment(
+                    provider = provider,
+                    model = model,
+                    reasoningEffort = requestedReasoningEffort,
+                )
+            }
             AgentWebService.DEEPSEEK_HARNESS ->
                 buildDeepSeekHarnessWebEnvironment(provider, model)
         }
@@ -2212,15 +2237,17 @@ class AgentRuntimeManager private constructor(
     private suspend fun connectLocalAcp(
         profile: AcpAgentProfile = acpAgentProfileStore.selected(),
         runtime: LocalAcpRuntime = localRuntimeFor(profile.id),
+        reasoningEffort: String? = null,
     ) {
         require(profile.enabled) {
             "No enabled ACP Agent is selected. Enable one in Agent mode settings."
         }
-        runtime.connect(profile = profile)
+        runtime.connect(profile = profile, reasoningEffort = reasoningEffort)
     }
 
     private suspend fun prepareLocalAcpLaunch(
-        profile: AcpAgentProfile
+        profile: AcpAgentProfile,
+        reasoningEffort: String? = null,
     ): Map<String, String> {
         val usesSharedProvider = AcpAgentProfileStore
             .officialRuntime(profile)
@@ -2287,6 +2314,8 @@ class AgentRuntimeManager private constructor(
             append('|')
             append(resolvedModel.orEmpty())
             append('|')
+            append(normalizeKimiCodeThinkingEffort(reasoningEffort).orEmpty())
+            append('|')
             // Credentials are never logged; the hash only invalidates the
             // in-memory environment when a Provider/API key changes.
             append(sharedProvider?.hashCode() ?: 0)
@@ -2306,6 +2335,7 @@ class AgentRuntimeManager private constructor(
                 agentId = profile.id,
                 provider = sharedProvider,
                 model = resolvedModel,
+                reasoningEffort = reasoningEffort,
                 harnessAdapter = harnessAdapter,
             )
         )
@@ -2345,6 +2375,7 @@ class AgentRuntimeManager private constructor(
                 agentId = profile.id,
                 provider = sharedProvider,
                 model = resolvedModel,
+                reasoningEffort = reasoningEffort,
                 harnessAdapter = harnessAdapter,
             ),
             mapping = mapping,
@@ -2827,7 +2858,12 @@ class AgentRuntimeManager private constructor(
         // runtime, or lazily start one, without touching other profiles.
         val targetRuntime = localRuntimeFor(targetProfile.id)
         if (!targetRuntime.isConnected) {
-            connectLocalAcp(profile = targetProfile, runtime = targetRuntime)
+            connectLocalAcp(
+                profile = targetProfile,
+                runtime = targetRuntime,
+                reasoningEffort = args.stringValue("effort")
+                    ?: args.stringValue("reasoningEffort"),
+            )
         }
         if (conversationId != null) {
             if (normalConversation && conversationAgentId != targetProfile.id) {

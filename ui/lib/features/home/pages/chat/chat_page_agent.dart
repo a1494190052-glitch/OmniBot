@@ -138,6 +138,17 @@ mixin _ChatPageAgentMixin on _ChatPageStateBase {
     return modelIds;
   }
 
+  ProviderModelOption? _findSharedProviderModelOption(String modelId) {
+    final providerProfileId = _activeDispatchSceneSelection?.providerProfileId;
+    if (providerProfileId == null || providerProfileId.trim().isEmpty) {
+      return null;
+    }
+    return (_modelOptionsByProfileId[providerProfileId] ??
+            const <ProviderModelOption>[])
+        .where((item) => item.id.trim().toLowerCase() == modelId.toLowerCase())
+        .firstOrNull;
+  }
+
   @override
   Future<void> _refreshAgentRuntimeStatus() async {
     if (!mounted || _isAgentRuntimeStatusLoading) return;
@@ -357,11 +368,17 @@ mixin _ChatPageAgentMixin on _ChatPageStateBase {
   }
 
   @override
-  Future<void> _launchAgentWeb(String agentId) async {
+  Future<void> _launchAgentWeb(
+    String agentId, {
+    String? reasoningEffort,
+  }) async {
     final normalized = agentId.trim();
     if (normalized.isEmpty) return;
     try {
-      final response = await AgentRuntimeService.launchAgentWeb(normalized);
+      final response = await AgentRuntimeService.launchAgentWeb(
+        normalized,
+        effort: reasoningEffort ?? _activeAgentReasoningEffort,
+      );
       if (!mounted) return;
       final code = response['code']?.toString().trim() ?? '';
       final packageId = response['packageId']?.toString().trim() ?? '';
@@ -814,6 +831,9 @@ mixin _ChatPageAgentMixin on _ChatPageStateBase {
               )
           ? activeModel
           : preferredModel;
+      final sharedProviderModel = sharedAgent && effectiveModel != null
+          ? _findSharedProviderModelOption(effectiveModel)
+          : null;
       final modelOptions = modelConfigSupported
           ? _mergeAgentOptionIds(
               current: effectiveModel,
@@ -825,7 +845,23 @@ mixin _ChatPageAgentMixin on _ChatPageStateBase {
         response,
         effectiveModel,
       );
-      final serverEffort = configSettings.reasoningEffort ?? modelDefaultEffort;
+      // The shared Provider catalog already tells us whether this model is a
+      // reasoning model, but its OpenAI-compatible /models response usually
+      // has no effort list. Kimi Code would otherwise resolve this to the
+      // boolean `on` value and omit `reasoning_effort` on the wire. Use the
+      // interoperable medium level as the default only for catalog-confirmed
+      // reasoning models; users can still choose another advertised effort.
+      final isKimiCodeAgent =
+          _activeAcpAgentId == 'kimi-code-acp' ||
+          _agentRuntimeStatus.activeAgentId == 'kimi-code-acp';
+      final sharedProviderDefaultEffort =
+          isKimiCodeAgent && sharedProviderModel?.reasoning == true
+          ? 'medium'
+          : null;
+      final serverEffort =
+          configSettings.reasoningEffort ??
+          modelDefaultEffort ??
+          sharedProviderDefaultEffort;
       final storedPermissionMode = _parseAgentPermissionMode(
         _readAgentPreference(
           _kAgentPermissionModePreferenceKey,

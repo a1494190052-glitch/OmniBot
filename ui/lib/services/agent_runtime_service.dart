@@ -844,8 +844,14 @@ class AgentRuntimeService {
     return _invokeMap('agent/prepare', {'agentId': agentId.trim()});
   }
 
-  static Future<Map<String, dynamic>> launchAgentWeb(String agentId) {
-    return _invokeMap('agent/web/launch', {'agentId': agentId.trim()});
+  static Future<Map<String, dynamic>> launchAgentWeb(
+    String agentId, {
+    String? effort,
+  }) {
+    return _invokeMap('agent/web/launch', {
+      'agentId': agentId.trim(),
+      if (effort != null && effort.trim().isNotEmpty) 'effort': effort.trim(),
+    });
   }
 
   static Future<Map<String, dynamic>> prepareAgentInBackground(String agentId) {

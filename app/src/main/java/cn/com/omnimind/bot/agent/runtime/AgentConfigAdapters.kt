@@ -53,6 +53,8 @@ internal data class AgentProviderMappingInput(
     val agentId: String,
     val provider: AgentProviderCredentials?,
     val model: String?,
+    /** ACP/Web request-level thinking selection, when the caller supplied one. */
+    val reasoningEffort: String? = null,
     val harnessAdapter: AcpHarnessAdapter = AcpHarnessAdapters.standard,
     val deepSeekConfig: DeepSeekHarnessConfig = DeepSeekHarnessConfig(),
 )
@@ -141,6 +143,7 @@ internal object AgentConfigAdapterRegistry {
 private fun AgentProviderMappingInput.normalized(): AgentProviderMappingInput = copy(
     provider = provider?.normalized(),
     model = model?.trim()?.takeIf { it.isNotEmpty() },
+    reasoningEffort = reasoningEffort?.trim()?.takeIf { it.isNotEmpty() },
 )
 
 private object DeepSeekHarnessConfigAdapter : AgentConfigAdapter {
@@ -305,7 +308,43 @@ private object OpenCodeConfigAdapter : AgentConfigAdapter {
 private object KimiCodeConfigAdapter : AgentConfigAdapter {
     override fun map(input: AgentProviderMappingInput): AgentProviderMapping {
         return AgentProviderMapping(
-            environment = buildKimiCodeModelEnvironment(input.provider, input.model),
+            environment = buildKimiCodeModelEnvironment(
+                provider = input.provider,
+                model = input.model,
+                reasoningEffort = input.reasoningEffort,
+            ),
+            launchConfigPath = input.reasoningEffort
+                ?.trim()
+                ?.takeIf { it.isNotEmpty() }
+                ?.let { KIMI_CODE_CONFIG_PATH },
+            launchConfigExecutorKey = input.reasoningEffort
+                ?.trim()
+                ?.takeIf { it.isNotEmpty() }
+                ?.let { "kimi-code-config-read" },
+        )
+    }
+
+    override fun launchConfigWrites(
+        input: AgentProviderMappingInput,
+        mapping: AgentProviderMapping,
+        providerModels: List<ProviderModelOption>,
+        existingConfig: String,
+    ): List<AgentConfigWrite> {
+        // KIMI_MODEL_THINKING_EFFORT is intentionally limited to Kimi's
+        // native provider by Kimi Code.  A shared custom Provider is exposed
+        // as OpenAI-compatible, so its concrete effort must be written to
+        // the documented global [thinking] section instead.
+        val effort = input.reasoningEffort?.trim()?.takeIf { it.isNotEmpty() }
+            ?: return emptyList()
+        return listOf(
+            AgentConfigWrite(
+                path = KIMI_CODE_CONFIG_PATH,
+                content = buildKimiCodeThinkingConfigToml(
+                    existingConfig = existingConfig,
+                    reasoningEffort = effort,
+                ),
+                executorKey = "kimi-code-config-write",
+            ),
         )
     }
 }
@@ -319,6 +358,7 @@ private object KimiCodeConfigAdapter : AgentConfigAdapter {
 internal fun buildKimiCodeModelEnvironment(
     provider: AgentProviderCredentials?,
     model: String?,
+    reasoningEffort: String? = null,
 ): Map<String, String> {
     val credentials = requireNotNull(provider) {
         "Dispatch Model Provider is required for Kimi Code."
@@ -351,7 +391,24 @@ internal fun buildKimiCodeModelEnvironment(
         "KIMI_MODEL_API_KEY" to credentials.apiKey,
         "KIMI_MODEL_BASE_URL" to baseUrl,
         "KIMI_MODEL_PROVIDER_TYPE" to providerType,
+        // The synthetic model defaults to these capabilities, but publishing
+        // them explicitly prevents a stale Kimi home/config from hiding the
+        // Thinking option after a Provider switch.
+        "KIMI_MODEL_CAPABILITIES" to "image_in,thinking",
     ).apply {
+        val normalizedEffort = normalizeKimiCodeThinkingEffort(reasoningEffort)
+        if (
+            providerType == "kimi" &&
+            normalizedEffort != null &&
+            normalizedEffort != "off" &&
+            normalizedEffort != "on" &&
+            normalizedEffort in KIMI_CODE_THINKING_EFFORTS
+        ) {
+            // Kimi's native trait consumes this forced value. Do not send it
+            // for custom OpenAI-compatible/Anthropic routes: Kimi Code's
+            // generic providers use the [thinking] config instead.
+            put("KIMI_MODEL_THINKING_EFFORT", normalizedEffort)
+        }
         if (credentials.customHeaders.isNotEmpty()) {
             put(
                 "KIMI_CODE_CUSTOM_HEADERS",
@@ -364,6 +421,93 @@ internal fun buildKimiCodeModelEnvironment(
 }
 
 internal const val KIMI_CODE_HOME = "/root/.kimi-code/omnibot"
+internal const val KIMI_CODE_CONFIG_PATH = "$KIMI_CODE_HOME/config.toml"
+
+private val KIMI_CODE_THINKING_EFFORTS = setOf(
+    "low",
+    "medium",
+    "high",
+    "xhigh",
+    "max",
+)
+
+/** Normalize common UI aliases while preserving provider-specific levels. */
+internal fun normalizeKimiCodeThinkingEffort(value: String?): String? {
+    val normalized = value?.trim()?.lowercase()?.replace('_', '-')
+        ?.takeIf { it.isNotEmpty() }
+        ?: return null
+    return when (normalized) {
+        "no", "none", "off" -> "off"
+        "on" -> "on"
+        "minimal", "min" -> "minimal"
+        "med" -> "medium"
+        "extra-high", "very-high", "x-high" -> "xhigh"
+        else -> normalized
+    }
+}
+
+/**
+ * Update only Kimi Code's documented [thinking] table, preserving the rest of
+ * the app-owned Kimi config (MCP, permissions, and user settings).
+ */
+internal fun buildKimiCodeThinkingConfigToml(
+    existingConfig: String,
+    reasoningEffort: String?,
+): String {
+    val normalized = normalizeKimiCodeThinkingEffort(reasoningEffort)
+        ?: return existingConfig
+    val enabled = normalized != "off"
+    val lines = existingConfig.replace("\r\n", "\n").split('\n').toMutableList()
+    val sectionHeader = Regex("^\\s*\\[thinking]\\s*$")
+    val anySectionHeader = Regex("^\\s*\\[\\[?[^]]+]\\]\\]?\\s*$")
+    val sectionStart = lines.indexOfFirst { sectionHeader.matches(it) }
+    val sectionEnd = if (sectionStart >= 0) {
+        (sectionStart + 1 until lines.size)
+            .firstOrNull { anySectionHeader.matches(lines[it]) }
+            ?: lines.size
+    } else {
+        -1
+    }
+
+    fun updateKey(start: Int, endExclusive: Int, key: String, value: String): Boolean {
+        val keyRegex = Regex("^\\s*${Regex.escape(key)}\\s*=")
+        val existingIndex = (start + 1 until endExclusive)
+            .firstOrNull { keyRegex.containsMatchIn(lines[it]) }
+        if (existingIndex != null) {
+            lines[existingIndex] = "$key = $value"
+            return false
+        } else {
+            lines.add(endExclusive.coerceAtMost(lines.size), "$key = $value")
+            return true
+        }
+    }
+
+    fun removeKey(start: Int, endExclusive: Int, key: String) {
+        val keyRegex = Regex("^\\s*${Regex.escape(key)}\\s*=")
+        for (index in endExclusive - 1 downTo start + 1) {
+            if (keyRegex.containsMatchIn(lines[index])) lines.removeAt(index)
+        }
+    }
+
+    if (sectionStart < 0) {
+        while (lines.lastOrNull()?.isBlank() == true) lines.removeAt(lines.lastIndex)
+        if (lines.isNotEmpty()) lines += ""
+        lines += "[thinking]"
+        lines += "enabled = $enabled"
+        if (enabled && normalized != "on") {
+            lines += "effort = \"$normalized\""
+        }
+    } else {
+        var end = sectionEnd
+        if (updateKey(sectionStart, end, "enabled", enabled.toString())) end += 1
+        if (enabled && normalized != "on") {
+            updateKey(sectionStart, end, "effort", "\"$normalized\"")
+        } else {
+            removeKey(sectionStart, end, "effort")
+        }
+    }
+    return lines.joinToString("\n").trimEnd() + "\n"
+}
 
 /** Kimi expects an API root, while legacy Provider entries may store an endpoint. */
 internal fun normalizeKimiCodeBaseUrl(baseUrl: String): String {

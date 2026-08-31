@@ -63,6 +63,21 @@ void main() {
     expect(result['code'], 'OPENED');
   });
 
+  test('launchAgentWeb forwards the selected thinking effort', () async {
+    MethodCall? capturedCall;
+    messenger.setMockMethodCallHandler(channel, (call) async {
+      capturedCall = call;
+      return <String, dynamic>{'ok': true, 'code': 'OPENED'};
+    });
+
+    await AgentRuntimeService.launchAgentWeb('kimi-code-acp', effort: 'high');
+
+    expect(capturedCall?.arguments, {
+      'agentId': 'kimi-code-acp',
+      'effort': 'high',
+    });
+  });
+
   test('ensureSession reserves a session before a new prompt', () async {
     final calls = <MethodCall>[];
     messenger.setMockMethodCallHandler(channel, (call) async {
