@@ -148,7 +148,16 @@ jobs:
             --edition standard \
             --tag "${RELEASE_REF_NAME}" \
             --out-dir "${RELEASE_ASSET_DIR}" \
-            --non-interactive
+            --non-interactive 2>&1 | tee "$RELEASE_ASSET_DIR/build.log"
+
+      - name: Upload build log (always)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-log-${{ steps.release_ref.outputs.safe_ref_name }}
+          if-no-files-found: warn
+          path: |
+            ${{ runner.temp }}/release-artifacts/${{ steps.release_ref.outputs.safe_ref_name }}/build.log
 
       - name: Upload release artifacts
         uses: actions/upload-artifact@v4
