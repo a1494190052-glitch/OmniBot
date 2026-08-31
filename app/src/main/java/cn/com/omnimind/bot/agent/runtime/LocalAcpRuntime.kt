@@ -8,6 +8,7 @@ import android.util.Log
 import cn.com.omnimind.bot.BuildConfig
 import cn.com.omnimind.bot.agent.readAgentAttachmentBytes
 import cn.com.omnimind.bot.agent.AgentWorkspaceManager
+import cn.com.omnimind.bot.agent.AgentImageAttachmentSupport
 import cn.com.omnimind.bot.agent.AgentWorkspaceAttachmentSupport
 import cn.com.omnimind.bot.agent.AgentScheduleToolBridge
 import cn.com.omnimind.bot.agent.AgentTurnTimingPolicy
@@ -3512,15 +3513,27 @@ internal class LocalAcpRuntime(
                 // ResourceLink is useful for generic files, but it is not a
                 // substitute for visual input: a Harness may never dereference
                 // it into the model's vision channel.
-                val encoded = Base64.encodeToString(
-                    readAgentAttachmentBytes(localFile),
-                    Base64.NO_WRAP,
+                val preparedImage = AgentImageAttachmentSupport.prepareModelImageDataUrl(
+                    file = localFile,
+                    mimeTypeHint = mimeType,
                 )
-                blocks += ContentBlock.Image(
-                    data = encoded,
-                    mimeType = mimeType,
-                    uri = source,
-                )
+                if (preparedImage != null) {
+                    blocks += ContentBlock.Image(
+                        data = preparedImage.dataUrl.substringAfter(",", preparedImage.dataUrl),
+                        mimeType = preparedImage.mimeType,
+                        uri = source,
+                    )
+                } else {
+                    // Compression/read failed; keep a stable workspace
+                    // ResourceLink instead of sending a raw oversized image
+                    // that the upstream provider may reject with Invalid request.
+                    blocks += ContentBlock.ResourceLink(
+                        name = name,
+                        uri = source ?: localFile.absolutePath,
+                        mimeType = mimeType,
+                        size = (attachment["size"] as? Number)?.toLong(),
+                    )
+                }
             } else if (isAudio && capabilities.audio && localFile != null) {
                 val encoded = Base64.encodeToString(
                     readAgentAttachmentBytes(localFile),
