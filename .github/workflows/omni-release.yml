@@ -85,11 +85,38 @@ jobs:
         run: |
           echo "ANDROID_SDK_ROOT=${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}" >> "$GITHUB_ENV"
 
-      - name: Install Android NDK
+      - name: Ensure required Android SDK components
         shell: bash
         run: |
-          yes | sdkmanager --licenses >/dev/null || true
-          sdkmanager "ndk;${{ env.NDK_VERSION }}"
+          set -euo pipefail
+          set +o pipefail
+          yes | sdkmanager --licenses >/dev/null
+          license_status=$?
+          set -o pipefail
+          if [[ "$license_status" -ne 0 ]]; then
+            echo "sdkmanager --licenses failed with exit code ${license_status}" >&2
+            exit "$license_status"
+          fi
+          declare -a MISSING_PACKAGES=()
+          if [[ ! -d "$ANDROID_SDK_ROOT/ndk/${{ env.NDK_VERSION }}" ]]; then
+            MISSING_PACKAGES+=("ndk;${{ env.NDK_VERSION }}")
+          fi
+          if [[ ! -d "$ANDROID_SDK_ROOT/platforms/android-${{ env.ANDROID_PLATFORM_VERSION }}" ]]; then
+            MISSING_PACKAGES+=("platforms;android-${{ env.ANDROID_PLATFORM_VERSION }}")
+          fi
+          if [[ ! -d "$ANDROID_SDK_ROOT/build-tools/${{ env.ANDROID_BUILD_TOOLS_VERSION }}" ]]; then
+            MISSING_PACKAGES+=("build-tools;${{ env.ANDROID_BUILD_TOOLS_VERSION }}")
+          fi
+          if [[ ! -d "$ANDROID_SDK_ROOT/cmake/${{ env.ANDROID_CMAKE_VERSION }}" ]]; then
+            MISSING_PACKAGES+=("cmake;${{ env.ANDROID_CMAKE_VERSION }}")
+          fi
+          if (( ${#MISSING_PACKAGES[@]} == 0 )); then
+            echo "Required Android SDK components are already installed."
+            exit 0
+          fi
+          echo "Installing missing Android SDK components:"
+          printf '%s\n' "${MISSING_PACKAGES[@]}"
+          sdkmanager "${MISSING_PACKAGES[@]}"
 
       - name: Generate release keystore
         shell: bash
