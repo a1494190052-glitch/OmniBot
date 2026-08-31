@@ -156,6 +156,20 @@ internal val DEEPSEEK_HARNESS_NPM_PACKAGE_SPECS = listOf(
     "@deepseek-ai/dsh@$DEEPSEEK_HARNESS_NPM_CHANNEL",
     "@openma/deepseek-harness-acp@latest",
 )
+
+internal const val KIMI_CODE_NPM_PACKAGE_SPEC =
+    "@moonshot-ai/kimi-code@latest"
+internal const val KIMI_CODE_PREPARATION_REVISION = "kimi-code-npm-v1"
+internal const val KIMI_CODE_NPM_INSTALL_COMMAND =
+    "npm install -g --prefix /root/.npm-global --registry=https://registry.npmmirror.com " +
+        "$KIMI_CODE_NPM_PACKAGE_SPEC || " +
+        "npm install -g --prefix /root/.npm-global $KIMI_CODE_NPM_PACKAGE_SPEC"
+internal const val KIMI_CODE_NATIVE_HEALTH_COMMAND =
+    "PATH=/root/.npm-global/bin:\$PATH; export PATH; " +
+        "command -v kimi >/dev/null 2>&1 && " +
+        "node -e 'const [major, minor] = process.versions.node.split(\".\").map(Number); " +
+        "if (major < 22 || (major === 22 && minor < 19)) process.exit(1)'"
+
 internal const val DEEPSEEK_HARNESS_INSTALL_SCRIPT_PATH =
     "/root/.dsh/omnibot-acp/install-dsh-runtime.sh"
 internal const val DEEPSEEK_HARNESS_ACP_PATCH_PATH =
@@ -708,6 +722,7 @@ internal class AcpAgentProfileStore(context: Context) {
     companion object {
         const val CODEX_AGENT_ID = "codex-acp"
         const val DEEPSEEK_HARNESS_AGENT_ID = "deepseek-harness-acp"
+        const val KIMI_CODE_AGENT_ID = "kimi-code-acp"
         const val XIAOWAN_AGENT_ID = "xiaowan-acp"
         const val DEFAULT_AGENT_ID = XIAOWAN_AGENT_ID
 
@@ -738,6 +753,14 @@ internal class AcpAgentProfileStore(context: Context) {
                 name = "OpenCode",
                 description = "OpenCode ACP server",
                 command = "opencode",
+                arguments = listOf("acp"),
+                builtIn = true
+            ),
+            AcpAgentProfile(
+                id = KIMI_CODE_AGENT_ID,
+                name = "Kimi Code",
+                description = "Kimi Code official ACP profile",
+                command = "kimi",
                 arguments = listOf("acp"),
                 builtIn = true
             ),
@@ -790,6 +813,16 @@ internal class AcpAgentProfileStore(context: Context) {
                         "/root/.npm-global/bin/opencode && " +
                         "test -x /root/.npm-global/bin/opencode",
                 harnessAdapter = AcpHarnessAdapters.openCode,
+                usesSharedProvider = true,
+            ),
+            KIMI_CODE_AGENT_ID to AcpOfficialRuntime(
+                discoveryCommand = "kimi",
+                managedAdapterPackage = KIMI_CODE_NPM_PACKAGE_SPEC,
+                terminalPackageId = "kimi",
+                managedAdapterHealthCommand = KIMI_CODE_NATIVE_HEALTH_COMMAND,
+                managedInstallCommand = KIMI_CODE_NPM_INSTALL_COMMAND,
+                preparationRevision = KIMI_CODE_PREPARATION_REVISION,
+                harnessAdapter = AcpHarnessAdapters.kimiCode,
                 usesSharedProvider = true,
             ),
             DEEPSEEK_HARNESS_AGENT_ID to AcpOfficialRuntime(

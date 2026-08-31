@@ -1747,6 +1747,14 @@ mixin _ChatPageUiMixin on _ChatPageStateBase {
                               ),
                               onThreadTargetSelected:
                                   _handleEmbeddedDrawerThreadTargetSelected,
+                              onLaunchKimiWeb: () {
+                                unawaited(_launchAgentWeb('kimi-code-acp'));
+                              },
+                              onLaunchDeepSeekWeb: () {
+                                unawaited(
+                                  _launchAgentWeb('deepseek-harness-acp'),
+                                );
+                              },
                             ),
                           ),
                         ),
@@ -2018,6 +2026,12 @@ mixin _ChatPageUiMixin on _ChatPageStateBase {
                         onSearchFocusChanged:
                             _handleHomeDrawerSearchFocusChanged,
                         searchFieldKey: _drawerSearchFieldKey,
+                        onLaunchKimiWeb: () {
+                          unawaited(_launchAgentWeb('kimi-code-acp'));
+                        },
+                        onLaunchDeepSeekWeb: () {
+                          unawaited(_launchAgentWeb('deepseek-harness-acp'));
+                        },
                       ),
                 onDrawerChanged: isHdPadLandscape
                     ? null

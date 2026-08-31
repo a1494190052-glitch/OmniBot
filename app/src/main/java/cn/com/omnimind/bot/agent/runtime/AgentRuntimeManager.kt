@@ -237,6 +237,7 @@ class AgentRuntimeManager private constructor(
     private val historyRepository = AgentConversationHistoryRepository(appContext)
     private val remoteConfigStore = CodexRemoteBridgeConfigStore(appContext)
     private val acpAgentProfileStore = AcpAgentProfileStore(appContext)
+    private val agentWebLauncher = AgentWebLauncher(appContext)
     private val scheduledTaskScheduler by lazy {
         WorkspaceScheduledTaskScheduler(appContext)
     }
@@ -717,6 +718,9 @@ class AgentRuntimeManager private constructor(
         }
         if (method == "agent/config/write") {
             return writeAgentConfig(canonicalArgs)
+        }
+        if (method == "agent/web/launch") {
+            return launchAgentWeb(canonicalArgs)
         }
         if (method.startsWith("agent/")) {
             val requestedAgentId = canonicalArgs.stringValue("agentId")
@@ -1753,6 +1757,43 @@ class AgentRuntimeManager private constructor(
                 "kind" to "profile"
             )
         }
+    }
+
+    private suspend fun launchAgentWeb(args: Map<String, Any?>): Map<String, Any?> {
+        val agentId = args.stringValue("agentId")
+            ?: throw IllegalArgumentException("agentId is required.")
+        val service = AgentWebService.forAgentId(agentId)
+            ?: return AgentWebLaunchResult(
+                ok = false,
+                code = "UNSUPPORTED_AGENT",
+                packageId = "",
+                error = "This Agent does not expose a Web surface.",
+            ).toPayload()
+        val provider = currentAgentProviderCredentials()
+            ?: return AgentWebLaunchResult(
+                ok = false,
+                code = "PROVIDER_REQUIRED",
+                packageId = service.packageId,
+                error = "Configure the shared Dispatch Provider first.",
+            ).toPayload()
+        val model = currentAgentBoundModel()
+            ?: return AgentWebLaunchResult(
+                ok = false,
+                code = "MODEL_REQUIRED",
+                packageId = service.packageId,
+                error = "Select a shared Dispatch model first.",
+            ).toPayload()
+        val environment = when (service) {
+            AgentWebService.KIMI -> buildKimiCodeModelEnvironment(provider, model)
+            AgentWebService.DEEPSEEK_HARNESS ->
+                buildDeepSeekHarnessWebEnvironment(provider, model)
+        }
+        return agentWebLauncher.launch(
+            AgentWebLaunchRequest(
+                service = service,
+                environment = environment,
+            )
+        ).toPayload()
     }
 
     private suspend fun readRawAgentConfig(

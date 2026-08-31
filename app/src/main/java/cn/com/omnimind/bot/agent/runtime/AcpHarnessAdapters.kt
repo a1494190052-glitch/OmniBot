@@ -37,6 +37,7 @@ internal enum class AcpHarnessProviderConfigKind {
     CLAUDE_CODE,
     OPEN_CODE,
     DEEPSEEK_HARNESS,
+    KIMI_CODE,
 }
 
 internal interface AcpHarnessAdapter {
@@ -117,6 +118,18 @@ internal object AcpHarnessAdapters {
     val openCode: AcpHarnessAdapter = object : AcpHarnessAdapter {
         override val mcpTransport = AcpHarnessMcpTransport.SESSION_DECLARATION
         override val providerConfigKind = AcpHarnessProviderConfigKind.OPEN_CODE
+    }
+
+    val kimiCode: AcpHarnessAdapter = object : AcpHarnessAdapter {
+        override val mcpTransport = AcpHarnessMcpTransport.SESSION_DECLARATION
+        override val providerConfigKind = AcpHarnessProviderConfigKind.KIMI_CODE
+
+        override fun launchEnvironment(
+            provider: AgentProviderCredentials?,
+            model: String?,
+            rawConfig: String,
+            mcpState: McpServerState,
+        ): Map<String, String> = buildKimiCodeModelEnvironment(provider, model)
     }
 
     val deepSeekHarness: AcpHarnessAdapter = object : AcpHarnessAdapter {
@@ -288,6 +301,7 @@ private val DEEPSEEK_HARNESS_PERMISSION_MODES = setOf(
     "danger-full-access"
 )
 private const val DEEPSEEK_HARNESS_PERSISTENCE_HOME = "/root/.dsh/omnibot-acp-clean"
+internal const val DEEPSEEK_HARNESS_WEB_HOME = "/root/.dsh/omnibot-web"
 
 internal data class DeepSeekHarnessConfig(
     val baseUrl: String = DEEPSEEK_PUBLIC_BASE_URL,
@@ -311,6 +325,26 @@ internal data class DeepSeekHarnessConfig(
         "DSH_PROVIDER" to "deepseek-official",
         "NODE_NO_WARNINGS" to "1"
     )
+}
+
+/**
+ * Web owns the built-in `web` profile. Keep its profile/home separate from
+ * the headless ACP overlay while reusing the same Dispatch Provider values.
+ */
+internal fun buildDeepSeekHarnessWebEnvironment(
+    provider: AgentProviderCredentials?,
+    model: String?,
+): Map<String, String> {
+    val config = syncAgentProviderCredentials(
+        config = DeepSeekHarnessConfig(),
+        sharedProvider = provider,
+        sharedModel = model,
+    )
+    return config.toEnvironment().toMutableMap().apply {
+        remove("DSH_ACP_HOME")
+        put("DSH_HOME", DEEPSEEK_HARNESS_WEB_HOME)
+        put("DSH_SESSION_ROOT", "$DEEPSEEK_HARNESS_WEB_HOME/sessions")
+    }
 }
 
 internal fun parseDeepSeekHarnessConfig(source: String): DeepSeekHarnessConfig {

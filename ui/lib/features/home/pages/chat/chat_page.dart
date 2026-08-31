@@ -2087,6 +2087,8 @@ abstract class _ChatPageStateBase extends State<ChatPage>
 
   void _showSnackBar(String message);
 
+  Future<void> _launchAgentWeb(String agentId);
+
   Future<bool> _ensureNormalChatModelConfigurationForSend();
 
   Future<void> _startManualRecordingCommand(String messageText);

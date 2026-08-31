@@ -119,6 +119,67 @@ class AgentConfigAdaptersTest {
     }
 
     @Test
+    fun kimiCodeUsesTheSharedProviderThroughItsEphemeralModelChannel() {
+        val mapping = AgentConfigAdapterRegistry.map(
+            AgentProviderMappingInput(
+                agentId = AcpAgentProfileStore.KIMI_CODE_AGENT_ID,
+                provider = provider.copy(
+                    customHeaders = mapOf(" X-Trace " to " request-1 "),
+                ),
+                model = "GLM-5.1",
+                harnessAdapter = AcpHarnessAdapters.kimiCode,
+            ),
+        )
+
+        assertEquals("GLM-5.1", mapping.environment["KIMI_MODEL_NAME"])
+        assertEquals("secret", mapping.environment["KIMI_MODEL_API_KEY"])
+        assertEquals("https://llmapi.paratera.com/v1", mapping.environment["KIMI_MODEL_BASE_URL"])
+        assertEquals("openai", mapping.environment["KIMI_MODEL_PROVIDER_TYPE"])
+        assertEquals("/root/.kimi-code/omnibot", mapping.environment["KIMI_CODE_HOME"])
+        assertEquals("X-Trace: request-1", mapping.environment["KIMI_CODE_CUSTOM_HEADERS"])
+        assertEquals("1", mapping.environment["KIMI_CODE_NO_AUTO_UPDATE"])
+    }
+
+    @Test
+    fun kimiCodeRecognizesMoonshotAndAnthropicProviderTypes() {
+        val kimi = buildKimiCodeModelEnvironment(
+            provider = AgentProviderCredentials(
+                baseUrl = "https://api.moonshot.cn",
+                apiKey = "secret",
+            ),
+            model = "kimi-k2.6",
+        )
+        assertEquals("kimi", kimi["KIMI_MODEL_PROVIDER_TYPE"])
+        assertEquals("https://api.moonshot.cn/v1", kimi["KIMI_MODEL_BASE_URL"])
+
+        val anthropic = buildKimiCodeModelEnvironment(
+            provider = AgentProviderCredentials(
+                baseUrl = "https://provider.example/v1",
+                apiKey = "secret",
+                protocolType = "anthropic",
+            ),
+            model = "claude-sonnet",
+        )
+        assertEquals("anthropic", anthropic["KIMI_MODEL_PROVIDER_TYPE"])
+        assertEquals("https://provider.example/v1", anthropic["KIMI_MODEL_BASE_URL"])
+    }
+
+    @Test
+    fun deepSeekWebEnvironmentDoesNotReuseTheHeadlessAcpHome() {
+        val environment = buildDeepSeekHarnessWebEnvironment(
+            provider = provider,
+            model = "GLM-5.1",
+        )
+
+        assertEquals("https://llmapi.paratera.com/v1", environment["DEEPSEEK_BASE_URL"])
+        assertEquals("secret", environment["DEEPSEEK_API_KEY"])
+        assertEquals("GLM-5.1", environment["DSH_MODEL"])
+        assertEquals("/root/.dsh/omnibot-web", environment["DSH_HOME"])
+        assertEquals("/root/.dsh/omnibot-web/sessions", environment["DSH_SESSION_ROOT"])
+        assertTrue(!environment.containsKey("DSH_ACP_HOME"))
+    }
+
+    @Test
     fun providerMappingUsesHarnessCapabilityInsteadOfAdapterObjectIdentity() {
         val decoratedCodex = object : AcpHarnessAdapter by AcpHarnessAdapters.codex {}
         val mapping = AgentConfigAdapterRegistry.map(

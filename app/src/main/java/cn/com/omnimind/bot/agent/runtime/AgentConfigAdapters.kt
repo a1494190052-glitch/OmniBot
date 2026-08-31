@@ -93,7 +93,8 @@ internal object AgentConfigAdapterRegistry {
         DeepSeekHarnessConfigAdapter,
         CodexConfigAdapter,
         ClaudeCodeConfigAdapter,
-        OpenCodeConfigAdapter
+        OpenCodeConfigAdapter,
+        KimiCodeConfigAdapter,
     )
 
     fun map(input: AgentProviderMappingInput): AgentProviderMapping {
@@ -131,6 +132,8 @@ internal object AgentConfigAdapterRegistry {
             AcpHarnessProviderConfigKind.OPEN_CODE ->
                 this === OpenCodeConfigAdapter
             AcpHarnessProviderConfigKind.STANDARD -> false
+            AcpHarnessProviderConfigKind.KIMI_CODE ->
+                this === KimiCodeConfigAdapter
         }
     }
 }
@@ -297,6 +300,87 @@ private object OpenCodeConfigAdapter : AgentConfigAdapter {
             )
         )
     }
+}
+
+private object KimiCodeConfigAdapter : AgentConfigAdapter {
+    override fun map(input: AgentProviderMappingInput): AgentProviderMapping {
+        return AgentProviderMapping(
+            environment = buildKimiCodeModelEnvironment(input.provider, input.model),
+        )
+    }
+}
+
+/**
+ * Kimi's documented KIMI_MODEL_* channel creates an in-memory provider/model
+ * for one process. Use it for both ACP and Web so the shared Dispatch
+ * Provider remains the source of truth without writing an API key into
+ * Kimi's own config.toml.
+ */
+internal fun buildKimiCodeModelEnvironment(
+    provider: AgentProviderCredentials?,
+    model: String?,
+): Map<String, String> {
+    val credentials = requireNotNull(provider) {
+        "Dispatch Model Provider is required for Kimi Code."
+    }.normalized()
+    val modelId = model?.trim().orEmpty()
+    require(modelId.isNotEmpty()) {
+        "Dispatch Model is required for Kimi Code."
+    }
+
+    val protocol = credentials.protocolType.trim().lowercase()
+    val host = runCatching {
+        java.net.URI(credentials.baseUrl).host?.lowercase()
+    }.getOrNull().orEmpty()
+    val providerType = when {
+        protocol == "anthropic" -> "anthropic"
+        host == "api.kimi.com" ||
+            host == "api.moonshot.ai" ||
+            host == "api.moonshot.cn" -> "kimi"
+        else -> "openai"
+    }
+    val baseUrl = if (providerType == "anthropic") {
+        credentials.baseUrl
+    } else {
+        normalizeKimiCodeBaseUrl(credentials.baseUrl)
+    }
+    return linkedMapOf(
+        "KIMI_CODE_HOME" to KIMI_CODE_HOME,
+        "KIMI_CODE_NO_AUTO_UPDATE" to "1",
+        "KIMI_MODEL_NAME" to modelId,
+        "KIMI_MODEL_API_KEY" to credentials.apiKey,
+        "KIMI_MODEL_BASE_URL" to baseUrl,
+        "KIMI_MODEL_PROVIDER_TYPE" to providerType,
+    ).apply {
+        if (credentials.customHeaders.isNotEmpty()) {
+            put(
+                "KIMI_CODE_CUSTOM_HEADERS",
+                credentials.customHeaders.entries.joinToString("\n") { (key, value) ->
+                    "$key: $value"
+                },
+            )
+        }
+    }
+}
+
+internal const val KIMI_CODE_HOME = "/root/.kimi-code/omnibot"
+
+/** Kimi expects an API root, while legacy Provider entries may store an endpoint. */
+internal fun normalizeKimiCodeBaseUrl(baseUrl: String): String {
+    var normalized = baseUrl.trim().trimEnd('/')
+    listOf(
+        "/v1/chat/completions",
+        "/chat/completions",
+        "/v1/responses",
+        "/responses",
+    ).firstOrNull { normalized.endsWith(it, ignoreCase = true) }?.let {
+        normalized = normalized.dropLast(it.length).trimEnd('/')
+    }
+    if (normalized.isEmpty() || normalized.endsWith("#")) return normalized
+    if (normalized.endsWith("/v1") || normalized.endsWith("/compatible-mode/v1")) {
+        return normalized
+    }
+    return "$normalized/v1"
 }
 
 internal fun syncAgentProviderCredentials(

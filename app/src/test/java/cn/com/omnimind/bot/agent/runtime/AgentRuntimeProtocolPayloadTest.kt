@@ -459,7 +459,7 @@ class AgentRuntimeProtocolPayloadTest {
     @Test
     fun managedAcpCatalogIncludesSupportedAgentsWithoutGemini() {
         assertEquals(
-            listOf("小万", "Codex", "Claude Code", "OpenCode", "DeepSeek Harness"),
+            listOf("小万", "Codex", "Claude Code", "OpenCode", "Kimi Code", "DeepSeek Harness"),
             AcpAgentProfileStore.OFFICIAL_AGENTS.map { it.name }
         )
         assertTrue(AcpAgentProfileStore.OFFICIAL_AGENTS.all { it.builtIn })
@@ -813,6 +813,22 @@ class AgentRuntimeProtocolPayloadTest {
             managedAgentTerminalPackageId(AcpAgentProfileStore.OFFICIAL_AGENTS.first {
                 it.id == AcpAgentProfileStore.XIAOWAN_AGENT_ID
             })
+        )
+    }
+
+    @Test
+    fun kimiCodeIsRegisteredAsAnOfficialSharedProviderAgent() {
+        val profile = AcpAgentProfileStore.OFFICIAL_AGENTS.first {
+            it.id == AcpAgentProfileStore.KIMI_CODE_AGENT_ID
+        }
+
+        assertEquals("kimi", profile.command)
+        assertEquals(listOf("acp"), profile.arguments)
+        assertEquals("kimi", managedAgentTerminalPackageId(profile))
+        assertTrue(AcpAgentProfileStore.usesSharedProvider(profile))
+        assertEquals(
+            AcpHarnessProviderConfigKind.KIMI_CODE,
+            AcpHarnessAdapters.forProfile(profile).providerConfigKind,
         )
     }
 

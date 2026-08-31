@@ -356,6 +356,46 @@ mixin _ChatPageAgentMixin on _ChatPageStateBase {
     }
   }
 
+  @override
+  Future<void> _launchAgentWeb(String agentId) async {
+    final normalized = agentId.trim();
+    if (normalized.isEmpty) return;
+    try {
+      final response = await AgentRuntimeService.launchAgentWeb(normalized);
+      if (!mounted) return;
+      final code = response['code']?.toString().trim() ?? '';
+      final packageId = response['packageId']?.toString().trim() ?? '';
+      final displayName = normalized == 'kimi-code-acp'
+          ? 'Kimi Web'
+          : 'DSH Web';
+      switch (code) {
+        case 'OPENED':
+          _showSnackBar('$displayName 已打开');
+          return;
+        case 'RUNTIME_MISSING':
+          if (packageId.isNotEmpty) {
+            GoRouterManager.push(
+              '/home/termux_setting?focus=${Uri.encodeComponent(packageId)}',
+            );
+          }
+          return;
+        case 'PROVIDER_REQUIRED':
+          _showSnackBar('请先配置统一 Dispatch Provider');
+          GoRouterManager.push('/home/agent_mode_setting');
+          return;
+        case 'MODEL_REQUIRED':
+          _showSnackBar('请先选择统一 Dispatch 模型');
+          GoRouterManager.push('/home/agent_mode_setting');
+          return;
+        default:
+          _showSnackBar('$displayName 启动失败');
+      }
+    } catch (error) {
+      if (!mounted) return;
+      _showSnackBar('$agentId Web 启动失败：$error');
+    }
+  }
+
   /// A local ACP adapter is only an execution harness. Its Provider and model
   /// come from the shared Agent scene binding. Check that binding before
   /// stopping the currently visible harness; otherwise a missing Provider

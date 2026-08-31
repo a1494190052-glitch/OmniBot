@@ -1446,6 +1446,9 @@ class AppLocalizationsZh extends AppLocalizations {
   String get alpineDeepSeekHarness => 'DeepSeek Harness（dsh）官方 ACP 运行组件';
 
   @override
+  String get alpineKimiCode => 'Kimi Code CLI（供 ACP 与 Web 使用）';
+
+  @override
   String get alpineSshClient => 'SSH 客户端';
 
   @override
