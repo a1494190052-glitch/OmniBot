@@ -1,0 +1,149 @@
+name: Omni Custom Release APK
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag_name:
+        description: 'Optional release tag to create/update. Leave empty to upload artifacts only.'
+        required: false
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: omni-release-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  JAVA_VERSION: '17'
+  FLUTTER_VERSION: '3.38.7'
+  ANDROID_BUILD_TOOLS_VERSION: '36.0.0'
+  ANDROID_PLATFORM_VERSION: '36'
+  ANDROID_CMAKE_VERSION: '3.22.1'
+  NDK_VERSION: '28.2.13676358'
+  OMNI_RELEASE_STORE_PWD: 'ominibot-release'
+  OMNI_RELEASE_KEY_ALIAS: 'ominibot'
+  OMNI_RELEASE_KEY_PWD: 'ominibot-release'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          submodules: false
+
+      - name: Resolve release reference
+        id: release_ref
+        shell: bash
+        env:
+          DISPATCH_TAG_NAME: ${{ inputs.tag_name }}
+        run: |
+          set -euo pipefail
+          release_tag_name=""
+          if [[ "${GITHUB_REF}" == refs/tags/* ]]; then
+            release_tag_name="${GITHUB_REF_NAME}"
+          elif [[ -n "${DISPATCH_TAG_NAME:-}" ]]; then
+            release_tag_name="${DISPATCH_TAG_NAME#refs/tags/}"
+          fi
+          artifact_ref_name="${release_tag_name:-${GITHUB_REF_NAME}}"
+          safe_ref_name="$(printf '%s' "${artifact_ref_name}" | sed 's#[^A-Za-z0-9._-]#-#g')"
+          echo "artifact_ref_name=${artifact_ref_name}" >> "$GITHUB_OUTPUT"
+          echo "safe_ref_name=${safe_ref_name}" >> "$GITHUB_OUTPUT"
+          echo "release_tag_name=${release_tag_name}" >> "$GITHUB_OUTPUT"
+          if [[ -n "${release_tag_name}" ]]; then
+            echo "publish_release=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "publish_release=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: ${{ env.JAVA_VERSION }}
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          cache: true
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Export Android SDK root
+        shell: bash
+        run: |
+          echo "ANDROID_SDK_ROOT=${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}" >> "$GITHUB_ENV"
+
+      - name: Install Android NDK
+        shell: bash
+        run: |
+          yes | sdkmanager --licenses >/dev/null || true
+          sdkmanager "ndk;${{ env.NDK_VERSION }}"
+
+      - name: Generate release keystore
+        shell: bash
+        run: |
+          set -euo pipefail
+          STORE_FILE="${RUNNER_TEMP}/release.jks"
+          keytool -genkeypair -v \
+            -keystore "$STORE_FILE" \
+            -storepass "$OMNI_RELEASE_STORE_PWD" \
+            -alias "$OMNI_RELEASE_KEY_ALIAS" \
+            -keypass "$OMNI_RELEASE_KEY_PWD" \
+            -keyalg RSA -keysize 2048 -validity 10000 \
+            -dname "CN=OmniBot Custom Release, OU=Custom, O=Custom, L=Custom, ST=Custom, C=CN"
+          echo "OMNI_RELEASE_STORE_FILE=$STORE_FILE" >> "$GITHUB_ENV"
+
+      - name: Build production release APK
+        shell: bash
+        env:
+          RELEASE_REF_NAME: ${{ steps.release_ref.outputs.artifact_ref_name }}
+          RELEASE_ASSET_DIR: ${{ runner.temp }}/release-artifacts/${{ steps.release_ref.outputs.safe_ref_name }}
+          OMNI_RELEASE_STORE_FILE: ${{ env.OMNI_RELEASE_STORE_FILE }}
+          ANDROID_SDK_ROOT: ${{ env.ANDROID_SDK_ROOT }}
+          ANDROID_NDK_HOME: ${{ env.ANDROID_SDK_ROOT }}/ndk/${{ env.NDK_VERSION }}
+          ANDROID_NDK_ROOT: ${{ env.ANDROID_SDK_ROOT }}/ndk/${{ env.NDK_VERSION }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$RELEASE_ASSET_DIR"
+          bash scripts/build-local-release.sh \
+            --edition standard \
+            --tag "${RELEASE_REF_NAME}" \
+            --out-dir "${RELEASE_ASSET_DIR}" \
+            --non-interactive
+
+      - name: Upload release artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-apk-${{ steps.release_ref.outputs.safe_ref_name }}
+          if-no-files-found: error
+          path: |
+            ${{ runner.temp }}/release-artifacts/${{ steps.release_ref.outputs.safe_ref_name }}/*.apk
+            ${{ runner.temp }}/release-artifacts/${{ steps.release_ref.outputs.safe_ref_name }}/*.sha256
+            ${{ runner.temp }}/release-artifacts/${{ steps.release_ref.outputs.safe_ref_name }}/manifest.txt
+
+      - name: Create GitHub Release
+        if: steps.release_ref.outputs.publish_release == 'true'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.release_ref.outputs.release_tag_name }}
+          target_commitish: ${{ github.sha }}
+          draft: true
+          prerelease: true
+          generate_release_notes: true
+          fail_on_unmatched_files: true
+          files: |
+            ${{ runner.temp }}/release-artifacts/${{ steps.release_ref.outputs.safe_ref_name }}/OpenOmniBot-${{ steps.release_ref.outputs.safe_ref_name }}-standard.apk
+            ${{ runner.temp }}/release-artifacts/${{ steps.release_ref.outputs.safe_ref_name }}/OpenOmniBot-${{ steps.release_ref.outputs.safe_ref_name }}-standard.apk.sha256
+            ${{ runner.temp }}/release-artifacts/${{ steps.release_ref.outputs.safe_ref_name }}/manifest.txt
