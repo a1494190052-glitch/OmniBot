@@ -45,6 +45,39 @@ void main() {
     expect(capturedCall?.arguments, {'agentId': 'xiaowan-acp'});
   });
 
+  test('launchAgentWeb uses the native Web surface boundary', () async {
+    MethodCall? capturedCall;
+    messenger.setMockMethodCallHandler(channel, (call) async {
+      capturedCall = call;
+      return <String, dynamic>{
+        'ok': true,
+        'code': 'OPENED',
+        'packageId': 'kimi',
+      };
+    });
+
+    final result = await AgentRuntimeService.launchAgentWeb('kimi-code-acp');
+
+    expect(capturedCall?.method, 'agent/web/launch');
+    expect(capturedCall?.arguments, {'agentId': 'kimi-code-acp'});
+    expect(result['code'], 'OPENED');
+  });
+
+  test('launchAgentWeb forwards the selected thinking effort', () async {
+    MethodCall? capturedCall;
+    messenger.setMockMethodCallHandler(channel, (call) async {
+      capturedCall = call;
+      return <String, dynamic>{'ok': true, 'code': 'OPENED'};
+    });
+
+    await AgentRuntimeService.launchAgentWeb('kimi-code-acp', effort: 'high');
+
+    expect(capturedCall?.arguments, {
+      'agentId': 'kimi-code-acp',
+      'effort': 'high',
+    });
+  });
+
   test('ensureSession reserves a session before a new prompt', () async {
     final calls = <MethodCall>[];
     messenger.setMockMethodCallHandler(channel, (call) async {

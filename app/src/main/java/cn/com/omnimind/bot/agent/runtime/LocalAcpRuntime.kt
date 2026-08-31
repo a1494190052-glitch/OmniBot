@@ -501,7 +501,8 @@ internal class LocalAcpRuntime(
     private val scope: CoroutineScope,
     private val bindingRepository: AgentSessionBindingRepository,
     private val profileStore: AcpAgentProfileStore,
-    private val prepareLaunchEnvironment: suspend (AcpAgentProfile) -> Map<String, String>,
+    private val prepareLaunchEnvironment:
+        suspend (AcpAgentProfile, String?) -> Map<String, String>,
     private val resolveSessionMcpEnabled: suspend (AcpAgentProfile) -> Boolean = { true },
     private val prepareSharedProviderBinding: suspend () -> Unit = {},
     private val buildHandoffContext: suspend (Long, String?) -> String?,
@@ -642,7 +643,8 @@ internal class LocalAcpRuntime(
     fun agentVersion(): String? = agentInfo?.implementation?.version
 
     suspend fun connect(
-        profile: AcpAgentProfile = profileStore.selected()
+        profile: AcpAgentProfile = profileStore.selected(),
+        reasoningEffort: String? = null,
     ) {
         val callerJob = coroutineContext[Job]
         callerJob?.let(pendingConnectJobs::add)
@@ -661,7 +663,7 @@ internal class LocalAcpRuntime(
                 sessionMcpEnabled = true
                 emptyMap()
             } else {
-                prepareLaunchEnvironment(profile).also {
+                prepareLaunchEnvironment(profile, reasoningEffort).also {
                     val officialRuntime = AcpAgentProfileStore.officialRuntime(profile)
                     val health = profileStore.health(profile.id)
                     if (shouldProbeManagedAcpLaunchCommand(
@@ -1770,7 +1772,7 @@ internal class LocalAcpRuntime(
             // command in place; the normal agent/select path performs the ACP
             // handshake when the user actually switches to that Harness.
             return runCatching {
-                prepareLaunchEnvironment(profile)
+                prepareLaunchEnvironment(profile, null)
                 requireLaunchCommand(profile)
                 val health = managedAgentPreparationHealth(
                     preparationRevision = AcpAgentProfileStore

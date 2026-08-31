@@ -119,6 +119,149 @@ class AgentConfigAdaptersTest {
     }
 
     @Test
+    fun kimiCodeUsesTheSharedProviderThroughItsEphemeralModelChannel() {
+        val mapping = AgentConfigAdapterRegistry.map(
+            AgentProviderMappingInput(
+                agentId = AcpAgentProfileStore.KIMI_CODE_AGENT_ID,
+                provider = provider.copy(
+                    customHeaders = mapOf(" X-Trace " to " request-1 "),
+                ),
+                model = "GLM-5.1",
+                harnessAdapter = AcpHarnessAdapters.kimiCode,
+            ),
+        )
+
+        assertEquals("GLM-5.1", mapping.environment["KIMI_MODEL_NAME"])
+        assertEquals("secret", mapping.environment["KIMI_MODEL_API_KEY"])
+        assertEquals("https://llmapi.paratera.com/v1", mapping.environment["KIMI_MODEL_BASE_URL"])
+        assertEquals("openai", mapping.environment["KIMI_MODEL_PROVIDER_TYPE"])
+        assertEquals("/root/.kimi-code/omnibot", mapping.environment["KIMI_CODE_HOME"])
+        assertEquals("image_in,thinking", mapping.environment["KIMI_MODEL_CAPABILITIES"])
+        assertEquals("X-Trace: request-1", mapping.environment["KIMI_CODE_CUSTOM_HEADERS"])
+        assertEquals("1", mapping.environment["KIMI_CODE_NO_AUTO_UPDATE"])
+        assertEquals(null, mapping.launchConfigPath)
+    }
+
+    @Test
+    fun kimiCodePublishesExplicitEffortForCustomOpenAiProvidersThroughConfig() {
+        val input = AgentProviderMappingInput(
+            agentId = AcpAgentProfileStore.KIMI_CODE_AGENT_ID,
+            provider = provider,
+            model = "GLM-5.1",
+            reasoningEffort = "high",
+            harnessAdapter = AcpHarnessAdapters.kimiCode,
+        )
+        val mapping = AgentConfigAdapterRegistry.map(input)
+        assertEquals(KIMI_CODE_CONFIG_PATH, mapping.launchConfigPath)
+        val writes = AgentConfigAdapterRegistry.launchConfigWrites(
+            input = input,
+            mapping = mapping,
+            providerModels = emptyList(),
+            existingConfig = "[permissions]\nmode = \"manual\"\n",
+        )
+
+        assertEquals(1, writes.size)
+        assertEquals(KIMI_CODE_CONFIG_PATH, writes.single().path)
+        assertTrue(writes.single().content.contains("[permissions]"))
+        assertTrue(writes.single().content.contains("enabled = true"))
+        assertTrue(writes.single().content.contains("effort = \"high\""))
+        // Kimi's forced-effort environment override is not valid for the
+        // generic OpenAI provider and must not be emitted accidentally.
+        assertTrue(!mapping.environment.containsKey("KIMI_MODEL_THINKING_EFFORT"))
+    }
+
+    @Test
+    fun kimiCodeUsesForcedEffortOnlyForTheNativeKimiProvider() {
+        val environment = buildKimiCodeModelEnvironment(
+            provider = AgentProviderCredentials(
+                baseUrl = "https://api.moonshot.cn/v1",
+                apiKey = "secret",
+            ),
+            model = "kimi-k2.6",
+            reasoningEffort = "xhigh",
+        )
+
+        assertEquals("xhigh", environment["KIMI_MODEL_THINKING_EFFORT"])
+    }
+
+    @Test
+    fun kimiCodeThinkingConfigCanTurnThinkingOffWithoutDroppingOtherSettings() {
+        val config = buildKimiCodeThinkingConfigToml(
+            existingConfig = """
+                [thinking]
+                enabled = true
+                effort = "high"
+                keep = "all"
+
+                [permissions]
+                mode = "manual"
+            """.trimIndent(),
+            reasoningEffort = "none",
+        )
+
+        assertTrue(config.contains("enabled = false"))
+        assertTrue(!config.contains("effort = \"high\""))
+        assertTrue(config.contains("keep = \"all\""))
+        assertTrue(config.contains("[permissions]"))
+    }
+
+    @Test
+    fun kimiCodeThinkingConfigStopsBeforeArrayTables() {
+        val config = buildKimiCodeThinkingConfigToml(
+            existingConfig = """
+                [thinking]
+                enabled = true
+
+                [[hooks]]
+                event = "PreToolUse"
+            """.trimIndent(),
+            reasoningEffort = "medium",
+        )
+
+        assertTrue(config.indexOf("effort = \"medium\"") < config.indexOf("[[hooks]]"))
+        assertTrue(config.contains("event = \"PreToolUse\""))
+    }
+
+    @Test
+    fun kimiCodeRecognizesMoonshotAndAnthropicProviderTypes() {
+        val kimi = buildKimiCodeModelEnvironment(
+            provider = AgentProviderCredentials(
+                baseUrl = "https://api.moonshot.cn",
+                apiKey = "secret",
+            ),
+            model = "kimi-k2.6",
+        )
+        assertEquals("kimi", kimi["KIMI_MODEL_PROVIDER_TYPE"])
+        assertEquals("https://api.moonshot.cn/v1", kimi["KIMI_MODEL_BASE_URL"])
+
+        val anthropic = buildKimiCodeModelEnvironment(
+            provider = AgentProviderCredentials(
+                baseUrl = "https://provider.example/v1",
+                apiKey = "secret",
+                protocolType = "anthropic",
+            ),
+            model = "claude-sonnet",
+        )
+        assertEquals("anthropic", anthropic["KIMI_MODEL_PROVIDER_TYPE"])
+        assertEquals("https://provider.example/v1", anthropic["KIMI_MODEL_BASE_URL"])
+    }
+
+    @Test
+    fun deepSeekWebEnvironmentDoesNotReuseTheHeadlessAcpHome() {
+        val environment = buildDeepSeekHarnessWebEnvironment(
+            provider = provider,
+            model = "GLM-5.1",
+        )
+
+        assertEquals("https://llmapi.paratera.com/v1", environment["DEEPSEEK_BASE_URL"])
+        assertEquals("secret", environment["DEEPSEEK_API_KEY"])
+        assertEquals("GLM-5.1", environment["DSH_MODEL"])
+        assertEquals("/root/.dsh/omnibot-web", environment["DSH_HOME"])
+        assertEquals("/root/.dsh/omnibot-web/sessions", environment["DSH_SESSION_ROOT"])
+        assertTrue(!environment.containsKey("DSH_ACP_HOME"))
+    }
+
+    @Test
     fun providerMappingUsesHarnessCapabilityInsteadOfAdapterObjectIdentity() {
         val decoratedCodex = object : AcpHarnessAdapter by AcpHarnessAdapters.codex {}
         val mapping = AgentConfigAdapterRegistry.map(

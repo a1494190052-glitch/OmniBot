@@ -179,6 +179,17 @@ class _AgentModeSettingPageState extends State<AgentModeSettingPage> {
         managedAdapter: true,
       ),
       AcpAgentProfile(
+        id: 'kimi-code-acp',
+        name: 'Kimi Code',
+        command: 'kimi',
+        description: 'Kimi Code official ACP profile',
+        arguments: <String>['acp'],
+        builtIn: true,
+        source: 'official',
+        status: 'unchecked',
+        managedAdapter: true,
+      ),
+      AcpAgentProfile(
         id: 'deepseek-harness-acp',
         name: 'DeepSeek Harness',
         // Keep the fallback catalog identical to the native official
@@ -362,6 +373,64 @@ class _AgentModeSettingPageState extends State<AgentModeSettingPage> {
     );
     if (changed == true && mounted) {
       await _load();
+    }
+  }
+
+  bool _supportsWeb(String agentId) {
+    return agentId == 'kimi-code-acp' || agentId == 'deepseek-harness-acp';
+  }
+
+  String _webPackageId(String agentId) {
+    return agentId == 'kimi-code-acp' ? 'kimi' : 'deepseek_harness';
+  }
+
+  Future<void> _launchWeb(AcpAgentProfile agent) async {
+    try {
+      final response = await AgentRuntimeService.launchAgentWeb(agent.id);
+      if (!mounted) return;
+      final code = response['code']?.toString().trim() ?? '';
+      switch (code) {
+        case 'OPENED':
+          showToast(_text('${agent.name} Web 已打开', '${agent.name} Web opened'));
+          return;
+        case 'RUNTIME_MISSING':
+          GoRouterManager.push(
+            '/home/termux_setting?focus=${Uri.encodeComponent(_webPackageId(agent.id))}',
+          );
+          return;
+        case 'PROVIDER_REQUIRED':
+          showToast(
+            _text(
+              '请先配置统一 Dispatch Provider',
+              'Configure the shared Dispatch Provider first',
+            ),
+            type: ToastType.warning,
+          );
+          return;
+        case 'MODEL_REQUIRED':
+          showToast(
+            _text('请先选择统一 Dispatch 模型', 'Select a shared Dispatch model first'),
+            type: ToastType.warning,
+          );
+          return;
+        default:
+          showToast(
+            _text(
+              '启动 ${agent.name} Web 失败',
+              'Failed to start ${agent.name} Web',
+            ),
+            type: ToastType.error,
+          );
+      }
+    } catch (error) {
+      if (!mounted) return;
+      showToast(
+        _text(
+          '启动 ${agent.name} Web 失败：$error',
+          'Failed to start ${agent.name} Web: $error',
+        ),
+        type: ToastType.error,
+      );
     }
   }
 
@@ -671,6 +740,7 @@ class _AgentModeSettingPageState extends State<AgentModeSettingPage> {
     final installEntry = agent.managedAdapter && agent.status != 'online';
     final action = needsManagedPreparation ? _prepare : _test;
     final capabilitySubtitle = _capabilitySubtitle(agent);
+    final supportsWeb = agent.builtIn && _supportsWeb(agent.id);
     return _FlatTile(
       tileKey: Key('agent-config-${agent.id}'),
       leading: AgentBrandIcon(
@@ -696,6 +766,9 @@ class _AgentModeSettingPageState extends State<AgentModeSettingPage> {
       actionLabel: canTest ? testLabel : null,
       actionKey: Key('agent-check-${agent.id}'),
       onAction: canTest ? () => action(agent) : null,
+      secondaryActionLabel: supportsWeb ? _text('打开 Web', 'Open Web') : null,
+      secondaryActionKey: supportsWeb ? Key('agent-web-${agent.id}') : null,
+      onSecondaryAction: supportsWeb && !busy ? () => _launchWeb(agent) : null,
       navigationLabel: installEntry
           ? _text('安装', 'Install')
           : _text('配置', 'Configure'),
@@ -865,6 +938,9 @@ class _FlatTile extends StatelessWidget {
     this.actionLabel,
     this.actionKey,
     this.onAction,
+    this.secondaryActionLabel,
+    this.secondaryActionKey,
+    this.onSecondaryAction,
     this.navigationLabel,
     this.navigationKey,
     this.busy = false,
@@ -882,6 +958,9 @@ class _FlatTile extends StatelessWidget {
   final String? actionLabel;
   final Key? actionKey;
   final VoidCallback? onAction;
+  final String? secondaryActionLabel;
+  final Key? secondaryActionKey;
+  final VoidCallback? onSecondaryAction;
   final String? navigationLabel;
   final Key? navigationKey;
   final bool busy;
@@ -1024,6 +1103,35 @@ class _FlatTile extends StatelessWidget {
                           constraints: const BoxConstraints(maxWidth: 150),
                           child: Text(
                             actionLabel!,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w600,
+                              color: palette.accentPrimary,
+                              fontFamily: 'PingFang SC',
+                            ),
+                          ),
+                        ),
+                      ),
+                    if (secondaryActionLabel != null &&
+                        onSecondaryAction != null)
+                      TextButton(
+                        key: secondaryActionKey,
+                        onPressed: onSecondaryAction,
+                        style: TextButton.styleFrom(
+                          minimumSize: Size.zero,
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 4,
+                            vertical: 3,
+                          ),
+                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                          visualDensity: VisualDensity.compact,
+                        ),
+                        child: ConstrainedBox(
+                          constraints: const BoxConstraints(maxWidth: 150),
+                          child: Text(
+                            secondaryActionLabel!,
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                             style: TextStyle(

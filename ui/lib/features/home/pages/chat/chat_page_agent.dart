@@ -138,6 +138,17 @@ mixin _ChatPageAgentMixin on _ChatPageStateBase {
     return modelIds;
   }
 
+  ProviderModelOption? _findSharedProviderModelOption(String modelId) {
+    final providerProfileId = _activeDispatchSceneSelection?.providerProfileId;
+    if (providerProfileId == null || providerProfileId.trim().isEmpty) {
+      return null;
+    }
+    return (_modelOptionsByProfileId[providerProfileId] ??
+            const <ProviderModelOption>[])
+        .where((item) => item.id.trim().toLowerCase() == modelId.toLowerCase())
+        .firstOrNull;
+  }
+
   @override
   Future<void> _refreshAgentRuntimeStatus() async {
     if (!mounted || _isAgentRuntimeStatusLoading) return;
@@ -353,6 +364,52 @@ mixin _ChatPageAgentMixin on _ChatPageStateBase {
         });
       }
       _harnessSwitchSendBarrier.finish(switchGeneration);
+    }
+  }
+
+  @override
+  Future<void> _launchAgentWeb(
+    String agentId, {
+    String? reasoningEffort,
+  }) async {
+    final normalized = agentId.trim();
+    if (normalized.isEmpty) return;
+    try {
+      final response = await AgentRuntimeService.launchAgentWeb(
+        normalized,
+        effort: reasoningEffort ?? _activeAgentReasoningEffort,
+      );
+      if (!mounted) return;
+      final code = response['code']?.toString().trim() ?? '';
+      final packageId = response['packageId']?.toString().trim() ?? '';
+      final displayName = normalized == 'kimi-code-acp'
+          ? 'Kimi Web'
+          : 'DSH Web';
+      switch (code) {
+        case 'OPENED':
+          _showSnackBar('$displayName 已打开');
+          return;
+        case 'RUNTIME_MISSING':
+          if (packageId.isNotEmpty) {
+            GoRouterManager.push(
+              '/home/termux_setting?focus=${Uri.encodeComponent(packageId)}',
+            );
+          }
+          return;
+        case 'PROVIDER_REQUIRED':
+          _showSnackBar('请先配置统一 Dispatch Provider');
+          GoRouterManager.push('/home/agent_mode_setting');
+          return;
+        case 'MODEL_REQUIRED':
+          _showSnackBar('请先选择统一 Dispatch 模型');
+          GoRouterManager.push('/home/agent_mode_setting');
+          return;
+        default:
+          _showSnackBar('$displayName 启动失败');
+      }
+    } catch (error) {
+      if (!mounted) return;
+      _showSnackBar('$agentId Web 启动失败：$error');
     }
   }
 
@@ -774,6 +831,9 @@ mixin _ChatPageAgentMixin on _ChatPageStateBase {
               )
           ? activeModel
           : preferredModel;
+      final sharedProviderModel = sharedAgent && effectiveModel != null
+          ? _findSharedProviderModelOption(effectiveModel)
+          : null;
       final modelOptions = modelConfigSupported
           ? _mergeAgentOptionIds(
               current: effectiveModel,
@@ -785,7 +845,23 @@ mixin _ChatPageAgentMixin on _ChatPageStateBase {
         response,
         effectiveModel,
       );
-      final serverEffort = configSettings.reasoningEffort ?? modelDefaultEffort;
+      // The shared Provider catalog already tells us whether this model is a
+      // reasoning model, but its OpenAI-compatible /models response usually
+      // has no effort list. Kimi Code would otherwise resolve this to the
+      // boolean `on` value and omit `reasoning_effort` on the wire. Use the
+      // interoperable medium level as the default only for catalog-confirmed
+      // reasoning models; users can still choose another advertised effort.
+      final isKimiCodeAgent =
+          _activeAcpAgentId == 'kimi-code-acp' ||
+          _agentRuntimeStatus.activeAgentId == 'kimi-code-acp';
+      final sharedProviderDefaultEffort =
+          isKimiCodeAgent && sharedProviderModel?.reasoning == true
+          ? 'medium'
+          : null;
+      final serverEffort =
+          configSettings.reasoningEffort ??
+          modelDefaultEffort ??
+          sharedProviderDefaultEffort;
       final storedPermissionMode = _parseAgentPermissionMode(
         _readAgentPreference(
           _kAgentPermissionModePreferenceKey,
@@ -1111,25 +1187,41 @@ mixin _ChatPageAgentMixin on _ChatPageStateBase {
   @override
   Future<void> _selectAgentReasoningEffort(String effort) async {
     final normalized = _normalizeAgentReasoningEffort(effort);
-    if (normalized == null ||
-        !_agentReasoningEffortOptions.contains(normalized)) {
+    final isBuiltInXiaowan =
+        _activeAcpAgentId == _kXiaowanAcpAgentId ||
+        _agentRuntimeStatus.activeAgentId == _kXiaowanAcpAgentId;
+    final advertisedOptions = _agentReasoningEffortOptions.isNotEmpty
+        ? _agentReasoningEffortOptions
+        : (isBuiltInXiaowan ? _kAgentReasoningEffortOptions : const <String>[]);
+    final normalizedOptions = advertisedOptions
+        .map(_normalizeAgentReasoningEffort)
+        .whereType<String>()
+        .toSet();
+    if (normalized == null || !normalizedOptions.contains(normalized)) {
       return;
     }
-    try {
-      await _setAgentConfigOption(
-        configId: 'reasoning_effort',
-        value: normalized,
-      );
-    } catch (error) {
-      if (mounted) {
-        showToast(
-          LegacyTextLocalizer.isEnglish
-              ? 'Failed to change reasoning effort: $error'
-              : '修改思考强度失败：$error',
-          type: ToastType.error,
+    // Xiaowan receives the selected effort through the canonical ACP prompt
+    // metadata. It has no mutable Harness-side `reasoning_effort` option, so
+    // attempting session/set_config_option here would make a valid local
+    // selection look like a failed request. Other Harnesses can still apply
+    // their advertised ACP config option immediately.
+    if (!isBuiltInXiaowan) {
+      try {
+        await _setAgentConfigOption(
+          configId: 'reasoning_effort',
+          value: normalized,
         );
+      } catch (error) {
+        if (mounted) {
+          showToast(
+            LegacyTextLocalizer.isEnglish
+                ? 'Failed to change reasoning effort: $error'
+                : '修改思考强度失败：$error',
+            type: ToastType.error,
+          );
+        }
+        return;
       }
-      return;
     }
     if (!mounted) return;
     setState(() {
@@ -1289,6 +1381,19 @@ mixin _ChatPageAgentMixin on _ChatPageStateBase {
     if (command.isEmpty) {
       return;
     }
+    if ((cardData['controlType'] ?? '').toString() == 'effortSlider') {
+      if (command.startsWith('/')) {
+        _messageController.value = const TextEditingValue(
+          text: '/effort ',
+          selection: TextSelection.collapsed(offset: 8),
+        );
+        _requestComposerFocus();
+        _handleSlashCommandInput();
+      } else {
+        await _selectAgentReasoningEffort(command);
+      }
+      return;
+    }
     if (cardData['acpCommand'] == true) {
       final value = command.endsWith(' ') ? command : '$command ';
       _messageController.value = TextEditingValue(
@@ -1354,6 +1459,14 @@ mixin _ChatPageAgentMixin on _ChatPageStateBase {
         return true;
       case AgentSlashSubmitKind.selectModel:
         await _selectAgentModel(intent.value ?? '');
+        return true;
+      case AgentSlashSubmitKind.openReasoningEffortPicker:
+        _triggerSlashCommandPanel();
+        return true;
+      case AgentSlashSubmitKind.selectReasoningEffort:
+        await _selectAgentReasoningEffort(intent.value ?? '');
+        _messageController.clear();
+        _hideSlashCommandPanel();
         return true;
       case AgentSlashSubmitKind.startReview:
         _messageController.clear();

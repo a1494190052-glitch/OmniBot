@@ -2774,6 +2774,12 @@ abstract class AppLocalizations {
   /// **'DeepSeek Harness（dsh）官方 ACP 运行组件'**
   String get alpineDeepSeekHarness;
 
+  /// No description provided for @alpineKimiCode.
+  ///
+  /// In zh, this message translates to:
+  /// **'Kimi Code CLI（供 ACP 与 Web 使用）'**
+  String get alpineKimiCode;
+
   /// No description provided for @alpineSshClient.
   ///
   /// In zh, this message translates to:

@@ -93,6 +93,7 @@ void main() {
     expect(find.text('初始化检测'), findsNothing);
     expect(find.text('重新检测'), findsNWidgets(2));
     expect(find.text('安装官方 Harness'), findsOneWidget);
+    expect(find.text('打开 Web'), findsOneWidget);
     expect(find.text('配置'), findsNWidgets(3));
     expect(find.text('安装'), findsOneWidget);
     // 3 Agent 配置入口 + 1 安装入口 + 1 远程 PC Bridge 入口。

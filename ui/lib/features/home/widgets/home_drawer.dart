@@ -103,6 +103,8 @@ class HomeDrawer extends ConsumerStatefulWidget {
     this.onThreadTargetSelected,
     this.onSearchFocusChanged,
     this.searchFieldKey,
+    this.onLaunchKimiWeb,
+    this.onLaunchDeepSeekWeb,
   });
 
   final int? memoryCount;
@@ -112,6 +114,8 @@ class HomeDrawer extends ConsumerStatefulWidget {
   final ValueChanged<ConversationThreadTarget>? onThreadTargetSelected;
   final ValueChanged<bool>? onSearchFocusChanged;
   final GlobalKey? searchFieldKey;
+  final VoidCallback? onLaunchKimiWeb;
+  final VoidCallback? onLaunchDeepSeekWeb;
 
   @override
   ConsumerState<HomeDrawer> createState() => HomeDrawerState();
@@ -267,6 +271,9 @@ class HomeDrawerState extends ConsumerState<HomeDrawer> {
           children: [
             const SizedBox(height: 16),
             Expanded(child: _buildConversationSection()),
+            if (widget.onLaunchKimiWeb != null ||
+                widget.onLaunchDeepSeekWeb != null)
+              _buildWebAgentShortcutBar(),
             _buildFooterShortcutBar(),
             // Aligns this row's bottom edge with the chat composer's bottom
             // edge (both sit this far above the shared SafeArea bottom).

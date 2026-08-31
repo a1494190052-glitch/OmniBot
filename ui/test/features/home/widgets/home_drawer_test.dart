@@ -154,6 +154,46 @@ void main() {
     expect(find.byTooltip('轨迹'), findsOneWidget);
   });
 
+  testWidgets('shows Kimi and DSH Web shortcuts when provided', (tester) async {
+    var kimiTaps = 0;
+    var deepSeekTaps = 0;
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: DefaultAssetBundle(
+          bundle: _SvgTestAssetBundle(),
+          child: _buildProviderScope(
+            child: Scaffold(
+              body: SizedBox(
+                width: 360,
+                height: 720,
+                child: HomeDrawer(
+                  embedded: true,
+                  closeOnNavigate: false,
+                  onLaunchKimiWeb: () => kimiTaps += 1,
+                  onLaunchDeepSeekWeb: () => deepSeekTaps += 1,
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final kimi = find.byKey(const ValueKey('home-drawer-web-kimi-code-acp'));
+    final deepSeek = find.byKey(
+      const ValueKey('home-drawer-web-deepseek-harness-acp'),
+    );
+    expect(kimi, findsOneWidget);
+    expect(deepSeek, findsOneWidget);
+
+    await tester.tap(kimi);
+    await tester.tap(deepSeek);
+    expect(kimiTaps, 1);
+    expect(deepSeekTaps, 1);
+  });
+
   testWidgets(
     'embedded mode creates new chat_only conversation when requested',
     (tester) async {
