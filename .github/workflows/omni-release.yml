@@ -20,6 +20,8 @@ concurrency:
 
 env:
   JAVA_VERSION: '17'
+  NODE_VERSION: '22'
+  PNPM_VERSION: '10.28.0'
   FLUTTER_VERSION: '3.38.7'
   ANDROID_BUILD_TOOLS_VERSION: '36.0.0'
   ANDROID_PLATFORM_VERSION: '36'
@@ -69,6 +71,19 @@ jobs:
         with:
           distribution: temurin
           java-version: ${{ env.JAVA_VERSION }}
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+          run_install: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+          cache-dependency-path: webchat/pnpm-lock.yaml
+
 
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
