@@ -95,6 +95,24 @@ internal object AgentImageAttachmentSupport {
         backend = RealBackend
     }
 
+    /**
+     * Reads an image file and compresses it to the model-sized data URL used
+     * for inline ACP image content blocks. Returns null when the file cannot be
+     * read or compressed so callers can fall back to a workspace ResourceLink
+     * instead of sending an oversized raw image to the provider.
+     */
+    fun prepareModelImageDataUrl(
+        file: File,
+        mimeTypeHint: String?,
+    ): ResolvedImageData? {
+        val sourceDataUrl = backend.readFileAsDataUrl(file, mimeTypeHint) ?: return null
+        return backend.compressDataUrl(
+            dataUrl = sourceDataUrl,
+            scale = MODEL_SCALE,
+            quality = MODEL_QUALITY,
+        )
+    }
+
     fun prepareAttachments(rawAttachments: List<Map<String, Any?>>): PreparedAttachments {
         if (rawAttachments.isEmpty()) {
             return PreparedAttachments(
